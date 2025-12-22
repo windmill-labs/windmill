@@ -6,7 +6,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { wait } from '$lib/utils'
 	import { waitJob } from '$lib/components/waitJob'
-	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, DELAY_ANIMATION, createFakeCursor } from './utils'
+	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, createFakeCursor, animateCursorToElementAndClick, animateFakeCursorClick } from './utils'
 	import { goto } from '$app/navigation'
 	import { base } from '$lib/base'
 	import { sendUserToast } from '$lib/toast'
@@ -192,18 +192,7 @@
 						const cursor = createFakeCursor()
 						
 						// Click on successful job first
-						const successRect = successfulJobRow.getBoundingClientRect()
-						cursor.style.left = `${successRect.left - 100}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						cursor.style.left = `${successRect.left + successRect.width / 2}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						successfulJobRow.click()
-						await wait(DELAY_SHORT)
+						await animateCursorToElementAndClick(cursor, successfulJobRow)
 						
 						// Wait for navigation to job details page
 						await wait(DELAY_LONG)
@@ -222,18 +211,7 @@
 						
 						if (failedJobRowAfterNav) {
 							// Click on failed job
-							const failedRect = failedJobRowAfterNav.getBoundingClientRect()
-							cursor.style.left = `${failedRect.left - 100}px`
-							cursor.style.top = `${failedRect.top + failedRect.height / 2}px`
-							await wait(DELAY_SHORT)
-							
-							cursor.style.left = `${failedRect.left + failedRect.width / 2}px`
-							cursor.style.top = `${failedRect.top + failedRect.height / 2}px`
-							await wait(DELAY_ANIMATION)
-							await wait(DELAY_MEDIUM)
-							
-							failedJobRowAfterNav.click()
-		await wait(DELAY_SHORT)
+							await animateCursorToElementAndClick(cursor, failedJobRowAfterNav)
 							
 							// Wait for navigation to job details page
 							await wait(DELAY_LONG)
@@ -311,27 +289,7 @@
 					) as HTMLElement
 					
 					if (concurrencyButton) {
-						// Create cursor with initial position
-						const cursor = createFakeCursor()
-						const buttonRect = concurrencyButton.getBoundingClientRect()
-						
-						// Set initial position (off-screen to the left)
-						cursor.style.left = `${buttonRect.left - 100}px`
-						cursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						// Animate to target position
-						cursor.style.left = `${buttonRect.left + buttonRect.width / 2}px`
-						cursor.style.top = `${buttonRect.top + buttonRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						// Click on the button
-						concurrencyButton.click()
-						await wait(DELAY_SHORT)
-						
-						// Remove the cursor
-						cursor.remove()
+						await animateFakeCursorClick(concurrencyButton)
 						await wait(DELAY_MEDIUM)
 						step4Complete = true
 					}
@@ -372,33 +330,11 @@
 						const cursor = createFakeCursor()
 						
 						// Click on failure button first
-						const failureRect = failureButton.getBoundingClientRect()
-						cursor.style.left = `${failureRect.left - 100}px`
-						cursor.style.top = `${failureRect.top + failureRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						cursor.style.left = `${failureRect.left + failureRect.width / 2}px`
-						cursor.style.top = `${failureRect.top + failureRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						failureButton.click()
-						await wait(DELAY_SHORT)
+						await animateCursorToElementAndClick(cursor, failureButton)
 						await wait(DELAY_MEDIUM)
 						
 						// Click on success button
-						const successRect = successButton.getBoundingClientRect()
-						cursor.style.left = `${successRect.left - 100}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_SHORT)
-						
-						cursor.style.left = `${successRect.left + successRect.width / 2}px`
-						cursor.style.top = `${successRect.top + successRect.height / 2}px`
-						await wait(DELAY_ANIMATION)
-						await wait(DELAY_MEDIUM)
-						
-						successButton.click()
-						await wait(DELAY_SHORT)
+						await animateCursorToElementAndClick(cursor, successButton)
 						
 						// Remove the cursor
 						cursor.remove()

@@ -232,3 +232,97 @@ export function createFakeCursor(): HTMLElement {
 	document.body.appendChild(fakeCursor)
 	return fakeCursor
 }
+
+// Constants for cursor animation
+const CURSOR_START_OFFSET = -100
+const CURSOR_CLICK_SCALE = 0.8
+
+// Helper function to create and animate a fake cursor with start position
+export async function createFakeCursorWithStart(
+	startElement: HTMLElement | null,
+	endElement: HTMLElement,
+	transitionDuration: number = 1.5
+): Promise<HTMLElement> {
+	const fakeCursor = createFakeCursor()
+
+	const endRect = endElement.getBoundingClientRect()
+	let startX: number, startY: number
+
+	if (startElement) {
+		const startRect = startElement.getBoundingClientRect()
+		startX = startRect.left + startRect.width / 2
+		startY = startRect.top + startRect.height / 2
+	} else {
+		startX = endRect.left + CURSOR_START_OFFSET
+		startY = endRect.top + endRect.height / 2
+	}
+
+	fakeCursor.style.left = `${startX}px`
+	fakeCursor.style.top = `${startY}px`
+
+	await wait(DELAY_SHORT)
+
+	fakeCursor.style.left = `${endRect.left + endRect.width / 2}px`
+	fakeCursor.style.top = `${endRect.top + endRect.height / 2}px`
+
+	await wait(transitionDuration * 1000)
+
+	return fakeCursor
+}
+
+// Helper function to animate a fake cursor click
+export async function animateFakeCursorClick(
+	element: HTMLElement,
+	transitionDuration: number = 1.5,
+	options?: { usePointerEvents?: boolean; startElement?: HTMLElement | null }
+): Promise<void> {
+	const fakeCursor = await createFakeCursorWithStart(
+		options?.startElement ?? null,
+		element,
+		transitionDuration
+	)
+	await wait(DELAY_MEDIUM)
+
+	// Animate click (shrink cursor briefly)
+	fakeCursor.style.transform = `scale(${CURSOR_CLICK_SCALE})`
+	await wait(DELAY_SHORT)
+	fakeCursor.style.transform = 'scale(1)'
+	await wait(DELAY_SHORT)
+
+	// Trigger pointer events if needed (flow graph uses pointer events instead of click)
+	if (options?.usePointerEvents) {
+		element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+		element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+	}
+
+	// Click the element
+	element.click()
+	await wait(DELAY_SHORT)
+
+	// Remove fake cursor
+	fakeCursor.remove()
+}
+
+// Helper function to animate cursor to element and click (for reusing a cursor across multiple clicks)
+export async function animateCursorToElementAndClick(
+	cursor: HTMLElement,
+	element: HTMLElement,
+	startOffset: number = CURSOR_START_OFFSET
+): Promise<void> {
+	const rect = element.getBoundingClientRect()
+	
+	// Set initial position (off-screen to the left)
+	cursor.style.left = `${rect.left + startOffset}px`
+	cursor.style.top = `${rect.top + rect.height / 2}px`
+	await wait(DELAY_SHORT)
+	
+	// Animate to target position
+	cursor.style.left = `${rect.left + rect.width / 2}px`
+	cursor.style.top = `${rect.top + rect.height / 2}px`
+	await wait(DELAY_ANIMATION)
+	await wait(DELAY_MEDIUM)
+	
+	// Click on the element
+	element.click()
+	await wait(DELAY_SHORT)
+}
