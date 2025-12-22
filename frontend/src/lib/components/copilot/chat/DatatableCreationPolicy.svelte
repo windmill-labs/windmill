@@ -2,21 +2,11 @@
 	import { AlertTriangle } from 'lucide-svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
-	import { workspaceStore } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
-	import { resource } from 'runed'
 	import DefaultDatabaseSelector from '$lib/components/raw_apps/DefaultDatabaseSelector.svelte'
+	import { createDatatablesResource } from '$lib/components/raw_apps/datatableUtils.svelte'
 
-	// Load available datatables from workspace
-	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
-		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
-		} catch (e) {
-			console.error('Failed to load datatables:', e)
-			return []
-		}
-	})
+	// Load available datatables from workspace using shared utility
+	const datatables = createDatatablesResource()
 
 	const hasNoDatatables = $derived((datatables.current?.length ?? 0) === 0)
 

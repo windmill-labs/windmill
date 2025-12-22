@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { importStore } from '$lib/components/apps/store'
 
-	import { AppService, type Policy, WorkspaceService } from '$lib/gen'
+	import { AppService, type Policy } from '$lib/gen'
 	import { page } from '$app/stores'
 	import { decodeState } from '$lib/utils'
-	import { userStore, workspaceStore, dbSchemas } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { afterNavigate, replaceState } from '$app/navigation'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
@@ -15,8 +15,12 @@
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
-	import { resource } from 'runed'
-	import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+	import {
+		createDatatablesResource,
+		createSchemasResource,
+		toDatatableItems,
+		toSchemaItems
+	} from '$lib/components/raw_apps/datatableUtils.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -176,45 +180,15 @@
 	let selectedSchema = $state<string | undefined>(undefined)
 	let initialPrompt = $state('')
 
-	// Load available datatables from workspace
-	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
-		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
-		} catch (e) {
-			console.error('Failed to load datatables:', e)
-			return []
-		}
-	})
+	// Load available datatables and schemas using shared utilities
+	const datatables = createDatatablesResource()
+	const schemas = createSchemasResource(() => selectedDatatable)
 
 	// Auto-select first datatable when datatables load
 	$effect(() => {
 		if (datatables.current.length > 0 && !selectedDatatable) {
 			selectedDatatable = datatables.current[0]
 		}
-	})
-
-	// Load schemas for the selected datatable
-	const schemas = resource<string[]>([], async () => {
-		if (!selectedDatatable || !$workspaceStore) return []
-
-		const resourcePath = `datatable://${selectedDatatable}`
-		let dbSchema = $dbSchemas[resourcePath]
-
-		if (!dbSchema) {
-			try {
-				await getDbSchemas('postgresql', resourcePath, $workspaceStore, $dbSchemas, (msg) =>
-					console.error('Schema error:', msg)
-				)
-				dbSchema = $dbSchemas[resourcePath]
-			} catch (e) {
-				console.error(`Failed to load schema for ${selectedDatatable}:`, e)
-				return []
-			}
-		}
-
-		if (!dbSchema?.schema) return []
-		return Object.keys(dbSchema.schema)
 	})
 
 	// Reset schema when datatable changes
@@ -226,19 +200,8 @@
 		previousDatatable = selectedDatatable
 	})
 
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
-	)
-
-	const schemaItems = $derived(
-		schemas.current.map((s) => ({
-			value: s,
-			label: s
-		}))
-	)
+	const datatableItems = $derived(toDatatableItems(datatables.current))
+	const schemaItems = $derived(toSchemaItems(schemas.current))
 
 	const hasNoDatatables = $derived((datatables.current?.length ?? 0) === 0)
 	const isAiEnabled = $derived($copilotInfo.enabled)
@@ -300,7 +263,7 @@
 		<div class="flex flex-col gap-6 min-w-[500px]">
 			<!-- Template Selection -->
 			<div>
-				<h2 class="text-sm font-medium text-primary mb-2">Template</h2>
+				<h2 class="text-sm font-medium text-primary mb-2">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
 						<button
@@ -335,22 +298,12 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-4">
-						<!-- Table Creation Toggle -->
-						<div class="flex items-center justify-between">
-							<div>
-								<span class="text-sm text-secondary">Allow AI to create tables</span>
-								<p class="text-xs text-tertiary mt-0.5">
-									When enabled, AI can create new database tables as needed
-								</p>
-							</div>
-							<Toggle size="sm" bind:checked={tableCreationEnabled} />
-						</div>
-
 						<div class="flex gap-4">
 							<!-- Datatable Selector -->
 							<div class="flex-1">
 								<span class="text-xs text-tertiary mb-1 block">Default Database</span>
 								<Select
+									disablePortal
 									items={datatableItems}
 									bind:value={selectedDatatable}
 									placeholder="Select database"
@@ -362,12 +315,20 @@
 							<div class="flex-1">
 								<span class="text-xs text-tertiary mb-1 block">Default Schema</span>
 								<Select
+									disablePortal
 									items={schemaItems}
 									bind:value={selectedSchema}
 									placeholder="public"
 									size="sm"
 								/>
 							</div>
+						</div>
+						<!-- Table Creation Toggle -->
+						<div class="flex items-center justify-between">
+							<div>
+								<span class="text-sm text-secondary">Allow AI to create new tables</span>
+							</div>
+							<Toggle size="sm" bind:checked={tableCreationEnabled} />
 						</div>
 					</div>
 				{/if}

@@ -1,11 +1,13 @@
 <script lang="ts">
 	import { Settings } from 'lucide-svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
-	import { workspaceStore, dbSchemas } from '$lib/stores'
-	import { WorkspaceService } from '$lib/gen'
-	import { resource } from 'runed'
-	import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
 	import Select from '$lib/components/select/Select.svelte'
+	import {
+		createDatatablesResource,
+		createSchemasResource,
+		toDatatableItems,
+		toSchemaItems
+	} from './datatableUtils.svelte'
 
 	interface Props {
 		/** Currently selected datatable */
@@ -25,53 +27,12 @@
 		description = 'Set the default database and schema for new tables. This is where AI will create new tables when needed.'
 	}: Props = $props()
 
-	// Load available datatables from workspace
-	const datatables = resource<string[]>([], async () => {
-		if (!$workspaceStore) return []
-		try {
-			return await WorkspaceService.listDataTables({ workspace: $workspaceStore })
-		} catch (e) {
-			console.error('Failed to load datatables:', e)
-			return []
-		}
-	})
+	// Load available datatables and schemas using shared utilities
+	const datatables = createDatatablesResource()
+	const schemas = createSchemasResource(() => datatable)
 
-	// Load schemas for the selected datatable
-	const schemas = resource<string[]>([], async () => {
-		if (!datatable || !$workspaceStore) return []
-
-		const resourcePath = `datatable://${datatable}`
-		let dbSchema = $dbSchemas[resourcePath]
-
-		if (!dbSchema) {
-			try {
-				await getDbSchemas('postgresql', resourcePath, $workspaceStore, $dbSchemas, (msg) =>
-					console.error('Schema error:', msg)
-				)
-				dbSchema = $dbSchemas[resourcePath]
-			} catch (e) {
-				console.error(`Failed to load schema for ${datatable}:`, e)
-				return []
-			}
-		}
-
-		if (!dbSchema?.schema) return []
-		return Object.keys(dbSchema.schema)
-	})
-
-	const datatableItems = $derived(
-		datatables.current.map((dt) => ({
-			value: dt,
-			label: dt
-		}))
-	)
-
-	const schemaItems = $derived(
-		schemas.current.map((s) => ({
-			value: s,
-			label: s
-		}))
-	)
+	const datatableItems = $derived(toDatatableItems(datatables.current))
+	const schemaItems = $derived(toSchemaItems(schemas.current))
 
 	// Track datatable changes to reset schema
 	let previousDatatable = $state<string | undefined>(undefined)
