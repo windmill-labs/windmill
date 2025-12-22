@@ -836,6 +836,29 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 - \`get_datatables()\`: Get all datatables configured in the app with their schemas (tables, columns, types)
 - \`exec_datatable_sql(datatable_name, sql, new_table?)\`: Execute SQL query on a datatable. Use for data exploration or modifications. When creating a new table, pass \`new_table: { schema, name }\` to register it in the app.
 
+## Data Storage Best Practices
+
+**When the app needs to store or persist data, you should use datatables.** Datatables provide a managed PostgreSQL database that integrates seamlessly with Windmill apps.
+
+1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, reuse it rather than creating a new one.
+
+2. **Create new tables when needed**: If no existing table fits your needs, create one using \`exec_datatable_sql\` with a CREATE TABLE statement and the \`new_table\` parameter:
+   \`\`\`
+   exec_datatable_sql({
+     datatable_name: "main",
+     sql: "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, created_at TIMESTAMP DEFAULT NOW())",
+     new_table: { schema: "public", name: "users" }
+   })
+   \`\`\`
+
+3. **Use datatables for**:
+   - User data, settings, preferences
+   - Application state that needs to persist
+   - Lists, records, logs
+   - Any data the app needs to store and retrieve
+
+4. **Access data from backend runnables**: Create inline scripts that query the datatable to fetch or modify data, then call them from the frontend.
+
 ## Backend Runnable Configuration
 
 When creating a backend runnable with \`set_backend_runnable\`:
