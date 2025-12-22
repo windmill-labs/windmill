@@ -16527,6 +16527,14 @@ components:
           type: string
         debounce_delay_s:
           type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -16629,6 +16637,14 @@ components:
         debounce_key:
           type: string
         debounce_delay_s:
+          type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
           type: integer
         visible_to_runner_only:
           type: boolean
