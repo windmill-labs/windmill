@@ -22,8 +22,9 @@
 
 	// Flags to track if steps are complete
 	let step2Complete = $state(false)
-	let step4Complete = $state(false)
+	let step3Complete = $state(false)
 	let step5Complete = $state(false)
+	let step6Complete = $state(false)
 
 	// Create a simple flow
 	async function createTutorialFlow(): Promise<string> {
@@ -143,7 +144,7 @@
 					step2Complete = false
 					await wait(DELAY_MEDIUM)
 					
-					// Find both jobs
+					// Find all jobs
 					const allJobRows = Array.from(
 						document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
 					) as HTMLElement[]
@@ -155,17 +156,11 @@
 						return !hasRedBadge && hasGreenBadge !== null
 					}) || allJobRows[0]
 
-					// Find failed job (red badge/X icon)
-					const failedJobRow = allJobRows.find((el) => {
-						const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
-						return badge !== null
-					})
-
-					if (successfulJobRow && failedJobRow) {
-						// Create cursor once for both clicks
+					if (successfulJobRow) {
+						// Create cursor
 						const cursor = createFakeCursor()
 						
-						// Click on successful job first
+						// Click on successful job
 						await animateCursorToElementAndClick(cursor, successfulJobRow)
 						
 						// Wait for navigation to job details page
@@ -175,17 +170,35 @@
 						await goto(`${base}/runs?tutorial=runs-tutorial`, { replaceState: true })
 						await wait(DELAY_LONG)
 						
-						// Re-find the failed job after navigation
-						const failedJobRowAfterNav = Array.from(
+						// Remove the cursor
+						cursor.remove()
+						step2Complete = true
+					}
+				},
+				popover: {
+					title: 'Exploring successful job runs <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #22c55e; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>',
+					description:
+						'Let\'s click on a successful job to see how to inspect a completed execution.',
+					side: 'bottom',
+					onNextClick: async () => {
+						if (!step2Complete) {
+							sendUserToast('Please wait for the job click to complete...', false, [], undefined, 3000)
+							return
+						}
+						// Click on the successful job again (without showing cursor)
+						const successfulJobRow = Array.from(
 							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
 						).find((el) => {
-							const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
-							return badge !== null
-						}) as HTMLElement
+							const hasRedBadge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+							const hasGreenBadge = el.querySelector('[class*="bg-green"], [class*="text-green"]')
+							return !hasRedBadge && hasGreenBadge !== null
+						}) as HTMLElement || Array.from(
+							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
+						)[0] as HTMLElement
 						
-						if (failedJobRowAfterNav) {
-							// Click on failed job
-							await animateCursorToElementAndClick(cursor, failedJobRowAfterNav)
+						if (successfulJobRow) {
+							successfulJobRow.click()
+							await wait(DELAY_SHORT)
 							
 							// Wait for navigation to job details page
 							await wait(DELAY_LONG)
@@ -195,22 +208,60 @@
 							await wait(DELAY_LONG)
 						}
 						
+						driver.moveNext()
+					},
+					onPrevClick: () => {
+						sendUserToast('Previous is not available for this step', true, [], undefined, 3000)
+					}
+				}
+			},
+			{
+				element: '#runs-table-wrapper',
+				onHighlighted: async () => {
+					step3Complete = false
+					await wait(DELAY_MEDIUM)
+					
+					// Find all jobs
+					const allJobRows = Array.from(
+						document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
+					) as HTMLElement[]
+					
+					// Find failed job (red badge/X icon)
+					const failedJobRow = allJobRows.find((el) => {
+						const badge = el.querySelector('[class*="bg-red"], [class*="text-red"]')
+						return badge !== null
+					}) as HTMLElement
+
+					if (failedJobRow) {
+						// Create cursor
+						const cursor = createFakeCursor()
+						
+						// Click on failed job
+						await animateCursorToElementAndClick(cursor, failedJobRow)
+						
+						// Wait for navigation to job details page
+						await wait(DELAY_LONG)
+						
+						// Navigate back to runs page using SvelteKit navigation
+						await goto(`${base}/runs?tutorial=runs-tutorial`, { replaceState: true })
+						await wait(DELAY_LONG)
+						
 						// Remove the cursor
 						cursor.remove()
-						step2Complete = true
+						step3Complete = true
 					}
 				},
 				popover: {
-					title: 'Exploring job runs. 1 success <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #22c55e; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg> and 1 failure <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m12 8v4"/><path d="m12 16h.01"/></svg>',
+					title: 'Exploring failed job runs <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: #ef4444; display: inline-block; vertical-align: middle;"><circle cx="12" cy="12" r="10"/><path d="m12 8v4"/><path d="m12 16h.01"/></svg>',
 					description:
-						'We\'re clicking on both jobs to show you how to inspect different types of executions.',
+						'Now let\'s click on a failed job to see how to inspect a failed execution.',
 					side: 'bottom',
 					onNextClick: async () => {
-						if (!step2Complete) {
-							sendUserToast('Please wait for the job clicks to complete...', false, [], undefined, 3000)
+						if (!step3Complete) {
+							sendUserToast('Please wait for the job click to complete...', false, [], undefined, 3000)
 							return
 						}
-						// Find and click the failed job again (last one clicked) without showing cursor
+						// Click on the failed job again (without showing cursor)
 						const failedJobRow = Array.from(
 							document.querySelectorAll('#runs-table-wrapper .cursor-pointer')
 						).find((el) => {
@@ -220,7 +271,7 @@
 						
 						if (failedJobRow) {
 							failedJobRow.click()
-			await wait(DELAY_SHORT)
+							await wait(DELAY_SHORT)
 							
 							// Wait for navigation to job details page
 							await wait(DELAY_LONG)
@@ -255,7 +306,7 @@
 			{
 				element: 'div.p-2.px-4.pt-8.w-full.border-b',
 				onHighlighted: async () => {
-					step4Complete = false
+					step5Complete = false
 					await wait(DELAY_MEDIUM)
 					// Find the button with data-value="ConcurrencyChart"
 					const concurrencyButton = document.querySelector(
@@ -265,7 +316,7 @@
 					if (concurrencyButton) {
 						await animateFakeCursorClick(concurrencyButton)
 						await wait(DELAY_MEDIUM)
-						step4Complete = true
+						step5Complete = true
 					}
 				},
 				popover: {
@@ -274,7 +325,7 @@
 						'You can switch between different chart views to analyze your runs. The concurrency chart allows you to see how many jobs are running concurrently over time.',
 					side: 'bottom',
 					onNextClick: () => {
-						if (!step4Complete) {
+						if (!step5Complete) {
 							sendUserToast('Please wait for the chart switch to complete...', false, [], undefined, 3000)
 							return
 						}
@@ -288,7 +339,7 @@
 			{
 				element: 'div.flex.flex-row.items-start.w-full.border-b.px-4.gap-8',
 				onHighlighted: async () => {
-					step5Complete = false
+					step6Complete = false
 					await wait(DELAY_MEDIUM)
 					
 					// Find the success and failure filter buttons
@@ -313,7 +364,7 @@
 						// Remove the cursor
 						cursor.remove()
 						await wait(DELAY_MEDIUM)
-						step5Complete = true
+						step6Complete = true
 					}
 				},
 				popover: {
@@ -322,7 +373,7 @@
 						'You can filter jobs, for example by status (failed, running, success). This helps you focus on specific types of executions.',
 					side: 'bottom',
 					onNextClick: () => {
-						if (!step5Complete) {
+						if (!step6Complete) {
 							sendUserToast('Please wait for the filter clicks to complete...', false, [], undefined, 3000)
 							return
 						}
