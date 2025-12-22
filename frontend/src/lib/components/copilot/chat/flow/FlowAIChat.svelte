@@ -3,7 +3,7 @@
 	import { getContext, untrack } from 'svelte'
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
-	import type { InputTransform, OpenFlow } from '$lib/gen'
+	import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
 	import type { FlowAIChatHelpers } from './core'
 	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
@@ -46,7 +46,7 @@
 			const flow = $state.snapshot(flowStore).val
 			return {
 				flow,
-				selectedId: selectedId
+				selectedId: selectedId === 'settings-metadata' ? '' : selectedId
 			}
 		},
 		getModules: (id?: string) => {
@@ -170,68 +170,33 @@
 			return await onTestFlow?.(conversationId)
 		},
 
-		setFlowJson: async (json: string) => {
+		setFlowJson: async (
+			modules: FlowModule[] | undefined,
+			schema: Record<string, any> | undefined
+		) => {
 			try {
-				// Parse JSON to JavaScript object
-				const parsed = JSON.parse(json)
-
-				// Validate that it has the expected structure
-				if (!parsed.modules || !Array.isArray(parsed.modules)) {
-					throw new Error('JSON must contain a "modules" array')
-				}
-
-				// Restore inline script references back to full content
-				const restoredModules = restoreInlineScriptReferences(parsed.modules)
-
-				// Also restore preprocessor and failure modules if they have references
-				let restoredPreprocessor = parsed.preprocessor_module
-				if (
-					restoredPreprocessor?.value?.type === 'rawscript' &&
-					restoredPreprocessor.value.content
-				) {
-					const match = restoredPreprocessor.value.content.match(/^inline_script\.(.+)$/)
-					if (match) {
-						// Wrap in array to reuse the restoration function
-						const restored = restoreInlineScriptReferences([restoredPreprocessor])
-						restoredPreprocessor = restored[0]
+				if (modules || schema) {
+					// Take snapshot of current flowStore and set as beforeFlow
+					if (!diffManager?.hasPendingChanges) {
+						const snapshot = $state.snapshot(flowStore).val
+						diffManager?.setBeforeFlow(snapshot)
+						diffManager?.setEditMode(true)
 					}
 				}
 
-				let restoredFailure = parsed.failure_module
-				if (restoredFailure?.value?.type === 'rawscript' && restoredFailure.value.content) {
-					const match = restoredFailure.value.content.match(/^inline_script\.(.+)$/)
-					if (match) {
-						const restored = restoreInlineScriptReferences([restoredFailure])
-						restoredFailure = restored[0]
-					}
-				}
-
-				// Take snapshot of current flowStore BEFORE making changes
-				if (!diffManager?.hasPendingChanges) {
-					const snapshot = $state.snapshot(flowStore).val
-					diffManager?.setBeforeFlow(snapshot)
-				}
-
-				// Directly modify flowStore (immediate effect)
-				flowStore.val.value.modules = restoredModules
-
-				if (parsed.preprocessor_module !== undefined) {
-					flowStore.val.value.preprocessor_module = restoredPreprocessor || undefined
-				}
-
-				if (parsed.failure_module !== undefined) {
-					flowStore.val.value.failure_module = restoredFailure || undefined
+				if (modules) {
+					// Restore inline script references back to full content
+					const restoredModules = restoreInlineScriptReferences(modules)
+					// Directly modify flowStore (immediate effect)
+					flowStore.val.value.modules = restoredModules
 				}
 
 				// Update schema if provided
-				if (parsed.schema !== undefined) {
-					flowStore.val.schema = parsed.schema
+				if (schema !== undefined) {
+					flowStore.val.schema = schema
 				}
 
-				diffManager?.setEditMode(true)
-
 				// Refresh the state store to update UI
-				// The $effect in FlowGraphV2 will automatically sync currentFlow and currentInputSchema
 				refreshStateStore(flowStore)
 			} catch (error) {
 				console.error('setFlowJson error:', error)

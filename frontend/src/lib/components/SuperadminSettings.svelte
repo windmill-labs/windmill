@@ -13,7 +13,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="1200px">
+<Drawer bind:this={drawer} size="1000px">
 	<DrawerContent overflow_y={true} title="Instance settings" on:close={closeDrawer}>
 		<SuperadminSettingsInner {closeDrawer} />
 	</DrawerContent>

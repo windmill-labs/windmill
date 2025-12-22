@@ -857,7 +857,7 @@ export async function parseOpenAICompletion(
 	_abortController?: AbortController // unused, for signature compatibility with parseAnthropicCompletion
 ): Promise<boolean> {
 	const finalToolCalls: Record<number, ChatCompletionChunk.Choice.Delta.ToolCall> = {}
-	const streamingTools: Record<number, boolean> = {} // Track which tools should stream
+	let malformedFunctionCallError = false
 
 	let answer = ''
 	for await (const chunk of completion) {
@@ -865,6 +865,17 @@ export async function parseOpenAICompletion(
 			continue
 		}
 		const c = chunk as ChatCompletionChunk
+
+		// Check for malformed function call error (e.g. from Gemini models)
+		const finishReason = c.choices[0].finish_reason
+		if (
+			finishReason &&
+			typeof finishReason === 'string' &&
+			finishReason.includes('MALFORMED_FUNCTION_CALL')
+		) {
+			malformedFunctionCallError = true
+		}
+
 		const delta = c.choices[0].delta.content
 		if (delta) {
 			answer += delta
@@ -915,17 +926,11 @@ export async function parseOpenAICompletion(
 				} = finalToolCall
 				if (funcName && toolCallId) {
 					const tool = tools.find((t) => t.def.function.name === funcName)
-
-					// Track if this tool should stream (only set once per tool)
-					if (streamingTools[index] === undefined) {
-						streamingTools[index] = tool?.streamArguments ?? false
-					}
-
 					if (tool && tool.preAction) {
 						tool.preAction({ toolCallbacks: callbacks, toolId: toolCallId })
 					}
 
-					const shouldStream = streamingTools[index]
+					const shouldStream = tool?.streamArguments ?? false
 					const accumulatedArgs = finalToolCall.function.arguments
 					let parameters: any = undefined
 					if (accumulatedArgs) {
@@ -993,6 +998,43 @@ export async function parseOpenAICompletion(
 			messages.push(messageToAdd)
 			addedMessages.push(messageToAdd)
 		}
+	} else if (malformedFunctionCallError) {
+		// Malformed function call with no tool calls - create artificial tool call to inform AI
+		const fakeToolCallId = generateRandomString()
+
+		// Show error status to user
+		callbacks.setToolStatus(fakeToolCallId, {
+			isLoading: false,
+			content: 'Malformed function call',
+			error: 'Invalid input given to function call',
+			toolName: 'unknown'
+		})
+
+		// Add assistant message with fake tool call
+		const assistantMessage = {
+			role: 'assistant' as const,
+			tool_calls: [
+				{
+					id: fakeToolCallId,
+					type: 'function' as const,
+					function: {
+						name: 'unknown',
+						arguments: '{}'
+					}
+				}
+			]
+		}
+		messages.push(assistantMessage)
+		addedMessages.push(assistantMessage)
+
+		// Add tool response telling AI to retry
+		const toolResponse = {
+			role: 'tool' as const,
+			tool_call_id: fakeToolCallId,
+			content: 'Invalid input given to function call, MUST TRY WITH SIMPLER ARGUMENTS'
+		}
+		messages.push(toolResponse)
+		addedMessages.push(toolResponse)
 	} else {
 		return false
 	}

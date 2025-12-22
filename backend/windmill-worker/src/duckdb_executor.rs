@@ -17,6 +17,7 @@ use windmill_common::workspaces::{
     get_datatable_resource_from_db_unchecked, get_ducklake_from_db_unchecked,
     DucklakeCatalogResourceType,
 };
+use windmill_common::PgDatabase;
 use windmill_parser_sql::{parse_duckdb_sig, parse_sql_blocks};
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
@@ -25,9 +26,10 @@ use crate::common::{build_args_values, get_reserved_variables, OccupancyMetrics}
 use crate::handle_child::run_future_with_polling_update_job_poller;
 #[cfg(feature = "mysql")]
 use crate::mysql_executor::MysqlDatabase;
-use crate::pg_executor::PgDatabase;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_utils::remove_comments;
 use windmill_common::client::AuthedClient;
+use windmill_common::s3_helpers::DEFAULT_STORAGE;
 
 pub async fn do_duckdb(
     job: &MiniPulledJob,
@@ -88,7 +90,7 @@ pub async fn do_duckdb(
                     })?;
                     let uri = format!(
                         "s3://{}/{}",
-                        s3_obj.storage.as_deref().unwrap_or("_default_"),
+                        s3_obj.storage.as_deref().unwrap_or(DEFAULT_STORAGE),
                         s3_obj.s3
                     );
                     m.push(Arg {
@@ -416,19 +418,7 @@ fn format_attach_db_conn_str(db_resource: Value, db_type: &str) -> Result<String
     let s = match db_type.to_lowercase().as_str() {
         "postgres" | "postgresql" => {
             let res: PgDatabase = serde_json::from_value(db_resource)?;
-            format!(
-                "dbname={} {} host={} {} {} {}",
-                res.dbname,
-                res.user.map(|u| format!("user={}", u)).unwrap_or_default(),
-                res.host,
-                res.password
-                    .map(|p| format!("password={}", p))
-                    .unwrap_or_default(),
-                res.port.map(|p| format!("port={}", p)).unwrap_or_default(),
-                res.sslmode
-                    .map(|s| format!("sslmode={}", s))
-                    .unwrap_or_default(),
-            )
+            res.to_conn_str()
         }
         #[cfg(feature = "mysql")]
         "mysql" => {
@@ -570,7 +560,11 @@ async fn transform_attach_ducklake(
     }
 
     let db_conn_str = format_attach_db_conn_str(ducklake.catalog_resource, db_type)?;
-    let storage = ducklake.storage.storage.as_deref().unwrap_or("_default_");
+    let storage = ducklake
+        .storage
+        .storage
+        .as_deref()
+        .unwrap_or(DEFAULT_STORAGE);
     let data_path = ducklake.storage.path;
 
     // Ducklake 0.3 only requires DATA_PATH at creation and then stores it internally in the catalog
@@ -639,7 +633,7 @@ async fn transform_s3_uris(query: &str) -> Result<String> {
                 continue;
             }
             let original_str_lit: String = format!("'s3://{}/{}'", storage, s3_path);
-            storage = "_default_";
+            storage = DEFAULT_STORAGE;
 
             let new_s3_lit = format!("'s3://{}/{}'", storage, s3_path);
             transformed_query = Some(
@@ -692,70 +686,9 @@ pub struct Arg {
     pub json_value: serde_json::Value,
 }
 
-// input should contain a single statement. remove all comments before and after it
-fn remove_comments(stmt: &str) -> &str {
-    let mut in_stmt = false;
-    let mut in_comment = false;
-    let mut start = None;
-    let mut end = stmt.len();
-
-    let mut c = ' ';
-    for (next_i, next_char) in stmt.char_indices() {
-        if next_i > 0 {
-            let i = next_i - 1;
-            if !in_comment && in_stmt && c == ';' {
-                end = i + 1;
-                break;
-            } else if in_comment && c == '\n' {
-                in_comment = false;
-            } else if c == '-' && next_char == '-' {
-                in_comment = true;
-            } else if !in_comment && !c.is_whitespace() && start == None {
-                start = Some(i);
-                in_stmt = true;
-            }
-        }
-        c = next_char;
-    }
-
-    return &stmt[start.unwrap_or(0)..end];
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Tests for remove_comments function
-    #[test]
-    fn test_remove_comments_single_line() {
-        let sql = "-- This is a comment\nSELECT * FROM table;";
-        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
-    }
-    #[test]
-    fn test_remove_comments_multi_line() {
-        let sql = "-- This is a comment\nSELECT * FROM table;\n-- Another comment";
-        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
-    }
-    #[test]
-    fn test_remove_comments_inline_comment() {
-        let sql = "   SELECT * FROM table;    -- This is an inline comment  ";
-        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
-    }
-    #[test]
-    fn test_remove_comments_no_comments() {
-        let sql = "SELECT * FROM table;";
-        assert_eq!(remove_comments(sql), "SELECT * FROM table;");
-    }
-    #[test]
-    fn test_remove_comments_empty_string() {
-        let sql = "";
-        assert_eq!(remove_comments(sql), "");
-    }
-    #[test]
-    fn test_remove_comments_with_whitespace() {
-        let sql = "   -- Comment\n  -- Comment2\n  -- Comment3\n   SELECT\n\n * FROM\n table\n;\n\n -- end comment   ";
-        assert_eq!(remove_comments(sql), "SELECT\n\n * FROM\n table\n;");
-    }
 
     // Tests for parse_attach_db_resource function
     #[test]
@@ -1113,20 +1046,5 @@ mod tests {
         };
         let serialized = serde_json::to_string(&arg).unwrap();
         assert!(serialized.contains("\"json_value\":{\"key\":\"value\"}"));
-    }
-
-    #[test]
-    fn test_remove_comments_comment_in_string() {
-        let sql = "SELECT '-- not a comment' FROM table;";
-        let result = remove_comments(sql);
-        assert_eq!(result, "SELECT '-- not a comment' FROM table;");
-    }
-
-    #[test]
-    fn test_remove_comments_multiple_dashes() {
-        let sql = "SELECT 5 - - 3;";
-        let result = remove_comments(sql);
-        // This correctly handles the subtraction of negative number
-        assert_eq!(result, sql);
     }
 }

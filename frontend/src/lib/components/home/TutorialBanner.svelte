@@ -67,7 +67,12 @@
 			)
 
 			// Calculate if user has completed at least one tutorial (for banner wording)
-			hasCompletedAny = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
+			
+      
+      
+      
+      
+      Any = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
 
 			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
 			if (remainingAccessibleTutorials.length === 0) {
@@ -95,7 +100,7 @@
 	function dismissBanner() {
 		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
 		isDismissed = true
-		
+
 		const actions: ToastAction[] = [
 			{
 				label: 'Skip tutorials',
@@ -103,7 +108,7 @@
 				buttonType: 'default'
 			}
 		]
-		
+
 		sendUserToast(
 			'You can still access tutorials from the Tutorials page in the main menu or in the Help submenu.',
 			false,
@@ -142,7 +147,12 @@
 			</div>
 		</div>
 		<div class="flex items-center gap-2 flex-shrink-0">
-			<Button size="xs" variant="accent" onclick={goToTutorials} startIcon={{ icon: GraduationCap }}>
+			<Button
+				size="xs"
+				variant="accent"
+				onclick={goToTutorials}
+				startIcon={{ icon: GraduationCap }}
+			>
 				View tutorials
 			</Button>
 			<button
@@ -155,4 +165,3 @@
 		</div>
 	</div>
 {/if}
-

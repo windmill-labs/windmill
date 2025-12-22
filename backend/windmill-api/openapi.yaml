@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.590.0
+  version: 1.596.0
   title: Windmill API
 
   contact:
@@ -64,6 +64,41 @@ paths:
       responses:
         "200":
           description: get license id (empty if not ee)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /inkeep:
+    post:
+      summary: query Windmill AI documentation assistant (EE only)
+      operationId: queryDocumentation
+      x-mcp-tool: true
+      tags:
+        - documentation
+      requestBody:
+        description: query to send to the AI documentation assistant
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: The documentation query to send to the AI assistant
+              required:
+                - query
+      responses:
+        "200":
+          description: AI documentation assistant response
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response from Inkeep service
+        "403":
+          description: Enterprise Edition required
           content:
             text/plain:
               schema:
@@ -1989,6 +2024,52 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/compare/{target_workspace_id}:
+    get:
+      operationId: compareWorkspaces
+      summary: Compare two workspaces
+      description: Compares the current workspace with a target workspace to find differences in scripts, flows, apps, resources, and variables. Returns information about items that are ahead, behind, or in conflict.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Workspace comparison results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceComparison"
+
+  /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
+    post:
+      operationId: resetDiffTally
+      summary: Resets the ahead and behind deployement counter after a deployement
+      description: This endpoint should be called after a fork deployement
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: fork_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -2085,6 +2166,8 @@ paths:
                   teams_command_script:
                     type: string
                   teams_team_name:
+                    type: string
+                  teams_team_guid:
                     type: string
                   auto_invite_domain:
                     type: string
@@ -2477,7 +2560,13 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: search
           in: query
-          description: Search teams by name
+          description: Search teams by name. If omitted, returns first page of all teams.
+          required: false
+          schema:
+            type: string
+        - name: next_link
+          in: query
+          description: Pagination cursor URL from previous response. Pass this to fetch the next page of results.
           required: false
           schema:
             type: string
@@ -2487,14 +2576,27 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    team_name:
-                      type: string
-                    team_id:
-                      type: string
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        team_name:
+                          type: string
+                        team_id:
+                          type: string
+                  total_count:
+                    type: integer
+                    description: Total number of teams across all pages
+                  per_page:
+                    type: integer
+                    description: Number of teams per page (configurable via TEAMS_PER_PAGE env var)
+                  next_link:
+                    type: string
+                    nullable: true
+                    description: URL to fetch next page of results. Null if no more pages.
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
@@ -2510,26 +2612,25 @@ paths:
           required: true
           schema:
             type: string
-        - name: search
-          in: query
-          description: Search channels by name
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: List of channels for the specified team
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    channel_name:
-                      type: string
-                    channel_id:
-                      type: string
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel_name:
+                          type: string
+                        channel_id:
+                          type: string
+                  total_count:
+                    type: integer
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -2927,6 +3028,7 @@ paths:
           content:
             application/json:
               schema: {}
+
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
@@ -8236,7 +8338,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
+  /w/{workspace}/jobs/restart/f/{id}:
     post:
       summary: restart a completed flow at a given step
       operationId: restartFlowAtStep
@@ -8245,20 +8347,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
-        - name: step_id
-          description: step id to restart the flow from
-          required: true
-          in: path
-          schema:
-            type: string
-        - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
-            restart
-          required: true
-          in: path
-          schema:
-            type: integer
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -8281,12 +8369,24 @@ paths:
             type: boolean
 
       requestBody:
-        description: flow args
+        description: restart flow parameters
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              type: object
+              required:
+                - step_id
+              properties:
+                step_id:
+                  type: string
+                  description: step id to restart the flow from
+                branch_or_iteration_n:
+                  type: integer
+                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                flow_version:
+                  type: integer
+                  description: specific flow version to use for restart (optional, uses current version if not specified)
 
       responses:
         "201":
@@ -8930,9 +9030,9 @@ paths:
         "200":
           description: confirmation message
           content:
-              application/json:
-                schema:
-                  type: string
+            application/json:
+              schema:
+                type: string
 
   /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_jobs/{trigger_path}:
     post:
@@ -12940,6 +13040,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/groups_history/get/{name}:
+    get:
+      summary: get group permission history
+      operationId: getGroupPermissionHistory
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: group permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    member_affected:
+                      type: string
+                      nullable: true
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -13202,6 +13336,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/folders_history/get/{name}:
+    get:
+      summary: get folder permission history
+      operationId: getFolderPermissionHistory
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: folder permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    affected:
+                      type: string
+                      nullable: true
 
   /workers/list:
     get:
@@ -16643,7 +16811,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16759,7 +16927,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16883,7 +17051,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         trigger:
           type: string
@@ -17031,7 +17199,7 @@ components:
               "aiagent",
               "unassigned_script",
               "unassigned_flow",
-              "unassigned_singlestepflow"
+              "unassigned_singlestepflow",
             ]
         trigger:
           type: string
@@ -20033,6 +20201,8 @@ components:
           type: string
         branch_or_iteration_n:
           type: integer
+        flow_version:
+          type: integer
 
     Policy:
       type: object
@@ -20892,6 +21062,108 @@ components:
           type: boolean
           description: Whether operators can view workers page
 
+    WorkspaceComparison:
+      type: object
+      required:
+        - all_ahead_items_visible
+        - all_behind_items_visible
+        - skipped_comparison
+        - diffs
+        - summary
+      properties:
+        all_ahead_items_visible:
+          type: boolean
+          description: All items with changes ahead are visible by the user of the request.
+        all_behind_items_visible:
+          type: boolean
+          description: All items with changes behind are visible by the user of the request.
+        skipped_comparison:
+          type: boolean
+          description: Whether the comparison was skipped. This happens with old forks that where not being kept track of
+        diffs:
+          type: array
+          description: List of differences found between workspaces
+          items:
+            $ref: "#/components/schemas/WorkspaceItemDiff"
+        summary:
+          $ref: "#/components/schemas/CompareSummary"
+          description: Summary statistics of the comparison
+
+    WorkspaceItemDiff:
+      type: object
+      required:
+        - kind
+        - path
+        - ahead
+        - behind
+        - has_changes
+        - exists_in_source
+        - exists_in_fork
+      properties:
+        kind:
+          type: string
+          enum: ["script", "flow", "app", "resource", "variable"]
+          description: Type of the item
+        path:
+          type: string
+          description: Path of the item in the workspace
+        ahead:
+          type: integer
+          description: Number of versions source is ahead of target
+        behind:
+          type: integer
+          description: Number of versions source is behind target
+        has_changes:
+          type: boolean
+          description: Whether the item has any differences
+        exists_in_source:
+          type: boolean
+          description: If the item exists in the source workspace
+        exists_in_fork:
+          type: boolean
+          description: If the item exists in the fork workspace
+
+    CompareSummary:
+      type: object
+      required:
+        - total_diffs
+        - total_ahead
+        - total_behind
+        - scripts_changed
+        - flows_changed
+        - apps_changed
+        - resources_changed
+        - variables_changed
+        - conflicts
+      properties:
+        total_diffs:
+          type: integer
+          description: Total number of items with differences
+        total_ahead:
+          type: integer
+          description: Total number of ahead changes
+        total_behind:
+          type: integer
+          description: Total number of behind changes
+        scripts_changed:
+          type: integer
+          description: Number of scripts with differences
+        flows_changed:
+          type: integer
+          description: Number of flows with differences
+        apps_changed:
+          type: integer
+          description: Number of apps with differences
+        resources_changed:
+          type: integer
+          description: Number of resources with differences
+        variables_changed:
+          type: integer
+          description: Number of variables with differences
+        conflicts:
+          type: integer
+          description: Number of items that are both ahead and behind (conflicts)
+
     TeamInfo:
       type: object
       required:
@@ -20967,6 +21239,9 @@ components:
           per_page:
             type: number
             description: Number of repositories loaded per page
+          error:
+            type: string
+            description: Error message if token retrieval failed
         required:
           - installation_id
           - account_id

@@ -60,7 +60,7 @@ export function resourceTypeToLang(rt: string) {
 	}
 }
 
-const scripts: Record<
+const legacyScripts: Record<
 	string,
 	{
 		code: string
@@ -76,7 +76,7 @@ const scripts: Record<
 				const table_schema = a.table_schema
 				delete a.table_schema
 				acc[table_schema] = acc[table_schema] || []
-				acc[table_schema].push(a)
+				if (a.table_name || a.column_name) acc[table_schema].push(a)
 				return acc
 			}, {})
 
@@ -266,7 +266,19 @@ return schema
 	}
 }
 
-export { scripts }
+// We cannot modify the original legacyScripts because they are used to calculate app policies in AppDbExplorer
+// TODO: Refactor the app policy system to avoid this
+const scriptsV2: typeof legacyScripts = {
+	...legacyScripts,
+	postgresql: {
+		...legacyScripts.postgresql,
+		code: `
+SELECT table_name, column_name, udt_name, column_default, is_nullable, nsp.nspname AS table_schema FROM information_schema.columns
+RIGHT JOIN pg_namespace nsp ON table_schema = nsp.nspname WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')`
+	}
+}
+
+export { legacyScripts, scriptsV2 }
 
 export function formatSchema(dbSchema: {
 	lang: SQLSchema['lang']
@@ -364,4 +376,40 @@ export function datatypeHasLength(datatype: string): boolean {
 	datatype = datatype.toLowerCase()
 	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
 	return lengthDataTypes.some((type) => datatype === type)
+}
+
+export function sqlDataTypeToJsTypeHeuristic(datatype: string): string {
+	datatype = datatype.toLowerCase()
+	if (
+		datatype.includes('int') ||
+		datatype === 'decimal' ||
+		datatype === 'numeric' ||
+		datatype === 'float' ||
+		datatype === 'real' ||
+		datatype === 'double'
+	) {
+		return 'number'
+	} else if (
+		datatype === 'varchar' ||
+		datatype === 'char' ||
+		datatype === 'text' ||
+		datatype === 'nvarchar' ||
+		datatype === 'nchar' ||
+		datatype === 'string'
+	) {
+		return 'string'
+	} else if (datatype === 'boolean' || datatype === 'bool' || datatype === 'bit') {
+		return 'boolean'
+	} else if (
+		datatype === 'date' ||
+		datatype === 'datetime' ||
+		datatype === 'timestamp' ||
+		datatype === 'timestamptz'
+	) {
+		return 'Date'
+	} else if (datatype === 'json' || datatype === 'jsonb') {
+		return 'object'
+	} else {
+		return 'any'
+	}
 }

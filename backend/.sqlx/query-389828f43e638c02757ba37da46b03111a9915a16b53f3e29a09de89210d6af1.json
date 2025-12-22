@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow_iterator_data (job_id, itered) VALUES ($1, $2)\n             ON CONFLICT (job_id) DO UPDATE SET itered = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "389828f43e638c02757ba37da46b03111a9915a16b53f3e29a09de89210d6af1"
+}

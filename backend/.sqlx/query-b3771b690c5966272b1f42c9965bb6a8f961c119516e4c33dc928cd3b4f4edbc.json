@@ -1,0 +1,254 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                id,\n                q.runnable_settings_handle,\n                q.workspace_id,\n                j.runnable_id as \"runnable_id: ScriptHash\",\n                scheduled_for,\n                parent_job,\n                flow_innermost_root_job,\n                runnable_path,\n                kind as \"kind: JobKind\",\n                started_at,\n                permissioned_as,\n                created_by,\n                script_lang as \"script_lang: ScriptLang\",\n                permissioned_as_email,\n                flow_step_id,\n                trigger_kind as \"trigger_kind: JobTriggerKind\",\n                trigger,\n                q.priority,\n                concurrent_limit,\n                q.tag,\n                cache_ttl,\n                cache_ignore_s3_path,\n                r.ping as last_ping,\n                worker,\n                memory_peak,\n                running\n            FROM v2_job_queue q\n                JOIN v2_job j USING (id)\n                LEFT JOIN v2_job_runtime r USING (id)\n                LEFT JOIN v2_job_status s USING (id)\n            WHERE j.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "runnable_settings_handle",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "workspace_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "runnable_id: ScriptHash",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "scheduled_for",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "flow_innermost_root_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "runnable_path",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "kind: JobKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_kind",
+            "kind": {
+              "Enum": [
+                "script",
+                "preview",
+                "flow",
+                "dependencies",
+                "flowpreview",
+                "script_hub",
+                "identity",
+                "flowdependencies",
+                "http",
+                "graphql",
+                "postgresql",
+                "noop",
+                "appdependencies",
+                "deploymentcallback",
+                "singlestepflow",
+                "flowscript",
+                "flownode",
+                "appscript",
+                "aiagent",
+                "unassigned_script",
+                "unassigned_flow",
+                "unassigned_singlestepflow"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "started_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 10,
+        "name": "permissioned_as",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_by",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "script_lang: ScriptLang",
+        "type_info": {
+          "Custom": {
+            "name": "script_lang",
+            "kind": {
+              "Enum": [
+                "python3",
+                "deno",
+                "go",
+                "bash",
+                "postgresql",
+                "nativets",
+                "bun",
+                "mysql",
+                "bigquery",
+                "snowflake",
+                "graphql",
+                "powershell",
+                "mssql",
+                "php",
+                "bunnative",
+                "rust",
+                "ansible",
+                "csharp",
+                "oracledb",
+                "nu",
+                "java",
+                "duckdb",
+                "ruby"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "permissioned_as_email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "flow_step_id",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 15,
+        "name": "trigger_kind: JobTriggerKind",
+        "type_info": {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "trigger",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 17,
+        "name": "priority",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 18,
+        "name": "concurrent_limit",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "tag",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 20,
+        "name": "cache_ttl",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 21,
+        "name": "cache_ignore_s3_path",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 22,
+        "name": "last_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 23,
+        "name": "worker",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 24,
+        "name": "memory_peak",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 25,
+        "name": "running",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b3771b690c5966272b1f42c9965bb6a8f961c119516e4c33dc928cd3b4f4edbc"
+}

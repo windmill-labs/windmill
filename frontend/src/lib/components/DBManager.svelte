@@ -1,37 +1,45 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { MoreVertical, Plus, Table2 } from 'lucide-svelte'
+	import { ChevronDownIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
 	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
-	import type { DbTableActionFactory, IDbTableOps } from './dbOps'
+	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import Button from './common/button/Button.svelte'
-	import DbTableEditor, { type DBTableEditorProps } from './DBTableEditor.svelte'
+	import DbTableEditor from './DBTableEditor.svelte'
+	import type { DbType } from './dbTypes'
+	import Portal from './Portal.svelte'
+	import Select from './select/Select.svelte'
+	import { safeSelectItems } from './select/utils.svelte'
 
 	type Props = {
+		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
 		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
-		dbTableActionsFactory?: DbTableActionFactory[]
+		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
-		dbTableEditorPropsFactory?: (params: { selectedSchemaKey?: string }) => DBTableEditorProps
+		initialSchemaKey?: string
+		initialTableKey?: string
 	}
 	let {
+		dbType,
 		dbSchema,
 		dbTableOpsFactory,
+		dbSchemaOps,
 		getColDefs,
-		dbTableActionsFactory,
+		dbSupportsSchemas,
 		refresh,
-		dbTableEditorPropsFactory,
-		dbSupportsSchemas
+		initialSchemaKey,
+		initialTableKey
 	}: Props = $props()
 
-	let schemaKeys = $derived(Object.keys(dbSchema.schema))
+	let schemaKeys = $derived(Object.keys(dbSchema.schema ?? {}))
 	let search = $state('')
 	let selected: {
 		schemaKey?: undefined | string
@@ -40,10 +48,14 @@
 
 	$effect(() => {
 		if (!selected.schemaKey && schemaKeys.length) {
-			selected = {
-				schemaKey:
-					'public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0]
-			}
+			let schemaKey =
+				initialSchemaKey ??
+				('public' in dbSchema.schema ? 'public' : 'dbo' in dbSchema.schema ? 'dbo' : schemaKeys[0])
+			let tableKey =
+				initialTableKey && dbSchema.schema?.[schemaKey]?.[initialTableKey]
+					? initialTableKey
+					: undefined
+			selected = { schemaKey, tableKey }
 		}
 	})
 
@@ -53,7 +65,7 @@
 			return []
 		}
 		if (!selected.schemaKey) return []
-		return Object.keys(dbSchema.schema[selected.schemaKey])
+		return Object.keys(dbSchema.schema[selected.schemaKey] ?? {})
 	})
 
 	$effect(() => {
@@ -79,28 +91,44 @@
 		| undefined = $state()
 
 	let dbTableEditorState: { open: boolean } = $state({ open: false })
-
-	let dbTableEditorProps = $derived(
-		dbTableEditorPropsFactory?.({ selectedSchemaKey: selected.schemaKey })
-	)
 </script>
 
 <Splitpanes>
 	<Pane size={24} class="relative flex flex-col">
-		<div class="mx-3 mt-3">
+		<div class="mx-3 mt-3 flex flex-col gap-2">
 			{#if dbSupportsSchemas}
-				<select
-					value={selected.schemaKey}
-					onchange={(e) => {
-						selected = { schemaKey: e.currentTarget.value }
+				<Select
+					bind:value={selected.schemaKey}
+					items={safeSelectItems(schemaKeys)}
+					transformInputSelectedText={(s) => `Schema: ${s}`}
+					RightIcon={ChevronDownIcon}
+					placeholder="Search or create schema..."
+					showPlaceholderOnOpen
+					onCreateItem={(schema) => {
+						schema = schema
+							.trim()
+							.toLowerCase()
+							.replace(/[^a-zA-Z0-9_]/g, '')
+						askingForConfirmation = {
+							confirmationText: `Create ${schema}`,
+							type: 'reload',
+							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
+							open: true,
+							onConfirm: async () => {
+								askingForConfirmation && (askingForConfirmation.loading = true)
+								try {
+									await dbSchemaOps.onCreateSchema({ schema })
+									refresh?.()
+									selected.schemaKey = schema
+								} finally {
+									askingForConfirmation = undefined
+								}
+							}
+						}
 					}}
-				>
-					{#each schemaKeys as schemaKey}
-						<option value={schemaKey}>{schemaKey}</option>
-					{/each}
-				</select>
+				/>
 			{/if}
-			<ClearableInput wrapperClass="mt-3" bind:value={search} placeholder="Search table..." />
+			<ClearableInput bind:value={search} placeholder="Search table..." />
 		</div>
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
 			{#each filteredTableKeys as tableKey}
@@ -111,47 +139,41 @@
 				>
 					<Table2 class="text-primary shrink-0" size={16} />
 					<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
-					{#if dbTableActionsFactory}
-						{@const dbTableActions = dbTableActionsFactory.map((f) =>
-							f({
-								tableKey: `${selected.schemaKey}.${tableKey}`,
-								refresh: refresh ?? (() => {})
-							})
-						)}
-						<DropdownV2
-							items={() =>
-								dbTableActions.map((tableAction) => ({
-									displayName: tableAction.displayName,
-									...(tableAction.icon ? { icon: tableAction.icon } : {}),
-									action: () =>
-										(askingForConfirmation = {
-											title: tableAction.confirmTitle ?? 'Are you sure ?',
-											confirmationText: tableAction.confirmBtnText ?? 'Confirm',
-											open: true,
-											onConfirm: async () => {
-												askingForConfirmation && (askingForConfirmation.loading = true)
-												try {
-													await tableAction.action()
-													tableAction.successText && sendUserToast(tableAction.successText)
-												} catch (e) {
-													let msg: string | undefined = (e as Error).message
-													if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
-													sendUserToast(msg ?? 'Action failed!', true)
-												}
-												askingForConfirmation = undefined
+					<DropdownV2
+						items={() => [
+							{
+								displayName: 'Delete table',
+								icon: Trash2Icon,
+								action: () =>
+									(askingForConfirmation = {
+										title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
+										confirmationText: 'Delete permanently',
+										open: true,
+										onConfirm: async () => {
+											askingForConfirmation && (askingForConfirmation.loading = true)
+											try {
+												await dbSchemaOps.onDelete({ tableKey, schema: selected.schemaKey })
+												refresh?.()
+												sendUserToast(`Table '${tableKey}' deleted successfully`)
+											} catch (e) {
+												let msg: string | undefined = (e as Error).message
+												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+												sendUserToast(msg ?? 'Action failed!', true)
 											}
-										})
-								}))}
-							class="w-fit"
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<MoreVertical
-									size={8}
-									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-								/>
-							</svelte:fragment>
-						</DropdownV2>
-					{/if}
+											askingForConfirmation = undefined
+										}
+									})
+							}
+						]}
+						class="w-fit"
+					>
+						<svelte:fragment slot="buttonReplacement">
+							<MoreVertical
+								size={8}
+								class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
+							/>
+						</svelte:fragment>
+					</DropdownV2>
 				</button>
 			{/each}
 		</div>
@@ -159,6 +181,7 @@
 			on:click={() => (dbTableEditorState = { open: true })}
 			wrapperClasses="mx-2 my-2 text-sm"
 			startIcon={{ icon: Plus }}
+			variant={tableKeys.length === 0 ? 'accent' : 'default'}
 		>
 			New table
 		</Button>
@@ -175,31 +198,30 @@
 	</Pane>
 </Splitpanes>
 
-<ConfirmationModal
-	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-	on:canceled={() => (askingForConfirmation = undefined)}
-	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
-/>
+<Portal>
+	<ConfirmationModal
+		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+		on:canceled={() => (askingForConfirmation = undefined)}
+		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+	/>
+</Portal>
 
-{#if dbTableEditorProps}
-	<Drawer
-		size="600px"
-		open={dbTableEditorState.open}
-		on:close={() => (dbTableEditorState = { open: false })}
-	>
-		<DrawerContent
-			on:close={() => (dbTableEditorState = { open: false })}
-			title="Create a new table"
-		>
-			<DbTableEditor
-				{...dbTableEditorProps}
-				{dbSchema}
-				currentSchema={selected.schemaKey}
-				onConfirm={async (values) => {
-					await dbTableEditorProps.onConfirm(values)
-					dbTableEditorState = { open: false }
-				}}
-			/>
-		</DrawerContent>
-	</Drawer>
-{/if}
+<Drawer
+	size="600px"
+	open={dbTableEditorState.open}
+	on:close={() => (dbTableEditorState = { open: false })}
+>
+	<DrawerContent on:close={() => (dbTableEditorState = { open: false })} title="Create a new table">
+		<DbTableEditor
+			{dbSchema}
+			currentSchema={selected.schemaKey}
+			onConfirm={async (values) => {
+				await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+				refresh?.()
+				dbTableEditorState = { open: false }
+			}}
+			{dbType}
+			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
+		/>
+	</DrawerContent>
+</Drawer>

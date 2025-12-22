@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy'
-
 	import {
 		type Job,
 		JobService,
@@ -10,7 +8,6 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
 	import { runFlowPreview } from './flows/utils.svelte'
@@ -18,15 +15,7 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import {
-		AlertTriangle,
-		ArrowRight,
-		CornerDownLeft,
-		Loader2,
-		Play,
-		RefreshCw,
-		X
-	} from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Loader2, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
@@ -37,6 +26,8 @@
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
 	import FlowChat from './flows/conversations/FlowChat.svelte'
+	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
+	import FlowRestartButton from './FlowRestartButton.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -128,11 +119,10 @@
 	})
 
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
-		const previewFlow = flowStore.val
 		if (previewMode === 'whole') {
-			return previewFlow
+			return flowStore.val
 		} else {
-			const flow = previewFlow
+			const flow = stateSnapshot(flowStore).val as OpenFlow
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
 			let upToIndex = idOrders.indexOf(upToId ?? selectionManager.getSelectedId() ?? '')
 
@@ -333,98 +323,19 @@
 			{:else}
 				<div class="grow justify-center flex flex-row gap-2">
 					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
-						{#if selectedJobStepType == 'single'}
-							<Button
-								unifiedSize="md"
-								variant="default"
-								title={`Re-start this flow from step ${selectedJobStep} (included).`}
-								on:click={() => {
-									runPreview(previewArgs.val, {
-										flow_job_id: jobId,
-										step_id: selectedJobStep,
-										branch_or_iteration_n: 0
-									})
-								}}
-								startIcon={{ icon: Play }}
-							>
-								Re-start from
-								<Badge baseClass="ml-1" color="indigo">
-									{selectedJobStep}
-								</Badge>
-							</Button>
-						{:else}
-							<Popover
-								floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-								contentClasses="p-4"
-							>
-								{#snippet button()}
-									<Button
-										title={`Re-start this flow from step ${selectedJobStep} (included).`}
-										variant="default"
-										startIcon={{ icon: RefreshCw }}
-										on:click={() => {
-											runPreview(previewArgs.val, {
-												flow_job_id: jobId,
-												step_id: selectedJobStep,
-												branch_or_iteration_n: 0
-											})
-										}}
-										nonCaptureEvent={true}
-									>
-										Re-start from
-										<Badge baseClass="ml-1" color="indigo">
-											{selectedJobStep}
-										</Badge>
-									</Button>
-								{/snippet}
-								{#snippet content()}
-									<label class="block text-primary p-4">
-										<div class="pb-1 text-sm text-secondary"
-											>{selectedJobStepType == 'forloop'
-												? 'From iteration #:'
-												: 'From branch:'}</div
-										>
-										<div class="flex w-full">
-											{#if selectedJobStepType === 'forloop'}
-												<input
-													type="number"
-													min="0"
-													bind:value={branchOrIterationN}
-													class="!w-32 grow"
-													onclick={stopPropagation(() => {})}
-												/>
-											{:else}
-												<select
-													bind:value={branchOrIterationN}
-													class="!w-32 grow"
-													onclick={stopPropagation(() => {})}
-												>
-													{#each restartBranchNames as [branchIdx, branchName]}
-														<option value={branchIdx}>{branchName}</option>
-													{/each}
-												</select>
-											{/if}
-											<Button
-												size="xs"
-												color="blue"
-												buttonType="button"
-												btnClasses="!p-1 !w-[34px] !ml-1"
-												aria-label="Restart flow"
-												on:click|once={() => {
-													runPreview(previewArgs.val, {
-														flow_job_id: jobId,
-														step_id: selectedJobStep,
-														branch_or_iteration_n: branchOrIterationN
-													})
-												}}
-											>
-												<ArrowRight size={18} />
-											</Button>
-										</div>
-									</label>
-								{/snippet}
-							</Popover>
-						{/if}
+						<FlowRestartButton
+							{jobId}
+							{selectedJobStep}
+							{selectedJobStepType}
+							{restartBranchNames}
+							onRestart={(stepId, branchOrIterationN) => {
+								runPreview(previewArgs.val, {
+									flow_job_id: jobId,
+									step_id: stepId,
+									branch_or_iteration_n: branchOrIterationN
+								})
+							}}
+						/>
 					{/if}
 					{#if !flowStore.val.value?.chat_input_enabled}
 						<Button

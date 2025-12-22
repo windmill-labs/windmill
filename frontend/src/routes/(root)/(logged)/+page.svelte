@@ -34,6 +34,7 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
 	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
 	import { onMount, setContext } from 'svelte'
 	import { tutorialsToDo } from '$lib/stores'
@@ -258,6 +259,7 @@
 	</DrawerContent>
 </Drawer>
 
+<ForkWorkspaceBanner />
 <div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit">
 	{#if $workspaceStore == 'admins'}
 		<div class="my-4"></div>

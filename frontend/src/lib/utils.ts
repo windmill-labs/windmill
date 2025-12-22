@@ -1465,15 +1465,9 @@ export function getOS() {
 	return 'Unknown OS' as const
 }
 
-import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
 import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
-
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs))
-}
 
 export type StateStore<T> = {
 	val: T
@@ -1689,4 +1683,118 @@ export function getJobKindIcon(jobKind: Job['job_kind']) {
 	} else if (jobKind === 'aiagent') {
 		return Bot
 	} else if (jobKind) return Code
+}
+
+export function chunkBy<T>(array: T[], getKey: (key: T) => string): T[][] {
+	const chunks: T[][] = []
+
+	for (const item of array) {
+		const key = getKey(item)
+		let lastChunk = chunks[chunks.length - 1]
+
+		if (!lastChunk || getKey(lastChunk[0]) !== key) {
+			lastChunk = []
+			chunks.push(lastChunk)
+		}
+
+		lastChunk.push(item)
+	}
+
+	return chunks
+}
+
+// AI generated
+export function getQueryStmtCountHeuristic(query: string): number {
+	// Handle empty or whitespace-only strings
+	if (query.trim() === '') {
+		return 0
+	}
+
+	let count = 0
+	let currState: 'normal' | 'single-quote' | 'double-quote' | 'line-comment' | 'block-comment' =
+		'normal'
+	let hasContentAfterLastSemicolon = false
+
+	for (let i = 0; i < query.length; i++) {
+		const char = query[i]
+		const nextChar = query[i + 1]
+
+		switch (currState) {
+			case 'normal':
+				if (char === "'") {
+					currState = 'single-quote'
+					hasContentAfterLastSemicolon = true
+				} else if (char === '"') {
+					currState = 'double-quote'
+					hasContentAfterLastSemicolon = true
+				} else if (char === '-' && nextChar === '-') {
+					currState = 'line-comment'
+					i++ // skip next char
+				} else if (char === '/' && nextChar === '*') {
+					currState = 'block-comment'
+					hasContentAfterLastSemicolon = true
+					i++ // skip next char
+				} else if (char === ';') {
+					count++
+					hasContentAfterLastSemicolon = false
+				} else if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+					// Non-whitespace character means we have content
+					hasContentAfterLastSemicolon = true
+				}
+				break
+
+			case 'single-quote':
+				if (char === "'") {
+					// In SQL, '' is an escaped single quote
+					if (nextChar === "'") {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'double-quote':
+				if (char === '"') {
+					// In SQL, "" is an escaped double quote
+					if (nextChar === '"') {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'line-comment':
+				if (char === '\n') {
+					currState = 'normal'
+				}
+				break
+
+			case 'block-comment':
+				if (char === '*' && nextChar === '/') {
+					currState = 'normal'
+					i++ // skip next char
+				}
+				break
+		}
+	}
+
+	// Count implicit final statement if:
+	// 1. We're in normal state and query doesn't end with semicolon, OR
+	// 2. We're in a quote state (unclosed quote) - there's an implicit statement
+	// 3. We're in a block comment state - there's an implicit statement before the unclosed comment
+	// 4. We're in a line comment state and we had content after the last semicolon before entering the comment
+	const trimmedQuery = query.trimEnd()
+	if (currState === 'normal' && trimmedQuery !== '' && !trimmedQuery.endsWith(';')) {
+		count++
+	} else if (currState === 'single-quote' || currState === 'double-quote' || currState === 'block-comment') {
+		// Unclosed quote or unclosed block comment means there's an implicit statement
+		count++
+	} else if (currState === 'line-comment' && hasContentAfterLastSemicolon) {
+		// Line comment with content before it means there's an implicit statement
+		count++
+	}
+
+	return count
 }

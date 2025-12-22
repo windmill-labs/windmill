@@ -58,6 +58,9 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import Toggle from './Toggle.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
+	import { resource, watch } from 'runed'
 
 	interface Props {
 		// Exported
@@ -147,6 +150,12 @@
 		shellcheck: false
 	})
 
+	let inferAssetsRes = resource([() => lang, () => code, () => code], () => inferAssets(lang, code))
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => inferAssetsRes.current?.sql_queries,
+		() => $workspaceStore
+	)
+
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -155,35 +164,34 @@
 			dispatch('change', { code, schema })
 	})
 
-	$effect(() => {
-		;[lang, code]
-		untrack(() => {
-			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
-				for (const asset of newAssets) {
-					const old = assets?.find((a) => assetEq(a, asset))
-					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
-				}
-				assets = newAssets
-			})
+	watch(
+		() => inferAssetsRes.current,
+		() => {
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
+			for (const asset of newAssets) {
+				const old = assets?.find((a) => assetEq(a, asset))
+				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+			}
+			if (!deepEqual(assets, newAssets)) assets = newAssets
+		}
+	)
 
-			if (lang === 'ansible') {
-				inferAnsibleExecutionMode(code).then((v) => {
-					if (
-						v !== undefined &&
-						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !==
-								ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !==
-								ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !==
-								ansibleAlternativeExecutionMode?.inventories_location ||
-							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
-							v.git_ssh_identity !== ansibleGitSshIdentity)
-					) {
-						ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
-						ansibleGitSshIdentity = v.git_ssh_identity
-					}
-				})
+	watch([() => code, () => lang], () => {
+		if (lang !== 'ansible') return
+		inferAnsibleExecutionMode(code).then((v) => {
+			if (
+				v !== undefined &&
+				(v.delegate_to_git_repo_details === null ||
+					v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
+					v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
+					v.delegate_to_git_repo_details.inventories_location !==
+						ansibleAlternativeExecutionMode?.inventories_location ||
+					v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
+					v.git_ssh_identity !== ansibleGitSshIdentity)
+			) {
+				ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
+				ansibleGitSshIdentity = v.git_ssh_identity
 			}
 		})
 	})
@@ -906,6 +914,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
+				preparedAssetsSqlQueries={preparedSqlQueries.current}
 			/>
 			<DiffEditor
 				className="h-full"

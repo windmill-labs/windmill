@@ -55,7 +55,7 @@
 		// Loop is still iterating
 		if (module?.iterator) {
 			const stepIndex = module.iterator.index || 0
-			const stepLength = module.iterator.itered?.length || 0
+			const stepLength = module.iterator.itered_len || 0
 			if (module.iterator.index != undefined) {
 				subStepIndex = stepIndex
 				subStepLength = stepLength

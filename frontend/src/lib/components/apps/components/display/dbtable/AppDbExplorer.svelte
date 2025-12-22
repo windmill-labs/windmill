@@ -238,7 +238,8 @@
 					dbPath.split('$res:')[1],
 					$workspaceStore,
 					dbSchemas,
-					() => {}
+					() => {},
+					{ useLegacyScripts: true }
 				)
 			}
 

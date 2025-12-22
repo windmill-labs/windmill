@@ -30,17 +30,18 @@ use tokio::task::JoinHandle;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-
 #[cfg(feature = "benchmark")]
 use windmill_common::add_time;
+use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::jobs::{
-    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, JobTriggerKind,
-    EMAIL_ERROR_HANDLER_USER_EMAIL,
+use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
+    RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{configure_client, now_from_db};
@@ -756,6 +757,7 @@ pub async fn add_completed_job_error(
         false,
         false,
     )
+    .warn_after_seconds(10)
     .await?;
     Ok(result)
 }
@@ -812,6 +814,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             has_stream,
             from_cache,
         )
+        .warn_after_seconds(10)
     })
     .retry(
         ConstantBuilder::default()
@@ -872,7 +875,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin().warn_after_seconds(10).await?;
 
     let job_id = queued_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
@@ -927,6 +930,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $10 */ result_columns as Option<&Vec<String>>,
         )
         .fetch_optional(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
 
@@ -938,6 +942,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             job_id
         )
         .fetch_one(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
         .unwrap_or(false);
@@ -963,6 +968,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             labels as Vec<String>
         )
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
@@ -986,6 +992,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 parent_job
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await
             .inspect_err(|e| {
                 tracing::error!(
@@ -998,7 +1005,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).await?;
+    tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
     if queued_job.is_flow_step() {
@@ -1019,13 +1026,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 &queued_job.workspace_id
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await?;
             if flow_is_done {
                 let r = sqlx::query_scalar!(
                     "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                     parent_job,
                     &queued_job.id
-                ).fetch_optional(&mut *tx).await?;
+                ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
                 if r.is_some() {
                     tracing::info!(
                             "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
@@ -1039,8 +1047,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             let schedule_path = queued_job.schedule_path().unwrap();
             let script_path = queued_job.runnable_path.as_ref().unwrap();
 
-            let schedule =
-                get_schedule_opt(&mut *tx, &queued_job.workspace_id, &schedule_path).await?;
+            let schedule = get_schedule_opt(&mut *tx, &queued_job.workspace_id, &schedule_path)
+                .warn_after_seconds(10)
+                .await?;
 
             if let Some(schedule) = schedule {
                 #[cfg(feature = "enterprise")]
@@ -1072,6 +1081,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             &queued_job.workspace_id
                         )
                         .fetch_optional(&mut *tx)
+                        .warn_after_seconds(10)
                         .await?
                         .flatten()
                         .unwrap_or(false);
@@ -1084,6 +1094,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         &script_path,
                         &queued_job.workspace_id,
                     ))
+                    .warn_after_seconds(10)
                     .await
                     {
                         match err {
@@ -1106,6 +1117,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     queued_job.started_at.unwrap_or(chrono::Utc::now()),
                     queued_job.priority,
                 )
+                .warn_after_seconds(10)
                 .await
                 {
                     if !success {
@@ -1122,6 +1134,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                                         err
                                     ),
                                 )
+                                .warn_after_seconds(10)
                                 .await;
                         }
                     } else {
@@ -1136,7 +1149,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             }
         }
     }
-    if queued_job.concurrent_limit.is_some() {
+
+    if queued_job.concurrent_limit.is_some()
+        || RunnableSettings::prefetch_cached_from_handle(queued_job.runnable_settings_handle, db)
+            .await?
+            .1
+            .concurrent_limit
+            .is_some()
+    {
         let concurrency_key = concurrency_key(db, &queued_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
@@ -1148,6 +1168,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 queued_job.id.hyphenated().to_string(),
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
@@ -1162,6 +1183,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             queued_job.id,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await
         {
             tracing::error!(
@@ -1174,15 +1196,17 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await?;
 
     if !success || has_stream {
         sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await?;
     }
 
-    tx.commit().await?;
+    tx.commit().warn_after_seconds(10).await?;
 
     tracing::info!(
         %job_id,
@@ -1992,10 +2016,10 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    pub runnable_settings_handle: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-
 pub struct MiniCompletedJob {
     pub id: Uuid,
     pub workspace_id: String,
@@ -2019,6 +2043,7 @@ pub struct MiniCompletedJob {
     pub tag: String,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
 }
 
 impl From<QueuedJobV2> for MiniCompletedJob {
@@ -2045,6 +2070,7 @@ impl From<QueuedJobV2> for MiniCompletedJob {
             tag: job.tag,
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2074,6 +2100,7 @@ impl From<MiniPulledJob> for MiniCompletedJob {
             tag: job.tag,
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2102,6 +2129,7 @@ impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
             tag: job.tag.clone(),
             cache_ttl: job.cache_ttl,
             cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
         }
     }
 }
@@ -2196,6 +2224,7 @@ impl MiniPulledJob {
             pre_run_error: job.pre_run_error.clone(),
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
+            runnable_settings_handle: job.runnable_settings_handle,
             flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
             root_job: None,
             timeout: job.timeout.clone(),
@@ -2245,7 +2274,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
+#[derive(sqlx::FromRow, Debug, Clone)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -2389,6 +2418,7 @@ pub async fn get_mini_pulled_job<'c>(
         v2_job.parent_job,
         v2_job.created_by,
         v2_job_queue.started_at,
+        v2_job_queue.runnable_settings_handle,
         scheduled_for,
         runnable_path,
         kind as \"kind: JobKind\",
@@ -2448,6 +2478,7 @@ pub struct QueuedJobV2 {
     pub tag: String,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
     pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
     pub worker: Option<String>,
     pub memory_peak: Option<i32>,
@@ -2466,19 +2497,46 @@ pub async fn get_queued_job_v2<'c>(
 ) -> error::Result<Option<QueuedJobV2>> {
     let job = sqlx::query_as!(
         QueuedJobV2,
-        "SELECT id, q.workspace_id, j.runnable_id as \"runnable_id: ScriptHash\", scheduled_for, parent_job, flow_innermost_root_job, runnable_path, kind as \"kind: JobKind\", started_at, permissioned_as, created_by, script_lang as \"script_lang: ScriptLang\", 
-        permissioned_as_email, flow_step_id, trigger_kind as \"trigger_kind: JobTriggerKind\", trigger, q.priority, concurrent_limit, q.tag, cache_ttl, cache_ignore_s3_path, r.ping as last_ping, worker, memory_peak, running
-             FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
-            WHERE j.id = $1",
+        r#"SELECT
+                id,
+                q.runnable_settings_handle,
+                q.workspace_id,
+                j.runnable_id as "runnable_id: ScriptHash",
+                scheduled_for,
+                parent_job,
+                flow_innermost_root_job,
+                runnable_path,
+                kind as "kind: JobKind",
+                started_at,
+                permissioned_as,
+                created_by,
+                script_lang as "script_lang: ScriptLang",
+                permissioned_as_email,
+                flow_step_id,
+                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger,
+                q.priority,
+                concurrent_limit,
+                q.tag,
+                cache_ttl,
+                cache_ignore_s3_path,
+                r.ping as last_ping,
+                worker,
+                memory_peak,
+                running
+            FROM v2_job_queue q
+                JOIN v2_job j USING (id)
+                LEFT JOIN v2_job_runtime r USING (id)
+                LEFT JOIN v2_job_status s USING (id)
+            WHERE j.id = $1"#,
         job_id,
-
     )
     .fetch_optional(e)
     .await?;
     Ok(job)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
@@ -2667,6 +2725,7 @@ impl PulledJobResult {
                             base_hash,
                             &pulled_job.workspace_id,
                             deployment_message,
+                            db,
                             &mut tx,
                         )
                         .await?;
@@ -2786,6 +2845,7 @@ impl PulledJobResult {
     }
 }
 
+// TODO: Factorize
 /// Pull the job from queue
 pub async fn pull(
     db: &Pool<Postgres>,
@@ -2858,21 +2918,39 @@ pub async fn pull(
                     }
                 }
 
+                #[cfg(feature = "private")]
+                let concurrency_settings = if let Some(ref j) = job {
+                    RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
+                        .await?
+                        .prefetch_cached(db)
+                        .await?
+                        .1
+                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                } else {
+                    Default::default()
+                };
+
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if job.concurrent_limit.is_some()
+                        if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
-                        crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, job)
-                            .await?
-                            .unwrap_or(PulledJobResult {
-                                job: None,
-                                suspended,
-                                missing_concurrency_key: false,
-                                error_while_preprocessing: None,
-                            })
+                        crate::jobs_ee::apply_concurrency_limit(
+                            db,
+                            pull_loop_count,
+                            suspended,
+                            job,
+                            &concurrency_settings,
+                        )
+                        .await?
+                        .unwrap_or(PulledJobResult {
+                            job: None,
+                            suspended,
+                            missing_concurrency_key: false,
+                            error_while_preprocessing: None,
+                        })
                     }
                     _ => PulledJobResult {
                         job,
@@ -2905,7 +2983,15 @@ pub async fn pull(
             });
         };
 
-        let has_concurent_limit = job.concurrent_limit.is_some();
+        let concurrency_settings =
+            RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?
+                .1
+                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+
+        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -2941,9 +3027,14 @@ pub async fn pull(
         if cfg!(feature = "enterprise")
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
-            if let Some(pulled_job_res) =
-                crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
-                    .await?
+            if let Some(pulled_job_res) = crate::jobs_ee::apply_concurrency_limit(
+                db,
+                pull_loop_count,
+                suspended,
+                pulled_job,
+                &concurrency_settings,
+            )
+            .await?
             {
                 return Ok(pulled_job_res);
             }
@@ -3624,7 +3715,7 @@ pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> 
             MiniCompletedJob,
             "SELECT 
             j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
-            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
             FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
             WHERE j.id = $1 AND j.workspace_id = $2",
             id,
@@ -4080,12 +4171,7 @@ pub async fn push<'c, 'd>(
         cache_ignore_s3_path,
         dedicated_worker,
         _low_level_priority,
-        concurrency_settings:
-            ConcurrencySettings {
-                mut concurrency_key,
-                mut concurrent_limit,
-                concurrency_time_window_s, //
-            },
+        mut concurrency_settings,
         debouncing_settings,
     } = match job_payload {
         JobPayload::ScriptHash {
@@ -4293,6 +4379,7 @@ pub async fn push<'c, 'd>(
                             restarted_from_val.flow_job_id,
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
+                            restarted_from_val.flow_version,
                         )
                         .await?;
                     FlowStatus {
@@ -4314,6 +4401,7 @@ pub async fn push<'c, 'd>(
                             flow_job_id: restarted_from_val.flow_job_id,
                             step_id: restarted_from_val.step_id,
                             branch_or_iteration_n: restarted_from_val.branch_or_iteration_n,
+                            flow_version: restarted_from_val.flow_version,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -4551,7 +4639,7 @@ pub async fn push<'c, 'd>(
 
                 concurrency_settings.concurrent_limit = None;
                 // TODO: May be re-enable?
-                debouncing_settings.delay_s = None;
+                debouncing_settings.debounce_delay_s = None;
 
                 preprocessed = Some(false);
             }
@@ -4588,7 +4676,12 @@ pub async fn push<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
+        JobPayload::RestartedFlow {
+            completed_job_id,
+            step_id,
+            branch_or_iteration_n,
+            flow_version,
+        } => {
             let (
                 version,
                 flow_path,
@@ -4603,6 +4696,7 @@ pub async fn push<'c, 'd>(
                 completed_job_id,
                 step_id.as_str(),
                 branch_or_iteration_n,
+                flow_version,
             )
             .await?;
 
@@ -4625,6 +4719,7 @@ pub async fn push<'c, 'd>(
                     flow_job_id: completed_job_id,
                     step_id,
                     branch_or_iteration_n,
+                    flow_version,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -4692,8 +4787,8 @@ pub async fn push<'c, 'd>(
             && !*WMDEBUG_NO_DJOB_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
-        concurrent_limit = Some(1);
+        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_settings.concurrent_limit = Some(1);
     }
 
     let final_priority: Option<i16>;
@@ -5018,8 +5113,8 @@ pub async fn push<'c, 'd>(
     if schedule_path.is_none() {
         if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
             &job_id,
-            debouncing_settings.delay_s,
-            debouncing_settings.custom_key,
+            debouncing_settings.debounce_delay_s,
+            debouncing_settings.debounce_key.clone(),
             workspace_id,
             runnable_path.clone(),
             &job_kind,
@@ -5040,13 +5135,13 @@ pub async fn push<'c, 'd>(
         )
         .unzip();
 
-    if concurrent_limit.is_some() {
+    if concurrency_settings.concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
             &args,
             &runnable_path,
             job_kind,
-            concurrency_key,
+            concurrency_settings.concurrency_key.clone(),
             &mut tx,
             job_id,
         )
@@ -5140,14 +5235,56 @@ pub async fn push<'c, 'd>(
         (job_kind, scheduled_for_o)
     };
 
+    let runnable_settings_handle = RunnableSettings {
+        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
+    }
+    .insert_cached(_db)
+    .await?;
+
+    let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
+        if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {
+            (None, None)
+        } else {
+            (
+                concurrency_settings.concurrent_limit,
+                concurrency_settings.concurrency_time_window_s,
+            )
+        };
     sqlx::query!(
         "WITH inserted_job AS (
-            INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-                created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            INSERT INTO v2_job (
+                id, -- 1
+                workspace_id, -- 2
+                raw_code, -- 3
+                raw_lock, -- 4
+                raw_flow, -- 5
+                tag, -- 6
+                parent_job, -- 7
+                created_by, -- 8
+                permissioned_as, -- 9
+                runnable_id, -- 10
+                runnable_path, -- 11
+                args, -- 12
+                kind, -- 13
+                trigger, -- 14
+                script_lang, -- 15
+                same_worker, -- 16
+                pre_run_error, -- 17 
+                permissioned_as_email, -- 18
+                visible_to_owner, -- 19
+                flow_innermost_root_job, -- 20
+                root_job, -- 38
+                concurrent_limit, -- 21
+                concurrency_time_window_s, -- 22
+                timeout, -- 23
+                flow_step_id, -- 24
+                cache_ttl, -- 25
+                priority, -- 26
+                trigger_kind, -- 39
+                script_entrypoint_override, -- 12
+                preprocessed -- 27,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
@@ -5160,8 +5297,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42, $43)",
         job_id,
         workspace_id,
         raw_code,
@@ -5182,12 +5319,8 @@ pub async fn push<'c, 'd>(
         email,
         visible_to_owner,
         flow_innermost_root_job,
-        concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
-        } else {
-            None
-        },
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
         custom_timeout,
         flow_step_id,
         cache_ttl,
@@ -5208,10 +5341,13 @@ pub async fn push<'c, 'd>(
         running,
         end_user_email,
         cache_ignore_s3_path,
+        runnable_settings_handle,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    // RunnableSettings::insert(RunnableType::Job)
 
     //     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     //     let uuid = sqlx::query_scalar!(
@@ -5396,12 +5532,118 @@ pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
+/// Helper function to create a restarted module for branch/iteration restart
+fn create_restarted_module(
+    module: &FlowStatusModule,
+    module_definition: &FlowModule,
+    branch_or_iteration_n: usize,
+    restart_step_id: &str,
+) -> Result<FlowStatusModule, Error> {
+    match module_definition.get_value() {
+        Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
+            if parallel {
+                return Err(Error::internal_err(format!(
+                    "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
+                    restart_step_id,
+                )));
+            }
+            let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+            if total_branch_number <= branch_or_iteration_n {
+                return Err(Error::internal_err(format!(
+                    "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
+                    restart_step_id, total_branch_number, branch_or_iteration_n,
+                )));
+            }
+            let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+            new_flow_jobs.truncate(branch_or_iteration_n);
+            let mut new_flow_jobs_success = module.flow_jobs_success();
+            if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                new_flow_jobs_success.truncate(branch_or_iteration_n);
+            }
+            let mut new_flow_jobs_timeline = module.flow_jobs_duration();
+            if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
+                new_flow_jobs_timeline.truncate(branch_or_iteration_n);
+            }
+            Ok(FlowStatusModule::InProgress {
+                id: module.id(),
+                job: new_flow_jobs[new_flow_jobs.len() - 1],
+                iterator: None,
+                flow_jobs: Some(new_flow_jobs),
+                flow_jobs_success: new_flow_jobs_success,
+                flow_jobs_duration: new_flow_jobs_timeline,
+                branch_chosen: None,
+                branchall: Some(BranchAllStatus {
+                    branch: branch_or_iteration_n - 1,
+                    len: branches.len(),
+                }),
+                parallel,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+            })
+        }
+        Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
+            if parallel {
+                return Err(Error::internal_err(format!(
+                    "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
+                    restart_step_id,
+                )));
+            }
+            let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+            if total_iterations <= branch_or_iteration_n {
+                return Err(Error::internal_err(format!(
+                    "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
+                    restart_step_id,
+                    branch_or_iteration_n,
+                    total_iterations,
+                )));
+            }
+            let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+            new_flow_jobs.truncate(branch_or_iteration_n);
+            let mut new_flow_jobs_success = module.flow_jobs_success();
+            if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                new_flow_jobs_success.truncate(branch_or_iteration_n);
+            }
+            let mut new_flow_jobs_timeline = module.flow_jobs_duration();
+            if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
+                new_flow_jobs_timeline.truncate(branch_or_iteration_n);
+            }
+            Ok(FlowStatusModule::InProgress {
+                id: module.id(),
+                job: new_flow_jobs[new_flow_jobs.len() - 1],
+                iterator: Some(FlowIterator {
+                    index: branch_or_iteration_n - 1,
+                    itered: None,
+                    itered_len: None,
+                }),
+                flow_jobs: Some(new_flow_jobs),
+                flow_jobs_success: new_flow_jobs_success,
+                flow_jobs_duration: new_flow_jobs_timeline,
+                branch_chosen: None,
+                branchall: None,
+                parallel,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+            })
+        }
+        _ => Err(Error::internal_err(format!(
+            "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
+            restart_step_id, branch_or_iteration_n
+        ))),
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
     completed_flow_id: Uuid,
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
+    flow_version: Option<i64>,
+    // parents: Vec<RestartedParent>,
 ) -> Result<
     (
         Option<i64>,
@@ -5433,9 +5675,24 @@ async fn restarted_flows_resolution(
         ))
     })?;
 
-    let flow_data = cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
-        .or_else(|_| cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow))
-        .await?;
+    let current_flow_version = row.script_hash.map(|x| x.0);
+    let is_version_change = flow_version.is_some()
+        && current_flow_version.is_some()
+        && flow_version != current_flow_version
+        && row.job_kind == JobKind::Flow;
+
+    let flow_data = if is_version_change {
+        // Fetch the new flow version
+        let new_version = flow_version.unwrap();
+        cache::flow::fetch_version(db, new_version).await?
+    } else {
+        cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
+            .or_else(|_| {
+                cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow)
+            })
+            .await?
+    };
+
     let flow_value = flow_data.value();
     let flow_status = row
         .flow_status
@@ -5449,137 +5706,93 @@ async fn restarted_flows_resolution(
     let mut step_n = 0;
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
-    for module in flow_status.modules {
-        let Some(module_definition) = flow_value
-            .modules
-            .iter()
-            .find(|flow_value_module| flow_value_module.id == module.id())
-        else {
-            // skip module as it doesn't appear in the flow_value anymore
-            continue;
-        };
-        if module.id() == restart_step_id {
-            // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-            // set the module as WaitingForPriorSteps as it needs to be re-run
-            if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
-                // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
-                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
-            } else {
-                // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
-                let branch_or_iteration_n = branch_or_iteration_n.unwrap();
 
-                match module_definition.get_value() {
-                    Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
-                        if parallel {
-                            return Err(Error::internal_err(format!(
-                                "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
-                                restart_step_id,
-                            )));
-                        }
-                        let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
-                        if total_branch_number <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
-                                "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
-                                restart_step_id,
-                                total_branch_number,
-                                branch_or_iteration_n,
-                            )));
-                        }
-                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
-                        new_flow_jobs.truncate(branch_or_iteration_n);
-                        let mut new_flow_jobs_success = module.flow_jobs_success();
-                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
-                            new_flow_jobs_success.truncate(branch_or_iteration_n);
-                        }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
-                        if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
-                            new_flow_jobs_timeline.truncate(branch_or_iteration_n);
-                        }
-                        truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
-                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
-                            iterator: None,
-                            flow_jobs: Some(new_flow_jobs),
-                            flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_duration: new_flow_jobs_timeline,
-                            branch_chosen: None,
-                            branchall: Some(BranchAllStatus {
-                                branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
-                                len: branches.len(),
-                            }),
-                            parallel,
-                            while_loop: false,
-                            progress: None,
-                            agent_actions: None,
-                            agent_actions_success: None,
-                        });
-                    }
-                    Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
-                        if parallel {
-                            return Err(Error::internal_err(format!(
-                                "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
-                                restart_step_id,
-                            )));
-                        }
-                        let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
-                        if total_iterations <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
-                                "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
-                                restart_step_id,
-                                branch_or_iteration_n,
-                                total_iterations,
-                            )));
-                        }
-                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
-                        new_flow_jobs.truncate(branch_or_iteration_n);
-                        let mut new_flow_jobs_success = module.flow_jobs_success();
-                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
-                            new_flow_jobs_success.truncate(branch_or_iteration_n);
-                        }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
-                        if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
-                            new_flow_jobs_timeline.truncate(branch_or_iteration_n);
-                        }
-                        truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
-                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
-                            iterator: Some(FlowIterator {
-                                index: branch_or_iteration_n - 1, // same deal as above, this refers to the last finished job
-                                itered: vec![], // Setting itered to empty array here, such that input transforms will be re-computed by worker_flows
-                            }),
-                            flow_jobs: Some(new_flow_jobs),
-                            flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_duration: new_flow_jobs_timeline,
-                            branch_chosen: None,
-                            branchall: None,
-                            parallel,
-                            while_loop: false,
-                            progress: None,
-                            agent_actions: None,
-                            agent_actions_success: None,
-                        });
-                    }
-                    _ => {
-                        return Err(Error::internal_err(format!(
-                            "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
+    if is_version_change {
+        // When the flow version has changed, create flow status from scratch
+        // based on the new flow, but match modules from the old flow status where possible
+        for module_definition in &flow_value.modules {
+            let module_id = &module_definition.id;
+
+            if module_id == restart_step_id {
+                // Mark this and all following modules as WaitingForPriorSteps
+                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+                } else {
+                    // Handle branch/iteration restart for version changes
+                    let branch_n = branch_or_iteration_n.unwrap();
+                    // Try to find matching module in old flow status
+                    if let Some(old_module) =
+                        flow_status.modules.iter().find(|m| &m.id() == module_id)
+                    {
+                        truncated_modules.push(create_restarted_module(
+                            old_module,
+                            module_definition,
+                            branch_n,
                             restart_step_id,
-                            branch_or_iteration_n
-                        )));
+                        )?);
+                    } else {
+                        // Module not found in old flow, mark as waiting
+                        truncated_modules
+                            .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
                     }
                 }
+                dependent_module = true;
+            } else if dependent_module {
+                truncated_modules
+                    .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+            } else {
+                // Before the restart step, try to match with old flow status
+                if let Some(old_module) = flow_status.modules.iter().find(|m| &m.id() == module_id)
+                {
+                    truncated_modules.push(old_module.clone());
+                } else {
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+                }
+                step_n += 1;
             }
-            dependent_module = true;
-        } else if dependent_module {
-            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
-        } else {
-            // else we simply "transfer" the module from the completed flow to the new one if it's a success
-            step_n = step_n + 1;
-            match module.clone() {
-                FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
-                _ => Err(Error::internal_err(format!(
-                    "Flow cannot be restarted from a non successful module",
-                ))),
-            }?;
+        }
+    } else {
+        // Original logic for same version
+        for module in flow_status.modules {
+            let Some(module_definition) = flow_value
+                .modules
+                .iter()
+                .find(|flow_value_module| flow_value_module.id == module.id())
+            else {
+                // skip module as it doesn't appear in the flow_value anymore
+                continue;
+            };
+            if module.id() == restart_step_id {
+                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                // set the module as WaitingForPriorSteps as it needs to be re-run
+                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+                } else {
+                    // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
+                    truncated_modules.push(create_restarted_module(
+                        &module,
+                        module_definition,
+                        branch_or_iteration_n.unwrap(),
+                        restart_step_id,
+                    )?);
+                }
+                dependent_module = true;
+            } else if dependent_module {
+                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            } else {
+                // else we simply "transfer" the module from the completed flow to the new one if it's a success
+                step_n = step_n + 1;
+                match module.clone() {
+                    FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
+                    _ => Err(Error::internal_err(format!(
+                        "Flow cannot be restarted from a non successful module",
+                    ))),
+                }?;
+            }
         }
     }
 
@@ -5592,7 +5805,11 @@ async fn restarted_flows_resolution(
     }
 
     Ok((
-        row.script_hash.map(|x| x.0),
+        if is_version_change {
+            flow_version
+        } else {
+            row.script_hash.map(|x| x.0)
+        },
         row.script_path,
         flow_data,
         step_n,
@@ -5718,6 +5935,7 @@ pub async fn get_same_worker_job(
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
                     v2_job_queue.cache_ignore_s3_path,
+                    v2_job_queue.runnable_settings_handle,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,

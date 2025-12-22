@@ -3,8 +3,14 @@ export type DbInput =
 			type: 'database'
 			resourceType: DbType
 			resourcePath: string
+			specificSchema?: string
+			specificTable?: string
 	  }
-	| { type: 'ducklake'; ducklake: string }
+	| {
+			type: 'ducklake'
+			ducklake: string
+			specificTable?: string
+	  }
 
 export type DbType = (typeof dbTypes)[number]
 export const dbTypes = [

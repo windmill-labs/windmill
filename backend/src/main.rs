@@ -71,6 +71,9 @@ use windmill_common::worker::CLOUD_HOSTED;
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
 
+#[cfg(any(target_os = "linux"))]
+use crate::cgroups::disable_oom_group;
+
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use tikv_jemallocator::Jemalloc;
 
@@ -108,6 +111,7 @@ const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
+mod cgroups;
 #[cfg(feature = "private")]
 pub mod ee;
 mod ee_oss;
@@ -506,6 +510,13 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     let worker_mode = num_workers > 0;
+
+    if worker_mode {
+        #[cfg(any(target_os = "linux"))]
+        if let Err(e) = disable_oom_group() {
+            tracing::warn!("failed to disable oom group: {:?}", e);
+        }
+    }
 
     let conn = if mode == Mode::Agent {
         conn

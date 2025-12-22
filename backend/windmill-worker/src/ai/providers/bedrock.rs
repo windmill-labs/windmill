@@ -56,6 +56,28 @@ impl BedrockClient {
         Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
     }
 
+    pub async fn from_credentials(
+        access_key_id: String,
+        secret_access_key: String,
+        region: &str,
+    ) -> Result<Self, Error> {
+        let credentials = aws_credential_types::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None, // session token
+            None, // expiration
+            "windmill",
+        );
+
+        let config = aws_sdk_bedrockruntime::config::Builder::new()
+            .region(aws_config::Region::new(region.to_string()))
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(credentials)
+            .build();
+
+        Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
+    }
+
     pub fn client(&self) -> &BedrockRuntimeClient {
         &self.client
     }
@@ -464,6 +486,7 @@ pub fn bedrock_response_to_openai(
                                 name: tool_use.name().to_string(),
                                 arguments,
                             },
+                            extra_content: None, // Bedrock doesn't use thought signatures
                         });
                     }
                     _ => {}
@@ -544,6 +567,7 @@ pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec
             id: tc.id,
             function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
             r#type: FUNCTION_TYPE.to_string(),
+            extra_content: None, // Bedrock doesn't use thought signatures
         })
         .collect()
 }
@@ -567,9 +591,21 @@ impl BedrockQueryBuilder {
         client: &AuthedClient,
         workspace_id: &str,
         structured_output_tool_name: Option<&str>,
+        aws_access_key_id: Option<&str>,
+        aws_secret_access_key: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
-        // Create Bedrock client with bearer token authentication
-        let bedrock_client = BedrockClient::from_bearer_token(api_key.to_string(), region).await?;
+        // Create Bedrock client - use IAM credentials if provided, otherwise fall back to bearer token
+        let bedrock_client = match (aws_access_key_id, aws_secret_access_key) {
+            (Some(access_key_id), Some(secret_access_key)) => {
+                BedrockClient::from_credentials(
+                    access_key_id.to_string(),
+                    secret_access_key.to_string(),
+                    region,
+                )
+                .await?
+            }
+            _ => BedrockClient::from_bearer_token(api_key.to_string(), region).await?,
+        };
 
         // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
         let prepared_messages = prepare_messages_for_api(messages, client, workspace_id).await?;
