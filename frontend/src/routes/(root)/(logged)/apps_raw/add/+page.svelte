@@ -214,20 +214,38 @@
 		}
 	})
 
-	// Generate default new schema name (appX where X is first unused number)
-	const defaultNewSchemaName = $derived.by(() => {
-		const existingSchemas = availableSchemas ?? []
+	// Generate unique schema name (appX where X is first unused number)
+	function generateUniqueSchemaName(existingSchemas: string[]): string {
 		let num = 1
 		while (existingSchemas.includes(`app${num}`)) {
 			num++
 		}
 		return `app${num}`
-	})
+	}
+
+	// Check if new schema name already exists
+	const newSchemaAlreadyExists = $derived(
+		schemaMode === 'new' &&
+			newSchemaName.trim() !== '' &&
+			(availableSchemas ?? []).includes(newSchemaName.trim())
+	)
+
+	// Track if the user has manually edited the schema name
+	let userEditedSchemaName = $state(false)
 
 	// Set default new schema name when schemas load or when switching to new mode
+	// Also auto-fix if the current name exists and was auto-generated (not user-edited)
 	$effect(() => {
-		if (schemaMode === 'new' && !newSchemaName) {
-			newSchemaName = defaultNewSchemaName
+		const schemas = availableSchemas ?? []
+		if (schemaMode === 'new') {
+			if (!newSchemaName) {
+				// Initial load: set default name
+				newSchemaName = generateUniqueSchemaName(schemas)
+				userEditedSchemaName = false
+			} else if (!userEditedSchemaName && schemas.includes(newSchemaName)) {
+				// Auto-generated name now exists (schemas reloaded), regenerate
+				newSchemaName = generateUniqueSchemaName(schemas)
+			}
 		}
 	})
 
@@ -237,6 +255,7 @@
 		if (previousDatatable !== undefined && selectedDatatable !== previousDatatable) {
 			selectedSchema = undefined
 			newSchemaName = ''
+			userEditedSchemaName = false
 		}
 		previousDatatable = selectedDatatable
 	})
@@ -398,42 +417,49 @@
 						<!-- Schema Selection: New or Existing -->
 						<div>
 							<span class="text-xs text-tertiary mb-1 block">Default Schema</span>
-							<div class="flex gap-2 items-center">
-								<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-									{#snippet children({ item })}
-										<ToggleButton
-											value="new"
-											label="New"
-											icon={Plus}
-											{item}
-											size="sm"
-										/>
-										<ToggleButton
-											value="existing"
-											label="Existing"
-											icon={List}
-											{item}
-											size="sm"
-										/>
-									{/snippet}
-								</ToggleButtonGroup>
+							<div class="flex flex-col gap-1">
+								<div class="flex gap-2 items-center">
+									<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+										{#snippet children({ item })}
+											<ToggleButton
+												value="new"
+												label="New"
+												icon={Plus}
+												{item}
+												size="sm"
+											/>
+											<ToggleButton
+												value="existing"
+												label="Existing"
+												icon={List}
+												{item}
+												size="sm"
+											/>
+										{/snippet}
+									</ToggleButtonGroup>
 
-								{#if schemaMode === 'new'}
-									<TextInput
-										bind:value={newSchemaName}
-										inputProps={{ placeholder: 'Schema name' }}
-										class="flex-1"
-									/>
-								{:else}
-									<div class="flex-1">
-										<Select
-											disablePortal
-											items={schemaItems}
-											bind:value={selectedSchema}
-											placeholder="Select schema"
-											size="sm"
+									{#if schemaMode === 'new'}
+										<TextInput
+											bind:value={newSchemaName}
+											inputProps={{ placeholder: 'Schema name' }}
+											class="flex-1"
+											error={newSchemaAlreadyExists}
+											on:input={() => (userEditedSchemaName = true)}
 										/>
-									</div>
+									{:else}
+										<div class="flex-1">
+											<Select
+												disablePortal
+												items={schemaItems}
+												bind:value={selectedSchema}
+												placeholder="Select schema"
+												size="sm"
+											/>
+										</div>
+									{/if}
+								</div>
+								{#if newSchemaAlreadyExists}
+									<span class="text-xs text-red-500">Schema "{newSchemaName}" already exists</span>
 								{/if}
 							</div>
 						</div>
@@ -507,7 +533,7 @@
 					color="light"
 					size="sm"
 					on:click={() => startApp(false)}
-					disabled={!templates[selectedTemplateIndex]}
+					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
 				>
 					Start without AI
 				</Button>
@@ -516,7 +542,9 @@
 						color="blue"
 						size="sm"
 						on:click={() => startApp(true)}
-						disabled={!templates[selectedTemplateIndex] || !initialPrompt.trim()}
+						disabled={!templates[selectedTemplateIndex] ||
+							!initialPrompt.trim() ||
+							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
 						endIcon={{ icon: ArrowRight }}
 					>
