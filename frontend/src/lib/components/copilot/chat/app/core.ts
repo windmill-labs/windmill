@@ -7,6 +7,7 @@ import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
 import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { aiChatManager } from '../AIChatManager.svelte'
 
 // Backend runnable types
 export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'inline'
@@ -101,6 +102,8 @@ export interface AppAIChatHelpers {
 	// Data table operations
 	/** Get all datatables configured in the app with their schemas */
 	getDatatables: () => Promise<DataTableInfo[]>
+	/** Get unique datatable names configured in the app (for UI policy selector) */
+	getAvailableDatatableNames: () => string[]
 	/** Execute a SQL query on a datatable. Optionally specify newTable to register a newly created table. */
 	execDatatableSql: (
 		datatableName: string,
@@ -742,6 +745,28 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		def: getExecDatatableSqlToolDef(),
 		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
 			const parsedArgs = getExecDatatableSqlSchema().parse(args)
+
+			// Enforce datatable creation policy when new_table is specified
+			if (parsedArgs.new_table) {
+				const policy = aiChatManager.datatableCreationPolicy
+				if (!policy.enabled) {
+					const errorMsg =
+						'Table creation is not allowed. The user has disabled the "New tables" option.'
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+				if (policy.datatable && policy.datatable !== parsedArgs.datatable_name) {
+					const errorMsg = `Table creation is only allowed on datatable "${policy.datatable}", but you tried to create on "${parsedArgs.datatable_name}".`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+				if (policy.schema && policy.schema !== parsedArgs.new_table.schema) {
+					const errorMsg = `Table creation is only allowed in schema "${policy.schema}", but you tried to create in "${parsedArgs.new_table.schema}".`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+			}
+
 			toolCallbacks.setToolStatus(toolId, {
 				content: `Executing SQL on "${parsedArgs.datatable_name}"...`
 			})

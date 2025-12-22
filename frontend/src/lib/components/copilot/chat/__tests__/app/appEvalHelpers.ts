@@ -112,6 +112,11 @@ export function createAppEvalHelpers(
 			return []
 		},
 
+		getAvailableDatatableNames: () => {
+			// Return empty array for eval testing - no real datatables in test context
+			return []
+		},
+
 		execDatatableSql: async (
 			_datatableName: string,
 			_sql: string,

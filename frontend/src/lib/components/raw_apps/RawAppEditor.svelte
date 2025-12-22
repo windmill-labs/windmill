@@ -459,6 +459,10 @@
 
 				return results
 			},
+			getAvailableDatatableNames: (): string[] => {
+				// Get unique datatable names from dataTableRefs
+				return [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+			},
 			execDatatableSql: async (
 				datatableName: string,
 				sql: string,
