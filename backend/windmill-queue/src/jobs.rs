@@ -2624,7 +2624,9 @@ impl PulledJobResult {
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
         {
             let needs_debounce = sqlx::query_scalar!(
-                "SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
+                "WITH _ AS (
+                    DELETE FROM debounce_key WHERE job_id = $1
+                ) SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
                 j_id,
             )
             .fetch_optional(db)
