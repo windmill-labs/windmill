@@ -313,7 +313,7 @@
 					<MessageCircle size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_WEBSEARCH_PREFIX)}
+				{:else if data.type === 'websearch'}
 					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />

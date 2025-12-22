@@ -80,6 +80,19 @@ class TestOutputSchema:
         assert result is not None
         # The result should be structured with a "result" field
         assert "sum" in result or "12" in str(result), f"Expected structured result with '12': {result}"
+
+        # For Anthropic and Bedrock, verify structured_output tool was used
+        if provider_config["name"] in ("anthropic", "bedrock"):
+            messages = result.get("messages", [])
+            has_structured_output_msg = any(
+                msg.get("role") == "tool" and
+                msg.get("content") == "Successfully ran structured_output tool"
+                for msg in messages
+            )
+            assert has_structured_output_msg, (
+                f"Expected 'Successfully ran structured_output tool' message for {provider_config['name']}: {messages}"
+            )
+
         print(f"Output schema with tool result from {provider_config['name']}: {result}")
 
     @pytest.mark.parametrize(
@@ -113,6 +126,19 @@ class TestOutputSchema:
         assert result is not None
         # The result should be structured with a "result" field
         assert "sum" in result or "12" in str(result), f"Expected structured result with '12': {result}"
+
+        # For Anthropic and Bedrock, verify structured_output tool was used
+        if provider_config["name"] in ("anthropic", "bedrock"):
+            messages = result.get("messages", [])
+            has_structured_output_msg = any(
+                msg.get("role") == "tool" and
+                msg.get("content") == "Successfully ran structured_output tool"
+                for msg in messages
+            )
+            assert has_structured_output_msg, (
+                f"Expected 'Successfully ran structured_output tool' message for {provider_config['name']}: {messages}"
+            )
+
         print(f"Output schema without tool result from {provider_config['name']}: {result}")
 
 

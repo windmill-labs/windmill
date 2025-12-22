@@ -181,7 +181,11 @@ pub enum AnthropicContentBlockStart {
     #[serde(rename = "tool_use")]
     ToolUse { id: String, name: String },
     #[serde(rename = "server_tool_use")]
-    ServerToolUse { _id: String, name: String },
+    ServerToolUse {
+        #[allow(unused)]
+        id: String,
+        name: String,
+    },
     #[serde(other)]
     Unknown,
 }

@@ -307,6 +307,22 @@ def create_rawscript_tool(
     }
 
 
+def create_websearch_tool() -> dict[str, Any]:
+    """
+    Create a websearch tool for AI agents.
+
+    Returns:
+        A websearch tool definition dictionary
+    """
+    return {
+        "id": "websearch",
+        "summary": "Web Search",
+        "value": {
+            "tool_type": "websearch",
+        },
+    }
+
+
 @pytest.fixture(scope="session")
 def client():
     """Create and return an AI agent test client."""

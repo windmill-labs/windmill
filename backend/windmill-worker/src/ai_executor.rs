@@ -602,6 +602,19 @@ pub async fn run_agent(
         None
     };
 
+    let chat_enabled = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.chat_input_enabled)
+        .unwrap_or(false);
+
+    let memory_id = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.memory_id);
+
+    let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
+
     let max_iterations = args
         .max_iterations
         .map(|m| m.clamp(1, HARD_MAX_AGENT_ITERATIONS))
@@ -733,6 +746,33 @@ pub async fn run_agent(
                         agent_action: Some(AgentAction::WebSearch {}),
                         ..Default::default()
                     });
+                    if chat_enabled {
+                        if let Some(memory_id) = memory_id {
+                            let agent_job_id = job.id;
+                            let db_clone = db.clone();
+                            let message_content = "Used websearch tool successfully".to_string();
+                            let step_name = step_name.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = add_message_to_conversation(
+                                    &db_clone,
+                                    &memory_id,
+                                    Some(agent_job_id),
+                                    &message_content,
+                                    MessageType::Tool,
+                                    &step_name,
+                                    true,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to add websearch tool message to conversation {}: {}",
+                                        memory_id,
+                                        e
+                                    );
+                                }
+                            });
+                        }
+                    }
                 }
 
                 if let Some(ref response_content) = response_content {
@@ -755,24 +795,12 @@ pub async fn run_agent(
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
                     // Add assistant message to conversation if chat_input_enabled
-                    let chat_enabled = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.chat_input_enabled)
-                        .unwrap_or(false);
                     if chat_enabled && !response_content.is_empty() {
-                        if let Some(memory_id) = flow_context
-                            .flow_status
-                            .as_ref()
-                            .and_then(|fs| fs.memory_id)
-                        {
+                        if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
                             let message_content = response_content.clone();
-                            let step_name = get_step_name_from_flow(
-                                summary.as_deref(),
-                                job.flow_step_id.as_deref(),
-                            );
+                            let step_name = step_name.clone();
 
                             // Spawn task because we do not need to wait for the result
                             tokio::spawn(async move {
@@ -859,21 +887,10 @@ pub async fn run_agent(
                 let content = to_raw_value(&s3_object);
 
                 // Add assistant message to conversation if chat_input_enabled
-                let chat_enabled = flow_context
-                    .flow_status
-                    .as_ref()
-                    .and_then(|fs| fs.chat_input_enabled)
-                    .unwrap_or(false);
                 if chat_enabled {
-                    if let Some(memory_id) = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.memory_id)
-                    {
+                    if let Some(memory_id) = memory_id {
                         let agent_job_id = job.id;
                         let db_clone = db.clone();
-                        let flow_step_id_owned = job.flow_step_id.clone();
-                        let summary_owned = summary.map(|s| s.to_string());
 
                         // Create extended version with type discriminator for conversation storage
                         // This avoids conflicts with outputs that are of the same format as S3 objects
@@ -887,11 +904,6 @@ pub async fn run_agent(
 
                         // Spawn task because we do not need to wait for the result
                         tokio::spawn(async move {
-                            let step_name = get_step_name_from_flow(
-                                summary_owned.as_deref(),
-                                flow_step_id_owned.as_deref(),
-                            );
-
                             if let Err(e) = add_message_to_conversation(
                                 &db_clone,
                                 &memory_id,
