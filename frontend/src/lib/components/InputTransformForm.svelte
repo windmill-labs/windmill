@@ -818,6 +818,7 @@
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
 								{s3StorageConfigured}
+								{chatInputEnabled}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,

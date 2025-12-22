@@ -424,6 +424,19 @@ pub async fn run_agent(
 
     let is_text_output = output_type == &OutputType::Text;
 
+    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
+    let memory_id = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.memory_id)
+        .or_else(|| {
+            // Extract memory_id from Memory::Auto if present
+            match &args.memory {
+                Some(Memory::Auto { memory_id, .. }) => *memory_id,
+                _ => None,
+            }
+        });
+
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
         match &args.memory {
@@ -436,11 +449,7 @@ pub async fn run_agent(
             Some(Memory::Auto { context_length, .. }) if *context_length > 0 => {
                 // Auto mode: load from memory
                 if let Some(step_id) = job.flow_step_id.as_deref() {
-                    if let Some(memory_id) = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.memory_id)
-                    {
+                    if let Some(memory_id) = memory_id {
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
@@ -607,19 +616,6 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
-
-    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
-    let memory_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id)
-        .or_else(|| {
-            // Extract memory_id from Memory::Auto if present
-            match &args.memory {
-                Some(Memory::Auto { memory_id, .. }) => *memory_id,
-                _ => None,
-            }
-        });
 
     tracing::info!("[HERE] memory_id: {:?}", memory_id);
 
@@ -1000,9 +996,7 @@ pub async fn run_agent(
                         let start_idx = all_messages.len().saturating_sub(*context_length);
                         let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                        if let Some(memory_id) =
-                            flow_context.flow_status.and_then(|fs| fs.memory_id)
-                        {
+                        if let Some(memory_id) = memory_id {
                             if let Err(e) = write_to_memory(
                                 db,
                                 &job.workspace_id,
