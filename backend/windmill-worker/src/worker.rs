@@ -1766,7 +1766,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
                         let mut job = match timeout(
-                            Duration::from_secs(10),
+                            Duration::from_secs(20),
                             pull(
                                 &db,
                                 suspend_first,
@@ -1781,7 +1781,7 @@ pub async fn run_worker(
                         {
                             Ok(job) => job,
                             Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
                                 tokio::time::sleep(Duration::from_secs(30)).await;
                                 continue;
                             }
