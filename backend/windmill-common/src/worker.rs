@@ -34,7 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::GIT_SEM_VERSION,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -278,6 +278,7 @@ lazy_static::lazy_static! {
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
@@ -706,6 +707,7 @@ pub struct TypeScriptAnnotations {
 pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]
@@ -851,7 +853,7 @@ impl SqlResultCollectionStrategy {
                 }
             }
             (true, false) => match values.into_iter().last() {
-                Some(rows) => Ok(to_raw_value(&rows)),
+                Some(rows) => Ok(merge_raw_values_to_array(rows.as_slice())),
                 None => Ok(null()),
             },
             (false, true) => {
@@ -859,9 +861,11 @@ impl SqlResultCollectionStrategy {
                     .into_iter()
                     .map(|rows| rows.into_iter().next().unwrap_or_else(null))
                     .collect::<Vec<_>>();
-                Ok(to_raw_value(&values))
+                Ok(merge_raw_values_to_array(values.as_slice()))
             }
-            (false, false) => Ok(to_raw_value(&values)),
+            (false, false) => Ok(merge_nested_raw_values_to_array(
+                values.iter().map(|x| x.iter()),
+            )),
         }
     }
 }
@@ -1308,6 +1312,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
+    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version

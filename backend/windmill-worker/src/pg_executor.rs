@@ -29,7 +29,7 @@ use windmill_common::worker::{
     to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
 };
 use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
-use windmill_common::PgDatabase;
+use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -44,6 +44,7 @@ use crate::common::{
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
@@ -299,6 +300,34 @@ pub async fn do_postgresql(
     let result_f = async move {
         let mut results = vec![];
         for (i, query) in queries.iter().enumerate() {
+            if annotations.prepare {
+                let query = remove_comments(query);
+                // Used by the data table typechecker to set default schemas
+                if query.starts_with("SET search_path") || query.starts_with("RESET search_path") {
+                    let _ = client.execute(&query.to_string(), &[]).await;
+                    continue;
+                }
+                let prepared = client.prepare(&query).await;
+                let prepared = match prepared {
+                    Ok(prepared) => {
+                        let columns: Option<Vec<PrepareQueryColumnInfo>> = Some(
+                            prepared
+                                .columns()
+                                .iter()
+                                .map(|col| PrepareQueryColumnInfo {
+                                    name: col.name().to_string(),
+                                    type_name: col.type_().name().to_string(),
+                                })
+                                .collect(),
+                        );
+                        PrepareQueryResult { columns, error: None }
+                    }
+                    Err(e) => PrepareQueryResult { columns: None, error: Some(e.to_string()) },
+                };
+                results.push(vec![to_raw_value(&prepared)]);
+                continue;
+            }
+
             let result = do_postgresql_inner(
                 query.to_string(),
                 &param_idx_to_arg_and_value,

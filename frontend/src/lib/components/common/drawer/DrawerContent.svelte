@@ -80,6 +80,7 @@
 			forceOverflowVisible ? '!overflow-visible' : ''
 		)}
 		class:overflow-y-auto={overflow_y}
+		style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
 	>
 		{@render children?.()}
 	</div>

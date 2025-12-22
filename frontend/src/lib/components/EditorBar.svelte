@@ -767,6 +767,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					editor?.insertAtBeginning(getImportWmillTsStatement(lang))
 				}
 				editor?.insertAtCursor(`let sql = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+				editor?.insertAtCursor(`let query_result = await sql\`SELECT * FROM _\`.fetchOne()\n`)
 			}
 		}}
 		tooltip="Attach a datatable to your script."

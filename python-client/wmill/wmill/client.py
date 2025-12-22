@@ -2279,6 +2279,19 @@ class SqlQuery:
         """
         return self.fetch(result_collection="last_statement_first_row")
 
+    def fetch_one_scalar(self):
+        """Execute query and fetch first row of results. Return result as a scalar value.
+
+        Returns:
+            First row of query result as a scalar value
+        """
+        return self.fetch(result_collection="last_statement_first_row_scalar")
+
+    def execute(self):
+        """Execute query and don't return any results.
+        """
+        self.fetch_one()
+
 def infer_sql_type(value) -> str:
     """
     DuckDB executor requires explicit argument types at declaration
