@@ -2881,7 +2881,7 @@ pub async fn pull(
                     None
                 } else {
                     timeout(
-                        Duration::from_secs(10),
+                        Duration::from_secs(15),
                         sqlx::query_as::<_, PulledJob>(query_suspended)
                             .bind(worker_name)
                             .fetch_optional(db),
@@ -2893,7 +2893,7 @@ pub async fn pull(
                     (Some(job), true)
                 } else {
                     let job = timeout(
-                        Duration::from_secs(10),
+                        Duration::from_secs(15),
                         sqlx::query_as::<_, PulledJob>(query_no_suspend)
                             .bind(worker_name)
                             .fetch_optional(db),
@@ -2947,7 +2947,7 @@ pub async fn pull(
                             && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
                     {
                         timeout(
-                            Duration::from_secs(10),
+                            Duration::from_secs(15),
                             crate::jobs_ee::apply_concurrency_limit(
                                 db,
                                 pull_loop_count,
@@ -2979,7 +2979,7 @@ pub async fn pull(
         };
 
         let (job, suspended) = timeout(
-            Duration::from_secs(10),
+            Duration::from_secs(15),
             pull_single_job_and_mark_as_running_no_concurrency_limit(
                 db,
                 suspend_first,
@@ -3043,7 +3043,7 @@ pub async fn pull(
             || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
         {
             if let Some(pulled_job_res) = timeout(
-                Duration::from_secs(10),
+                Duration::from_secs(15),
                 crate::jobs_ee::apply_concurrency_limit(
                     db,
                     pull_loop_count,

@@ -1766,7 +1766,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
                         let mut job = match timeout(
-                            Duration::from_secs(20),
+                            Duration::from_secs(30),
                             pull(
                                 &db,
                                 suspend_first,
