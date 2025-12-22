@@ -67,12 +67,8 @@
 			)
 
 			// Calculate if user has completed at least one tutorial (for banner wording)
-			
-      
-      
-      
-      
-      Any = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
+			// This determines whether to show "New tutorial available!" or "Learn with interactive tutorials"
+			hasCompletedAny = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
 
 			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
 			if (remainingAccessibleTutorials.length === 0) {
