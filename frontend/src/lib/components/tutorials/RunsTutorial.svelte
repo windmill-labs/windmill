@@ -3,7 +3,7 @@
 	import type { DriveStep } from 'driver.js'
 	import { updateProgress } from '$lib/tutorialUtils'
 	import { JobService, FlowService, type Flow } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { workspaceStore, userStore } from '$lib/stores'
 	import { wait } from '$lib/utils'
 	import { waitJob } from '$lib/components/waitJob'
 	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, createFakeCursor, animateCursorToElementAndClick, animateFakeCursorClick } from './utils'
@@ -418,6 +418,11 @@
 
 	// Cleanup function to delete tutorial flows
 	async function cleanupTutorialFlows() {
+		// Don't delete flows if user is an operator (they don't have permission)
+		if ($userStore?.operator) {
+			return
+		}
+		
 		for (const flowPath of tutorialFlowPaths) {
 			try {
 				await FlowService.deleteFlowByPath({
