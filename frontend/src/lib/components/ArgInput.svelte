@@ -47,6 +47,7 @@
 	import AIProviderPicker from './AIProviderPicker.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import FileInput from './common/fileInput/FileInput.svelte'
+	import { randomUUID } from './flows/conversations/FlowChatManager.svelte'
 
 	interface Props {
 		label?: string
@@ -257,9 +258,8 @@
 			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					// Auto-generate UUID for uuid format fields
 					if (format === 'uuid') {
-						nvalue = crypto.randomUUID()
+						nvalue = nullable ? null : extra?.['x-auto-generate'] ? randomUUID() : ''
 					} else {
 						nvalue = nullable ? null : ''
 					}

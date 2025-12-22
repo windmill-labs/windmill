@@ -341,7 +341,6 @@
 	) {
 		const schemaProperty = schema?.properties?.[argName]
 
-		// Check hideWhenChatEnabled first - hide field when chat mode is enabled
 		if (schemaProperty?.hideWhenChatEnabled && chatInputEnabled) {
 			if (!hidden) {
 				hidden = true
@@ -351,7 +350,7 @@
 				}
 				inputCheck = true
 			}
-			return // Early return, skip showExpr evaluation
+			return
 		}
 
 		if (schemaProperty?.showExpr) {

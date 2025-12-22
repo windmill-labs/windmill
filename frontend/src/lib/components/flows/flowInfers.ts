@@ -57,8 +57,9 @@ export const AI_AGENT_SCHEMA: Schema = {
 						memory_id: {
 							type: 'string',
 							format: 'uuid',
+							'x-auto-generate': true,
 							description:
-								'Custom memory identifier. Each unique ID maintains separate conversation history. Auto-generated if not specified.',
+								'Custom memory identifier. Each unique ID maintains separate conversation history.',
 							hideWhenChatEnabled: true
 						}
 					},
@@ -198,7 +199,6 @@ function migrateAiAgentInputTransforms(
 			delete inputTransforms.messages_context_length
 		}
 	}
-
 
 	return inputTransforms
 }

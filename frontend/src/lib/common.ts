@@ -53,6 +53,7 @@ export interface SchemaProperty {
 	originalType?: string
 	disabled?: boolean
 	'x-no-s3-storage-workspace-warning'?: string
+	'x-auto-generate'?: boolean
 }
 
 export interface ModalSchemaProperty {
