@@ -25,7 +25,7 @@
 		datatable,
 		schema,
 		onChange,
-		description = 'Set the default database and schema for new tables. This is where AI will create new tables when needed.'
+		description = 'Set the default datatable and schema for new tables. This is where AI will create new tables when needed.'
 	}: Props = $props()
 
 	// Load available datatables and schemas using shared utilities
@@ -50,14 +50,14 @@
 	<svelte:fragment slot="trigger">
 		<button
 			class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors"
-			title="Configure default database & schema"
+			title="Configure default datatable & schema"
 		>
 			<Settings size={12} class="text-tertiary" />
 		</button>
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		<div class="flex flex-col gap-3 p-2 min-w-64 max-w-80">
-			<div class="text-xs font-medium text-primary">Default Database & Schema</div>
+			<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
 
 			<p class="text-2xs text-tertiary leading-relaxed">
 				{description}
@@ -67,10 +67,7 @@
 				<span class="text-2xs text-tertiary">Database</span>
 				<Select
 					items={datatableItems}
-					bind:value={
-						() => datatable,
-						(v) => onChange?.(v, schema)
-					}
+					bind:value={() => datatable, (v) => onChange?.(v, schema)}
 					placeholder="Select database"
 					size="sm"
 				/>
@@ -80,10 +77,7 @@
 				<span class="text-2xs text-tertiary">Schema</span>
 				<Select
 					items={schemaItems}
-					bind:value={
-						() => schema ?? '',
-						(v) => onChange?.(datatable, v || undefined)
-					}
+					bind:value={() => schema ?? '', (v) => onChange?.(datatable, v || undefined)}
 					placeholder="public"
 					size="sm"
 				/>

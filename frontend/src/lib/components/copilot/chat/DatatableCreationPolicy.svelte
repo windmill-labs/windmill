@@ -66,7 +66,7 @@
 				datatable={aiChatManager.datatableCreationPolicy.datatable}
 				schema={aiChatManager.datatableCreationPolicy.schema}
 				onChange={handleDefaultChange}
-				description="Set the default database and schema for new tables. When table creation is enabled, AI can create tables here if needed."
+				description="Set the default datatable and schema for new tables. When table creation is enabled, AI can create tables here if needed."
 			/>
 		{/if}
 	</div>

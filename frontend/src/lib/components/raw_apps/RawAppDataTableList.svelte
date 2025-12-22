@@ -110,7 +110,7 @@
 
 {#snippet tableList()}
 	{#if dataTableRefs.length === 0}
-		<span class="text-2xs text-tertiary">No data tables configured</span>
+		<span class="text-2xs text-tertiary">No tables referenced yet</span>
 	{:else}
 		<div class="flex flex-col w-full">
 			{#each sortedDatatableEntries as [datatableName, schemaGroups] (datatableName)}
@@ -120,7 +120,7 @@
 					<Database size={12} class="shrink-0" />
 					<span class="font-medium truncate">{datatableName}</span>
 					{#if isDefaultDatatable}
-						<span title="Default database">
+						<span title="Default datatable">
 							<Star size={10} class="shrink-0 text-primary" />
 						</span>
 					{/if}

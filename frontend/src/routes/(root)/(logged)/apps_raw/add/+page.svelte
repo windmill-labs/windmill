@@ -402,65 +402,65 @@
 					</div>
 				{:else}
 					<div class="flex flex-col gap-4">
-						<!-- Database Selector -->
+						<!-- Default Datatable & Schema -->
 						<div>
-							<span class="text-xs text-tertiary mb-1 block">Default Database</span>
-							<Select
-								disablePortal
-								items={datatableItems}
-								bind:value={selectedDatatable}
-								placeholder="Select database"
-								size="sm"
-							/>
-						</div>
-
-						<!-- Schema Selection: New or Existing -->
-						<div>
-							<span class="text-xs text-tertiary mb-1 block">Default Schema</span>
+							<span class="text-xs text-tertiary mb-1 block">Default settings for new tables</span>
 							<div class="flex flex-col gap-1">
 								<div class="flex gap-2 items-center">
-									<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-										{#snippet children({ item })}
-											<ToggleButton
-												value="new"
-												label="New"
-												icon={Plus}
-												{item}
-												size="sm"
-											/>
-											<ToggleButton
-												value="existing"
-												label="Existing"
-												icon={List}
-												{item}
-												size="sm"
-											/>
-										{/snippet}
-									</ToggleButtonGroup>
+									<Select
+										transformInputSelectedText={(text) => 'datatable: ' + text}
+										disablePortal
+										items={datatableItems}
+										bind:value={selectedDatatable}
+										placeholder="Datatable"
+										size="sm"
+										class="w-40"
+									/>
+								</div>
+								<div>
+									<span class="text-2xs text-tertiary">Schema</span>
 
-									{#if schemaMode === 'new'}
-										<TextInput
-											bind:value={newSchemaName}
-											inputProps={{ placeholder: 'Schema name' }}
-											class="flex-1"
-											error={newSchemaAlreadyExists}
-											on:input={() => (userEditedSchemaName = true)}
-										/>
-									{:else}
-										<div class="flex-1">
-											<Select
-												disablePortal
-												items={schemaItems}
-												bind:value={selectedSchema}
-												placeholder="Select schema"
-												size="sm"
+									<div class="flex flex-row gap-1 w-full">
+										<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+											{#snippet children({ item })}
+												<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+												<ToggleButton
+													value="existing"
+													label="Existing"
+													icon={List}
+													{item}
+													size="sm"
+												/>
+											{/snippet}
+										</ToggleButtonGroup>
+
+										{#if schemaMode === 'new'}
+											<TextInput
+												bind:value={newSchemaName}
+												inputProps={{
+													placeholder: 'Schema name',
+													oninput: () => (userEditedSchemaName = true)
+												}}
+												class="flex-1"
+												error={newSchemaAlreadyExists}
 											/>
-										</div>
+										{:else}
+											<div class="flex-1">
+												<Select
+													disablePortal
+													items={schemaItems}
+													bind:value={selectedSchema}
+													placeholder="Schema"
+													size="sm"
+												/>
+											</div>
+										{/if}
+									</div>
+									{#if newSchemaAlreadyExists}
+										<span class="text-xs text-red-500">Schema "{newSchemaName}" already exists</span
+										>
 									{/if}
 								</div>
-								{#if newSchemaAlreadyExists}
-									<span class="text-xs text-red-500">Schema "{newSchemaName}" already exists</span>
-								{/if}
 							</div>
 						</div>
 
