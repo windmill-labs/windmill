@@ -2607,6 +2607,14 @@ impl PulledJobResult {
             return Ok(());
         };
 
+        if j.job.is_flow_step() {
+            tracing::debug!(
+                job_id = %j.id,
+                "Skipping debouncing for flow step: debouncing only applies to top-level jobs"
+            );
+            return Ok(());
+        }
+
         let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
             RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
                 .await?
@@ -4986,9 +4994,8 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
-    // #[cfg(all(feature = "enterprise", feature = "private"))]
     #[cfg(feature = "private")]
-    if schedule_path.is_none() {
+    if schedule_path.is_none() && flow_step_id.is_none() {
         crate::jobs_ee::maybe_debounce(
             &debouncing_settings,
             &mut scheduled_for_o,
