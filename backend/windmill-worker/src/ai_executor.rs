@@ -617,8 +617,6 @@ pub async fn run_agent(
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
 
-    tracing::info!("[HERE] memory_id: {:?}", memory_id);
-
     let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
 
     let max_iterations = args
