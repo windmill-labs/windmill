@@ -47,7 +47,10 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 #[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
+use windmill_queue::{
+    append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel,
+    WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
+};
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -1453,7 +1456,8 @@ async fn lock_modules<'c>(
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 if skip_creating_new_lock(&language, &content)
-                    && *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                 {
                     tx = dependency_map
                         .patch(get_references(), e.id.clone(), tx)
@@ -1975,7 +1979,8 @@ async fn lock_modules_app(
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
                                 if skip_creating_new_lock(&language, &content)
-                                    && *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                                 {
                                     dependency_map
                                         .patch(
