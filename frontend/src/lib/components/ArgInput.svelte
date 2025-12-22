@@ -258,11 +258,7 @@
 			nvalue = structuredClone($state.snapshot(defaultValue))
 			if (defaultValue === undefined || defaultValue === null) {
 				if (inputCat === 'string') {
-					if (format === 'uuid') {
-						nvalue = nullable ? null : extra?.['x-auto-generate'] ? randomUUID() : ''
-					} else {
-						nvalue = nullable ? null : ''
-					}
+					nvalue = nullable ? null : format === 'uuid' && extra?.['x-auto-generate'] ? randomUUID() : ''
 				} else if (inputCat == 'enum' && required) {
 					let firstV = enum_?.[0]
 					if (typeof firstV === 'string') {

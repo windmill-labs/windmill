@@ -209,10 +209,10 @@
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
 			const prop = schema?.properties?.[x.value]
-			// Hide fields with hideWhenChatEnabled when chat mode is active
 			if (prop?.hideWhenChatEnabled && chatInputEnabled) {
 				if (!hidden[x.value]) {
 					hidden[x.value] = true
+					delete args[x.value]
 					inputCheck[x.value] = true
 				}
 				continue
