@@ -25,13 +25,18 @@
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
-	import { parseDataTableRef, formatDataTableRef } from './dataTableRefUtils'
+	import {
+		parseDataTableRef,
+		formatDataTableRef,
+		type RawAppData,
+		DEFAULT_DATA
+	} from './dataTableRefUtils'
 
 	interface Props {
 		initFiles: Record<string, string>
 		initRunnables: Record<string, Runnable>
-		/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
-		initDataTableRefs: string[] | undefined
+		/** Data configuration including tables and creation policy */
+		initData: RawAppData | undefined
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -54,7 +59,7 @@
 	let {
 		initFiles,
 		initRunnables,
-		initDataTableRefs,
+		initData,
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -67,11 +72,11 @@
 
 	let runnables = $state(initRunnables)
 
-	// Internal storage uses string format
-	let dataTableRefs: string[] = $state(initDataTableRefs ?? [])
+	// Data configuration with tables and creation policy
+	let data: RawAppData = $state(initData ?? DEFAULT_DATA)
 
 	// Convert to object format for child components
-	let dataTableRefsObjects = $derived(dataTableRefs.map(parseDataTableRef))
+	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
 			if (isRunnableByName(runnable)) {
@@ -88,7 +93,7 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
-	historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
+	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -100,7 +105,7 @@
 					encodeState({
 						files,
 						runnables: runnables,
-						dataTableRefs: dataTableRefs
+						data: data
 					})
 				)
 			} catch (err) {
@@ -200,17 +205,36 @@
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 
+		// Initialize aiChatManager.datatableCreationPolicy from stored data
+		aiChatManager.datatableCreationPolicy = {
+			enabled: data.datatable !== undefined,
+			datatable: data.datatable,
+			schema: data.schema
+		}
+
 		// Start auto-snapshot
 		historyManager.startAutoSnapshot(() => ({
 			files: files ?? {},
 			runnables,
 			summary,
-			dataTableRefs
+			data
 		}))
 
 		return () => {
 			rawAppLintStore.disable()
 			historyManager.destroy()
+		}
+	})
+
+	// Sync data with aiChatManager.datatableCreationPolicy (bidirectional)
+	$effect(() => {
+		// Read the current policy from aiChatManager
+		const policy = aiChatManager.datatableCreationPolicy
+		// Only update if different to avoid infinite loops
+		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+			data.datatable = policy.datatable
+			data.schema = policy.schema
+			saveFrontendDraft()
 		}
 	})
 
@@ -387,7 +411,7 @@
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point
 				return (
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs, true)?.id ??
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)?.id ??
 					historyManager.getId()
 				)
 			},
@@ -482,7 +506,7 @@
 						}
 					})
 
-					// If newTable was specified and the query succeeded, add it to dataTableRefs
+					// If newTable was specified and the query succeeded, add it to data.tables
 					if (newTable) {
 						const newRef = formatDataTableRef({
 							datatable: datatableName,
@@ -490,8 +514,8 @@
 							table: newTable.name
 						})
 						// Only add if not already present
-						if (!dataTableRefs.includes(newRef)) {
-							dataTableRefs = [...dataTableRefs, newRef]
+						if (!data.tables.includes(newRef)) {
+							data.tables = [...data.tables, newRef]
 							saveFrontendDraft()
 							// Clear the cached schema so it gets refreshed with the new table
 							const resourcePath = `datatable://${datatableName}`
@@ -577,7 +601,7 @@
 	function handleUndo() {
 		// Create a snapshot if we're at the latest position with pending changes
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.undo()
@@ -596,7 +620,7 @@
 	function handleHistorySelect(id: number) {
 		// Create a snapshot if we have pending changes before navigating
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.selectEntry(id)
@@ -609,13 +633,13 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		summary: string
-		dataTableRefs: string[]
+		data: RawAppData
 	}) {
 		try {
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
-			dataTableRefs = structuredClone($state.snapshot(entry.dataTableRefs))
+			data = structuredClone($state.snapshot(entry.data))
 
 			setFilesInIframe(entry.files)
 			populateRunnables()
@@ -640,7 +664,7 @@
 		// Ctrl/Cmd + Shift + H for manual snapshot
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
-			historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 	}
 </script>
@@ -671,7 +695,7 @@
 		{newPath}
 		appPath={path}
 		{files}
-		{dataTableRefs}
+		{data}
 		{runnables}
 		{getBundle}
 		canUndo={historyManager.canUndo}
@@ -695,7 +719,20 @@
 				bind:selectedDocument
 				dataTableRefs={dataTableRefsObjects}
 				onDataTableRefsChange={(newRefs) => {
-					dataTableRefs = newRefs.map(formatDataTableRef)
+					data.tables = newRefs.map(formatDataTableRef)
+					saveFrontendDraft()
+				}}
+				defaultDatatable={data.datatable}
+				defaultSchema={data.schema}
+				onDefaultChange={(datatable, schema) => {
+					data.datatable = datatable
+					data.schema = schema
+					// Also sync to aiChatManager
+					aiChatManager.datatableCreationPolicy = {
+						...aiChatManager.datatableCreationPolicy,
+						datatable,
+						schema
+					}
 					saveFrontendDraft()
 				}}
 				{runnables}
@@ -704,7 +741,7 @@
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
 				onManualSnapshot={() => {
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, dataTableRefs, true)
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
 				}}
 			></RawAppSidebar>
 		</Pane>

@@ -8,6 +8,23 @@ export interface DataTableRef {
 	table?: string
 }
 
+/** Top-level data configuration for raw apps */
+export interface RawAppData {
+	/** Table references for the app */
+	tables: string[]
+	/** The datatable name for table creation (if specified) */
+	datatable: string | undefined
+	/** The schema for table creation (if specified) */
+	schema: string | undefined
+}
+
+/** Default data configuration */
+export const DEFAULT_DATA: RawAppData = {
+	tables: [],
+	datatable: undefined,
+	schema: undefined
+}
+
 /**
  * Parse a string ref into a DataTableRef object
  * Format: <datatableName>/<schema>:<table> or <datatableName>/<table> (for public schema)

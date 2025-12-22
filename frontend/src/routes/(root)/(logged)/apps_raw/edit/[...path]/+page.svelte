@@ -12,10 +12,11 @@
 	import RawAppEditor from '$lib/components/raw_apps/RawAppEditor.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import { page } from '$app/state'
+	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 	let files: Record<string, string> | undefined = $state(undefined)
 	let runnables = $state({})
-	/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
-	let dataTableRefs: string[] = $state([])
+	/** Data configuration including tables and creation policy */
+	let data: RawAppData = $state({ ...DEFAULT_DATA })
 	let newPath = $state('')
 	// let lastVersion = 0
 	let policy: any = $state({})
@@ -50,7 +51,22 @@
 
 	function extractRawApp(app: any) {
 		runnables = app.value.runnables
-		dataTableRefs = app.value.datatables ?? []
+		// Support old formats and new format
+		if (app.value.data) {
+			const d = app.value.data
+			// Handle old nested creation format
+			if (d.creation) {
+				data = {
+					tables: d.tables ?? [],
+					datatable: d.creation.datatable,
+					schema: d.creation.schema
+				}
+			} else {
+				data = d
+			}
+		} else if (app.value.datatables) {
+			data = { ...DEFAULT_DATA, tables: app.value.datatables }
+		}
 		files = app.value.files
 		summary = app.summary
 		// lastVersion = app.version
@@ -217,7 +233,7 @@
 				on:restore={onRestore}
 				initFiles={files}
 				initRunnables={runnables}
-				initDataTableRefs={dataTableRefs}
+				initData={data}
 				{summary}
 				{newPath}
 				path={page.params.path ?? ''}

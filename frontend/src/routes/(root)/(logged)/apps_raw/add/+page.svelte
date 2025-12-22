@@ -14,6 +14,7 @@
 	import FileEditorIcon from '$lib/components/raw_apps/FileEditorIcon.svelte'
 	import { react18Template, react19Template, svelte5Template } from './templates'
 	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
+	import { type RawAppData, DEFAULT_DATA } from '$lib/components/raw_apps/dataTableRefUtils'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -68,14 +69,29 @@
 			}
 		}
 	})
-	/** Stored as strings in format: <datatableName>/<table> or <datatableName>/<schema>:<table> */
-	let dataTableRefs: string[] = $state([])
+	/** Data configuration including tables and creation policy */
+	let data: RawAppData = $state({ ...DEFAULT_DATA })
 	loadApp()
 
 	function extractValue(value: any) {
 		files = value.files
 		runnables = value.runnables
-		dataTableRefs = value.dataTableRefs ?? []
+		// Support old formats and new format
+		if (value.data) {
+			const d = value.data
+			// Handle old nested creation format
+			if (d.creation) {
+				data = {
+					tables: d.tables ?? [],
+					datatable: d.creation.datatable,
+					schema: d.creation.schema
+				}
+			} else {
+				data = d
+			}
+		} else if (value.dataTableRefs) {
+			data = { ...DEFAULT_DATA, tables: value.dataTableRefs }
+		}
 	}
 	async function loadApp() {
 		if (importRaw) {
@@ -188,7 +204,7 @@
 		}}
 		initFiles={files}
 		initRunnables={runnables}
-		initDataTableRefs={dataTableRefs}
+		initData={data}
 		{policy}
 		path={''}
 		{summary}

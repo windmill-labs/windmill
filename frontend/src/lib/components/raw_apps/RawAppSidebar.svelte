@@ -27,6 +27,11 @@
 		onManualSnapshot?: () => void
 		dataTableRefs?: DataTableRef[]
 		onDataTableRefsChange?: (refs: DataTableRef[]) => void
+		/** Default datatable for new tables */
+		defaultDatatable?: string | undefined
+		/** Default schema for new tables */
+		defaultSchema?: string | undefined
+		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 	}
 
 	let {
@@ -41,7 +46,10 @@
 		onHistorySelect,
 		onManualSnapshot,
 		dataTableRefs = [],
-		onDataTableRefsChange
+		onDataTableRefsChange,
+		defaultDatatable = undefined,
+		defaultSchema = undefined,
+		onDefaultChange
 	}: Props = $props()
 
 	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
@@ -324,9 +332,12 @@
 <div class="py-4"></div>
 <RawAppDataTableList
 	{dataTableRefs}
+	{defaultDatatable}
+	{defaultSchema}
 	onAdd={() => dataTableDrawer?.openDrawer()}
 	onRemove={handleRemoveDataTable}
 	onSelect={handleSelectDataTable}
+	{onDefaultChange}
 	selectedIndex={selectedDataTableIndex}
 />
 <RawAppDataTableDrawer

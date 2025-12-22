@@ -1,20 +1,35 @@
 <script lang="ts">
-	import { Plus, Database, Trash2, Table2 } from 'lucide-svelte'
+	import { Plus, Database, Trash2, Table2, Star } from 'lucide-svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
+	import DefaultDatabaseSelector from './DefaultDatabaseSelector.svelte'
 
 	// Re-export for backwards compatibility
 	export type { DataTableRef } from './dataTableRefUtils'
 
 	interface Props {
 		dataTableRefs: DataTableRef[]
+		/** Default datatable for new tables */
+		defaultDatatable?: string | undefined
+		/** Default schema for new tables */
+		defaultSchema?: string | undefined
 		onAdd?: () => void
 		onRemove?: (index: number) => void
 		onSelect?: (ref: DataTableRef, index: number) => void
+		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 		selectedIndex?: number | undefined
 	}
 
-	let { dataTableRefs = [], onAdd, onRemove, onSelect, selectedIndex = undefined }: Props = $props()
+	let {
+		dataTableRefs = [],
+		defaultDatatable = undefined,
+		defaultSchema = undefined,
+		onAdd,
+		onRemove,
+		onSelect,
+		onDefaultChange,
+		selectedIndex = undefined
+	}: Props = $props()
 
 	// Group refs by datatable, then by schema
 	type GroupedRefs = Map<string, Map<string, { ref: DataTableRef; index: number }[]>>
@@ -36,6 +51,32 @@
 		})
 		return groups
 	})
+
+	// Sort entries with default datatable first
+	const sortedDatatableEntries = $derived.by(() => {
+		const entries = [...groupedRefs.entries()]
+		return entries.sort(([a], [b]) => {
+			if (a === defaultDatatable) return -1
+			if (b === defaultDatatable) return 1
+			return a.localeCompare(b)
+		})
+	})
+
+	// Helper to sort schema entries with default schema first
+	function sortSchemaEntries(
+		entries: [string, { ref: DataTableRef; index: number }[]][],
+		datatableName: string
+	) {
+		return entries.sort(([a], [b]) => {
+			const aIsDefault =
+				datatableName === defaultDatatable && (a === defaultSchema || (a === '' && !defaultSchema))
+			const bIsDefault =
+				datatableName === defaultDatatable && (b === defaultSchema || (b === '' && !defaultSchema))
+			if (aIsDefault) return -1
+			if (bIsDefault) return 1
+			return a.localeCompare(b)
+		})
+	}
 </script>
 
 <PanelSection
@@ -46,32 +87,56 @@
 	tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."
 >
 	{#snippet action()}
-		<button
-			onclick={() => onAdd?.()}
-			class="p-0.5 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
-			title="Add data table reference"
-		>
-			<Plus size={12} class="text-secondary" />
-			<Database size={12} class="text-tertiary" />
-		</button>
+		<div class="flex items-center">
+			<!-- Settings popover for default database/schema -->
+			<DefaultDatabaseSelector
+				datatable={defaultDatatable}
+				schema={defaultSchema}
+				onChange={onDefaultChange}
+			/>
+
+			<!-- Add datatable button -->
+			<button
+				onclick={() => onAdd?.()}
+				class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
+				title="Add datatable reference"
+			>
+				<Plus size={12} class="text-secondary" />
+				<Database size={12} class="text-tertiary" />
+			</button>
+		</div>
 	{/snippet}
 
 	{#if dataTableRefs.length === 0}
 		<span class="text-2xs text-tertiary">No data tables configured</span>
 	{:else}
 		<div class="flex flex-col w-full">
-			{#each [...groupedRefs.entries()] as [datatableName, schemaGroups] (datatableName)}
+			{#each sortedDatatableEntries as [datatableName, schemaGroups] (datatableName)}
+				{@const isDefaultDatatable = datatableName === defaultDatatable}
 				<!-- Datatable header -->
 				<div class="flex items-center gap-1.5 px-1 py-1 text-2xs text-tertiary">
 					<Database size={12} class="shrink-0" />
 					<span class="font-medium truncate">{datatableName}</span>
+					{#if isDefaultDatatable}
+						<span title="Default database">
+							<Star size={10} class="shrink-0 text-primary" />
+						</span>
+					{/if}
 				</div>
 
-				{#each [...schemaGroups.entries()] as [schemaName, items] (schemaName)}
+				{#each sortSchemaEntries([...schemaGroups.entries()], datatableName) as [schemaName, items] (schemaName)}
+					{@const isDefaultSchema =
+						isDefaultDatatable &&
+						(schemaName === defaultSchema || (schemaName === '' && !defaultSchema))}
 					<!-- Schema header (only if schema exists) -->
 					{#if schemaName}
 						<div class="flex items-center gap-1.5 pl-4 py-0.5 text-2xs text-tertiary">
 							<span class="truncate">{schemaName}</span>
+							{#if isDefaultSchema}
+								<span title="Default schema">
+									<Star size={8} class="shrink-0 text-primary" />
+								</span>
+							{/if}
 						</div>
 					{/if}
 
