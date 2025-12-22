@@ -1,4 +1,5 @@
 <script lang="ts">
+	// Tutorial banner in the user homepage
 	import { Button } from '$lib/components/common'
 	import { GraduationCap, X } from 'lucide-svelte'
 	import { base } from '$lib/base'
