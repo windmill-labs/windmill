@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
+  "query": "WITH _ AS (\n                    DELETE FROM debounce_key WHERE job_id = $1\n                ) SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "de50aa8da964dbba1ee65ca713f068e347e1f2b59385c0605e6e02b41efdca0f"
+  "hash": "e65c79d792f0e8285ea9acac54bc569f22ca7c28b205533e8ba73722bf438c94"
 }
