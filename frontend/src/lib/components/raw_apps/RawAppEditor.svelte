@@ -18,8 +18,11 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
-	import type { LintResult } from '../copilot/chat/app/core'
+	import type { LintResult, DataTableInfo, DataTableTableSchema } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import { getDbSchemas } from '../apps/components/display/dbtable/metadata'
+	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
 	import { parseDataTableRef, formatDataTableRef } from './dataTableRefUtils'
@@ -391,6 +394,130 @@
 			revertToSnapshot: (id: number) => {
 				console.log('reverting to snapshot', id)
 				handleHistorySelect(id)
+			},
+			getDatatables: async (): Promise<DataTableInfo[]> => {
+				const results: DataTableInfo[] = []
+
+				// Get unique datatable names from dataTableRefs
+				const datatableNames = [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+
+				for (const datatableName of datatableNames) {
+					const resourcePath = `datatable://${datatableName}`
+
+					// Get or load the schema
+					let schema: DBSchema | undefined = $dbSchemas[resourcePath]
+					if (!schema) {
+						try {
+							await getDbSchemas(
+								'postgresql',
+								resourcePath,
+								$workspaceStore,
+								$dbSchemas,
+								(msg) => console.error('Schema error:', msg)
+							)
+							schema = $dbSchemas[resourcePath]
+						} catch (e) {
+							console.error(`Failed to load schema for ${datatableName}:`, e)
+							continue
+						}
+					}
+
+					if (!schema?.schema) continue
+
+					// Get the tables for this datatable from the refs
+					const refsForDatatable = dataTableRefsObjects.filter(
+						(ref) => ref.datatable === datatableName
+					)
+
+					const tables: DataTableTableSchema[] = []
+
+					for (const ref of refsForDatatable) {
+						const schemaKey = ref.schema || 'public'
+						const tableKey = ref.table
+
+						if (!tableKey) continue // Skip if no table specified
+
+						const tableSchema = schema.schema[schemaKey]?.[tableKey]
+						if (!tableSchema) continue
+
+						const columns: Record<string, { type: string; required: boolean }> = {}
+						for (const [colName, colDef] of Object.entries(tableSchema)) {
+							columns[colName] = {
+								type: (colDef as any).type || 'unknown',
+								required: (colDef as any).required || false
+							}
+						}
+
+						tables.push({
+							schema: schemaKey,
+							table: tableKey,
+							columns
+						})
+					}
+
+					results.push({
+						name: datatableName,
+						tables
+					})
+				}
+
+				return results
+			},
+			execDatatableSql: async (
+				datatableName: string,
+				sql: string,
+				newTable?: { schema: string; name: string }
+			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
+				if (!$workspaceStore) {
+					return { success: false, error: 'Workspace not available' }
+				}
+
+				// Verify the datatable is configured in the app (check if any ref uses this datatable)
+				const isConfigured = dataTableRefsObjects.some((ref) => ref.datatable === datatableName)
+				if (!isConfigured) {
+					return {
+						success: false,
+						error: `Datatable "${datatableName}" is not configured in this app. Available: ${[...new Set(dataTableRefsObjects.map((r) => r.datatable))].join(', ') || 'none'}`
+					}
+				}
+
+				try {
+					const result = await runScriptAndPollResult({
+						workspace: $workspaceStore,
+						requestBody: {
+							language: 'postgresql',
+							content: sql,
+							args: { database: `datatable://${datatableName}` }
+						}
+					})
+
+					// If newTable was specified and the query succeeded, add it to dataTableRefs
+					if (newTable) {
+						const newRef = formatDataTableRef({
+							datatable: datatableName,
+							schema: newTable.schema === 'public' ? undefined : newTable.schema,
+							table: newTable.name
+						})
+						// Only add if not already present
+						if (!dataTableRefs.includes(newRef)) {
+							dataTableRefs = [...dataTableRefs, newRef]
+							saveFrontendDraft()
+							// Clear the cached schema so it gets refreshed with the new table
+							const resourcePath = `datatable://${datatableName}`
+							delete $dbSchemas[resourcePath]
+						}
+					}
+
+					// Check if result is an array (SELECT) or something else
+					if (Array.isArray(result)) {
+						return { success: true, result }
+					} else {
+						return { success: true, result: [] }
+					}
+				} catch (e) {
+					const errorMsg = e instanceof Error ? e.message : String(e)
+					return { success: false, error: errorMsg }
+				}
 			}
 		})
 	})

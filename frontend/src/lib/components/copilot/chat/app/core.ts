@@ -62,6 +62,19 @@ export interface SelectedContext {
 	// textSelection?: { startLine: number; endLine: number; startColumn: number; endColumn: number }
 }
 
+/** Schema for a table in a datatable */
+export interface DataTableTableSchema {
+	schema: string
+	table: string
+	columns: Record<string, { type: string; required: boolean }>
+}
+
+/** Full datatable info including schema */
+export interface DataTableInfo {
+	name: string
+	tables: DataTableTableSchema[]
+}
+
 export interface AppAIChatHelpers {
 	// Frontend file operations
 	listFrontendFiles: () => string[]
@@ -85,6 +98,15 @@ export interface AppAIChatHelpers {
 	// Linting
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult
+	// Data table operations
+	/** Get all datatables configured in the app with their schemas */
+	getDatatables: () => Promise<DataTableInfo[]>
+	/** Execute a SQL query on a datatable. Optionally specify newTable to register a newly created table. */
+	execDatatableSql: (
+		datatableName: string,
+		sql: string,
+		newTable?: { schema: string; name: string }
+	) => Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }>
 }
 
 // ============= Utility =============
@@ -241,6 +263,49 @@ const getGetFilesToolDef = memo(() =>
 		getGetFilesSchema(),
 		'get_files',
 		'Get an overview of all files in the app. Content may be truncated for large apps - use get_frontend_file or get_backend_runnable for full content of specific files.'
+	)
+)
+
+// ============= Data Table Tools =============
+
+const getGetDatatablesSchema = memo(() => z.object({}))
+const getGetDatatablesToolDef = memo(() =>
+	createToolDef(
+		getGetDatatablesSchema(),
+		'get_datatables',
+		'Get all datatables configured in this app with their full schemas. Returns datatable names, tables, and column definitions. Use this to understand the data layer available to the app.'
+	)
+)
+
+const getExecDatatableSqlSchema = memo(() =>
+	z.object({
+		datatable_name: z
+			.string()
+			.describe(
+				'The name of the datatable to query (e.g., "main"). Must be one of the datatables configured in the app.'
+			),
+		sql: z
+			.string()
+			.describe(
+				'The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, etc. For SELECT queries, results are returned as an array of objects.'
+			),
+		new_table: z
+			.object({
+				schema: z.string().describe('The schema name where the table was created (e.g., "public")'),
+				name: z.string().describe('The name of the newly created table')
+			})
+			.optional()
+			.describe(
+				'When executing a CREATE TABLE statement, provide this to register the new table in the app so it can be queried and its schema retrieved later.'
+			)
+	})
+)
+const getExecDatatableSqlToolDef = memo(() =>
+	createToolDef(
+		getExecDatatableSqlSchema(),
+		'exec_datatable_sql',
+		'Execute a SQL query on a datatable. Use this to explore data, test queries, create tables, or make changes. When creating a new table, pass new_table to register it in the app for future use.',
+		{ strict: false }
 	)
 )
 
@@ -649,7 +714,83 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		}
 	},
 	// Hub scripts search (reuse from shared)
-	createSearchHubScriptsTool(false)
+	createSearchHubScriptsTool(false),
+	// Data table tools
+	{
+		def: getGetDatatablesToolDef(),
+		fn: async ({ helpers, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Getting datatables...' })
+			try {
+				const datatables = await helpers.getDatatables()
+				if (datatables.length === 0) {
+					toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
+					return 'No datatables are configured in this app. Use the Data panel in the sidebar to add datatable references.'
+				}
+				const totalTables = datatables.reduce((acc, dt) => acc + dt.tables.length, 0)
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Found ${datatables.length} datatable(s) with ${totalTables} table(s)`
+				})
+				return JSON.stringify(datatables, null, 2)
+			} catch (e) {
+				const errorMsg = `Error getting datatables: ${e instanceof Error ? e.message : String(e)}`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
+		}
+	},
+	{
+		def: getExecDatatableSqlToolDef(),
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getExecDatatableSqlSchema().parse(args)
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Executing SQL on "${parsedArgs.datatable_name}"...`
+			})
+			try {
+				const result = await helpers.execDatatableSql(
+					parsedArgs.datatable_name,
+					parsedArgs.sql,
+					parsedArgs.new_table
+				)
+				if (result.success) {
+					let successMessage = 'Query executed successfully'
+					if (parsedArgs.new_table) {
+						successMessage = `Table "${parsedArgs.new_table.schema}.${parsedArgs.new_table.name}" created and registered`
+					}
+					if (result.result) {
+						const rowCount = result.result.length
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Query returned ${rowCount} row(s)`
+						})
+						// Truncate large results
+						const MAX_ROWS = 100
+						if (rowCount > MAX_ROWS) {
+							return JSON.stringify(
+								{
+									success: true,
+									rowCount,
+									result: result.result.slice(0, MAX_ROWS),
+									note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+								},
+								null,
+								2
+							)
+						}
+						return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
+					}
+					toolCallbacks.setToolStatus(toolId, { content: successMessage })
+					return JSON.stringify({ success: true, message: successMessage })
+				} else {
+					const errorMsg = result.error || 'Unknown error'
+					toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+			} catch (e) {
+				const errorMsg = e instanceof Error ? e.message : String(e)
+				toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
+				return JSON.stringify({ success: false, error: errorMsg })
+			}
+		}
+	}
 ])
 
 export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
@@ -690,6 +831,10 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ### Discovery
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
+
+### Data Tables
+- \`get_datatables()\`: Get all datatables configured in the app with their schemas (tables, columns, types)
+- \`exec_datatable_sql(datatable_name, sql, new_table?)\`: Execute SQL query on a datatable. Use for data exploration or modifications. When creating a new table, pass \`new_table: { schema, name }\` to register it in the app.
 
 ## Backend Runnable Configuration
 
