@@ -2704,7 +2704,6 @@ impl PulledJobResult {
                     "Accumulating debounced arguments from batch"
                 );
                 let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
-                // TODO: use debounce_batch we queried earlier.
                 for str_o in sqlx::query_scalar!(
                     "WITH ids AS (
                         SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
@@ -2720,7 +2719,12 @@ impl PulledJobResult {
                 .into_iter()
                 {
                     if let Some(s) = str_o.as_ref() {
-                        accumulated_arg.append(&mut serde_json::from_str(s)?);
+                        match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
+                            Ok(ref mut vec) => accumulated_arg.append(vec),
+                            Err(e) => {
+                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
+                            }
+                        }
                     }
                 }
 
@@ -3182,6 +3186,7 @@ pub fn resolve_debounce_key<'b>(
     workspace_id: &str,
     job_kind: JobKind,
     args: &PushArgs<'b>,
+    args_to_ignore_if_default: Option<&String>,
 ) -> String {
     let original_debounce_key = unresolved_debounce_key
         .map(|x| crate::interpolate_args(x, &args, workspace_id))
@@ -3189,8 +3194,18 @@ pub fn resolve_debounce_key<'b>(
             "{}#args:{}",
             crate::fullpath_with_workspace(workspace_id, runnable_path.as_ref(), &job_kind),
             args.args
-                .values()
-                .map(|val| val.to_string())
+                .iter()
+                .filter_map(|(k, v)| {
+                    if args_to_ignore_if_default
+                        .map(|name| name == k)
+                        .unwrap_or_default()
+                    {
+                        None
+                    } else {
+                        Some(v.to_string())
+                    }
+                })
+                // TODO: disable sorted?
                 .sorted()
                 .collect_vec()
                 .join(":"),
