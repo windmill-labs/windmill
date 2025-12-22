@@ -844,7 +844,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 
 1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one.
 
-2. **Create new tables when needed**: If no existing table fits your needs, create one using \`exec_datatable_sql\` with a CREATE TABLE statement and the \`new_table\` parameter:
+2. **CRITICAL: Create tables ONLY via exec_datatable_sql tool**: When you need to create a new table, you MUST use the \`exec_datatable_sql\` tool with the \`new_table\` parameter. **NEVER** create tables inside backend runnables using SQL queries - this will not register the table properly and it won't be available for future use.
    \`\`\`
    exec_datatable_sql({
      datatable_name: "main",
@@ -863,7 +863,7 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 
 ### Accessing Data Tables from Backend Runnables
 
-Create inline scripts that use the Windmill SDK to query datatables:
+Backend runnables should only perform **data operations** (SELECT, INSERT, UPDATE, DELETE) on **existing tables**. Never use CREATE TABLE, DROP TABLE, or ALTER TABLE inside runnables.
 
 **TypeScript (Bun)**:
 \`\`\`typescript
@@ -892,7 +892,7 @@ def main(user_id: str):
     return user
 \`\`\`
 
-### Common Operations
+### Common Operations (for use in backend runnables)
 
 - **Fetch all**: \`sql\`SELECT * FROM table\`.fetch()\` or \`db.query('SELECT * FROM table').fetch()\`
 - **Fetch one**: \`.fetchOne()\` or \`.fetch_one()\`
@@ -901,6 +901,10 @@ def main(user_id: str):
 - **Delete**: \`sql\`DELETE FROM table WHERE id = \${id}\`\`
 
 The "main" datatable is the default and can be accessed without specifying a name.
+
+### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
+
+For any schema changes (CREATE TABLE, DROP TABLE, ALTER TABLE, CREATE INDEX, etc.), you MUST use the \`exec_datatable_sql\` tool directly. This ensures tables are properly registered in the app.
 
 ## Backend Runnable Configuration
 

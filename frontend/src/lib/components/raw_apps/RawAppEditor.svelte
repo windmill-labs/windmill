@@ -408,12 +408,8 @@
 					let schema: DBSchema | undefined = $dbSchemas[resourcePath]
 					if (!schema) {
 						try {
-							await getDbSchemas(
-								'postgresql',
-								resourcePath,
-								$workspaceStore,
-								$dbSchemas,
-								(msg) => console.error('Schema error:', msg)
+							await getDbSchemas('postgresql', resourcePath, $workspaceStore, $dbSchemas, (msg) =>
+								console.error('Schema error:', msg)
 							)
 							schema = $dbSchemas[resourcePath]
 						} catch (e) {
@@ -470,15 +466,6 @@
 			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
 				if (!$workspaceStore) {
 					return { success: false, error: 'Workspace not available' }
-				}
-
-				// Verify the datatable is configured in the app (check if any ref uses this datatable)
-				const isConfigured = dataTableRefsObjects.some((ref) => ref.datatable === datatableName)
-				if (!isConfigured) {
-					return {
-						success: false,
-						error: `Datatable "${datatableName}" is not configured in this app. Available: ${[...new Set(dataTableRefsObjects.map((r) => r.datatable))].join(', ') || 'none'}`
-					}
 				}
 
 				try {
