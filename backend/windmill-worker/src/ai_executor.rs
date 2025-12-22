@@ -147,9 +147,10 @@ pub async fn handle_ai_agent_job(
         ));
     };
 
-    // Separate Windmill tools from MCP tools and extract MCP resource configs
+    // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
+    let mut has_websearch = false;
 
     for tool in tools {
         match &tool.value {
@@ -173,6 +174,11 @@ pub async fn handle_ai_agent_job(
                 if let Some(flow_module) = Option::<FlowModule>::from(&tool) {
                     windmill_modules.push(flow_module);
                 }
+            }
+            ToolValue::Websearch(_) => {
+                // WebSearch tool - mark as enabled
+                tracing::debug!("WebSearch tool enabled");
+                has_websearch = true;
             }
         }
     }
@@ -327,6 +333,7 @@ pub async fn handle_ai_agent_job(
         hostname,
         killpill_rx,
         has_stream,
+        has_websearch,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -373,6 +380,7 @@ pub async fn run_agent(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
+    has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -413,6 +421,8 @@ pub async fn run_agent(
             "Either 'memory' with manual messages or 'user_message' must be provided".to_string(),
         ));
     }
+
+    let is_text_output = output_type == &OutputType::Text;
 
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
@@ -549,7 +559,7 @@ pub async fn run_agent(
     let mut structured_output_tool_name: Option<String> = None;
 
     // For text output with schema, handle structured output
-    if has_output_properties && output_type == &OutputType::Text {
+    if has_output_properties && is_text_output {
         let schema = args.output_schema.as_ref().unwrap();
         if should_use_structured_output_tool {
             // Anthropic uses a tool for structured output
@@ -576,20 +586,34 @@ pub async fn run_agent(
         // For non-Anthropic providers, response_format is handled by the query builder
     }
 
-    // Check if streaming is enabled and supported
-    let should_stream = args.streaming.unwrap_or(false)
-        && query_builder.supports_streaming()
-        && output_type == &OutputType::Text;
-
-    *has_stream = should_stream;
+    let user_wants_streaming = args.streaming.unwrap_or(false);
+    *has_stream = user_wants_streaming && is_text_output;
 
     let mut final_events_str = String::new();
 
-    let stream_event_processor = if should_stream {
-        Some(StreamEventProcessor::new(conn, job))
+    // Always create a StreamEventProcessor for text output (use silent mode if user doesn't want streaming)
+    let stream_event_processor = if is_text_output {
+        if user_wants_streaming {
+            Some(StreamEventProcessor::new(conn, job))
+        } else {
+            Some(StreamEventProcessor::new_silent())
+        }
     } else {
         None
     };
+
+    let chat_enabled = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.chat_input_enabled)
+        .unwrap_or(false);
+
+    let memory_id = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.memory_id);
+
+    let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
 
     let max_iterations = args
         .max_iterations
@@ -610,6 +634,7 @@ pub async fn run_agent(
                 ));
             };
             // Use Bedrock SDK via dedicated query builder
+            // Always use streaming for text output
             crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                 .execute_request(
                     &messages,
@@ -619,7 +644,6 @@ pub async fn run_agent(
                     args.max_completion_tokens,
                     api_key,
                     region,
-                    should_stream,
                     stream_event_processor.clone(),
                     client,
                     &job.workspace_id,
@@ -641,18 +665,16 @@ pub async fn run_agent(
                 system_prompt: args.system_prompt.as_deref(),
                 user_message: args.user_message.as_deref().unwrap_or(""),
                 images: args.user_images.as_deref(),
+                has_websearch,
             };
 
+            // Always use streaming for text output
             let request_body = query_builder
-                .build_request(&build_args, client, &job.workspace_id, should_stream)
+                .build_request(&build_args, client, &job.workspace_id)
                 .await?;
 
-            let endpoint = query_builder.get_endpoint(
-                &base_url,
-                args.provider.get_model(),
-                output_type,
-                should_stream,
-            );
+            let endpoint =
+                query_builder.get_endpoint(&base_url, args.provider.get_model(), output_type);
             let auth_headers = query_builder.get_auth_headers(api_key, &base_url, output_type);
 
             let timeout = resolve_job_timeout(conn, &job.workspace_id, job.id, job.timeout)
@@ -682,13 +704,12 @@ pub async fn run_agent(
 
             match resp.error_for_status_ref() {
                 Ok(_) => {
-                    if let Some(stream_event_processor) = stream_event_processor.clone() {
+                    if let Some(ref stream_event_processor) = stream_event_processor {
                         query_builder
-                            .parse_streaming_response(resp, stream_event_processor)
+                            .parse_streaming_response(resp, stream_event_processor.clone())
                             .await?
                     } else {
-                        // Handle non-streaming response
-                        query_builder.parse_response(resp).await?
+                        query_builder.parse_image_response(resp).await?
                     }
                 }
                 Err(e) => {
@@ -703,9 +724,55 @@ pub async fn run_agent(
         };
 
         match parsed {
-            ParsedResponse::Text { content: response_content, tool_calls, events_str } => {
+            ParsedResponse::Text {
+                content: response_content,
+                tool_calls,
+                events_str,
+                annotations,
+                used_websearch,
+            } => {
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
+                }
+
+                // Add websearch tool message if websearch was used
+                if used_websearch {
+                    actions.push(AgentAction::WebSearch {});
+                    messages.push(OpenAIMessage {
+                        role: "tool".to_string(),
+                        content: Some(OpenAIContent::Text(
+                            "Used websearch tool successfully".to_string(),
+                        )),
+                        agent_action: Some(AgentAction::WebSearch {}),
+                        ..Default::default()
+                    });
+                    if chat_enabled {
+                        if let Some(memory_id) = memory_id {
+                            let agent_job_id = job.id;
+                            let db_clone = db.clone();
+                            let message_content = "Used websearch tool successfully".to_string();
+                            let step_name = step_name.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = add_message_to_conversation(
+                                    &db_clone,
+                                    &memory_id,
+                                    Some(agent_job_id),
+                                    &message_content,
+                                    MessageType::Tool,
+                                    &step_name,
+                                    true,
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        "Failed to add websearch tool message to conversation {}: {}",
+                                        memory_id,
+                                        e
+                                    );
+                                }
+                            });
+                        }
+                    }
                 }
 
                 if let Some(ref response_content) = response_content {
@@ -714,6 +781,11 @@ pub async fn run_agent(
                         role: "assistant".to_string(),
                         content: Some(OpenAIContent::Text(response_content.clone())),
                         agent_action: Some(AgentAction::Message {}),
+                        annotations: if annotations.is_empty() {
+                            None
+                        } else {
+                            Some(annotations.clone())
+                        },
                         ..Default::default()
                     });
 
@@ -723,24 +795,12 @@ pub async fn run_agent(
                     content = Some(OpenAIContent::Text(response_content.clone()));
 
                     // Add assistant message to conversation if chat_input_enabled
-                    let chat_enabled = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.chat_input_enabled)
-                        .unwrap_or(false);
                     if chat_enabled && !response_content.is_empty() {
-                        if let Some(memory_id) = flow_context
-                            .flow_status
-                            .as_ref()
-                            .and_then(|fs| fs.memory_id)
-                        {
+                        if let Some(memory_id) = memory_id {
                             let agent_job_id = job.id;
                             let db_clone = db.clone();
                             let message_content = response_content.clone();
-                            let step_name = get_step_name_from_flow(
-                                summary.as_deref(),
-                                job.flow_step_id.as_deref(),
-                            );
+                            let step_name = step_name.clone();
 
                             // Spawn task because we do not need to wait for the result
                             tokio::spawn(async move {
@@ -827,21 +887,10 @@ pub async fn run_agent(
                 let content = to_raw_value(&s3_object);
 
                 // Add assistant message to conversation if chat_input_enabled
-                let chat_enabled = flow_context
-                    .flow_status
-                    .as_ref()
-                    .and_then(|fs| fs.chat_input_enabled)
-                    .unwrap_or(false);
                 if chat_enabled {
-                    if let Some(memory_id) = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.memory_id)
-                    {
+                    if let Some(memory_id) = memory_id {
                         let agent_job_id = job.id;
                         let db_clone = db.clone();
-                        let flow_step_id_owned = job.flow_step_id.clone();
-                        let summary_owned = summary.map(|s| s.to_string());
 
                         // Create extended version with type discriminator for conversation storage
                         // This avoids conflicts with outputs that are of the same format as S3 objects
@@ -855,11 +904,6 @@ pub async fn run_agent(
 
                         // Spawn task because we do not need to wait for the result
                         tokio::spawn(async move {
-                            let step_name = get_step_name_from_flow(
-                                summary_owned.as_deref(),
-                                flow_step_id_owned.as_deref(),
-                            );
-
                             if let Err(e) = add_message_to_conversation(
                                 &db_clone,
                                 &memory_id,
@@ -914,14 +958,19 @@ pub async fn run_agent(
         None => to_raw_value(&""),
     };
 
-    if let Some(stream_event_processor) = stream_event_processor {
-        if let Some(handle) = stream_event_processor.to_handle() {
-            if let Err(e) = handle.await {
-                return Err(Error::internal_err(format!(
-                    "Error waiting for stream event processor: {}",
-                    e
-                )));
-            }
+    // Wait for stream event processor to finish persisting events (if any)
+    if let Some(handle) = {
+        if let Some(stream_event_processor) = stream_event_processor {
+            stream_event_processor.to_handle()
+        } else {
+            None
+        }
+    } {
+        if let Err(e) = handle.await {
+            return Err(Error::internal_err(format!(
+                "Error waiting for stream event processor: {}",
+                e
+            )));
         }
     }
 

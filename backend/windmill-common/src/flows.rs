@@ -238,6 +238,9 @@ impl FlowValue {
                             ToolValue::Mcp(_) => {
                                 // MCP tools don't have a FlowModuleValue to traverse
                             }
+                            ToolValue::Websearch(_) => {
+                                // Websearch tools don't have a FlowModuleValue to traverse
+                            }
                         }
                     }
                 }
@@ -604,6 +607,9 @@ impl FlowModule {
                             ToolValue::Mcp(_) => {
                                 // MCP tools don't have a FlowModule to traverse
                             }
+                            ToolValue::Websearch(_) => {
+                                // Websearch tools don't have a FlowModule to traverse
+                            }
                         }
                     }
                 }
@@ -769,6 +775,7 @@ impl From<&AgentTool> for Option<FlowModule> {
                 ..Default::default()
             }),
             ToolValue::Mcp(_) => None, // MCP tools can't be converted to FlowModule
+            ToolValue::Websearch(_) => None, // Websearch tools can't be converted to FlowModule
         }
     }
 }
@@ -778,6 +785,7 @@ impl From<&AgentTool> for Option<FlowModule> {
 pub enum ToolValue {
     FlowModule(FlowModuleValue),
     Mcp(McpToolValue),
+    Websearch(WebsearchToolValue),
 }
 
 // Custom deserializer for backward compatibility with old flows
@@ -796,12 +804,14 @@ impl<'de> Deserialize<'de> for ToolValue {
         enum TaggedToolValue {
             FlowModule(FlowModuleValue),
             Mcp(McpToolValue),
+            Websearch(WebsearchToolValue),
         }
 
         if let Ok(tagged) = TaggedToolValue::deserialize(&content) {
             return Ok(match tagged {
                 TaggedToolValue::FlowModule(v) => ToolValue::FlowModule(v),
                 TaggedToolValue::Mcp(v) => ToolValue::Mcp(v),
+                TaggedToolValue::Websearch(v) => ToolValue::Websearch(v),
             });
         }
 
@@ -823,6 +833,12 @@ pub struct McpToolValue {
     pub include_tools: Vec<String>,
     #[serde(default)]
     pub exclude_tools: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct WebsearchToolValue {
+    // WebSearch tools don't need additional configuration
+    // The tool is enabled just by adding it to the agent
 }
 
 fn is_none_or_empty_vec<T>(expr: &Option<Vec<T>>) -> bool {

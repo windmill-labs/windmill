@@ -21,6 +21,7 @@ export type InsertKind =
 	| 'end'
 	| 'aiagent'
 	| 'mcpTool'
+	| 'websearchTool'
 
 export type InlineScript = {
 	language: RawScript['language']

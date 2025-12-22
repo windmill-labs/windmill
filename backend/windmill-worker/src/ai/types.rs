@@ -9,6 +9,16 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
+/// URL citation annotation for web search results
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct UrlCitation {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentPart {
@@ -48,6 +58,8 @@ pub struct OpenAIMessage {
     pub tool_call_id: Option<String>,
     #[serde(skip_serializing)]
     pub agent_action: Option<AgentAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<UrlCitation>>,
 }
 
 /// same as OpenAIMessage but with agent_action field included in the serialization

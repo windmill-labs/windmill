@@ -11,6 +11,11 @@ export type McpTool = AgentTool & {
 		exclude_tools?: string[]
 	}
 }
+export type WebsearchTool = AgentTool & {
+	value: {
+		tool_type: 'websearch'
+	}
+}
 
 /**
  * Type guard to check if a tool is a FlowModule tool
@@ -27,6 +32,13 @@ export function isMcpTool(tool: AgentTool): tool is McpTool {
 }
 
 /**
+ * Type guard to check if a tool is a Websearch tool
+ */
+export function isWebsearchTool(tool: AgentTool): tool is WebsearchTool {
+	return tool.value.tool_type === 'websearch'
+}
+
+/**
  * Create an MCP tool from resource path
  */
 export function createMcpTool(id: string): McpTool {
@@ -38,6 +50,19 @@ export function createMcpTool(id: string): McpTool {
 			resource_path: '',
 			include_tools: [],
 			exclude_tools: []
+		}
+	}
+}
+
+/**
+ * Create a Websearch tool
+ */
+export function createWebsearchTool(id: string): WebsearchTool {
+	return {
+		id,
+		summary: 'Web Search',
+		value: {
+			tool_type: 'websearch'
 		}
 	}
 }
