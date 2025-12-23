@@ -911,7 +911,7 @@ pub fn hash_script(ns: &NewScript) -> i64 {
 }
 
 pub async fn fetch_script_for_update<'a>(
-    hash: ScriptHash,
+    path: &str,
     w_id: &str,
     e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
 ) -> crate::error::Result<Option<Script<ScriptRunnableSettingsHandle>>> {
@@ -958,9 +958,9 @@ pub async fn fetch_script_for_update<'a>(
             has_preprocessor,
             on_behalf_of_email,
             assets
-         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+         FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
-    .bind(hash.0)
+    .bind(path)
     .bind(w_id)
     .fetch_optional(e)
     .await
@@ -973,18 +973,17 @@ pub struct ClonedScript {
 }
 // TODO: What if dependency job fails, there is script with NULL in the lock
 pub async fn clone_script<'c>(
-    base_hash: ScriptHash,
+    path: &str,
     w_id: &str,
     deployment_message: Option<String>,
     db: &DB,
 ) -> crate::error::Result<ClonedScript> {
     let mut tx = db.begin().await?;
-    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut *tx).await? {
+    let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script with hash {} not found",
-            base_hash.0
+            "Non-archived script with path '{}' not found", path
         )));
     };
 
@@ -999,7 +998,7 @@ pub async fn clone_script<'c>(
 
     let ns = NewScript {
         path: s.path.clone(),
-        parent_hash: Some(base_hash),
+        parent_hash: Some(s.hash),
         summary: s.summary,
         description: s.description,
         content: s.content,
@@ -1044,7 +1043,7 @@ pub async fn clone_script<'c>(
     tracing::debug!(
         "cloning script at path {} from '{}' to '{}'",
         s.path,
-        *base_hash,
+        *s.hash,
         new_hash
     );
 
@@ -1065,12 +1064,12 @@ pub async fn clone_script<'c>(
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
-            ", new_hash, base_hash.0, w_id).execute(&mut *tx).await?;
+            ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;
 
     // Archive base.
     sqlx::query!(
         "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
-        *base_hash,
+        *s.hash,
         w_id
     )
     .execute(&mut *tx)
