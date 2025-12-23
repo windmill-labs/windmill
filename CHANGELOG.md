@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.597.1](https://github.com/windmill-labs/windmill/compare/v1.597.0...v1.597.1) (2025-12-23)
+
+
+### Bug Fixes
+
+* **cli:** improve workspace dependency pushing ([815aadc](https://github.com/windmill-labs/windmill/commit/815aadc679f2ab6585482e5565e682b7dc11b574))
+
 ## [1.597.0](https://github.com/windmill-labs/windmill/compare/v1.596.0...v1.597.0) (2025-12-23)
 
 
