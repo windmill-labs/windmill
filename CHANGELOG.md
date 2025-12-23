@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.597.0](https://github.com/windmill-labs/windmill/compare/v1.596.0...v1.597.0) (2025-12-23)
+
+
+### Features
+
+* **ai:** add websearch tool for AI agents ([#7399](https://github.com/windmill-labs/windmill/issues/7399)) ([6be060b](https://github.com/windmill-labs/windmill/commit/6be060bea8fd12676a80f4b477aadd225880a625))
+* **aiagent:** allow giving messages history ([#7395](https://github.com/windmill-labs/windmill/issues/7395)) ([5f2101a](https://github.com/windmill-labs/windmill/commit/5f2101a32bcdd9ab71af3e4359925f5e1d1604a6))
+* **aiagent:** handle custom memory_id ([#7432](https://github.com/windmill-labs/windmill/issues/7432)) ([532c500](https://github.com/windmill-labs/windmill/commit/532c50024f83f915bc36e962a81a544b611b8c8d))
+* **aichat:** add get_lint_errors tool for script and flow mode ([#7431](https://github.com/windmill-labs/windmill/issues/7431)) ([15a4b26](https://github.com/windmill-labs/windmill/commit/15a4b26d44bb2a023cf01088c05e8f09b0ddad39))
+* data table integrations for raw apps ([#7436](https://github.com/windmill-labs/windmill/issues/7436)) ([6a67869](https://github.com/windmill-labs/windmill/commit/6a67869040b2fb4c88526a44b86a0cc7879a2432))
+* full-code app builder reachable from home in preview ([ad2232e](https://github.com/windmill-labs/windmill/commit/ad2232e4cb19aef601ac9cb29cd14a01a2752c78))
+* v2 job debouncing ([#7411](https://github.com/windmill-labs/windmill/issues/7411)) ([9d698da](https://github.com/windmill-labs/windmill/commit/9d698dabb4e884ef5f1a6193ff4e9d6b0580cf7b))
+
+
+### Bug Fixes
+
+* better timeouts on job pull ([#7434](https://github.com/windmill-labs/windmill/issues/7434)) ([6723a6a](https://github.com/windmill-labs/windmill/commit/6723a6a04b19c3d9193791d309418654faaab438))
+* clear app form on submit option ([#7428](https://github.com/windmill-labs/windmill/issues/7428)) ([980dfcc](https://github.com/windmill-labs/windmill/commit/980dfcc366debb27229b244d61598932e706d8b6))
+* **cli:** fix ordering of workspace dependencies push ([65b5669](https://github.com/windmill-labs/windmill/commit/65b5669e1a4f8abd23722e25c9e25c249e68861f))
+* **cli:** push workspace deps doesn't depend on wmill-locks ([7a9481e](https://github.com/windmill-labs/windmill/commit/7a9481e44906752c1b4ff1851ce04bc85c2c6ea9))
+* clone script by path instead of hash ([#7439](https://github.com/windmill-labs/windmill/issues/7439)) ([0f51f97](https://github.com/windmill-labs/windmill/commit/0f51f9702cb41d5bf7c5f925974b1c22ff171cdd))
+
 ## [1.596.0](https://github.com/windmill-labs/windmill/compare/v1.595.0...v1.596.0) (2025-12-20)
 
 
