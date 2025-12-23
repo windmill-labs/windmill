@@ -30,6 +30,7 @@ import {
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
+import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -97,6 +98,7 @@ class AIChatManager {
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
+	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
@@ -241,6 +243,12 @@ class AIChatManager {
 				},
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
+				},
+				getLintErrors: () => {
+					if (this.scriptEditorGetLintErrors) {
+						return this.scriptEditorGetLintErrors()
+					}
+					return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 				}
 			}
 			if (options?.closeScriptSettings) {
@@ -982,14 +990,22 @@ class AIChatManager {
 					currentEditor.showDiffMode()
 				}
 			}
+			this.scriptEditorGetLintErrors = () => {
+				if (currentEditor && currentEditor.type === 'script') {
+					return currentEditor.editor.getLintErrors()
+				}
+				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
 		} else {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 
 		return () => {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 	}
 

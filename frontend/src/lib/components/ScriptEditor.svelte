@@ -446,6 +446,7 @@
 		disableCollaboration()
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
+		aiChatManager.scriptEditorGetLintErrors = undefined
 		aiChatManager.scriptEditorOptions = undefined
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
@@ -535,6 +536,9 @@
 				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
+			aiChatManager.scriptEditorGetLintErrors = () => {
+				return editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
 		})
 	})
 </script>

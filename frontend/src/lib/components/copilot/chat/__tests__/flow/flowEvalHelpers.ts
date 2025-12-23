@@ -88,6 +88,11 @@ export function createFlowEvalHelpers(
 		testFlow: async () => {
 			// Return mock job ID - we don't actually run flows in eval
 			return 'mock-job-id-' + Date.now()
+		},
+
+		getLintErrors: async () => {
+			// Return empty lint result for eval
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		}
 	}
 

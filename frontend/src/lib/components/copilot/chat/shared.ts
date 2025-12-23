@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
+import { type editor as meditor } from 'monaco-editor'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -848,4 +849,40 @@ function formatResultSummary(result: unknown, logs: string | undefined, success:
 	resultSummary += '\n\nLogs:\n\n'
 	resultSummary += formatLogs(logs) ?? 'No logs available'
 	return resultSummary
+}
+
+// ============= Script/Flow Lint Types =============
+
+/** Result of linting a script */
+export interface ScriptLintResult {
+	errorCount: number
+	warningCount: number
+	errors: meditor.IMarker[]
+	warnings: meditor.IMarker[]
+}
+
+/** Format script lint result for display */
+export function formatScriptLintResult(lintResult: ScriptLintResult): string {
+	let response = ''
+	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
+
+	if (hasIssues) {
+		if (lintResult.errorCount > 0) {
+			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
+			for (const error of lintResult.errors) {
+				response += `- Line ${error.startLineNumber}: ${error.message}\n`
+			}
+		}
+
+		if (lintResult.warningCount > 0) {
+			response += `\n⚠️ **${lintResult.warningCount} warning(s)** found:\n`
+			for (const warning of lintResult.warnings) {
+				response += `- Line ${warning.startLineNumber}: ${warning.message}\n`
+			}
+		}
+	} else {
+		response = '✅ No lint issues found.'
+	}
+
+	return response
 }
