@@ -983,7 +983,7 @@ pub async fn clone_script<'c>(
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script not found",
+            "Non-archived script with path '{}' not found", path
         )));
     };
 
