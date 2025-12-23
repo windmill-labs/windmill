@@ -118,7 +118,7 @@ lazy_static::lazy_static! {
         .connect_timeout(std::time::Duration::from_secs(10)))
         .build().unwrap();
 
-    pub static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
+    pub static ref WMDEBUG_NO_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DEBOUNCING").is_ok();
     pub static ref WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: bool = std::env::var("WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT").is_ok();
 
     static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
@@ -2625,11 +2625,11 @@ impl PulledJobResult {
             && j.args
                 .as_ref()
                 .and_then(|x| x.get("triggered_by_relative_import"))
-                .is_some()
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+                .is_some();
 
         if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && !*WMDEBUG_NO_DEBOUNCING
         {
             let needs_debounce = sqlx::query_scalar!(
                 "WITH _ AS (
@@ -2905,7 +2905,7 @@ pub async fn pull(
                     Some(job)
                         if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
-                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
+                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
                         crate::jobs_ee::apply_concurrency_limit(
                             db,
@@ -2972,7 +2972,7 @@ pub async fn pull(
         let has_concurent_limit = job.is_dependency()
             && job.concurrent_limit.is_some()
             && cfg!(feature = "private")
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+            && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -2994,9 +2994,7 @@ pub async fn pull(
         }
 
         #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise")
-            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
-        {
+        if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
             if let Some(pulled_job_res) = crate::jobs_ee::apply_concurrency_limit(
                 db,
                 pull_loop_count,
@@ -4855,7 +4853,7 @@ pub async fn push<'c, 'd>(
         &runnable_path,
         cfg!(feature = "private")
             && job_kind.is_dependency()
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+            && !*WMDEBUG_NO_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
         concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
