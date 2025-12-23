@@ -11,12 +11,11 @@
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	import YAML from 'yaml'
-	import Tooltip from '../Tooltip.svelte'
 
 	let drawer: Drawer | undefined = undefined
-	let pendingRaw: string = ''
+	let pendingRaw: string = $state('')
 
-	let importType: 'yaml' | 'json' = 'yaml'
+	let importType: 'yaml' | 'json' = $state('yaml')
 
 	// Modal states
 	let appTypeModalOpen = $state(false)

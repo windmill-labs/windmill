@@ -59,9 +59,7 @@
                 "failure",
                 "command",
                 "approval",
-                "preprocessor",
-                "schedule_handler_old",
-                "dynamic_skip"
+                "preprocessor"
               ]
             }
           }
