@@ -46,6 +46,21 @@
 			if (event.data.type == 'backend') {
 				respond({ result, error })
 			}
+			if (editor) {
+				try {
+					let jobInfo = await JobService.getCompletedJobTiming({ workspace, id: uuid })
+					if (jobInfo.started_at) {
+						jobsById[uuid] = {
+							...(jobsById[uuid] ?? {}),
+							created_at: new Date(jobInfo.created_at).getTime(),
+							started_at: new Date(jobInfo.started_at).getTime(),
+							duration_ms: jobInfo.duration_ms
+						}
+					}
+				} catch (e) {
+					console.error('Error getting job info', e)
+				}
+			}
 			return result
 		}
 		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
@@ -100,7 +115,7 @@
 			} else if (event.data.type == 'waitJob') {
 				await respondWithResult(data.jobId)
 			} else if (event.data.type == 'getJob') {
-				const job = JobService.getJob({ workspace, id: data.jobId })
+				const job = await JobService.getJob({ workspace, id: data.jobId })
 				respond({ result: job })
 			} else {
 				console.error('No runnable found for', runnable_id)

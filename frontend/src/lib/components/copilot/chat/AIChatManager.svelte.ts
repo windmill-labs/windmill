@@ -99,6 +99,12 @@ class AIChatManager {
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
+	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	datatableCreationPolicy = $state<{
+		enabled: boolean
+		datatable: string | undefined
+		schema: string | undefined
+	}>({ enabled: false, datatable: undefined, schema: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
