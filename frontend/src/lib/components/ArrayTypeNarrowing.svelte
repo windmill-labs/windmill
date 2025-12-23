@@ -185,13 +185,14 @@
 			() => {
 				return itemsType?.properties != undefined
 			},
-			async (v) => {
-				await tick()
-				if (v) {
-					itemsType = { type: 'object', properties: {} }
-				} else {
-					itemsType = { type: 'object', properties: undefined }
-				}
+			(v) => {
+				tick().then(() => {
+					if (v) {
+						itemsType = { type: 'object', properties: {} }
+					} else {
+						itemsType = { type: 'object', properties: undefined }
+					}
+				})
 			}
 		}
 		options={{ left: 'JSON', right: 'Custom Object' }}

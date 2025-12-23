@@ -11,7 +11,7 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
-		"package": "svelte-package -o package",
+		"package": "svelte-package -o package && node scripts/package-system-prompts.js",
 		"generate-backend-client": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript --format false",
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
@@ -251,6 +251,16 @@
 			"svelte": "./package/components/common/tabs/Tab.svelte",
 			"default": "./package/components/common/tabs/Tab.svelte"
 		},
+		"./components/common/toggleButton-v2/ToggleButtonGroup.svelte": {
+			"types": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte.d.ts",
+			"svelte": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte",
+			"default": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte"
+		},
+		"./components/common/toggleButton-v2/ToggleButton.svelte": {
+			"types": "./package/components/common/toggleButton-v2/ToggleButton.svelte.d.ts",
+			"svelte": "./package/components/common/toggleButton-v2/ToggleButton.svelte",
+			"default": "./package/components/common/toggleButton-v2/ToggleButton.svelte"
+		},
 		"./components/common/alert/Alert.svelte": {
 			"types": "./package/components/common/alert/Alert.svelte.d.ts",
 			"svelte": "./package/components/common/alert/Alert.svelte",
@@ -445,6 +455,12 @@
 			],
 			"components/Toggle.svelte": [
 				"./package/components/Toggle.svelte.d.ts"
+			],
+			"components/common/toggleButton-v2/ToggleButtonGroup.svelte": [
+				"./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte.d.ts"
+			],
+			"components/common/toggleButton-v2/ToggleButton.svelte": [
+				"./package/components/common/toggleButton-v2/ToggleButton.svelte.d.ts"
 			],
 			"components/common/tabs/Tabs.svelte": [
 				"./package/components/common/tabs/Tabs.svelte.d.ts"
