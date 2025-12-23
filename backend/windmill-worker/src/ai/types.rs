@@ -2,6 +2,7 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use uuid::Uuid;
 use windmill_common::mcp_client::McpToolSource;
 use windmill_common::{
     ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
@@ -121,9 +122,12 @@ impl Default for OutputType {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
+    Off,
     Auto {
         #[serde(default)]
         context_length: usize,
+        #[serde(default)]
+        memory_id: Option<Uuid>,
     },
     Manual {
         messages: Vec<OpenAIMessage>,
@@ -168,7 +172,16 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         // Backward compatibility: if messages_context_length is set, use auto mode
         let memory = raw.memory.or_else(|| {
             raw.messages_context_length
-                .map(|context_length| Memory::Auto { context_length })
+                .map(|context_length| Memory::Auto { context_length, memory_id: None })
+        });
+
+        // Backward compatibility: if context_length is 0, use off mode
+        let memory = memory.map(|memory| {
+            if let Memory::Auto { context_length: 0, .. } = memory {
+                Memory::Off
+            } else {
+                memory
+            }
         });
 
         AIAgentArgs {

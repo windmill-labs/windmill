@@ -42,6 +42,7 @@ export interface SchemaProperty {
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 	showExpr?: string
+	hideWhenChatEnabled?: boolean
 	password?: boolean
 	order?: string[]
 	nullable?: boolean
@@ -52,6 +53,7 @@ export interface SchemaProperty {
 	originalType?: string
 	disabled?: boolean
 	'x-no-s3-storage-workspace-warning'?: string
+	'x-auto-generate'?: boolean
 }
 
 export interface ModalSchemaProperty {
