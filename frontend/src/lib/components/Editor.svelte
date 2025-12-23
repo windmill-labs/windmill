@@ -93,6 +93,7 @@
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
+	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
@@ -462,6 +463,24 @@
 
 	export function getScriptLang(): string | undefined {
 		return scriptLang
+	}
+
+	/** Get lint errors and warnings from the Monaco editor */
+	export function getLintErrors(): ScriptLintResult {
+		if (!model) {
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+		}
+
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
+		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
+
+		return {
+			errorCount: errors.length,
+			warningCount: warnings.length,
+			errors,
+			warnings
+		}
 	}
 
 	let command: IDisposable | undefined = undefined

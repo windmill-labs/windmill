@@ -12,6 +12,7 @@
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import { SPECIAL_MODULE_IDS } from '../shared'
 	import type { FlowCopilotContext } from '../../flow'
+	import type { ScriptLintResult } from '../shared'
 
 	let {
 		flowModuleSchemaMap,
@@ -168,6 +169,29 @@
 			}
 			// Call the UI test function which opens preview panel
 			return await onTestFlow?.(conversationId)
+		},
+
+		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
+			// Focus the module first
+			selectionManager.selectId(moduleId)
+
+			// Poll until editor exists
+			const maxWait = 3000
+			const pollInterval = 100
+			let elapsed = 0
+
+			while (elapsed < maxWait) {
+				if ($currentEditor?.type === 'script') {
+					// Wait 500ms for LSP to analyze the code
+					await new Promise((resolve) => setTimeout(resolve, 500))
+					return $currentEditor.editor.getLintErrors()
+				}
+
+				await new Promise((resolve) => setTimeout(resolve, pollInterval))
+				elapsed += pollInterval
+			}
+
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
 		setFlowJson: async (
