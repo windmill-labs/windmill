@@ -24,7 +24,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AlertTriangle, Sparkles, ArrowRight, Plus, List } from 'lucide-svelte'
+	import { AlertTriangle, Sparkles, ArrowRight, Plus, List, Ban } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
@@ -182,7 +182,7 @@
 	let selectedTemplateIndex = $state(0)
 	let tableCreationEnabled = $state(true)
 	let selectedDatatable = $state<string | undefined>(undefined)
-	let schemaMode = $state<'new' | 'existing'>('new')
+	let schemaMode = $state<'none' | 'new' | 'existing'>('new')
 	let selectedSchema = $state<string | undefined>(undefined)
 	let newSchemaName = $state('')
 	let appSummary = $state('')
@@ -270,8 +270,10 @@
 	const datatableItems = $derived(toDatatableItems(availableDatatables))
 	const schemaItems = $derived(toSchemaItems(availableSchemas))
 
-	// The effective schema to use (either selected existing or new schema name)
-	const effectiveSchema = $derived(schemaMode === 'new' ? newSchemaName : selectedSchema)
+	// The effective schema to use (either selected existing, new schema name, or undefined for none)
+	const effectiveSchema = $derived(
+		schemaMode === 'new' ? newSchemaName : schemaMode === 'existing' ? selectedSchema : undefined
+	)
 
 	const hasNoDatatables = $derived(availableDatatables?.length === 0)
 	const isAiEnabled = $derived($copilotInfo.enabled)
@@ -420,20 +422,22 @@
 								<div>
 									<span class="text-2xs text-tertiary">Schema</span>
 
-									<div class="flex flex-row gap-1 w-full">
-										<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-											{#snippet children({ item })}
-												<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
-												<ToggleButton
-													value="existing"
-													label="Existing"
-													icon={List}
-													{item}
-													size="sm"
-												/>
-											{/snippet}
-										</ToggleButtonGroup>
-
+									<div class="flex flex-row gap-1 w-full items-center">
+										<div>
+											<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+												{#snippet children({ item })}
+													<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
+													<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+													<ToggleButton
+														value="existing"
+														label="Existing"
+														icon={List}
+														{item}
+														size="sm"
+													/>
+												{/snippet}
+											</ToggleButtonGroup>
+										</div>
 										{#if schemaMode === 'new'}
 											<TextInput
 												bind:value={newSchemaName}
@@ -444,7 +448,7 @@
 												class="flex-1"
 												error={newSchemaAlreadyExists}
 											/>
-										{:else}
+										{:else if schemaMode === 'existing'}
 											<div class="flex-1">
 												<Select
 													disablePortal

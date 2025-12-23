@@ -188,6 +188,19 @@
 		| undefined = $state()
 
 	let dbTableEditorState: { open: boolean } = $state({ open: false })
+	let newSchemaDialogOpen = $state(false)
+	let newSchemaName = $state('')
+
+	// Check if the sanitized schema name already exists
+	const sanitizedNewSchemaName = $derived(
+		newSchemaName
+			.trim()
+			.toLowerCase()
+			.replace(/[^a-zA-Z0-9_]/g, '')
+	)
+	const schemaAlreadyExists = $derived(
+		sanitizedNewSchemaName !== '' && schemaKeys.includes(sanitizedNewSchemaName)
+	)
 </script>
 
 <Splitpanes>
@@ -233,16 +246,43 @@
 		<div class="overflow-x-clip overflow-y-auto relative mt-3 border-y flex-1">
 			{#if multiSelectMode}
 				<!-- Multi-select mode: show all schemas with their tables -->
+				{#if dbSupportsSchemas}
+					<!-- New schema button -->
+					<button
+						class="w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary text-tertiary"
+						onclick={() => (newSchemaDialogOpen = true)}
+					>
+						<Plus class="shrink-0" size={14} />
+						<span class="text-xs">New schema</span>
+					</button>
+				{/if}
 				{#each schemaKeys as schemaKey}
 					{@const schemaTables = getTablesForSchema(schemaKey)}
 					{@const isFullySelected = isSchemaFullySelected(schemaKey)}
 					{@const isPartiallySelected = isSchemaPartiallySelected(schemaKey)}
-					{#if schemaTables.length > 0}
-						<!-- Schema header with checkbox -->
-						<button
-							class="w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary"
-							onclick={() => toggleSchemaSelection(schemaKey)}
-						>
+					{@const hasNoTables = schemaTables.length === 0}
+					<!-- Schema header with checkbox (or just label if empty) -->
+					<div
+						class="group w-full text-sm font-medium flex gap-2 items-center h-9 cursor-pointer pl-3 pr-1 hover:bg-gray-500/10 border-b border-surface-secondary"
+						role="button"
+						tabindex="0"
+						onclick={() => {
+							if (!hasNoTables) {
+								toggleSchemaSelection(schemaKey)
+							}
+						}}
+						onkeydown={(e) => {
+							if (e.key === 'Enter' || e.key === ' ') {
+								if (!hasNoTables) {
+									toggleSchemaSelection(schemaKey)
+								}
+							}
+						}}
+					>
+						{#if hasNoTables}
+							<!-- Empty schema: no checkbox, just indent space -->
+							<span class="shrink-0 w-4"></span>
+						{:else}
 							<span class="shrink-0">
 								<input
 									type="checkbox"
@@ -253,53 +293,117 @@
 									onchange={() => toggleSchemaSelection(schemaKey)}
 								/>
 							</span>
-							<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
-								>{schemaKey}</span
-							>
-							<span class="text-2xs text-tertiary mr-2">{schemaTables.length}</span>
+						{/if}
+						<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
+							>{schemaKey}</span
+						>
+						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">{schemaTables.length}</span>
+						<!-- Delete schema button (on hover) -->
+						<button
+							class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
+							title="Delete schema"
+							onclick={(e) => {
+								e.stopPropagation()
+								askingForConfirmation = {
+									title: `Are you sure you want to delete schema "${schemaKey}"? This will drop all tables in this schema. This action is irreversible.`,
+									confirmationText: 'Drop schema',
+									open: true,
+									onConfirm: async () => {
+										askingForConfirmation && (askingForConfirmation.loading = true)
+										try {
+											await dbSchemaOps.onDeleteSchema({ schema: schemaKey })
+											refresh?.()
+											sendUserToast(`Schema '${schemaKey}' deleted successfully`)
+										} catch (e) {
+											let msg: string | undefined = (e as Error).message
+											if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+											sendUserToast(msg ?? 'Action failed!', true)
+										}
+										askingForConfirmation = undefined
+									}
+								}
+							}}
+						>
+							<Trash2Icon size={12} class="text-red-500" />
 						</button>
-						<!-- Tables under this schema -->
-						{#each schemaTables as tableKey}
-							{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
-							{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
-							{@const isCurrentPreview = selected.schemaKey === schemaKey && selected.tableKey === tableKey}
-							<button
-								class={'w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
-									(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
-									(isDisabled ? ' opacity-50' : '')}
-								onclick={() => {
+					</div>
+					<!-- Tables under this schema -->
+					{#each schemaTables as tableKey}
+						{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
+						{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
+						{@const isCurrentPreview = selected.schemaKey === schemaKey && selected.tableKey === tableKey}
+						<div
+							class={'group w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
+								(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
+								(isDisabled ? ' opacity-50' : '')}
+							role="button"
+							tabindex="0"
+							onclick={() => {
+								selected.schemaKey = schemaKey
+								selected.tableKey = tableKey
+								toggleTableSelection(schemaKey, tableKey)
+							}}
+							onkeydown={(e) => {
+								if (e.key === 'Enter' || e.key === ' ') {
 									selected.schemaKey = schemaKey
 									selected.tableKey = tableKey
 									toggleTableSelection(schemaKey, tableKey)
-								}}
-							>
-								<span class="shrink-0">
-									<input
-										type="checkbox"
-										checked={isChecked}
-										disabled={isDisabled}
-										class="w-4 h-4 cursor-pointer"
-										onclick={(e) => e.stopPropagation()}
-										onchange={() => toggleTableSelection(schemaKey, tableKey)}
-									/>
-								</span>
-								<Table2 class="text-primary shrink-0" size={14} />
-								<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p
-								>
-							</button>
-						{/each}
-						<!-- New table button for this schema -->
-						<button
-							class="w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 hover:bg-gray-500/10 text-tertiary"
-							onclick={() => {
-								selected.schemaKey = schemaKey
-								dbTableEditorState = { open: true }
+								}
 							}}
 						>
-							<Plus class="shrink-0" size={14} />
-							<span class="text-xs">New table</span>
-						</button>
-					{/if}
+							<span class="shrink-0">
+								<input
+									type="checkbox"
+									checked={isChecked}
+									disabled={isDisabled}
+									class="w-4 h-4 cursor-pointer"
+									onclick={(e) => e.stopPropagation()}
+									onchange={() => toggleTableSelection(schemaKey, tableKey)}
+								/>
+							</span>
+							<Table2 class="text-primary shrink-0" size={14} />
+							<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
+							<!-- Delete table button (on hover) -->
+							<button
+								class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
+								title="Delete table"
+								onclick={(e) => {
+									e.stopPropagation()
+									askingForConfirmation = {
+										title: `Are you sure you want to delete table "${tableKey}"? This action is irreversible.`,
+										confirmationText: 'Drop table',
+										open: true,
+										onConfirm: async () => {
+											askingForConfirmation && (askingForConfirmation.loading = true)
+											try {
+												await dbSchemaOps.onDelete({ tableKey, schema: schemaKey })
+												refresh?.()
+												sendUserToast(`Table '${tableKey}' deleted successfully`)
+											} catch (e) {
+												let msg: string | undefined = (e as Error).message
+												if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : undefined
+												sendUserToast(msg ?? 'Action failed!', true)
+											}
+											askingForConfirmation = undefined
+										}
+									}
+								}}
+							>
+								<Trash2Icon size={12} class="text-red-500" />
+							</button>
+						</div>
+					{/each}
+					<!-- New table button for this schema -->
+					<button
+						class="w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 hover:bg-gray-500/10 text-tertiary"
+						onclick={() => {
+							selected.schemaKey = schemaKey
+							dbTableEditorState = { open: true }
+						}}
+					>
+						<Plus class="shrink-0" size={14} />
+						<span class="text-xs">New table</span>
+					</button>
 				{/each}
 			{:else}
 				<!-- Normal mode: show tables for selected schema -->
@@ -398,5 +502,94 @@
 			{dbType}
 			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
 		/>
+	</DrawerContent>
+</Drawer>
+
+<Drawer
+	size="400px"
+	open={newSchemaDialogOpen}
+	on:close={() => {
+		newSchemaDialogOpen = false
+		newSchemaName = ''
+	}}
+>
+	<DrawerContent
+		on:close={() => {
+			newSchemaDialogOpen = false
+			newSchemaName = ''
+		}}
+		title="Create a new schema"
+	>
+		<div class="flex flex-col gap-4">
+			<div>
+				<label for="schema-name" class="block text-sm font-medium text-primary mb-1"
+					>Schema name</label
+				>
+				<ClearableInput
+					bind:value={newSchemaName}
+					placeholder="Enter schema name..."
+					autofocus
+					on:keydown={(e) => {
+						if (e.key === 'Enter' && sanitizedNewSchemaName && !schemaAlreadyExists) {
+							askingForConfirmation = {
+								confirmationText: `Create ${sanitizedNewSchemaName}`,
+								type: 'reload',
+								title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
+								open: true,
+								onConfirm: async () => {
+									askingForConfirmation && (askingForConfirmation.loading = true)
+									try {
+										await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
+										refresh?.()
+										selected.schemaKey = sanitizedNewSchemaName
+										newSchemaDialogOpen = false
+										newSchemaName = ''
+									} finally {
+										askingForConfirmation = undefined
+									}
+								}
+							}
+						}
+					}}
+				/>
+				{#if schemaAlreadyExists}
+					<p class="text-xs text-red-500 mt-1">
+						Schema "{sanitizedNewSchemaName}" already exists
+					</p>
+				{:else}
+					<p class="text-xs text-tertiary mt-1">
+						Only letters, numbers, and underscores are allowed.
+					</p>
+				{/if}
+			</div>
+		</div>
+		{#snippet actions()}
+			<Button
+				color="blue"
+				disabled={!sanitizedNewSchemaName || schemaAlreadyExists}
+				on:click={() => {
+					askingForConfirmation = {
+						confirmationText: `Create ${sanitizedNewSchemaName}`,
+						type: 'reload',
+						title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
+						open: true,
+						onConfirm: async () => {
+							askingForConfirmation && (askingForConfirmation.loading = true)
+							try {
+								await dbSchemaOps.onCreateSchema({ schema: sanitizedNewSchemaName })
+								refresh?.()
+								selected.schemaKey = sanitizedNewSchemaName
+								newSchemaDialogOpen = false
+								newSchemaName = ''
+							} finally {
+								askingForConfirmation = undefined
+							}
+						}
+					}
+				}}
+			>
+				Create schema
+			</Button>
+		{/snippet}
 	</DrawerContent>
 </Drawer>

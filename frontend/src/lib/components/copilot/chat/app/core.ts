@@ -1012,12 +1012,14 @@ When creating a new app, use \`list_workspace_runnables\` or \`search_hub_script
 	// Add datatable creation policy context
 	const policy = aiChatManager.datatableCreationPolicy
 	if (policy.enabled && policy.datatable) {
+		const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
 		content += `## Datatable Creation Policy
 
 **Table creation is ENABLED.** You can create new tables using \`exec_datatable_sql\` with the \`new_table\` parameter.
 - **Default datatable**: ${policy.datatable}${policy.schema ? `\n- **Default schema**: ${policy.schema}` : ''}
 
 When creating new tables, you MUST use the default datatable${policy.schema ? ` and schema` : ''} specified above. Do not create tables in other datatables or schemas.
+${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefix}\` in your SQL queries when creating or referencing tables. For example: \`CREATE TABLE ${schemaPrefix}my_table (...)\` and \`SELECT * FROM ${schemaPrefix}my_table\`. Never create tables without the schema prefix as they would go to the public schema instead.` : ''}
 
 `
 	} else {
