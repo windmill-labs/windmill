@@ -46,8 +46,11 @@ use windmill_common::runnable_settings::{
     RunnableSettingsTrait,
 };
 use windmill_common::triggers::TriggerMetadata;
-use windmill_common::utils::{configure_client, now_from_db};
-use windmill_common::worker::{Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
+use windmill_common::worker::{
+    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+    SCRIPT_TOKEN_EXPIRY,
+};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -117,14 +120,14 @@ lazy_static::lazy_static! {
         .connect_timeout(std::time::Duration::from_secs(10)))
         .build().unwrap();
 
+    pub static ref WMDEBUG_NO_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DEBOUNCING").is_ok();
+    pub static ref WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: bool = std::env::var("WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT").is_ok();
 
     static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-    // TODO: Remove
-    static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -464,7 +467,6 @@ pub async fn push_init_job<'c>(
         None,
         None,
         None,
-        None,
     )
     .await?;
     inner_tx.commit().await?;
@@ -519,7 +521,6 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
-        None,
         None,
         None,
         None,
@@ -863,7 +864,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniCompletedJob,
+    completed_job: &MiniCompletedJob,
     success: bool,
     skipped: bool,
     result: Json<&T>,
@@ -879,7 +880,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     let mut tx = db.begin().warn_after_seconds(10).await?;
 
-    let job_id = queued_job.id;
+    let job_id = completed_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
     // tracing::debug!(
@@ -891,7 +892,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let mem_peak = mem_peak;
     // add_time!(bench, "add_completed_job query START");
 
-    if let Some(value) = check_result_size(db, queued_job, result).await {
+    if let Some(value) = check_result_size(db, completed_job, result).await {
         return value;
     }
 
@@ -920,7 +921,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ queued_job.id,
+            /* $1 */ completed_job.id,
             /* $2 */ success,
             /* $3 */ result as Json<&T>,
             /* $4 */ canceled_by.is_some(),
@@ -975,8 +976,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    if !queued_job.is_flow_step() {
-        if let Some(parent_job) = queued_job.parent_job {
+    if !completed_job.is_flow_step() {
+        if let Some(parent_job) = completed_job.parent_job {
             let _ = sqlx::query_scalar!(
                 "UPDATE v2_job_status SET
                         workflow_as_code_status = jsonb_set(
@@ -989,7 +990,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             to_jsonb($2::bigint)
                         )
                     WHERE id = $3",
-                &queued_job.id.to_string(),
+                &completed_job.id.to_string(),
                 duration,
                 parent_job
             )
@@ -1010,8 +1011,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
-    if queued_job.is_flow_step() {
-        if let Some(parent_job) = queued_job.parent_job {
+    if completed_job.is_flow_step() {
+        if let Some(parent_job) = completed_job.parent_job {
             // persist the flow last progress timestamp to avoid zombie flow jobs
             tracing::debug!(
                 "Persisting flow last progress timestamp to flow job: {:?}",
@@ -1025,7 +1026,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         AND q.workspace_id = $2
                         AND canceled_by IS NULL",
                 parent_job,
-                &queued_job.workspace_id
+                &completed_job.workspace_id
             )
             .execute(&mut *tx)
             .warn_after_seconds(10)
@@ -1034,22 +1035,22 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 let r = sqlx::query_scalar!(
                     "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                     parent_job,
-                    &queued_job.id
+                    &completed_job.id
                 ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
                 if r.is_some() {
                     tracing::info!(
                             "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
-                            &queued_job.id
+                            &completed_job.id
                         );
                 }
             }
         }
     } else {
-        if queued_job.schedule_path().is_some() && queued_job.runnable_path.is_some() {
-            let schedule_path = queued_job.schedule_path().unwrap();
-            let script_path = queued_job.runnable_path.as_ref().unwrap();
+        if completed_job.schedule_path().is_some() && completed_job.runnable_path.is_some() {
+            let schedule_path = completed_job.schedule_path().unwrap();
+            let script_path = completed_job.runnable_path.as_ref().unwrap();
 
-            let schedule = get_schedule_opt(&mut *tx, &queued_job.workspace_id, &schedule_path)
+            let schedule = get_schedule_opt(&mut *tx, &completed_job.workspace_id, &schedule_path)
                 .warn_after_seconds(10)
                 .await?;
 
@@ -1063,7 +1064,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
                 // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
-                let schedule_next_tick = !queued_job.is_flow()
+                let schedule_next_tick = !completed_job.is_flow()
                     || from_cache
                     || !success
                         && sqlx::query_scalar!(
@@ -1079,8 +1080,8 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                                 )
                             FROM v2_job_completed WHERE id = $2 AND workspace_id = $3",
                             Uuid::nil().to_string(),
-                            &queued_job.id,
-                            &queued_job.workspace_id
+                            &completed_job.id,
+                            &completed_job.workspace_id
                         )
                         .fetch_optional(&mut *tx)
                         .warn_after_seconds(10)
@@ -1091,10 +1092,10 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 if schedule_next_tick {
                     if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
-                        queued_job,
+                        completed_job,
                         &schedule,
                         &script_path,
-                        &queued_job.workspace_id,
+                        &completed_job.workspace_id,
                     ))
                     .warn_after_seconds(10)
                     .await
@@ -1112,12 +1113,12 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     db,
                     &schedule,
                     &script_path,
-                    &queued_job.workspace_id,
+                    &completed_job.workspace_id,
                     success,
                     result,
                     job_id,
-                    queued_job.started_at.unwrap_or(chrono::Utc::now()),
-                    queued_job.priority,
+                    completed_job.started_at.unwrap_or(chrono::Utc::now()),
+                    completed_job.priority,
                 )
                 .warn_after_seconds(10)
                 .await
@@ -1125,14 +1126,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     if !success {
                         tracing::error!("Could not apply schedule error handler: {}", err);
                         let base_url = windmill_common::BASE_URL.read().await;
-                        let w_id: &String = &queued_job.workspace_id;
+                        let w_id: &String = &completed_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
                             report_error_to_workspace_handler_or_critical_side_channel(
-                                    &queued_job,
+                                    &completed_job,
                                     db,
                                     format!(
                                         "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                        queued_job.id,
+                                        completed_job.id,
                                         err
                                     ),
                                 )
@@ -1146,20 +1147,20 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
-                        &queued_job.workspace_id
+                        &completed_job.workspace_id
                     );
             }
         }
     }
 
-    if queued_job.concurrent_limit.is_some()
-        || RunnableSettings::prefetch_cached_from_handle(queued_job.runnable_settings_handle, db)
+    if completed_job.concurrent_limit.is_some()
+        || RunnableSettings::prefetch_cached_from_handle(completed_job.runnable_settings_handle, db)
             .await?
             .1
             .concurrent_limit
             .is_some()
     {
-        let concurrency_key = concurrency_key(db, &queued_job.id).await?;
+        let concurrency_key = concurrency_key(db, &completed_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
@@ -1167,7 +1168,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             sqlx::query_scalar!(
                 "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
                 concurrency_key,
-                queued_job.id.hyphenated().to_string(),
+                completed_job.id.hyphenated().to_string(),
             )
             .execute(&mut *tx)
             .warn_after_seconds(10)
@@ -1175,14 +1176,14 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             .map_err(|e| {
                 Error::internal_err(format!(
                     "Could not decrement concurrency counter for job_id={}: {e:#}",
-                    queued_job.id
+                    completed_job.id
                 ))
             })?;
         }
 
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_key SET ended_at = now() WHERE job_id = $1",
-            queued_job.id,
+            completed_job.id,
         )
         .execute(&mut *tx)
         .warn_after_seconds(10)
@@ -1190,7 +1191,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
         {
             tracing::error!(
                 "Could not update concurrency_key ended_at for job_id={}: {e:#}",
-                queued_job.id,
+                completed_job.id,
             );
         }
         tracing::debug!("decremented concurrency counter");
@@ -1212,21 +1213,21 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     tracing::info!(
         %job_id,
-        root_job = ?queued_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
-        path = &queued_job.runnable_path,
-        job_kind = ?queued_job.kind,
-        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        root_job = ?completed_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        path = &completed_job.runnable_path,
+        job_kind = ?completed_job.kind,
+        started_at = ?completed_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
         duration = ?duration,
-        permissioned_as = ?queued_job.permissioned_as,
-        email = ?queued_job.permissioned_as_email,
-        created_by = queued_job.created_by,
-        is_flow_step = queued_job.is_flow_step(),
-        language = ?queued_job.script_lang,
-        scheduled_for = ?queued_job.scheduled_for,
-        workspace_id = ?queued_job.workspace_id,
+        permissioned_as = ?completed_job.permissioned_as,
+        email = ?completed_job.permissioned_as_email,
+        created_by = completed_job.created_by,
+        is_flow_step = completed_job.is_flow_step(),
+        language = ?completed_job.script_lang,
+        scheduled_for = ?completed_job.scheduled_for,
+        workspace_id = ?completed_job.workspace_id,
         success,
         "inserted completed job: {} (success: {success})",
-        queued_job.id
+        completed_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
     Ok((None, duration, _skip_downstream_error_handlers))
@@ -1390,7 +1391,6 @@ async fn restart_job_if_perpetual_inner(
             queued_job.priority,
             None,
             false,
-            None,
             None,
             None,
             None,
@@ -1957,7 +1957,6 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         priority,
         None,
         false,
-        None,
         None,
         None,
         None,
@@ -2605,246 +2604,209 @@ impl PulledJobResult {
 
     /// Generic preprocess function
     /// Can be used for any kind of preprocessing
-    pub async fn preprocess(&mut self, db: &DB) -> error::Result<()> {
-        let PulledJobResult { job: Some(ref mut pulled_job), .. } = self else {
+    pub async fn maybe_apply_debouncing(&mut self, db: &DB) -> error::Result<()> {
+        let PulledJobResult { job: Some(ref mut j), .. } = self else {
             return Ok(());
         };
 
-        let kind = pulled_job.kind;
-        // Handle dependency job debouncing cleanup when a job is pulled for execution
-        if kind.is_dependency()
-            && pulled_job
-                .args
+        let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
+            RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
+                .await?
+                .0;
+
+        let (kind, j_id) = (j.kind, j.id);
+        let is_djob_to_debounce = kind.is_dependency()
+            && j.args
                 .as_ref()
-                .map(|x| x.get("triggered_by_relative_import").is_some())
-                .unwrap_or_default()
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+                .and_then(|x| x.get("triggered_by_relative_import"))
+                .is_some();
+
+        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && !*WMDEBUG_NO_DEBOUNCING
         {
-            return Box::pin(async move {
-                // Only used for testing in tests/relative_imports.rs
-                // Give us some space to work with.
-                #[cfg(debug_assertions)]
-                if let Some(duration) = pulled_job
-                    .args
-                    .as_ref()
-                    .map(|x| {
-                        x.get("dbg_sleep_between_pull_and_debounce_key_removal")
-                            .map(|v| serde_json::from_str::<u32>(v.get()).ok())
-                            .flatten()
-                    })
-                    .flatten()
-                {
-                    tracing::debug!("going to sleep",);
-                    sleep(std::time::Duration::from_secs(duration as u64)).await;
-                }
+            let needs_debounce = sqlx::query_scalar!(
+                "WITH _ AS (
+                    DELETE FROM debounce_key WHERE job_id = $1
+                ) SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
+                j_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            .unwrap_or_default();
 
-                tracing::debug!(
-                    "Processing debounce cleanup for dependency job {} at path {:?}",
-                    &pulled_job.id,
-                    &pulled_job.runnable_path
+            if needs_debounce {
+                tracing::info!(
+                    job_id = %j_id,
+                    "Late debounce: job was already debounced by another job, skipping execution"
                 );
+                self.job = None;
+                return Ok(());
+            }
 
-                let key = format!("{}:{}:dependency", &pulled_job.workspace_id, pulled_job.runnable_path());
-                let mut tx = db.begin().await?;
-
-                // === DEBOUNCE CLEANUP ===
-                //
-                // Clean up the debounce_key entry for this job (if it exists).
-                //
-                // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
-                // If pusher has locked this row then this call will be blocked until all txs are commited.
-                //
-                // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
-                // This object needs to be created before the djob is executed and it happens right here.
-                //
-                // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
-                // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
-                // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
-                //
-                //
-                //
-                // Note: We don't use a transaction here for performance (it's called during job pull).
-                // This means there's a tiny window where the job is running but key isn't deleted yet,
-                // which is acceptable because new requests will just accumulate data to this job.
-                tracing::debug!(
-                    job_id = %pulled_job.id,
-                    "Cleaning up debounce_key entry for completed/pulled job"
-                );
-
-                // This will either:
-                // 1. Block until pusher pushed. Which gives us:
-                //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
-                // 2. Block pusher until we are done here. This gives us:
-                //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
-                sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|e| {
-                        tracing::error!(
-                            error = %e,
-                            job_id = %pulled_job.id,
-                            "Failed to delete debounce_key"
-                        );
-                        e
-                })?;
-
-                let Some(base_hash) = pulled_job.runnable_id else {
-                    return Err(Error::InternalErr(
-                        "Missing runnable_id for dependency job triggered by relative import"
-                            .to_string(),
-                    ));
+            if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
+                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+            {
+                // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
+                let field_name = match kind {
+                    JobKind::FlowDependencies => "nodes_to_relock",
+                    JobKind::AppDependencies => "components_to_relock",
+                    _ => unreachable!(),
                 };
 
                 tracing::debug!(
-                    job_id = %pulled_job.id,
-                    base_hash = %base_hash,
+                    job_id = %j_id,
                     job_kind = ?kind,
-                    "Creating new version for dependency job triggered by relative import"
+                    field_removed = field_name,
+                    "Removing optimization field: workers behind v2 debouncing version, disabling relock optimization"
                 );
 
-                let new_id = match kind {
-                    JobKind::Dependencies => {
-                        let deployment_message = pulled_job
-                            .args
-                            .clone()
-                            .map(|hashmap| {
-                                hashmap
-                                    .get("deployment_message")
-                                    .map(|map_value| {
-                                        serde_json::from_str::<String>(map_value.get()).ok()
-                                    })
-                                    .flatten()
-                            })
-                            .flatten();
-
-                        // This way we tell downstream which script we should archive when the resolution is finished.
-                        // (not used at the moment)
-                        pulled_job.args.as_mut().map(|args| {
-                            args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
-                        });
-
-                        let cloned_script = windmill_common::scripts::clone_script(
-                            base_hash,
-                            &pulled_job.workspace_id,
-                            deployment_message,
-                            db,
-                            &mut tx,
+                if let Some(args) = &mut j.args {
+                    args.remove(field_name);
+                }
+            } else if let Some(arg_name_to_accumulate) =
+                // TODO: Maybe support multiple arguments in future
+                debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
+            {
+                tracing::debug!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    arg_name = arg_name_to_accumulate,
+                    "Accumulating debounced arguments from batch"
+                );
+                let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
+                for str_o in sqlx::query_scalar!(
+                    "WITH ids AS (
+                        SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
+                            SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
                         )
-                        .await?;
-
-                        cloned_script.new_hash
-                    }
-                    JobKind::FlowDependencies => {
-                        sqlx::query_scalar!(
-                            "INSERT INTO flow_version
-                        (workspace_id, path, value, schema, created_by)
-
-                        SELECT workspace_id, path, value, schema, created_by
-                        FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
-
-                        RETURNING id
-                        ",
-                            pulled_job.runnable_path(),
-                            pulled_job.workspace_id,
-                            *base_hash,
-                        )
-                        .fetch_one(&mut *tx)
-                        .await?
-                    }
-                    JobKind::AppDependencies => {
-                        sqlx::query_scalar!(
-                            "INSERT INTO app_version
-                            (app_id, value, created_by, raw_app)
-                        SELECT app_id, value, created_by, raw_app
-                        FROM app_version WHERE id = $1
-                        RETURNING id",
-                            *base_hash
-                        )
-                        .fetch_one(&mut *tx)
-                        .await?
-                    }
-                    _ => {
-                        return Err(Error::InternalErr(format!(
-                            "Matched unexpected JobKind ({:?}). This is a bug!",
-                            kind
-                        )))
-                    }
-                };
-
-                pulled_job.runnable_id.replace(new_id.into());
-
-                if *windmill_common::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
-                    // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
-                    //
-                    // For flows and apps, retrieve all nodes/components that were accumulated
-                    // during the debounce window. This data comes from requests that were merged
-                    // into this job instead of creating their own jobs.
-                    //
-                    // Scripts don't need this because they don't have nodes/components to relock.
-                    if let Some(to_relock_field) = match &pulled_job.kind {
-                        JobKind::FlowDependencies => Some("nodes_to_relock"),
-                        JobKind::AppDependencies => Some("components_to_relock"),
-                        _ => None, // Scripts don't use accumulated stale data
-                    } {
-                        tracing::debug!(
-                            job_id = %pulled_job.id,
-                            job_kind = ?pulled_job.kind,
-                            field = %to_relock_field,
-                            "Retrieving accumulated stale data from debounced requests"
-                        );
-
-                        if let Some(stale_data) = sqlx::query_scalar!(
-                            "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
-                            &pulled_job.id
-                        )
-                        .fetch_optional(&mut *tx)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %pulled_job.id,
-                                "Failed to retrieve debounce_stale_data"
-                            );
-                            e
-                        })?
-                        .flatten()
-                        {
-                            tracing::debug!(
-                                job_id = %pulled_job.id,
-                                node_count = stale_data.len(),
-                                nodes = ?stale_data,
-                                "Retrieved accumulated nodes/components from {} debounced requests",
-                                stale_data.len()
-                            );
-
-                            // Replace the job's relock list with the accumulated data
-                            // This ensures all nodes from all debounced requests are processed
-                            if let Some(args) = pulled_job.args.as_mut() {
-                                args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
-                                tracing::debug!(
-                                    field = %to_relock_field,
-                                    "Updated job args with accumulated debounce data"
-                                );
+                    ) SELECT args->>$2 FROM ids LEFT JOIN v2_job ON v2_job.id = ids.job_id
+                    ",
+                    j_id,
+                    arg_name_to_accumulate,
+                )
+                .fetch_all(db)
+                .await?
+                .into_iter()
+                {
+                    if let Some(s) = str_o.as_ref() {
+                        match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
+                            Ok(ref mut vec) => accumulated_arg.append(vec),
+                            Err(e) => {
+                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
                             }
-                        } else {
-                            tracing::trace!(
-                                job_id = %pulled_job.id,
-                                "No accumulated stale data found (no debounced requests or already cleaned up)"
-                            );
                         }
                     }
-                } else {
-                    tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
                 }
-                // This will unblock pusher.
-                tx.commit().await?;
 
-                Ok(())
-            }).await;
+                tracing::debug!(
+                    job_id = %j_id,
+                    arg_name = arg_name_to_accumulate,
+                    accumulated_count = accumulated_arg.len(),
+                    "Accumulated arguments from debounced jobs in batch"
+                );
+
+                j.args
+                    .get_or_insert(Json(Default::default()))
+                    .as_mut()
+                    .insert(
+                        arg_name_to_accumulate.to_owned(),
+                        to_raw_value(&accumulated_arg),
+                    );
+            }
+
+            // Handle dependency job debouncing cleanup when a job is pulled for execution
+            if is_djob_to_debounce {
+                clone_runnable(j, db).await?;
+            }
         }
 
         Ok(())
     }
+}
+
+async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
+    let Some(base_hash) = j.runnable_id else {
+        return Err(Error::InternalErr(
+            "Missing runnable_id for dependency job triggered by relative import".to_string(),
+        ));
+    };
+
+    tracing::debug!(
+        job_id = %j.id,
+        base_hash = %base_hash,
+        job_kind = ?j.kind,
+        runnable_path = ?j.runnable_path,
+        "Creating new version for dependency job triggered by relative import"
+    );
+
+    {
+        let maybe_new_id = match j.kind {
+            JobKind::Dependencies => {
+                let deployment_message = j
+                    .args
+                    .clone()
+                    .map(|hashmap| {
+                        hashmap
+                            .get("deployment_message")
+                            .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                            .flatten()
+                    })
+                    .flatten();
+
+                // This way we tell downstream which script we should archive when the resolution is finished.
+                // (not used at the moment)
+                j.args
+                    .as_mut()
+                    .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
+
+                windmill_common::scripts::clone_script(
+                    base_hash,
+                    &j.workspace_id,
+                    deployment_message,
+                    db,
+                )
+                .await?
+                .new_hash
+            }
+            JobKind::FlowDependencies => {
+                sqlx::query_scalar!(
+                    "INSERT INTO flow_version
+                    (workspace_id, path, value, schema, created_by)
+
+                    SELECT workspace_id, path, value, schema, created_by
+                    FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                    RETURNING id
+                    ",
+                    j.runnable_path(),
+                    j.workspace_id,
+                    *base_hash,
+                )
+                .fetch_one(db)
+                .await?
+            }
+            JobKind::AppDependencies => {
+                sqlx::query_scalar!(
+                    "INSERT INTO app_version
+                        (app_id, value, created_by, raw_app)
+                    SELECT app_id, value, created_by, raw_app
+                    FROM app_version WHERE id = $1
+                    RETURNING id",
+                    *base_hash
+                )
+                .fetch_one(db)
+                .await?
+            }
+            _ => *base_hash,
+        };
+
+        j.runnable_id.replace(maybe_new_id.into());
+    }
+
+    Ok(())
 }
 
 // TODO: Factorize
@@ -2944,7 +2906,7 @@ pub async fn pull(
                     Some(job)
                         if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
-                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
+                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
                         timeout(
                             Duration::from_secs(15),
@@ -3017,7 +2979,7 @@ pub async fn pull(
         let has_concurent_limit = job.is_dependency()
             && job.concurrent_limit.is_some()
             && cfg!(feature = "private")
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING;
+            && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -3040,7 +3002,7 @@ pub async fn pull(
 
         #[cfg(feature = "private")]
         if cfg!(feature = "enterprise")
-            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
+            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)
         {
             if let Some(pulled_job_res) = timeout(
                 Duration::from_secs(15),
@@ -3201,44 +3163,139 @@ pub async fn custom_debounce_key(
     .await
 }
 
-/// Helper function to extract nodes/components to relock from job arguments
-/// Returns the list of nodes to relock if present in either nodes_to_relock (flows) or components_to_relock (apps)
-fn extract_to_relock_from_args(args: &HashMap<String, Box<RawValue>>) -> Option<Vec<String>> {
-    args.get("nodes_to_relock") // For flows
-        .or(args.get("components_to_relock")) // For apps
-        .and_then(|rv| {
-            serde_json::from_str::<Vec<String>>(&rv.to_string())
-                .map_err(|e| tracing::warn!("Failed to deserialize relock data: {}", e))
-                .ok()
-        })
+pub fn resolve_debounce_key<'b>(
+    unresolved_debounce_key: Option<String>,
+    runnable_path: &Option<String>,
+    workspace_id: &str,
+    job_kind: JobKind,
+    args: &PushArgs<'b>,
+    args_to_ignore_if_default: Option<&String>,
+) -> String {
+    let original_debounce_key = unresolved_debounce_key
+        .map(|x| crate::interpolate_args(x, &args, workspace_id))
+        .unwrap_or(format!(
+            "{}#args:{}",
+            crate::fullpath_with_workspace(workspace_id, runnable_path.as_ref(), &job_kind),
+            args.args
+                .iter()
+                .filter_map(|(k, v)| {
+                    if args_to_ignore_if_default
+                        .map(|name| name == k)
+                        .unwrap_or_default()
+                    {
+                        None
+                    } else {
+                        Some(v.to_string())
+                    }
+                })
+                // TODO: disable sorted?
+                .sorted()
+                .collect_vec()
+                .join(":"),
+        ));
+
+    tracing::debug!("Original debounce key: {}", original_debounce_key);
+
+    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it
+    const MAX_DEBOUNCE_KEY_LENGTH: usize = 255;
+    let resolved = if original_debounce_key.len() <= MAX_DEBOUNCE_KEY_LENGTH {
+        original_debounce_key
+    } else {
+        let hash = calculate_hash(&original_debounce_key);
+        tracing::debug!(
+            "Debounce key too long ({}), using hash: {}",
+            original_debounce_key.len(),
+            hash
+        );
+        hash
+    };
+
+    #[cfg(feature = "cloud")]
+    let resolved = format!("{workspace_id}:{resolved}");
+
+    tracing::debug!("Final debounce key: {}", resolved);
+    resolved
 }
 
-/// Helper function to accumulate nodes/components to relock for a debounced job
-/// This merges new items with existing ones, removing duplicates
-async fn accumulate_debounce_stale_data(
-    tx: &mut Transaction<'_, Postgres>,
+#[derive(Debug)]
+pub enum DebouncingLimitsReport {
+    MaxCountExceeded,
+    TimeExceeded,
+    CanDebounce,
+}
+
+pub async fn check_debouncing_within_limits(
+    (current_time, current_amount): (DateTime<Utc>, i32),
+    (allowed_time, allowed_amount): (Option<i32>, Option<i32>),
     job_id: &Uuid,
-    to_relock: &[String],
-) -> Result<(), Error> {
-    sqlx::query!(
-        "
-        INSERT INTO debounce_stale_data (job_id, to_relock)
-            VALUES ($1, $2)
-            ON CONFLICT (job_id)
-                DO UPDATE SET to_relock = (
-                    SELECT array_agg(DISTINCT x)
-                    FROM unnest(
-                        -- Combine existing array with new values, removing duplicates
-                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)
-                    ) AS x
-                )
-        ",
-        job_id,
-        to_relock
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    runnable_path: &Option<String>,
+) -> DebouncingLimitsReport {
+    use DebouncingLimitsReport::*;
+
+    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
+
+    if !no_legacy_compat {
+        tracing::warn!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            allowed_time = ?allowed_time,
+            allowed_amount = ?allowed_amount,
+            "Debouncing limits not enforced: workers are behind minimum version for v2 debouncing (require >= 1.597.0)"
+        );
+    }
+
+    let elapsed_seconds = (Utc::now() - current_time).num_seconds() as i32;
+
+    tracing::debug!(
+        job_id = %job_id,
+        runnable_path = ?runnable_path,
+        current_amount = current_amount,
+        allowed_amount = ?allowed_amount,
+        elapsed_seconds = elapsed_seconds,
+        allowed_time = ?allowed_time,
+        first_started_at = %current_time,
+        no_legacy_compat = no_legacy_compat,
+        "Checking debouncing limits"
+    );
+
+    if allowed_amount
+        .map(|allowed_amount| current_amount > allowed_amount)
+        .unwrap_or_default()
+        && no_legacy_compat
+    {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            allowed_amount = allowed_amount,
+            "Debouncing limit exceeded: max debounce count reached"
+        );
+        MaxCountExceeded
+    } else if allowed_time
+        .map(|allowed_time| elapsed_seconds > allowed_time)
+        .unwrap_or_default()
+        && no_legacy_compat
+    {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            elapsed_seconds = elapsed_seconds,
+            allowed_time = allowed_time,
+            first_started_at = %current_time,
+            "Debouncing limit exceeded: max debounce time window reached"
+        );
+        TimeExceeded
+    } else {
+        tracing::debug!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            elapsed_seconds = elapsed_seconds,
+            "Debouncing within limits: can continue debouncing"
+        );
+        CanDebounce
+    }
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -3973,9 +4030,6 @@ pub async fn push<'c, 'd>(
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
     end_user_email: Option<String>,
-    // If we know there is already a debounce job, we can use this for debouncing.
-    // NOTE: Only works with dependency jobs triggered by relative imports
-    debounce_job_id_o: Option<Uuid>,
     trigger: Option<TriggerMetadata>,
     suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
@@ -4322,12 +4376,19 @@ pub async fn push<'c, 'd>(
             dedicated_worker,
             ..Default::default()
         },
-        JobPayload::Dependencies { hash, language, path, dedicated_worker } => JobPayloadUntagged {
+        JobPayload::Dependencies {
+            hash,
+            language,
+            path,
+            dedicated_worker,
+            debouncing_settings,
+        } => JobPayloadUntagged {
             runnable_id: Some(hash.0),
-            runnable_path: Some(path.clone()),
+            runnable_path: Some(path),
             job_kind: JobKind::Dependencies,
             language: Some(language),
             dedicated_worker,
+            debouncing_settings,
             ..Default::default()
         },
 
@@ -4349,7 +4410,7 @@ pub async fn push<'c, 'd>(
             raw_flow: Some(flow_value),
             ..Default::default()
         },
-        JobPayload::FlowDependencies { path, dedicated_worker, version } => {
+        JobPayload::FlowDependencies { path, dedicated_worker, version, debouncing_settings } => {
             #[cfg(test)]
             let skip_compat = args
                 .args
@@ -4376,13 +4437,15 @@ pub async fn push<'c, 'd>(
                 job_kind: JobKind::FlowDependencies,
                 raw_flow: value_o,
                 dedicated_worker,
+                debouncing_settings,
                 ..Default::default()
             }
         }
-        JobPayload::AppDependencies { path, version } => JobPayloadUntagged {
+        JobPayload::AppDependencies { path, version, debouncing_settings } => JobPayloadUntagged {
             runnable_id: Some(version),
             runnable_path: Some(path.clone()),
             job_kind: JobKind::AppDependencies,
+            debouncing_settings,
             ..Default::default()
         },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
@@ -4802,7 +4865,7 @@ pub async fn push<'c, 'd>(
         &runnable_path,
         cfg!(feature = "private")
             && job_kind.is_dependency()
-            && !*WMDEBUG_NO_DJOB_DEBOUNCING
+            && !*WMDEBUG_NO_DEBOUNCING
             && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
         concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
@@ -4941,209 +5004,20 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
-    // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
-    // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
-    // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
-    // 2. Reusing existing jobs when possible, or creating new ones when the existing job is already running
-    // 3. Accumulating the nodes/components that need relocking across all debounced requests
-    match (
-        scheduled_for_o.is_some(),
-        job_kind.is_dependency(),
-        runnable_path.clone(),
-        *WMDEBUG_NO_DJOB_DEBOUNCING,
-        *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
-        // We only do debouncing for jobs triggered by relative imports
-        // We do not want this be the case for normal djobs, since they will always be sequential.
-        args.args.contains_key("triggered_by_relative_import"),
-    ) {
-        (_, _, _, _, false, _) => {
-            tracing::warn!(
-                "Debouncing is disabled because workers are behind the minimum required version 1.566.0. \
-                Please update workers to enable debouncing feature."
-            );
-        }
-        // === DEPENDENCY JOB DEBOUNCING ===
-        //
-        // Debouncing consolidates multiple dependency job requests into a single execution,
-        // reducing redundant work when many scripts/flows/apps are updated simultaneously.
-        //
-        // Prerequisites for debouncing (all must be true):
-        // 1. Job is scheduled in the future (debounce_delay is not None) - provides consolidation window
-        // 2. Job is a dependency job
-        // 3. Object path is provided (script/flow/app path)
-        // 4. Fallback mode is disabled (normal operation)
-        // 5. min version supports debouncing
-        // 6. Job was created by relative imports (triggered by dependency chain)
-        //
-        // How it works:
-        //
-        // PHASE 1 - PUSH (in jobs.rs::push):
-        //   When a dependency job is scheduled with delay, check debounce_key table
-        //   - If key exists: Merge request into existing job, accumulate nodes/components
-        //   - If key doesn't exist: Create new entry and store initial nodes/components
-        //
-        // PHASE 2 - ACCUMULATION:
-        //   During the debounce window (typically 5-15 seconds), multiple requests merge
-        //   - Each request adds nodes/components to debounce_stale_data table
-        //   - SQL DISTINCT automatically removes duplicates during merge
-        //
-        // PHASE 3 - PULL (in jobs.rs::pull):
-        //   When the delayed job finally executes:
-        //   - Lock debounce_key FOR UPDATE to prevent races
-        //   - Retrieve all accumulated nodes/components from debounce_stale_data
-        //   - Process all collected dependencies in single execution
-        //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true, true) => {
-            // Generate unique debounce key: "workspace_id:object_path:dependency"
-            // This ensures each workspace+path combination has independent debounce window
-            let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
-
-            tracing::debug!(
-                workspace_id = %workspace_id,
-                object_path = %obj_path,
-                debounce_key = %debounce_key,
-                "Checking for existing debounced dependency job"
-            );
-
-            // Check if there's already a pending job registered for this debounce key
-            // The debounce_job_id_o is passed in by the caller after locking the key FOR UPDATE
-            // IMPORTANT: This is assumed that the caller will lock debounce_key row in this transaction.
-            // We do this to block puller from further actions until we are done with consolidation and stuff that we do here in push.
-            if let Some(debounce_job_id) = debounce_job_id_o {
-                tracing::debug!(
-                    existing_job_id = %debounce_job_id,
-                    new_job_id = %job_id,
-                    "Found existing debounced job, merging this request"
-                );
-
-                // NOTE: Race condition handling:
-                // In rare cases, the debounce_key entry may still exist even though the job
-                // has been pulled and is running. This can happen because:
-                // - Job pull marks job as running first
-                // - Then debounce_key cleanup happens (without transaction for performance)
-                // - Between these steps, new requests might see the old debounce_key
-                //
-                // This is acceptable because the puller will be blocked and cannot proceed until this transaction finishes.
-                // This will give us some space to add consolidated data (if such) and debounce the request.
-                // Once tx is commited, the puller will be unblocked and continue execution.
-                // Accumulate the nodes/components that need relocking from this request
-
-                // This ensures all dependency updates are handled even if jobs are debounced
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %debounce_job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Accumulating nodes/components to existing debounced job"
-                    );
-
-                    accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %debounce_job_id,
-                                debounce_key = %debounce_key,
-                                "Failed to accumulate stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %debounce_job_id,
-                        "No nodes to relock in this request, skipping accumulation"
-                    );
-                }
-
-                // Return the existing job ID, effectively debouncing this request
-                // The new job_id we generated won't be used
-                tracing::debug!(
-                    returned_job_id = %debounce_job_id,
-                    skipped_job_id = %job_id,
-                    "Debounced: returning existing job ID instead of creating new job"
-                );
-
-                // We will skip some of the work downstream and just debounce the job.
-                return Ok((debounce_job_id, tx));
-            } else {
-                // No existing debounce entry - this is the first request in the debounce window
-                tracing::debug!(
-                    job_id = %job_id,
-                    debounce_key = %debounce_key,
-                    "Creating new debounce entry (first request in window)"
-                );
-
-                sqlx::query!(
-                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET job_id = EXCLUDED.job_id",
-                    &debounce_key,
-                    job_id,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        debounce_key = %debounce_key,
-                        job_id = %job_id,
-                        "Failed to insert debounce_key entry"
-                    );
-                    Error::InternalErr(format!("Failed to create debounce entry: {}", e))
-                })?;
-
-                // Store initial nodes/components to relock if provided
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Storing initial nodes/components for new debounced job"
-                    );
-
-                    accumulate_debounce_stale_data(&mut tx, &job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %job_id,
-                                "Failed to store initial stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %job_id,
-                        "No initial nodes to relock, debounce entry created without stale data"
-                    );
-                }
-            }
-        }
-        _ => {
-            // Debouncing not applicable - proceed with normal job creation
-            tracing::trace!(
-                job_id = %job_id,
-                job_kind = ?job_kind,
-                "Debouncing conditions not met, proceeding with normal job creation"
-            );
-        }
-    };
-
-    #[cfg(all(feature = "enterprise", feature = "private"))]
-    if schedule_path.is_none() {
-        if let Some(debounced_job_id) = crate::jobs_ee::maybe_apply_debouncing(
-            &job_id,
-            debouncing_settings.debounce_delay_s,
-            debouncing_settings.debounce_key.clone(),
-            workspace_id,
-            runnable_path.clone(),
-            &job_kind,
-            &args,
+    #[cfg(feature = "private")]
+    if schedule_path.is_none() && flow_step_id.is_none() {
+        crate::jobs_ee::maybe_debounce(
+            &debouncing_settings,
             &mut scheduled_for_o,
+            &runnable_path,
+            workspace_id,
+            job_kind,
+            job_id,
+            &args,
             &mut tx,
+            _db,
         )
         .await?
-        {
-            return Ok((debounced_job_id, tx));
-        }
     }
 
     let (trigger_path, trigger_kind) = trigger

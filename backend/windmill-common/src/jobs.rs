@@ -407,6 +407,7 @@ pub enum JobPayload {
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job
@@ -414,12 +415,14 @@ pub enum JobPayload {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
@@ -872,34 +875,6 @@ pub async fn check_tag_available_for_workspace_internal(
     }
 
     return Ok(());
-}
-
-pub async fn lock_debounce_key<'c>(
-    w_id: &str,
-    runnable_path: &str,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> error::Result<Option<Uuid>> {
-    if !*crate::worker::MIN_VERSION_SUPPORTS_DEBOUNCING.read().await {
-        tracing::warn!("Debouncing is not supported on this version of Windmill. Minimum version required for debouncing support.");
-        return Ok(None);
-    }
-
-    let key = format!("{w_id}:{runnable_path}:dependency");
-
-    tracing::debug!(
-        workspace_id = %w_id,
-        runnable_path = %runnable_path,
-        debounce_key = %key,
-        "Locking debounce_key for dependency job scheduling"
-    );
-
-    sqlx::query_scalar!(
-        "SELECT job_id FROM debounce_key WHERE key = $1 AND job_id IN (SELECT id FROM v2_job_queue) FOR UPDATE",
-        &key
-    )
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(error::Error::from)
 }
 
 pub struct RunInlinePreviewScriptFnParams {

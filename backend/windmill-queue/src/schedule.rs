@@ -513,7 +513,6 @@ pub async fn push_scheduled_job<'c>(
         push_authed,
         false,
         None,
-        None,
         Some(TriggerMetadata::new(
             Some(schedule.path.clone()),
             JobTriggerKind::Schedule,
