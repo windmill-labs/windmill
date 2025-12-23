@@ -24,7 +24,15 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AlertTriangle, Sparkles, ArrowRight, Plus, List, Ban } from 'lucide-svelte'
+	import {
+		AlertTriangle,
+		Sparkles,
+		ArrowRight,
+		Plus,
+		List,
+		Ban,
+		ExternalLinkIcon
+	} from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
@@ -398,8 +406,24 @@
 						<AlertTriangle size={16} class="text-yellow-600 dark:text-yellow-400 shrink-0" />
 						<div class="text-sm text-yellow-800 dark:text-yellow-200">
 							<span class="font-medium">No datatables configured.</span>
-							You can still create an app, but AI won't be able to create database tables. Configure
-							datatables in workspace settings to enable this feature.
+							You can still create an app, but for data storage you won't be able to use data tables
+							which are <b>HIGHLY RECOMMENDED</b>.
+							<br />
+
+							{#if $userStore?.is_admin}
+								Configure datatables in
+								<a
+									href="/workspace/settings?tab=windmill_data_tables"
+									target="_blank"
+									class="inline-flex items-center gap-1"
+									>workspace settings <ExternalLinkIcon size={16} />
+								</a> to enable this feature.
+							{:else}
+								<b>
+									Ask your workspace admin to configure datatables in workspace settings to enable
+									this feature.
+								</b>
+							{/if}
 						</div>
 					</div>
 				{:else}
@@ -509,7 +533,23 @@
 					>
 						<AlertTriangle size={16} class="text-gray-500 shrink-0" />
 						<div class="text-sm text-tertiary">
-							AI is not configured for this workspace. You can still create an app manually.
+							AI is not configured for this workspace. You can still create an app manually but <b
+								>using AI is highly recommended</b
+							>.
+							<br />
+							{#if $userStore?.is_admin}
+								Configure AI in
+								<a
+									href="/workspace/settings?tab=ai"
+									target="_blank"
+									class="inline-flex items-center gap-1"
+									>workspace settings <ExternalLinkIcon size={16} />
+								</a>
+								to enable this feature.
+							{:else}
+								Ask your workspace admin to configure AI in workspace settings to enable this
+								feature.
+							{/if}
 						</div>
 					</div>
 				{:else}
