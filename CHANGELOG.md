@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.598.0](https://github.com/windmill-labs/windmill/compare/v1.597.1...v1.598.0) (2025-12-23)
+
+
+### Features
+
+* **python:** set latest stable to 3.12 ([#7405](https://github.com/windmill-labs/windmill/issues/7405)) ([cbcf0aa](https://github.com/windmill-labs/windmill/commit/cbcf0aa3442a5949b49f973fdc71578aa629ae37))
+
+
+### Bug Fixes
+
+* add uv tool path to PATH ([#7444](https://github.com/windmill-labs/windmill/issues/7444)) ([b806f04](https://github.com/windmill-labs/windmill/commit/b806f046317316f050ef6f8288019db11e0d934a))
+
 ## [1.597.2](https://github.com/windmill-labs/windmill/compare/v1.597.1...v1.597.2) (2025-12-23)
 
 
