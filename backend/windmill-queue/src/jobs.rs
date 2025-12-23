@@ -3221,7 +3221,7 @@ pub async fn check_debouncing_within_limits(
             runnable_path = ?runnable_path,
             allowed_time = ?allowed_time,
             allowed_amount = ?allowed_amount,
-            "Debouncing limits not enforced: workers are behind minimum version for v2 debouncing (require >= 1.599.0)"
+            "Debouncing limits not enforced: workers are behind minimum version for v2 debouncing (require >= 1.597.0)"
         );
     }
 

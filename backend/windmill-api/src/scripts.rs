@@ -2314,7 +2314,7 @@ async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
         );
         Err(Error::WorkersAreBehind {
             feature: "V2 Debouncing".into(),
-            min_version: "1.599.0".into(), // TODO: set proper version
+            min_version: "1.597.0".into(),
         })
     } else {
         Ok(())
