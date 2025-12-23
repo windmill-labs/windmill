@@ -4,6 +4,17 @@ import { emptyApp } from '../apps/editor/appUtils'
 import type { App } from '../apps/types'
 import { findGridItem } from '../apps/editor/appUtilsCore'
 import { isRunnableByName } from '../apps/inputType'
+import { wait } from '$lib/utils'
+
+// Tutorial animation delay constants
+export const DELAY_SHORT = 100
+export const DELAY_MEDIUM = 300
+export const DELAY_LONG = 500
+export const DELAY_ANIMATION = 1500
+export const DELAY_ANIMATION_LONG = 2500
+export const DELAY_TYPING = 50
+export const DELAY_CODE_CHAR = 2
+export const DELAY_CODE_NEWLINE = 5
 
 export function setInputBySelector(selector: string, value: string) {
 	const input = document.querySelector(selector) as HTMLInputElement
@@ -189,4 +200,129 @@ export function waitForElementLoading(
 		}
 		attempts++
 	}, interval)
+}
+
+// Helper function to move cursor to element (for continuous cursor movement in tutorials)
+export async function moveCursorToElement(
+	cursor: HTMLElement,
+	element: HTMLElement,
+	duration: number = DELAY_ANIMATION
+): Promise<void> {
+	const rect = element.getBoundingClientRect()
+	cursor.style.transition = `all ${duration / 1000}s ease-in-out`
+	cursor.style.left = `${rect.left + rect.width / 2}px`
+	cursor.style.top = `${rect.top + rect.height / 2}px`
+	await wait(duration)
+}
+
+// Helper function to create a fake cursor element for tutorial animations
+export function createFakeCursor(): HTMLElement {
+	const fakeCursor = document.createElement('div')
+	fakeCursor.style.cssText = `
+		position: fixed;
+		width: 20px;
+		height: 20px;
+		border-radius: 50%;
+		background-color: rgba(59, 130, 246, 0.8);
+		border: 2px solid white;
+		pointer-events: none;
+		z-index: 10000;
+		transition: all 1.5s ease-in-out;
+	`
+	document.body.appendChild(fakeCursor)
+	return fakeCursor
+}
+
+// Constants for cursor animation
+const CURSOR_START_OFFSET = -100
+const CURSOR_CLICK_SCALE = 0.8
+
+// Helper function to create and animate a fake cursor with start position
+export async function createFakeCursorWithStart(
+	startElement: HTMLElement | null,
+	endElement: HTMLElement,
+	transitionDuration: number = 1.5
+): Promise<HTMLElement> {
+	const fakeCursor = createFakeCursor()
+
+	const endRect = endElement.getBoundingClientRect()
+	let startX: number, startY: number
+
+	if (startElement) {
+		const startRect = startElement.getBoundingClientRect()
+		startX = startRect.left + startRect.width / 2
+		startY = startRect.top + startRect.height / 2
+	} else {
+		startX = endRect.left + CURSOR_START_OFFSET
+		startY = endRect.top + endRect.height / 2
+	}
+
+	fakeCursor.style.left = `${startX}px`
+	fakeCursor.style.top = `${startY}px`
+
+	await wait(DELAY_SHORT)
+
+	fakeCursor.style.left = `${endRect.left + endRect.width / 2}px`
+	fakeCursor.style.top = `${endRect.top + endRect.height / 2}px`
+
+	await wait(transitionDuration * 1000)
+
+	return fakeCursor
+}
+
+// Helper function to animate a fake cursor click
+export async function animateFakeCursorClick(
+	element: HTMLElement,
+	transitionDuration: number = 1.5,
+	options?: { usePointerEvents?: boolean; startElement?: HTMLElement | null }
+): Promise<void> {
+	const fakeCursor = await createFakeCursorWithStart(
+		options?.startElement ?? null,
+		element,
+		transitionDuration
+	)
+	await wait(DELAY_MEDIUM)
+
+	// Animate click (shrink cursor briefly)
+	fakeCursor.style.transform = `scale(${CURSOR_CLICK_SCALE})`
+	await wait(DELAY_SHORT)
+	fakeCursor.style.transform = 'scale(1)'
+	await wait(DELAY_SHORT)
+
+	// Trigger pointer events if needed (flow graph uses pointer events instead of click)
+	if (options?.usePointerEvents) {
+		element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+		element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+	}
+
+	// Click the element
+	element.click()
+	await wait(DELAY_SHORT)
+
+	// Remove fake cursor
+	fakeCursor.remove()
+}
+
+// Helper function to animate cursor to element and click (for reusing a cursor across multiple clicks)
+export async function animateCursorToElementAndClick(
+	cursor: HTMLElement,
+	element: HTMLElement,
+	startOffset: number = CURSOR_START_OFFSET
+): Promise<void> {
+	const rect = element.getBoundingClientRect()
+	
+	// Set initial position (off-screen to the left)
+	cursor.style.left = `${rect.left + startOffset}px`
+	cursor.style.top = `${rect.top + rect.height / 2}px`
+	await wait(DELAY_SHORT)
+	
+	// Animate to target position
+	cursor.style.left = `${rect.left + rect.width / 2}px`
+	cursor.style.top = `${rect.top + rect.height / 2}px`
+	await wait(DELAY_ANIMATION)
+	await wait(DELAY_MEDIUM)
+	
+	// Click on the element
+	element.click()
+	await wait(DELAY_SHORT)
 }
