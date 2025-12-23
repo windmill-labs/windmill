@@ -4,7 +4,7 @@
 	import type { ExtendedOpenFlow, FlowEditorContext } from '$lib/components/flows/types'
 	import { dfs } from '$lib/components/flows/previousResults'
 	import type { FlowModule, InputTransform, OpenFlow } from '$lib/gen'
-	import type { FlowAIChatHelpers, FlowLintResult } from './core'
+	import type { FlowAIChatHelpers } from './core'
 	import { restoreInlineScriptReferences } from './inlineScriptsUtils'
 	import { loadSchemaFromModule } from '$lib/components/flows/flowInfers'
 	import { aiChatManager } from '../AIChatManager.svelte'
@@ -12,6 +12,7 @@
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import { SPECIAL_MODULE_IDS } from '../shared'
 	import type { FlowCopilotContext } from '../../flow'
+	import type { ScriptLintResult } from '../script/core'
 
 	let {
 		flowModuleSchemaMap,
@@ -170,27 +171,27 @@
 			return await onTestFlow?.(conversationId)
 		},
 
-		getLintErrors: (): FlowLintResult => {
-			// Get lint errors from the currently open editor
-			// In flow mode, we check the current module's editor if it's open
-			const result: FlowLintResult = {
-				errorCount: 0,
-				warningCount: 0,
-				modules: {}
-			}
+		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
+			// Focus the module first
+			selectionManager.selectId(moduleId)
 
-			if ($currentEditor && $currentEditor.type === 'script') {
-				const moduleId = $currentEditor.stepId
-				const lintResult = $currentEditor.editor.getLintErrors()
+			// Poll until editor exists
+			const maxWait = 3000
+			const pollInterval = 100
+			let elapsed = 0
 
-				if (lintResult.errorCount > 0 || lintResult.warningCount > 0) {
-					result.modules[moduleId] = lintResult
-					result.errorCount += lintResult.errorCount
-					result.warningCount += lintResult.warningCount
+			while (elapsed < maxWait) {
+				if ($currentEditor?.type === 'script') {
+					// Wait 500ms for LSP to analyze the code
+					await new Promise((resolve) => setTimeout(resolve, 500))
+					return $currentEditor.editor.getLintErrors()
 				}
+
+				await new Promise((resolve) => setTimeout(resolve, pollInterval))
+				elapsed += pollInterval
 			}
 
-			return result
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 		},
 
 		setFlowJson: async (
