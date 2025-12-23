@@ -302,6 +302,10 @@ pub fn workspaced_service() -> Router {
             get(get_completed_job_result_maybe).layer(cors.clone()),
         )
         .route(
+            "/completed/get_timing/:id",
+            get(get_completed_job_timing).layer(cors.clone()),
+        )
+        .route(
             "/completed/delete/:id",
             post(delete_completed_job).layer(cors.clone()),
         )
@@ -377,6 +381,7 @@ pub fn workspace_unauthed_service() -> Router {
             "/completed/get_result_maybe/:id",
             get(get_completed_job_result_maybe),
         )
+        .route("/completed/get_timing/:id", get(get_completed_job_timing))
         .route("/getupdate/:id", get(get_job_update))
         .route("/getupdate_sse/:id", get(get_job_update_sse))
         .route("/get_log_file/*file_path", get(get_log_file))
@@ -8545,6 +8550,54 @@ async fn get_completed_job_result_maybe(
         })
         .into_response())
     }
+}
+
+#[derive(Serialize)]
+struct JobTiming {
+    created_at: chrono::DateTime<Utc>,
+    started_at: Option<chrono::DateTime<Utc>>,
+    duration_ms: Option<i64>,
+}
+
+async fn get_completed_job_timing(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::JsonResult<JobTiming> {
+    let tags = opt_authed
+        .as_ref()
+        .map(|authed| get_scope_tags(authed))
+        .flatten();
+
+    let result = sqlx::query!(
+        "SELECT
+            j.created_at AS \"created_at!\",
+            c.started_at,
+            c.duration_ms,
+            j.created_by AS \"created_by!\"
+        FROM v2_job_completed c
+            JOIN v2_job j USING (id)
+        WHERE c.id = $1 AND c.workspace_id = $2 AND ($3::text[] IS NULL OR j.tag = ANY($3))",
+        id,
+        &w_id,
+        tags.as_ref().map(|v| v.as_slice()) as Option<&[&str]>,
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    let result = not_found_if_none(result, "Completed Job", id.to_string())?;
+
+    if opt_authed.is_none() && result.created_by != "anonymous" {
+        return Err(Error::BadRequest(
+            "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+        ));
+    }
+
+    Ok(Json(JobTiming {
+        created_at: result.created_at,
+        started_at: result.started_at,
+        duration_ms: Some(result.duration_ms),
+    }))
 }
 
 async fn delete_completed_job<'a>(
