@@ -2002,8 +2002,8 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
 #[repr(u32)]
 pub enum PyVAlias {
     Py310 = 10,
-    #[default]
     Py311,
+    #[default]
     Py312,
     Py313,
 }
