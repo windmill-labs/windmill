@@ -10,6 +10,9 @@
 	import RawAppHistoryList from './RawAppHistoryList.svelte'
 	import type { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import Button from '../common/button/Button.svelte'
+	import RawAppDataTableList from './RawAppDataTableList.svelte'
+	import type { DataTableRef } from './dataTableRefUtils'
+	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -22,6 +25,13 @@
 		historySelectedId?: number | undefined
 		onHistorySelect?: (id: number) => void
 		onManualSnapshot?: () => void
+		dataTableRefs?: DataTableRef[]
+		onDataTableRefsChange?: (refs: DataTableRef[]) => void
+		/** Default datatable for new tables */
+		defaultDatatable?: string | undefined
+		/** Default schema for new tables */
+		defaultSchema?: string | undefined
+		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 	}
 
 	let {
@@ -34,8 +44,35 @@
 		historyManager,
 		historySelectedId,
 		onHistorySelect,
-		onManualSnapshot
+		onManualSnapshot,
+		dataTableRefs = [],
+		onDataTableRefsChange,
+		defaultDatatable = undefined,
+		defaultSchema = undefined,
+		onDefaultChange
 	}: Props = $props()
+
+	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
+	let selectedDataTableIndex: number | undefined = $state(undefined)
+
+	function handleAddDataTable(ref: DataTableRef) {
+		onDataTableRefsChange?.([...dataTableRefs, ref])
+	}
+
+	function handleRemoveDataTable(index: number) {
+		onDataTableRefsChange?.(dataTableRefs.filter((_, i) => i !== index))
+		if (selectedDataTableIndex === index) {
+			selectedDataTableIndex = undefined
+		}
+	}
+
+	function handleSelectDataTable(ref: DataTableRef, index: number) {
+		selectedDataTableIndex = selectedDataTableIndex === index ? undefined : index
+		// Open the drawer in manage mode when selecting a data table
+		if (selectedDataTableIndex === index) {
+			dataTableDrawer?.openDrawerWithRef(ref)
+		}
+	}
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
 
@@ -293,9 +330,21 @@
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />
 
 <div class="py-4"></div>
-<PanelSection fullHeight={false} size="lg" title="data">
-	<span class="text-2xs text-tertiary">Coming soon</span>
-</PanelSection>
+<RawAppDataTableList
+	{dataTableRefs}
+	{defaultDatatable}
+	{defaultSchema}
+	onAdd={() => dataTableDrawer?.openDrawer()}
+	onRemove={handleRemoveDataTable}
+	onSelect={handleSelectDataTable}
+	{onDefaultChange}
+	selectedIndex={selectedDataTableIndex}
+/>
+<RawAppDataTableDrawer
+	bind:this={dataTableDrawer}
+	onAdd={handleAddDataTable}
+	existingRefs={dataTableRefs}
+/>
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>

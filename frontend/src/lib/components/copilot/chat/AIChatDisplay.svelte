@@ -9,6 +9,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
+	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -259,8 +260,9 @@
 						<Markdown md={disabledMessage} />
 					</div>
 				{:else}
-					<div class="flex flex-row gap-2 min-w-0">
+					<div class="flex flex-row gap-2 min-w-0 flex-wrap items-center">
 						<ChatMode />
+						<DatatableCreationPolicy />
 						<ProviderModelSelector />
 					</div>
 				{/if}

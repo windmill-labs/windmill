@@ -116,6 +116,7 @@ export type IDbSchemaOps = {
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
 	onCreateSchema: (params: { schema: string }) => Promise<void>
+	onDeleteSchema: (params: { schema: string }) => Promise<void>
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -153,6 +154,15 @@ export function dbSchemaOpsWithPreviewScripts({
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg }, language, content: createSchemaQuery }
+			})
+		},
+		onDeleteSchema: async ({ schema }) => {
+			let dropSchemaQuery = `DROP SCHEMA ${schema} CASCADE;`
+			if (input.type === 'ducklake')
+				dropSchemaQuery = wrapDucklakeQuery(dropSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
 			})
 		}
 	}
@@ -216,7 +226,7 @@ export function getDbType(input: DbInput): DbType {
 export function getDatabaseArg(input: DbInput | undefined) {
 	if (input?.type === 'database') {
 		if (input.resourcePath.startsWith('datatable://')) {
-			return { database: 'datatable://' + input.resourcePath }
+			return { database: input.resourcePath }
 		} else {
 			return { database: '$res:' + input.resourcePath }
 		}
