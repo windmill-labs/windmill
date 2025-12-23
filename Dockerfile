@@ -192,11 +192,9 @@ ENV GO_PATH=/usr/local/go/bin/go
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
-# Preinstall python runtimes
-RUN uv python install 3.11
-RUN uv python install $LATEST_STABLE_PY
-
-RUN uv venv
+# Preinstall python runtimes to temp build location (will copy with world-writable perms later)
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
 
 
 RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
@@ -204,7 +202,25 @@ RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+# export ensures GOCACHE applies to all commands in the chain (not just the first)
+RUN export GOCACHE=/tmp/build_cache/go && mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+
+# Copy build caches to final location, then add write permissions for any UID
+# chmod a+rw adds read+write WITHOUT removing execute bits (755->777, 644->666)
+# Note: uv python install only creates py_runtime, not uv cache - we create uv/go dirs for runtime
+RUN mkdir -p /tmp/windmill/cache && \
+    cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
+    chmod -R a+rw /tmp/windmill/cache && \
+    rm -rf /tmp/build_cache && \
+    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go
+
+# Runtime cache locations
+ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
+ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
+ENV GOCACHE=/tmp/windmill/cache/go
+
+# Set HOME for arbitrary UID support (matches windmill's default fallback)
+ENV HOME=/tmp
 
 ENV TZ=Etc/UTC
 
@@ -232,23 +248,20 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
-RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
+RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json
 
 
 
-# Cr,.eate a non-root user 'windmill' with UID and GID 1000
+# Create a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \
     adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
 
-RUN cp -r /root/.cache /home/windmill/.cache
+# /tmp/.cache may be created by earlier build steps with 755; chmod ensures any UID can write
+RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && chmod 777 /tmp/.cache
 
-RUN mkdir -p /tmp/windmill/logs && \
-    mkdir -p /tmp/windmill/search
-
-# Make directories world-readable and writable
-RUN chmod -R 777 ${APP} && \
-     chmod -R 777 /tmp/windmill && \
-     chmod -R 777 /home/windmill/.cache
+# Make directories world-accessible for any UID
+# (cache files already have 666 from umask copy above, cache_nomount is read-only)
+RUN find ${APP} /tmp/windmill -type d -exec chmod 777 {} +
 
 USER root
 
