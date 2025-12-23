@@ -28,9 +28,9 @@ import type {
 import {
 	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
-	prepareScriptTools,
-	type ScriptLintResult
+	prepareScriptTools
 } from './script/core'
+import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'

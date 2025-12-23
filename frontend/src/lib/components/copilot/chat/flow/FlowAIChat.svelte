@@ -12,7 +12,7 @@
 	import { getSubModules } from '$lib/components/flows/flowExplorer'
 	import { SPECIAL_MODULE_IDS } from '../shared'
 	import type { FlowCopilotContext } from '../../flow'
-	import type { ScriptLintResult } from '../script/core'
+	import type { ScriptLintResult } from '../shared'
 
 	let {
 		flowModuleSchemaMap,

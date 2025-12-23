@@ -17,8 +17,7 @@ import {
 	createDbSchemaTool,
 	getFormattedResourceTypes,
 	getLangContext,
-	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
-	type ScriptLintResult
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
 import {
 	createSearchHubScriptsTool,
@@ -30,7 +29,9 @@ import {
 	buildContextString,
 	applyCodePiecesToFlowModules,
 	findModuleById,
-	SPECIAL_MODULE_IDS
+	SPECIAL_MODULE_IDS,
+	formatScriptLintResult,
+	type ScriptLintResult
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -239,34 +240,6 @@ const getLintErrorsToolDef = createToolDef(
 )
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
-
-/** Format flow lint result for display */
-function formatFlowLintResult(lintResult: ScriptLintResult): string {
-	let response = ''
-	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
-
-	if (hasIssues) {
-		if (lintResult.errorCount > 0) {
-			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
-		}
-		if (lintResult.warningCount > 0) {
-			response += `⚠️ **${lintResult.warningCount} warning(s)** found:\n`
-		}
-
-		response += '\n'
-
-		for (const error of lintResult.errors) {
-			response += `- ❌ Line ${error.startLineNumber}: ${error.message}\n`
-		}
-		for (const warning of lintResult.warnings) {
-			response += `- ⚠️ Line ${warning.startLineNumber}: ${warning.message}\n`
-		}
-	} else {
-		response = '✅ No lint issues found in any module.'
-	}
-
-	return response
-}
 
 export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	createSearchHubScriptsTool(false),
@@ -643,7 +616,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 
 			toolCallbacks.setToolStatus(toolId, { content: status })
 
-			return formatFlowLintResult(lintResult)
+			return formatScriptLintResult(lintResult)
 		}
 	}
 ]

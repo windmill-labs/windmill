@@ -15,7 +15,9 @@ import {
 	type Tool,
 	executeTestRun,
 	buildTestRunArgs,
-	buildContextString
+	buildContextString,
+	type ScriptLintResult,
+	formatScriptLintResult
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
@@ -398,24 +400,6 @@ async function formatDBSchema(dbSchema: DBSchema) {
 			stringified
 		)
 	}
-}
-
-/** Lint error from Monaco editor */
-export interface ScriptLintError {
-	message: string
-	severity: 'error' | 'warning'
-	startLineNumber: number
-	startColumn: number
-	endLineNumber: number
-	endColumn: number
-}
-
-/** Result of linting a script */
-export interface ScriptLintResult {
-	errorCount: number
-	warningCount: number
-	errors: ScriptLintError[]
-	warnings: ScriptLintError[]
 }
 
 export interface ScriptChatHelpers {
@@ -896,32 +880,6 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Run script test',
 	showDetails: true
-}
-
-/** Format lint result for display */
-function formatScriptLintResult(lintResult: ScriptLintResult): string {
-	let response = ''
-	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
-
-	if (hasIssues) {
-		if (lintResult.errorCount > 0) {
-			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
-			for (const error of lintResult.errors) {
-				response += `- Line ${error.startLineNumber}: ${error.message}\n`
-			}
-		}
-
-		if (lintResult.warningCount > 0) {
-			response += `\n⚠️ **${lintResult.warningCount} warning(s)** found:\n`
-			for (const warning of lintResult.warnings) {
-				response += `- Line ${warning.startLineNumber}: ${warning.message}\n`
-			}
-		}
-	} else {
-		response = '✅ No lint issues found.'
-	}
-
-	return response
 }
 
 export const getLintErrorsTool: Tool<ScriptChatHelpers> = {

@@ -92,7 +92,8 @@
 	import GlobalReviewButtons from './copilot/chat/GlobalReviewButtons.svelte'
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
-	import { formatResourceTypes, type ScriptLintResult, type ScriptLintError } from './copilot/chat/script/core'
+	import { formatResourceTypes } from './copilot/chat/script/core'
+	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
@@ -471,25 +472,8 @@
 		}
 
 		const markers = meditor.getModelMarkers({ resource: model.uri })
-		const errors: ScriptLintError[] = []
-		const warnings: ScriptLintError[] = []
-
-		for (const marker of markers) {
-			const lintError: ScriptLintError = {
-				message: marker.message,
-				severity: marker.severity === MarkerSeverity.Error ? 'error' : 'warning',
-				startLineNumber: marker.startLineNumber,
-				startColumn: marker.startColumn,
-				endLineNumber: marker.endLineNumber,
-				endColumn: marker.endColumn
-			}
-
-			if (marker.severity === MarkerSeverity.Error) {
-				errors.push(lintError)
-			} else if (marker.severity === MarkerSeverity.Warning) {
-				warnings.push(lintError)
-			}
-		}
+		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
+		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
 
 		return {
 			errorCount: errors.length,
