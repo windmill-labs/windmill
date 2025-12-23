@@ -118,10 +118,6 @@
 				<Badge color="green" rounded>
 					<FastForward size={14} />
 				</Badge>
-			{:else if typeof job.result === 'string' && (job.result.includes('Debounced by') || job.result.startsWith('Late Debounced by'))}
-				<Badge color="blue" baseClass="!px-1.5" title={job.result}>
-					<Layers size={14} />
-				</Badge>
 			{:else}
 				<Badge color="green" baseClass="!px-1.5">
 					<Check size={14} />
