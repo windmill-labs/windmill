@@ -263,8 +263,6 @@ RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && chmod
 # (cache files already have 666 from umask copy above, cache_nomount is read-only)
 RUN find ${APP} /tmp/windmill -type d -exec chmod 777 {} +
 
-USER root
-
 EXPOSE 8000
 
 CMD ["windmill"]

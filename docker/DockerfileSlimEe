@@ -23,9 +23,14 @@ ENV TZ=Etc/UTC
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
-# Preinstall python runtime
-RUN uv python install $LATEST_STABLE_PY
-RUN uv venv
+# Preinstall python runtime to temp location (will copy with world-writable perms later)
+RUN UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
+
+# Copy to final location with world-writable permissions for arbitrary UID support
+RUN mkdir -p /tmp/windmill/cache && \
+    cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
+    chmod -R a+rw /tmp/windmill/cache && \
+    rm -rf /tmp/build_cache
 
 COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
 
@@ -43,6 +48,14 @@ COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 RUN windmill cache ${APP}/hubPaths.json
 
 RUN rm ${APP}/hubPaths.json
+
+# Create directories and make world-accessible for arbitrary UID support
+RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && \
+    chmod 777 /tmp/.cache && \
+    find ${APP} /tmp/windmill -type d -exec chmod 777 {} +
+
+# Set HOME for arbitrary UID support (Docker sets HOME=/ for unknown UIDs)
+ENV HOME=/tmp
 
 EXPOSE 8000
 
