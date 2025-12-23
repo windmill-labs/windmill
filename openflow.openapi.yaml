@@ -72,6 +72,17 @@ components:
         debounce_key:
           type: string
           description: Expression to group debounced executions
+        debounce_args_to_accumulate:
+          type: array
+          description: Arguments to accumulate across debounced executions
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: number
+          description: Maximum total time in seconds that a job can be debounced
+        max_total_debounces_amount:
+          type: number
+          description: Maximum number of times a job can be debounced
         skip_expr:
           type: string
           description: JavaScript expression to conditionally skip the entire flow

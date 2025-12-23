@@ -977,9 +977,9 @@ pub async fn clone_script<'c>(
     w_id: &str,
     deployment_message: Option<String>,
     db: &DB,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
 ) -> crate::error::Result<ClonedScript> {
-    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
+    let mut tx = db.begin().await?;
+    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut *tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
@@ -1065,7 +1065,7 @@ pub async fn clone_script<'c>(
             codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
-            ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
+            ", new_hash, base_hash.0, w_id).execute(&mut *tx).await?;
 
     // Archive base.
     sqlx::query!(
@@ -1073,8 +1073,9 @@ pub async fn clone_script<'c>(
         *base_hash,
         w_id
     )
-    .execute(&mut **tx)
+    .execute(&mut *tx)
     .await?;
 
+    tx.commit().await?;
     Ok(ClonedScript { old_script: ns, new_hash })
 }

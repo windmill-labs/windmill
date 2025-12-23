@@ -986,6 +986,7 @@ pub fn start_interactive_worker_shell(
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
+
                         let job = pull(
                             &db,
                             false,
@@ -996,22 +997,23 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
+                        use PulledJobResultToJobErr::*;
                         match job {
-                            Ok(j) => {
-                                match j.to_pulled_job() {
-                                    Ok(j) => Ok(j
-                                        .clone()
-                                        .map(|job| NextJob::Sql { flow_runners: None, job })),
-                                    Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
-                                    | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
-                                        if let Err(err) = job_completed_tx.send_job(jc, true).await
-                                        {
-                                            tracing::error!("An error occurred while sending job completed: {:#?}", err)
-                                        }
-                                        Ok(None)
+                            Ok(j) => match j.to_pulled_job() {
+                                Ok(j) => Ok(j
+                                    .clone()
+                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                Err(MissingConcurrencyKey(jc))
+                                | Err(ErrorWhilePreprocessing(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!(
+                                            "An error occurred while sending job completed: {:#?}",
+                                            err
+                                        )
                                     }
+                                    Ok(None)
                                 }
-                            }
+                            },
                             Err(err) => Err(err),
                         }
                     }
@@ -1792,7 +1794,7 @@ pub async fn run_worker(
                             if let Err(e) = timeout(
                                 // Will fail if longer than 10 seconds
                                 core::time::Duration::from_secs(10),
-                                pulled_job_res.preprocess(db),
+                                pulled_job_res.maybe_apply_debouncing(db),
                             )
                             .warn_after_seconds(2)
                             .await
