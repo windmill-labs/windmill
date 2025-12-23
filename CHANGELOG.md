@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.597.2](https://github.com/windmill-labs/windmill/compare/v1.597.1...v1.597.2) (2025-12-23)
+
+
+### Bug Fixes
+
+* add uv tool path to PATH ([#7444](https://github.com/windmill-labs/windmill/issues/7444)) ([b806f04](https://github.com/windmill-labs/windmill/commit/b806f046317316f050ef6f8288019db11e0d934a))
+
 ## [1.597.1](https://github.com/windmill-labs/windmill/compare/v1.597.0...v1.597.1) (2025-12-23)
 
 
