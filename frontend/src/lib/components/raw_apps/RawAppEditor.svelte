@@ -18,14 +18,25 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
-	import type { LintResult } from '../copilot/chat/app/core'
+	import type { LintResult, DataTableInfo, DataTableTableSchema } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
+	import { dbSchemas, type DBSchema } from '$lib/stores'
+	import { getDbSchemas } from '../apps/components/display/dbtable/metadata'
+	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
+	import {
+		parseDataTableRef,
+		formatDataTableRef,
+		type RawAppData,
+		DEFAULT_DATA
+	} from './dataTableRefUtils'
 
 	interface Props {
 		initFiles: Record<string, string>
 		initRunnables: Record<string, Runnable>
+		/** Data configuration including tables and creation policy */
+		initData: RawAppData | undefined
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -48,6 +59,7 @@
 	let {
 		initFiles,
 		initRunnables,
+		initData,
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -60,6 +72,11 @@
 
 	let runnables = $state(initRunnables)
 
+	// Data configuration with tables and creation policy
+	let data: RawAppData = $state(initData ?? DEFAULT_DATA)
+
+	// Convert to object format for child components
+	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
 			if (isRunnableByName(runnable)) {
@@ -76,7 +93,7 @@
 		maxEntries: 50,
 		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
 	})
-	historyManager.manualSnapshot(files ?? {}, runnables, summary)
+	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
@@ -87,7 +104,8 @@
 					path != '' ? `rawapp-${path}` : 'rawapp',
 					encodeState({
 						files,
-						runnables: runnables
+						runnables: runnables,
+						data: data
 					})
 				)
 			} catch (err) {
@@ -98,7 +116,7 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 
-	let sidebarPanelSize = $state(10)
+	let sidebarPanelSize = $state(15)
 
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
@@ -187,16 +205,36 @@
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 
+		// Initialize aiChatManager.datatableCreationPolicy from stored data
+		aiChatManager.datatableCreationPolicy = {
+			enabled: data.datatable !== undefined,
+			datatable: data.datatable,
+			schema: data.schema
+		}
+
 		// Start auto-snapshot
 		historyManager.startAutoSnapshot(() => ({
 			files: files ?? {},
 			runnables,
-			summary
+			summary,
+			data
 		}))
 
 		return () => {
 			rawAppLintStore.disable()
 			historyManager.destroy()
+		}
+	})
+
+	// Sync data with aiChatManager.datatableCreationPolicy (bidirectional)
+	$effect(() => {
+		// Read the current policy from aiChatManager
+		const policy = aiChatManager.datatableCreationPolicy
+		// Only update if different to avoid infinite loops
+		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+			data.datatable = policy.datatable
+			data.schema = policy.schema
+			saveFrontendDraft()
 		}
 	})
 
@@ -373,13 +411,128 @@
 			snapshot: () => {
 				// Force create snapshot for AI - it needs a restore point
 				return (
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)?.id ??
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)?.id ??
 					historyManager.getId()
 				)
 			},
 			revertToSnapshot: (id: number) => {
 				console.log('reverting to snapshot', id)
 				handleHistorySelect(id)
+			},
+			getDatatables: async (): Promise<DataTableInfo[]> => {
+				const results: DataTableInfo[] = []
+
+				// Get unique datatable names from dataTableRefs
+				const datatableNames = [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+
+				for (const datatableName of datatableNames) {
+					const resourcePath = `datatable://${datatableName}`
+
+					// Get or load the schema
+					let schema: DBSchema | undefined = $dbSchemas[resourcePath]
+					if (!schema) {
+						try {
+							await getDbSchemas('postgresql', resourcePath, $workspaceStore, $dbSchemas, (msg) =>
+								console.error('Schema error:', msg)
+							)
+							schema = $dbSchemas[resourcePath]
+						} catch (e) {
+							console.error(`Failed to load schema for ${datatableName}:`, e)
+							continue
+						}
+					}
+
+					if (!schema?.schema) continue
+
+					// Get the tables for this datatable from the refs
+					const refsForDatatable = dataTableRefsObjects.filter(
+						(ref) => ref.datatable === datatableName
+					)
+
+					const tables: DataTableTableSchema[] = []
+
+					for (const ref of refsForDatatable) {
+						const schemaKey = ref.schema || 'public'
+						const tableKey = ref.table
+
+						if (!tableKey) continue // Skip if no table specified
+
+						const tableSchema = schema.schema[schemaKey]?.[tableKey]
+						if (!tableSchema) continue
+
+						const columns: Record<string, { type: string; required: boolean }> = {}
+						for (const [colName, colDef] of Object.entries(tableSchema)) {
+							columns[colName] = {
+								type: (colDef as any).type || 'unknown',
+								required: (colDef as any).required || false
+							}
+						}
+
+						tables.push({
+							schema: schemaKey,
+							table: tableKey,
+							columns
+						})
+					}
+
+					results.push({
+						name: datatableName,
+						tables
+					})
+				}
+
+				return results
+			},
+			getAvailableDatatableNames: (): string[] => {
+				// Get unique datatable names from dataTableRefs
+				return [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+			},
+			execDatatableSql: async (
+				datatableName: string,
+				sql: string,
+				newTable?: { schema: string; name: string }
+			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
+				if (!$workspaceStore) {
+					return { success: false, error: 'Workspace not available' }
+				}
+
+				try {
+					const result = await runScriptAndPollResult({
+						workspace: $workspaceStore,
+						requestBody: {
+							language: 'postgresql',
+							content: sql,
+							args: { database: `datatable://${datatableName}` }
+						}
+					})
+
+					// If newTable was specified and the query succeeded, add it to data.tables
+					if (newTable) {
+						const newRef = formatDataTableRef({
+							datatable: datatableName,
+							schema: newTable.schema === 'public' ? undefined : newTable.schema,
+							table: newTable.name
+						})
+						// Only add if not already present
+						if (!data.tables.includes(newRef)) {
+							data.tables = [...data.tables, newRef]
+							saveFrontendDraft()
+							// Clear the cached schema so it gets refreshed with the new table
+							const resourcePath = `datatable://${datatableName}`
+							delete $dbSchemas[resourcePath]
+						}
+					}
+
+					// Check if result is an array (SELECT) or something else
+					if (Array.isArray(result)) {
+						return { success: true, result }
+					} else {
+						return { success: true, result: [] }
+					}
+				} catch (e) {
+					const errorMsg = e instanceof Error ? e.message : String(e)
+					return { success: false, error: errorMsg }
+				}
 			}
 		})
 	})
@@ -448,7 +601,7 @@
 	function handleUndo() {
 		// Create a snapshot if we're at the latest position with pending changes
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.undo()
@@ -467,7 +620,7 @@
 	function handleHistorySelect(id: number) {
 		// Create a snapshot if we have pending changes before navigating
 		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.selectEntry(id)
@@ -480,11 +633,13 @@
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		summary: string
+		data: RawAppData
 	}) {
 		try {
 			files = structuredClone($state.snapshot(entry.files))
 			runnables = structuredClone($state.snapshot(entry.runnables))
 			summary = entry.summary
+			data = structuredClone($state.snapshot(entry.data))
 
 			setFilesInIframe(entry.files)
 			populateRunnables()
@@ -509,7 +664,7 @@
 		// Ctrl/Cmd + Shift + H for manual snapshot
 		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
 			e.preventDefault()
-			historyManager.manualSnapshot(files ?? {}, runnables, summary)
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
 		}
 	}
 </script>
@@ -540,6 +695,7 @@
 		{newPath}
 		appPath={path}
 		{files}
+		{data}
 		{runnables}
 		{getBundle}
 		canUndo={historyManager.canUndo}
@@ -561,13 +717,31 @@
 				onSelectFile={handleSelectFile}
 				bind:selectedRunnable
 				bind:selectedDocument
+				dataTableRefs={dataTableRefsObjects}
+				onDataTableRefsChange={(newRefs) => {
+					data.tables = newRefs.map(formatDataTableRef)
+					saveFrontendDraft()
+				}}
+				defaultDatatable={data.datatable}
+				defaultSchema={data.schema}
+				onDefaultChange={(datatable, schema) => {
+					data.datatable = datatable
+					data.schema = schema
+					// Also sync to aiChatManager
+					aiChatManager.datatableCreationPolicy = {
+						...aiChatManager.datatableCreationPolicy,
+						datatable,
+						schema
+					}
+					saveFrontendDraft()
+				}}
 				{runnables}
 				{modules}
 				{historyManager}
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
 				onManualSnapshot={() => {
-					historyManager.manualSnapshot(files ?? {}, runnables, summary, true)
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
 				}}
 			></RawAppSidebar>
 		</Pane>

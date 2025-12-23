@@ -31,6 +31,11 @@ export interface AppFile {
   public?: boolean;
   summary: string;
   policy: Policy;
+  data?: {
+    tables?: string[];
+    datatable?: string;
+    schema?: string;
+  };
 }
 
 /**
@@ -40,7 +45,7 @@ export interface AppFile {
 async function findRunnableContentFile(
   backendPath: string,
   runnableId: string,
-  allFiles: string[]
+  allFiles: string[],
 ): Promise<{ ext: string; content: string } | undefined> {
   // Look for files matching pattern: {runnableId}.{ext}
   // where ext is a known language extension
@@ -62,7 +67,7 @@ async function findRunnableContentFile(
     if (EXTENSION_TO_LANGUAGE[ext]) {
       try {
         const content = await Deno.readTextFile(
-          path.join(backendPath, fileName)
+          path.join(backendPath, fileName),
         );
         return { ext, content };
       } catch {
@@ -89,7 +94,7 @@ async function findRunnableContentFile(
  */
 export async function loadRunnablesFromBackend(
   backendPath: string,
-  defaultTs: "bun" | "deno" = "bun"
+  defaultTs: "bun" | "deno" = "bun",
 ): Promise<Record<string, any>> {
   const runnables: Record<string, any> = {};
 
@@ -117,7 +122,7 @@ export async function loadRunnablesFromBackend(
         const contentFile = await findRunnableContentFile(
           backendPath,
           runnableId,
-          allFiles
+          allFiles,
         );
 
         if (contentFile) {
@@ -127,7 +132,7 @@ export async function loadRunnablesFromBackend(
           let lock: string | undefined;
           try {
             lock = await Deno.readTextFile(
-              path.join(backendPath, `${runnableId}.lock`)
+              path.join(backendPath, `${runnableId}.lock`),
             );
           } catch {
             // No lock file, that's fine
@@ -180,7 +185,7 @@ export async function loadRunnablesFromBackend(
 export function writeRunnableToBackend(
   backendPath: string,
   runnableId: string,
-  runnable: any
+  runnable: any,
 ): void {
   let runnableToWrite = { ...runnable };
 
@@ -201,7 +206,7 @@ export function writeRunnableToBackend(
 const alreadySynced: string[] = [];
 
 async function collectAppFiles(
-  localPath: string
+  localPath: string,
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 
@@ -244,7 +249,7 @@ export async function pushRawApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -286,8 +291,8 @@ export async function pushRawApp(
     runnables = runnablesFromBackend;
     log.info(
       colors.gray(
-        `Loaded ${Object.keys(runnables).length} runnables from backend folder`
-      )
+        `Loaded ${Object.keys(runnables).length} runnables from backend folder`,
+      ),
     );
   } else if (localApp.runnables) {
     // Fall back to runnables from raw_app.yaml (old format)
@@ -296,8 +301,8 @@ export async function pushRawApp(
       colors.gray(
         `Loaded ${
           Object.keys(runnables).length
-        } runnables from raw_app.yaml (legacy format)`
-      )
+        } runnables from raw_app.yaml (legacy format)`,
+      ),
     );
   } else {
     runnables = {};
@@ -311,7 +316,7 @@ export async function pushRawApp(
   await generatingPolicy(
     appForPolicy,
     remotePath,
-    localApp?.["public"] ?? false
+    localApp?.["public"] ?? false,
   );
 
   const files = await collectAppFiles(localPath);
@@ -328,6 +333,12 @@ export async function pushRawApp(
       minify: true,
     });
   }
+  // Build the value object, including data if present
+  const value: Record<string, any> = { runnables, files };
+  if (localApp.data) {
+    value.data = localApp.data;
+  }
+
   if (app) {
     if (isSuperset({ ...localApp, runnables }, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
@@ -340,7 +351,7 @@ export async function pushRawApp(
       path: remotePath,
       formData: {
         app: {
-          value: { runnables, files },
+          value,
           path: remotePath,
           summary: localApp.summary,
           policy: appForPolicy.policy,
@@ -357,7 +368,7 @@ export async function pushRawApp(
       workspace,
       formData: {
         app: {
-          value: { runnables, files },
+          value,
           path: remotePath,
           summary: localApp.summary,
           policy: appForPolicy.policy,
@@ -374,13 +385,13 @@ export async function pushRawApp(
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean
+  publicApp: boolean,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(
       app.runnables,
-      app.policy
+      app.policy,
     );
     app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
   } catch (e) {
@@ -392,7 +403,7 @@ export async function generatingPolicy(
 async function pushRawAppCommand(
   opts: GlobalOptions,
   filePath: string,
-  remotePath: string
+  remotePath: string,
 ) {
   if (!validatePath(remotePath)) {
     return;

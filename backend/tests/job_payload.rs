@@ -131,6 +131,7 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
         .run_until_complete(&db, false, port)
         .await
@@ -221,6 +222,7 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
         .run_until_complete(&db, false, port)
         .await
@@ -263,6 +265,7 @@ mod job_payload {
             path: "f/system/hello".to_string(),
             hash: ScriptHash(123412),
             language: ScriptLang::Deno,
+            debouncing_settings: Default::default(),
             dedicated_worker: None,
         })
         .run_until_complete(&db, false, port)
@@ -308,6 +311,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 version: 1443253234253454,
+            debouncing_settings: Default::default(),
             })
             .run_until_complete(&db, false, port)
             .await
@@ -449,6 +453,7 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
         .run_until_complete(&db, false, port)
         .await
@@ -521,6 +526,7 @@ mod job_payload {
             path: "f/system/hello_with_preprocessor".to_string(),
             dedicated_worker: None,
             version: 1443253234253456,
+            debouncing_settings: Default::default(),
         })
         .run_until_complete(db, false, port)
         .await
@@ -577,6 +583,7 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
         .run_until_complete(&db, false, port)
         .await

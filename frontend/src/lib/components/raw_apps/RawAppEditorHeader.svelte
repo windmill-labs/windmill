@@ -47,7 +47,8 @@
 	import { updateRawAppPolicy } from './rawAppPolicy'
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
-
+	import type { RawAppData } from './dataTableRefUtils'
+	
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -86,6 +87,8 @@
 		appPath: string
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
+		/** Data configuration including tables and creation policy */
+		data: RawAppData
 		jobs: string[]
 		jobsById: Record<string, any>
 		getBundle: () => Promise<{
@@ -108,6 +111,7 @@
 		newPath = '',
 		appPath,
 		runnables,
+		data,
 		files,
 		jobs = $bindable(),
 		jobsById = $bindable(),
@@ -583,7 +587,7 @@
 			}
 		}
 	}
-	let app = $derived(files ? { runnables: runnables, files } : undefined)
+	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()

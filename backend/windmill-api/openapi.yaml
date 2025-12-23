@@ -9717,6 +9717,34 @@ paths:
                   - completed
                   - result
 
+  /w/{workspace}/jobs_u/completed/get_timing/{id}:
+    get:
+      summary: get completed job timing
+      operationId: getCompletedJobTiming
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job timing details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
+                  started_at:
+                    type: string
+                    format: date-time
+                  duration_ms:
+                    type: integer
+                required:
+                  - created_at
+
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
       summary: delete completed job (erase content but keep run id)
@@ -16527,6 +16555,14 @@ components:
           type: string
         debounce_delay_s:
           type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -16629,6 +16665,14 @@ components:
         debounce_key:
           type: string
         debounce_delay_s:
+          type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
           type: integer
         visible_to_runner_only:
           type: boolean

@@ -1,5 +1,6 @@
 import type { Runnable } from './utils'
 import { deepEqual } from 'fast-equals'
+import type { RawAppData } from './dataTableRefUtils'
 
 /**
  * Snapshot entry containing raw app state at a point in time
@@ -10,6 +11,7 @@ export interface HistoryEntry {
 	files: Record<string, string>
 	runnables: Record<string, Runnable>
 	summary: string
+	data: RawAppData
 }
 
 /**
@@ -55,6 +57,7 @@ export class RawAppHistoryManager {
 				files: Record<string, string>
 				runnables: Record<string, Runnable>
 				summary: string
+				data: RawAppData
 		  })
 		| undefined = undefined
 	private isCreatingSnapshot = $state(false)
@@ -108,14 +111,16 @@ export class RawAppHistoryManager {
 	createSnapshot(
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
-		summary: string
+		summary: string,
+		data: RawAppData
 	): HistoryEntry {
 		return {
 			id: this.entryIdCounter++,
 			timestamp: new Date(),
 			files: structuredClone($state.snapshot(files)),
 			runnables: structuredClone($state.snapshot(runnables)),
-			summary: $state.snapshot(summary)
+			summary: $state.snapshot(summary),
+			data: structuredClone($state.snapshot(data))
 		}
 	}
 
@@ -125,7 +130,8 @@ export class RawAppHistoryManager {
 	private hasStateChanged(
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
-		summary: string
+		summary: string,
+		data: RawAppData
 	): boolean {
 		if (this.entries.length === 0) return true
 
@@ -133,7 +139,8 @@ export class RawAppHistoryManager {
 		return (
 			!deepEqual(lastEntry.files, files) ||
 			!deepEqual(lastEntry.runnables, runnables) ||
-			lastEntry.summary !== summary
+			lastEntry.summary !== summary ||
+			!deepEqual(lastEntry.data, data)
 		)
 	}
 
@@ -257,13 +264,14 @@ export class RawAppHistoryManager {
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
 		summary: string,
+		data: RawAppData,
 		force = false
 	): HistoryEntry | undefined {
-		if (!force && !this.hasStateChanged(files, runnables, summary)) {
+		if (!force && !this.hasStateChanged(files, runnables, summary, data)) {
 			return
 		}
 
-		const entry = this.createSnapshot(files, runnables, summary)
+		const entry = this.createSnapshot(files, runnables, summary, data)
 		this.addSnapshot(entry)
 		return entry
 	}
@@ -276,6 +284,7 @@ export class RawAppHistoryManager {
 			files: Record<string, string>
 			runnables: Record<string, Runnable>
 			summary: string
+			data: RawAppData
 		}
 	): void {
 		this.stopAutoSnapshot()
@@ -285,8 +294,8 @@ export class RawAppHistoryManager {
 
 		this.autoSnapshotTimer = setInterval(() => {
 			if (this.getStateFn && this.currentIndex === -1 && this.currentBranchId === undefined) {
-				const { files, runnables, summary } = this.getStateFn()
-				this.manualSnapshot(files, runnables, summary)
+				const { files, runnables, summary, data } = this.getStateFn()
+				this.manualSnapshot(files, runnables, summary, data)
 			}
 		}, this.config.autoSnapshotInterval) as unknown as number
 	}
