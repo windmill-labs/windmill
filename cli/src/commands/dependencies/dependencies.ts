@@ -10,8 +10,6 @@ import { workspaceDependenciesPathToLanguageAndFilename } from "../../utils/meta
 async function push(
   opts: GlobalOptions,
   filePath: string,
-  language?: ScriptLang,
-  name?: string,
 ): Promise<void> {
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
@@ -36,14 +34,6 @@ const command = new Command()
   .description("workspace dependencies related commands")
   .command("push", "Push workspace dependencies from a local file")
   .arguments("<file_path:string>")
-  .option(
-    "--language <language:string>",
-    "Programming language (python3, typescript, go, php). If not specified, will be inferred from file extension.",
-  )
-  .option(
-    "--name <name:string>",
-    "Name for the dependencies. If not specified, creates workspace default dependencies.",
-  )
   .action(push as any);
 
 export async function pushWorkspaceDependencies(
@@ -53,12 +43,12 @@ export async function pushWorkspaceDependencies(
   newDependenciesContent: string,
 ): Promise<void> {
   try {
-    let res = workspaceDependenciesPathToLanguageAndFilename(path);
+    const res = workspaceDependenciesPathToLanguageAndFilename(path);
     if (!res) {
       throw new Error(`Unknown workspace dependencies file format: ${path}`);
     }
 
-    let { language, name } = res;
+    const { language, name } = res;
 
     const displayName = name
       ? `named dependencies "${name}"`
@@ -89,7 +79,9 @@ export async function pushWorkspaceDependencies(
 
     log.info(
       colors.yellow(
-        `Pushing ${name ? "named" : "workspace default"} dependencies for ${language}...`,
+        `Pushing ${
+          name ? "named" : "workspace default"
+        } dependencies for ${language}...`,
       ),
     );
 
