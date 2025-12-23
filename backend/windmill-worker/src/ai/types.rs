@@ -122,6 +122,7 @@ impl Default for OutputType {
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Memory {
+    Off,
     Auto {
         #[serde(default)]
         context_length: usize,
@@ -172,6 +173,15 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
         let memory = raw.memory.or_else(|| {
             raw.messages_context_length
                 .map(|context_length| Memory::Auto { context_length, memory_id: None })
+        });
+
+        // Backward compatibility: if context_length is 0, use off mode
+        let memory = memory.map(|memory| {
+            if let Memory::Auto { context_length: 0, .. } = memory {
+                Memory::Off
+            } else {
+                memory
+            }
         });
 
         AIAgentArgs {
