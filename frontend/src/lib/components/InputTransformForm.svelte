@@ -69,6 +69,7 @@
 		helperScript?: DynamicInputTypes.HelperScript | undefined
 		isAgentTool?: boolean
 		s3StorageConfigured?: boolean
+		chatInputEnabled?: boolean
 	}
 
 	let {
@@ -94,7 +95,8 @@
 		otherArgs = {},
 		helperScript = undefined,
 		isAgentTool = false,
-		s3StorageConfigured = true
+		s3StorageConfigured = true,
+		chatInputEnabled = false
 	}: Props = $props()
 
 	let monaco: SimpleEditor | undefined = $state(undefined)
@@ -338,6 +340,19 @@
 		otherArgs: Record<string, any>
 	) {
 		const schemaProperty = schema?.properties?.[argName]
+
+		if (schemaProperty?.hideWhenChatEnabled && chatInputEnabled) {
+			if (!hidden) {
+				hidden = true
+				if (arg) {
+					arg.value = undefined
+					arg.expr = undefined
+				}
+				inputCheck = true
+			}
+			return
+		}
+
 		if (schemaProperty?.showExpr) {
 			// Build args object with current field value and other context
 			const currentValue = propertyType === 'static' ? arg?.value : arg?.expr
@@ -802,6 +817,7 @@
 								bind:placeholder={schema.properties[argName].placeholder}
 								{helperScript}
 								{s3StorageConfigured}
+								{chatInputEnabled}
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,

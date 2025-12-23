@@ -424,6 +424,19 @@ pub async fn run_agent(
 
     let is_text_output = output_type == &OutputType::Text;
 
+    // Flow-level memory_id (from chat mode) takes precedence over step-level memory_id
+    let memory_id = flow_context
+        .flow_status
+        .as_ref()
+        .and_then(|fs| fs.memory_id)
+        .or_else(|| {
+            // Extract memory_id from Memory::Auto if present
+            match &args.memory {
+                Some(Memory::Auto { memory_id, .. }) => *memory_id,
+                _ => None,
+            }
+        });
+
     // Load messages based on history mode
     if matches!(output_type, OutputType::Text) {
         match &args.memory {
@@ -433,14 +446,10 @@ pub async fn run_agent(
                     messages.extend(manual_messages.clone());
                 }
             }
-            Some(Memory::Auto { context_length }) if *context_length > 0 => {
+            Some(Memory::Auto { context_length, .. }) => {
                 // Auto mode: load from memory
                 if let Some(step_id) = job.flow_step_id.as_deref() {
-                    if let Some(memory_id) = flow_context
-                        .flow_status
-                        .as_ref()
-                        .and_then(|fs| fs.memory_id)
-                    {
+                    if let Some(memory_id) = memory_id {
                         // Read messages from memory
                         match read_from_memory(db, &job.workspace_id, memory_id, step_id).await {
                             Ok(Some(loaded_messages)) => {
@@ -607,11 +616,6 @@ pub async fn run_agent(
         .as_ref()
         .and_then(|fs| fs.chat_input_enabled)
         .unwrap_or(false);
-
-    let memory_id = flow_context
-        .flow_status
-        .as_ref()
-        .and_then(|fs| fs.memory_id);
 
     let step_name = get_step_name_from_flow(summary.as_deref(), job.flow_step_id.as_deref());
 
@@ -978,37 +982,33 @@ pub async fn run_agent(
     // Skip memory persistence if using manual messages (bypass memory entirely)
     // final_messages contains the complete history (old messages + new ones)
     if matches!(output_type, OutputType::Text) && !use_manual_messages {
-        if let Some(Memory::Auto { context_length }) = &args.memory {
-            if *context_length > 0 {
-                if let Some(step_id) = job.flow_step_id.as_deref() {
-                    // Extract OpenAIMessages from final_messages
-                    let all_messages: Vec<OpenAIMessage> =
-                        final_messages.iter().map(|m| m.message.clone()).collect();
+        if let Some(Memory::Auto { context_length, .. }) = &args.memory {
+            if let Some(step_id) = job.flow_step_id.as_deref() {
+                // Extract OpenAIMessages from final_messages
+                let all_messages: Vec<OpenAIMessage> =
+                    final_messages.iter().map(|m| m.message.clone()).collect();
 
-                    if !all_messages.is_empty() {
-                        // Keep only the last n messages
-                        let start_idx = all_messages.len().saturating_sub(*context_length);
-                        let messages_to_persist = all_messages[start_idx..].to_vec();
+                if !all_messages.is_empty() {
+                    // Keep only the last n messages
+                    let start_idx = all_messages.len().saturating_sub(*context_length);
+                    let messages_to_persist = all_messages[start_idx..].to_vec();
 
-                        if let Some(memory_id) =
-                            flow_context.flow_status.and_then(|fs| fs.memory_id)
+                    if let Some(memory_id) = memory_id {
+                        if let Err(e) = write_to_memory(
+                            db,
+                            &job.workspace_id,
+                            memory_id,
+                            step_id,
+                            &messages_to_persist,
+                        )
+                        .await
                         {
-                            if let Err(e) = write_to_memory(
-                                db,
-                                &job.workspace_id,
-                                memory_id,
+                            tracing::error!(
+                                "Failed to persist {} messages to memory for step {}: {}",
+                                messages_to_persist.len(),
                                 step_id,
-                                &messages_to_persist,
-                            )
-                            .await
-                            {
-                                tracing::error!(
-                                    "Failed to persist {} messages to memory for step {}: {}",
-                                    messages_to_persist.len(),
-                                    step_id,
-                                    e
-                                );
-                            }
+                                e
+                            );
                         }
                     }
                 }

@@ -611,6 +611,7 @@
 														{enableAi}
 														{isAgentTool}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>
 												</PropPickerWrapper>
 											</div>

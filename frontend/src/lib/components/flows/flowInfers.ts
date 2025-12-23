@@ -40,6 +40,17 @@ export const AI_AGENT_SCHEMA: Schema = {
 			oneOf: [
 				{
 					type: 'object',
+					title: 'off',
+					properties: {
+						kind: {
+							type: 'string',
+							enum: ['off'],
+							description: 'Disable conversation memory'
+						}
+					}
+				},
+				{
+					type: 'object',
 					title: 'auto',
 					properties: {
 						kind: {
@@ -52,7 +63,15 @@ export const AI_AGENT_SCHEMA: Schema = {
 							type: 'number',
 							description:
 								'Number of most recent messages to store and load. Set to 0 to disable memory.',
-							default: 0
+							default: 5
+						},
+						memory_id: {
+							type: 'string',
+							format: 'uuid',
+							'x-auto-generate': true,
+							description:
+								'Custom memory identifier. Each unique ID maintains separate conversation history.',
+							hideWhenChatEnabled: true
 						}
 					},
 					required: ['kind'],
