@@ -480,7 +480,7 @@
 						bind:debounce_args_to_accumulate={flowStore.val.value.debounce_args_to_accumulate}
 						bind:max_total_debouncing_time={flowStore.val.value.max_total_debouncing_time}
 						bind:max_total_debounces_amount={flowStore.val.value.max_total_debounces_amount}
-						schema={flowStore.val.schema}
+						schema={asSchema(flowStore.val.schema)}
 						placeholder={`$workspace/flow/${$pathStore}-$args[foo]`}
 					/>
 				{/if}

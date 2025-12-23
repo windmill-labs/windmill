@@ -26,8 +26,7 @@
 		ListFilterPlus,
 		Play,
 		ShieldQuestion,
-		X,
-		Layers
+		X
 	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import TimeAgo from '../TimeAgo.svelte'
