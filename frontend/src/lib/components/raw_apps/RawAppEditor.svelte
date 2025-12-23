@@ -116,7 +116,7 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 
-	let sidebarPanelSize = $state(10)
+	let sidebarPanelSize = $state(15)
 
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})

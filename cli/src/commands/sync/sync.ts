@@ -619,6 +619,12 @@ function ZipFSElement(
               };
             }
 
+            // Extract data field from value before deleting it
+            const data = value?.["data"];
+            if (data) {
+              rawApp.data = data;
+            }
+
             // Remove runnables and value from raw_app.yaml - they are now in separate files
             delete rawApp?.["value"];
             // Don't include runnables in raw_app.yaml anymore
