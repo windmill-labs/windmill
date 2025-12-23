@@ -2763,7 +2763,7 @@ async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
                     .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
 
                 windmill_common::scripts::clone_script(
-                    base_hash,
+                    j.runnable_path(),
                     &j.workspace_id,
                     deployment_message,
                     db,
@@ -3001,9 +3001,7 @@ pub async fn pull(
         }
 
         #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise")
-            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)
-        {
+        if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
             if let Some(pulled_job_res) = timeout(
                 Duration::from_secs(15),
                 crate::jobs_ee::apply_concurrency_limit(
