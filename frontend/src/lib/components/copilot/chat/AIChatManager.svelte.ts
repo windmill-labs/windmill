@@ -28,7 +28,8 @@ import type {
 import {
 	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
-	prepareScriptTools
+	prepareScriptTools,
+	type ScriptLintResult
 } from './script/core'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
@@ -97,9 +98,7 @@ class AIChatManager {
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
-	scriptEditorGetLintErrors = $state<
-		(() => import('./script/core').ScriptLintResult) | undefined
-	>(undefined)
+	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
 	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
