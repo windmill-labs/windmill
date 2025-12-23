@@ -262,7 +262,9 @@
 				{:else}
 					<div class="flex flex-row gap-2 min-w-0 flex-wrap items-center">
 						<ChatMode />
-						<DatatableCreationPolicy />
+						{#if aiChatManager.mode === AIMode.APP}
+							<DatatableCreationPolicy />
+						{/if}
 						<ProviderModelSelector />
 					</div>
 				{/if}
