@@ -10,12 +10,13 @@
 		syncTutorialsTodos,
 		TUTORIAL_BANNER_DISMISSED_KEY
 	} from '$lib/tutorialUtils'
-	import { tutorialsToDo, userStore } from '$lib/stores'
+	import { tutorialsToDo, userStore, skippedAll } from '$lib/stores'
 	import { TUTORIALS_CONFIG } from '$lib/tutorials/config'
 	import { hasRoleAccess } from '$lib/tutorials/roleUtils'
 	import { onMount } from 'svelte'
 
-	let isDismissed = $state(true)
+	let isDismissed = $state(false)
+	let hasCompletedAny = $state(false)
 
 	/**
 	 * Get all tutorial indexes that are accessible to the current user based on their role.
@@ -46,29 +47,37 @@
 			// Sync tutorial progress from backend first
 			await syncTutorialsTodos()
 
-			// Check if banner has been manually dismissed
+			// Check if banner has been manually dismissed via X button (soft dismiss, per-device)
 			const manuallyDismissed = getLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY) === 'true'
+			if (manuallyDismissed) {
+				isDismissed = true
+				return
+			}
+
+			// Check if user deliberately skipped all tutorials (permanent dismiss, from backend)
+			if ($skippedAll) {
+				isDismissed = true
+				return
+			}
 
 			// Safe to check tutorialsToDo here since we awaited syncTutorialsTodos() above
-			// Filter tutorialsToDo to only include tutorials accessible to the user
+			// Filter tutorialsToDo to only include tutorials accessible to the user's role
 			const remainingAccessibleTutorials = $tutorialsToDo.filter((index) =>
 				accessibleTutorialIndexes.has(index)
 			)
 
-			// Check if all accessible tutorials are completed
-			const allTutorialsCompleted = remainingAccessibleTutorials.length === 0
+			// Calculate if user has completed at least one tutorial (for banner wording)
+			// This determines whether to show "New tutorial available!" or "Learn with interactive tutorials"
+			hasCompletedAny = remainingAccessibleTutorials.length < accessibleTutorialIndexes.size
 
-			// Dismiss banner if manually dismissed OR all accessible tutorials completed
-			if (manuallyDismissed || allTutorialsCompleted) {
+			// Hide banner if all accessible tutorials are completed (but can reappear with new tutorials)
+			if (remainingAccessibleTutorials.length === 0) {
 				isDismissed = true
-				// Set localStorage when all tutorials are completed to persist dismissal
-				// Note: This will re-set the key on every page load if localStorage is cleared
-				// but tutorials remain completed in backend. This is intentional - the banner
-				// should stay hidden if tutorials are completed, regardless of localStorage state.
-				if (allTutorialsCompleted) {
-					storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
-				}
+				return
 			}
+
+			// Show banner - user has accessible tutorials to complete
+			isDismissed = false
 		} catch (error) {
 			console.error('Failed to sync tutorial progress:', error)
 			// Fallback to manual dismissal check only if API call fails
@@ -77,9 +86,10 @@
 	})
 
 	async function handleSkipAllTutorials() {
+		// Skip all tutorials and set skipped_all flag in backend (permanent)
 		await skipAllTodos()
 		await syncTutorialsTodos()
-		storeLocalSetting(TUTORIAL_BANNER_DISMISSED_KEY, 'true')
+		// No need to set localStorage - backend skipped_all flag is the source of truth
 		isDismissed = true
 	}
 
@@ -117,10 +127,18 @@
 			<GraduationCap size={20} class="text-accent-primary flex-shrink-0" />
 			<div class="flex-1 min-w-0">
 				<div class="text-emphasis flex-wrap text-left text-xs font-semibold">
-					Learn with interactive tutorials
+					{#if hasCompletedAny}
+						New tutorial available!
+					{:else}
+						Learn with interactive tutorials
+					{/if}
 				</div>
 				<div class="text-hint text-3xs truncate text-left font-normal">
-					Get started quickly with step-by-step guides on building flows, scripts, and more.
+					{#if hasCompletedAny}
+						Continue your learning journey and master new Windmill skills.
+					{:else}
+						Get started quickly with step-by-step guides on building flows, scripts, and more.
+					{/if}
 				</div>
 			</div>
 		</div>

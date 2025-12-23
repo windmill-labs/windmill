@@ -1,7 +1,21 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
-	import { isFlowTainted, triggerPointerDown, clickButtonBySelector } from './utils'
+	import {
+		isFlowTainted,
+		triggerPointerDown,
+		clickButtonBySelector,
+		DELAY_SHORT,
+		DELAY_MEDIUM,
+		DELAY_LONG,
+		DELAY_ANIMATION,
+		DELAY_ANIMATION_LONG,
+		DELAY_TYPING,
+		DELAY_CODE_CHAR,
+		DELAY_CODE_NEWLINE,
+		moveCursorToElement,
+		createFakeCursor
+	} from './utils'
 	import Tutorial from './Tutorial.svelte'
 	import type { DriveStep } from 'driver.js'
 	import { initFlow } from '../flows/flowStore.svelte'
@@ -27,16 +41,6 @@
 	let step4Complete = $state(false)
 	let step5Complete = $state(false)
 	let step6Complete = $state(false)
-
-	// Constants for delays
-	const DELAY_SHORT = 100
-	const DELAY_MEDIUM = 300
-	const DELAY_LONG = 500
-	const DELAY_ANIMATION = 1500
-	const DELAY_ANIMATION_LONG = 2500
-	const DELAY_TYPING = 50
-	const DELAY_CODE_CHAR = 2
-	const DELAY_CODE_NEWLINE = 5
 
 	// Helper function to get driver overlay
 	function getDriverOverlay(): HTMLElement | null {
@@ -89,38 +93,13 @@
 		}
 	}
 
-	// Helper function to move cursor to element (for continuous cursor movement)
-	async function moveCursorToElement(
-		cursor: HTMLElement,
-		element: HTMLElement,
-		duration: number = DELAY_ANIMATION
-	): Promise<void> {
-		const rect = element.getBoundingClientRect()
-		cursor.style.transition = `all ${duration / 1000}s ease-in-out`
-		cursor.style.left = `${rect.left + rect.width / 2}px`
-		cursor.style.top = `${rect.top + rect.height / 2}px`
-		await wait(duration)
-	}
-
-	// Helper function to create and animate a fake cursor
-	async function createFakeCursor(
+	// Helper function to create and animate a fake cursor (extended version with start element support)
+	async function createFakeCursorWithStart(
 		startElement: HTMLElement | null,
 		endElement: HTMLElement,
 		transitionDuration: number = 1.5
 	): Promise<HTMLElement> {
-		const fakeCursor = document.createElement('div')
-		fakeCursor.style.cssText = `
-			position: fixed;
-			width: 20px;
-			height: 20px;
-			border-radius: 50%;
-			background-color: rgba(59, 130, 246, 0.8);
-			border: 2px solid white;
-			pointer-events: none;
-			z-index: 10000;
-			transition: all ${transitionDuration}s ease-in-out;
-		`
-		document.body.appendChild(fakeCursor)
+		const fakeCursor = createFakeCursor()
 
 		const endRect = endElement.getBoundingClientRect()
 		let startX: number, startY: number
@@ -319,7 +298,7 @@
 					// Animate cursor to the add step button
 					const button = document.querySelector('#flow-editor-add-step-0') as HTMLElement
 					if (button) {
-						const fakeCursor1 = await createFakeCursor(null, button, 1.5)
+						const fakeCursor1 = await createFakeCursorWithStart(null, button, 1.5)
 						await wait(DELAY_SHORT)
 						button.click()
 						fakeCursor1.remove()
@@ -337,7 +316,7 @@
 
 					if (bunSpan) {
 						// Animate cursor from add step button to TypeScript (Bun) span
-						const fakeCursor2 = await createFakeCursor(button, bunSpan, 1.5)
+						const fakeCursor2 = await createFakeCursorWithStart(button, bunSpan, 1.5)
 						await wait(DELAY_MEDIUM)
 						fakeCursor2.remove()
 

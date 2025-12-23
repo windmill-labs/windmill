@@ -110,6 +110,11 @@
 			setTimeout(() => {
 				workspaceTutorials?.runTutorialById('workspace-onboarding')
 			}, 500)
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
+			}, 500)
 		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
 			// Check if user hasn't completed or ignored the workspace onboarding tutorial
 			// Small delay to ensure page is fully loaded

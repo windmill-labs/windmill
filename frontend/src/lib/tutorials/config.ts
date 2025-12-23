@@ -1,5 +1,5 @@
 import type { ComponentType } from 'svelte'
-import { Workflow, GraduationCap, Wrench, PlayCircle, Link2 } from 'lucide-svelte'
+import { Workflow, GraduationCap, Wrench, PlayCircle, Link2, History } from 'lucide-svelte'
 import { base } from '$lib/base'
 import type { Role } from './roleUtils'
 
@@ -43,7 +43,7 @@ export function getTutorialIndex(id: string): number {
 export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 	quickstart: {
 		label: 'Quickstart',
-		roles: ['admin', 'developer'],
+		roles: ['admin', 'developer', 'operator'],
 		progressBar: true,
 		active: true,
 		tutorials: [
@@ -88,7 +88,35 @@ export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
 				comingSoon: false,
 				roles: ['admin','developer'],
 				order: 3
-			}
+			},
+			{
+				id: 'runs-tutorial',
+				icon: History,
+				title: 'Discover your monitoring dashboard',
+				description: 'Learn how to monitor, filter, and manage your script and flow executions.',
+				onClick: () => {
+					window.location.href = `${base}/runs?tutorial=runs-tutorial`
+				},
+				index: 7,
+				active: true,
+				comingSoon: false,
+				roles: ['admin', 'developer','operator'],
+				order: 4
+			},
+			{
+				id: 'workspace-onboarding-operator',
+				icon: GraduationCap,
+				title: 'Workspace onboarding',
+				description: 'Discover the basics of Windmill with a quick tour of the workspace.',
+				onClick: () => {
+					window.location.href = `${base}/?tutorial=workspace-onboarding-operator`
+				},
+				index: 6,
+				active: true,
+				comingSoon: false,
+				roles: ['operator'],
+				order: 1
+			},	
 		]
 	},
 	app_editor: {

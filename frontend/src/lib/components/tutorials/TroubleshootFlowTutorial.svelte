@@ -8,6 +8,7 @@
 	import { wait, type StateStore } from '$lib/utils'
 	import { sendUserToast } from '$lib/toast'
 	import { updateProgress } from '$lib/tutorialUtils'
+	import { DELAY_SHORT, DELAY_MEDIUM, DELAY_LONG, createFakeCursor } from './utils'
 
 	interface Props {
 		index: number
@@ -29,11 +30,6 @@
 		6: false,
 		7: false
 	})
-
-	// Constants for delays
-	const DELAY_SHORT = 100
-	const DELAY_MEDIUM = 300
-	const DELAY_LONG = 500
 
 	// Constants for cursor animation
 	const CURSOR_START_OFFSET = -100
@@ -61,25 +57,13 @@
 		return true
 	}
 
-	// Helper function to create and animate a fake cursor
-	async function createFakeCursor(
+	// Helper function to create and animate a fake cursor with start position
+	async function createFakeCursorWithStart(
 		startElement: HTMLElement | null,
 		endElement: HTMLElement,
 		transitionDuration: number = 1.5
 	): Promise<HTMLElement> {
-		const fakeCursor = document.createElement('div')
-		fakeCursor.style.cssText = `
-			position: fixed;
-			width: 20px;
-			height: 20px;
-			border-radius: 50%;
-			background-color: rgba(59, 130, 246, 0.8);
-			border: 2px solid white;
-			pointer-events: none;
-			z-index: 10000;
-			transition: all ${transitionDuration}s ease-in-out;
-		`
-		document.body.appendChild(fakeCursor)
+		const fakeCursor = createFakeCursor()
 
 		const endRect = endElement.getBoundingClientRect()
 		let startX: number, startY: number
@@ -122,7 +106,7 @@
 		transitionDuration: number = 1.5,
 		options?: { usePointerEvents?: boolean }
 	): Promise<void> {
-		const fakeCursor = await createFakeCursor(null, element, transitionDuration)
+		const fakeCursor = await createFakeCursorWithStart(null, element, transitionDuration)
 		await wait(DELAY_MEDIUM)
 
 		// Animate click (shrink cursor briefly)

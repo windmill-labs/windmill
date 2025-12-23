@@ -54,7 +54,9 @@
 	// This derived value only recalculates when userStore or selectedPreviewRole changes
 	const accessCheckContext = $derived.by(() => {
 		const user = $userStore
-		const usePreview = user?.is_admin && selectedPreviewRole !== userEffectiveRole
+		// Always use preview mode for admins to show role-specific tutorials
+		// This ensures admins only see tutorials for the selected role
+		const usePreview = user?.is_admin
 		return { user, usePreview, previewRole: selectedPreviewRole }
 	})
 

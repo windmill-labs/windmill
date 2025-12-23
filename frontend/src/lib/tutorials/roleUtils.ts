@@ -53,12 +53,16 @@ export function hasRoleAccess(
 /**
  * Check if a preview role has access based on a roles array.
  * Used by admins to preview what other roles can see.
- * This is a convenience wrapper around hasRoleAccess for preview mode.
+ * Uses exact role matching - only shows tutorials explicitly marked for the preview role.
  */
 export function hasRoleAccessForPreview(
 	previewRole: Role,
 	roles?: Role[]
 ): boolean {
-	return hasRoleAccess(null, roles, previewRole)
+	// No roles specified = available to everyone
+	if (!roles || roles.length === 0) return true
+
+	// Exact role match - tutorial must explicitly include the preview role
+	return roles.includes(previewRole)
 }
 

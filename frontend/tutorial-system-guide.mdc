@@ -1,0 +1,598 @@
+# Windmill Tutorial System Guide
+
+This guide documents the complete tutorial infrastructure in Windmill's frontend, enabling developers to create new interactive tutorials without re-exploring the codebase.
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Architecture](#architecture)
+3. [File Structure](#file-structure)
+4. [Creating a New Tutorial](#creating-a-new-tutorial)
+5. [Key Components & APIs](#key-components--apis)
+6. [Progress Tracking System](#progress-tracking-system)
+7. [Role-Based Access](#role-based-access)
+8. [Testing & Debugging](#testing--debugging)
+
+---
+
+## Overview
+
+The Windmill tutorial system provides interactive, step-by-step guides for users using the `driver.js` library. Tutorials can:
+
+- Highlight specific UI elements with overlay popovers
+- Guide users through workflows with navigation controls
+- Track completion progress in the database
+- Filter tutorials by user role (admin, developer, operator)
+- Support multiple tutorial contexts (workspace, flow editor, app editor)
+
+**Core Technology:** [Driver.js](https://driverjs.com/) - A lightweight JavaScript library for creating product tours
+
+---
+
+## Architecture
+
+### High-Level Flow
+
+```
+Tutorial Config (config.ts)
+    ↓
+Tutorial Registration (component creation)
+    ↓
+Tutorial Router (WorkspaceTutorials.svelte, etc.)
+    ↓
+URL Parameter Detection (+page.svelte)
+    ↓
+Tutorial Component (driver.js overlay)
+    ↓
+Progress Tracking (tutorialUtils.ts → backend)
+```
+
+### Component Hierarchy
+
+```
+TutorialRouter (manages multiple tutorials)
+  └── TutorialWrapper (wraps individual tutorials)
+       └── Tutorial (core driver.js engine)
+            ├── TutorialControls (prev/next buttons)
+            ├── SkipTutorials (skip options)
+            └── TutorialInner (loads driver.js CSS)
+```
+
+### State Management
+
+- **Global Stores** (`stores.ts`):
+  - `tutorialsToDo`: Array of incomplete tutorial indexes
+  - `skippedAll`: Boolean flag for skipped tutorials
+  - `isCurrentlyInTutorial`: Boolean tracking active tutorial state
+
+- **Progress Tracking** (`tutorialUtils.ts`):
+  - Uses 64-bit bitmask system (each bit = one tutorial)
+  - Syncs with backend `tutorial_progress` table
+  - Backend table: `tutorial_progress(email, progress bit(64))`
+
+---
+
+## File Structure
+
+```
+frontend/src/lib/
+├── tutorials/
+│   ├── config.ts                          # Central tutorial registry
+│   └── roleUtils.ts                       # Role-based access logic
+│
+├── tutorialUtils.ts                       # Progress tracking utilities
+├── stores.ts                              # Global stores (tutorialsToDo, etc.)
+│
+└── components/
+    ├── WorkspaceTutorials.svelte          # Workspace tutorial container
+    ├── FlowTutorials.svelte               # Flow editor tutorials container
+    ├── AppTutorials.svelte                # App editor tutorials container
+    ├── RunPageTutorials.svelte            # Run page tutorials container
+    │
+    ├── tutorials/
+    │   ├── Tutorial.svelte                # Core tutorial engine (driver.js)
+    │   ├── TutorialRouter.svelte          # Multi-tutorial manager
+    │   ├── TutorialWrapper.svelte         # Instance wrapper
+    │   ├── TutorialInner.svelte           # Loads driver.js CSS
+    │   ├── TutorialControls.svelte        # Navigation UI
+    │   ├── SkipTutorials.svelte           # Skip options
+    │   ├── ignoredTutorials.ts            # Local storage for ignored tutorials
+    │   │
+    │   ├── workspace/
+    │   │   ├── WorkspaceOnboardingTutorial.svelte
+    │   │   └── WorkspaceOnboardingOperatorTutorial.svelte
+    │   │
+    │   ├── app/
+    │   │   ├── BackgroundRunnablesTutorial.svelte
+    │   │   ├── ConnectionTutorial.svelte
+    │   │   └── ExpressionEvaluationTutorial.svelte
+    │   │
+    │   └── flow/
+    │       ├── FlowBuilderLiveTutorial.svelte
+    │       └── TroubleshootFlowTutorial.svelte
+    │
+    └── home/
+        ├── TutorialButton.svelte          # Tutorial card UI
+        └── TutorialBanner.svelte          # Homepage banner
+```
+
+---
+
+## Creating a New Tutorial
+
+### Step 1: Register Tutorial in Config
+
+**File:** `frontend/src/lib/tutorials/config.ts`
+
+```typescript
+export const TUTORIALS_CONFIG: Record<TabId, TabConfig> = {
+  quickstart: {
+    label: 'Quickstart',
+    roles: ['admin', 'developer', 'operator'],
+    progressBar: true,
+    active: true,
+    tutorials: [
+      {
+        id: 'my-new-tutorial',              // Unique identifier
+        icon: GraduationCap,                 // Lucide icon component
+        title: 'My New Tutorial',
+        description: 'Learn something new',
+        onClick: () => {
+          window.location.href = `${base}/?tutorial=my-new-tutorial`
+        },
+        index: 7,                            // Next available index (1-64)
+        active: true,
+        comingSoon: false,
+        roles: ['developer', 'admin'],       // Who can access
+        order: 7
+      }
+    ]
+  }
+}
+```
+
+**Important:**
+- Choose a unique `index` (1-64) not used by other tutorials
+- The `id` must match the tutorial parameter in the URL
+- Indexes are used for bitmask progress tracking
+
+### Step 2: Create Tutorial Component
+
+**File:** `frontend/src/lib/components/tutorials/workspace/MyNewTutorial.svelte`
+
+```svelte
+<script lang="ts">
+  import Tutorial from '../Tutorial.svelte'
+  import { updateProgress } from '$lib/tutorialUtils'
+  import type { DriveStep } from 'driver.js'
+
+  // Props
+  let { index }: { index: number } = $props()
+
+  // Tutorial instance reference
+  let tutorial: Tutorial
+
+  // Define tutorial steps
+  function getSteps(driver: any): DriveStep[] {
+    return [
+      {
+        // Step 0: Welcome
+        popover: {
+          title: 'Welcome!',
+          description: 'This tutorial will teach you...',
+        }
+      },
+      {
+        // Step 1: Highlight an element
+        element: '#some-element-id',
+        popover: {
+          title: 'Important Feature',
+          description: 'Here you can do X, Y, and Z...',
+          // Optional: Add image
+          // description: `<img src="/tutorial-image.png" /><p>Description...</p>`
+        }
+      },
+      {
+        // Step 2: Another element
+        element: '.some-css-class',
+        popover: {
+          title: 'Another Feature',
+          description: 'Click here to...',
+        }
+      },
+      {
+        // Final step: Completion
+        popover: {
+          title: 'Congratulations!',
+          description: 'You completed the tutorial!',
+          onNextClick: async () => {
+            // Mark tutorial as complete
+            await updateProgress(index)
+            driver.destroy()
+          }
+        }
+      }
+    ]
+  }
+
+  // Export function to start tutorial
+  export function runTutorial(options?: any) {
+    tutorial?.runTutorial(options)
+  }
+</script>
+
+<Tutorial bind:this={tutorial} {index} {getSteps} />
+```
+
+### Step 3: Register in Tutorial Router
+
+**File:** `frontend/src/lib/components/WorkspaceTutorials.svelte` (or appropriate container)
+
+```svelte
+<script lang="ts">
+  import TutorialRouter from './tutorials/TutorialRouter.svelte'
+  import WorkspaceOnboardingTutorial from './tutorials/workspace/WorkspaceOnboardingTutorial.svelte'
+  import MyNewTutorial from './tutorials/workspace/MyNewTutorial.svelte'
+
+  let tutorialRouter: TutorialRouter
+
+  export function runTutorialById(id: string, options?: any) {
+    tutorialRouter?.runTutorialById(id, options)
+  }
+</script>
+
+<TutorialRouter bind:this={tutorialRouter}>
+  <WorkspaceOnboardingTutorial index={1} />
+  <MyNewTutorial index={7} />
+</TutorialRouter>
+```
+
+### Step 4: Add URL Parameter Handling
+
+**File:** `frontend/src/routes/(root)/(logged)/+page.svelte` (or appropriate page)
+
+```svelte
+<script lang="ts">
+  import { page } from '$app/stores'
+  import { onMount } from 'svelte'
+  import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
+
+  let workspaceTutorials: WorkspaceTutorials
+
+  onMount(() => {
+    const tutorialParam = $page.url.searchParams.get('tutorial')
+
+    if (tutorialParam === 'my-new-tutorial') {
+      workspaceTutorials?.runTutorialById('my-new-tutorial')
+    }
+  })
+</script>
+
+<WorkspaceTutorials bind:this={workspaceTutorials} />
+```
+
+### Step 5: Test Your Tutorial
+
+1. Login as a user with the appropriate role
+2. Navigate to the tutorials page
+3. Click your tutorial card
+4. Verify URL changes to `/?tutorial=my-new-tutorial`
+5. Verify tutorial starts automatically
+6. Step through all steps
+7. Verify completion marks tutorial as done
+8. Check database: `SELECT * FROM tutorial_progress WHERE email = 'your@email.com'`
+
+---
+
+## Key Components & APIs
+
+### Tutorial.svelte
+
+**Core tutorial engine that wraps driver.js**
+
+**Props:**
+- `index: number` - Tutorial index for progress tracking (1-64)
+- `getSteps: (driver) => DriveStep[]` - Function returning tutorial steps
+
+**Exports:**
+- `runTutorial(options?: any)` - Start the tutorial
+
+**Features:**
+- Auto-completes tutorial when last step is finished
+- Renders custom controls and skip options
+- Calls `updateProgress(index)` on completion
+
+### TutorialRouter.svelte
+
+**Manages multiple tutorial instances**
+
+**Usage:**
+```svelte
+<TutorialRouter bind:this={router}>
+  <TutorialA index={1} />
+  <TutorialB index={2} />
+</TutorialRouter>
+```
+
+**Exports:**
+- `runTutorialById(id: string, options?: any)` - Start tutorial by ID
+
+**Features:**
+- Maintains Map of tutorial instances
+- Routes calls to correct tutorial component
+- Handles tutorial not found errors
+
+### DriveStep Interface
+
+**TypeScript interface for tutorial steps**
+
+```typescript
+interface DriveStep {
+  element?: string                    // CSS selector to highlight
+  popover?: {
+    title: string
+    description: string               // Supports HTML
+    onNextClick?: (element, step, context) => void
+    onPrevClick?: (element, step, context) => void
+  }
+}
+```
+
+**Tips:**
+- Omit `element` for non-highlighted steps (like welcome/completion)
+- Use HTML in `description` for images: `<img src="/path.png" />`
+- Use callbacks for custom navigation logic
+
+---
+
+## Progress Tracking System
+
+### Bitmask System
+
+Tutorials use a 64-bit bitmask where each bit represents one tutorial's completion status:
+
+```
+Bit 0: Tutorial with index 0 (unused, reserve)
+Bit 1: workspace-onboarding
+Bit 2: flow-live-tutorial
+Bit 3: troubleshoot-flow
+Bit 4: backgroundrunnables
+Bit 5: connection
+Bit 6: workspace-onboarding-operator
+...
+Bit 63: Maximum possible tutorial
+```
+
+### Key Functions (tutorialUtils.ts)
+
+```typescript
+// Mark tutorial as complete
+await updateProgress(tutorialIndex: number)
+
+// Sync progress from backend
+await syncTutorialsTodos()
+
+// Skip all tutorials
+await skipAllTodos()
+
+// Reset all progress
+await resetAllTodos()
+
+// Skip specific tutorials
+await skipTutorialsByIndexes(indexes: number[])
+
+// Complete specific tutorial
+await completeTutorialByIndex(index: number)
+```
+
+### Backend Integration
+
+**Table:** `tutorial_progress`
+```sql
+CREATE TABLE tutorial_progress (
+  email VARCHAR PRIMARY KEY,
+  progress BIT(64)
+);
+```
+
+**API Endpoint:** `POST /api/users/tutorial_progress`
+```typescript
+// Request body
+{
+  "index": 7,  // Tutorial index to mark complete
+}
+```
+
+---
+
+## Role-Based Access
+
+### Available Roles
+
+```typescript
+type Role = 'admin' | 'developer' | 'operator'
+```
+
+### Role Hierarchy
+
+- **Admin**: Full access, can see all tutorials
+- **Developer**: Standard developer tutorials
+- **Operator**: Limited to operator-specific tutorials
+
+### Key Functions (roleUtils.ts)
+
+```typescript
+// Get current user's role
+const role = getUserEffectiveRole(user)
+
+// Check if user can access tutorial
+const canAccess = hasRoleAccess(userRole, tutorialRoles)
+```
+
+### Setting Role Requirements
+
+In `config.ts`:
+
+```typescript
+{
+  id: 'operator-only-tutorial',
+  roles: ['operator'],           // Only operators see this
+  // ...
+}
+
+{
+  id: 'admin-dev-tutorial',
+  roles: ['admin', 'developer'], // Admins and developers see this
+  // ...
+}
+
+{
+  id: 'everyone-tutorial',
+  roles: ['admin', 'developer', 'operator'], // Everyone sees this
+  // ...
+}
+```
+
+---
+
+## Testing & Debugging
+
+### Testing Checklist
+
+- [ ] Tutorial appears in correct tab/category
+- [ ] Tutorial only visible to correct roles
+- [ ] Clicking tutorial navigates to correct URL with tutorial parameter
+- [ ] Tutorial auto-starts on page load with parameter
+- [ ] All steps highlight correct elements
+- [ ] Navigation controls work (prev/next)
+- [ ] Skip options work correctly
+- [ ] Completion marks tutorial as done in database
+- [ ] Banner updates to reflect completion
+- [ ] Tutorial doesn't auto-start after completion
+
+### Common Issues
+
+**Tutorial doesn't auto-start:**
+- Check URL parameter matches tutorial ID in config
+- Verify `onMount()` logic in page component
+- Ensure tutorial component is registered in router
+
+**Element not highlighting:**
+- Verify CSS selector is correct
+- Check if element exists when tutorial runs
+- Try using more specific selectors or IDs
+
+**Progress not saving:**
+- Check tutorial index is unique and correctly passed
+- Verify `updateProgress()` is called on final step
+- Check network tab for API call to `/api/users/tutorial_progress`
+- Inspect database `tutorial_progress` table
+
+**Wrong users see tutorial:**
+- Verify `roles` array in config
+- Check `getUserEffectiveRole()` returns correct role
+- Ensure role filtering logic in tutorial list component
+
+### Debugging Tools
+
+**Browser Console:**
+```javascript
+// Check current tutorials to do
+console.log($tutorialsToDo)
+
+// Check if tutorial is skipped
+console.log($skippedAll)
+
+// Get user role
+import { getUserEffectiveRole } from '$lib/tutorials/roleUtils'
+console.log(getUserEffectiveRole($workspaceStore?.operator, $userStore))
+```
+
+**Database Queries:**
+```sql
+-- Check user's tutorial progress
+SELECT email, progress::text FROM tutorial_progress WHERE email = 'user@example.com';
+
+-- Reset user's progress (testing)
+UPDATE tutorial_progress SET progress = B'0' WHERE email = 'user@example.com';
+
+-- See all tutorials and their completion
+SELECT
+  email,
+  (progress & (1::bit(64) << 1))::int AS workspace_onboarding,
+  (progress & (1::bit(64) << 2))::int AS flow_live_tutorial,
+  (progress & (1::bit(64) << 3))::int AS troubleshoot_flow
+FROM tutorial_progress;
+```
+
+---
+
+## Best Practices
+
+### Tutorial Design
+
+1. **Keep It Short**: 4-7 steps is ideal
+2. **Clear Objectives**: State what users will learn upfront
+3. **Highlight Key Elements**: Focus on essential features
+4. **Use Images**: Visual aids help comprehension
+5. **End with Encouragement**: Congratulate users on completion
+
+### Technical Best Practices
+
+1. **Unique Indexes**: Always use unique index numbers (1-64)
+2. **Stable Selectors**: Use IDs or specific classes for element highlighting
+3. **Error Handling**: Wrap `updateProgress()` in try-catch
+4. **Role Testing**: Test with all relevant user roles
+5. **Mobile Friendly**: Ensure tutorials work on different screen sizes
+
+### Code Organization
+
+1. **Group by Context**: Workspace, flow, app tutorials in separate folders
+2. **Consistent Naming**: `[Feature]Tutorial.svelte` convention
+3. **Reusable Steps**: Extract common step patterns to utilities
+4. **Document Complex Logic**: Add comments for non-obvious step behaviors
+
+---
+
+## Quick Reference
+
+### Creating a New Tutorial (Checklist)
+
+- [ ] Step 1: Add to `config.ts` with unique ID and index
+- [ ] Step 2: Create component in appropriate folder
+- [ ] Step 3: Register in tutorial router (WorkspaceTutorials, etc.)
+- [ ] Step 4: Add URL parameter handling in page component
+- [ ] Step 5: Test with appropriate user role
+- [ ] Step 6: Verify progress tracking in database
+
+### File Paths (Quick Copy)
+
+```
+# Config
+frontend/src/lib/tutorials/config.ts
+
+# Tutorial Containers
+frontend/src/lib/components/WorkspaceTutorials.svelte
+frontend/src/lib/components/FlowTutorials.svelte
+frontend/src/lib/components/AppTutorials.svelte
+
+# Tutorial Components
+frontend/src/lib/components/tutorials/Tutorial.svelte
+frontend/src/lib/components/tutorials/TutorialRouter.svelte
+frontend/src/lib/components/tutorials/workspace/[YourTutorial].svelte
+
+# Page Integration
+frontend/src/routes/(root)/(logged)/+page.svelte
+
+# Utilities
+frontend/src/lib/tutorialUtils.ts
+frontend/src/lib/tutorials/roleUtils.ts
+```
+
+---
+
+## Additional Resources
+
+- **Driver.js Documentation**: https://driverjs.com/docs/
+- **Svelte Tutorial System Examples**: See existing tutorials in `frontend/src/lib/components/tutorials/`
+- **Database Schema**: See `backend/summarized_schema.txt` for `tutorial_progress` table details
