@@ -125,7 +125,7 @@ RUN mkdir -p /usr/local/uv
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_TOOL_DIR=/usr/local/uv
 
-ENV PATH /usr/local/bin:/root/.local/bin:$PATH
+ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
