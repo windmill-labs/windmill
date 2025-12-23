@@ -204,6 +204,7 @@ pub enum AgentAction {
         arguments: Option<serde_json::Value>,
     },
     Message {},
+    WebSearch {},
 }
 
 #[derive(Serialize, Debug, Clone)]

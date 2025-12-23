@@ -91,6 +91,14 @@
 				})
 				close()
 			}}
+			on:pickWebsearchTool={(e) => {
+				data.eventHandlers.insert({
+					index: -1,
+					agentId: data.agentModuleId,
+					kind: 'websearchTool'
+				})
+				close()
+			}}
 		/>
 	{/snippet}
 </Popover>
