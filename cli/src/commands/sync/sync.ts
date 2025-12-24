@@ -1085,7 +1085,8 @@ export async function elementsToMap(
       if (
         suffix?.startsWith("dist/") ||
         suffix == "wmill.d.ts" ||
-        suffix == "package-lock.json"
+        suffix == "package-lock.json" ||
+        suffix == "DATATABLES.md"
       ) {
         continue;
       }

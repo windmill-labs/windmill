@@ -229,9 +229,11 @@ async function collectAppFiles(
       } else if (entry.isFile) {
         // Skip raw_app.yaml as it's metadata, not an app file
         // Skip package-lock.json as it's generated
+        // Skip DATATABLES.md as it's auto-generated documentation for AI agents
         if (
           entry.name === "raw_app.yaml" ||
-          entry.name === "package-lock.json"
+          entry.name === "package-lock.json" ||
+          entry.name === "DATATABLES.md"
         ) {
           continue;
         }
