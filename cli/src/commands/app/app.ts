@@ -18,7 +18,7 @@ import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
 import newCommand from "./new.ts";
-import generateDatatablesCommand from "./generate_datatables.ts";
+import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 
 export interface AppFile {
@@ -235,7 +235,7 @@ const command = new Command()
   .command("dev", devCommand)
   .command("lint", lintCommand)
   .command("new", newCommand)
-  .command("generate-datatables", generateDatatablesCommand)
+  .command("generate-agents", generateAgentsCommand)
   .command(
     "generate-locks",
     "re-generate the lockfiles for app runnables inline scripts that have changed"

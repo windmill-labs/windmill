@@ -9,7 +9,7 @@ import {
   yamlStringify,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
-import { generateDatatablesDocumentation, yamlOptions } from "../sync/sync.ts";
+import { generateAgentsDocumentation, generateDatatablesDocumentation, yamlOptions } from "../sync/sync.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -516,16 +516,23 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     await Deno.writeTextFile(fullPath, content.trim() + "\n");
   }
 
-  // Create DATATABLES.md with the configured data
-  const datatablesContent = generateDatatablesDocumentation(
-    dataConfig.datatable
-      ? {
-          tables: dataConfig.tables,
-          datatable: dataConfig.datatable,
-          schema: dataConfig.schema,
-        }
-      : undefined
+  // Create AGENTS.md - main documentation for AI agents
+  const dataForDocs = dataConfig.datatable
+    ? {
+        tables: dataConfig.tables,
+        datatable: dataConfig.datatable,
+        schema: dataConfig.schema,
+      }
+    : undefined;
+
+  const agentsContent = generateAgentsDocumentation(dataForDocs);
+  await Deno.writeTextFile(
+    path.join(appDir, "AGENTS.md"),
+    agentsContent
   );
+
+  // Create DATATABLES.md with the configured data
+  const datatablesContent = generateDatatablesDocumentation(dataForDocs);
   await Deno.writeTextFile(
     path.join(appDir, "DATATABLES.md"),
     datatablesContent
@@ -593,6 +600,7 @@ This folder is for SQL migration files that will be applied to datatables during
   log.info("");
   log.info(colors.gray("Directory structure:"));
   log.info(colors.gray(`  ${folderName}/`));
+  log.info(colors.gray("  ├── AGENTS.md        ← Read this first!"));
   log.info(colors.gray("  ├── raw_app.yaml"));
   log.info(colors.gray("  ├── DATATABLES.md"));
   for (const filePath of Object.keys(template.files)) {

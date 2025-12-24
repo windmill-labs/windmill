@@ -35,6 +35,7 @@ import {
   inferRunnableSchemaFromFile,
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
+import { regenerateAgentDocs } from "./generate_agents.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -833,6 +834,18 @@ async function dev(opts: DevOptions) {
                   result,
                 })
               );
+
+              // Regenerate AGENTS.md and DATATABLES.md to reflect schema changes
+              try {
+                await regenerateAgentDocs(workspaceId, process.cwd(), true);
+                log.info(
+                  colors.gray(`[SQL Migration] Refreshed AGENTS.md and DATATABLES.md`)
+                );
+              } catch (regenError: any) {
+                log.warn(
+                  colors.yellow(`[SQL Migration] Could not refresh docs: ${regenError.message}`)
+                );
+              }
             } catch (error: any) {
               log.error(
                 colors.red(`[SQL Migration] Error: ${error.message}`)
