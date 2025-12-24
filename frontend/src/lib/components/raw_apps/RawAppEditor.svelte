@@ -540,11 +540,24 @@
 	let selectedDocument: string | undefined = $state(undefined)
 
 	let modules = $state({}) as Modules
+
+	// Normalize Windows-style path separators to Linux-style
+	function normalizeFilePaths(
+		filesObj: Record<string, string> | undefined
+	): Record<string, string> | undefined {
+		if (!filesObj) return filesObj
+		return Object.fromEntries(
+			Object.entries(filesObj).map(([path, content]) => [path.replace(/\\/g, '/'), content])
+		)
+	}
+
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
+			// Normalize Windows-style path separators to Linux-style
+			const normalizedFiles = normalizeFilePaths(e.data.files)
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
-			if (!deepEqual(files, e.data.files)) {
-				files = e.data.files
+			if (!deepEqual(files, normalizedFiles)) {
+				files = normalizedFiles
 				historyManager.markPendingChanges()
 			}
 		} else if (e.data.type === 'getBundle') {
@@ -552,7 +565,8 @@
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
-			selectedDocument = e.data.path
+			// Normalize Windows-style path separators to Linux-style
+			selectedDocument = e.data.path?.replace(/\\/g, '/')
 		}
 	}
 

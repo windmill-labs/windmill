@@ -1203,20 +1203,23 @@ async fn list_datatables(
     Ok(Json(datatables))
 }
 
-#[derive(Serialize, Debug)]
-struct DataTableColumnSchema {
-    table_name: String,
-    column_name: String,
-    udt_name: String,
-    column_default: Option<String>,
-    is_nullable: String,
-    table_schema: String,
-}
+/// Compact column representation: "type" or "type?" for nullable, with "=default" suffix if has default
+type CompactColumn = String;
+
+/// Columns mapped by name to their compact type
+type ColumnMap = HashMap<String, CompactColumn>;
+
+/// Tables mapped by name to their columns
+type TableMap = HashMap<String, ColumnMap>;
+
+/// Schemas mapped by name to their tables
+type SchemaMap = HashMap<String, TableMap>;
 
 #[derive(Serialize, Debug)]
 struct DataTableSchema {
     datatable_name: String,
-    columns: Vec<DataTableColumnSchema>,
+    /// Hierarchical schema: schema_name -> table_name -> column_name -> "type[?][=default]"
+    schemas: SchemaMap,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -1241,26 +1244,24 @@ async fn list_datatable_schemas(
     .filter_map(|s| s)
     .collect();
 
-    let mut schemas = Vec::new();
+    let mut results = Vec::new();
 
     for datatable_name in datatable_names {
         let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
-            Ok(columns) => DataTableSchema { datatable_name, columns, error: None },
-            Err(e) => {
-                DataTableSchema { datatable_name, columns: Vec::new(), error: Some(e.to_string()) }
-            }
+            Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+            Err(e) => DataTableSchema {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
         };
-        schemas.push(schema);
+        results.push(schema);
     }
 
-    Ok(Json(schemas))
+    Ok(Json(results))
 }
 
-async fn get_datatable_schema(
-    db: &DB,
-    w_id: &str,
-    datatable_name: &str,
-) -> Result<Vec<DataTableColumnSchema>> {
+async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
     // Get the datatable resource (connection credentials)
     let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
 
@@ -1283,14 +1284,14 @@ async fn get_datatable_schema(
         .query(
             r#"
             SELECT
+                nsp.nspname::text AS table_schema,
                 c.table_name::text,
                 c.column_name::text,
                 c.udt_name::text,
-                c.column_default::text,
                 c.is_nullable::text,
-                nsp.nspname::text AS table_schema
+                c.column_default::text
             FROM information_schema.columns c
-            RIGHT JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
+            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
             WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
               AND c.table_name IS NOT NULL
             ORDER BY c.table_schema, c.table_name, c.ordinal_position
@@ -1300,19 +1301,42 @@ async fn get_datatable_schema(
         .await
         .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
 
-    let columns: Vec<DataTableColumnSchema> = rows
-        .iter()
-        .map(|row| DataTableColumnSchema {
-            table_name: row.get(0),
-            column_name: row.get(1),
-            udt_name: row.get(2),
-            column_default: row.get(3),
-            is_nullable: row.get(4),
-            table_schema: row.get(5),
-        })
-        .collect();
+    // Build hierarchical structure: schema -> table -> column -> compact_type
+    let mut schema_map: SchemaMap = HashMap::new();
 
-    Ok(columns)
+    for row in rows {
+        let table_schema: String = row.get(0);
+        let table_name: String = row.get(1);
+        let column_name: String = row.get(2);
+        let udt_name: String = row.get(3);
+        let is_nullable: String = row.get(4);
+        let column_default: Option<String> = row.get(5);
+
+        // Build compact type representation: "type[?][=default]"
+        let mut compact = udt_name;
+        if is_nullable == "YES" {
+            compact.push('?');
+        }
+        if let Some(default) = column_default {
+            // Truncate long defaults for compactness
+            let short_default = if default.len() > 30 {
+                format!("{}...", &default[..27])
+            } else {
+                default
+            };
+            compact.push('=');
+            compact.push_str(&short_default);
+        }
+
+        schema_map
+            .entry(table_schema)
+            .or_default()
+            .entry(table_name)
+            .or_default()
+            .insert(column_name, compact);
+    }
+
+    Ok(schema_map)
 }
 
 async fn edit_ducklake_config(

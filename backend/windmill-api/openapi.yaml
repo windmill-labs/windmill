@@ -20632,32 +20632,23 @@ components:
 
     DataTableSchema:
       type: object
-      required: [datatable_name, columns]
+      required: [datatable_name, schemas]
       properties:
         datatable_name:
           type: string
-        columns:
-          type: array
-          items:
-            $ref: "#/components/schemas/DataTableColumnSchema"
+        schemas:
+          type: object
+          description: "Hierarchical schema: schema_name -> table_name -> column_name -> compact_type (e.g. 'int4', 'text?', 'int4?=0')"
+          additionalProperties:
+            type: object
+            description: "Tables in this schema"
+            additionalProperties:
+              type: object
+              description: "Columns in this table"
+              additionalProperties:
+                type: string
+                description: "Compact type: 'type[?][=default]' where ? means nullable"
         error:
-          type: string
-
-    DataTableColumnSchema:
-      type: object
-      required: [table_name, column_name, udt_name, is_nullable, table_schema]
-      properties:
-        table_name:
-          type: string
-        column_name:
-          type: string
-        udt_name:
-          type: string
-        column_default:
-          type: string
-        is_nullable:
-          type: string
-        table_schema:
           type: string
 
     DynamicInputData:
