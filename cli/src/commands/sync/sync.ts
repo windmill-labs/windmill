@@ -870,6 +870,15 @@ function ZipFSElement(
               for (const [filePath, content] of Object.entries(
                 value?.["files"] ?? [],
               )) {
+                // Skip generated/dev-only files and folders
+                if (
+                  filePath.startsWith("/sql_to_apply/") ||
+                  filePath === "/wmill.d.ts" ||
+                  filePath === "/AGENTS.md" ||
+                  filePath === "/DATATABLES.md"
+                ) {
+                  continue;
+                }
                 yield {
                   isDirectory: false,
                   path: path.join(finalPath, filePath.substring(1)),
