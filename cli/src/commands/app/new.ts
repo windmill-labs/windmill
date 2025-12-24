@@ -246,6 +246,14 @@ async function newApp(opts: GlobalOptions) {
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
 
+  // Fetch available folders for autocompletion
+  let folderNames: string[] = [];
+  try {
+    folderNames = await wmill.listFolderNames({ workspace: workspaceId });
+  } catch {
+    // Ignore errors fetching folders
+  }
+
   // Fetch available datatables
   let datatables: string[] = [];
   let datatableSchemas: Map<string, string[]> = new Map();
@@ -286,13 +294,35 @@ async function newApp(opts: GlobalOptions) {
     },
   });
 
+  // Build suggestions for path autocompletion
+  const buildPathSuggestions = (input: string): string[] => {
+    const suggestions: string[] = [];
+
+    // If empty or very short, suggest prefixes
+    if (input.length < 2) {
+      suggestions.push("f/", "u/");
+    }
+
+    // If starts with f/, suggest folders
+    if (input.startsWith("f/")) {
+      for (const folder of folderNames) {
+        const folderPath = `f/${folder}/`;
+        if (folderPath.startsWith(input) && folderPath !== input) {
+          suggestions.push(folderPath);
+        }
+      }
+    }
+
+    return suggestions;
+  };
+
   // Ask for path with validation
   let appPath: string;
   while (true) {
     appPath = await Input.prompt({
       message: "App path (e.g., f/my_folder/my_app or u/username/my_app):",
       minLength: 1,
-      suggestions: ["f/", "u/"],
+      suggestions: buildPathSuggestions,
     });
 
     const validation = validateAppPath(appPath);
@@ -441,8 +471,8 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     );
   }
 
-  // Create the directory structure
-  const folderName = `${appPath.split("/").pop()}.raw_app`;
+  // Create the directory structure - preserve full path (e.g., f/foobar/x/y becomes f/foobar/x/y.raw_app)
+  const folderName = `${appPath}.raw_app`;
   const appDir = path.join(Deno.cwd(), folderName);
 
   // Check if directory already exists
