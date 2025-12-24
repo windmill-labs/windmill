@@ -10,6 +10,9 @@ import {
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { generateDatatablesDocumentation, yamlOptions } from "../sync/sync.ts";
+import { resolveWorkspace } from "../../core/context.ts";
+import { requireLogin } from "../../core/auth.ts";
+import * as wmill from "../../../gen/services.gen.ts";
 import path from "node:path";
 
 // Framework templates - adapted from frontend/src/routes/(root)/(logged)/apps_raw/add/templates.ts
@@ -217,9 +220,59 @@ function validateAppPath(appPath: string): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
-async function newApp(_opts: GlobalOptions) {
+/**
+ * Generate a unique schema name (appX where X is first unused number)
+ */
+function generateUniqueSchemaName(existingSchemas: string[]): string {
+  let num = 1;
+  while (existingSchemas.includes(`app${num}`)) {
+    num++;
+  }
+  return `app${num}`;
+}
+
+interface DataConfig {
+  tables?: string[];
+  datatable?: string;
+  schema?: string;
+}
+
+async function newApp(opts: GlobalOptions) {
   log.info(colors.bold.cyan("Create a new Windmill Raw App"));
   log.info("");
+
+  // Resolve workspace and authenticate
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+  const workspaceId = workspace.workspaceId;
+
+  // Fetch available datatables
+  let datatables: string[] = [];
+  let datatableSchemas: Map<string, string[]> = new Map();
+
+  try {
+    log.info(colors.gray("Fetching available datatables..."));
+    datatables = await wmill.listDataTables({ workspace: workspaceId });
+
+    if (datatables.length > 0) {
+      // Fetch schemas for all datatables
+      const schemaData = await wmill.listDataTableSchemas({
+        workspace: workspaceId,
+      });
+      for (const dt of schemaData) {
+        if (dt.schemas && !dt.error) {
+          const schemaNames = Object.keys(dt.schemas);
+          datatableSchemas.set(dt.datatable_name, schemaNames);
+        }
+      }
+    }
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    log.warn(
+      colors.yellow(`Could not fetch datatables: ${errorMessage}`)
+    );
+  }
 
   // Ask for summary
   const summary = await Input.prompt({
@@ -266,6 +319,128 @@ async function newApp(_opts: GlobalOptions) {
     return;
   }
 
+  // Data configuration
+  let dataConfig: DataConfig = {};
+  let createSchemaSQL: string | undefined;
+  let schemaName: string | undefined;
+
+  if (datatables.length > 0) {
+    log.info("");
+    log.info(colors.bold.cyan("Data Configuration"));
+    log.info(
+      colors.gray(
+        "Configure datatables to enable AI to create and query database tables."
+      )
+    );
+
+    // Ask if user wants to configure datatables
+    const configureDatatables = await Confirm.prompt({
+      message: "Configure datatable for this app?",
+      default: true,
+    });
+
+    if (configureDatatables) {
+      // Select datatable
+      const datatableOptions = datatables.map((dt) => ({
+        name: dt === "main" ? `${dt} (Recommended)` : dt,
+        value: dt,
+      }));
+
+      // Put "main" first if it exists
+      datatableOptions.sort((a, b) => {
+        if (a.value === "main") return -1;
+        if (b.value === "main") return 1;
+        return a.value.localeCompare(b.value);
+      });
+
+      const selectedDatatable = await Select.prompt({
+        message: "Select a datatable:",
+        options: datatableOptions,
+      });
+
+      dataConfig.datatable = selectedDatatable;
+
+      // Get existing schemas for this datatable
+      const existingSchemas = datatableSchemas.get(selectedDatatable) || [];
+
+      // Ask for schema mode
+      const schemaOptions: { name: string; value: string }[] = [
+        { name: "Create new schema (Recommended for new apps)", value: "new" },
+      ];
+
+      if (existingSchemas.length > 0) {
+        schemaOptions.push({
+          name: "Use existing schema",
+          value: "existing",
+        });
+      }
+
+      schemaOptions.push({ name: "No schema (use public)", value: "none" });
+
+      const schemaMode = await Select.prompt({
+        message: "Schema configuration:",
+        options: schemaOptions,
+      });
+
+      if (schemaMode === "new") {
+        // Generate unique schema name
+        const defaultSchemaName = generateUniqueSchemaName(existingSchemas);
+
+        schemaName = await Input.prompt({
+          message: "New schema name:",
+          default: defaultSchemaName,
+          validate: (value: string) => {
+            if (!value.trim()) {
+              return "Schema name cannot be empty";
+            }
+            if (!/^[a-z_][a-z0-9_]*$/.test(value)) {
+              return "Schema name must start with a letter or underscore and contain only lowercase letters, numbers, and underscores";
+            }
+            if (existingSchemas.includes(value)) {
+              return `Schema "${value}" already exists`;
+            }
+            return true;
+          },
+        });
+
+        dataConfig.schema = schemaName;
+
+        // Generate SQL to create the schema
+        createSchemaSQL = `-- Create schema for ${summary}
+-- This will be executed when you run 'wmill app dev' and confirm in the modal
+CREATE SCHEMA IF NOT EXISTS ${schemaName};
+`;
+      } else if (schemaMode === "existing") {
+        const schemaSelectOptions = existingSchemas.map((s) => ({
+          name: s,
+          value: s,
+        }));
+
+        schemaName = await Select.prompt({
+          message: "Select existing schema:",
+          options: schemaSelectOptions,
+        });
+
+        dataConfig.schema = schemaName;
+      }
+      // For "none", we don't set a schema
+
+      dataConfig.tables = [];
+    }
+  } else {
+    log.info("");
+    log.info(
+      colors.yellow(
+        "No datatables configured in this workspace. Skipping data configuration."
+      )
+    );
+    log.info(
+      colors.gray(
+        "You can configure datatables in Workspace Settings > Windmill Data Tables"
+      )
+    );
+  }
+
   // Create the directory structure
   const folderName = `${appPath.split("/").pop()}.raw_app`;
   const appDir = path.join(Deno.cwd(), folderName);
@@ -289,11 +464,17 @@ async function newApp(_opts: GlobalOptions) {
   await ensureDir(path.join(appDir, "backend"));
   await ensureDir(path.join(appDir, "sql_to_apply"));
 
-  // Create raw_app.yaml
-  const rawAppConfig = {
+  // Create raw_app.yaml with data configuration
+  const rawAppConfig: Record<string, unknown> = {
     summary,
     custom_path: appPath,
   };
+
+  // Add data configuration if present
+  if (dataConfig.datatable) {
+    rawAppConfig.data = dataConfig;
+  }
+
   await Deno.writeTextFile(
     path.join(appDir, "raw_app.yaml"),
     yamlStringify(rawAppConfig, yamlOptions)
@@ -305,8 +486,16 @@ async function newApp(_opts: GlobalOptions) {
     await Deno.writeTextFile(fullPath, content.trim() + "\n");
   }
 
-  // Create DATATABLES.md
-  const datatablesContent = generateDatatablesDocumentation(undefined);
+  // Create DATATABLES.md with the configured data
+  const datatablesContent = generateDatatablesDocumentation(
+    dataConfig.datatable
+      ? {
+          tables: dataConfig.tables,
+          datatable: dataConfig.datatable,
+          schema: dataConfig.schema,
+        }
+      : undefined
+  );
   await Deno.writeTextFile(
     path.join(appDir, "DATATABLES.md"),
     datatablesContent
@@ -361,6 +550,14 @@ This folder is for SQL migration files that will be applied to datatables during
 `
   );
 
+  // Create schema creation SQL file if a new schema was requested
+  if (createSchemaSQL && schemaName) {
+    await Deno.writeTextFile(
+      path.join(appDir, "sql_to_apply", `000_create_schema_${schemaName}.sql`),
+      createSchemaSQL
+    );
+  }
+
   log.info("");
   log.info(colors.bold.green(`App created successfully at ${folderName}/`));
   log.info("");
@@ -375,13 +572,48 @@ This folder is for SQL migration files that will be applied to datatables during
   log.info(colors.gray("  │   ├── a.yaml"));
   log.info(colors.gray("  │   └── a.ts"));
   log.info(colors.gray("  └── sql_to_apply/"));
-  log.info(colors.gray("      └── README.md"));
+  log.info(colors.gray("      ├── README.md"));
+  if (createSchemaSQL && schemaName) {
+    log.info(
+      colors.gray(`      └── 000_create_schema_${schemaName}.sql`)
+    );
+  }
+
   log.info("");
-  log.info(colors.cyan("Next steps:"));
+
+  // Show data configuration summary
+  if (dataConfig.datatable) {
+    log.info(colors.cyan("Data configuration:"));
+    log.info(colors.gray(`  Datatable: ${dataConfig.datatable}`));
+    if (dataConfig.schema) {
+      log.info(colors.gray(`  Schema: ${dataConfig.schema}`));
+    }
+    log.info("");
+  }
+
+  // Advise to run wmill app dev
+  log.info(colors.bold.cyan("Next steps:"));
   log.info(colors.gray(`  1. cd ${folderName}`));
   log.info(colors.gray("  2. npm install"));
-  log.info(colors.gray("  3. wmill app dev ."));
-  log.info(colors.gray("  4. wmill sync push (to deploy)"));
+  log.info(
+    colors.bold.white("  3. wmill app dev .") +
+      colors.gray(" (start dev server)")
+  );
+  if (createSchemaSQL) {
+    log.info("");
+    log.info(
+      colors.yellow(
+        `     A SQL file to create schema '${schemaName}' has been added to sql_to_apply/`
+      )
+    );
+    log.info(
+      colors.yellow(
+        "     The dev server will prompt you to apply it when you start."
+      )
+    );
+  }
+  log.info("");
+  log.info(colors.gray("  4. wmill sync push (to deploy when ready)"));
 }
 
 // deno-lint-ignore no-explicit-any
