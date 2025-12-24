@@ -898,6 +898,90 @@ async function dev(opts: DevOptions) {
     });
   }
 
+  // Track which SQL files have been prompted to avoid duplicate prompts
+  const promptedSqlFiles = new Set<string>();
+
+  // Helper to read datatable from raw_app.yaml
+  async function getDatatableConfig(): Promise<string | undefined> {
+    try {
+      const rawApp = (await yamlParseFile(
+        path.join(process.cwd(), "raw_app.yaml")
+      )) as any;
+      return rawApp?.data?.datatable;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Helper to process an SQL file and broadcast it
+  async function processSqlFile(filePath: string): Promise<void> {
+    const fileName = path.basename(filePath);
+
+    // Skip if already prompted in this session
+    if (promptedSqlFiles.has(filePath)) {
+      return;
+    }
+
+    try {
+      const sqlContent = await Deno.readTextFile(filePath);
+
+      if (!sqlContent.trim()) {
+        return; // Ignore empty files
+      }
+
+      const datatable = await getDatatableConfig();
+
+      log.info(
+        colors.magenta(
+          `📋 SQL file detected: ${fileName} (datatable: ${
+            datatable || "not configured"
+          })`
+        )
+      );
+
+      promptedSqlFiles.add(filePath);
+      broadcastSqlMigration(fileName, sqlContent, datatable);
+    } catch (error: any) {
+      log.error(colors.red(`Error reading SQL file: ${error.message}`));
+    }
+  }
+
+  // Helper to scan for existing SQL files and prompt for each
+  async function scanExistingSqlFiles(): Promise<void> {
+    if (!fs.existsSync(sqlToApplyPath)) {
+      return;
+    }
+
+    try {
+      const entries = fs.readdirSync(sqlToApplyPath);
+      const sqlFiles = entries
+        .filter((entry: string) => entry.endsWith(".sql"))
+        .sort(); // Sort alphabetically to process in order
+
+      if (sqlFiles.length === 0) {
+        return;
+      }
+
+      log.info(
+        colors.blue(
+          `🔍 Found ${sqlFiles.length} existing SQL file(s) in sql_to_apply/`
+        )
+      );
+
+      // Process each SQL file with a small delay between them
+      for (const sqlFile of sqlFiles) {
+        const filePath = path.join(sqlToApplyPath, sqlFile);
+        await processSqlFile(filePath);
+        // Small delay between files to avoid overwhelming the modal
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    } catch (error: any) {
+      log.error(
+        colors.red(`Error scanning sql_to_apply folder: ${error.message}`)
+      );
+    }
+  }
+
   if (fs.existsSync(sqlToApplyPath)) {
     log.info(
       colors.blue(`🗃️  Watching sql_to_apply folder at: ${sqlToApplyPath}\n`)
@@ -933,6 +1017,9 @@ async function dev(opts: DevOptions) {
             sqlDebounceTimeouts[changedPath] = setTimeout(async () => {
               delete sqlDebounceTimeouts[changedPath];
 
+              // Clear the prompted flag so file changes trigger new prompts
+              promptedSqlFiles.delete(changedPath);
+
               try {
                 // Read the SQL file content
                 const sqlContent = await Deno.readTextFile(changedPath);
@@ -941,16 +1028,7 @@ async function dev(opts: DevOptions) {
                   return; // Ignore empty files
                 }
 
-                // Get the datatable from raw_app.yaml
-                let datatable: string | undefined;
-                try {
-                  const rawApp = (await yamlParseFile(
-                    path.join(process.cwd(), "raw_app.yaml")
-                  )) as any;
-                  datatable = rawApp?.data?.datatable;
-                } catch {
-                  // Ignore errors reading raw_app.yaml
-                }
+                const datatable = await getDatatableConfig();
 
                 log.info(
                   colors.magenta(
@@ -978,6 +1056,11 @@ async function dev(opts: DevOptions) {
         }
       }
     })();
+
+    // Scan for existing SQL files after a delay (to let WebSocket clients connect)
+    setTimeout(() => {
+      scanExistingSqlFiles();
+    }, 2000);
   } else {
     log.info(
       colors.gray(

@@ -317,26 +317,60 @@ export function generateDatatablesDocumentation(data: {
 This documentation provides context about data tables available to this raw app.
 It is automatically generated during sync and should be used for understanding the data layer.
 
-## How Data Tables Work
+## ⚠️ CRITICAL RULES FOR AI AGENTS
 
-Data tables provide managed PostgreSQL databases integrated with Windmill apps.
-To get schema information about available tables, use the \`listDataTableSchemas\` endpoint.
+**READ THIS FIRST - These rules are mandatory:**
 
-### Getting Table Schemas
+1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables that are listed in \`raw_app.yaml\` → \`data.tables\`.
+   Tables not in this list are NOT accessible to the app, even if they exist in the database.
 
-Use the Windmill API endpoint \`GET /api/w/{workspace}/workspaces/list_datatable_schemas\` to retrieve
-all datatable schemas for the workspace. The response contains:
+2. **ADD TABLES BEFORE USING THEM**: If you need to use a table that is not in \`data.tables\`, you MUST:
+   - First add it to \`data.tables\` in \`raw_app.yaml\`
+   - Then use it in your queries
 
+3. **PRIORITIZE CONFIGURED DATATABLE/SCHEMA**: When looking for tables to use:
+   - First, check tables already in \`data.tables\` below
+   - If creating new tables, use the configured default datatable and schema
+   - Only query the workspace schemas endpoint if you need to discover what tables exist
+
+## Current App Configuration
+
+${defaultDatatable
+  ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}\n\n→ When creating new tables, use this datatable${defaultSchema ? ` and schema (\`${defaultSchema}\`)` : ''}.`
+  : '**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` before creating tables.'}
+
+### Whitelisted Tables (USE THESE)
+
+${tables.length > 0
+  ? `The app has access to these tables - **use these in your queries**:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
+  : `**No tables are currently whitelisted.**\n\nTo use any table, add it to \`data.tables\` in \`raw_app.yaml\` first.`}
+
+## How to Add a New Table to the Whitelist
+
+Edit \`raw_app.yaml\` and add the table to \`data.tables\`:
+
+\`\`\`yaml
+data:
+  datatable: ${defaultDatatable || 'main'}
+  ${defaultSchema ? `schema: ${defaultSchema}\n  ` : ''}tables:
+    ${tables.length > 0 ? tables.map(t => `- ${t}`).join('\n    ') : '# Add tables here'}
+    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}new_table_name  # ← Add new tables like this
+\`\`\`
+
+## Discovering Available Tables (Optional)
+
+If you need to see what tables exist in the workspace (beyond what's whitelisted), use the API:
+
+\`GET /api/w/{workspace}/workspaces/list_datatable_schemas\`
+
+Response structure:
 \`\`\`typescript
 interface DataTableSchema {
   datatable_name: string;
-  // Hierarchical structure: schema_name -> table_name -> column_name -> compact_type
-  // Compact type format: "type[?][=default]" where ? means nullable
-  // Examples: "int4", "text?", "int4?=0", "timestamp=now()"
   schemas: {
     [schema_name: string]: {
       [table_name: string]: {
-        [column_name: string]: string;
+        [column_name: string]: string;  // Format: "type[?][=default]"
       };
     };
   };
@@ -344,22 +378,7 @@ interface DataTableSchema {
 }
 \`\`\`
 
-### IMPORTANT: Whitelisted Tables
-
-**To use a datatable in this app, it MUST be listed in the \`data.tables\` section of \`raw_app.yaml\`.**
-
-The \`listDataTableSchemas\` endpoint provides context about available tables, but the app will only
-have access to tables explicitly whitelisted in the configuration.
-
-#### Current Configuration
-
-${tables.length > 0
-  ? `This app has access to the following tables:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
-  : `No tables are currently whitelisted. Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
-
-${defaultDatatable
-  ? `\n**Default datatable for table creation:** \`${defaultDatatable}\`${defaultSchema ? `\n**Default schema:** \`${defaultSchema}\`` : ''}`
-  : ''}
+**Remember**: Even if a table appears in the schema response, you cannot use it until you add it to \`data.tables\`.
 
 ### Table Reference Format
 

@@ -22,35 +22,51 @@ function generateDatatablesMarkdown(
     schema?: string;
   }
 ): string {
+  const defaultDatatable = localData?.datatable;
+  const defaultSchema = localData?.schema;
+  const tables = localData?.tables ?? [];
+
   let content = `# Datatable Configuration
 
 This file documents the available datatables and their schemas in the connected Windmill workspace.
-Use this as a reference when writing SQL queries or creating new tables.
+
+## ⚠️ CRITICAL RULES FOR AI AGENTS
+
+**READ THIS FIRST - These rules are mandatory:**
+
+1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables listed in \`raw_app.yaml\` → \`data.tables\`.
+   Tables not in this list are NOT accessible to the app, even if they exist in the database.
+
+2. **ADD TABLES BEFORE USING THEM**: If you need a table not in \`data.tables\`, you MUST:
+   - First add it to \`data.tables\` in \`raw_app.yaml\`
+   - Then use it in your queries
+
+3. **PRIORITIZE CONFIGURED DATATABLE/SCHEMA**: When looking for tables:
+   - First, check the whitelisted tables below
+   - If creating new tables, use the default datatable${defaultSchema ? ` and schema (\`${defaultSchema}\`)` : ''} shown below
+   - The schema reference below helps you discover what tables exist, but you must whitelist them first
+
+## App Configuration
+
+${defaultDatatable
+    ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}
+
+→ When creating new tables, use this datatable${defaultSchema ? ` and schema` : ''}.`
+    : `**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` before creating tables.`}
+
+### Whitelisted Tables (USE THESE FIRST)
+
+${tables.length > 0
+    ? `The app has access to these tables - **use these in your queries**:\n\n${tables.map((t) => `- \`${t}\``).join("\n")}\n\n→ To use any other table from the schemas below, add it to \`data.tables\` in \`raw_app.yaml\` first.`
+    : `**No tables are currently whitelisted.**\n\nTo use any table from the schemas below, add it to \`data.tables\` in \`raw_app.yaml\` first:\n\n\`\`\`yaml\ndata:\n  datatable: ${defaultDatatable || 'main'}\n  tables:\n    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}table_name\n\`\`\``}
 
 `;
-
-  // Add local configuration section if available
-  if (localData?.datatable) {
-    content += `## App Configuration
-
-This app is configured with the following data settings (from \`raw_app.yaml\`):
-
-- **Default Datatable**: \`${localData.datatable}\`
-`;
-    if (localData.schema) {
-      content += `- **Default Schema**: \`${localData.schema}\`
-`;
-    }
-    if (localData.tables && localData.tables.length > 0) {
-      content += `- **Whitelisted Tables**: ${localData.tables.map((t) => `\`${t}\``).join(", ")}
-`;
-    }
-    content += `
-`;
-  }
 
   // Add schemas section
-  content += `## Available Datatables and Schemas
+  content += `## Available Datatables and Schemas (Reference Only)
+
+> **Note**: These schemas show what tables exist in the workspace. To use any table,
+> you must first add it to \`data.tables\` in \`raw_app.yaml\`.
 
 `;
 
