@@ -39,7 +39,7 @@ import { loadRunnablesFromBackend } from "./raw_apps.ts";
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
 
-// HTML template with live reload
+// HTML template with live reload and SQL migration modal
 const createHTML = (jsPath: string, cssPath: string) => `
 <!DOCTYPE html>
 <html lang="en">
@@ -64,10 +64,136 @@ const createHTML = (jsPath: string, cssPath: string) => `
       width: 100%;
       height: 100vh;
     }
+    /* SQL Migration Modal Styles */
+    .sql-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 10000;
+      justify-content: center;
+      align-items: center;
+    }
+    .sql-modal-overlay.visible {
+      display: flex;
+    }
+    .sql-modal {
+      background: white;
+      border-radius: 8px;
+      max-width: 700px;
+      width: 90%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .sql-modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .sql-modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      color: #333;
+    }
+    .sql-modal-header .close-btn {
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #666;
+    }
+    .sql-modal-body {
+      padding: 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .sql-modal-body p {
+      margin-bottom: 12px;
+      color: #555;
+    }
+    .sql-modal-body pre {
+      background: #f5f5f5;
+      padding: 12px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 13px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .sql-modal-footer {
+      padding: 16px 20px;
+      border-top: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+    .sql-modal-footer button {
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .sql-modal-footer .cancel-btn {
+      background: #f0f0f0;
+      border: 1px solid #ccc;
+      color: #333;
+    }
+    .sql-modal-footer .apply-btn {
+      background: #3b82f6;
+      border: none;
+      color: white;
+    }
+    .sql-modal-footer .apply-btn:hover {
+      background: #2563eb;
+    }
+    .sql-modal-footer .apply-btn:disabled {
+      background: #9ca3af;
+      cursor: not-allowed;
+    }
+    .sql-result {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 4px;
+    }
+    .sql-result.success {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .sql-result.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
   </style>
 </head>
 <body>
   <div id="root"></div>
+  <!-- SQL Migration Modal -->
+  <div id="sql-modal-overlay" class="sql-modal-overlay">
+    <div class="sql-modal">
+      <div class="sql-modal-header">
+        <h2>Apply SQL Migration</h2>
+        <button class="close-btn" onclick="closeSqlModal()">&times;</button>
+      </div>
+      <div class="sql-modal-body">
+        <p><strong>File:</strong> <span id="sql-file-name"></span></p>
+        <p><strong>Datatable:</strong> <span id="sql-datatable"></span></p>
+        <p><strong>SQL to execute:</strong></p>
+        <pre id="sql-content"></pre>
+        <div id="sql-result"></div>
+      </div>
+      <div class="sql-modal-footer">
+        <button class="cancel-btn" onclick="closeSqlModal()">Cancel</button>
+        <button class="apply-btn" id="apply-sql-btn" onclick="applySql()">Apply SQL</button>
+      </div>
+    </div>
+  </div>
   <script src="${jsPath}"></script>
   <script>
     // Live reload via EventSource
@@ -79,6 +205,83 @@ const createHTML = (jsPath: string, cssPath: string) => `
     evtSource.addEventListener('error', () => {
       console.log('⚠️ Lost connection to dev server, retrying...');
     });
+
+    // SQL Migration Modal handling
+    let pendingSqlMigration = null;
+    let sqlWebSocket = null;
+
+    function initSqlWebSocket() {
+      const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      sqlWebSocket = new WebSocket(wsProtocol + '//' + location.host);
+
+      sqlWebSocket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.type === 'sqlMigration') {
+          showSqlModal(data);
+        } else if (data.type === 'sqlMigrationResult') {
+          showSqlResult(data);
+        }
+      };
+
+      sqlWebSocket.onclose = () => {
+        // Reconnect after a delay
+        setTimeout(initSqlWebSocket, 1000);
+      };
+    }
+
+    function showSqlModal(data) {
+      pendingSqlMigration = data;
+      document.getElementById('sql-file-name').textContent = data.fileName;
+      document.getElementById('sql-datatable').textContent = data.datatable || 'Not configured';
+      document.getElementById('sql-content').textContent = data.sql;
+      document.getElementById('sql-result').innerHTML = '';
+      document.getElementById('apply-sql-btn').disabled = !data.datatable;
+      document.getElementById('sql-modal-overlay').classList.add('visible');
+    }
+
+    function closeSqlModal() {
+      document.getElementById('sql-modal-overlay').classList.remove('visible');
+      pendingSqlMigration = null;
+    }
+
+    function applySql() {
+      if (!pendingSqlMigration || !sqlWebSocket) return;
+
+      document.getElementById('apply-sql-btn').disabled = true;
+      document.getElementById('apply-sql-btn').textContent = 'Applying...';
+
+      sqlWebSocket.send(JSON.stringify({
+        type: 'applySqlMigration',
+        fileName: pendingSqlMigration.fileName,
+        sql: pendingSqlMigration.sql,
+        datatable: pendingSqlMigration.datatable
+      }));
+    }
+
+    function showSqlResult(data) {
+      const resultDiv = document.getElementById('sql-result');
+      if (data.error) {
+        resultDiv.className = 'sql-result error';
+        resultDiv.innerHTML = '<strong>Error:</strong> ' + escapeHtml(data.message);
+      } else {
+        resultDiv.className = 'sql-result success';
+        resultDiv.innerHTML = '<strong>Success!</strong> SQL applied successfully.' +
+          (data.result ? '<pre>' + escapeHtml(JSON.stringify(data.result, null, 2)) + '</pre>' : '');
+        // Auto-close after success
+        setTimeout(closeSqlModal, 2000);
+      }
+      document.getElementById('apply-sql-btn').disabled = false;
+      document.getElementById('apply-sql-btn').textContent = 'Apply SQL';
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize WebSocket for SQL migrations
+    initSqlWebSocket();
   </script>
 </body>
 </html>
@@ -581,6 +784,70 @@ async function dev(opts: DevOptions) {
             break;
           }
 
+          case "applySqlMigration": {
+            // Execute SQL migration against a datatable
+            const { sql, datatable, fileName } = message;
+            log.info(
+              colors.blue(
+                `[SQL Migration] Applying SQL from ${fileName} to datatable: ${datatable}`
+              )
+            );
+
+            if (!datatable) {
+              ws.send(
+                JSON.stringify({
+                  type: "sqlMigrationResult",
+                  error: true,
+                  message:
+                    "No datatable configured. Set data.datatable in raw_app.yaml.",
+                })
+              );
+              break;
+            }
+
+            try {
+              // Run SQL as a preview script against the datatable
+              const uuid = await wmill.runScriptPreview({
+                workspace: workspaceId,
+                requestBody: {
+                  language: "postgresql",
+                  content: sql,
+                  args: { database: `datatable://${datatable}` },
+                },
+              });
+
+              log.info(
+                colors.gray(`[SQL Migration] Job started: ${uuid}`)
+              );
+
+              // Wait for the result
+              const result = await waitForJob(workspaceId, uuid);
+
+              log.info(
+                colors.green(`[SQL Migration] SQL applied successfully`)
+              );
+              ws.send(
+                JSON.stringify({
+                  type: "sqlMigrationResult",
+                  error: false,
+                  result,
+                })
+              );
+            } catch (error: any) {
+              log.error(
+                colors.red(`[SQL Migration] Error: ${error.message}`)
+              );
+              ws.send(
+                JSON.stringify({
+                  type: "sqlMigrationResult",
+                  error: true,
+                  message: error.message || String(error),
+                })
+              );
+            }
+            break;
+          }
+
           default:
             log.warn(
               colors.yellow(`[WebSocket] Unknown message type: ${type}`)
@@ -606,6 +873,118 @@ async function dev(opts: DevOptions) {
       log.error(colors.red(`[WebSocket] Error: ${error.message}`));
     });
   });
+
+  // Watch sql_to_apply folder for SQL migration files
+  const sqlToApplyPath = path.join(process.cwd(), "sql_to_apply");
+  let sqlWatcher: Deno.FsWatcher | undefined;
+
+  // Helper to broadcast SQL migration notification to all WebSocket clients
+  function broadcastSqlMigration(
+    fileName: string,
+    sql: string,
+    datatable: string | undefined
+  ) {
+    const message = JSON.stringify({
+      type: "sqlMigration",
+      fileName,
+      sql,
+      datatable,
+    });
+
+    wss.clients.forEach((client: WebSocket) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+  }
+
+  if (fs.existsSync(sqlToApplyPath)) {
+    log.info(
+      colors.blue(`🗃️  Watching sql_to_apply folder at: ${sqlToApplyPath}\n`)
+    );
+    sqlWatcher = Deno.watchFs(sqlToApplyPath);
+
+    // Debounce timeout for SQL file changes
+    const sqlDebounceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const SQL_DEBOUNCE_MS = 300;
+
+    // Handle SQL file changes in the background
+    (async () => {
+      try {
+        for await (const event of sqlWatcher!) {
+          for (const changedPath of event.paths) {
+            // Only handle .sql files
+            if (!changedPath.endsWith(".sql")) {
+              continue;
+            }
+
+            // Only handle modify and create events
+            if (event.kind !== "modify" && event.kind !== "create") {
+              continue;
+            }
+
+            const fileName = path.basename(changedPath);
+
+            // Debounce per file
+            if (sqlDebounceTimeouts[changedPath]) {
+              clearTimeout(sqlDebounceTimeouts[changedPath]);
+            }
+
+            sqlDebounceTimeouts[changedPath] = setTimeout(async () => {
+              delete sqlDebounceTimeouts[changedPath];
+
+              try {
+                // Read the SQL file content
+                const sqlContent = await Deno.readTextFile(changedPath);
+
+                if (!sqlContent.trim()) {
+                  return; // Ignore empty files
+                }
+
+                // Get the datatable from raw_app.yaml
+                let datatable: string | undefined;
+                try {
+                  const rawApp = (await yamlParseFile(
+                    path.join(process.cwd(), "raw_app.yaml")
+                  )) as any;
+                  datatable = rawApp?.data?.datatable;
+                } catch {
+                  // Ignore errors reading raw_app.yaml
+                }
+
+                log.info(
+                  colors.magenta(
+                    `📋 SQL file changed: ${fileName} (datatable: ${
+                      datatable || "not configured"
+                    })`
+                  )
+                );
+
+                // Broadcast to all connected clients
+                broadcastSqlMigration(fileName, sqlContent, datatable);
+              } catch (error: any) {
+                log.error(
+                  colors.red(`Error reading SQL file: ${error.message}`)
+                );
+              }
+            }, SQL_DEBOUNCE_MS);
+          }
+        }
+      } catch (error: any) {
+        if (error.name !== "Interrupted") {
+          log.error(
+            colors.red(`Error watching sql_to_apply: ${error.message}`)
+          );
+        }
+      }
+    })();
+  } else {
+    log.info(
+      colors.gray(
+        "ℹ️  No sql_to_apply folder found (will not watch for SQL migrations)\n"
+      )
+    );
+  }
 
   server.listen(port, host, () => {
     const url = `http://${host}:${port}`;
@@ -644,6 +1023,11 @@ async function dev(opts: DevOptions) {
     // Close runnables watcher if it exists
     if (runnablesWatcher) {
       runnablesWatcher.close();
+    }
+
+    // Close SQL watcher if it exists
+    if (sqlWatcher) {
+      sqlWatcher.close();
     }
 
     await ctx.dispose();

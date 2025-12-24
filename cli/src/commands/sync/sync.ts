@@ -433,12 +433,55 @@ def main(user_id: str):
     return user
 \`\`\`
 
+## SQL Migrations with sql_to_apply (For AI Agents)
+
+The \`sql_to_apply/\` folder enables AI agents to create and modify database tables during development.
+This folder is **ignored during push** - SQL files here are only applied locally via the dev server.
+
+### How It Works
+
+1. **Create SQL files**: Place \`.sql\` files in the \`sql_to_apply/\` folder
+2. **Run dev server**: Start with \`wmill app dev .\`
+3. **File watcher**: When SQL files are created/modified, a modal appears in the browser
+4. **Confirm execution**: Review the SQL and click "Apply" to execute against the datatable
+5. **Update configuration**: After creating tables, add them to \`data.tables\` in \`raw_app.yaml\`
+
+### Example: Creating a New Table
+
+\`\`\`sql
+-- sql_to_apply/001_create_users.sql
+CREATE TABLE IF NOT EXISTS users (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\`\`\`
+
+After applying, update \`raw_app.yaml\`:
+
+\`\`\`yaml
+data:
+  tables:
+    - main/users    # Add the new table to the whitelist
+  datatable: main   # Required for SQL execution
+\`\`\`
+
+### Important Notes for AI Agents
+
+1. **Always configure datatable**: Set \`data.datatable\` in \`raw_app.yaml\` before creating SQL files
+2. **Whitelist tables after creation**: Any table you create MUST be added to \`data.tables\` to be accessible
+3. **Use idempotent SQL**: Use \`CREATE TABLE IF NOT EXISTS\`, \`CREATE INDEX IF NOT EXISTS\`, etc.
+4. **One migration per file**: Keep migrations focused and numbered (e.g., \`001_\`, \`002_\`)
+5. **Never include in push**: The \`sql_to_apply/\` folder is excluded from sync
+
 ## Best Practices
 
 1. **Check existing tables first**: Before creating new tables, check what's already available
 2. **Use schema prefixes**: When working with non-public schemas, always use the schema prefix (e.g., \`app_data.settings\`)
 3. **Parameterize queries**: Always use parameterized queries to prevent SQL injection
 4. **Reuse existing tables**: If a suitable table exists, use it rather than creating duplicates
+5. **Keep data.tables updated**: Always add any tables you use to the \`data.tables\` whitelist in \`raw_app.yaml\`
 
 ## Modifying the Data Configuration
 

@@ -216,12 +216,13 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory) {
-        // Skip the runnables and node_modules subfolders
+        // Skip the runnables, node_modules, and sql_to_apply subfolders
         if (
           entry.name === APP_BACKEND_FOLDER ||
           entry.name === "node_modules" ||
           entry.name === "dist" ||
-          entry.name === ".claude"
+          entry.name === ".claude" ||
+          entry.name === "sql_to_apply"
         ) {
           continue;
         }
