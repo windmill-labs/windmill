@@ -297,6 +297,158 @@ export function extractFieldsForRawApps(runnables: Record<string, any>) {
     }
   });
 }
+
+/**
+ * Generates DATATABLES.md documentation content for AI agents working with raw apps.
+ * This documentation explains how to use the listDataTableSchemas endpoint for context
+ * and clarifies that datatables must be listed in data.tables of raw_app.yaml to be used.
+ */
+function generateDatatablesDocumentation(data: {
+  tables?: string[];
+  datatable?: string;
+  schema?: string;
+} | undefined): string {
+  const tables = data?.tables ?? [];
+  const defaultDatatable = data?.datatable;
+  const defaultSchema = data?.schema;
+
+  return `# Data Tables Documentation for AI Agents
+
+This documentation provides context about data tables available to this raw app.
+It is automatically generated during sync and should be used for understanding the data layer.
+
+## How Data Tables Work
+
+Data tables provide managed PostgreSQL databases integrated with Windmill apps.
+To get schema information about available tables, use the \`listDataTableSchemas\` endpoint.
+
+### Getting Table Schemas
+
+Use the Windmill API endpoint \`GET /api/w/{workspace}/workspaces/list_datatable_schemas\` to retrieve
+all datatable schemas for the workspace. The response contains:
+
+\`\`\`typescript
+interface DataTableSchema {
+  datatable_name: string;
+  // Hierarchical structure: schema_name -> table_name -> column_name -> compact_type
+  // Compact type format: "type[?][=default]" where ? means nullable
+  // Examples: "int4", "text?", "int4?=0", "timestamp=now()"
+  schemas: {
+    [schema_name: string]: {
+      [table_name: string]: {
+        [column_name: string]: string;
+      };
+    };
+  };
+  error?: string;
+}
+\`\`\`
+
+### IMPORTANT: Whitelisted Tables
+
+**To use a datatable in this app, it MUST be listed in the \`data.tables\` section of \`raw_app.yaml\`.**
+
+The \`listDataTableSchemas\` endpoint provides context about available tables, but the app will only
+have access to tables explicitly whitelisted in the configuration.
+
+#### Current Configuration
+
+${tables.length > 0
+  ? `This app has access to the following tables:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
+  : `No tables are currently whitelisted. Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
+
+${defaultDatatable
+  ? `\n**Default datatable for table creation:** \`${defaultDatatable}\`${defaultSchema ? `\n**Default schema:** \`${defaultSchema}\`` : ''}`
+  : ''}
+
+### Table Reference Format
+
+Tables are referenced in \`data.tables\` using the following formats:
+- \`<datatable_name>\` - All tables in the datatable
+- \`<datatable_name>/<table>\` - Specific table in public schema
+- \`<datatable_name>/<schema>:<table>\` - Specific table in a specific schema
+
+### Example raw_app.yaml Configuration
+
+\`\`\`yaml
+data:
+  tables:
+    - main/users                    # users table in public schema of 'main' datatable
+    - main/app_data:settings        # settings table in app_data schema
+    - analytics                     # all tables in 'analytics' datatable
+  datatable: main                   # default datatable for new table creation
+  schema: public                    # default schema for new table creation
+\`\`\`
+
+## Using Data Tables in Backend Runnables
+
+### TypeScript (Bun)
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  // Use the default 'main' datatable
+  let sql = wmill.datatable();
+  // Or specify a named datatable: wmill.datatable('analytics')
+
+  // Safe parameterized queries using template literals
+  let user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+
+  // Fetch multiple rows
+  let allUsers = await sql\`SELECT * FROM users\`.fetch();
+
+  // Insert data
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
+
+  // Update data
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+
+  return user;
+}
+\`\`\`
+
+### Python
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    # Use the default 'main' datatable
+    db = wmill.datatable()
+    # Or specify a named datatable: wmill.datatable('analytics')
+
+    # Use positional arguments ($1, $2, etc.)
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+
+    # Fetch multiple rows
+    all_users = db.query('SELECT * FROM users').fetch()
+
+    # Insert data
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
+
+    # Update data
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+
+    return user
+\`\`\`
+
+## Best Practices
+
+1. **Check existing tables first**: Before creating new tables, check what's already available
+2. **Use schema prefixes**: When working with non-public schemas, always use the schema prefix (e.g., \`app_data.settings\`)
+3. **Parameterize queries**: Always use parameterized queries to prevent SQL injection
+4. **Reuse existing tables**: If a suitable table exists, use it rather than creating duplicates
+
+## Modifying the Data Configuration
+
+To add or remove table access, edit the \`data.tables\` array in \`raw_app.yaml\`.
+The changes will take effect after syncing with the remote workspace.
+
+---
+*This file is auto-generated during sync. Do not edit manually.*
+`;
+}
 export function extractInlineScriptsForApps(
   key: string | undefined,
   rec: any,
@@ -636,6 +788,17 @@ function ZipFSElement(
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(rawApp, yamlOptions);
+              },
+            };
+
+            // Yield DATATABLES.md documentation file for AI agents
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "DATATABLES.md"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return generateDatatablesDocumentation(data);
               },
             };
           }
