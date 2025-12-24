@@ -363,7 +363,7 @@
 
 {#if templatePicker}
 	<Modal kind="X" open title="New App setup">
-		<div class="flex flex-col gap-6 min-w-[500px]">
+		<div class="flex flex-col gap-6 min-w-sm">
 			<!-- Summary -->
 			<div>
 				<h2 class="text-sm font-medium text-primary mb-2">Summary</h2>
