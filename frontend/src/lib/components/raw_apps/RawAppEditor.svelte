@@ -3,7 +3,7 @@
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
-	import { type Policy } from '$lib/gen'
+	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { encodeState } from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
@@ -18,10 +18,9 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
-	import type { LintResult, DataTableInfo, DataTableTableSchema } from '../copilot/chat/app/core'
+	import type { LintResult, DataTableSchema } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
-	import { dbSchemas, type DBSchema } from '$lib/stores'
-	import { getDbSchemas } from '../apps/components/display/dbtable/metadata'
+	import { dbSchemas } from '$lib/stores'
 	import { runScriptAndPollResult } from '../jobs/utils'
 	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
 	import { sendUserToast } from '$lib/utils'
@@ -419,65 +418,74 @@
 				console.log('reverting to snapshot', id)
 				handleHistorySelect(id)
 			},
-			getDatatables: async (): Promise<DataTableInfo[]> => {
-				const results: DataTableInfo[] = []
+			getDatatables: async (): Promise<DataTableSchema[]> => {
+				if (!$workspaceStore) {
+					return []
+				}
 
-				// Get unique datatable names from dataTableRefs
-				const datatableNames = [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+				// Get all datatable schemas from the backend
+				const allSchemas = await WorkspaceService.listDataTableSchemas({
+					workspace: $workspaceStore
+				})
 
-				for (const datatableName of datatableNames) {
-					const resourcePath = `datatable://${datatableName}`
+				// Get unique datatable names from dataTableRefs (the whitelisted tables)
+				const whitelistedDatatables = new Set(dataTableRefsObjects.map((ref) => ref.datatable))
 
-					// Get or load the schema
-					let schema: DBSchema | undefined = $dbSchemas[resourcePath]
-					if (!schema) {
-						try {
-							await getDbSchemas('postgresql', resourcePath, $workspaceStore, $dbSchemas, (msg) =>
-								console.error('Schema error:', msg)
-							)
-							schema = $dbSchemas[resourcePath]
-						} catch (e) {
-							console.error(`Failed to load schema for ${datatableName}:`, e)
-							continue
-						}
+				// Build a map of whitelisted tables per datatable: datatable -> schema -> Set<table>
+				const whitelistedTables = new Map<string, Map<string, Set<string>>>()
+				for (const ref of dataTableRefsObjects) {
+					if (!ref.table) continue
+					if (!whitelistedTables.has(ref.datatable)) {
+						whitelistedTables.set(ref.datatable, new Map())
+					}
+					const schemaKey = ref.schema || 'public'
+					const schemaMap = whitelistedTables.get(ref.datatable)!
+					if (!schemaMap.has(schemaKey)) {
+						schemaMap.set(schemaKey, new Set())
+					}
+					schemaMap.get(schemaKey)!.add(ref.table)
+				}
+
+				// Filter schemas to only include whitelisted datatables and tables
+				const results: DataTableSchema[] = []
+				for (const schema of allSchemas) {
+					if (!whitelistedDatatables.has(schema.datatable_name)) {
+						continue
 					}
 
-					if (!schema?.schema) continue
+					const allowedTables = whitelistedTables.get(schema.datatable_name)
+					if (!allowedTables) {
+						// Include the datatable but with empty schemas
+						results.push({
+							datatable_name: schema.datatable_name,
+							schemas: {},
+							error: schema.error
+						})
+						continue
+					}
 
-					// Get the tables for this datatable from the refs
-					const refsForDatatable = dataTableRefsObjects.filter(
-						(ref) => ref.datatable === datatableName
-					)
+					// Filter schemas to only include whitelisted tables
+					const filteredSchemas: Record<string, Record<string, Record<string, string>>> = {}
+					for (const [schemaName, tables] of Object.entries(schema.schemas)) {
+						const allowedTablesInSchema = allowedTables.get(schemaName)
+						if (!allowedTablesInSchema) continue
 
-					const tables: DataTableTableSchema[] = []
-
-					for (const ref of refsForDatatable) {
-						const schemaKey = ref.schema || 'public'
-						const tableKey = ref.table
-
-						if (!tableKey) continue // Skip if no table specified
-
-						const tableSchema = schema.schema[schemaKey]?.[tableKey]
-						if (!tableSchema) continue
-
-						const columns: Record<string, { type: string; required: boolean }> = {}
-						for (const [colName, colDef] of Object.entries(tableSchema)) {
-							columns[colName] = {
-								type: (colDef as any).type || 'unknown',
-								required: (colDef as any).required || false
+						const filteredTables: Record<string, Record<string, string>> = {}
+						for (const [tableName, columns] of Object.entries(tables)) {
+							if (allowedTablesInSchema.has(tableName)) {
+								filteredTables[tableName] = columns
 							}
 						}
 
-						tables.push({
-							schema: schemaKey,
-							table: tableKey,
-							columns
-						})
+						if (Object.keys(filteredTables).length > 0) {
+							filteredSchemas[schemaName] = filteredTables
+						}
 					}
 
 					results.push({
-						name: datatableName,
-						tables
+						datatable_name: schema.datatable_name,
+						schemas: filteredSchemas,
+						error: schema.error
 					})
 				}
 
