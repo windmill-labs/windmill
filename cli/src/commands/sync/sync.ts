@@ -303,7 +303,7 @@ export function extractFieldsForRawApps(runnables: Record<string, any>) {
  * This documentation explains how to use the listDataTableSchemas endpoint for context
  * and clarifies that datatables must be listed in data.tables of raw_app.yaml to be used.
  */
-function generateDatatablesDocumentation(data: {
+export function generateDatatablesDocumentation(data: {
   tables?: string[];
   datatable?: string;
   schema?: string;
