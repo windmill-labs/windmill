@@ -1,13 +1,13 @@
 // deno-lint-ignore-file no-explicit-any
 import {
-  Command,
   colors,
-  log,
+  Command,
   getPort,
+  log,
   open,
+  SEP,
   windmillUtils,
   yamlParseFile,
-  SEP,
 } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import * as http from "node:http";
@@ -16,12 +16,12 @@ import * as path from "node:path";
 import process from "node:process";
 import { Buffer } from "node:buffer";
 import { writeFileSync } from "node:fs";
-import { WebSocketServer, WebSocket } from "npm:ws";
+import { WebSocket, WebSocketServer } from "npm:ws";
 import {
-  getDevBuildOptions,
-  ensureNodeModules,
   createFrameworkPlugins,
   detectFrameworks,
+  ensureNodeModules,
+  getDevBuildOptions,
 } from "./bundle.ts";
 import { wmillTsDev as wmillTs } from "./wmillTsDev.ts";
 import * as wmill from "../../../gen/services.gen.ts";
@@ -313,8 +313,8 @@ async function dev(opts: DevOptions) {
       colors.red(
         `Error: The dev command must be run inside a .raw_app folder.\n` +
           `Current directory: ${currentDirName}\n` +
-          `Please navigate to a folder ending with '.raw_app' before running this command.`
-      )
+          `Please navigate to a folder ending with '.raw_app' before running this command.`,
+      ),
     );
     Deno.exit(1);
   }
@@ -325,8 +325,8 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`
-      )
+          `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`,
+      ),
     );
     Deno.exit(1);
   }
@@ -343,8 +343,7 @@ async function dev(opts: DevOptions) {
   // Dynamically import esbuild only when the dev command is called
   const esbuild = await import("npm:esbuild@0.24.2");
 
-  const port =
-    opts.port ??
+  const port = opts.port ??
     (await getPort.default({
       port: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((p) => p + DEFAULT_PORT),
     }));
@@ -353,16 +352,17 @@ async function dev(opts: DevOptions) {
 
   // Detect frameworks to determine default entry point
   const frameworks = detectFrameworks(process.cwd());
-  const defaultEntry =
-    frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+  const defaultEntry = frameworks.svelte || frameworks.vue
+    ? "index.ts"
+    : "index.tsx";
   const entryPoint = opts.entry ?? defaultEntry;
 
   // Verify entry point exists
   if (!fs.existsSync(entryPoint)) {
     log.error(
       colors.red(
-        `Entry point "${entryPoint}" not found. Please specify a valid entry point with --entry.`
-      )
+        `Entry point "${entryPoint}" not found. Please specify a valid entry point with --entry.`,
+      ),
     );
     Deno.exit(1);
   }
@@ -413,7 +413,7 @@ async function dev(opts: DevOptions) {
             path: args.path,
             namespace: "wmill-virtual",
           };
-        }
+        },
       );
 
       // Provide the virtual module content
@@ -422,14 +422,14 @@ async function dev(opts: DevOptions) {
         (args: any) => {
           log.info(
             colors.yellow(
-              `[wmill-virtual] Loading virtual module: ${args.path}`
-            )
+              `[wmill-virtual] Loading virtual module: ${args.path}`,
+            ),
           );
           return {
             contents: wmillTs(port),
             loader: "ts",
           };
-        }
+        },
       );
     },
   };
@@ -445,7 +445,7 @@ async function dev(opts: DevOptions) {
           build.onEnd((result: any) => {
             if (result.errors.length === 0) {
               log.info(
-                colors.green("✅ Build succeeded, notifying clients...")
+                colors.green("✅ Build succeeded, notifying clients..."),
               );
               notifyClients();
             } else {
@@ -474,7 +474,7 @@ async function dev(opts: DevOptions) {
 
   if (fs.existsSync(runnablesPath)) {
     log.info(
-      colors.blue(`👁️  Watching runnables folder at: ${runnablesPath}\n`)
+      colors.blue(`👁️  Watching runnables folder at: ${runnablesPath}\n`),
     );
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
@@ -491,7 +491,7 @@ async function dev(opts: DevOptions) {
             const relativePath = path.relative(process.cwd(), changedPath);
             const relativeToRunnables = path.relative(
               runnablesPath,
-              changedPath
+              changedPath,
             );
 
             // Skip non-modify events for schema inference
@@ -507,8 +507,8 @@ async function dev(opts: DevOptions) {
             // Log the change event
             log.info(
               colors.cyan(
-                `📝 Runnable changed [${event.kind}]: ${relativePath}`
-              )
+                `📝 Runnable changed [${event.kind}]: ${relativePath}`,
+              ),
             );
 
             // Debounce schema inference per file (wait for typing to finish)
@@ -521,12 +521,14 @@ async function dev(opts: DevOptions) {
 
               try {
                 log.info(
-                  colors.cyan(`📝 Inferring schema for: ${relativeToRunnables}`)
+                  colors.cyan(
+                    `📝 Inferring schema for: ${relativeToRunnables}`,
+                  ),
                 );
                 // Infer schema for this runnable (returns schema in memory, doesn't write to file)
                 const result = await inferRunnableSchemaFromFile(
                   process.cwd(),
-                  relativeToRunnables
+                  relativeToRunnables,
                 );
                 if (result) {
                   // log.info(colors.green(`  Schema: ${JSON.stringify(result.schema, null, 2)}`));
@@ -535,19 +537,21 @@ async function dev(opts: DevOptions) {
                   inferredSchemas[result.runnableId] = result.schema;
                   log.info(
                     colors.green(
-                      `  Inferred Schemas: ${JSON.stringify(
-                        inferredSchemas,
-                        null,
-                        2
-                      )}`
-                    )
+                      `  Inferred Schemas: ${
+                        JSON.stringify(
+                          inferredSchemas,
+                          null,
+                          2,
+                        )
+                      }`,
+                    ),
                   );
                   // Regenerate wmill.d.ts with updated schema from memory
                   await genRunnablesTs(inferredSchemas);
                 }
               } catch (error: any) {
                 log.error(
-                  colors.red(`Error inferring schema: ${error.message}`)
+                  colors.red(`Error inferring schema: ${error.message}`),
                 );
               }
             }, SCHEMA_DEBOUNCE_MS);
@@ -562,8 +566,8 @@ async function dev(opts: DevOptions) {
   } else {
     log.info(
       colors.gray(
-        "ℹ️  No runnables folder found (will not watch for runnable changes)\n"
-      )
+        "ℹ️  No runnables folder found (will not watch for runnable changes)\n",
+      ),
     );
   }
 
@@ -656,7 +660,7 @@ async function dev(opts: DevOptions) {
   async function getDatatableConfig(): Promise<string | undefined> {
     try {
       const rawApp = (await yamlParseFile(
-        path.join(process.cwd(), "raw_app.yaml")
+        path.join(process.cwd(), "raw_app.yaml"),
       )) as any;
       return rawApp?.data?.datatable;
     } catch {
@@ -668,7 +672,7 @@ async function dev(opts: DevOptions) {
   function broadcastSqlMigration(
     fileName: string,
     sql: string,
-    datatable: string | undefined
+    datatable: string | undefined,
   ) {
     const message = JSON.stringify({
       type: "sqlMigration",
@@ -710,7 +714,9 @@ async function dev(opts: DevOptions) {
 
     // Check if file still exists (might have been deleted)
     if (!fs.existsSync(filePath)) {
-      log.info(colors.gray(`File no longer exists: ${path.basename(filePath)}`));
+      log.info(
+        colors.gray(`File no longer exists: ${path.basename(filePath)}`),
+      );
       // Try next file
       await processNextSqlFile();
       return;
@@ -733,8 +739,10 @@ async function dev(opts: DevOptions) {
 
       log.info(
         colors.magenta(
-          `📋 SQL file ready: ${fileName} (datatable: ${datatable || "not configured"}) [${sqlFileQueue.length} more in queue]`
-        )
+          `📋 SQL file ready: ${fileName} (datatable: ${
+            datatable || "not configured"
+          }) [${sqlFileQueue.length} more in queue]`,
+        ),
       );
 
       broadcastSqlMigration(fileName, sqlContent, datatable);
@@ -746,13 +754,20 @@ async function dev(opts: DevOptions) {
   }
 
   // Helper to handle SQL file completion (success or skip)
-  async function onSqlFileCompleted(filePath: string, deleteFile: boolean): Promise<void> {
+  async function onSqlFileCompleted(
+    filePath: string,
+    deleteFile: boolean,
+  ): Promise<void> {
     if (deleteFile && fs.existsSync(filePath)) {
       try {
         fs.unlinkSync(filePath);
         log.info(colors.green(`✓ Deleted: ${path.basename(filePath)}`));
       } catch (error: any) {
-        log.error(colors.red(`Failed to delete ${path.basename(filePath)}: ${error.message}`));
+        log.error(
+          colors.red(
+            `Failed to delete ${path.basename(filePath)}: ${error.message}`,
+          ),
+        );
       }
     }
 
@@ -777,14 +792,18 @@ async function dev(opts: DevOptions) {
           sql: sqlContent,
           datatable,
         }));
-        log.info(colors.magenta(`📋 Sent pending SQL file to new client: ${fileName}`));
+        log.info(
+          colors.magenta(`📋 Sent pending SQL file to new client: ${fileName}`),
+        );
       } catch {
         // File might have been deleted, ignore
       }
     } else if (fs.existsSync(sqlToApplyPath)) {
       // No current file, but check if there are files to process
       const entries = fs.readdirSync(sqlToApplyPath);
-      const sqlFiles = entries.filter((entry: string) => entry.endsWith(".sql"));
+      const sqlFiles = entries.filter((entry: string) =>
+        entry.endsWith(".sql")
+      );
 
       if (sqlFiles.length > 0 && sqlFileQueue.length === 0) {
         // Queue and process files
@@ -799,7 +818,7 @@ async function dev(opts: DevOptions) {
       try {
         const message = JSON.parse(data.toString());
         log.info(
-          colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`)
+          colors.cyan(`[WebSocket] Received: ${JSON.stringify(message)}`),
         );
 
         const { type, reqId, runnable_id, v, jobId } = message;
@@ -812,7 +831,7 @@ async function dev(opts: DevOptions) {
         // Helper to execute and wait for result
         const runAndWaitForResult = async (
           runnableId: string,
-          args: any
+          args: any,
         ): Promise<{ uuid: string; result: any }> => {
           const runnables = await loadRunnables();
           const runnable = runnables[runnableId];
@@ -826,7 +845,7 @@ async function dev(opts: DevOptions) {
             workspaceId,
             appPath,
             runnableId,
-            args
+            args,
           );
           log.info(colors.gray(`[backend] Job started: ${uuid}`));
 
@@ -846,7 +865,7 @@ async function dev(opts: DevOptions) {
               respond(
                 "backendRes",
                 { message: error.message, stack: error.stack },
-                true
+                true,
               );
             }
             break;
@@ -856,8 +875,8 @@ async function dev(opts: DevOptions) {
             // Run a runnable asynchronously and return job ID immediately
             log.info(
               colors.blue(
-                `[backendAsync] Running runnable async: ${runnable_id}`
-              )
+                `[backendAsync] Running runnable async: ${runnable_id}`,
+              ),
             );
             try {
               const runnables = await loadRunnables();
@@ -872,7 +891,7 @@ async function dev(opts: DevOptions) {
                 workspaceId,
                 appPath,
                 runnable_id,
-                v
+                v,
               );
               log.info(colors.gray(`[backendAsync] Job started: ${uuid}`));
 
@@ -888,7 +907,7 @@ async function dev(opts: DevOptions) {
                   respond(
                     "backendRes",
                     { message: error.message, stack: error.stack },
-                    true
+                    true,
                   );
                 });
             } catch (error: any) {
@@ -896,7 +915,7 @@ async function dev(opts: DevOptions) {
               respond(
                 "backendAsyncRes",
                 { message: error.message, stack: error.stack },
-                true
+                true,
               );
             }
             break;
@@ -913,7 +932,7 @@ async function dev(opts: DevOptions) {
               respond(
                 "backendRes",
                 { message: error.message, stack: error.stack },
-                true
+                true,
               );
             }
             break;
@@ -930,7 +949,7 @@ async function dev(opts: DevOptions) {
               respond(
                 "backendRes",
                 { message: error.message, stack: error.stack },
-                true
+                true,
               );
             }
             break;
@@ -941,8 +960,8 @@ async function dev(opts: DevOptions) {
             const { sql, datatable, fileName } = message;
             log.info(
               colors.blue(
-                `[SQL Migration] Applying SQL from ${fileName} to datatable: ${datatable}`
-              )
+                `[SQL Migration] Applying SQL from ${fileName} to datatable: ${datatable}`,
+              ),
             );
 
             if (!datatable) {
@@ -952,7 +971,7 @@ async function dev(opts: DevOptions) {
                   error: true,
                   message:
                     "No datatable configured. Set data.datatable in raw_app.yaml.",
-                })
+                }),
               );
               break;
             }
@@ -969,21 +988,21 @@ async function dev(opts: DevOptions) {
               });
 
               log.info(
-                colors.gray(`[SQL Migration] Job started: ${uuid}`)
+                colors.gray(`[SQL Migration] Job started: ${uuid}`),
               );
 
               // Wait for the result
               const result = await waitForJob(workspaceId, uuid);
 
               log.info(
-                colors.green(`[SQL Migration] SQL applied successfully`)
+                colors.green(`[SQL Migration] SQL applied successfully`),
               );
               ws.send(
                 JSON.stringify({
                   type: "sqlMigrationResult",
                   error: false,
                   result,
-                })
+                }),
               );
 
               // Delete the SQL file and process next in queue
@@ -995,23 +1014,27 @@ async function dev(opts: DevOptions) {
               try {
                 await regenerateAgentDocs(workspaceId, process.cwd(), true);
                 log.info(
-                  colors.gray(`[SQL Migration] Refreshed AGENTS.md and DATATABLES.md`)
+                  colors.gray(
+                    `[SQL Migration] Refreshed AGENTS.md and DATATABLES.md`,
+                  ),
                 );
               } catch (regenError: any) {
                 log.warn(
-                  colors.yellow(`[SQL Migration] Could not refresh docs: ${regenError.message}`)
+                  colors.yellow(
+                    `[SQL Migration] Could not refresh docs: ${regenError.message}`,
+                  ),
                 );
               }
             } catch (error: any) {
               log.error(
-                colors.red(`[SQL Migration] Error: ${error.message}`)
+                colors.red(`[SQL Migration] Error: ${error.message}`),
               );
               ws.send(
                 JSON.stringify({
                   type: "sqlMigrationResult",
                   error: true,
                   message: error.message || String(error),
-                })
+                }),
               );
               // Don't delete file on error, but clear current so user can retry
               currentSqlFile = null;
@@ -1023,7 +1046,7 @@ async function dev(opts: DevOptions) {
             // User chose to skip this SQL file
             const { fileName } = message;
             log.info(
-              colors.yellow(`[SQL Migration] Skipped: ${fileName}`)
+              colors.yellow(`[SQL Migration] Skipped: ${fileName}`),
             );
 
             // Don't delete file, just move to next
@@ -1035,17 +1058,17 @@ async function dev(opts: DevOptions) {
 
           default:
             log.warn(
-              colors.yellow(`[WebSocket] Unknown message type: ${type}`)
+              colors.yellow(`[WebSocket] Unknown message type: ${type}`),
             );
             respond(
               "error",
               { message: `Unknown message type: ${type}` },
-              true
+              true,
             );
         }
       } catch (error: any) {
         log.error(
-          colors.red(`[WebSocket] Failed to parse message: ${error.message}`)
+          colors.red(`[WebSocket] Failed to parse message: ${error.message}`),
         );
       }
     });
@@ -1080,8 +1103,8 @@ async function dev(opts: DevOptions) {
 
       log.info(
         colors.blue(
-          `🔍 Found ${sqlFiles.length} SQL file(s) in sql_to_apply/`
-        )
+          `🔍 Found ${sqlFiles.length} SQL file(s) in sql_to_apply/`,
+        ),
       );
 
       // Add each SQL file to the queue
@@ -1094,14 +1117,14 @@ async function dev(opts: DevOptions) {
       await processNextSqlFile();
     } catch (error: any) {
       log.error(
-        colors.red(`Error scanning sql_to_apply folder: ${error.message}`)
+        colors.red(`Error scanning sql_to_apply folder: ${error.message}`),
       );
     }
   }
 
   if (fs.existsSync(sqlToApplyPath)) {
     log.info(
-      colors.blue(`🗃️  Watching sql_to_apply folder at: ${sqlToApplyPath}\n`)
+      colors.blue(`🗃️  Watching sql_to_apply folder at: ${sqlToApplyPath}\n`),
     );
     sqlWatcher = Deno.watchFs(sqlToApplyPath);
 
@@ -1145,7 +1168,7 @@ async function dev(opts: DevOptions) {
       } catch (error: any) {
         if (error.name !== "Interrupted") {
           log.error(
-            colors.red(`Error watching sql_to_apply: ${error.message}`)
+            colors.red(`Error watching sql_to_apply: ${error.message}`),
           );
         }
       }
@@ -1158,8 +1181,8 @@ async function dev(opts: DevOptions) {
   } else {
     log.info(
       colors.gray(
-        "ℹ️  No sql_to_apply folder found (will not watch for SQL migrations)\n"
-      )
+        "ℹ️  No sql_to_apply folder found (will not watch for SQL migrations)\n",
+      ),
     );
   }
 
@@ -1167,7 +1190,7 @@ async function dev(opts: DevOptions) {
     const url = `http://${host}:${port}`;
     log.info(colors.bold.green(`🚀 Dev server running at ${url}`));
     log.info(
-      colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`)
+      colors.cyan(`🔌 WebSocket server running at ws://${host}:${port}`),
     );
     log.info(colors.gray(`📦 Serving files from: ${process.cwd()}`));
     log.info(colors.gray(`🔄 Live reload enabled\n`));
@@ -1180,8 +1203,8 @@ async function dev(opts: DevOptions) {
           .catch((error: any) => {
             log.error(
               colors.yellow(
-                `Failed to open browser automatically: ${error.message}`
-              )
+                `Failed to open browser automatically: ${error.message}`,
+              ),
             );
           });
         log.info(colors.gray("Opened browser for you"));
@@ -1214,18 +1237,18 @@ async function dev(opts: DevOptions) {
 
 const command = new Command()
   .description(
-    "Start a development server for building apps with live reload and hot module replacement"
+    "Start a development server for building apps with live reload and hot module replacement",
   )
   .option(
     "--port <port:number>",
-    "Port to run the dev server on (will find next available port if occupied)"
+    "Port to run the dev server on (will find next available port if occupied)",
   )
   .option("--host <host:string>", "Host to bind the dev server to", {
     default: DEFAULT_HOST,
   })
   .option(
     "--entry <entry:string>",
-    "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)"
+    "Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)",
   )
   .option("--no-open", "Don't automatically open the browser")
   .action(dev as any);
@@ -1253,7 +1276,7 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
     // Fall back to old format
     try {
       const rawApp = (await yamlParseFile(
-        path.join(localPath, "raw_app.yaml")
+        path.join(localPath, "raw_app.yaml"),
       )) as any;
       runnables = rawApp?.["runnables"] ?? {};
     } catch {
@@ -1290,7 +1313,7 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     if (Object.keys(runnables).length === 0) {
       // Fall back to old format
       const rawApp = (await yamlParseFile(
-        path.join(localPath, "raw_app.yaml")
+        path.join(localPath, "raw_app.yaml"),
       )) as any;
       runnables = rawApp?.runnables ?? {};
     }
@@ -1309,11 +1332,11 @@ async function executeRunnable(
   workspace: string,
   appPath: string,
   runnableId: string,
-  args: any
+  args: any,
 ): Promise<string> {
   const requestBody: any = {
     component: runnableId,
-    args,
+    args: args ?? {},
     force_viewer_static_fields: {},
     force_viewer_one_of_fields: {},
     force_viewer_allow_user_resources: [],
@@ -1349,10 +1372,9 @@ async function executeRunnable(
   } else if (runnable.type === "path" && runnable.runType && runnable.path) {
     // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
     const prefix = runnable.runType;
-    requestBody.path =
-      prefix !== "hubscript"
-        ? `${prefix}/${runnable.path}`
-        : `script/${runnable.path}`;
+    requestBody.path = prefix !== "hubscript"
+      ? `${prefix}/${runnable.path}`
+      : `script/${runnable.path}`;
   }
 
   const uuid = await wmill.executeComponent({

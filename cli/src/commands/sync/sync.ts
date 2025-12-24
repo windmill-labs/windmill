@@ -329,9 +329,9 @@ my_app.raw_app/
 ├── package.json           # Frontend dependencies
 ├── wmill.ts               # Auto-generated - backend type definitions (DO NOT EDIT)
 ├── backend/               # Backend runnables (server-side scripts)
-│   ├── <id>.<ext>         # Runnable code (e.g., get_user.ts, fetch_data.py)
-│   ├── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
-│   └── <id>.yaml          # Optional: reference existing scripts instead of inline code
+│   ├── <id>.<ext>         # Code file (e.g., get_user.ts) - auto-detected as inline
+│   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
+│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
 └── sql_to_apply/          # SQL migrations (dev only, not synced)
     └── *.sql              # SQL files to apply via dev server
 \`\`\`
@@ -342,13 +342,15 @@ Backend runnables are server-side scripts that your frontend can call. They live
 
 ### Creating a Backend Runnable
 
-To create a runnable, simply add a code file in the \`backend/\` folder:
+The simplest way to create a runnable is to add a code file:
 
 \`\`\`
 backend/<id>.<ext>
 \`\`\`
 
-The runnable ID is the filename without the extension. For example, \`get_user.ts\` creates a runnable with ID \`get_user\`.
+The runnable ID is the filename without extension. For example, \`get_user.ts\` creates a runnable with ID \`get_user\`.
+
+**Optional:** Add a \`<id>.yaml\` file for additional configuration (fields, static values, etc.).
 
 ### Supported Languages and Extensions
 
@@ -385,26 +387,40 @@ export async function main(user_id: string) {
 }
 \`\`\`
 
-That's it! The runnable is ready to use.
+That's it! The runnable is automatically detected and ready to use.
 
-### Generating Lock Files
-
-After creating runnables, generate lock files for dependency management:
-
+**Generate lock files** for dependency management:
 \`\`\`bash
 wmill app generate-locks
 \`\`\`
 
-This creates \`<id>.lock\` files that ensure consistent dependency versions.
+### Optional: YAML Configuration
 
-### Referencing Existing Scripts (Optional)
+Add a \`<id>.yaml\` file to configure fields, static values, or other settings:
 
-To reference an existing Windmill script instead of inline code, create a \`<id>.yaml\` file:
+**backend/get_user.yaml:**
+\`\`\`yaml
+type: inline
+fields:
+  user_id:
+    type: static
+    value: "default_user"
+\`\`\`
+
+### Referencing Existing Scripts
+
+To reference an existing Windmill script instead of inline code, use a different type:
 
 **backend/existing_script.yaml:**
 \`\`\`yaml
 type: script
 path: f/my_folder/existing_script
+\`\`\`
+
+For flows:
+\`\`\`yaml
+type: flow
+path: f/my_folder/my_flow
 \`\`\`
 
 ### Calling Backend Runnables from Frontend
