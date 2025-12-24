@@ -240,7 +240,14 @@ const createHTML = (jsPath: string, cssPath: string) => `
       document.getElementById('sql-modal-overlay').classList.add('visible');
     }
 
-    function closeSqlModal() {
+    function closeSqlModal(skip = true) {
+      if (skip && pendingSqlMigration && sqlWebSocket) {
+        // Notify server that user skipped this file
+        sqlWebSocket.send(JSON.stringify({
+          type: 'skipSqlMigration',
+          fileName: pendingSqlMigration.fileName
+        }));
+      }
       document.getElementById('sql-modal-overlay').classList.remove('visible');
       pendingSqlMigration = null;
     }
@@ -264,15 +271,14 @@ const createHTML = (jsPath: string, cssPath: string) => `
       if (data.error) {
         resultDiv.className = 'sql-result error';
         resultDiv.innerHTML = '<strong>Error:</strong> ' + escapeHtml(data.message);
+        document.getElementById('apply-sql-btn').disabled = false;
+        document.getElementById('apply-sql-btn').textContent = 'Apply SQL';
       } else {
         resultDiv.className = 'sql-result success';
-        resultDiv.innerHTML = '<strong>Success!</strong> SQL applied successfully.' +
-          (data.result ? '<pre>' + escapeHtml(JSON.stringify(data.result, null, 2)) + '</pre>' : '');
-        // Auto-close after success
-        setTimeout(closeSqlModal, 2000);
+        resultDiv.innerHTML = '<strong>Success!</strong> SQL applied and file deleted.';
+        // Auto-close after success (don't send skip since server already handled it)
+        setTimeout(() => closeSqlModal(false), 1500);
       }
-      document.getElementById('apply-sql-btn').disabled = false;
-      document.getElementById('apply-sql-btn').textContent = 'Apply SQL';
     }
 
     function escapeHtml(text) {
@@ -641,8 +647,153 @@ async function dev(opts: DevOptions) {
   // Create WebSocket server on the same HTTP server
   const wss = new WebSocketServer({ server });
 
-  wss.on("connection", (ws: WebSocket) => {
+  // SQL migration state (defined here so it's accessible in WebSocket handler)
+  const sqlToApplyPath = path.join(process.cwd(), "sql_to_apply");
+  const sqlFileQueue: string[] = [];
+  let currentSqlFile: string | null = null;
+
+  // Helper to read datatable from raw_app.yaml
+  async function getDatatableConfig(): Promise<string | undefined> {
+    try {
+      const rawApp = (await yamlParseFile(
+        path.join(process.cwd(), "raw_app.yaml")
+      )) as any;
+      return rawApp?.data?.datatable;
+    } catch {
+      return undefined;
+    }
+  }
+
+  // Helper to broadcast SQL migration notification to all WebSocket clients
+  function broadcastSqlMigration(
+    fileName: string,
+    sql: string,
+    datatable: string | undefined
+  ) {
+    const message = JSON.stringify({
+      type: "sqlMigration",
+      fileName,
+      sql,
+      datatable,
+    });
+
+    wss.clients.forEach((client: WebSocket) => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(message);
+      }
+    });
+  }
+
+  // Helper to add a SQL file to the queue (if not already queued)
+  function queueSqlFile(filePath: string): void {
+    if (currentSqlFile === filePath) {
+      return; // Already being shown
+    }
+    if (sqlFileQueue.includes(filePath)) {
+      return; // Already in queue
+    }
+    sqlFileQueue.push(filePath);
+  }
+
+  // Helper to process the next SQL file in the queue
+  async function processNextSqlFile(): Promise<void> {
+    if (currentSqlFile !== null) {
+      // Already showing a file, wait for it to be processed
+      return;
+    }
+
+    if (sqlFileQueue.length === 0) {
+      return;
+    }
+
+    const filePath = sqlFileQueue.shift()!;
+
+    // Check if file still exists (might have been deleted)
+    if (!fs.existsSync(filePath)) {
+      log.info(colors.gray(`File no longer exists: ${path.basename(filePath)}`));
+      // Try next file
+      await processNextSqlFile();
+      return;
+    }
+
+    currentSqlFile = filePath;
+    const fileName = path.basename(filePath);
+
+    try {
+      const sqlContent = await Deno.readTextFile(filePath);
+
+      if (!sqlContent.trim()) {
+        log.info(colors.gray(`Skipping empty file: ${fileName}`));
+        currentSqlFile = null;
+        await processNextSqlFile();
+        return;
+      }
+
+      const datatable = await getDatatableConfig();
+
+      log.info(
+        colors.magenta(
+          `📋 SQL file ready: ${fileName} (datatable: ${datatable || "not configured"}) [${sqlFileQueue.length} more in queue]`
+        )
+      );
+
+      broadcastSqlMigration(fileName, sqlContent, datatable);
+    } catch (error: any) {
+      log.error(colors.red(`Error reading SQL file: ${error.message}`));
+      currentSqlFile = null;
+      await processNextSqlFile();
+    }
+  }
+
+  // Helper to handle SQL file completion (success or skip)
+  async function onSqlFileCompleted(filePath: string, deleteFile: boolean): Promise<void> {
+    if (deleteFile && fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        log.info(colors.green(`✓ Deleted: ${path.basename(filePath)}`));
+      } catch (error: any) {
+        log.error(colors.red(`Failed to delete ${path.basename(filePath)}: ${error.message}`));
+      }
+    }
+
+    currentSqlFile = null;
+    // Process next file in queue
+    await processNextSqlFile();
+  }
+
+  wss.on("connection", async (ws: WebSocket) => {
     log.info(colors.cyan("[WebSocket] Client connected"));
+
+    // If there's a current SQL file being shown, send it to the new client
+    if (currentSqlFile && fs.existsSync(currentSqlFile)) {
+      try {
+        const sqlContent = await Deno.readTextFile(currentSqlFile);
+        const datatable = await getDatatableConfig();
+        const fileName = path.basename(currentSqlFile);
+
+        ws.send(JSON.stringify({
+          type: "sqlMigration",
+          fileName,
+          sql: sqlContent,
+          datatable,
+        }));
+        log.info(colors.magenta(`📋 Sent pending SQL file to new client: ${fileName}`));
+      } catch {
+        // File might have been deleted, ignore
+      }
+    } else if (fs.existsSync(sqlToApplyPath)) {
+      // No current file, but check if there are files to process
+      const entries = fs.readdirSync(sqlToApplyPath);
+      const sqlFiles = entries.filter((entry: string) => entry.endsWith(".sql"));
+
+      if (sqlFiles.length > 0 && sqlFileQueue.length === 0) {
+        // Queue and process files
+        for (const sqlFile of sqlFiles.sort()) {
+          queueSqlFile(path.join(sqlToApplyPath, sqlFile));
+        }
+        await processNextSqlFile();
+      }
+    }
 
     ws.on("message", async (data: Buffer) => {
       try {
@@ -835,6 +986,11 @@ async function dev(opts: DevOptions) {
                 })
               );
 
+              // Delete the SQL file and process next in queue
+              if (currentSqlFile) {
+                await onSqlFileCompleted(currentSqlFile, true);
+              }
+
               // Regenerate AGENTS.md and DATATABLES.md to reflect schema changes
               try {
                 await regenerateAgentDocs(workspaceId, process.cwd(), true);
@@ -857,6 +1013,22 @@ async function dev(opts: DevOptions) {
                   message: error.message || String(error),
                 })
               );
+              // Don't delete file on error, but clear current so user can retry
+              currentSqlFile = null;
+            }
+            break;
+          }
+
+          case "skipSqlMigration": {
+            // User chose to skip this SQL file
+            const { fileName } = message;
+            log.info(
+              colors.yellow(`[SQL Migration] Skipped: ${fileName}`)
+            );
+
+            // Don't delete file, just move to next
+            if (currentSqlFile) {
+              await onSqlFileCompleted(currentSqlFile, false);
             }
             break;
           }
@@ -888,78 +1060,9 @@ async function dev(opts: DevOptions) {
   });
 
   // Watch sql_to_apply folder for SQL migration files
-  const sqlToApplyPath = path.join(process.cwd(), "sql_to_apply");
   let sqlWatcher: Deno.FsWatcher | undefined;
 
-  // Helper to broadcast SQL migration notification to all WebSocket clients
-  function broadcastSqlMigration(
-    fileName: string,
-    sql: string,
-    datatable: string | undefined
-  ) {
-    const message = JSON.stringify({
-      type: "sqlMigration",
-      fileName,
-      sql,
-      datatable,
-    });
-
-    wss.clients.forEach((client: WebSocket) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
-  }
-
-  // Track which SQL files have been prompted to avoid duplicate prompts
-  const promptedSqlFiles = new Set<string>();
-
-  // Helper to read datatable from raw_app.yaml
-  async function getDatatableConfig(): Promise<string | undefined> {
-    try {
-      const rawApp = (await yamlParseFile(
-        path.join(process.cwd(), "raw_app.yaml")
-      )) as any;
-      return rawApp?.data?.datatable;
-    } catch {
-      return undefined;
-    }
-  }
-
-  // Helper to process an SQL file and broadcast it
-  async function processSqlFile(filePath: string): Promise<void> {
-    const fileName = path.basename(filePath);
-
-    // Skip if already prompted in this session
-    if (promptedSqlFiles.has(filePath)) {
-      return;
-    }
-
-    try {
-      const sqlContent = await Deno.readTextFile(filePath);
-
-      if (!sqlContent.trim()) {
-        return; // Ignore empty files
-      }
-
-      const datatable = await getDatatableConfig();
-
-      log.info(
-        colors.magenta(
-          `📋 SQL file detected: ${fileName} (datatable: ${
-            datatable || "not configured"
-          })`
-        )
-      );
-
-      promptedSqlFiles.add(filePath);
-      broadcastSqlMigration(fileName, sqlContent, datatable);
-    } catch (error: any) {
-      log.error(colors.red(`Error reading SQL file: ${error.message}`));
-    }
-  }
-
-  // Helper to scan for existing SQL files and prompt for each
+  // Helper to scan for existing SQL files and add them to the queue
   async function scanExistingSqlFiles(): Promise<void> {
     if (!fs.existsSync(sqlToApplyPath)) {
       return;
@@ -977,17 +1080,18 @@ async function dev(opts: DevOptions) {
 
       log.info(
         colors.blue(
-          `🔍 Found ${sqlFiles.length} existing SQL file(s) in sql_to_apply/`
+          `🔍 Found ${sqlFiles.length} SQL file(s) in sql_to_apply/`
         )
       );
 
-      // Process each SQL file with a small delay between them
+      // Add each SQL file to the queue
       for (const sqlFile of sqlFiles) {
         const filePath = path.join(sqlToApplyPath, sqlFile);
-        await processSqlFile(filePath);
-        // Small delay between files to avoid overwhelming the modal
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        queueSqlFile(filePath);
       }
+
+      // Start processing the queue
+      await processNextSqlFile();
     } catch (error: any) {
       log.error(
         colors.red(`Error scanning sql_to_apply folder: ${error.message}`)
@@ -1030,34 +1134,11 @@ async function dev(opts: DevOptions) {
             sqlDebounceTimeouts[changedPath] = setTimeout(async () => {
               delete sqlDebounceTimeouts[changedPath];
 
-              // Clear the prompted flag so file changes trigger new prompts
-              promptedSqlFiles.delete(changedPath);
+              log.info(colors.cyan(`📋 SQL file detected: ${fileName}`));
 
-              try {
-                // Read the SQL file content
-                const sqlContent = await Deno.readTextFile(changedPath);
-
-                if (!sqlContent.trim()) {
-                  return; // Ignore empty files
-                }
-
-                const datatable = await getDatatableConfig();
-
-                log.info(
-                  colors.magenta(
-                    `📋 SQL file changed: ${fileName} (datatable: ${
-                      datatable || "not configured"
-                    })`
-                  )
-                );
-
-                // Broadcast to all connected clients
-                broadcastSqlMigration(fileName, sqlContent, datatable);
-              } catch (error: any) {
-                log.error(
-                  colors.red(`Error reading SQL file: ${error.message}`)
-                );
-              }
+              // Add to queue and process
+              queueSqlFile(changedPath);
+              await processNextSqlFile();
             }, SQL_DEBOUNCE_MS);
           }
         }
