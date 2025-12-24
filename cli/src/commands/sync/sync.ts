@@ -846,6 +846,8 @@ function ZipFSElement(
             }
             // console.log("rawApp", rawApp);
             rawApp.policy = undefined;
+            // custom_path is derived from the file path, don't store it
+            delete rawApp?.["custom_path"];
             let inlineScripts;
             const value = rawApp?.["value"];
             const runnables = value?.["runnables"] ?? {};

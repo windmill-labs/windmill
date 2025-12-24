@@ -27,7 +27,7 @@ import {
 
 export interface AppFile {
   runnables?: any;
-  custom_path: string;
+  custom_path?: string;
   public?: boolean;
   summary: string;
   policy: Policy;
@@ -438,7 +438,7 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,
@@ -455,7 +455,7 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,
