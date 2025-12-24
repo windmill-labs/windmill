@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.599.0](https://github.com/windmill-labs/windmill/compare/v1.598.0...v1.599.0) (2025-12-24)
+
+
+### Features
+
+* raw apps can be built by agents fully locally ([#7448](https://github.com/windmill-labs/windmill/issues/7448)) ([3dd4579](https://github.com/windmill-labs/windmill/commit/3dd4579d0a3ac57b6726f96c7b37c85378ae6641))
+
 ## [1.598.0](https://github.com/windmill-labs/windmill/compare/v1.597.1...v1.598.0) (2025-12-23)
 
 
