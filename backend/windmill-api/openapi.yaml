@@ -2976,6 +2976,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/list_datatable_schemas:
+    get:
+      summary: list schemas of all connected Datatables
+      operationId: listDataTableSchemas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: schemas of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableSchema"
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -3028,7 +3046,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
@@ -20612,6 +20629,27 @@ components:
                     type: string
                 required:
                   - resource_type
+
+    DataTableSchema:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical schema: schema_name -> table_name -> column_name -> compact_type (e.g. 'int4', 'text?', 'int4?=0')"
+          additionalProperties:
+            type: object
+            description: "Tables in this schema"
+            additionalProperties:
+              type: object
+              description: "Columns in this table"
+              additionalProperties:
+                type: string
+                description: "Compact type: 'type[?][=default]' where ? means nullable"
+        error:
+          type: string
 
     DynamicInputData:
       type: object

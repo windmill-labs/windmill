@@ -63,17 +63,15 @@ export interface SelectedContext {
 	// textSelection?: { startLine: number; endLine: number; startColumn: number; endColumn: number }
 }
 
-/** Schema for a table in a datatable */
-export interface DataTableTableSchema {
-	schema: string
-	table: string
-	columns: Record<string, { type: string; required: boolean }>
-}
-
-/** Full datatable info including schema */
-export interface DataTableInfo {
-	name: string
-	tables: DataTableTableSchema[]
+/**
+ * Datatable schema matching the backend's DataTableSchema type.
+ * Hierarchical structure: schema_name -> table_name -> column_name -> compact_type
+ * Compact type format: 'type[?][=default]' where ? means nullable (e.g. 'int4', 'text?', 'int4?=0')
+ */
+export interface DataTableSchema {
+	datatable_name: string
+	schemas: Record<string, Record<string, Record<string, string>>>
+	error?: string
 }
 
 export interface AppAIChatHelpers {
@@ -101,7 +99,7 @@ export interface AppAIChatHelpers {
 	lint: () => LintResult
 	// Data table operations
 	/** Get all datatables configured in the app with their schemas */
-	getDatatables: () => Promise<DataTableInfo[]>
+	getDatatables: () => Promise<DataTableSchema[]>
 	/** Get unique datatable names configured in the app (for UI policy selector) */
 	getAvailableDatatableNames: () => string[]
 	/** Execute a SQL query on a datatable. Optionally specify newTable to register a newly created table. */
@@ -729,7 +727,15 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 					toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
 					return 'No datatables are configured in this app. Use the Data panel in the sidebar to add datatable references.'
 				}
-				const totalTables = datatables.reduce((acc, dt) => acc + dt.tables.length, 0)
+				const totalTables = datatables.reduce(
+					(acc, dt) =>
+						acc +
+						Object.values(dt.schemas).reduce(
+							(schemaAcc, tables) => schemaAcc + Object.keys(tables).length,
+							0
+						),
+					0
+				)
 				toolCallbacks.setToolStatus(toolId, {
 					content: `Found ${datatables.length} datatable(s) with ${totalTables} table(s)`
 				})

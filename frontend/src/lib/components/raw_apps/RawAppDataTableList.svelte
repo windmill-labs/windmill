@@ -180,7 +180,7 @@
 {#if standalone}
 	<div class="flex flex-col gap-2">
 		<div class="flex items-center justify-between">
-			<span class="text-xs text-tertiary">Existing tables to use</span>
+			<span class="text-sm text-primary">Existing tables to use</span>
 			{@render actionButtons()}
 		</div>
 		{@render tableList()}

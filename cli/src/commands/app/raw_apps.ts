@@ -27,7 +27,7 @@ import {
 
 export interface AppFile {
   runnables?: any;
-  custom_path: string;
+  custom_path?: string;
   public?: boolean;
   summary: string;
   policy: Policy;
@@ -79,8 +79,36 @@ async function findRunnableContentFile(
 }
 
 /**
- * Loads all runnables from separate YAML files in the backend folder.
- * Each runnable is stored in a file named `<runnableId>.yaml`.
+ * Extracts the runnable ID from a code file name.
+ * Returns undefined if the file is not a recognized code file.
+ *
+ * Examples:
+ * - "get_user.ts" -> "get_user"
+ * - "fetch_data.bun.ts" -> "fetch_data"
+ * - "query.pg.sql" -> "query"
+ */
+function getRunnableIdFromCodeFile(fileName: string): string | undefined {
+  // Skip yaml and lock files
+  if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) {
+    return undefined;
+  }
+
+  // Try to find a matching extension
+  for (const ext of Object.keys(EXTENSION_TO_LANGUAGE)) {
+    if (fileName.endsWith("." + ext)) {
+      return fileName.slice(0, -(ext.length + 1));
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Loads all runnables from the backend folder.
+ *
+ * Supports two modes:
+ * 1. Explicit YAML config: `<id>.yaml` with type specification + optional `<id>.<ext>` code file
+ * 2. Code-only (auto-detect): Just `<id>.<ext>` - assumes type: inline with empty fields
  *
  * Converts from file format to API format:
  * - For inline scripts (type: 'inline'): derives inlineScript from sibling files
@@ -107,13 +135,18 @@ export async function loadRunnablesFromBackend(
       }
     }
 
-    // Process YAML files (runnable metadata files)
+    // Track which runnable IDs have been processed (from YAML files)
+    const processedIds = new Set<string>();
+
+    // Process YAML files first (explicit configuration)
     for (const fileName of allFiles) {
       if (!fileName.endsWith(".yaml")) {
         continue;
       }
 
       const runnableId = fileName.replace(".yaml", "");
+      processedIds.add(runnableId);
+
       const filePath = path.join(backendPath, fileName);
       const runnable = (await yamlParseFile(filePath)) as Record<string, any>;
 
@@ -163,6 +196,52 @@ export async function loadRunnablesFromBackend(
       }
 
       runnables[runnableId] = runnable;
+    }
+
+    // Auto-detect code files without YAML config (assume type: inline)
+    for (const fileName of allFiles) {
+      const runnableId = getRunnableIdFromCodeFile(fileName);
+
+      if (!runnableId) {
+        continue; // Not a recognized code file
+      }
+
+      if (processedIds.has(runnableId)) {
+        continue; // Already processed via YAML file
+      }
+
+      // Found a code file without corresponding YAML - treat as inline runnable
+      processedIds.add(runnableId);
+
+      const contentFile = await findRunnableContentFile(
+        backendPath,
+        runnableId,
+        allFiles,
+      );
+
+      if (contentFile) {
+        const language = getLanguageFromExtension(contentFile.ext, defaultTs);
+
+        // Try to load lock file
+        let lock: string | undefined;
+        try {
+          lock = await Deno.readTextFile(
+            path.join(backendPath, `${runnableId}.lock`),
+          );
+        } catch {
+          // No lock file, that's fine
+        }
+
+        // Create inline runnable with default empty fields
+        runnables[runnableId] = {
+          type: "inline",
+          inlineScript: {
+            content: contentFile.content,
+            language,
+            ...(lock ? { lock } : {}),
+          },
+        };
+      }
     }
   } catch (error: any) {
     if (error.name !== "NotFound") {
@@ -216,22 +295,25 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory) {
-        // Skip the runnables and node_modules subfolders
+        // Skip the runnables, node_modules, and sql_to_apply subfolders
         if (
           entry.name === APP_BACKEND_FOLDER ||
           entry.name === "node_modules" ||
           entry.name === "dist" ||
-          entry.name === ".claude"
+          entry.name === ".claude" ||
+          entry.name === "sql_to_apply"
         ) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
       } else if (entry.isFile) {
-        // Skip raw_app.yaml as it's metadata, not an app file
-        // Skip package-lock.json as it's generated
+        // Skip generated/metadata files that shouldn't be part of the app
         if (
           entry.name === "raw_app.yaml" ||
-          entry.name === "package-lock.json"
+          entry.name === "package-lock.json" ||
+          entry.name === "DATATABLES.md" ||
+          entry.name === "AGENTS.md" ||
+          entry.name === "wmill.d.ts"
         ) {
           continue;
         }
@@ -356,7 +438,7 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,
@@ -373,7 +455,7 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,

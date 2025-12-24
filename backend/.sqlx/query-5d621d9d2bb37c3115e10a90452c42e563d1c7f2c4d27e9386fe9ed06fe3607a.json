@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT app_id, value, created_by, created_at, raw_app\n         FROM app_version \n         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)\n         ORDER BY app_id, created_at",
+  "query": "SELECT app_id, value, created_by, created_at, raw_app\n         FROM app_version\n         WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)\n         ORDER BY app_id, created_at",
   "describe": {
     "columns": [
       {
@@ -42,5 +42,5 @@
       false
     ]
   },
-  "hash": "61d35a8faec1a85f427258a652ebcc7a07689c499e9f7be05d8b25e38671916d"
+  "hash": "5d621d9d2bb37c3115e10a90452c42e563d1c7f2c4d27e9386fe9ed06fe3607a"
 }

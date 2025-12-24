@@ -17,6 +17,8 @@ import { GlobalOptions, isSuperset } from "../../types.ts";
 import { readInlinePathSync } from "../../utils/utils.ts";
 import devCommand from "./dev.ts";
 import lintCommand from "./lint.ts";
+import newCommand from "./new.ts";
+import generateAgentsCommand from "./generate_agents.ts";
 import { isVersionsGeq1585 } from "../sync/global.ts";
 
 export interface AppFile {
@@ -232,6 +234,8 @@ const command = new Command()
   .action(push as any)
   .command("dev", devCommand)
   .command("lint", lintCommand)
+  .command("new", newCommand)
+  .command("generate-agents", generateAgentsCommand)
   .command(
     "generate-locks",
     "re-generate the lockfiles for app runnables inline scripts that have changed"

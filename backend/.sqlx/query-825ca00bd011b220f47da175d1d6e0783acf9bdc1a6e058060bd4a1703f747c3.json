@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path \n         FROM app \n         WHERE workspace_id = $1",
+  "query": "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path\n         FROM app\n         WHERE workspace_id = $1",
   "describe": {
     "columns": [
       {
@@ -66,5 +66,5 @@
       true
     ]
   },
-  "hash": "0c7517fba8a6fb4c4e33b1a635cfefa362cdaf79d4f4a32b6d929701b68f4d1c"
+  "hash": "825ca00bd011b220f47da175d1d6e0783acf9bdc1a6e058060bd4a1703f747c3"
 }

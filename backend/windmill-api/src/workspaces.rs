@@ -43,9 +43,11 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    DataTable, DataTableCatalogResourceType, WorkspaceGitSyncSettings,
+    get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
+    WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -132,6 +134,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
         .route("/list_datatables", get(list_datatables))
+        .route("/list_datatable_schemas", get(list_datatable_schemas))
         .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
@@ -1198,6 +1201,142 @@ async fn list_datatables(
     .collect();
 
     Ok(Json(datatables))
+}
+
+/// Compact column representation: "type" or "type?" for nullable, with "=default" suffix if has default
+type CompactColumn = String;
+
+/// Columns mapped by name to their compact type
+type ColumnMap = HashMap<String, CompactColumn>;
+
+/// Tables mapped by name to their columns
+type TableMap = HashMap<String, ColumnMap>;
+
+/// Schemas mapped by name to their tables
+type SchemaMap = HashMap<String, TableMap>;
+
+#[derive(Serialize, Debug)]
+struct DataTableSchema {
+    datatable_name: String,
+    /// Hierarchical schema: schema_name -> table_name -> column_name -> "type[?][=default]"
+    schemas: SchemaMap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn list_datatable_schemas(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DataTableSchema>> {
+    // Get all datatable names for this workspace
+    let datatable_names: Vec<String> = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+            Err(e) => DataTableSchema {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(schema);
+    }
+
+    Ok(Json(results))
+}
+
+async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
+    // Get the datatable resource (connection credentials)
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+
+    // Parse the resource as PgDatabase
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+
+    // Connect to the datatable database
+    let (client, connection) = pg_db.connect().await?;
+
+    // Spawn the connection handler
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    // Query the schema information
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                nsp.nspname::text AS table_schema,
+                c.table_name::text,
+                c.column_name::text,
+                c.udt_name::text,
+                c.is_nullable::text,
+                c.column_default::text
+            FROM information_schema.columns c
+            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
+            WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND c.table_name IS NOT NULL
+            ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            "#,
+            &[],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
+
+    // Build hierarchical structure: schema -> table -> column -> compact_type
+    let mut schema_map: SchemaMap = HashMap::new();
+
+    for row in rows {
+        let table_schema: String = row.get(0);
+        let table_name: String = row.get(1);
+        let column_name: String = row.get(2);
+        let udt_name: String = row.get(3);
+        let is_nullable: String = row.get(4);
+        let column_default: Option<String> = row.get(5);
+
+        // Build compact type representation: "type[?][=default]"
+        let mut compact = udt_name;
+        if is_nullable == "YES" {
+            compact.push('?');
+        }
+        if let Some(default) = column_default {
+            // Truncate long defaults for compactness
+            let short_default = if default.len() > 30 {
+                format!("{}...", &default[..27])
+            } else {
+                default
+            };
+            compact.push('=');
+            compact.push_str(&short_default);
+        }
+
+        schema_map
+            .entry(table_schema)
+            .or_default()
+            .entry(table_name)
+            .or_default()
+            .insert(column_name, compact);
+    }
+
+    Ok(schema_map)
 }
 
 async fn edit_ducklake_config(
@@ -2924,9 +3063,9 @@ async fn clone_flows(
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
-        "SELECT id, workspace_id, path, value, schema, created_by, created_at 
-         FROM flow_version 
-         WHERE workspace_id = $1 
+        "SELECT id, workspace_id, path, value, schema, created_by, created_at
+         FROM flow_version
+         WHERE workspace_id = $1
          ORDER BY path, created_at",
         source_workspace_id
     )
@@ -2992,8 +3131,8 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path 
-         FROM app 
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+         FROM app
          WHERE workspace_id = $1",
         source_workspace_id
     )
@@ -3027,7 +3166,7 @@ async fn clone_apps(
         // Clone app versions
         let app_versions = sqlx::query!(
             "SELECT app_id, value, created_by, created_at, raw_app
-         FROM app_version 
+         FROM app_version
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
             source_workspace_id
@@ -3056,7 +3195,7 @@ async fn clone_apps(
     sqlx::query!(
         "UPDATE app SET versions = (
             SELECT array_agg(av.id ORDER BY av.created_at)
-            FROM app_version av 
+            FROM app_version av
             WHERE av.app_id = app.id
         ) WHERE workspace_id = $1",
         target_workspace_id
@@ -3066,8 +3205,8 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256 
-         FROM app_script 
+        "SELECT app, hash, lock, code, code_sha256
+         FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
     )
@@ -3110,7 +3249,7 @@ async fn clone_raw_apps(
     sqlx::query!(
         "INSERT INTO raw_app (path, version, workspace_id, summary, edited_at, data, extra_perms)
          SELECT path, version, $2, summary, edited_at, data, extra_perms
-         FROM raw_app 
+         FROM raw_app
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
@@ -3163,7 +3302,7 @@ async fn clone_workspace_dependencies(
     sqlx::query!(
         "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
          SELECT $1, language, name, description, content, archived, created_at
-         FROM workspace_dependencies 
+         FROM workspace_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,
         source_workspace_id
@@ -3819,10 +3958,10 @@ async fn get_dependents_amounts(
     let results = sqlx::query_as!(
         DependentsAmount,
         r#"
-        SELECT 
+        SELECT
             imported_path,
             COUNT(DISTINCT importer_path) as "count!"
-        FROM dependency_map 
+        FROM dependency_map
         WHERE workspace_id = $1 AND imported_path = ANY($2)
         GROUP BY imported_path
         "#,

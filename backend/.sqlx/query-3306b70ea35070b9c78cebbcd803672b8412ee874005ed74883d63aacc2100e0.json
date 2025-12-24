@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT \n            imported_path,\n            COUNT(DISTINCT importer_path) as \"count!\"\n        FROM dependency_map \n        WHERE workspace_id = $1 AND imported_path = ANY($2)\n        GROUP BY imported_path\n        ",
+  "query": "\n        SELECT\n            imported_path,\n            COUNT(DISTINCT importer_path) as \"count!\"\n        FROM dependency_map\n        WHERE workspace_id = $1 AND imported_path = ANY($2)\n        GROUP BY imported_path\n        ",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       null
     ]
   },
-  "hash": "c6637102979d1acaf7fb76ff8e51badc6df20086769ffd9f9ee9e6bf1527810c"
+  "hash": "3306b70ea35070b9c78cebbcd803672b8412ee874005ed74883d63aacc2100e0"
 }
