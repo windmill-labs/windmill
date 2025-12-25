@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.599.2](https://github.com/windmill-labs/windmill/compare/v1.599.1...v1.599.2) (2025-12-25)
+
+
+### Bug Fixes
+
+* fix raw app ui builder setFiles errors ([3ed45d5](https://github.com/windmill-labs/windmill/commit/3ed45d57df8a33bde6c0f008b943bff9af9c826e))
+
 ## [1.599.1](https://github.com/windmill-labs/windmill/compare/v1.599.0...v1.599.1) (2025-12-25)
 
 
