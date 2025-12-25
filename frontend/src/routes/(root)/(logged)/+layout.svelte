@@ -127,7 +127,7 @@
 			const currentPath = navigation.from?.url.pathname
 			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
 			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
-			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps/get_raw/')) {
+			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
 				navigation.cancel()
 				window.location.href = navigation.to!.url.href
 			}
