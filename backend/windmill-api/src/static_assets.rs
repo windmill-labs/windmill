@@ -52,7 +52,7 @@ const TWO_HUNDRED: &str = "200.html";
 /// Only enabled for /apps_raw paths (raw app editor)
 #[cfg(feature = "static_frontend")]
 fn needs_cross_origin_isolation(original_path: &str) -> bool {
-    original_path.starts_with("/apps_raw/")
+    original_path.starts_with("/apps_raw/") || original_path.starts_with("/ui_builder/")
 }
 
 fn serve_path(path: &str, original_path: &str) -> Response<Body> {
