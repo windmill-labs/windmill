@@ -58,7 +58,10 @@ fn serve_path(path: &str) -> Response<Body> {
             let mime = mime_guess::from_path(path).first_or_octet_stream();
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
-                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
+                .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                .header("Cross-Origin-Opener-Policy", "same-origin")
+                .header("Cross-Origin-Embedder-Policy", "require-corp")
+                .header("Cross-Origin-Resource-Policy", "cross-origin");
             
             // Add Content-Security-Policy header for static assets when policy is set
             if !CSP_POLICY.is_empty() {
