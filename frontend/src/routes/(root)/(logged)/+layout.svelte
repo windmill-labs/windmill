@@ -113,8 +113,24 @@
 		}
 	}
 
-	beforeNavigate(() => {
+	beforeNavigate((navigation) => {
 		menuOpen = false
+
+		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
+		// This ensures the cross-origin isolation headers are fetched from the server
+		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
+		const toPath = navigation.to?.url.pathname
+		if (
+			toPath &&
+			(toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))
+		) {
+			const currentPath = navigation.from?.url.pathname
+			// Only reload if we're not already on an apps_raw path
+			if (!currentPath?.startsWith('/apps_raw/')) {
+				navigation.cancel()
+				window.location.href = navigation.to!.url.href
+			}
+		}
 	})
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
