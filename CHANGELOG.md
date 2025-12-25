@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.599.3](https://github.com/windmill-labs/windmill/compare/v1.599.2...v1.599.3) (2025-12-25)
+
+
+### Bug Fixes
+
+* add CORS headers to static assets for iframe context sharing ([#7454](https://github.com/windmill-labs/windmill/issues/7454)) ([77d3004](https://github.com/windmill-labs/windmill/commit/77d3004a2fd7743ba6f4953b980650ea86dea656))
+
 ## [1.599.2](https://github.com/windmill-labs/windmill/compare/v1.599.1...v1.599.2) (2025-12-25)
 
 
