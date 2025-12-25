@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.599.1](https://github.com/windmill-labs/windmill/compare/v1.599.0...v1.599.1) (2025-12-25)
+
+
+### Bug Fixes
+
+* revert setting HOME=/tmp by default ([6dafb42](https://github.com/windmill-labs/windmill/commit/6dafb423b29046b01979f6b64c6795a42b3e9576))
+
 ## [1.599.0](https://github.com/windmill-labs/windmill/compare/v1.598.0...v1.599.0) (2025-12-24)
 
 
