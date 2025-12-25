@@ -59,7 +59,7 @@ RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
 # Read more about macro in docker/dev.nu
-# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- #
 RUN npm run build
 
 
@@ -197,7 +197,7 @@ RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_r
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
 
 
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -218,9 +218,6 @@ RUN mkdir -p /tmp/windmill/cache && \
 ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV GOCACHE=/tmp/windmill/cache/go
-
-# Set HOME for arbitrary UID support (matches windmill's default fallback)
-ENV HOME=/tmp
 
 ENV TZ=Etc/UTC
 

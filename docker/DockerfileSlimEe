@@ -56,8 +56,6 @@ RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && \
     chmod 777 /tmp/.cache && \
     find ${APP} /tmp/windmill -type d -exec chmod 777 {} +
 
-# Set HOME for arbitrary UID support (Docker sets HOME=/ for unknown UIDs)
-ENV HOME=/tmp
 
 EXPOSE 8000
 
