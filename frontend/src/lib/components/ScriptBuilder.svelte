@@ -45,7 +45,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
-	import type { SupportedLanguage } from '$lib/common'
+	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -522,7 +522,14 @@
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
+					debounce_args_to_accumulate:
+						script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+							? script.debounce_args_to_accumulate
+							: undefined,
+					max_total_debouncing_time: script.max_total_debouncing_time,
+					max_total_debounces_amount: script.max_total_debounces_amount,
 					cache_ttl: script.cache_ttl,
+					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
@@ -665,7 +672,14 @@
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						debounce_delay_s: script.debounce_delay_s,
+						debounce_args_to_accumulate:
+							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+								? script.debounce_args_to_accumulate
+								: undefined,
+						max_total_debouncing_time: script.max_total_debouncing_time,
+						max_total_debounces_amount: script.max_total_debounces_amount,
 						cache_ttl: script.cache_ttl,
+						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
@@ -1046,7 +1060,7 @@
 					{#snippet content()}
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Metadata">
 										{#snippet action()}
 											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
@@ -1065,13 +1079,11 @@
 												<MetadataGen
 													aiId="create-script-summary-input"
 													aiDescription="Summary / Title of the new script"
-													label="Summary"
 													bind:content={script.summary}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => onSummaryChange(script.summary)}
+													onChange={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1101,7 +1113,6 @@
 											<Label label="Description">
 												<MetadataGen
 													bind:content={script.description}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="description"
 													elementType="textarea"
@@ -1214,7 +1225,7 @@
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
 											<Tooltip
@@ -1305,27 +1316,28 @@
 										<div class="flex gap-2 shrink flex-col">
 											<Toggle
 												size="sm"
-												checked={Boolean(script.cache_ttl)}
-												on:change={() => {
-													if (script.cache_ttl && script.cache_ttl != undefined) {
-														script.cache_ttl = undefined
-													} else {
-														script.cache_ttl = 300
-													}
-												}}
-												options={{
-													right: 'Cache the results for each possible inputs'
-												}}
+												bind:checked={
+													() => !!script.cache_ttl, (v) => (script.cache_ttl = v ? 300 : undefined)
+												}
+												options={{ right: 'Cache the results for each possible inputs' }}
 											/>
-											{#if Boolean(script.cache_ttl)}
-												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
-													How long to the keep cache valid
-												</span>
-												{#if script.cache_ttl}
+											{#if script.cache_ttl}
+												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
+												<div class="-mt-5">
 													<SecondsInput bind:seconds={script.cache_ttl} />
-												{:else}
-													<SecondsInput disabled />
-												{/if}
+												</div>
+												<Toggle
+													size="2xs"
+													bind:checked={
+														() => script.cache_ignore_s3_path,
+														(v) => (script.cache_ignore_s3_path = v || undefined)
+													}
+													options={{
+														right: 'Ignore S3 Object paths for caching purposes',
+														rightTooltip:
+															'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+													}}
+												/>
 											{/if}
 										</div>
 									</Section>
@@ -1369,6 +1381,10 @@
 											size="sm"
 											bind:debounce_delay_s={script.debounce_delay_s}
 											bind:debounce_key={script.debounce_key}
+											bind:debounce_args_to_accumulate={script.debounce_args_to_accumulate}
+											bind:max_total_debouncing_time={script.max_total_debouncing_time}
+											bind:max_total_debounces_amount={script.max_total_debounces_amount}
+											schema={script.schema as Schema}
 											placeholder={`$workspace/script/${script.path}-$args[foo]`}
 										/>
 

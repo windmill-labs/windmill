@@ -12,8 +12,7 @@ use tokio::{fs::DirBuilder, process::Command, sync::RwLock};
 use uuid::Uuid;
 use windmill_common::{
     error::{self, Error},
-    lockfiles::LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT,
-    worker::Connection,
+    worker::{try_parse_locked_python_version_from_requirements, Connection, PyVAlias},
 };
 
 use anyhow::{anyhow, bail};
@@ -25,28 +24,6 @@ use crate::{
     python_executor::{PYTHON_PATH, UV_PATH},
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
 };
-
-#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
-#[repr(u32)]
-pub enum PyVAlias {
-    Py310 = 10,
-    #[default]
-    Py311,
-    Py312,
-    Py313,
-}
-
-impl Into<pep440_rs::Version> for PyVAlias {
-    fn into(self) -> pep440_rs::Version {
-        pep440_rs::Version::new([self.major() as u64, self as u64])
-    }
-}
-
-impl Into<u32> for PyVAlias {
-    fn into(self) -> u32 {
-        self.major() * 100 + self as u32
-    }
-}
 
 impl From<PyV> for PyVAlias {
     fn from(value: PyV) -> Self {
@@ -64,34 +41,6 @@ impl From<PyV> for PyVAlias {
             *PyV::default()
         );
         Self::default()
-    }
-}
-impl PyVAlias {
-    fn all<T: From<PyVAlias>>() -> Vec<T> {
-        use PyVAlias::*;
-        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
-    }
-    // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
-    fn major(&self) -> u32 {
-        use PyVAlias::*;
-        match self {
-            Py310 | Py311 | Py312 | Py313 => 3,
-            // Py400 | Py401 => 4
-        }
-    }
-
-    /// Converts numeric format to alias
-    /// Example:
-    /// 310u32 (in) -> PyVAlias::Py310 (out)
-    pub(crate) fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
-        use PyVAlias::*;
-        match numeric.to_string().as_str() {
-            "310" => Some(Py310),
-            "311" => Some(Py311),
-            "312" => Some(Py312),
-            "313" => Some(Py313),
-            _ => None,
-        }
     }
 }
 
@@ -431,51 +380,7 @@ impl PyV {
     /// Parse lockfile for assigned python version.
     /// If not found returns None
     pub fn try_parse_from_requirements<S: AsRef<str>>(requirements_lines: &[S]) -> Option<Self> {
-        let parse_version = |s: &str| -> Option<PyV> {
-            // Possible inputs:
-            // V2:
-            // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
-            //
-            // V1:
-            // # py311 or #py311
-            let version_unparsed = s
-                .to_owned()
-                // Remove whitespaces. That leaves us with:
-                // V2: #py:3.11.0
-                // V1: #py311
-                //
-                // Remove #
-                // V2: py:3.11.0
-                // V1: py311
-                //
-                // Remove :
-                // V2: py3.11.0
-                // V1: py311
-                .replace([' ', '#', ':'], "")
-                // Remove "py"
-                // V2: 3.11.0
-                // V1: 311
-                .replace("py", "");
-
-            // We will support reading V1 syntax, but it will be overwritten next deploy
-            PyVAlias::try_from_v1(&version_unparsed)
-                .map(PyVAlias::into)
-                .or(pep440_rs::Version::from_str(&version_unparsed)
-                    .ok()
-                    .map(pep440_rs::Version::into))
-        };
-        let index = if requirements_lines.get(0).map_or(false, |line| {
-            line.as_ref()
-                .starts_with(LOCKFILE_GENERATED_FROM_REQUIREMENTS_TXT)
-        }) {
-            1
-        } else {
-            0
-        };
-        requirements_lines
-            .get(index)
-            .map(S::as_ref)
-            .and_then(parse_version)
+        try_parse_locked_python_version_from_requirements(requirements_lines).map(PyV::from)
     }
 
     pub async fn get_python(

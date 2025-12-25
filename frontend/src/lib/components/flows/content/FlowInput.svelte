@@ -55,9 +55,16 @@
 		disabled: boolean
 		onTestFlow?: (conversationId?: string) => Promise<string | undefined>
 		previewOpen: boolean
+		flowModuleSchemaMap?: import('../map/FlowModuleSchemaMap.svelte').default
 	}
 
-	let { noEditor, disabled, onTestFlow, previewOpen }: Props = $props()
+	let {
+		noEditor,
+		disabled,
+		onTestFlow,
+		previewOpen,
+		flowModuleSchemaMap = undefined
+	}: Props = $props()
 	const {
 		flowStore,
 		flowStateStore,
@@ -68,7 +75,13 @@
 		flowInputEditorState
 	} = getContext<FlowEditorContext>('FlowEditorContext')
 
-	let chatInputEnabled = $derived(Boolean(flowStore.val.value?.chat_input_enabled))
+	// Get diffManager from the graph
+	const diffManager = $derived(flowModuleSchemaMap?.getDiffManager())
+
+	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
+	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
+
+	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
 		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
@@ -115,6 +128,10 @@
 		timeout = setTimeout(() => {
 			updateEditPanelSize(editPanelSize)
 		}, 100)
+	})
+
+	$effect(() => {
+		chatInputEnabled = Boolean(flowStore.val.value?.chat_input_enabled)
 	})
 
 	const getDropdownItems = () => {
@@ -398,7 +415,7 @@
 	}
 
 	function handleToggleChatMode() {
-		if (!chatInputEnabled) {
+		if (!flowStore.val.value?.chat_input_enabled) {
 			// Check if there are existing inputs
 			if (hasOtherInputs()) {
 				showChatModeWarning = true
@@ -443,19 +460,22 @@
 					value: {
 						type: 'aiagent',
 						tools: [],
-						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce((accu, key) => {
-							if (key === 'user_message') {
-								accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
-							} else if (key === 'messages_context_length') {
-								accu[key] = { type: 'static', value: 10 }
-							} else {
-								accu[key] = {
-									type: 'static',
-									value: undefined
+						input_transforms: Object.keys(AI_AGENT_SCHEMA.properties ?? {}).reduce(
+							(accu, key) => {
+								if (key === 'user_message') {
+									accu[key] = { type: 'javascript', expr: 'flow_input.user_message' }
+								} else if (key === 'memory') {
+									accu[key] = { type: 'static', value: { kind: 'auto', context_length: 10 } }
+								} else {
+									accu[key] = {
+										type: 'static',
+										value: undefined
+									}
 								}
-							}
-							return accu
-						}, {})
+								return accu
+							},
+							{} as AiAgent['input_transforms']
+						)
 					}
 				}
 			]
@@ -475,9 +495,9 @@
 			}
 
 			// Set messages_context_length to 10
-			value.input_transforms['messages_context_length'] = {
+			value.input_transforms['memory'] = {
 				type: 'static',
-				value: 10
+				value: { kind: 'auto', context_length: 10 }
 			}
 
 			sendUserToast(
@@ -499,7 +519,10 @@
 	title="Enable Chat Mode?"
 	confirmationText="Continue"
 	onConfirmed={enableChatMode}
-	onCanceled={() => (showChatModeWarning = false)}
+	onCanceled={() => {
+		showChatModeWarning = false
+		chatInputEnabled = false
+	}}
 >
 	<p class="text-sm text-secondary">
 		Enabling Chat Mode will replace all existing flow inputs with a single
@@ -516,9 +539,8 @@
 		{#if !disabled}
 			<Toggle
 				size="sm"
-				checked={chatInputEnabled}
-				on:click={(e) => {
-					e.preventDefault()
+				bind:checked={chatInputEnabled}
+				on:change={(e) => {
 					handleToggleChatMode()
 				}}
 				options={{
@@ -800,7 +822,7 @@
 		</div>
 	{:else}
 		<div class="p-4 border-b">
-			<FlowInputViewer schema={flowStore.val.schema} />
+			<FlowInputViewer schema={effectiveSchema} />
 		</div>
 	{/if}
 </FlowCard>

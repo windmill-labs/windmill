@@ -5,7 +5,8 @@
 		GcpTriggerService,
 		WorkspaceService,
 		type GcpTrigger,
-		type WorkspaceDeployUISettings
+		type WorkspaceDeployUISettings,
+		type TriggerMode
 	} from '$lib/gen'
 	import {
 		canWrite,
@@ -25,7 +26,18 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, ClipboardCopy } from 'lucide-svelte'
+	import {
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Share,
+		Trash,
+		Circle,
+		FileUp,
+		ClipboardCopy,
+		Pause
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -43,6 +55,7 @@
 	import { GoogleCloudIcon } from '$lib/components/icons'
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerD = GcpTrigger & { canWrite: boolean }
 
@@ -83,7 +96,7 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled,
+						mode: newTrigger.mode,
 						server_id: newTrigger.server_id
 					}
 				}
@@ -97,16 +110,16 @@
 		clearInterval(interval)
 	})
 
-	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await GcpTriggerService.setGcpTriggerEnabled({
+			await GcpTriggerService.setGcpTriggerMode({
 				path,
 				workspace: $workspaceStore!,
-				requestBody: { enabled }
+				requestBody: { mode }
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` GCP Pub/Sub trigger: ${err.body}`,
+				`Cannot ${mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend'} GCP Pub/Sub trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -344,10 +357,11 @@
 			<div class="text-center text-sm text-primary mt-2"> No GCP Pub/Sub triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id, subscription_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { gcp_resource_path, topic_id, workspace_id, delivery_type, path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, subscription_id, retry, error_handler_path, error_handler_args } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
+					{@const enabled = mode === 'enabled' || mode === 'suspended'}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -417,12 +431,23 @@
 							{/if}
 
 							{#if delivery_type !== 'push'}
-								<Toggle
-									checked={enabled}
-									disabled={!canWrite}
-									on:change={(e) => {
-										setTriggerEnabled(path, e.detail)
+								<TriggerModeToggle
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'gcp',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
 									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
 								/>
 							{/if}
 
@@ -459,36 +484,17 @@
 												goto(href)
 											}
 										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												isDeleting = false
-												deleteSubscription = false
-												subscriptionToDelete = subscription_id
-												currentTopic = topic_id
-												deleteSubscriptionCallback = async () => {
-													const message = await GcpTriggerService.deleteGcpSubscription({
-														workspace: $workspaceStore ?? '',
-														path: gcp_resource_path,
-														requestBody: {
-															subscription_id
+										...(canWrite && mode !== 'suspended'
+											? [
+													{
+														displayName: 'Suspend job execution',
+														icon: Pause,
+														action: () => {
+															onToggleMode(path, 'suspended')
 														}
-													})
-													sendUserToast(message)
-												}
-												deleteGcpTriggerCallback = async () => {
-													const message = await GcpTriggerService.deleteGcpTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													sendUserToast(message)
-													loadTriggers()
-												}
-											}
-										},
+													}
+												]
+											: []),
 										{
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
@@ -521,6 +527,36 @@
 											icon: Share,
 											action: () => {
 												shareModal?.openDrawer(path, 'gcp_trigger')
+											}
+										},
+										{
+											displayName: 'Delete',
+											type: 'delete',
+											icon: Trash,
+											disabled: !canWrite,
+											action: async () => {
+												isDeleting = false
+												deleteSubscription = false
+												subscriptionToDelete = subscription_id
+												currentTopic = topic_id
+												deleteSubscriptionCallback = async () => {
+													const message = await GcpTriggerService.deleteGcpSubscription({
+														workspace: $workspaceStore ?? '',
+														path: gcp_resource_path,
+														requestBody: {
+															subscription_id
+														}
+													})
+													sendUserToast(message)
+												}
+												deleteGcpTriggerCallback = async () => {
+													const message = await GcpTriggerService.deleteGcpTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													sendUserToast(message)
+													loadTriggers()
+												}
 											}
 										}
 									]}

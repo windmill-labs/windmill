@@ -89,33 +89,56 @@ async function initWasmRuby() {
 	await initRubyParser(wasmUrlRuby)
 }
 
+type InferAssetsResult =
+	| { status: 'ok'; assets: AssetWithAccessType[]; sql_queries?: InferAssetsSqlQueryDetails[] }
+	| { status: 'error'; error: string; assets?: undefined; sql_queries?: undefined }
+
+export type InferAssetsSqlQueryDetails = {
+	query_string: string // SQL query with $1 placeholders for interpolations
+	span: [number, number] // [start, end] byte positions in source code
+	source_kind: 'datatable' | 'ducklake' // AssetKind equivalent
+	source_name: string // e.g., "main", "dt"
+	source_schema?: string // e.g., "public", optional
+	prepared?: PreparedAssetsSqlQuery
+}
+
+export type PreparedAssetsSqlQuery =
+	| { columns: Record<string, string> } // e.g { id: "number", name: "text" }
+	| { error: string; columns?: undefined } // error message if preparation failed
+
 export async function inferAssets(
 	language: SupportedLanguage | undefined,
 	code: string
-): Promise<AssetWithAccessType[]> {
+): Promise<InferAssetsResult> {
+	function wrap(raw_result: string): InferAssetsResult {
+		if (raw_result.startsWith('err:')) {
+			return { status: 'error', error: raw_result.slice(4).trim() }
+		}
+		return { status: 'ok', ...JSON.parse(raw_result) }
+	}
+
 	try {
 		if (language === 'duckdb') {
 			await initWasmRegex()
-			let r = JSON.parse(parse_assets_sql(code))
-			return r
+			return wrap(parse_assets_sql(code))
 		}
 		if (language === 'deno' || language === 'nativets' || language === 'bun') {
 			await initWasmTs()
-			return JSON.parse(parse_assets_ts(code))
+			return wrap(parse_assets_ts(code))
 		}
 		if (language === 'python3') {
 			await initWasmPython()
-			return JSON.parse(parse_assets_py(code))
+			return wrap(parse_assets_py(code))
 		}
 		if (language === 'ansible') {
 			await initWasmYaml()
-			return JSON.parse(parse_assets_ansible(code))
+			return wrap(parse_assets_ansible(code))
 		}
 	} catch (e) {
-		console.error('error parsing assets', e)
-		return []
+		return { status: 'error', error: (e as Error)?.message || JSON.stringify(e) }
 	}
-	return []
+
+	return { status: 'ok', assets: [] }
 }
 
 export async function inferAnsibleExecutionMode(code: string): Promise<any> {

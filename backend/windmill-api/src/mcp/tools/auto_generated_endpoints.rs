@@ -21,6 +21,27 @@ pub struct EndpointTool {
 pub fn all_tools() -> Vec<EndpointTool> {
     vec![
     EndpointTool {
+        name: Cow::Borrowed("queryDocumentation"),
+        description: Cow::Borrowed("query Windmill AI documentation assistant (EE only)"),
+        instructions: Cow::Borrowed(""),
+        path: Cow::Borrowed("/inkeep"),
+        method: Cow::Borrowed("POST"),
+        path_params_schema: None,
+        query_params_schema: None,
+        body_schema: Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+                "query": {
+                        "type": "string",
+                        "description": "The documentation query to send to the AI assistant"
+                }
+        },
+        "required": [
+                "query"
+        ]
+})),
+    },
+    EndpointTool {
         name: Cow::Borrowed("createVariable"),
         description: Cow::Borrowed("create variable"),
         instructions: Cow::Borrowed(""),
@@ -447,6 +468,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "languages": {
                         "type": "string",
                         "description": "Filter to only include scripts written in the given languages.\nAccepts multiple values as a comma-separated list.\n"
+                },
+                "without_description": {
+                        "type": "boolean",
+                        "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
                 }
         },
         "required": []
@@ -530,6 +555,10 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "with_deployment_msg": {
                         "type": "boolean",
                         "description": "(default false)\ninclude deployment message\n"
+                },
+                "without_description": {
+                        "type": "boolean",
+                        "description": "(default false)\nIf true, the description field will be omitted from the response.\n"
                 }
         },
         "required": []
@@ -683,6 +712,28 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "string",
                         "description": "mask to filter by schedule path"
                 },
+                "trigger_path": {
+                        "type": "string",
+                        "description": "mask to filter by trigger path"
+                },
+                "trigger_kind": {
+                        "description": "trigger kind (schedule, http, websocket...)",
+                        "type": "string",
+                        "enum": [
+                                "webhook",
+                                "default_email",
+                                "email",
+                                "schedule",
+                                "http",
+                                "websocket",
+                                "postgres",
+                                "kafka",
+                                "nats",
+                                "mqtt",
+                                "sqs",
+                                "gcp"
+                        ]
+                },
                 "script_hash": {
                         "type": "string",
                         "description": "mask to filter exact matching path"
@@ -817,10 +868,25 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "format": "date-time",
                         "description": "filter on created after (exclusive) timestamp"
                 },
-                "created_or_started_before": {
+                "completed_before": {
                         "type": "string",
                         "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise before (inclusive) timestamp"
+                        "description": "filter on started before (inclusive) timestamp"
+                },
+                "completed_after": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on started after (exclusive) timestamp"
+                },
+                "created_before_queue": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on jobs created before X for jobs in the queue only"
+                },
+                "created_after_queue": {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "filter on jobs created after X for jobs in the queue only"
                 },
                 "running": {
                         "type": "boolean",
@@ -829,16 +895,6 @@ pub fn all_tools() -> Vec<EndpointTool> {
                 "scheduled_for_before_now": {
                         "type": "boolean",
                         "description": "filter on jobs scheduled_for before now (hence waitinf for a worker)"
-                },
-                "created_or_started_after": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp"
-                },
-                "created_or_started_after_completed_jobs": {
-                        "type": "string",
-                        "format": "date-time",
-                        "description": "filter on created_at for non non started job and started_at otherwise after (exclusive) timestamp but only for the completed jobs"
                 },
                 "job_kinds": {
                         "type": "string",
@@ -864,13 +920,27 @@ pub fn all_tools() -> Vec<EndpointTool> {
                         "type": "boolean",
                         "description": "allow wildcards (*) in the filter of label, tag, worker"
                 },
-                "page": {
-                        "type": "integer",
-                        "description": "which page to return (start at 1, default 1)"
-                },
                 "per_page": {
                         "type": "integer",
                         "description": "number of items to return for a given page (default 30, max 100)"
+                },
+                "trigger_kind": {
+                        "description": "trigger kind (schedule, http, websocket...)",
+                        "type": "string",
+                        "enum": [
+                                "webhook",
+                                "default_email",
+                                "email",
+                                "schedule",
+                                "http",
+                                "websocket",
+                                "postgres",
+                                "kafka",
+                                "nats",
+                                "mqtt",
+                                "sqs",
+                                "gcp"
+                        ]
                 },
                 "is_skipped": {
                         "type": "boolean",
@@ -988,8 +1058,62 @@ You should get the schema of the script or flow before creating the schedule to 
                         "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
-                        "description": "The retry configuration for the schedule"
+                        "type": "object",
+                        "description": "Retry configuration for failed module executions",
+                        "properties": {
+                                "constant": {
+                                        "type": "object",
+                                        "description": "Retry with constant delay between attempts",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "description": "Seconds to wait between retries"
+                                                }
+                                        }
+                                },
+                                "exponential": {
+                                        "type": "object",
+                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "multiplier": {
+                                                        "type": "integer",
+                                                        "description": "Multiplier for exponential backoff"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "minimum": 1,
+                                                        "description": "Initial delay in seconds"
+                                                },
+                                                "random_factor": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 100,
+                                                        "description": "Random jitter percentage (0-100) to avoid thundering herd"
+                                                }
+                                        }
+                                },
+                                "retry_if": {
+                                        "type": "object",
+                                        "description": "Conditional retry based on error or result",
+                                        "properties": {
+                                                "expr": {
+                                                        "type": "string",
+                                                        "description": "JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"
+                                                }
+                                        },
+                                        "required": [
+                                                "expr"
+                                        ]
+                                }
+                        }
                 },
                 "no_flow_overlap": {
                         "type": "boolean",
@@ -1112,8 +1236,62 @@ You should get the schema of the script or flow before updating the schedule to 
                         "description": "Whether the WebSocket error handler is muted"
                 },
                 "retry": {
-                        "$ref": "../../openflow.openapi.yaml#/components/schemas/Retry",
-                        "description": "The retry configuration for the schedule"
+                        "type": "object",
+                        "description": "Retry configuration for failed module executions",
+                        "properties": {
+                                "constant": {
+                                        "type": "object",
+                                        "description": "Retry with constant delay between attempts",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "description": "Seconds to wait between retries"
+                                                }
+                                        }
+                                },
+                                "exponential": {
+                                        "type": "object",
+                                        "description": "Retry with exponential backoff (delay doubles each time)",
+                                        "properties": {
+                                                "attempts": {
+                                                        "type": "integer",
+                                                        "description": "Number of retry attempts"
+                                                },
+                                                "multiplier": {
+                                                        "type": "integer",
+                                                        "description": "Multiplier for exponential backoff"
+                                                },
+                                                "seconds": {
+                                                        "type": "integer",
+                                                        "minimum": 1,
+                                                        "description": "Initial delay in seconds"
+                                                },
+                                                "random_factor": {
+                                                        "type": "integer",
+                                                        "minimum": 0,
+                                                        "maximum": 100,
+                                                        "description": "Random jitter percentage (0-100) to avoid thundering herd"
+                                                }
+                                        }
+                                },
+                                "retry_if": {
+                                        "type": "object",
+                                        "description": "Conditional retry based on error or result",
+                                        "properties": {
+                                                "expr": {
+                                                        "type": "string",
+                                                        "description": "JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"
+                                                }
+                                        },
+                                        "required": [
+                                                "expr"
+                                        ]
+                                }
+                        }
                 },
                 "no_flow_overlap": {
                         "type": "boolean",

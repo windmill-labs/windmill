@@ -12,9 +12,9 @@
 		PhoneIncoming,
 		RefreshCcw,
 		Repeat,
-		Save,
 		Square,
-		Pin
+		Pin,
+		Save
 	} from 'lucide-svelte'
 	import Popover from '../../Popover.svelte'
 	import type { FlowEditorContext } from '../types'
@@ -128,6 +128,7 @@
 		{/if}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect
+				isPreprocessor={module.id == 'preprocessor'}
 				placeholder={customUi?.tagSelectPlaceholder}
 				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
@@ -175,6 +176,7 @@
 
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect
+			isPreprocessor={module.id == 'preprocessor'}
 			placeholder={customUi?.tagSelectPlaceholder}
 			noLabel={customUi?.tagSelectNoLabel}
 			nullTag={tag}

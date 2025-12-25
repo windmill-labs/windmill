@@ -25,6 +25,7 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		id="create-flow-button"
 		aiId="flows-create-actions-flow"
 		aiDescription="Create a new flow"
 		unifiedSize="lg"

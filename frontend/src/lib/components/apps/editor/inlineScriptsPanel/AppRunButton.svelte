@@ -1,13 +1,9 @@
 <script lang="ts">
 	import { getContext } from 'svelte'
-	import type {
-		AppEditorContext,
-		AppViewerContext,
-		CancelablePromise,
-		InlineScript
-	} from '../../types'
+	import type { AppEditorContext, AppViewerContext, CancelablePromise } from '../../types'
 
 	import RunButtonInner from '$lib/components/RunButton.svelte'
+	import type { InlineScript } from '../../sharedTypes'
 
 	interface Props {
 		id: string

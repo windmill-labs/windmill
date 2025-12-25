@@ -2,13 +2,15 @@
 	import { executeRunnable } from '../apps/components/helpers/executeRunnable'
 	import { userStore } from '$lib/stores'
 	import { waitJob } from '../waitJob'
-	import type { HiddenRunnable, JobById } from '../apps/types'
+	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
+	import type { Runnable } from './rawAppPolicy'
+	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
 		path: string
-		runnables: Record<string, HiddenRunnable>
+		runnables: Record<string, Runnable>
 		jobs?: string[]
 		jobsById?: Record<string, JobById>
 		editor: boolean
@@ -41,12 +43,27 @@
 				result = e
 			}
 
-			if (event.data.type == 'runBg') {
+			if (event.data.type == 'backend') {
 				respond({ result, error })
+			}
+			if (editor) {
+				try {
+					let jobInfo = await JobService.getCompletedJobTiming({ workspace, id: uuid })
+					if (jobInfo.started_at) {
+						jobsById[uuid] = {
+							...(jobsById[uuid] ?? {}),
+							created_at: new Date(jobInfo.created_at).getTime(),
+							started_at: new Date(jobInfo.started_at).getTime(),
+							duration_ms: jobInfo.duration_ms
+						}
+					}
+				} catch (e) {
+					console.error('Error getting job info', e)
+				}
 			}
 			return result
 		}
-		if (event.data.type == 'runBg' || event.data.type == 'runBgAsync') {
+		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
@@ -59,21 +76,29 @@
 					runnable_id,
 					{
 						component: runnable_id,
-						args: data.v,
-						force_viewer_allow_user_resources: Object.keys(runnable.fields).filter(
-							(k) => runnable.fields[k]?.type == 'user' && runnable.fields[k]?.allowUserResources
-						),
-						force_viewer_one_of_fields: {},
-						force_viewer_static_fields: Object.fromEntries(
-							Object.entries(runnable.fields)
-								.filter(([k, v]) => v.type == 'static')
-								.map(([k, v]) => [k, v?.['value']])
-						)
+						args: data.v ?? {},
+						force_viewer_allow_user_resources: editor
+							? undefinedIfEmpty(
+									Object.keys(runnable?.fields ?? {}).filter(
+										(k) =>
+											runnable?.fields?.[k]?.type == 'user' &&
+											runnable?.fields?.[k]?.allowUserResources
+									)
+								)
+							: undefined,
+						force_viewer_one_of_fields: undefined,
+						force_viewer_static_fields: editor
+							? Object.fromEntries(
+									Object.entries(runnable?.fields ?? {})
+										.filter(([k, v]) => v.type == 'static')
+										.map(([k, v]) => [k, v?.['value']])
+								)
+							: undefined
 					},
 					undefined
 				)
 				let job: JobById = { component: runnable_id, created_at: Date.now(), job: uuid }
-				if (event.data.type == 'runBgAsync') {
+				if (event.data.type == 'backendAsync') {
 					let result = uuid
 					respond({ result })
 				}
@@ -90,7 +115,7 @@
 			} else if (event.data.type == 'waitJob') {
 				await respondWithResult(data.jobId)
 			} else if (event.data.type == 'getJob') {
-				const job = JobService.getJob({ workspace, id: data.jobId })
+				const job = await JobService.getJob({ workspace, id: data.jobId })
 				respond({ result: job })
 			} else {
 				console.error('No runnable found for', runnable_id)

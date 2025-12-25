@@ -1,0 +1,120 @@
+{
+    "summary": "Data enrichment flow",
+    "value": {
+        "modules": [
+            {
+                "id": "get_item",
+                "summary": "Get item from input",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(item_id: string) {\n  // Mock item lookup\n  return {\n    id: item_id,\n    name: \"Product \" + item_id,\n    sku: \"SKU-\" + item_id\n  };\n}",
+                    "input_transforms": {
+                        "item_id": {
+                            "type": "javascript",
+                            "expr": "flow_input.item_id"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "enrich_price",
+                "summary": "Call pricing API",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(item: any) {\n  // Mock pricing API call\n  return {\n    itemId: item.id,\n    price: 99.99,\n    currency: \"USD\",\n    discount: 10\n  };\n}",
+                    "input_transforms": {
+                        "item": {
+                            "type": "javascript",
+                            "expr": "results.get_item"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "enrich_inventory",
+                "summary": "Call inventory API",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(item: any) {\n  // Mock inventory API call\n  return {\n    itemId: item.id,\n    inStock: true,\n    quantity: 150,\n    warehouse: \"WH-001\"\n  };\n}",
+                    "input_transforms": {
+                        "item": {
+                            "type": "javascript",
+                            "expr": "results.get_item"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "enrich_reviews",
+                "summary": "Call reviews API",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(item: any) {\n  // Mock reviews API call\n  return {\n    itemId: item.id,\n    averageRating: 4.5,\n    reviewCount: 127,\n    topReview: \"Great product!\"\n  };\n}",
+                    "input_transforms": {
+                        "item": {
+                            "type": "javascript",
+                            "expr": "results.get_item"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "combine_data",
+                "summary": "Combine all enrichment data",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(item: any, price: any, inventory: any, reviews: any) {\n  return {\n    ...item,\n    pricing: price,\n    inventory: inventory,\n    reviews: reviews\n  };\n}",
+                    "input_transforms": {
+                        "item": {
+                            "type": "javascript",
+                            "expr": "results.get_item"
+                        },
+                        "price": {
+                            "type": "javascript",
+                            "expr": "results.enrich_price"
+                        },
+                        "inventory": {
+                            "type": "javascript",
+                            "expr": "results.enrich_inventory"
+                        },
+                        "reviews": {
+                            "type": "javascript",
+                            "expr": "results.enrich_reviews"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "return_result",
+                "summary": "Return final result",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(enriched_item: any) {\n  return {\n    success: true,\n    data: enriched_item,\n    enrichedAt: new Date().toISOString()\n  };\n}",
+                    "input_transforms": {
+                        "enriched_item": {
+                            "type": "javascript",
+                            "expr": "results.combine_data"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+            "item_id": {
+                "type": "string",
+                "description": "The ID of the item to enrich"
+            }
+        },
+        "required": ["item_id"],
+        "type": "object"
+    }
+}

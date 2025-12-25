@@ -5,12 +5,12 @@ import { getInsertInput } from '../components/display/dbtable/queries/insert'
 import { getSelectInput } from '../components/display/dbtable/queries/select'
 import { getUpdateInput } from '../components/display/dbtable/queries/update'
 import { getPrimaryKeys, type ColumnDef } from '../components/display/dbtable/utils'
-import type { AppInput, Runnable } from '../inputType'
+import { isRunnableByName, isRunnableByPath, type AppInput, type Runnable } from '../inputType'
 import type { App } from '../types'
 import {
 	computeS3FileInputPolicy,
 	computeWorkspaceS3FileInputPolicy,
-	computeS3ImageViewerPolicy
+	computeS3FileViewerPolicy
 } from './appUtilsS3'
 import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 import type { Policy } from '$lib/gen'
@@ -145,7 +145,7 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 				const props =
 					c.type === 'schemaformcomponent'
 						? (c.componentInput as any)?.value?.properties
-						: (c.componentInput as any)?.runnable?.type === 'runnableByName'
+						: isRunnableByName((c.componentInput as any)?.runnable)
 							? (c.componentInput as any)?.runnable?.inlineScript?.schema?.properties
 							: (c.componentInput as any)?.runnable?.schema?.properties
 				return (
@@ -165,11 +165,16 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	}
 
 	const s3FileKeys = items
-		.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
+		.filter(
+			(x) =>
+				(x.data as AppComponent).type === 'imagecomponent' ||
+				(x.data as AppComponent).type === 'pdfcomponent' ||
+				(x.data as AppComponent).type === 'downloadcomponent'
+		)
 		.map((x) => {
 			const c = x.data as AppComponent
 			const config = c.configuration
-			return computeS3ImageViewerPolicy(config)
+			return computeS3FileViewerPolicy(config)
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 
@@ -181,7 +186,7 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	}
 }
 
-async function processRunnable(
+export async function processRunnable(
 	id: string,
 	runnable: Runnable,
 	fields: Record<string, any>,
@@ -195,7 +200,7 @@ async function processRunnable(
 		})
 		.filter(Boolean) as string[]
 
-	if (runnable?.type == 'runnableByName') {
+	if (isRunnableByName(runnable)) {
 		let hex = await hash(runnable.inlineScript?.content)
 		console.debug('hex', hex, id)
 		return [
@@ -206,7 +211,7 @@ async function processRunnable(
 				allow_user_resources: allowUserResources
 			}
 		]
-	} else if (runnable?.type == 'runnableByPath') {
+	} else if (isRunnableByPath(runnable)) {
 		let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
 		return [
 			`${id}:${prefix}/${runnable.path}`,

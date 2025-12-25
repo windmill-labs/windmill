@@ -9,6 +9,7 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
+	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
@@ -212,14 +213,14 @@
 					Stop
 				</Button>
 			</div>
-		{:else if aiChatManager.flowAiChatHelpers?.hasDiff()}
+		{:else if aiChatManager.flowAiChatHelpers?.hasPendingChanges()}
 			<div class="absolute -top-10 w-full flex flex-row justify-center gap-2">
 				<Button
 					startIcon={{ icon: CheckIcon }}
 					size="xs"
 					variant="default"
 					btnClasses="bg-green-500 hover:bg-green-600 text-white hover:text-white"
-					on:click={() => {
+					onclick={() => {
 						aiChatManager.flowAiChatHelpers?.acceptAllModuleActions()
 					}}
 				>
@@ -230,7 +231,7 @@
 					size="xs"
 					variant="default"
 					btnClasses="dark:opacity-50 opacity-60 hover:opacity-100"
-					on:click={() => {
+					onclick={() => {
 						aiChatManager.flowAiChatHelpers?.rejectAllModuleActions()
 					}}
 				>
@@ -259,8 +260,11 @@
 						<Markdown md={disabledMessage} />
 					</div>
 				{:else}
-					<div class="flex flex-row gap-2 min-w-0">
+					<div class="flex flex-row gap-2 min-w-0 flex-wrap items-center">
 						<ChatMode />
+						{#if aiChatManager.mode === AIMode.APP}
+							<DatatableCreationPolicy />
+						{/if}
 						<ProviderModelSelector />
 					</div>
 				{/if}

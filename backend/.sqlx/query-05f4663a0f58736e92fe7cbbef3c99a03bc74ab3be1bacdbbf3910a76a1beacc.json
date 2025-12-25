@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT name FROM group_ WHERE workspace_id = $1 UNION SELECT name FROM instance_group ORDER BY name asc",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "05f4663a0f58736e92fe7cbbef3c99a03bc74ab3be1bacdbbf3910a76a1beacc"
+}

@@ -23,7 +23,7 @@
 		setDropdownWidthToButtonWidth = false,
 		children,
 		class: className,
-		placement = 'bottom',
+		placement = 'bottom-start',
 		isEditor = false,
 		onAddDraftTrigger,
 		onAddScheduledPoll,
@@ -87,8 +87,7 @@
 		{
 			displayName: 'Email',
 			action: () => onAddDraftTrigger?.('email'),
-			icon: triggerIconMap.email,
-			extra: cloudHosted ? extra : undefined
+			icon: triggerIconMap.email
 		},
 		{
 			displayName: 'Scheduled Poll',

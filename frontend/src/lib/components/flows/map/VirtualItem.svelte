@@ -7,13 +7,9 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses } from '$lib/components/graph'
+	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
 
 	interface Props {
 		label?: string | undefined
@@ -58,7 +54,7 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
-		action: actionProp = undefined,
+		action = undefined,
 		icon,
 		onUpdateMock,
 		onEditInput,
@@ -77,7 +73,6 @@
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
 
-	let action = $derived(actionProp ?? (label === 'Input' ? getAiModuleAction(label) : undefined))
 	let hoverButton = $state(false)
 
 	const outputType = $derived(
@@ -91,7 +86,9 @@
 					: undefined
 			: undefined
 	)
-	let colorClasses = $derived(getNodeColorClasses(outputType ?? '_VirtualItem', selected))
+	// AI action colors take priority over execution state, fallback to _VirtualItem
+	const effectiveState = $derived(aiActionToNodeState(action) ?? outputType ?? '_VirtualItem')
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 </script>
 
 <VirtualItemWrapper
@@ -99,14 +96,10 @@
 	{selectable}
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
-	className={editMode ? aiModuleActionToBgColor(action) : ''}
 	{colorClasses}
 	on:select
 >
 	{#snippet children({ hover })}
-		{#if editMode}
-			<ModuleAcceptReject id="Input" {action} />
-		{/if}
 		<div class="flex flex-col w-full">
 			<div
 				class="flex flex-row justify-between {colorClasses.outline} {center

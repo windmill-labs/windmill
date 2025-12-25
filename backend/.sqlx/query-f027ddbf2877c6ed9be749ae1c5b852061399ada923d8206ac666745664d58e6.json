@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            SELECT \n                                schema \n                            FROM \n                                flow \n                            WHERE \n                                workspace_id = $1 AND \n                                path = $2\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "schema",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f027ddbf2877c6ed9be749ae1c5b852061399ada923d8206ac666745664d58e6"
+}

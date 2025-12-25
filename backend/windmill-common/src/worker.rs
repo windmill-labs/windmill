@@ -34,6 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -264,6 +265,12 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
+    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
     /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
     /// This flag is updated during worker initialization by checking the minimum version across all workers
@@ -272,6 +279,7 @@ lazy_static::lazy_static! {
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
@@ -406,7 +414,7 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
-                canceled_by, canceled_reason, worker
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
@@ -422,17 +430,13 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ), delete_debounce AS NOT MATERIALIZED (
-            DELETE FROM debounce_key
-            USING j
-            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
@@ -505,7 +509,10 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+    let mut file = File::create(&path).map_err(|e| {
+        tracing::error!("Failed to create file at {path}: {:?}", &e);
+        e
+    })?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)
@@ -697,6 +704,7 @@ pub struct TypeScriptAnnotations {
 pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]
@@ -842,7 +850,7 @@ impl SqlResultCollectionStrategy {
                 }
             }
             (true, false) => match values.into_iter().last() {
-                Some(rows) => Ok(to_raw_value(&rows)),
+                Some(rows) => Ok(merge_raw_values_to_array(rows.as_slice())),
                 None => Ok(null()),
             },
             (false, true) => {
@@ -850,9 +858,11 @@ impl SqlResultCollectionStrategy {
                     .into_iter()
                     .map(|rows| rows.into_iter().next().unwrap_or_else(null))
                     .collect::<Vec<_>>();
-                Ok(to_raw_value(&values))
+                Ok(merge_raw_values_to_array(values.as_slice()))
             }
-            (false, false) => Ok(to_raw_value(&values)),
+            (false, false) => Ok(merge_nested_raw_values_to_array(
+                values.iter().map(|x| x.iter()),
+            )),
         }
     }
 }
@@ -1231,19 +1241,16 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version(conn: &Connection) -> bool {
-    tracing::debug!("Updating min version");
-    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
+pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
+    use crate::utils::GIT_VERSION;
 
-    let cur_version = GIT_SEM_VERSION.clone();
-
-    let min_version = match conn {
+    let fetched = match conn {
         Connection::Sql(pool) => {
             // fetch all pings with a different version than self from the last 5 minutes.
             let pings = sqlx::query_scalar!(
                 "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
                 GIT_VERSION
-            ).fetch_all(pool).await.unwrap_or_default();
+            ).fetch_all(pool).await?;
 
             pings
                 .iter()
@@ -1252,10 +1259,34 @@ pub async fn update_min_version(conn: &Connection) -> bool {
                     semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
                 })
                 .min()
-                .unwrap_or_else(|| cur_version.clone())
         }
-        Connection::Http(_) => {
-            // TODO: get min version from server, for now we use the current version. Min version should be of no interest for http mode workers
+        Connection::Http(client) => {
+            // Fetch min version from server
+            Some(
+                client
+                    .get::<String>("/api/agent_workers/get_min_version")
+                    .await
+                    .map(|v| Version::parse(&v))??,
+            )
+        }
+    };
+
+    Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
+}
+
+pub async fn update_min_version(conn: &Connection) -> bool {
+    tracing::debug!("Updating min version");
+    use crate::utils::GIT_SEM_VERSION;
+
+    let cur_version = GIT_SEM_VERSION.clone();
+
+    let min_version = match get_min_version(conn).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch min version: {:#?}, using current version",
+                e
+            );
             cur_version.clone()
         }
     };
@@ -1264,6 +1295,14 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
+    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
+        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
+
+    // Workspace dependencies feature requires minimum version across all workers
+    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
+        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
+            .unwrap();
     // Debouncing feature requires minimum version 1.566.0 across all workers
     // This ensures all workers can handle debounce keys and stale data accumulation
     *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
@@ -1271,6 +1310,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
+    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version
@@ -1947,6 +1987,115 @@ pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
 pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}
+
+pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
+    requirements
+        .as_ref()
+        .lines()
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
+        .map(String::from)
+        .collect()
+}
+
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
+#[repr(u32)]
+pub enum PyVAlias {
+    Py310 = 10,
+    Py311,
+    #[default]
+    Py312,
+    Py313,
+}
+
+impl Into<pep440_rs::Version> for PyVAlias {
+    fn into(self) -> pep440_rs::Version {
+        pep440_rs::Version::new([self.major() as u64, self as u64])
+    }
+}
+
+impl Into<u32> for PyVAlias {
+    fn into(self) -> u32 {
+        self.major() * 100 + self as u32
+    }
+}
+
+impl PyVAlias {
+    pub fn all<T: From<PyVAlias>>() -> Vec<T> {
+        use PyVAlias::*;
+        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+    }
+    // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
+    fn major(&self) -> u32 {
+        use PyVAlias::*;
+        match self {
+            Py310 | Py311 | Py312 | Py313 => 3,
+            // Py400 | Py401 => 4
+        }
+    }
+
+    /// Converts numeric format to alias
+    /// Example:
+    /// 310u32 (in) -> PyVAlias::Py310 (out)
+    pub fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
+        use PyVAlias::*;
+        match numeric.to_string().as_str() {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            _ => None,
+        }
+    }
+}
+
+/// Parse lockfile for assigned python version.
+/// If not found returns None
+pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
+    requirements_lines: &[S],
+) -> Option<pep440_rs::Version> {
+    let parse_version = |s: &str| -> Option<pep440_rs::Version> {
+        // Possible inputs:
+        // V2:
+        // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
+        //
+        // V1:
+        // # py311 or #py311
+        let version_unparsed = s
+            .to_owned()
+            // Remove whitespaces. That leaves us with:
+            // V2: #py:3.11.0
+            // V1: #py311
+            //
+            // Remove #
+            // V2: py:3.11.0
+            // V1: py311
+            //
+            // Remove :
+            // V2: py3.11.0
+            // V1: py311
+            .replace([' ', '#', ':'], "")
+            // Remove "py"
+            // V2: 3.11.0
+            // V1: 311
+            .replace("py", "");
+
+        // We will support reading V1 syntax, but it will be overwritten next deploy
+        PyVAlias::try_from_v1(&version_unparsed)
+            .map(PyVAlias::into)
+            .or(pep440_rs::Version::from_str(&version_unparsed)
+                .ok()
+                .map(pep440_rs::Version::into))
+    };
+
+    requirements_lines
+        .iter()
+        .find(|s| {
+            let s = s.as_ref();
+            s.starts_with("#py") || s.starts_with("# py")
+        })
+        .map(S::as_ref)
+        .and_then(parse_version)
 }
 
 #[cfg(test)]

@@ -656,8 +656,8 @@
 
 	let appEditorTutorial: AppEditorTutorial | undefined = $state(undefined)
 
-	export function toggleTutorial() {
-		appEditorTutorial?.toggleTutorial()
+	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
+		appEditorTutorial?.runTutorialById(id, options)
 	}
 
 	let appReportingDrawerOpen = $state(false)
@@ -676,6 +676,7 @@
 			document.documentElement.classList.remove('dark')
 		}
 		$darkMode = newDarkMode ?? globalDarkMode
+		$app.darkMode = newDarkMode
 	}
 
 	let priorDarkMode = document.documentElement.classList.contains('dark')

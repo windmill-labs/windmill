@@ -83,7 +83,7 @@ export type BaseComponent<T extends string> = {
 }
 
 export type RecomputeOthersSource = {
-	recomputeIds: string[] | undefined
+	recomputeIds?: string[] | undefined
 }
 
 export type CustomComponentConfig = {
@@ -215,6 +215,7 @@ export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
+export type JobProgressBarComponent = BaseComponent<'jobprogressbarcomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> &
@@ -345,6 +346,7 @@ export type TypedComponent =
 	| JobIdLogComponent
 	| FlowStatusComponent
 	| JobIdFlowStatusComponent
+	| JobProgressBarComponent
 	| TextInputComponent
 	| QuillComponent
 	| CodeInputComponent
@@ -818,6 +820,24 @@ const onErrorClick = {
 	}
 } as const
 
+const clearFormInputs = {
+	type: 'oneOf',
+	tooltip: 'When to clear the form inputs',
+	selected: 'never',
+	labels: {
+		never: 'Never',
+		onSuccess: 'On success',
+		onSubmit: 'On submit',
+		onError: 'On error'
+	},
+	configuration: {
+		never: {},
+		onSuccess: {},
+		onSubmit: {},
+		onError: {}
+	}
+} as const
+
 const paginationOneOf = {
 	type: 'oneOf',
 	selected: 'auto',
@@ -1276,6 +1296,26 @@ export const components = {
 			}
 		}
 	},
+	jobprogressbarcomponent: {
+		name: 'Progress Bar by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/progress_bar`,
+		dims: '2:2-6:2' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display progress from'
+				}
+			}
+		}
+	},
 	containercomponent: {
 		name: 'Container',
 		icon: BoxSelect,
@@ -1620,6 +1660,9 @@ export const components = {
 						accept: '*',
 						convertTo: 'base64'
 					},
+					fileUploadS3: {
+						accept: '*'
+					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
 				filename: {
@@ -1703,7 +1746,8 @@ export const components = {
 				},
 				onSuccess: onSuccessClick,
 				onSubmit: onSubmitClick,
-				onError: onErrorClick
+				onError: onErrorClick,
+				clearFormInputs
 			}
 		}
 	},
@@ -1754,6 +1798,7 @@ export const components = {
 				onSuccess: onSuccessClick,
 				onSubmit: onSubmitClick,
 				onError: onErrorClick,
+				clearFormInputs,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -3437,8 +3482,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						convertTo: 'base64'
 					},
 					fileUploadS3: {
-						accept: 'image/*',
-						convertTo: 'base64'
+						accept: 'image/*'
 					}
 				},
 				sourceKind: {
@@ -3637,6 +3681,9 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'application/pdf'
 					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},

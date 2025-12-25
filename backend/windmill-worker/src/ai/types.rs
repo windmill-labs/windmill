@@ -2,12 +2,23 @@ use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
+use uuid::Uuid;
 use windmill_common::mcp_client::McpToolSource;
 use windmill_common::{
     ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
+
+/// URL citation annotation for web search results
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct UrlCitation {
+    pub start_index: usize,
+    pub end_index: usize,
+    pub url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -48,6 +59,8 @@ pub struct OpenAIMessage {
     pub tool_call_id: Option<String>,
     #[serde(skip_serializing)]
     pub agent_action: Option<AgentAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<UrlCitation>>,
 }
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
@@ -106,18 +119,85 @@ impl Default for OutputType {
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Memory {
+    Off,
+    Auto {
+        #[serde(default)]
+        context_length: usize,
+        #[serde(default)]
+        memory_id: Option<Uuid>,
+    },
+    Manual {
+        messages: Vec<OpenAIMessage>,
+    },
+}
+
+#[derive(Deserialize)]
+struct AIAgentArgsRaw {
+    provider: ProviderWithResource,
+    system_prompt: Option<String>,
+    user_message: Option<String>,
+    temperature: Option<f32>,
+    max_completion_tokens: Option<u32>,
+    output_schema: Option<OpenAPISchema>,
+    output_type: Option<OutputType>,
+    user_images: Option<Vec<S3Object>>,
+    streaming: Option<bool>,
+    max_iterations: Option<usize>,
+    memory: Option<Memory>,
+    // Legacy field for backward compatibility
+    messages_context_length: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(from = "AIAgentArgsRaw")]
 pub struct AIAgentArgs {
     pub provider: ProviderWithResource,
     pub system_prompt: Option<String>,
-    pub user_message: String,
+    pub user_message: Option<String>,
     pub temperature: Option<f32>,
     pub max_completion_tokens: Option<u32>,
     pub output_schema: Option<OpenAPISchema>,
     pub output_type: Option<OutputType>,
     pub user_images: Option<Vec<S3Object>>,
     pub streaming: Option<bool>,
-    pub messages_context_length: Option<usize>,
+    pub max_iterations: Option<usize>,
+    pub memory: Option<Memory>,
+}
+
+impl From<AIAgentArgsRaw> for AIAgentArgs {
+    fn from(raw: AIAgentArgsRaw) -> Self {
+        // Backward compatibility: if messages_context_length is set, use auto mode
+        let memory = raw.memory.or_else(|| {
+            raw.messages_context_length
+                .map(|context_length| Memory::Auto { context_length, memory_id: None })
+        });
+
+        // Backward compatibility: if context_length is 0, use off mode
+        let memory = memory.map(|memory| {
+            if let Memory::Auto { context_length: 0, .. } = memory {
+                Memory::Off
+            } else {
+                memory
+            }
+        });
+
+        AIAgentArgs {
+            provider: raw.provider,
+            system_prompt: raw.system_prompt,
+            user_message: raw.user_message,
+            temperature: raw.temperature,
+            max_completion_tokens: raw.max_completion_tokens,
+            output_schema: raw.output_schema,
+            output_type: raw.output_type,
+            user_images: raw.user_images,
+            streaming: raw.streaming,
+            max_iterations: raw.max_iterations,
+            memory,
+        }
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -127,6 +207,10 @@ pub struct ProviderResource {
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
     pub region: Option<String>,
+    #[serde(alias = "awsAccessKeyId")]
+    pub aws_access_key_id: Option<String>,
+    #[serde(alias = "awsSecretAccessKey")]
+    pub aws_secret_access_key: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -157,6 +241,14 @@ impl ProviderWithResource {
 
     pub fn get_region(&self) -> Option<&str> {
         self.resource.region.as_deref()
+    }
+
+    pub fn get_aws_access_key_id(&self) -> Option<&str> {
+        self.resource.aws_access_key_id.as_deref()
+    }
+
+    pub fn get_aws_secret_access_key(&self) -> Option<&str> {
+        self.resource.aws_secret_access_key.as_deref()
     }
 }
 

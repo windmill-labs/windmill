@@ -1,9 +1,9 @@
 {
   "name": "@windmill/windmill",
-  "version": "1.584.0",
+  "version": "1.599.2",
   "exports": "./src/index.ts",
   "publish": {
-    "exclude": ["!src", "./s3Types.ts", "./client.ts"]
+    "exclude": ["!src", "./s3Types.ts", "./sqlUtils.ts", "./client.ts"]
   },
   "license": "Apache-2.0"
 }

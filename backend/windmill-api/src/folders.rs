@@ -96,7 +96,7 @@ async fn list_folders(
 
     let rows = sqlx::query_as!(
         Folder,
-        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -117,7 +117,7 @@ async fn list_foldernames(
     let mut tx = user_db.begin(&authed).await?;
 
     let rows = sqlx::query_scalar!(
-        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name desc LIMIT $2 OFFSET $3",
+        "SELECT name FROM folder WHERE workspace_id = $1 ORDER BY name asc LIMIT $2 OFFSET $3",
         w_id,
         per_page as i64,
         offset as i64
@@ -166,7 +166,7 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
         return Err(windmill_common::error::Error::BadRequest(format!(
@@ -216,6 +216,9 @@ async fn create_folder(
     )
     .execute(&mut *tx)
     .await {
+        drop(tx);
+        let mut tx = user_db.begin(&authed).await?;
+
         let exists_for_user = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM folder WHERE name = $1 AND workspace_id = $2 AND $3 = ANY(owners))",
             ng.name,
@@ -258,6 +261,17 @@ async fn create_folder(
         None,
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &ng.name,
+        &authed.username,
+        "create",
+        None,
+    )
+    .await?;
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -328,6 +342,10 @@ async fn update_folder(
     }
 
     sqlb.set("edited_at", "now()");
+
+    // Track whether permission-related fields are being updated
+    let owners_changed = ng.owners.is_some();
+    let extra_perms_changed = ng.extra_perms.is_some();
 
     if !authed.is_admin {
         let prefixed_username = format!("u/{}", authed.username);
@@ -415,6 +433,31 @@ async fn update_folder(
         None,
     )
     .await?;
+
+    // Log permission changes if owners or extra_perms were updated
+    if owners_changed {
+        log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            &name,
+            &authed.username,
+            "update_owners",
+            None,
+        )
+        .await?;
+    }
+    if extra_perms_changed {
+        log_folder_permission_change(
+            &mut *tx,
+            &w_id,
+            &name,
+            &authed.username,
+            "update_acl",
+            None,
+        )
+        .await?;
+    }
+
     tx.commit().await?;
 
     handle_deployment_metadata(
@@ -672,6 +715,17 @@ async fn add_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        "grant_admin",
+        Some(&owner),
+    )
+    .await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -694,8 +748,8 @@ async fn remove_owner(
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
     require_is_owner(&authed, &name)?;
 
-    sqlx::query!(
-        "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 RETURNING name",
+    let folder = sqlx::query!(
+        "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 AND $1 = ANY(owners) RETURNING name",
         owner,
         &name,
         &w_id,
@@ -703,17 +757,28 @@ async fn remove_owner(
     .fetch_optional(&mut *tx)
     .await?;
 
+    if folder.is_none() && write.is_none() {
+        return Ok(format!("Owner {} is already not a member of folder {}", owner, name));
+    }
+
     if let Some(write) = write {
-        sqlx::query(&format!(
-        "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
-         true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
-    ))
+        let old_write = sqlx::query_scalar::<_, Option<bool>>(&format!(
+            "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
+             true) FROM (SELECT (extra_perms->>'{owner}')::boolean as old_val FROM folder WHERE name = $2 AND workspace_id = $3) old \
+             WHERE name = $2 AND workspace_id = $3 RETURNING old.old_val"
+        ))
         .bind(write)
         .bind(&name)
         .bind(&w_id)
         .fetch_optional(&mut *tx)
-        .await?;
+        .await?
+        .flatten();
+
+        if folder.is_none() && old_write.is_none_or(|ow| ow == write) {
+            return Ok(format!("Owner {} is already not a member of folder {} and write permission was already {}", owner, name, write));
+        }
     }
+
 
     audit_log(
         &mut *tx,
@@ -725,6 +790,14 @@ async fn remove_owner(
         Some([("owner", owner.as_str())].into()),
     )
     .await?;
+
+    let change_type = match write {
+        Some(true) => "grant_writer_only",
+        Some(false) => "grant_viewer_only",
+        None => "revoke_all",
+    };
+    log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, change_type, Some(&owner)).await?;
+
     tx.commit().await?;
 
     webhook.send_message(
@@ -733,4 +806,27 @@ async fn remove_owner(
     );
 
     Ok(format!("Removed {} to folder {}", owner, name))
+}
+
+pub async fn log_folder_permission_change<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    folder_name: &str,
+    changed_by: &str,
+    change_type: &str,
+    affected: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        "INSERT INTO folder_permission_history
+         (workspace_id, folder_name, changed_by, change_type, affected)
+         VALUES ($1, $2, $3, $4, $5)",
+        workspace_id,
+        folder_name,
+        changed_by,
+        change_type,
+        affected
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }

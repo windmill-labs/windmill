@@ -83,6 +83,9 @@ jobs:
           RUST_LOG: info
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
+          WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
+          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1          
+          WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
         run: |
           deno --version && bun -v && go version && python3 --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..

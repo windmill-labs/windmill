@@ -14,11 +14,76 @@ use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
 
+// AI timeout configuration constants
+const AI_TIMEOUT_MIN_SECS: u64 = 1;
+const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
+const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
+const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
+const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
+
 lazy_static::lazy_static! {
+    /// AI request timeout in seconds.
+    ///
+    /// This timeout applies to the TOTAL duration of AI HTTP requests,
+    /// including streaming responses. Default is 3600 seconds (1 hour).
+    ///
+    /// Can be configured via AI_REQUEST_TIMEOUT_SECONDS environment variable.
+    /// Valid range: 1-86400 seconds (24 hours).
+    ///   - Minimum (1s): Prevents immediate timeout, allows minimal response time
+    ///   - Maximum (24h): Prevents indefinite hangs while supporting long-running AI operations
+    ///   - Default (1h): Balances responsiveness with support for complex AI tasks
+    ///
+    /// Note: This is a total request timeout, not an idle timeout.
+    /// Long-running streaming responses that exceed this duration will be terminated,
+    /// even if actively receiving data.
+    ///
+    /// CRITICAL: If using a reverse proxy (NGINX, Traefik, etc.), you MUST configure
+    /// proxy timeouts to match or exceed this value. Without proper proxy configuration,
+    /// connections will be terminated prematurely at the proxy layer regardless of this
+    /// backend timeout setting.
+    ///
+    /// Example NGINX configuration:
+    ///   location /api/ {
+    ///     proxy_read_timeout 3600s;  # Must be >= AI_REQUEST_TIMEOUT_SECONDS
+    ///     proxy_send_timeout 3600s;
+    ///     proxy_connect_timeout 60s;
+    ///   }
+    static ref AI_TIMEOUT_SECS: u64 = {
+        match std::env::var("AI_REQUEST_TIMEOUT_SECONDS")
+            .ok()
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            Some(timeout) if timeout >= AI_TIMEOUT_MIN_SECS && timeout <= AI_TIMEOUT_MAX_SECS => {
+                tracing::info!("AI request timeout configured: {}s", timeout);
+                timeout
+            },
+            Some(timeout) => {
+                tracing::warn!(
+                    "AI_REQUEST_TIMEOUT_SECONDS value {} is out of range ({}-{}), using default {}s",
+                    timeout,
+                    AI_TIMEOUT_MIN_SECS,
+                    AI_TIMEOUT_MAX_SECS,
+                    AI_TIMEOUT_DEFAULT_SECS
+                );
+                AI_TIMEOUT_DEFAULT_SECS
+            },
+            None => {
+                tracing::info!(
+                    "AI_REQUEST_TIMEOUT_SECONDS not set, using default {}s",
+                    AI_TIMEOUT_DEFAULT_SECS
+                );
+                AI_TIMEOUT_DEFAULT_SECS
+            },
+        }
+    };
+
     static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
-        .timeout(std::time::Duration::from_secs(60 * 5))
+        .timeout(std::time::Duration::from_secs(*AI_TIMEOUT_SECS))
+        .pool_max_idle_per_host(HTTP_POOL_MAX_IDLE_PER_HOST)
+        .pool_idle_timeout(Some(std::time::Duration::from_secs(HTTP_POOL_IDLE_TIMEOUT_SECS)))
         .user_agent("windmill/beta"))
-        .build().unwrap();
+        .build()
+        .expect("Failed to build AI HTTP client - check system TLS configuration");
 
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 
@@ -68,6 +133,10 @@ struct AIStandardResource {
     api_key: Option<String>,
     organization_id: Option<String>,
     region: Option<String>,
+    #[serde(alias = "awsAccessKeyId")]
+    aws_access_key_id: Option<String>,
+    #[serde(alias = "awsSecretAccessKey")]
+    aws_secret_access_key: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -89,6 +158,9 @@ struct AIRequestConfig {
     pub access_token: Option<String>,
     pub organization_id: Option<String>,
     pub user: Option<String>,
+    pub region: Option<String>,
+    pub aws_access_key_id: Option<String>,
+    pub aws_secret_access_key: Option<String>,
 }
 
 impl AIRequestConfig {
@@ -98,8 +170,18 @@ impl AIRequestConfig {
         w_id: &str,
         resource: AIResource,
     ) -> Result<Self> {
-        let (api_key, access_token, organization_id, base_url, user) = match resource {
+        let (
+            api_key,
+            access_token,
+            organization_id,
+            base_url,
+            user,
+            region,
+            aws_access_key_id,
+            aws_secret_access_key,
+        ) = match resource {
             AIResource::Standard(resource) => {
+                let region = resource.region.clone();
                 let base_url = provider
                     .get_base_url(resource.base_url, resource.region, db)
                     .await?;
@@ -113,8 +195,28 @@ impl AIRequestConfig {
                 } else {
                     None
                 };
+                let aws_access_key_id = if let Some(access_key_id) = resource.aws_access_key_id {
+                    Some(get_variable_or_self(access_key_id, db, w_id).await?)
+                } else {
+                    None
+                };
+                let aws_secret_access_key =
+                    if let Some(secret_access_key) = resource.aws_secret_access_key {
+                        Some(get_variable_or_self(secret_access_key, db, w_id).await?)
+                    } else {
+                        None
+                    };
 
-                (api_key, None, organization_id, base_url, None)
+                (
+                    api_key,
+                    None,
+                    organization_id,
+                    base_url,
+                    None,
+                    region,
+                    aws_access_key_id,
+                    aws_secret_access_key,
+                )
             }
             AIResource::OAuth(resource) => {
                 let user = if let Some(user) = resource.user.clone() {
@@ -125,11 +227,20 @@ impl AIRequestConfig {
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
                 let base_url = provider.get_base_url(None, None, db).await?;
 
-                (None, Some(token), None, base_url, user)
+                (None, Some(token), None, base_url, user, None, None, None)
             }
         };
 
-        Ok(Self { base_url, organization_id, api_key, access_token, user })
+        Ok(Self {
+            base_url,
+            organization_id,
+            api_key,
+            access_token,
+            user,
+            region,
+            aws_access_key_id,
+            aws_secret_access_key,
+        })
     }
 
     async fn get_token_using_oauth(
@@ -186,6 +297,10 @@ impl AIRequestConfig {
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
 
+        // Check if using IAM credentials for Bedrock (instead of bearer token)
+        let use_iam_auth =
+            is_bedrock && self.aws_access_key_id.is_some() && self.aws_secret_access_key.is_some();
+
         // Handle AWS Bedrock transformation
         let (url, body) = if is_bedrock && method != Method::GET {
             let (model, transformed_body, is_streaming) =
@@ -217,7 +332,7 @@ impl AIRequestConfig {
         tracing::debug!("AI request URL: {}", url);
 
         let mut request = HTTP_CLIENT
-            .request(method, url)
+            .request(method.clone(), &url)
             .header("content-type", "application/json");
 
         for (header_name, header_value) in headers.iter() {
@@ -226,22 +341,42 @@ impl AIRequestConfig {
             }
         }
 
+        // For Bedrock with IAM credentials, sign the request using SigV4
+        if use_iam_auth {
+            let region = self.region.as_deref().ok_or_else(|| {
+                Error::internal_err("AWS region must be set for IAM authentication with Bedrock")
+            })?;
+            let signed_headers = bedrock::sign_bedrock_request(
+                method.as_str(),
+                &url,
+                &body,
+                self.aws_access_key_id.as_ref().unwrap(),
+                self.aws_secret_access_key.as_ref().unwrap(),
+                region,
+            )?;
+
+            for (header_name, header_value) in signed_headers {
+                request = request.header(header_name, header_value);
+            }
+        } else {
+            // For non-IAM auth, use bearer token or API key
+            if let Some(api_key) = self.api_key {
+                if is_azure {
+                    request = request.header("api-key", api_key.clone())
+                } else {
+                    request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+                }
+                if is_anthropic {
+                    request = request.header("X-API-Key", api_key);
+                }
+            }
+
+            if let Some(access_token) = self.access_token {
+                request = request.header("authorization", format!("Bearer {}", access_token))
+            }
+        }
+
         request = request.body(body);
-
-        if let Some(api_key) = self.api_key {
-            if is_azure {
-                request = request.header("api-key", api_key.clone())
-            } else {
-                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
-            }
-            if is_anthropic {
-                request = request.header("X-API-Key", api_key);
-            }
-        }
-
-        if let Some(access_token) = self.access_token {
-            request = request.header("authorization", format!("Bearer {}", access_token))
-        }
 
         if let Some(org_id) = self.organization_id {
             request = request.header("OpenAI-Organization", org_id);

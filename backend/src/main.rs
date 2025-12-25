@@ -71,6 +71,9 @@ use windmill_common::worker::CLOUD_HOSTED;
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use monitor::monitor_mem;
 
+#[cfg(any(target_os = "linux"))]
+use crate::cgroups::disable_oom_group;
+
 #[cfg(all(not(target_env = "msvc"), feature = "jemalloc"))]
 use tikv_jemallocator::Jemalloc;
 
@@ -82,11 +85,11 @@ static GLOBAL: Jemalloc = Jemalloc;
 use windmill_common::global_settings::OBJECT_STORE_CONFIG_SETTING;
 
 use windmill_worker::{
-    get_hub_script_content_and_requirements, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR,
-    DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS, DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR,
-    JAVA_CACHE_DIR, NU_CACHE_DIR, POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR,
-    PY312_CACHE_DIR, PY313_CACHE_DIR, RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR,
-    UV_CACHE_DIR,
+    get_hub_script_content_and_requirements, init_worker_internal_server_inline_utils,
+    BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, CSHARP_CACHE_DIR, DENO_CACHE_DIR, DENO_CACHE_DIR_DEPS,
+    DENO_CACHE_DIR_NPM, GO_BIN_CACHE_DIR, GO_CACHE_DIR, JAVA_CACHE_DIR, NU_CACHE_DIR,
+    POWERSHELL_CACHE_DIR, PY310_CACHE_DIR, PY311_CACHE_DIR, PY312_CACHE_DIR, PY313_CACHE_DIR,
+    RUBY_CACHE_DIR, RUST_CACHE_DIR, TAR_JAVA_CACHE_DIR, UV_CACHE_DIR,
 };
 
 use crate::monitor::{
@@ -108,6 +111,7 @@ const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
 
+mod cgroups;
 #[cfg(feature = "private")]
 pub mod ee;
 mod ee_oss;
@@ -271,8 +275,8 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
             let job_id = Uuid::new_v4();
             let job_dir = format!("{}/cache_init/{}", TMP_DIR, job_id);
             create_dir_all(&job_dir)?;
-            if let Some(lockfile) = res.lockfile {
-                let _ = windmill_worker::prepare_job_dir(&lockfile, &job_dir).await?;
+            if let Some(lock) = res.lockfile {
+                let _ = windmill_worker::prepare_job_dir(&lock, &job_dir).await?;
                 let envs = windmill_worker::get_common_bun_proc_envs(None).await;
                 let _ = windmill_worker::install_bun_lockfile(
                     &mut 0,
@@ -292,7 +296,7 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
 
                 if let Err(e) = windmill_worker::prebundle_bun_script(
                     &res.content,
-                    Some(&lockfile),
+                    &lock,
                     &path,
                     &job_id,
                     "admins",
@@ -366,7 +370,7 @@ async fn windmill_main() -> anyhow::Result<()> {
     update_ca_certificates_if_requested();
 
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info")
+        unsafe { std::env::set_var("RUST_LOG", "info") }
     }
 
     if let Err(_e) = rustls::crypto::ring::default_provider().install_default() {
@@ -541,6 +545,13 @@ async fn windmill_main() -> anyhow::Result<()> {
     }
 
     let worker_mode = num_workers > 0;
+
+    if worker_mode {
+        #[cfg(any(target_os = "linux"))]
+        if let Err(e) = disable_oom_group() {
+            tracing::warn!("failed to disable oom group: {:?}", e);
+        }
+    }
 
     let conn = if mode == Mode::Agent {
         conn
@@ -785,9 +796,16 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
+        let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
         let server_f = async {
             if !is_agent {
                 if let Some(db) = conn.as_sql() {
+                    if worker_mode {
+                        init_worker_internal_server_inline_utils(
+                            worker_internal_server_killpill_rx,
+                            base_internal_url.clone(),
+                        )?;
+                    }
                     windmill_api::run_server(
                         db.clone(),
                         index_reader,
@@ -1282,23 +1300,36 @@ Windmill Community Edition {GIT_VERSION}
                         tracing::error!("Error waiting for monitor handle: {e:#}")
                     }
                 }
-                Connection::Http(_) => loop {
-                    tokio::select! {
-                        _ = monitor_killpill_rx.recv() => {
-                            tracing::info!("Received killpill, exiting");
-                            break;
-                        },
-                        _ = tokio::time::sleep(Duration::from_secs(12 * 60 * 60)) => {
-                            tracing::info!("Reloading config after 12 hours");
-                            initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
-                            if let Err(e) = reload_license_key(&conn).await {
-                                tracing::error!("Failed to reload license key on agent: {e:#}");
+                ref conn @ Connection::Http(_) => {
+                    pub const RELOAD_FREQUENCY: Duration = Duration::from_secs(12 * 60 * 60);
+                    let mut last_time_config_reload: Instant = Instant::now();
+
+                    loop {
+                        tokio::select! {
+                            _ = monitor_killpill_rx.recv() => {
+                                tracing::info!("Received killpill, exiting");
+                                break;
+                            },
+                            _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                                // Reload config every 12h
+                                if last_time_config_reload.elapsed() > RELOAD_FREQUENCY {
+                                    last_time_config_reload = Instant::now();
+                                    tracing::info!("Reloading config after 12 hours");
+                                    initial_load(&conn, tx.clone(), worker_mode, server_mode, #[cfg(feature = "parquet")] disable_s3_store).await;
+                                    if let Err(e) = reload_license_key(&conn).await {
+                                        tracing::error!("Failed to reload license key on agent: {e:#}");
+                                    }
+                                    #[cfg(feature = "enterprise")]
+                                    ee_oss::verify_license_key().await;
+                                }
+
+                                // update min version explicitly.
+                                // for sql connection it is the part of monitor_db.
+                                windmill_common::worker::update_min_version(conn).await;
                             }
-                            #[cfg(feature = "enterprise")]
-                            ee_oss::verify_license_key().await;
-                        }
+                        };
                     }
-                },
+                }
             };
 
             tracing::info!("Monitor exited");

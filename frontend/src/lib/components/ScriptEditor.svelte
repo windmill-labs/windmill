@@ -23,7 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
-		Clipboard,
+		Copy,
 		CornerDownLeft,
 		ExternalLink,
 		Github,
@@ -56,6 +56,11 @@
 	import GitRepoResourcePicker from './GitRepoResourcePicker.svelte'
 	import { updateDelegateToGitRepoConfig, insertAdditionalInventories } from '$lib/ansibleUtils'
 	import { copilotInfo } from '$lib/aiStore'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
+	import Toggle from './Toggle.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
+	import { resource, watch } from 'runed'
 
 	interface Props {
 		// Exported
@@ -124,6 +129,8 @@
 	}: Props = $props()
 
 	let initialArgs = structuredClone($state.snapshot(args))
+	let jsonView = $state(false)
+	let schemaHeight = $state(0)
 
 	$effect.pre(() => {
 		if (schema == undefined) {
@@ -143,6 +150,12 @@
 		shellcheck: false
 	})
 
+	let inferAssetsRes = resource([() => lang, () => code, () => code], () => inferAssets(lang, code))
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => inferAssetsRes.current?.sql_queries,
+		() => $workspaceStore
+	)
+
 	const dispatch = createEventDispatcher()
 
 	$effect(() => {
@@ -151,35 +164,34 @@
 			dispatch('change', { code, schema })
 	})
 
-	$effect(() => {
-		;[lang, code]
-		untrack(() => {
-			inferAssets(lang, code).then((newAssets: AssetWithAltAccessType[]) => {
-				for (const asset of newAssets) {
-					const old = assets?.find((a) => assetEq(a, asset))
-					if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
-				}
-				assets = newAssets
-			})
+	watch(
+		() => inferAssetsRes.current,
+		() => {
+			if (!inferAssetsRes.current || inferAssetsRes.current?.status === 'error') return
+			let newAssets = inferAssetsRes.current.assets as AssetWithAltAccessType[]
+			for (const asset of newAssets) {
+				const old = assets?.find((a) => assetEq(a, asset))
+				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+			}
+			if (!deepEqual(assets, newAssets)) assets = newAssets
+		}
+	)
 
-			if (lang === 'ansible') {
-				inferAnsibleExecutionMode(code).then((v) => {
-					if (
-						v !== undefined &&
-						(v.delegate_to_git_repo_details === null ||
-							v.delegate_to_git_repo_details.resource !==
-								ansibleAlternativeExecutionMode?.resource ||
-							v.delegate_to_git_repo_details.playbook !==
-								ansibleAlternativeExecutionMode?.playbook ||
-							v.delegate_to_git_repo_details.inventories_location !==
-								ansibleAlternativeExecutionMode?.inventories_location ||
-							v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
-							v.git_ssh_identity !== ansibleGitSshIdentity)
-					) {
-						ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
-						ansibleGitSshIdentity = v.git_ssh_identity
-					}
-				})
+	watch([() => code, () => lang], () => {
+		if (lang !== 'ansible') return
+		inferAnsibleExecutionMode(code).then((v) => {
+			if (
+				v !== undefined &&
+				(v.delegate_to_git_repo_details === null ||
+					v.delegate_to_git_repo_details.resource !== ansibleAlternativeExecutionMode?.resource ||
+					v.delegate_to_git_repo_details.playbook !== ansibleAlternativeExecutionMode?.playbook ||
+					v.delegate_to_git_repo_details.inventories_location !==
+						ansibleAlternativeExecutionMode?.inventories_location ||
+					v.delegate_to_git_repo_details.commit !== ansibleAlternativeExecutionMode?.commit ||
+					v.git_ssh_identity !== ansibleGitSshIdentity)
+			) {
+				ansibleAlternativeExecutionMode = v.delegate_to_git_repo_details
+				ansibleGitSshIdentity = v.git_ssh_identity
 			}
 		})
 	})
@@ -434,7 +446,9 @@
 		disableCollaboration()
 		aiChatManager.scriptEditorApplyCode = undefined
 		aiChatManager.scriptEditorShowDiffMode = undefined
+		aiChatManager.scriptEditorGetLintErrors = undefined
 		aiChatManager.scriptEditorOptions = undefined
+		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
 	})
 
@@ -489,10 +503,10 @@
 	}
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal(lastDeployedCode ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+		diffEditor?.showWithModelAndOriginal(lastDeployedCode ?? '', model)
 		editor?.hide()
 	}
 
@@ -522,6 +536,9 @@
 				await editor?.reviewAndApplyCode(code, opts)
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
+			aiChatManager.scriptEditorGetLintErrors = () => {
+				return editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
 		})
 	})
 </script>
@@ -552,7 +569,7 @@
 
 		<Button
 			color="light"
-			startIcon={{ icon: Clipboard }}
+			startIcon={{ icon: Copy }}
 			iconOnly
 			on:click={() => copyToClipboard(collabUrl())}
 		/>
@@ -572,7 +589,7 @@
 				}}
 				on:showDiffMode={showDiffMode}
 				on:hideDiffMode={hideDiffMode}
-				customUi={{ ...customUi?.editorBar, aiGen: false }}
+				customUi={customUi?.editorBar}
 				collabLive={wsProvider?.shouldConnect}
 				{collabMode}
 				{validCode}
@@ -585,7 +602,6 @@
 				collabUsers={peers}
 				kind={asKind(kind)}
 				{template}
-				{diffEditor}
 				{args}
 				{noHistory}
 				{saveToWorkspace}
@@ -708,29 +724,50 @@
 							{/if}
 						</div>
 					{/if}
+					<div class="absolute top-2 right-2"
+						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
+					>
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
 					<Pane size={33}>
-						<div class="px-4">
-							<div class="break-words relative font-sans">
-								{#key argsRender}
-									<SchemaForm
-										helperScript={{
-											source: 'inline',
-											code,
-											//@ts-ignore
-											lang
-										}}
-										compact
-										{schema}
-										bind:args
-										bind:isValid
-										noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
-										showSchemaExplorer
-									/>
-								{/key}
+						{#if jsonView}
+							<div
+								class="py-2"
+								style="height: {!schemaHeight || schemaHeight < 600 ? 600 : schemaHeight}px"
+								data-schema-picker
+							>
+								<JsonInputs
+									on:select={(e) => {
+										if (e.detail) {
+											args = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
 							</div>
-						</div>
+						{:else}
+							<div class="px-4">
+								<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+									{#key argsRender}
+										<SchemaForm
+											helperScript={{
+												source: 'inline',
+												code,
+												//@ts-ignore
+												lang
+											}}
+											compact
+											{schema}
+											bind:args
+											bind:isValid
+											noVariablePicker={customUi?.previewPanel?.disableVariablePicker === true}
+											showSchemaExplorer
+										/>
+									{/key}
+								</div>
+							</div>
+						{/if}
 					</Pane>
 					<Pane size={67} class="relative">
 						<LogPanel
@@ -881,6 +918,7 @@
 				{fixedOverflowWidgets}
 				{args}
 				{enablePreprocessorSnippet}
+				preparedAssetsSqlQueries={preparedSqlQueries.current}
 			/>
 			<DiffEditor
 				className="h-full"

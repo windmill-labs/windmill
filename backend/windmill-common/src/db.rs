@@ -1,4 +1,6 @@
-use sqlx::{Acquire, Pool, Postgres, Transaction};
+use sqlx::{Acquire, PgConnection, PgExecutor, Pool, Postgres, Transaction};
+
+use crate::audit::AuditAuthor;
 
 pub type DB = Pool<Postgres>;
 
@@ -121,22 +123,44 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithAuthed<'d, T> {
     }
 }
 
-pub struct UserDbWithOptAuthed<'c, T: Authable + Sync> {
-    pub authed: &'c T,
-    pub user_db: Option<UserDB>,
-    pub db: DB,
+pub enum DbWithOptAuthed<'a, T: Authable + Sync> {
+    UserDB { authed: &'a T, user_db: UserDB, db: DB },
+    DB { db: DB, audit_author: AuditAuthor },
+}
+impl<'a, T: Authable + Sync> DbWithOptAuthed<'a, T> {
+    pub fn from_authed(authed: &'a T, db: DB, user_db: Option<UserDB>) -> Self {
+        if let Some(user_db) = user_db {
+            Self::UserDB { authed, user_db, db }
+        } else {
+            Self::DB { db, audit_author: AuditAuthor::from(authed) }
+        }
+    }
+    pub fn db(&self) -> &DB {
+        match self {
+            DbWithOptAuthed::UserDB { db, .. } => db,
+            DbWithOptAuthed::DB { db, .. } => db,
+        }
+    }
+
+    pub fn authed(&self) -> Option<&T> {
+        match self {
+            DbWithOptAuthed::UserDB { authed, .. } => Some(authed),
+            DbWithOptAuthed::DB { .. } => None,
+        }
+    }
 }
 
-impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> {
+impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c DbWithOptAuthed<'d, T> {
     type Database = Postgres;
     type Connection = Transaction<'c, Postgres>;
 
     fn acquire(self) -> futures_core::future::BoxFuture<'c, Result<Self::Connection, sqlx::Error>> {
         Box::pin(async move {
-            if let Some(db) = &self.user_db {
-                db.clone().begin(self.authed).await
-            } else {
-                self.db.clone().begin().await
+            match self {
+                DbWithOptAuthed::UserDB { authed, user_db, .. } => {
+                    user_db.clone().begin(&**authed).await
+                }
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
             }
         })
     }
@@ -145,10 +169,11 @@ impl<'c, 'd, T: Authable + Sync> Acquire<'c> for &'c UserDbWithOptAuthed<'d, T> 
         self,
     ) -> futures_core::future::BoxFuture<'c, Result<Transaction<'c, Postgres>, sqlx::Error>> {
         Box::pin(async move {
-            if let Some(db) = &self.user_db {
-                db.clone().begin(self.authed).await
-            } else {
-                self.db.clone().begin().await
+            match self {
+                DbWithOptAuthed::UserDB { authed, user_db, .. } => {
+                    user_db.clone().begin(&**authed).await
+                }
+                DbWithOptAuthed::DB { db, .. } => db.clone().begin().await,
             }
         })
     }
@@ -212,5 +237,28 @@ impl UserDB {
         .await?;
 
         Ok(tx)
+    }
+}
+
+pub trait DbExecutor<'b>: Send + Sized + PgExecutor<'b> {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a>;
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a>;
+}
+
+impl<'b> DbExecutor<'b> for &DB {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a> {
+        &**self
+    }
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a> {
+        &**self
+    }
+}
+
+impl<'b> DbExecutor<'b> for &'b mut PgConnection {
+    fn executor<'a>(&'a mut self) -> impl PgExecutor<'a> {
+        &mut **self
+    }
+    fn populate<'a>(&'a mut self) -> impl DbExecutor<'a> {
+        &mut **self
     }
 }

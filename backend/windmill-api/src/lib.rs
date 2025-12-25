@@ -93,8 +93,10 @@ pub mod embeddings;
 mod favorite;
 mod flow_conversations;
 pub mod flows;
+mod folder_history;
 mod folders;
 mod granular_acls;
+mod group_history;
 mod groups;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
@@ -110,6 +112,7 @@ mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+mod workspace_dependencies;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -126,6 +129,7 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
+pub mod jobs_export;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -456,11 +460,17 @@ pub async fn run_server(
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest(
+                            "/workspace_dependencies",
+                            workspace_dependencies::workspaced_service(),
+                        )
+                        .nest(
                             "/flow_conversations",
                             flow_conversations::workspaced_service(),
                         )
                         .nest("/folders", folders::workspaced_service())
+                        .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
+                        .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
@@ -651,43 +661,35 @@ pub async fn run_server(
                     #[cfg(not(feature = "oauth2"))]
                     Router::new()
                 })
-                .nest(
-                    "/r",
+                .nest("/r", {
+                    #[cfg(feature = "http_trigger")]
                     {
-                        #[cfg(feature = "http_trigger")]
-                        {
-                            triggers::http::handler::http_route_trigger_handler()
-                        }
+                        triggers::http::handler::http_route_trigger_handler()
+                    }
 
-                        #[cfg(not(feature = "http_trigger"))]
-                        {
-                            Router::new()
-                        }
-                    }
-                    .layer(from_extractor::<OptAuthed>()),
-                )
-                .nest(
-                    "/gcp/w/:workspace_id",
+                    #[cfg(not(feature = "http_trigger"))]
                     {
-                        #[cfg(all(
-                            feature = "enterprise",
-                            feature = "gcp_trigger",
-                            feature = "private"
-                        ))]
-                        {
-                            triggers::gcp::handler_oss::gcp_push_route_handler()
-                        }
-                        #[cfg(not(all(
-                            feature = "enterprise",
-                            feature = "gcp_trigger",
-                            feature = "private"
-                        )))]
-                        {
-                            Router::new()
-                        }
+                        Router::new()
                     }
-                    .layer(from_extractor::<OptAuthed>()),
-                )
+                })
+                .nest("/gcp/w/:workspace_id", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::gcp::handler_oss::gcp_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))

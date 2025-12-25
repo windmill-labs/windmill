@@ -3,18 +3,28 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { type ExecuteComponentData } from '$lib/gen'
-	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		defaultIfEmptyString,
+		emptySchema,
+		sendUserToast,
+		undefinedIfEmpty
+	} from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
-	import type { AppInputs, Runnable } from '../../inputType'
+	import {
+		isRunnableByName,
+		type AppInputs,
+		type InlineScript,
+		type Runnable
+	} from '../../inputType'
 	import type { Output } from '../../rx'
 	import type {
 		AppEditorContext,
 		AppViewerContext,
 		CancelablePromise,
 		GroupContext,
-		InlineScript,
 		ListContext
 	} from '../../types'
 	import { computeGlobalContext, eval_like } from './eval'
@@ -290,8 +300,7 @@
 		if (inputs === undefined) {
 			return emptySchema()
 		}
-		let schema =
-			runnable?.type == 'runnableByName' ? runnable.inlineScript?.schema : runnable?.schema
+		let schema = isRunnableByName(runnable) ? runnable.inlineScript?.schema : runnable?.schema
 		try {
 			schemaStripped = JSON.parse(JSON.stringify(schema))
 		} catch (e) {
@@ -359,7 +368,7 @@
 			return
 		}
 
-		if (runnable?.type === 'runnableByName' && runnable.inlineScript?.language === 'frontend') {
+		if (isRunnableByName(runnable) && runnable.inlineScript?.language === 'frontend') {
 			loading = true
 
 			let job: string | undefined
@@ -421,7 +430,7 @@
 			callbacks?.onDone?.({})
 			return
 		}
-		if (runnable?.type === 'runnableByName' && !runnable.inlineScript) {
+		if (isRunnableByName(runnable) && !runnable.inlineScript) {
 			callbacks?.onDone?.({})
 			return
 		}
@@ -516,8 +525,10 @@
 			args: nonStaticRunnableInputs,
 			component: id,
 			force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
-			force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
-			force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
+			force_viewer_one_of_fields: !isEditor ? undefined : undefinedIfEmpty(oneOfRunnableInputs),
+			force_viewer_allow_user_resources: !isEditor
+				? undefined
+				: undefinedIfEmpty(allowUserResources)
 		}
 		return requestBody
 	}
@@ -824,7 +835,7 @@
 		ignoreFirst = false
 	})
 	let refreshOn = $derived(
-		runnable && runnable.type === 'runnableByName' ? (runnable.inlineScript?.refreshOn ?? []) : []
+		runnable && isRunnableByName(runnable) ? (runnable.inlineScript?.refreshOn ?? []) : []
 	)
 	$effect(() => {
 		;(autoRefresh || forceSchemaDisplay) &&
@@ -846,7 +857,7 @@
 	{/if}
 {/each}
 
-{#if runnable?.type == 'runnableByName' && runnable.inlineScript?.language == 'frontend'}
+{#if isRunnableByName(runnable) && runnable.inlineScript?.language == 'frontend'}
 	{#each runnable.inlineScript.refreshOn ?? [] as { id: tid, key } (`${tid}-${key}`)}
 		{@const fkey = `${tid}-${key}${extraKey}`}
 		<InputValue
