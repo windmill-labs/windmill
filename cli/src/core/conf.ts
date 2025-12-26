@@ -46,6 +46,7 @@ export interface SyncOptions {
   codebases?: Codebase[];
   parallel?: number;
   jsonOutput?: boolean;
+  nonDottedPaths?: boolean;
   gitBranches?: {
     commonSpecificItems?: {
       variables?: string[];
@@ -335,6 +336,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeGroups"
       | "includeSettings"
       | "includeKey"
+      | "nonDottedPaths"
     >
   >
 > = {
@@ -357,6 +359,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeSettings: false,
   includeKey: false,
   skipWorkspaceDependencies: false,
+  nonDottedPaths: false,
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(

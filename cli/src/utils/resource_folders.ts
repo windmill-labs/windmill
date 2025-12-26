@@ -15,11 +15,46 @@ export type FolderResourceType = "flow" | "app" | "raw_app";
 
 // Configuration for folder suffixes - can be switched between dot and dunder prefixes
 // The default uses dot-prefixed names (.flow, .app, .raw_app)
-const FOLDER_SUFFIXES = {
+const DOTTED_SUFFIXES = {
   flow: ".flow",
   app: ".app",
   raw_app: ".raw_app",
 } as const;
+
+// Alternative dunder-prefixed names (__flow, __app, __raw_app)
+const NON_DOTTED_SUFFIXES = {
+  flow: "__flow",
+  app: "__app",
+  raw_app: "__raw_app",
+} as const;
+
+export type FolderSuffixes = typeof DOTTED_SUFFIXES | typeof NON_DOTTED_SUFFIXES;
+
+// Global state for nonDottedPaths configuration
+let _nonDottedPaths = false;
+
+/**
+ * Set whether to use non-dotted paths (__flow, __app, __raw_app)
+ * instead of dotted paths (.flow, .app, .raw_app).
+ * This should be called once at startup based on wmill.yaml configuration.
+ */
+export function setNonDottedPaths(value: boolean): void {
+  _nonDottedPaths = value;
+}
+
+/**
+ * Get the current nonDottedPaths setting.
+ */
+export function getNonDottedPaths(): boolean {
+  return _nonDottedPaths;
+}
+
+/**
+ * Get the folder suffixes based on the global configuration.
+ */
+export function getFolderSuffixes(): FolderSuffixes {
+  return _nonDottedPaths ? NON_DOTTED_SUFFIXES : DOTTED_SUFFIXES;
+}
 
 // Metadata file names inside each folder type
 const METADATA_FILES = {
@@ -29,17 +64,17 @@ const METADATA_FILES = {
 } as const;
 
 /**
- * Get the folder suffix for a resource type (e.g., ".flow", ".app", ".raw_app")
+ * Get the folder suffix for a resource type (e.g., ".flow", ".app", ".raw_app" or "__flow", "__app", "__raw_app")
  */
 export function getFolderSuffix(type: FolderResourceType): string {
-  return FOLDER_SUFFIXES[type];
+  return getFolderSuffixes()[type];
 }
 
 /**
  * Get the folder suffix with path separator (e.g., ".flow/", ".app/", ".raw_app/")
  */
 export function getFolderSuffixWithSep(type: FolderResourceType): string {
-  return FOLDER_SUFFIXES[type] + SEP;
+  return getFolderSuffixes()[type] + SEP;
 }
 
 /**
@@ -53,13 +88,13 @@ export function getMetadataFileName(
 }
 
 /**
- * Get the full metadata file path suffix (e.g., ".flow/flow.yaml")
+ * Get the full metadata file path suffix (e.g., ".flow/flow.yaml" or "__flow/flow.yaml")
  */
 export function getMetadataPathSuffix(
   type: FolderResourceType,
   format: "yaml" | "json"
 ): string {
-  return FOLDER_SUFFIXES[type] + "/" + METADATA_FILES[type][format];
+  return getFolderSuffixes()[type] + "/" + METADATA_FILES[type][format];
 }
 
 // ============================================================================
@@ -70,21 +105,21 @@ export function getMetadataPathSuffix(
  * Check if a path is inside a flow folder
  */
 export function isFlowPath(p: string): boolean {
-  return p.includes(FOLDER_SUFFIXES.flow + SEP);
+  return p.includes(getFolderSuffixes().flow + SEP);
 }
 
 /**
  * Check if a path is inside an app folder
  */
 export function isAppPath(p: string): boolean {
-  return p.includes(FOLDER_SUFFIXES.app + SEP);
+  return p.includes(getFolderSuffixes().app + SEP);
 }
 
 /**
  * Check if a path is inside a raw_app folder
  */
 export function isRawAppPath(p: string): boolean {
-  return p.includes(FOLDER_SUFFIXES.raw_app + SEP);
+  return p.includes(getFolderSuffixes().raw_app + SEP);
 }
 
 /**
@@ -97,9 +132,7 @@ export function isFolderResourcePath(p: string): boolean {
 /**
  * Detect the resource type from a path, if any
  */
-export function detectFolderResourceType(
-  p: string
-): FolderResourceType | null {
+export function detectFolderResourceType(p: string): FolderResourceType | null {
   if (isFlowPath(p)) return "flow";
   if (isAppPath(p)) return "app";
   if (isRawAppPath(p)) return "raw_app";
@@ -108,15 +141,15 @@ export function detectFolderResourceType(
 
 /**
  * Check if a path is inside a raw app backend folder.
- * Matches patterns like: .../myApp.raw_app/backend/...
+ * Matches patterns like: .../myApp.raw_app/backend/... or .../myApp__raw_app/backend/...
  */
 export function isRawAppBackendPath(filePath: string): boolean {
+  const suffixes = getFolderSuffixes();
   // Normalize path separators for consistent matching
   const normalizedPath = filePath.replaceAll(SEP, "/");
-  // Check if path contains pattern: *.raw_app/backend/
-  const pattern = new RegExp(
-    `\\${FOLDER_SUFFIXES.raw_app.replace(".", "\\.")}/backend/`
-  );
+  // Check if path contains pattern: *.[suffix]/backend/
+  const escapedSuffix = suffixes.raw_app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`${escapedSuffix}/backend/`);
   return pattern.test(normalizedPath);
 }
 
@@ -132,7 +165,7 @@ export function extractResourceName(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const suffix = FOLDER_SUFFIXES[type] + SEP;
+  const suffix = getFolderSuffixes()[type] + SEP;
   const index = p.indexOf(suffix);
   if (index === -1) return null;
   return p.substring(0, index);
@@ -146,7 +179,7 @@ export function extractFolderPath(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const suffix = FOLDER_SUFFIXES[type] + SEP;
+  const suffix = getFolderSuffixes()[type] + SEP;
   const index = p.indexOf(suffix);
   if (index === -1) return null;
   return p.substring(0, index) + suffix;
@@ -160,7 +193,7 @@ export function buildFolderPath(
   resourceName: string,
   type: FolderResourceType
 ): string {
-  return resourceName + FOLDER_SUFFIXES[type];
+  return resourceName + getFolderSuffixes()[type];
 }
 
 /**
@@ -172,7 +205,7 @@ export function buildMetadataPath(
   type: FolderResourceType,
   format: "yaml" | "json"
 ): string {
-  return resourceName + FOLDER_SUFFIXES[type] + SEP + METADATA_FILES[type][format];
+  return resourceName + getFolderSuffixes()[type] + SEP + METADATA_FILES[type][format];
 }
 
 // ============================================================================
@@ -181,13 +214,13 @@ export function buildMetadataPath(
 
 /**
  * Check if a directory name ends with a specific resource folder suffix
- * e.g., "my_app.raw_app" ends with ".raw_app"
+ * e.g., "my_app.raw_app" ends with ".raw_app" or "my_app__raw_app" ends with "__raw_app"
  */
 export function hasFolderSuffix(
   dirName: string,
   type: FolderResourceType
 ): boolean {
-  return dirName.endsWith(FOLDER_SUFFIXES[type]);
+  return dirName.endsWith(getFolderSuffixes()[type]);
 }
 
 /**
@@ -198,21 +231,22 @@ export function validateFolderName(
   dirName: string,
   type: FolderResourceType
 ): string | null {
+  const suffixes = getFolderSuffixes();
   if (!hasFolderSuffix(dirName, type)) {
-    return `'${dirName}' does not end with '${FOLDER_SUFFIXES[type]}'`;
+    return `'${dirName}' does not end with '${suffixes[type]}'`;
   }
   return null;
 }
 
 /**
  * Extract the resource name from a folder name by removing the suffix
- * e.g., "my_app.raw_app" -> "my_app"
+ * e.g., "my_app.raw_app" -> "my_app" or "my_app__raw_app" -> "my_app"
  */
 export function extractNameFromFolder(
   folderName: string,
   type: FolderResourceType
 ): string {
-  const suffix = FOLDER_SUFFIXES[type];
+  const suffix = getFolderSuffixes()[type];
   if (folderName.endsWith(suffix)) {
     return folderName.substring(0, folderName.length - suffix.length);
   }
@@ -227,26 +261,29 @@ export function extractNameFromFolder(
  * Check if a path ends with a flow metadata file suffix
  */
 export function isFlowMetadataFile(p: string): boolean {
-  return p.endsWith(".flow.json") || p.endsWith(".flow.yaml");
+  const suffixes = getFolderSuffixes();
+  return p.endsWith(suffixes.flow + ".json") || p.endsWith(suffixes.flow + ".yaml");
 }
 
 /**
  * Check if a path ends with an app metadata file suffix
  */
 export function isAppMetadataFile(p: string): boolean {
-  return p.endsWith(".app.json") || p.endsWith(".app.yaml");
+  const suffixes = getFolderSuffixes();
+  return p.endsWith(suffixes.app + ".json") || p.endsWith(suffixes.app + ".yaml");
 }
 
 /**
  * Check if a path ends with a raw_app metadata file suffix
  */
 export function isRawAppMetadataFile(p: string): boolean {
-  return p.endsWith(".raw_app.json") || p.endsWith(".raw_app.yaml");
+  const suffixes = getFolderSuffixes();
+  return p.endsWith(suffixes.raw_app + ".json") || p.endsWith(suffixes.raw_app + ".yaml");
 }
 
 /**
  * Check if a path ends with a specific raw_app metadata file
- * (inside the folder, e.g., ".raw_app/raw_app.yaml")
+ * (inside the folder, e.g., ".raw_app/raw_app.yaml" or "__raw_app/raw_app.yaml")
  */
 export function isRawAppFolderMetadataFile(p: string): boolean {
   return (
@@ -267,17 +304,26 @@ export function getDeleteSuffix(
   type: FolderResourceType,
   format: "yaml" | "json"
 ): string {
-  return FOLDER_SUFFIXES[type] + "/" + METADATA_FILES[type][format];
+  return getFolderSuffixes()[type] + "/" + METADATA_FILES[type][format];
 }
 
 /**
  * Transform a JSON path to the appropriate directory/file path for sync
- * e.g., "f/my_flow.flow.json" -> "f/my_flow.flow"
+ * e.g., "f/my_flow.flow.json" -> "f/my_flow.flow" or "f/my_flow__flow.json" -> "f/my_flow__flow"
  */
 export function transformJsonPathToDir(
   p: string,
   type: FolderResourceType
 ): string {
+  const suffixes = getFolderSuffixes();
+  // For dotted: ".flow.json" contains "flow.json", replace with "flow" -> get ".flow"
+  // For dunder: "__flow.json" - we need to remove just ".json"
+  // The simplest approach is to check if path ends with the full suffix pattern and remove ".json"
+  const fullSuffix = suffixes[type] + ".json";
+  if (p.endsWith(fullSuffix)) {
+    return p.substring(0, p.length - 5); // Remove ".json"
+  }
+  // Fallback to original behavior for dotted paths
   const suffix = METADATA_FILES[type].json;
   return p.replace(suffix, type);
 }

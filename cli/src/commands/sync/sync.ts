@@ -92,6 +92,7 @@ import {
   getDeleteSuffix,
   transformJsonPathToDir,
   getFolderSuffixWithSep,
+  setNonDottedPaths,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -1859,6 +1860,9 @@ export async function pull(
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
+  // Set the global nonDottedPaths setting based on config
+  setNonDottedPaths(opts.nonDottedPaths ?? false);
+
   // Validate branch configuration early
   try {
     await validateBranchConfiguration(opts);
@@ -2337,6 +2341,9 @@ export async function push(
 
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
+
+  // Set the global nonDottedPaths setting based on config
+  setNonDottedPaths(opts.nonDottedPaths ?? false);
 
   // Validate branch configuration early
   try {
