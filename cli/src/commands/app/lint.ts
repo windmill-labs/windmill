@@ -7,6 +7,7 @@ import { GlobalOptions } from "../../types.ts";
 import { createBundle } from "./bundle.ts";
 import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
+import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
 
 interface LintOptions extends GlobalOptions {
   fix?: boolean;
@@ -128,9 +129,9 @@ async function lintRawApp(
 
   // Check if we're in a .raw_app folder
   const currentDirName = path.basename(appDir);
-  if (!currentDirName.endsWith(".raw_app")) {
+  if (!hasFolderSuffix(currentDirName, "raw_app")) {
     errors.push(
-      `Not a raw app folder: '${currentDirName}' does not end with '.raw_app'`
+      `Not a raw app folder: '${currentDirName}' does not end with '${getFolderSuffix("raw_app")}'`
     );
     return { valid: false, errors, warnings };
   }

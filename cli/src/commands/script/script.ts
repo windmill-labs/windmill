@@ -55,6 +55,11 @@ import { type Tarball } from "npm:@ayonli/jsext/archive";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
+import {
+  isRawAppBackendPath as isRawAppBackendPathInternal,
+  isFlowPath,
+  isAppPath,
+} from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -71,10 +76,7 @@ export interface ScriptFile {
  * Matches patterns like: .../myApp.raw_app/backend/...
  */
 export function isRawAppBackendPath(filePath: string): boolean {
-  // Normalize path separators for consistent matching
-  const normalizedPath = filePath.replaceAll(SEP, "/");
-  // Check if path contains pattern: *.raw_app/backend/
-  return /\.raw_app\/backend\//.test(normalizedPath);
+  return isRawAppBackendPathInternal(filePath);
 }
 
 type PushOptions = GlobalOptions;
@@ -1009,8 +1011,8 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          p.includes(".flow" + SEP) ||
-          p.includes(".app" + SEP)
+          isFlowPath(p) ||
+          isAppPath(p)
         );
       },
       false,
