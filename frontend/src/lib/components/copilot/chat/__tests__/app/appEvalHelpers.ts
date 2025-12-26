@@ -124,6 +124,14 @@ export function createAppEvalHelpers(
 		) => {
 			// Return success with empty result for eval testing
 			return { success: true, result: [] }
+		},
+
+		addTableToWhitelist: (
+			_datatableName: string,
+			_schemaName: string,
+			_tableName: string
+		) => {
+			// No-op for eval testing - tables are not tracked in test context
 		}
 	}
 

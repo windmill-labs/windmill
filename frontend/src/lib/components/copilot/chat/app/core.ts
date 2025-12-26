@@ -8,6 +8,13 @@ import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
 import { aiChatManager } from '../AIChatManager.svelte'
+import type {
+	ContextElement,
+	AppFrontendFileElement,
+	AppBackendRunnableElement,
+	AppCodeSelectionElement,
+	AppDatatableElement
+} from '../context'
 
 // Backend runnable types
 export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'inline'
@@ -93,8 +100,10 @@ export interface SelectedContext {
 	clearInspector?: () => void
 	/** Function to clear the runnable selection (go back to frontend view) */
 	clearRunnable?: () => void
-	// Future: text selection within the file
-	// textSelection?: { startLine: number; endLine: number; startColumn: number; endColumn: number }
+	/** Code selection from the editor (either frontend or backend) */
+	codeSelection?: AppCodeSelectionElement
+	/** Function to clear the code selection */
+	clearCodeSelection?: () => void
 }
 
 /**
@@ -142,6 +151,8 @@ export interface AppAIChatHelpers {
 		sql: string,
 		newTable?: { schema: string; name: string }
 	) => Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }>
+	/** Add a table to the app's whitelisted tables (called when user selects a table via @) */
+	addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => void
 }
 
 // ============= Utility =============
@@ -1085,15 +1096,22 @@ const MAX_CONTEXT_CONTENT_LENGTH = 3000
 
 export function prepareAppUserMessage(
 	instructions: string,
-	selectedContext?: SelectedContext
+	selectedContext?: SelectedContext,
+	additionalContext?: ContextElement[]
 ): ChatCompletionUserMessageParam {
 	let content = ''
 
-	if (selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)) {
+	// Check if we have any context to add
+	const hasSelectedContext =
+		selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)
+	const hasAdditionalContext = additionalContext && additionalContext.length > 0
+
+	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
 
 		// Add frontend file context with content (unless excluded)
 		if (
+			selectedContext &&
 			selectedContext.type === 'frontend' &&
 			selectedContext.frontendPath &&
 			!selectedContext.selectionExcluded
@@ -1111,6 +1129,7 @@ export function prepareAppUserMessage(
 
 		// Add backend runnable context with content (unless excluded)
 		if (
+			selectedContext &&
 			selectedContext.type === 'backend' &&
 			selectedContext.backendKey &&
 			!selectedContext.selectionExcluded
@@ -1139,7 +1158,7 @@ export function prepareAppUserMessage(
 		}
 
 		// Add inspector element context if available
-		if (selectedContext.inspectorElement) {
+		if (selectedContext?.inspectorElement) {
 			const el = selectedContext.inspectorElement
 			content += `\nThe user has selected an element in the app preview using the inspector tool:\n`
 			content += `- **Element**: ${el.tagName}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ').join('.')}` : ''}\n`
@@ -1154,6 +1173,76 @@ export function prepareAppUserMessage(
 			const truncatedHtml = el.html.length > 500 ? el.html.slice(0, 500) + '...' : el.html
 			content += `- **HTML**:\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`
 		}
+
+		// Add code selection context if available
+		if (selectedContext?.codeSelection) {
+			const selection = selectedContext.codeSelection
+			content += `\n### CODE SELECTION:\n`
+			content += `The user has selected code in the ${selection.sourceType} editor:\n`
+			content += `- **File/Source**: ${selection.source}\n`
+			content += `- **Lines**: ${selection.startLine}-${selection.endLine}\n`
+			const truncatedCode =
+				selection.content.length > MAX_CONTEXT_CONTENT_LENGTH
+					? selection.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+					: selection.content
+			content += `\`\`\`\n${truncatedCode}\n\`\`\`\n`
+		}
+
+		// Add additional context from @ mentions
+		if (additionalContext && additionalContext.length > 0) {
+			content += `\n### ADDITIONAL CONTEXT (mentioned by user):\n`
+
+			for (const ctx of additionalContext) {
+				if (ctx.type === 'app_frontend_file') {
+					const fileCtx = ctx as AppFrontendFileElement
+					content += `\n**Frontend File: ${fileCtx.path}**\n`
+					const truncatedContent =
+						fileCtx.content.length > MAX_CONTEXT_CONTENT_LENGTH
+							? fileCtx.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+							: fileCtx.content
+					content += `\`\`\`\n${truncatedContent}\n\`\`\`\n`
+				} else if (ctx.type === 'app_backend_runnable') {
+					const runnableCtx = ctx as AppBackendRunnableElement
+					const runnable = runnableCtx.runnable
+					content += `\n**Backend Runnable: ${runnableCtx.key}**\n`
+					content += `- **Name**: ${runnable.name}\n`
+					content += `- **Type**: ${runnable.type}\n`
+					if (runnable.path) {
+						content += `- **Path**: ${runnable.path}\n`
+					}
+					if (runnable.inlineScript) {
+						const truncatedCode =
+							runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
+								? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+									'\n... [TRUNCATED]'
+								: runnable.inlineScript.content
+						content += `- **Language**: ${runnable.inlineScript.language}\n`
+						content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
+					}
+					if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
+						content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
+					}
+				} else if (ctx.type === 'app_datatable') {
+					const datatableCtx = ctx as AppDatatableElement
+					const tableRef =
+						datatableCtx.schemaName === 'public'
+							? `${datatableCtx.datatableName}/${datatableCtx.tableName}`
+							: `${datatableCtx.datatableName}/${datatableCtx.schemaName}:${datatableCtx.tableName}`
+					content += `\n**Table: ${tableRef}**\n`
+					content += `- **Datatable**: ${datatableCtx.datatableName}\n`
+					content += `- **Schema**: ${datatableCtx.schemaName}\n`
+					content += `- **Table**: ${datatableCtx.tableName}\n`
+					// Format columns as column_name: type
+					const columnsStr = JSON.stringify(datatableCtx.columns, null, 2)
+					const truncatedColumns =
+						columnsStr.length > MAX_CONTEXT_CONTENT_LENGTH
+							? columnsStr.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+							: columnsStr
+					content += `- **Columns** (column_name -> type):\n\`\`\`json\n${truncatedColumns}\n\`\`\`\n`
+				}
+			}
+		}
+
 		content += '\n'
 	}
 
