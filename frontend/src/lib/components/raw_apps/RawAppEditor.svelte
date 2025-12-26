@@ -18,7 +18,7 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
-	import type { LintResult, DataTableSchema } from '../copilot/chat/app/core'
+	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import { runScriptAndPollResult } from '../jobs/utils'
@@ -387,24 +387,33 @@
 				}
 			},
 			getSelectedContext: () => {
+				const baseContext = {
+					inspectorElement: inspectorElement,
+					selectionExcluded: selectionExcludedFromPrompt,
+					toggleSelectionExcluded: toggleSelectionExcluded,
+					clearInspector: clearInspectorSelection,
+					clearRunnable: handleClearRunnable
+				}
 				if (selectedRunnable) {
-					console.log('selectedRunnable', selectedRunnable)
+					const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
 					return {
-						type: 'backend',
-						content: selectedRunnable ?? ''
+						type: 'backend' as const,
+						backendKey: selectedRunnable,
+						backendRunnable: runnable,
+						...baseContext
 					}
 				}
 				if (selectedDocument) {
-					console.log('selectedDocument', selectedDocument)
 					return {
-						type: 'frontend',
-						content: selectedDocument ?? ''
+						type: 'frontend' as const,
+						frontendPath: selectedDocument,
+						frontendContent: files?.[selectedDocument],
+						...baseContext
 					}
 				}
-				console.log('no selection')
 				return {
-					type: 'none',
-					content: ''
+					type: 'none' as const,
+					...baseContext
 				}
 			},
 			snapshot: () => {
@@ -546,6 +555,12 @@
 	})
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
+	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
+	let selectionExcludedFromPrompt: boolean = $state(false)
+
+	function toggleSelectionExcluded() {
+		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
+	}
 
 	let modules = $state({}) as Modules
 
@@ -575,6 +590,12 @@
 		} else if (e.data.type === 'setActiveDocument') {
 			// Normalize Windows-style path separators to Linux-style
 			selectedDocument = e.data.path?.replace(/\\/g, '/')
+		} else if (e.data.type === 'inspectorSelect') {
+			// Handle inspector element selection from the iframe preview
+			inspectorElement = e.data.element as InspectorElementInfo
+		} else if (e.data.type === 'inspectorClear') {
+			// Clear the inspector element when user dismisses the selection
+			inspectorElement = undefined
 		}
 	}
 
@@ -608,9 +629,15 @@
 		iframe && iframeLoaded && runnables && populateRunnables()
 	})
 
+	function clearInspectorSelection() {
+		inspectorElement = undefined
+		iframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+	}
+
 	function handleSelectFile(path: string) {
 		console.log('event Select file:', path)
 		selectedRunnable = undefined
+		// Inspector is cleared by the $effect watching selection changes
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'selectFile',
@@ -619,6 +646,28 @@
 			'*'
 		)
 	}
+
+	function handleClearRunnable() {
+		selectedRunnable = undefined
+	}
+
+	// Track previous values for change detection
+	let prevSelectedRunnable: string | undefined = undefined
+	let prevSelectedDocument: string | undefined = undefined
+
+	// Clear inspector and reset exclusion when selection changes
+	$effect(() => {
+		if (selectedRunnable !== prevSelectedRunnable || selectedDocument !== prevSelectedDocument) {
+			// Only clear if we're actually switching to something different
+			if (prevSelectedRunnable !== undefined || prevSelectedDocument !== undefined) {
+				clearInspectorSelection()
+			}
+			// Reset exclusion when switching files/runnables
+			selectionExcludedFromPrompt = false
+			prevSelectedRunnable = selectedRunnable
+			prevSelectedDocument = selectedDocument
+		}
+	})
 
 	function handleUndo() {
 		// Create a snapshot if we're at the latest position with pending changes

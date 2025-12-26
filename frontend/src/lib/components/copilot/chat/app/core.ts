@@ -51,14 +51,48 @@ export interface LintResult {
 	warnings: LintMessages
 }
 
+/** Information about an element selected via the inspector tool */
+export interface InspectorElementInfo {
+	/** CSS selector path to the element */
+	path: string
+	/** Tag name of the element (e.g., 'div', 'button') */
+	tagName: string
+	/** Element's id attribute, if any */
+	id?: string
+	/** Element's class names, if any */
+	className?: string
+	/** Bounding rectangle of the element */
+	rect: { top: number; left: number; width: number; height: number }
+	/** Outer HTML of the element (may be truncated) */
+	html: string
+	/** Text content of the element (may be truncated) */
+	textContent?: string
+	/** Computed styles of the element */
+	styles: Record<string, string>
+}
+
 /** Context about the currently selected file or runnable in the app editor */
 export interface SelectedContext {
 	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
 	type: 'frontend' | 'backend' | 'none'
 	/** The path of the selected frontend file (when type is 'frontend') */
 	frontendPath?: string
+	/** The content of the selected frontend file */
+	frontendContent?: string
 	/** The key of the selected backend runnable (when type is 'backend') */
 	backendKey?: string
+	/** The configuration of the selected backend runnable */
+	backendRunnable?: BackendRunnable
+	/** Inspector-selected element info (when user has used the inspector tool) */
+	inspectorElement?: InspectorElementInfo
+	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
+	selectionExcluded?: boolean
+	/** Function to toggle whether the selection is excluded from the prompt */
+	toggleSelectionExcluded?: () => void
+	/** Function to clear the inspector selection */
+	clearInspector?: () => void
+	/** Function to clear the runnable selection (go back to frontend view) */
+	clearRunnable?: () => void
 	// Future: text selection within the file
 	// textSelection?: { startLine: number; endLine: number; startColumn: number; endColumn: number }
 }
@@ -1046,19 +1080,81 @@ ${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefi
 	}
 }
 
+/** Maximum characters for file content in context */
+const MAX_CONTEXT_CONTENT_LENGTH = 3000
+
 export function prepareAppUserMessage(
 	instructions: string,
 	selectedContext?: SelectedContext
 ): ChatCompletionUserMessageParam {
 	let content = ''
 
-	if (selectedContext && selectedContext.type !== 'none') {
+	if (selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)) {
 		content += `## SELECTED CONTEXT:\n`
-		if (selectedContext.type === 'frontend') {
-			content += `The user is currently viewing the frontend file: ${selectedContext.frontendPath}\n\n`
-		} else if (selectedContext.type === 'backend') {
-			content += `The user is currently viewing the backend runnable: ${selectedContext.backendKey}\n\n`
+
+		// Add frontend file context with content (unless excluded)
+		if (
+			selectedContext.type === 'frontend' &&
+			selectedContext.frontendPath &&
+			!selectedContext.selectionExcluded
+		) {
+			content += `The user is currently viewing the frontend file: **${selectedContext.frontendPath}**\n`
+			if (selectedContext.frontendContent) {
+				const truncatedContent =
+					selectedContext.frontendContent.length > MAX_CONTEXT_CONTENT_LENGTH
+						? selectedContext.frontendContent.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+							'\n... [TRUNCATED]'
+						: selectedContext.frontendContent
+				content += `\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
+			}
 		}
+
+		// Add backend runnable context with content (unless excluded)
+		if (
+			selectedContext.type === 'backend' &&
+			selectedContext.backendKey &&
+			!selectedContext.selectionExcluded
+		) {
+			content += `The user is currently viewing the backend runnable: **${selectedContext.backendKey}**\n`
+			if (selectedContext.backendRunnable) {
+				const runnable = selectedContext.backendRunnable
+				content += `- **Name**: ${runnable.name}\n`
+				content += `- **Type**: ${runnable.type}\n`
+				if (runnable.path) {
+					content += `- **Path**: ${runnable.path}\n`
+				}
+				if (runnable.inlineScript) {
+					const truncatedCode =
+						runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
+							? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+								'\n... [TRUNCATED]'
+							: runnable.inlineScript.content
+					content += `- **Language**: ${runnable.inlineScript.language}\n`
+					content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
+				}
+				if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
+					content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
+				}
+			}
+		}
+
+		// Add inspector element context if available
+		if (selectedContext.inspectorElement) {
+			const el = selectedContext.inspectorElement
+			content += `\nThe user has selected an element in the app preview using the inspector tool:\n`
+			content += `- **Element**: ${el.tagName}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ').join('.')}` : ''}\n`
+			content += `- **Selector path**: ${el.path}\n`
+			content += `- **Dimensions**: ${Math.round(el.rect.width)}x${Math.round(el.rect.height)} at (${Math.round(el.rect.left)}, ${Math.round(el.rect.top)})\n`
+			if (el.textContent) {
+				const truncatedText =
+					el.textContent.length > 100 ? el.textContent.slice(0, 100) + '...' : el.textContent
+				content += `- **Text content**: "${truncatedText}"\n`
+			}
+			// Include HTML (truncated) for more context
+			const truncatedHtml = el.html.length > 500 ? el.html.slice(0, 500) + '...' : el.html
+			content += `- **HTML**:\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`
+		}
+		content += '\n'
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`
