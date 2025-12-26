@@ -29,6 +29,7 @@
 	import RunButton from '$lib/components/RunButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
+	import FlowEditorDrawer from '$lib/components/flows/content/FlowEditorDrawer.svelte'
 	import { ScriptService } from '$lib/gen'
 
 	interface Props {
@@ -63,6 +64,7 @@
 	let refreshKey = $state(0)
 
 	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state(undefined)
+	let flowEditorDrawer: FlowEditorDrawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -135,6 +137,16 @@
 		}
 	}
 
+	function openFlowEditor(path: string) {
+		flowEditorDrawer?.openDrawer(path, () => {
+			// Increment refreshKey to force re-mounting of FlowPathViewer (bypasses cache)
+			refreshKey++
+			// Refresh the schema
+			lastRunnable = undefined
+			refresh(runnable)
+		})
+	}
+
 	let lastRunnable: RunnableByPath | undefined = undefined
 	function refresh(runnable) {
 		if (deepEqual(runnable, lastRunnable)) {
@@ -166,6 +178,17 @@
 	bind:this={scriptEditorDrawer}
 	on:save={() => {
 		// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
+		refreshKey++
+		// Refresh the schema
+		lastRunnable = undefined
+		refresh(runnable)
+	}}
+/>
+
+<FlowEditorDrawer
+	bind:this={flowEditorDrawer}
+	on:save={() => {
+		// Increment refreshKey to force re-mounting of FlowPathViewer (bypasses cache)
 		refreshKey++
 		// Refresh the schema
 		lastRunnable = undefined
@@ -223,10 +246,12 @@
 				variant="default"
 				size="xs"
 				startIcon={{ icon: Pen }}
-				endIcon={{ icon: ExternalLink }}
-				target="_blank"
-				href="{base}/flows/edit/{runnable.path}?nodraft=true">Edit</Button
+				on:click={() => {
+					openFlowEditor(runnable.path)
+				}}
 			>
+				Edit
+			</Button>
 			<Button
 				variant="default"
 				size="xs"

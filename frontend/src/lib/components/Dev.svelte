@@ -514,6 +514,7 @@
 		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		flowEditorDrawer: writable(undefined),
 		moving,
 		history,
 		pathStore: pathStore,
