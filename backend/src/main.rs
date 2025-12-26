@@ -320,6 +320,37 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn print_help() {
+	println!("Windmill - a fast, open-source workflow engine and job runner.");
+	println!();
+	println!("Usage:");
+	println!("  windmill [SUBCOMMAND]");
+	println!();
+	println!("Subcommands:");
+	println!("  help | -h | --help   Show this help information and exit");
+	println!("  version              Show Windmill version and exit");
+	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
+	println!();
+	println!("Environment variables (name = default):");
+	println!("  DATABASE_URL = <required>              The Postgres database url.");
+	println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
+	println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
+	println!("  PORT = {}                              HTTP port (server/indexer/MCP modes)", DEFAULT_PORT);
+	println!("  SERVER_BIND_ADDR = {}                  IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
+	println!("  NUM_WORKERS = {}                       Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
+	println!("  WORKER_GROUP = default                 Worker group this worker belongs to",);
+	println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
+	println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
+	println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");
+	println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
+	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
+	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
+	println!();
+	println!("Notes:");
+	println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
+	println!("- At startup, Windmill logs currently set configuration keys for visibility.");
+}
+
 async fn windmill_main() -> anyhow::Result<()> {
     let (killpill_tx, mut killpill_rx) = KillpillSender::new(2);
     let mut monitor_killpill_rx = killpill_tx.subscribe();
@@ -378,6 +409,10 @@ async fn windmill_main() -> anyhow::Result<()> {
     let cli_arg = std::env::args().nth(1).unwrap_or_default();
 
     match cli_arg.as_str() {
+        "-h" | "--help" | "help" => {
+            print_help();
+            return Ok(());
+        }
         "cache" => {
             #[cfg(feature = "embedding")]
             {
