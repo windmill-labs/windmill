@@ -6,7 +6,7 @@
 	import { base } from '$lib/base'
 	import FlowModuleScript from '$lib/components/flows/content/FlowModuleScript.svelte'
 	import FlowPathViewer from '$lib/components/flows/content/FlowPathViewer.svelte'
-	import { emptySchema } from '$lib/utils'
+	import { emptySchema, sendUserToast } from '$lib/utils'
 	import { getContext, tick, untrack } from 'svelte'
 	import type {
 		ConnectedAppInput,
@@ -23,12 +23,13 @@
 	import { inferArgs, loadSchema } from '$lib/infer'
 	import AppRunButton from './AppRunButton.svelte'
 	import { getScriptByPath } from '$lib/scripts'
-	import { sendUserToast } from '$lib/toast'
 	import { autoPlacement } from '@floating-ui/core'
 	import { ExternalLink, Eye, GitFork, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import { get } from 'svelte/store'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import ScriptEditorDrawer from '$lib/components/flows/content/ScriptEditorDrawer.svelte'
+	import { ScriptService } from '$lib/gen'
 
 	interface Props {
 		runnable: RunnableByPath
@@ -57,6 +58,11 @@
 	let drawerFlowViewer: Drawer | undefined = $state(undefined)
 	let flowPath: string = $state('')
 	let notFound = $state(false)
+
+	// Key to force re-mounting of viewer components (bypasses FlowModuleScript cache)
+	let refreshKey = $state(0)
+
+	let scriptEditorDrawer: ScriptEditorDrawer | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -111,6 +117,24 @@
 		})
 	}
 
+	async function openScriptEditor(path: string) {
+		try {
+			const script = await ScriptService.getScriptByPath({
+				workspace: $workspaceStore!,
+				path
+			})
+			scriptEditorDrawer?.openDrawer(script.hash, () => {
+				// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
+				refreshKey++
+				// Refresh the schema
+				lastRunnable = undefined
+				refresh(runnable)
+			})
+		} catch (e) {
+			sendUserToast(`Failed to load script: ${e}`, true)
+		}
+	}
+
 	let lastRunnable: RunnableByPath | undefined = undefined
 	function refresh(runnable) {
 		if (deepEqual(runnable, lastRunnable)) {
@@ -138,6 +162,17 @@
 	</DrawerContent>
 </Drawer>
 
+<ScriptEditorDrawer
+	bind:this={scriptEditorDrawer}
+	on:save={() => {
+		// Increment refreshKey to force re-mounting of FlowModuleScript (bypasses cache)
+		refreshKey++
+		// Refresh the schema
+		lastRunnable = undefined
+		refresh(runnable)
+	}}
+/>
+
 <div class="p-2 h-full flex flex-col gap-2">
 	<div class="flex flex-row-reverse w-full gap-2">
 		{#if !rawApps}
@@ -151,7 +186,10 @@
 			size="xs"
 			startIcon={{ icon: RefreshCw }}
 			on:click={async () => {
-				sendUserToast('Refreshing inputs')
+				sendUserToast('Getting latest script version at that path')
+				// Increment refreshKey to force re-mounting of viewer components (bypasses cache)
+				refreshKey++
+				lastRunnable = undefined
 				refresh(runnable)
 				if (viewerContext) {
 					viewerContext.stateId.update((x) => x + 1)
@@ -200,6 +238,16 @@
 				Details
 			</Button>
 		{:else}
+			<Button
+				size="xs"
+				variant="default"
+				startIcon={{ icon: Pen }}
+				on:click={() => {
+					openScriptEditor(runnable.path)
+				}}
+			>
+				Edit
+			</Button>
 			<Button
 				size="xs"
 				variant="default"
@@ -252,7 +300,7 @@
 		/>
 	</div>
 	<div class="w-full grow overflow-y-auto">
-		{#key viewerContext?.stateId ? get(viewerContext.stateId) : 0}
+		{#key `${viewerContext?.stateId ? get(viewerContext.stateId) : 0}-${refreshKey}`}
 			{#if notFound}
 				<div class="text-red-400"
 					>{runnable.runType} not found at {runnable.path} in workspace {$workspaceStore}</div
