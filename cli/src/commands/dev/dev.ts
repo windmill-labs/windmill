@@ -25,6 +25,11 @@ import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { parseMetadataFile } from "../../utils/metadata.ts";
+import {
+  getFolderSuffixWithSep,
+  getMetadataFileName,
+  extractFolderPath,
+} from "../../utils/resource_folders.ts";
 
 const PORT = 3001;
 async function dev(opts: GlobalOptions & SyncOptions) {
@@ -56,11 +61,12 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     }
   }
 
-  const DOT_FLOW_SEP = ".flow" + SEP;
+  const flowFolderSuffix = getFolderSuffixWithSep("flow");
+  const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
     const paths = pathsToLoad.filter((path) =>
       exts.some(
-        (ext) => path.endsWith(ext) || path.endsWith(DOT_FLOW_SEP + "flow.yaml")
+        (ext) => path.endsWith(ext) || path.endsWith(flowFolderSuffix + flowMetadataFile)
       )
     );
     if (paths.length == 0) {
@@ -71,7 +77,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       const typ = getTypeStrFromPath(cpath);
       log.info("Detected change in " + cpath + " (" + typ + ")");
       if (typ == "flow") {
-        const localPath = cpath.split(DOT_FLOW_SEP)[0] + DOT_FLOW_SEP;
+        const localPath = extractFolderPath(cpath, "flow")!;
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;

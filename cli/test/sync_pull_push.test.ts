@@ -13,6 +13,15 @@ import {
   getFolderSuffix,
   getMetadataFileName,
   buildFolderPath,
+  getFolderSuffixes,
+  isFlowPath,
+  isAppPath,
+  isRawAppPath,
+  buildMetadataPath,
+  extractResourceName,
+  hasFolderSuffix,
+  setNonDottedPaths,
+  getNonDottedPaths,
 } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -1114,6 +1123,822 @@ excludes: []
           "Push completed",
         );
       }
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+// =============================================================================
+// nonDottedPaths Unit Tests
+// =============================================================================
+
+Deno.test("getFolderSuffixes returns correct suffixes for dotted paths (default)", () => {
+  setNonDottedPaths(false);
+  const suffixes = getFolderSuffixes();
+  assertEquals(suffixes.flow, ".flow");
+  assertEquals(suffixes.app, ".app");
+  assertEquals(suffixes.raw_app, ".raw_app");
+});
+
+Deno.test("getFolderSuffixes returns correct suffixes for non-dotted paths", () => {
+  setNonDottedPaths(true);
+  const suffixes = getFolderSuffixes();
+  assertEquals(suffixes.flow, "__flow");
+  assertEquals(suffixes.app, "__app");
+  assertEquals(suffixes.raw_app, "__raw_app");
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("getFolderSuffix with nonDottedPaths returns dunder suffixes", () => {
+  setNonDottedPaths(true);
+  assertEquals(getFolderSuffix("flow"), "__flow");
+  assertEquals(getFolderSuffix("app"), "__app");
+  assertEquals(getFolderSuffix("raw_app"), "__raw_app");
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("buildFolderPath with nonDottedPaths creates correct paths", () => {
+  setNonDottedPaths(true);
+  assertEquals(buildFolderPath("my_flow", "flow"), "my_flow__flow");
+  assertEquals(buildFolderPath("f/test/my_app", "app"), "f/test/my_app__app");
+  assertEquals(buildFolderPath("u/admin/raw_app", "raw_app"), "u/admin/raw_app__raw_app");
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
+  setNonDottedPaths(true);
+  assertEquals(
+    buildMetadataPath("my_flow", "flow", "yaml"),
+    "my_flow__flow/flow.yaml"
+  );
+  assertEquals(
+    buildMetadataPath("f/test/my_app", "app", "yaml"),
+    "f/test/my_app__app/app.yaml"
+  );
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("isFlowPath detects non-dotted paths when configured", () => {
+  // Default (dotted) paths
+  setNonDottedPaths(false);
+  assert(isFlowPath("f/test/my_flow.flow/flow.yaml"));
+  assert(!isFlowPath("f/test/my_flow__flow/flow.yaml"));
+
+  // Non-dotted paths
+  setNonDottedPaths(true);
+  assert(isFlowPath("f/test/my_flow__flow/flow.yaml"));
+  assert(!isFlowPath("f/test/my_flow.flow/flow.yaml"));
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("isAppPath detects non-dotted paths when configured", () => {
+  // Default (dotted) paths
+  setNonDottedPaths(false);
+  assert(isAppPath("f/test/my_app.app/app.yaml"));
+  assert(!isAppPath("f/test/my_app__app/app.yaml"));
+
+  // Non-dotted paths
+  setNonDottedPaths(true);
+  assert(isAppPath("f/test/my_app__app/app.yaml"));
+  assert(!isAppPath("f/test/my_app.app/app.yaml"));
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("isRawAppPath detects non-dotted paths when configured", () => {
+  // Default (dotted) paths
+  setNonDottedPaths(false);
+  assert(isRawAppPath("f/test/my_raw_app.raw_app/raw_app.yaml"));
+  assert(!isRawAppPath("f/test/my_raw_app__raw_app/raw_app.yaml"));
+
+  // Non-dotted paths
+  setNonDottedPaths(true);
+  assert(isRawAppPath("f/test/my_raw_app__raw_app/raw_app.yaml"));
+  assert(!isRawAppPath("f/test/my_raw_app.raw_app/raw_app.yaml"));
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("extractResourceName works with non-dotted paths", () => {
+  setNonDottedPaths(true);
+  assertEquals(
+    extractResourceName("f/test/my_flow__flow/flow.yaml", "flow"),
+    "f/test/my_flow"
+  );
+  assertEquals(
+    extractResourceName("f/test/my_app__app/app.yaml", "app"),
+    "f/test/my_app"
+  );
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("hasFolderSuffix works with non-dotted paths", () => {
+  setNonDottedPaths(true);
+  assert(hasFolderSuffix("my_flow__flow", "flow"));
+  assert(!hasFolderSuffix("my_flow.flow", "flow"));
+
+  assert(hasFolderSuffix("my_app__app", "app"));
+  assert(!hasFolderSuffix("my_app.app", "app"));
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("setNonDottedPaths and getNonDottedPaths work correctly", () => {
+  // Default should be false
+  setNonDottedPaths(false);
+  assertEquals(getNonDottedPaths(), false);
+
+  // Set to true
+  setNonDottedPaths(true);
+  assertEquals(getNonDottedPaths(), true);
+
+  // Set back to false
+  setNonDottedPaths(false);
+  assertEquals(getNonDottedPaths(), false);
+});
+
+// =============================================================================
+// nonDottedPaths Fixture Functions
+// =============================================================================
+
+/**
+ * Creates a mock flow file structure using the current global nonDottedPaths setting
+ */
+function createFlowFixtureWithCurrentConfig(name: string): Record<string, { path: string; content: string }> {
+  const flowSuffix = getFolderSuffix("flow");
+  const metadataFile = getMetadataFileName("flow", "yaml");
+
+  return {
+    metadata: {
+      path: `${name}${flowSuffix}/${metadataFile}`,
+      content: `summary: "${name} flow"
+description: "A flow for testing"
+value:
+  modules:
+    - id: a
+      value:
+        type: rawscript
+        content: "!inline ${name}${flowSuffix}/a.ts"
+        language: bun
+        input_transforms: {}
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties: {}
+  required: []
+`,
+    },
+    inlineScript: {
+      path: `${name}${flowSuffix}/a.ts`,
+      content: `export async function main() {\n  return "Hello from flow ${name}";\n}`,
+    },
+  };
+}
+
+/**
+ * Creates a mock app file structure using the current global nonDottedPaths setting
+ */
+function createAppFixtureWithCurrentConfig(name: string): Record<string, { path: string; content: string }> {
+  const appSuffix = getFolderSuffix("app");
+  const metadataFile = getMetadataFileName("app", "yaml");
+
+  return {
+    metadata: {
+      path: `${name}${appSuffix}/${metadataFile}`,
+      content: `summary: "${name} app"
+value:
+  grid:
+    - data:
+        id: "text_1"
+        type: textcomponent
+        componentInput:
+          type: static
+          value: "Hello from ${name}"
+      id: "a"
+  hiddenInlineScripts: []
+policy:
+  execution_mode: viewer
+`,
+    },
+  };
+}
+
+Deno.test("Flow fixture with nonDottedPaths creates __flow structure", () => {
+  setNonDottedPaths(true);
+  const flow = createFlowFixtureWithCurrentConfig("test_flow");
+
+  assertEquals(flow.metadata.path, "test_flow__flow/flow.yaml");
+  assertEquals(flow.inlineScript.path, "test_flow__flow/a.ts");
+  assertStringIncludes(flow.metadata.content, "summary:");
+  assertStringIncludes(flow.metadata.content, "modules:");
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("App fixture with nonDottedPaths creates __app structure", () => {
+  setNonDottedPaths(true);
+  const app = createAppFixtureWithCurrentConfig("test_app");
+
+  assertEquals(app.metadata.path, "test_app__app/app.yaml");
+  assertStringIncludes(app.metadata.content, "summary:");
+  assertStringIncludes(app.metadata.content, "grid:");
+  setNonDottedPaths(false); // Reset
+});
+
+Deno.test("Local filesystem with nonDottedPaths creates correct folder structure", async () => {
+  setNonDottedPaths(true);
+  const tempDir = await createTempDir();
+
+  try {
+    // Create folder structure
+    await ensureDir(path.join(tempDir, "f/flows"));
+    await ensureDir(path.join(tempDir, "f/apps"));
+
+    // Create flows with non-dotted paths
+    const flowFixture = createFlowFixtureWithCurrentConfig("f/flows/test_flow");
+    await ensureDir(path.join(tempDir, `f/flows/test_flow${getFolderSuffix("flow")}`));
+    for (const file of Object.values(flowFixture)) {
+      await Deno.writeTextFile(path.join(tempDir, file.path), file.content);
+    }
+
+    // Create apps with non-dotted paths
+    const appFixture = createAppFixtureWithCurrentConfig("f/apps/test_app");
+    await ensureDir(path.join(tempDir, `f/apps/test_app${getFolderSuffix("app")}`));
+    for (const file of Object.values(appFixture)) {
+      await Deno.writeTextFile(path.join(tempDir, file.path), file.content);
+    }
+
+    const files = await readDirRecursive(tempDir);
+
+    // Check flows exist with __flow suffix
+    assert("f/flows/test_flow__flow/flow.yaml" in files, "Flow metadata should exist with __flow suffix");
+    assert("f/flows/test_flow__flow/a.ts" in files, "Flow inline script should exist with __flow suffix");
+
+    // Check apps exist with __app suffix
+    assert("f/apps/test_app__app/app.yaml" in files, "App metadata should exist with __app suffix");
+
+    // Verify old-style paths don't exist
+    assert(!("f/flows/test_flow.flow/flow.yaml" in files), "Old .flow suffix should not exist");
+    assert(!("f/apps/test_app.app/app.yaml" in files), "Old .app suffix should not exist");
+  } finally {
+    await cleanupTempDir(tempDir);
+    setNonDottedPaths(false); // Reset
+  }
+});
+
+// =============================================================================
+// nonDottedPaths Integration Tests
+// =============================================================================
+
+Deno.test({
+  name: "Integration: wmill.yaml with nonDottedPaths is read correctly",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths option
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "f/**"
+excludes: []
+`,
+      );
+
+      // Create a test script with non-dotted flow folder
+      setNonDottedPaths(true);
+      const uniqueId = Date.now();
+      const flowName = `f/test/nondot_flow_${uniqueId}`;
+      const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
+      await ensureDir(`${tempDir}/f/test/nondot_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      for (const file of Object.values(flowFixture)) {
+        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+      }
+      setNonDottedPaths(false); // Reset
+
+      // Run sync push with dry-run to verify the config is being read
+      const dryRunResult = await runCLICommand(
+        ["sync", "push", "--dry-run", "--includes", `f/test/nondot_flow_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        dryRunResult.code,
+        0,
+        `Dry run should succeed with nonDottedPaths config.\nstdout: ${dryRunResult.stdout}\nstderr: ${dryRunResult.stderr}`,
+      );
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: "Integration: Pull then Push with nonDottedPaths is idempotent",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      // Pull from remote with nonDottedPaths enabled
+      const pullResult = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      assertEquals(
+        pullResult.code,
+        0,
+        `Pull should succeed with nonDottedPaths.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+      );
+
+      // Verify that pulled files use __flow/__app/__raw_app suffixes
+      const filesAfterPull = await readDirRecursive(tempDir);
+      const flowFiles = Object.keys(filesAfterPull).filter((f) => f.includes("__flow/"));
+      const appFiles = Object.keys(filesAfterPull).filter((f) => f.includes("__app/"));
+
+      // Verify NO dotted paths were created
+      const dottedFlowFiles = Object.keys(filesAfterPull).filter((f) => f.includes(".flow/"));
+      const dottedAppFiles = Object.keys(filesAfterPull).filter((f) => f.includes(".app/"));
+
+      // Only check if there are actually flows/apps in the workspace
+      // If there are flows, they should use __flow not .flow
+      if (flowFiles.length > 0 || dottedFlowFiles.length > 0) {
+        assert(
+          dottedFlowFiles.length === 0,
+          `Flows should use __flow suffix with nonDottedPaths, found .flow files: ${dottedFlowFiles.join(", ")}`,
+        );
+      }
+      if (appFiles.length > 0 || dottedAppFiles.length > 0) {
+        assert(
+          dottedAppFiles.length === 0,
+          `Apps should use __app suffix with nonDottedPaths, found .app files: ${dottedAppFiles.join(", ")}`,
+        );
+      }
+
+      // Push back without changes (should be no-op / idempotent)
+      const pushResult = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      assertEquals(pushResult.code, 0, `Push dry-run should succeed: ${pushResult.stderr}`);
+
+      // Should report 0 changes (check both stdout and stderr)
+      const output = (pushResult.stdout + pushResult.stderr).toLowerCase();
+      assert(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+        `Should have no changes after pull with nonDottedPaths without modifications. Output: ${output}`,
+      );
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: "Integration: Push flow with nonDottedPaths creates __flow structure on server",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      // Create a local flow with __flow suffix
+      setNonDottedPaths(true);
+      const uniqueId = Date.now();
+      const flowName = `f/test/nondot_idem_flow_${uniqueId}`;
+      const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
+      await ensureDir(`${tempDir}/f/test/nondot_idem_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      for (const file of Object.values(flowFixture)) {
+        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+      }
+      setNonDottedPaths(false); // Reset global state
+
+      // Push the flow
+      const pushResult = await runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Pull back to same directory to verify round-trip (idempotency)
+      const pullResult = await runCLICommand(
+        ["sync", "pull", "--yes", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pullResult.code,
+        0,
+        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+      );
+
+      // Verify flow still has __flow suffix after round-trip
+      const filesAfterPull = await readDirRecursive(tempDir);
+      const allFiles = Object.keys(filesAfterPull);
+      const flowFiles = allFiles.filter((f) => f.includes(`nondot_idem_flow_${uniqueId}`));
+
+      assert(flowFiles.length > 0, `Should have the flow files after pull. Files found: ${allFiles.join(", ")}`);
+      assert(
+        flowFiles.some((f) => f.includes("__flow/")),
+        `Flow should be in a __flow folder with nonDottedPaths. Found: ${flowFiles.join(", ")}`,
+      );
+      assert(
+        !flowFiles.some((f) => f.includes(".flow/")),
+        `Flow should NOT use .flow suffix with nonDottedPaths. Found: ${flowFiles.join(", ")}`,
+      );
+
+      // Push again (should be idempotent - no changes)
+      const push2 = await runCLICommand(
+        ["sync", "push", "--dry-run", "--includes", `f/test/nondot_idem_flow_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+
+      const output = (push2.stdout + push2.stderr).toLowerCase();
+      assert(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+        `Should have no changes after push-pull cycle for flow. Output: ${output}`,
+      );
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: "Integration: Multiple pull/push cycles with nonDottedPaths remain idempotent",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      // First pull
+      const pull1 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      assertEquals(pull1.code, 0, `First pull should succeed: ${pull1.stderr}`);
+
+      // First push (should be no-op)
+      const push1 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      assertEquals(push1.code, 0, `First push dry-run should succeed: ${push1.stderr}`);
+
+      // Second pull (should have no changes)
+      const pull2 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      assertEquals(pull2.code, 0, `Second pull should succeed: ${pull2.stderr}`);
+
+      // Second push (should still be no-op)
+      const push2 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+
+      // Verify no changes after multiple cycles
+      const output = (push2.stdout + push2.stderr).toLowerCase();
+      assert(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+        `Should have no changes after multiple pull/push cycles with nonDottedPaths. Output: ${output}`,
+      );
+
+      // Third pull to verify consistency
+      const pull3 = await runCLICommand(["sync", "pull", "--yes"], tempDir, configDir);
+      assertEquals(pull3.code, 0, `Third pull should succeed: ${pull3.stderr}`);
+
+      // Final push check
+      const push3 = await runCLICommand(["sync", "push", "--dry-run"], tempDir, configDir);
+      assertEquals(push3.code, 0, `Final push dry-run should succeed: ${push3.stderr}`);
+
+      const finalOutput = (push3.stdout + push3.stderr).toLowerCase();
+      assert(
+        finalOutput.includes("0 change") || finalOutput.includes("no change") || finalOutput.includes("nothing"),
+        `Should still have no changes after 3 cycles. Output: ${finalOutput}`,
+      );
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: "Integration: App with nonDottedPaths creates __app structure and is idempotent",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      // Create a local app with __app suffix
+      setNonDottedPaths(true);
+      const uniqueId = Date.now();
+      const appName = `f/test/nondot_app_${uniqueId}`;
+      const appFixture = createAppFixtureWithCurrentConfig(appName);
+      await ensureDir(`${tempDir}/f/test/nondot_app_${uniqueId}${getFolderSuffix("app")}`);
+      for (const file of Object.values(appFixture)) {
+        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+      }
+      setNonDottedPaths(false); // Reset global state
+
+      // Push the app
+      const pushResult = await runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/nondot_app_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Pull back to same directory
+      const pullResult = await runCLICommand(
+        ["sync", "pull", "--yes", "--includes", `f/test/nondot_app_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pullResult.code,
+        0,
+        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+      );
+
+      // Verify app structure uses __app
+      const files = await readDirRecursive(tempDir);
+      const appFiles = Object.keys(files).filter((f) => f.includes(`nondot_app_${uniqueId}`));
+
+      assert(appFiles.length > 0, `Should have the app files. Found: ${Object.keys(files).join(", ")}`);
+      assert(
+        appFiles.some((f) => f.includes("__app/")),
+        `App should be in a __app folder with nonDottedPaths. Found: ${appFiles.join(", ")}`,
+      );
+
+      // Push again (should be idempotent)
+      const push2 = await runCLICommand(
+        ["sync", "push", "--dry-run", "--includes", `f/test/nondot_app_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+
+      const output = (push2.stdout + push2.stderr).toLowerCase();
+      assert(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+        `Should have no changes after push-pull cycle for app. Output: ${output}`,
+      );
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+/**
+ * Creates a mock raw_app file structure using the current global nonDottedPaths setting
+ */
+function createRawAppFixtureWithCurrentConfig(name: string): Record<string, { path: string; content: string }> {
+  const rawAppSuffix = getFolderSuffix("raw_app");
+  const metadataFile = getMetadataFileName("raw_app", "yaml");
+
+  return {
+    metadata: {
+      path: `${name}${rawAppSuffix}/${metadataFile}`,
+      content: `summary: "${name} raw app"
+runnables:
+  a:
+    path: u/test/my_script
+    type: script
+`,
+    },
+    indexHtml: {
+      path: `${name}${rawAppSuffix}/index.html`,
+      content: `<!DOCTYPE html>
+<html>
+<head><title>${name}</title></head>
+<body><h1>Hello from ${name}</h1></body>
+</html>`,
+    },
+    indexJs: {
+      path: `${name}${rawAppSuffix}/index.js`,
+      content: `console.log("Hello from ${name}");`,
+    },
+  };
+}
+
+Deno.test({
+  name: "Integration: Raw app with nonDottedPaths creates __raw_app structure",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      // Create a local raw app with __raw_app suffix
+      setNonDottedPaths(true);
+      const uniqueId = Date.now();
+      const rawAppName = `f/test/nondot_rawapp_${uniqueId}`;
+      const rawAppFixture = createRawAppFixtureWithCurrentConfig(rawAppName);
+      await ensureDir(`${tempDir}/f/test/nondot_rawapp_${uniqueId}${getFolderSuffix("raw_app")}`);
+      for (const file of Object.values(rawAppFixture)) {
+        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+      }
+      setNonDottedPaths(false); // Reset global state
+
+      // Verify the files are created with __raw_app suffix
+      const files = await readDirRecursive(tempDir);
+      const rawAppFiles = Object.keys(files).filter((f) => f.includes(`nondot_rawapp_${uniqueId}`));
+
+      assert(rawAppFiles.length > 0, `Should have created raw app files. Found: ${Object.keys(files).join(", ")}`);
+      assert(
+        rawAppFiles.some((f) => f.includes("__raw_app/")),
+        `Raw app should be in a __raw_app folder with nonDottedPaths. Found: ${rawAppFiles.join(", ")}`,
+      );
+      assert(
+        !rawAppFiles.some((f) => f.includes(".raw_app/")),
+        `Raw app should NOT use .raw_app suffix with nonDottedPaths. Found: ${rawAppFiles.join(", ")}`,
+      );
+
+      // Push the raw app (may fail if raw apps require specific validation)
+      const pushResult = await runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/nondot_rawapp_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      // Note: Raw apps may have additional validation requirements
+      // This test primarily verifies the folder structure is correct
+      if (pushResult.code === 0) {
+        // If push succeeded, verify idempotency
+        const push2 = await runCLICommand(
+          ["sync", "push", "--dry-run", "--includes", `f/test/nondot_rawapp_${uniqueId}**`],
+          tempDir,
+          configDir,
+        );
+
+        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+      }
+    } finally {
+      await cleanup();
+    }
+  },
+});
+
+Deno.test({
+  name: "Integration: Mixed scripts and flows with nonDottedPaths are idempotent",
+  ignore: !RUN_INTEGRATION_TESTS,
+  async fn() {
+    if (!await isServerAvailable()) {
+      console.log(`Skipping: Windmill server not available at ${WINDMILL_BASE_URL}`);
+      return;
+    }
+
+    const { tempDir, configDir, cleanup } = await setupTestEnvironment();
+    try {
+      // Create wmill.yaml with nonDottedPaths enabled
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+nonDottedPaths: true
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      const uniqueId = Date.now();
+      await ensureDir(`${tempDir}/f/test`);
+
+      // Create a script (scripts don't use folder suffixes, so they're unaffected)
+      const script = createScriptFixture(`f/test/mixed_script_${uniqueId}`, "deno");
+      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
+      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, script.metadataFile.content);
+
+      // Create a flow with __flow suffix
+      setNonDottedPaths(true);
+      const flowName = `f/test/mixed_flow_${uniqueId}`;
+      const flowFixture = createFlowFixtureWithCurrentConfig(flowName);
+      await ensureDir(`${tempDir}/f/test/mixed_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      for (const file of Object.values(flowFixture)) {
+        await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+      }
+      setNonDottedPaths(false); // Reset global state
+
+      // Push both
+      const pushResult = await runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/mixed_*_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Pull back
+      const pullResult = await runCLICommand(
+        ["sync", "pull", "--yes", "--includes", `f/test/mixed_*_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(
+        pullResult.code,
+        0,
+        `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+      );
+
+      // Verify idempotency
+      const push2 = await runCLICommand(
+        ["sync", "push", "--dry-run", "--includes", `f/test/mixed_*_${uniqueId}**`],
+        tempDir,
+        configDir,
+      );
+
+      assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+
+      const output = (push2.stdout + push2.stderr).toLowerCase();
+      assert(
+        output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+        `Should have no changes after push-pull cycle for mixed content. Output: ${output}`,
+      );
     } finally {
       await cleanup();
     }

@@ -25,6 +25,13 @@ import { pushWorkspaceDependencies } from "./commands/dependencies/dependencies.
 import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
 import { pushTrigger } from "./commands/trigger/trigger.ts";
 import { pushRawApp } from "./commands/app/raw_apps.ts";
+import {
+  isFlowPath,
+  isAppPath,
+  isRawAppPath,
+  extractResourceName,
+  buildFolderPath,
+} from "./utils/resource_folders.ts";
 
 export interface DifferenceCreate {
   type: "CREATE";
@@ -149,18 +156,18 @@ export async function pushObj(
   const typeEnding = getTypeStrFromPath(p);
 
   if (typeEnding === "app") {
-    const appName = p.split(".app" + SEP)[0];
-    await pushApp(workspace, appName, appName + ".app", message);
+    const appName = extractResourceName(p, "app")!;
+    await pushApp(workspace, appName, buildFolderPath(appName, "app"), message);
   } else if (typeEnding === "raw_app") {
-    const rawAppName = p.split(".raw_app" + SEP)[0];
-    await pushRawApp(workspace, rawAppName, rawAppName + ".raw_app", message);
+    const rawAppName = extractResourceName(p, "raw_app")!;
+    await pushRawApp(workspace, rawAppName, buildFolderPath(rawAppName, "raw_app"), message);
   } else if (typeEnding === "folder") {
     await pushFolder(workspace, p, befObj, newObj);
   } else if (typeEnding === "variable") {
     await pushVariable(workspace, p, befObj, newObj, plainSecrets);
   } else if (typeEnding === "flow") {
-    const flowName = p.split(".flow" + SEP)[0];
-    await pushFlow(workspace, flowName, flowName + ".flow", message);
+    const flowName = extractResourceName(p, "flow")!;
+    await pushFlow(workspace, flowName, buildFolderPath(flowName, "flow"), message);
   } else if (typeEnding === "resource") {
     if (!alreadySynced.includes(p)) {
       alreadySynced.push(p);
@@ -249,13 +256,13 @@ export function getTypeStrFromPath(
   | "settings"
   | "encryption_key"
   | "workspace_dependencies" {
-  if (p.includes(".flow" + SEP)) {
+  if (isFlowPath(p)) {
     return "flow";
   }
-  if (p.includes(".app" + SEP)) {
+  if (isAppPath(p)) {
     return "app";
   }
-  if (p.includes(".raw_app" + SEP)) {
+  if (isRawAppPath(p)) {
     return "raw_app";
   }
   if (p.startsWith("dependencies" + SEP)) {

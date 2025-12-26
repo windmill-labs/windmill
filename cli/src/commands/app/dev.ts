@@ -36,6 +36,7 @@ import {
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { regenerateAgentDocs } from "./generate_agents.ts";
+import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -308,12 +309,12 @@ async function dev(opts: DevOptions) {
   const cwd = process.cwd();
   const currentDirName = path.basename(cwd);
 
-  if (!currentDirName.endsWith(".raw_app")) {
+  if (!hasFolderSuffix(currentDirName, "raw_app")) {
     log.error(
       colors.red(
-        `Error: The dev command must be run inside a .raw_app folder.\n` +
+        `Error: The dev command must be run inside a ${getFolderSuffix("raw_app")} folder.\n` +
           `Current directory: ${currentDirName}\n` +
-          `Please navigate to a folder ending with '.raw_app' before running this command.`,
+          `Please navigate to a folder ending with '${getFolderSuffix("raw_app")}' before running this command.`,
       ),
     );
     Deno.exit(1);
@@ -325,7 +326,7 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a .raw_app folder containing a raw_app.yaml file.`,
+          `The dev command must be run in a ${getFolderSuffix("raw_app")} folder containing a raw_app.yaml file.`,
       ),
     );
     Deno.exit(1);
