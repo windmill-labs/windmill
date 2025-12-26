@@ -4,7 +4,7 @@ import { colors, Input, log, setClient } from "../../../deps.ts";
 import {   allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
-import { WM_FORK_PREFIX } from "../../main.ts";
+import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 
 // NOTE: This import will work after regenerating the API client
