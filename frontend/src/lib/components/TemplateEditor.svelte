@@ -464,6 +464,36 @@
 			return
 		}
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				try {
+					const text = await navigator.clipboard.readText()
+					if (text && editor) {
+						const selection = editor.getSelection()
+						if (selection) {
+							editor.executeEdits('paste', [
+								{
+									range: selection,
+									text: text,
+									forceMoveMarkers: true
+								}
+							])
+						}
+					}
+				} catch (e) {
+					document.execCommand('paste')
+				}
+			})
+		}
+
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { editor as meditor } from 'monaco-editor'
+	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { onDestroy, onMount } from 'svelte'
 
@@ -20,6 +20,14 @@
 			lineNumbers: 'off',
 			minimap: { enabled: false }
 		})
+
+		// In VSCode webview (iframe), clipboard operations need to use execCommand
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+		}
 	}
 
 	onMount(async () => {
