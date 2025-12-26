@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.600.1](https://github.com/windmill-labs/windmill/compare/v1.600.0...v1.600.1) (2025-12-26)
+
+
+### Bug Fixes
+
+* add an flow editor drawer for editing flows in same page ([940b85b](https://github.com/windmill-labs/windmill/commit/940b85b17b33f5d27ce93333f94e2fdf62a4d0b6))
+
 ## [1.600.0](https://github.com/windmill-labs/windmill/compare/v1.599.3...v1.600.0) (2025-12-26)
 
 
