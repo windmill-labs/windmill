@@ -1,5 +1,6 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -121,6 +122,9 @@
 	// Test args input
 	let args: Record<string, any> = $state({})
 	let isValid: boolean = $state(true)
+	let jsonView: boolean = $state(false)
+	let jsonEditor: JsonInputs | undefined = $state(undefined)
+	let schemaHeight = $state(0)
 
 	// Test
 	let testIsLoading = $state(false)
@@ -781,9 +785,38 @@
 			<Splitpanes horizontal style="height: 1000px;">
 				<Pane size={33}>
 					<div class="px-2">
-						<div class="break-words relative font-sans">
-							<SchemaForm compact {schema} bind:args bind:isValid />
+						<div class="flex justify-end mb-2">
+							<Toggle
+								bind:checked={jsonView}
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={() => {
+									jsonEditor?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
 						</div>
+						{#if jsonView}
+							<div class="py-2" style="height: {Math.max(schemaHeight, 300)}px">
+								<JsonInputs
+									bind:this={jsonEditor}
+									on:select={(e) => {
+										if (e.detail) {
+											args = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
+							</div>
+						{:else}
+							<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+								<SchemaForm compact {schema} bind:args bind:isValid />
+							</div>
+						{/if}
 					</div>
 				</Pane>
 				<Pane size={67}>
