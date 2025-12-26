@@ -8,7 +8,7 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
-import { SEP } from "../../deps.ts";
+import { log, SEP } from "../../deps.ts";
 
 // Resource types that use folder-based storage
 export type FolderResourceType = "flow" | "app" | "raw_app";
@@ -28,7 +28,9 @@ const NON_DOTTED_SUFFIXES = {
   raw_app: "__raw_app",
 } as const;
 
-export type FolderSuffixes = typeof DOTTED_SUFFIXES | typeof NON_DOTTED_SUFFIXES;
+export type FolderSuffixes =
+  | typeof DOTTED_SUFFIXES
+  | typeof NON_DOTTED_SUFFIXES;
 
 // Global state for nonDottedPaths configuration
 let _nonDottedPaths = false;
@@ -39,6 +41,9 @@ let _nonDottedPaths = false;
  * This should be called once at startup based on wmill.yaml configuration.
  */
 export function setNonDottedPaths(value: boolean): void {
+  if (value) {
+    log.info("Using non-dotted paths (__flow, __app, __raw_app)");
+  }
   _nonDottedPaths = value;
 }
 
@@ -148,7 +153,7 @@ export function isRawAppBackendPath(filePath: string): boolean {
   // Normalize path separators for consistent matching
   const normalizedPath = filePath.replaceAll(SEP, "/");
   // Check if path contains pattern: *.[suffix]/backend/
-  const escapedSuffix = suffixes.raw_app.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escapedSuffix = suffixes.raw_app.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(`${escapedSuffix}/backend/`);
   return pattern.test(normalizedPath);
 }
@@ -205,7 +210,12 @@ export function buildMetadataPath(
   type: FolderResourceType,
   format: "yaml" | "json"
 ): string {
-  return resourceName + getFolderSuffixes()[type] + SEP + METADATA_FILES[type][format];
+  return (
+    resourceName +
+    getFolderSuffixes()[type] +
+    SEP +
+    METADATA_FILES[type][format]
+  );
 }
 
 // ============================================================================
@@ -258,27 +268,71 @@ export function extractNameFromFolder(
 // ============================================================================
 
 /**
- * Check if a path ends with a flow metadata file suffix
+ * Check if a path ends with a flow metadata file suffix.
+ * Detects BOTH API format (always dotted: .flow.json) and local format (user-configured).
+ * This is necessary because the API always returns dotted format, but local files
+ * may use non-dotted format if nonDottedPaths is configured.
  */
 export function isFlowMetadataFile(p: string): boolean {
-  const suffixes = getFolderSuffixes();
-  return p.endsWith(suffixes.flow + ".json") || p.endsWith(suffixes.flow + ".yaml");
+  // Always check API format (dotted)
+  if (
+    p.endsWith(DOTTED_SUFFIXES.flow + ".json") ||
+    p.endsWith(DOTTED_SUFFIXES.flow + ".yaml")
+  ) {
+    return true;
+  }
+  // Also check non-dotted format for local files
+  if (_nonDottedPaths) {
+    return (
+      p.endsWith(NON_DOTTED_SUFFIXES.flow + ".json") ||
+      p.endsWith(NON_DOTTED_SUFFIXES.flow + ".yaml")
+    );
+  }
+  return false;
 }
 
 /**
- * Check if a path ends with an app metadata file suffix
+ * Check if a path ends with an app metadata file suffix.
+ * Detects BOTH API format (always dotted: .app.json) and local format (user-configured).
  */
 export function isAppMetadataFile(p: string): boolean {
-  const suffixes = getFolderSuffixes();
-  return p.endsWith(suffixes.app + ".json") || p.endsWith(suffixes.app + ".yaml");
+  // Always check API format (dotted)
+  if (
+    p.endsWith(DOTTED_SUFFIXES.app + ".json") ||
+    p.endsWith(DOTTED_SUFFIXES.app + ".yaml")
+  ) {
+    return true;
+  }
+  // Also check non-dotted format for local files
+  if (_nonDottedPaths) {
+    return (
+      p.endsWith(NON_DOTTED_SUFFIXES.app + ".json") ||
+      p.endsWith(NON_DOTTED_SUFFIXES.app + ".yaml")
+    );
+  }
+  return false;
 }
 
 /**
- * Check if a path ends with a raw_app metadata file suffix
+ * Check if a path ends with a raw_app metadata file suffix.
+ * Detects BOTH API format (always dotted: .raw_app.json) and local format (user-configured).
  */
 export function isRawAppMetadataFile(p: string): boolean {
-  const suffixes = getFolderSuffixes();
-  return p.endsWith(suffixes.raw_app + ".json") || p.endsWith(suffixes.raw_app + ".yaml");
+  // Always check API format (dotted)
+  if (
+    p.endsWith(DOTTED_SUFFIXES.raw_app + ".json") ||
+    p.endsWith(DOTTED_SUFFIXES.raw_app + ".yaml")
+  ) {
+    return true;
+  }
+  // Also check non-dotted format for local files
+  if (_nonDottedPaths) {
+    return (
+      p.endsWith(NON_DOTTED_SUFFIXES.raw_app + ".json") ||
+      p.endsWith(NON_DOTTED_SUFFIXES.raw_app + ".yaml")
+    );
+  }
+  return false;
 }
 
 /**
@@ -308,16 +362,26 @@ export function getDeleteSuffix(
 }
 
 /**
- * Transform a JSON path to the appropriate directory/file path for sync
- * e.g., "f/my_flow.flow.json" -> "f/my_flow.flow" or "f/my_flow__flow.json" -> "f/my_flow__flow"
+ * Transform a JSON path from API format to local directory path for sync.
+ * The API always returns dotted format (.flow.json, .app.json, .raw_app.json).
+ * This function transforms to the user's configured format (dotted or non-dotted).
+ * e.g., with nonDottedPaths=true: "f/my_flow.flow.json" -> "f/my_flow__flow"
+ * e.g., with nonDottedPaths=false: "f/my_flow.flow.json" -> "f/my_flow.flow"
  */
 export function transformJsonPathToDir(
   p: string,
   type: FolderResourceType
 ): string {
-  const suffixes = getFolderSuffixes();
-  const fullSuffix = suffixes[type] + ".json";
-  if (p.endsWith(fullSuffix)) {
+  // API always returns dotted format
+  const apiSuffix = DOTTED_SUFFIXES[type] + ".json";
+  if (p.endsWith(apiSuffix)) {
+    // Remove the API suffix and add user's configured suffix
+    const basePath = p.substring(0, p.length - apiSuffix.length);
+    return basePath + getFolderSuffixes()[type];
+  }
+  // Also handle the case where path already has user's configured format
+  const userSuffix = getFolderSuffixes()[type] + ".json";
+  if (p.endsWith(userSuffix)) {
     return p.substring(0, p.length - 5); // Remove ".json"
   }
   // Path doesn't match expected suffix pattern, return unchanged

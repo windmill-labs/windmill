@@ -91,6 +91,7 @@ import {
   isRawAppFolderMetadataFile,
   getDeleteSuffix,
   transformJsonPathToDir,
+  getFolderSuffix,
   getFolderSuffixWithSep,
 } from "../../utils/resource_folders.ts";
 
@@ -1289,7 +1290,7 @@ export async function elementsToMap(
     }
 
     if (isRawAppFile(path)) {
-      const suffix = path.split(".raw_app" + SEP).pop();
+      const suffix = path.split(getFolderSuffix("raw_app") + SEP).pop();
       if (
         suffix?.startsWith("dist/") ||
         suffix == "wmill.d.ts" ||

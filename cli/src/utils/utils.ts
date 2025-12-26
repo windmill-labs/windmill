@@ -2,7 +2,7 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-nocheck This file is copied from a JS project, so it's not type-safe.
 
-import { colors, encodeHex, log } from "../../deps.ts";
+import { colors, encodeHex, log, SEP } from "../../deps.ts";
 import crypto from "node:crypto";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
