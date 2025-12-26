@@ -80,6 +80,19 @@ import {
   APP_BACKEND_FOLDER,
   generateAppLocksInternal,
 } from "../app/app_metadata.ts";
+import {
+  isFlowPath,
+  isAppPath,
+  isRawAppPath,
+  extractFolderPath,
+  isFlowMetadataFile,
+  isAppMetadataFile,
+  isRawAppMetadataFile,
+  isRawAppFolderMetadataFile,
+  getDeleteSuffix,
+  transformJsonPathToDir,
+  getFolderSuffixWithSep,
+} from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
@@ -704,11 +717,11 @@ function ZipFSElement(
       | "resource"
       | "other"
       | "raw_app"
-      | "dependencies" = p.endsWith(".flow.json")
+      | "dependencies" = isFlowMetadataFile(p)
       ? "flow"
-      : p.endsWith(".app.json")
+      : isAppMetadataFile(p)
         ? "app"
-        : p.endsWith(".raw_app.json")
+        : isRawAppMetadataFile(p)
           ? "raw_app"
           : p.endsWith(".script.json")
             ? "script"
@@ -722,11 +735,11 @@ function ZipFSElement(
 
     function transformPath() {
       if (kind == "flow") {
-        return p.replace("flow.json", "flow");
+        return transformJsonPathToDir(p, "flow");
       } else if (kind == "app") {
-        return p.replace("app.json", "app");
+        return transformJsonPathToDir(p, "app");
       } else if (kind == "raw_app") {
-        return p.replace("raw_app.json", "raw_app");
+        return transformJsonPathToDir(p, "raw_app");
       } else if (kind == "dependencies") {
         return p;
       } else {
@@ -1788,25 +1801,22 @@ interface ChangeTracker {
   rawApps: string[];
 }
 
-const FLOW_EXT = ".flow" + SEP;
-const APP_EXT = ".app" + SEP;
-const RAW_APP_EXT = ".raw_app" + SEP;
 // deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
-    if (p.includes(FLOW_EXT)) {
-      const folder = p.substring(0, p.indexOf(FLOW_EXT)) + FLOW_EXT;
+    if (isFlowPath(p)) {
+      const folder = extractFolderPath(p, "flow")!;
       if (!tracker.flows.includes(folder)) {
         tracker.flows.push(folder);
       }
-    } else if (p.includes(APP_EXT)) {
-      const folder = p.substring(0, p.indexOf(APP_EXT)) + APP_EXT;
+    } else if (isAppPath(p)) {
+      const folder = extractFolderPath(p, "app")!;
       if (!tracker.apps.includes(folder)) {
         tracker.apps.push(folder);
       }
-    } else if (p.includes(RAW_APP_EXT)) {
-      const folder = p.substring(0, p.indexOf(RAW_APP_EXT)) + RAW_APP_EXT;
+    } else if (isRawAppPath(p)) {
+      const folder = extractFolderPath(p, "raw_app")!;
       if (!tracker.rawApps.includes(folder)) {
         tracker.rawApps.push(folder);
       }
@@ -2623,7 +2633,7 @@ export async function push(
             const deleteRawApp = changes.find(
               (change) =>
                 change.name === "deleted" &&
-                change.path.endsWith(".raw_app/raw_app.yaml"),
+                isRawAppFolderMetadataFile(change.path),
             );
             if (deleteRawApp) {
               changes = [deleteRawApp];
@@ -2841,23 +2851,20 @@ export async function push(
                 case "flow":
                   await wmill.deleteFlowByPath({
                     workspace: workspaceId,
-                    path: removeSuffix(target, ".flow/flow.json"),
+                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
                   });
                   break;
                 case "app":
                   await wmill.deleteApp({
                     workspace: workspaceId,
-                    path: removeSuffix(target, ".app/app.json"),
+                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
                   });
                   break;
                 case "raw_app":
-                  if (
-                    target.endsWith(".raw_app/raw_app.yaml") ||
-                    target.endsWith(".raw_app/raw_app.json")
-                  ) {
+                  if (isRawAppFolderMetadataFile(target)) {
                     await wmill.deleteApp({
                       workspace: workspaceId,
-                      path: removeSuffix(target, ".raw_app/raw_app.json"),
+                      path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
                   }
                   break;
