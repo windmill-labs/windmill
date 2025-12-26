@@ -19,6 +19,7 @@
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
 	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
+	import type { AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
 	import { dbSchemas } from '$lib/stores'
 	import { runScriptAndPollResult } from '../jobs/utils'
@@ -392,7 +393,11 @@
 					selectionExcluded: selectionExcludedFromPrompt,
 					toggleSelectionExcluded: toggleSelectionExcluded,
 					clearInspector: clearInspectorSelection,
-					clearRunnable: handleClearRunnable
+					clearRunnable: handleClearRunnable,
+					codeSelection: codeSelection,
+					clearCodeSelection: () => {
+						codeSelection = undefined
+					}
 				}
 				if (selectedRunnable) {
 					const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
@@ -439,6 +444,12 @@
 
 				// Get unique datatable names from dataTableRefs (the whitelisted tables)
 				const whitelistedDatatables = new Set(dataTableRefsObjects.map((ref) => ref.datatable))
+
+				// If no datatables are configured, return all available datatables
+				// This allows users to see all datatables in the @ context menu
+				if (whitelistedDatatables.size === 0) {
+					return allSchemas
+				}
 
 				// Build a map of whitelisted tables per datatable: datatable -> schema -> Set<table>
 				const whitelistedTables = new Map<string, Map<string, Set<string>>>()
@@ -550,6 +561,19 @@
 					const errorMsg = e instanceof Error ? e.message : String(e)
 					return { success: false, error: errorMsg }
 				}
+			},
+			addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => {
+				// Format the table reference
+				const newRef = formatDataTableRef({
+					datatable: datatableName,
+					schema: schemaName === 'public' ? undefined : schemaName,
+					table: tableName
+				})
+				// Only add if not already present
+				if (!data.tables.includes(newRef)) {
+					data.tables = [...data.tables, newRef]
+					saveFrontendDraft()
+				}
 			}
 		})
 	})
@@ -557,6 +581,7 @@
 	let selectedDocument: string | undefined = $state(undefined)
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
 	let selectionExcludedFromPrompt: boolean = $state(false)
+	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
 
 	function toggleSelectionExcluded() {
 		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
@@ -596,6 +621,27 @@
 		} else if (e.data.type === 'inspectorClear') {
 			// Clear the inspector element when user dismisses the selection
 			inspectorElement = undefined
+		} else if (e.data.type === 'editorSelection') {
+			// Handle code selection from the iframe editor
+			const selection = e.data.selection
+			if (selection === null) {
+				// Selection cleared
+				codeSelection = undefined
+			} else {
+				// Normalize path
+				const normalizedPath = selection.path?.replace(/\\/g, '/')
+				codeSelection = {
+					type: 'app_code_selection',
+					source: normalizedPath,
+					sourceType: 'frontend',
+					title: `${normalizedPath}:L${selection.range.startLine}-L${selection.range.endLine}`,
+					content: selection.content,
+					startLine: selection.range.startLine,
+					endLine: selection.range.endLine,
+					startColumn: selection.range.startColumn,
+					endColumn: selection.range.endColumn
+				}
+			}
 		}
 	}
 

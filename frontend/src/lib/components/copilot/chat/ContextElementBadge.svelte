@@ -100,6 +100,50 @@
 					<div class="text-primary">{contextElement.title}</div>
 				</div>
 			{/if}
+		{:else if contextElement.type === 'app_frontend_file'}
+			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
+				<HighlightCode
+					language={contextElement.path.endsWith('.tsx') || contextElement.path.endsWith('.ts')
+						? 'bun'
+						: contextElement.path.endsWith('.css')
+							? 'bash'
+							: 'bun'}
+					code={contextElement.content}
+					className="w-full p-2"
+				/>
+			</div>
+		{:else if contextElement.type === 'app_backend_runnable'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				{#if contextElement.runnable.inlineScript}
+					<HighlightCode
+						language={contextElement.runnable.inlineScript.language}
+						code={contextElement.runnable.inlineScript.content}
+						className="w-full p-2"
+					/>
+				{:else}
+					<ObjectViewer json={contextElement.runnable} pureViewer collapseLevel={2} />
+				{/if}
+			</div>
+		{:else if contextElement.type === 'app_code_selection'}
+			<div class="max-w-96 max-h-[300px] text-xs overflow-auto">
+				<div class="text-tertiary text-xs mb-1 px-2 pt-1">
+					{contextElement.source} (L{contextElement.startLine}-L{contextElement.endLine})
+				</div>
+				<HighlightCode
+					language="bun"
+					code={contextElement.content}
+					className="w-full p-2"
+				/>
+			</div>
+		{:else if contextElement.type === 'app_datatable'}
+			<div class="p-2 max-w-96 max-h-[300px] text-xs overflow-auto">
+				<div class="text-tertiary text-xs mb-1">
+					{contextElement.datatableName}/{contextElement.schemaName === 'public'
+						? ''
+						: contextElement.schemaName + ':'}{contextElement.tableName}
+				</div>
+				<ObjectViewer json={contextElement.columns} pureViewer collapseLevel={1} />
+			</div>
 		{/if}
 	{/snippet}
 </Popover>
