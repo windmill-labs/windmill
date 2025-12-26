@@ -1,6 +1,6 @@
 import { log } from "../../deps.ts";
 import { execSync } from "node:child_process";
-import { WM_FORK_PREFIX } from "../main.ts";
+import { WM_FORK_PREFIX } from "../core/constants.ts";
 
 export function getCurrentGitBranch(): string | null {
   try {
