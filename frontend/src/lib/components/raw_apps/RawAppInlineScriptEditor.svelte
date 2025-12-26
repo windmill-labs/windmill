@@ -4,7 +4,7 @@
 	const bubble = createBubbler()
 	import Button from '$lib/components/common/button/Button.svelte'
 	import type { Preview, ScriptLang } from '$lib/gen'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher, onMount, untrack } from 'svelte'
 	import { Trash2 } from 'lucide-svelte'
 	import { inferArgs, inferAssets } from '$lib/infer'
 	import type { Schema } from '$lib/common'
@@ -35,6 +35,16 @@
 		onCancel: () => Promise<void>
 		editor?: Editor | undefined
 		lastDeployedCode?: string | undefined
+		/** Called when code is selected in the editor */
+		onSelectionChange?: (
+			selection: {
+				content: string
+				startLine: number
+				endLine: number
+				startColumn: number
+				endColumn: number
+			} | null
+		) => void
 	}
 
 	let {
@@ -47,7 +57,8 @@
 		onRun,
 		onCancel,
 		editor = $bindable(undefined),
-		lastDeployedCode
+		lastDeployedCode,
+		onSelectionChange
 	}: Props = $props()
 	let diffEditor = $state() as DiffEditor | undefined
 	let validCode = $state(true)
@@ -122,6 +133,106 @@
 	)
 	$effect(() => {
 		if (inlineScript && inferAssetsRes.current) inlineScript.assets = inferAssetsRes.current?.assets
+	})
+
+	// Track last selection to avoid duplicate events
+	let lastSelectionKey = $state<string | null>(null)
+	// Track pending selection during mouse drag
+	let pendingSelection: {
+		startLineNumber: number
+		startColumn: number
+		endLineNumber: number
+		endColumn: number
+	} | null = null
+	let isMouseDown = false
+
+	function emitSelection(editorInstance: Editor): void {
+		if (!onSelectionChange) return
+
+		const selection = pendingSelection
+		if (!selection) {
+			// No selection - only emit null if we previously had a selection
+			if (lastSelectionKey !== null) {
+				lastSelectionKey = null
+				onSelectionChange(null)
+			}
+			return
+		}
+
+		// Check if there's an actual selection (not just cursor position)
+		const hasSelection =
+			selection.startLineNumber !== selection.endLineNumber ||
+			selection.startColumn !== selection.endColumn
+
+		if (!hasSelection) {
+			// No selection - only emit null if we previously had a selection
+			if (lastSelectionKey !== null) {
+				lastSelectionKey = null
+				onSelectionChange(null)
+			}
+			return
+		}
+
+		// Get the selected content from the editor
+		const model = editorInstance.getModel?.()
+		if (!model || !('getValueInRange' in model)) return
+
+		const content = (model as any).getValueInRange({
+			startLineNumber: selection.startLineNumber,
+			startColumn: selection.startColumn,
+			endLineNumber: selection.endLineNumber,
+			endColumn: selection.endColumn
+		})
+
+		// Create a key to deduplicate identical selections
+		const selectionKey = `${selection.startLineNumber}:${selection.startColumn}:${selection.endLineNumber}:${selection.endColumn}`
+		if (selectionKey === lastSelectionKey) return
+		lastSelectionKey = selectionKey
+
+		onSelectionChange({
+			content,
+			startLine: selection.startLineNumber,
+			endLine: selection.endLineNumber,
+			startColumn: selection.startColumn,
+			endColumn: selection.endColumn
+		})
+	}
+
+	// Listen for editor selection changes - wait for mouseup before emitting
+	$effect(() => {
+		if (!editor || !onSelectionChange) return
+
+		const editorInstance = editor
+
+		// Track selection changes but don't emit until mouseup
+		const selectionDisposable = editorInstance.onDidChangeCursorSelection?.((e) => {
+			pendingSelection = e.selection
+			// If not mouse-driven (e.g., keyboard selection), emit immediately
+			if (!isMouseDown) {
+				untrack(() => emitSelection(editorInstance))
+			}
+		})
+
+		// Track mouse state
+		const handleMouseDown = () => {
+			isMouseDown = true
+		}
+		const handleMouseUp = () => {
+			if (isMouseDown) {
+				isMouseDown = false
+				untrack(() => emitSelection(editorInstance))
+			}
+		}
+
+		// Add mouse listeners to the document to catch mouseup even outside editor
+		document.addEventListener('mousedown', handleMouseDown)
+		document.addEventListener('mouseup', handleMouseUp)
+
+		return () => {
+			selectionDisposable?.dispose()
+			document.removeEventListener('mousedown', handleMouseDown)
+			document.removeEventListener('mouseup', handleMouseUp)
+		}
 	})
 </script>
 

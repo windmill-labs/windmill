@@ -8,9 +8,17 @@
 		selectedRunnable: string | undefined
 		appPath: string
 		initRunnablesContent: Record<string, string>
+		/** Called when code is selected in the editor */
+		onSelectionChange?: (selection: {
+			content: string
+			startLine: number
+			endLine: number
+			startColumn: number
+			endColumn: number
+		} | null) => void
 	}
 
-	let { runnables, selectedRunnable = $bindable(), appPath }: Props = $props()
+	let { runnables, selectedRunnable = $bindable(), appPath, onSelectionChange }: Props = $props()
 </script>
 
 {#if !selectedRunnable}
@@ -37,6 +45,7 @@
 			}}
 			id={selectedRunnable}
 			bind:runnable={runnables[selectedRunnable]}
+			{onSelectionChange}
 		/>{/key}
 {:else}
 	<div class="text-sm text-primary text-center py-8 px-2">

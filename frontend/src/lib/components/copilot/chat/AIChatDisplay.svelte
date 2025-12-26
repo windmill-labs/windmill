@@ -9,6 +9,7 @@
 		Loader2,
 		MousePointer2,
 		Plus,
+		TextSelect,
 		X,
 		XIcon
 	} from 'lucide-svelte'
@@ -286,7 +287,7 @@
 						{/if}
 						<ProviderModelSelector />
 
-						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.type !== 'none' || appContext.inspectorElement)}
+						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.type !== 'none' || appContext.inspectorElement || appContext.codeSelection)}
 							{#if appContext.type === 'frontend' && appContext.frontendPath && !appContext.selectionExcluded}
 								<div
 									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs"
@@ -336,6 +337,24 @@
 										class="hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded p-0.5 -mr-0.5"
 										onclick={() => appContext.clearInspector?.()}
 										title="Clear element selection"
+									>
+										<X class="w-2.5 h-2.5" />
+									</button>
+								</div>
+							{/if}
+							{#if appContext.codeSelection}
+								<div
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-2xs"
+									title={`${appContext.codeSelection.source}: lines ${appContext.codeSelection.startLine}-${appContext.codeSelection.endLine}`}
+								>
+									<TextSelect class="w-3 h-3" />
+									<span class="truncate max-w-[80px]">
+										L{appContext.codeSelection.startLine}-{appContext.codeSelection.endLine}
+									</span>
+									<button
+										class="hover:bg-amber-200 dark:hover:bg-amber-800/50 rounded p-0.5 -mr-0.5"
+										onclick={() => appContext.clearCodeSelection?.()}
+										title="Clear code selection"
 									>
 										<X class="w-2.5 h-2.5" />
 									</button>
