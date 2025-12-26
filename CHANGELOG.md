@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.600.0](https://github.com/windmill-labs/windmill/compare/v1.599.3...v1.600.0) (2025-12-26)
+
+
+### Features
+
+* allow @ selection for raw apps ([db6f2f2](https://github.com/windmill-labs/windmill/commit/db6f2f27629cac08c9158eeb556e9b42292a55db))
+* allow code selection to be added as context to the AI Chat ([66c8e2f](https://github.com/windmill-labs/windmill/commit/66c8e2f6da7a8b8f3a950c4e0ff65430d7886ad5))
+* implement item selection for raw app builder ([c90d878](https://github.com/windmill-labs/windmill/commit/c90d878bc11d4980ae7a6c64506001a996801af5))
+
+
+### Bug Fixes
+
+* add help subcommand ([#7221](https://github.com/windmill-labs/windmill/issues/7221)) ([7fbc70a](https://github.com/windmill-labs/windmill/commit/7fbc70add042d884085a56fdec07232bee3b8e58))
+
 ## [1.599.3](https://github.com/windmill-labs/windmill/compare/v1.599.2...v1.599.3) (2025-12-25)
 
 
