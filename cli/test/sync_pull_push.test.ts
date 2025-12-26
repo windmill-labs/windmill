@@ -22,6 +22,10 @@ import {
   hasFolderSuffix,
   setNonDottedPaths,
   getNonDottedPaths,
+  isFlowMetadataFile,
+  isAppMetadataFile,
+  isRawAppMetadataFile,
+  transformJsonPathToDir,
 } from "../src/utils/resource_folders.ts";
 
 // =============================================================================
@@ -479,6 +483,123 @@ Deno.test("buildFolderPath creates correct paths", () => {
   assertEquals(buildFolderPath("my_flow", "flow"), "my_flow.flow");
   assertEquals(buildFolderPath("f/test/my_app", "app"), "f/test/my_app.app");
   assertEquals(buildFolderPath("u/admin/raw_app", "raw_app"), "u/admin/raw_app.raw_app");
+});
+
+// =============================================================================
+// nonDottedPaths Tests - API format detection and transformation
+// =============================================================================
+
+Deno.test("Metadata file detection works with dotted format (default)", () => {
+  // Ensure we're in default mode
+  setNonDottedPaths(false);
+
+  // API always returns dotted format
+  assert(isFlowMetadataFile("f/my_flow.flow.json"), "Should detect .flow.json");
+  assert(isFlowMetadataFile("f/my_flow.flow.yaml"), "Should detect .flow.yaml");
+  assert(isAppMetadataFile("f/my_app.app.json"), "Should detect .app.json");
+  assert(isAppMetadataFile("f/my_app.app.yaml"), "Should detect .app.yaml");
+  assert(isRawAppMetadataFile("f/my_raw.raw_app.json"), "Should detect .raw_app.json");
+  assert(isRawAppMetadataFile("f/my_raw.raw_app.yaml"), "Should detect .raw_app.yaml");
+
+  // Non-matching should return false
+  assert(!isFlowMetadataFile("f/my_script.ts"), "Should not detect script file");
+  assert(!isAppMetadataFile("f/my_script.ts"), "Should not detect script file");
+});
+
+Deno.test("Metadata file detection works with nonDottedPaths=true", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    setNonDottedPaths(true);
+
+    // API format (dotted) should still be detected
+    assert(isFlowMetadataFile("f/my_flow.flow.json"), "Should detect API format .flow.json");
+    assert(isAppMetadataFile("f/my_app.app.json"), "Should detect API format .app.json");
+    assert(isRawAppMetadataFile("f/my_raw.raw_app.json"), "Should detect API format .raw_app.json");
+
+    // Local format (non-dotted) should also be detected
+    assert(isFlowMetadataFile("f/my_flow__flow.json"), "Should detect local format __flow.json");
+    assert(isFlowMetadataFile("f/my_flow__flow.yaml"), "Should detect local format __flow.yaml");
+    assert(isAppMetadataFile("f/my_app__app.json"), "Should detect local format __app.json");
+    assert(isRawAppMetadataFile("f/my_raw__raw_app.json"), "Should detect local format __raw_app.json");
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
+});
+
+Deno.test("transformJsonPathToDir transforms API format to local format", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    // Test with dotted paths (default)
+    setNonDottedPaths(false);
+    assertEquals(
+      transformJsonPathToDir("f/my_flow.flow.json", "flow"),
+      "f/my_flow.flow",
+      "Should transform dotted API format to dotted local format"
+    );
+    assertEquals(
+      transformJsonPathToDir("f/my_app.app.json", "app"),
+      "f/my_app.app",
+      "Should transform app correctly"
+    );
+    assertEquals(
+      transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app"),
+      "f/my_raw.raw_app",
+      "Should transform raw_app correctly"
+    );
+
+    // Test with non-dotted paths
+    setNonDottedPaths(true);
+    assertEquals(
+      transformJsonPathToDir("f/my_flow.flow.json", "flow"),
+      "f/my_flow__flow",
+      "Should transform dotted API format to non-dotted local format"
+    );
+    assertEquals(
+      transformJsonPathToDir("f/my_app.app.json", "app"),
+      "f/my_app__app",
+      "Should transform app to non-dotted format"
+    );
+    assertEquals(
+      transformJsonPathToDir("f/my_raw.raw_app.json", "raw_app"),
+      "f/my_raw__raw_app",
+      "Should transform raw_app to non-dotted format"
+    );
+
+    // Non-matching paths should be returned unchanged
+    assertEquals(
+      transformJsonPathToDir("f/my_script.ts", "flow"),
+      "f/my_script.ts",
+      "Should return non-matching path unchanged"
+    );
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
+});
+
+Deno.test("getFolderSuffix returns correct suffix based on nonDottedPaths setting", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    setNonDottedPaths(false);
+    assertEquals(getFolderSuffix("flow"), ".flow");
+    assertEquals(getFolderSuffix("app"), ".app");
+    assertEquals(getFolderSuffix("raw_app"), ".raw_app");
+
+    setNonDottedPaths(true);
+    assertEquals(getFolderSuffix("flow"), "__flow");
+    assertEquals(getFolderSuffix("app"), "__app");
+    assertEquals(getFolderSuffix("raw_app"), "__raw_app");
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
 });
 
 Deno.test("Script fixture creates valid structure", () => {
