@@ -879,6 +879,25 @@
 							{selectedRunnable}
 							{initRunnablesContent}
 							{runnables}
+							onSelectionChange={(selection) => {
+								console.log('handle selection', selection)
+
+								if (selection === null) {
+									codeSelection = undefined
+								} else if (selectedRunnable) {
+									codeSelection = {
+										type: 'app_code_selection',
+										source: selectedRunnable,
+										sourceType: 'backend',
+										title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+										content: selection.content,
+										startLine: selection.startLine,
+										endLine: selection.endLine,
+										startColumn: selection.startColumn,
+										endColumn: selection.endColumn
+									}
+								}
+							}}
 						/>
 					</div>
 				{/if}
