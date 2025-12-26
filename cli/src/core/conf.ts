@@ -7,6 +7,7 @@ import {
 import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { setNonDottedPaths } from "../utils/resource_folders.ts";
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -278,6 +279,10 @@ export async function readConfigFile(): Promise<SyncOptions> {
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
       );
     }
+
+    // Initialize global nonDottedPaths setting from config
+    setNonDottedPaths(conf?.nonDottedPaths ?? false);
+
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
     if (

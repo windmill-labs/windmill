@@ -316,14 +316,10 @@ export function transformJsonPathToDir(
   type: FolderResourceType
 ): string {
   const suffixes = getFolderSuffixes();
-  // For dotted: ".flow.json" contains "flow.json", replace with "flow" -> get ".flow"
-  // For dunder: "__flow.json" - we need to remove just ".json"
-  // The simplest approach is to check if path ends with the full suffix pattern and remove ".json"
   const fullSuffix = suffixes[type] + ".json";
   if (p.endsWith(fullSuffix)) {
     return p.substring(0, p.length - 5); // Remove ".json"
   }
-  // Fallback to original behavior for dotted paths
-  const suffix = METADATA_FILES[type].json;
-  return p.replace(suffix, type);
+  // Path doesn't match expected suffix pattern, return unchanged
+  return p;
 }
