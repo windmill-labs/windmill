@@ -14,7 +14,6 @@ import { getCssColor } from '$lib/utils'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
-
 	const getWorker = (moduleId: string, label: string) => {
 		console.log(`getWorker: moduleId: ${moduleId} label: ${label}`)
 
@@ -96,13 +95,13 @@ export function buildWorkerDefinition() {
 						type: 'module'
 					}
 				)
-			},
-			graphql: () => {
-				console.log('Creating graphql worker')
-				return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
-					name: 'graphql'
-				})
 			}
+			// graphql: () => {
+			// 	console.log('Creating graphql worker')
+			// 	return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
+			// 		name: 'graphql'
+			// 	})
+			// }
 		}
 		const workerFunc = workerLoaders[selector]
 		if (workerFunc !== undefined) {
