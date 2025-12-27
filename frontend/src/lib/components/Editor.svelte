@@ -1,6 +1,7 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import { typescriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -1582,7 +1583,7 @@
 		const isDucklakeOptional = ducklakeNames.includes('main')
 		const isDataTableOptional = datatableNames.includes('main')
 
-		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
+		let disposeTs = typescriptDefaults.addExtraLib(
 			`export {};
 			declare module 'windmill-client' {
 				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
@@ -1613,14 +1614,14 @@
 				scriptLang === 'bunnative' ? 'bun' : scriptLang
 			)
 
-			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
+			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 
 	async function setTypescriptExtraLibs() {
 		if (extraLib) {
 			const uri = mUri.parse('file:///extraLib.d.ts')
-			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+			typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
 
 		if (
@@ -1634,7 +1635,7 @@
 				const path = 'file://' + _path
 				let uri = mUri.parse(path)
 				console.log('adding library to runtime', path)
-				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				typescriptDefaults.addExtraLib(code, path)
 				try {
 					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 				} catch (e) {
