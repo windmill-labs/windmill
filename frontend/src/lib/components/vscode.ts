@@ -59,13 +59,10 @@ export function buildWorkerDefinition() {
 			},
 			typescript: () => {
 				// Use our custom TypeScript worker with SQL type inference plugin
-				return new Worker(
-					new URL('../monaco_workers/sqlTypePlugin.worker.js', import.meta.url),
-					{
-						type: 'module',
-						name: 'typescript-sql-aware'
-					}
-				)
+				return new Worker(new URL('../monaco_workers/sqlTypePlugin.worker.js', import.meta.url), {
+					type: 'module',
+					name: 'typescript-sql-aware'
+				})
 			},
 			json: () => {
 				return new Worker(
@@ -129,6 +126,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				viewsConfig: {
 					$type: 'EditorService'
 				},
+
 				serviceOverrides: {
 					// ...getLogServiceOverride()
 					// ...getThemeServiceOverride(),

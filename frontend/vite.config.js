@@ -89,8 +89,6 @@ const config = {
 	resolve: {
 		alias: {
 			path: 'path-browserify',
-			'monaco-editor/esm/vs/editor/contrib/hover/browser/hover':
-				'monaco-editor/esm/vs/editor/contrib/hover/browser/hoverContribution'
 		},
 		dedupe: ['vscode', 'monaco-editor']
 	},
