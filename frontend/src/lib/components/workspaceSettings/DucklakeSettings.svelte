@@ -63,7 +63,7 @@
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { SettingService, WorkspaceService } from '$lib/gen'
-	import { type GetSettingsResponse } from '$lib/gen'
+	import type { GetSettingsResponse } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
