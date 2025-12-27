@@ -1,18 +1,38 @@
 <script lang="ts">
+	import { run, createBubbler } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { createPopperActions, type PopperOptions } from 'svelte-popperjs'
 	import type { PopoverPlacement } from './Popover.model'
 	import Portal from '$lib/components/Portal.svelte'
 
-	export let placement: PopoverPlacement = 'bottom-end'
-	export let notClickable = false
-	export let disablePopup = false
-	export let disappearTimeout = 100
-	export let appearTimeout = 300
-	export let style: string | undefined = undefined
-	export let noPadding = false
+	interface Props {
+		placement?: PopoverPlacement
+		notClickable?: boolean
+		disablePopup?: boolean
+		disappearTimeout?: number
+		appearTimeout?: number
+		style?: string | undefined
+		noPadding?: boolean
+		focusEl?: HTMLElement | undefined
+		class?: string
+		children?: import('svelte').Snippet
+		overlay?: import('svelte').Snippet
+	}
 
-	export let focusEl: HTMLElement | undefined = undefined
-
+	let {
+		placement = 'bottom-end',
+		notClickable = false,
+		disablePopup = false,
+		disappearTimeout = 100,
+		appearTimeout = 300,
+		style = undefined,
+		noPadding = false,
+		focusEl = undefined,
+		class: clazz = '',
+		children,
+		overlay
+	}: Props = $props()
 	const [popperRef, popperContent] = createPopperActions({ placement })
 
 	const popperOptions: PopperOptions<{}> = {
@@ -29,7 +49,7 @@
 		]
 	}
 
-	let showTooltip = false
+	let showTooltip = $state(false)
 	let timeout: number | undefined = undefined
 	let inTimeout: number | undefined = undefined
 
@@ -47,36 +67,38 @@
 		timeout = setTimeout(() => (showTooltip = false), disappearTimeout)
 	}
 
-	$: focusEl && focusEl?.focus()
+	run(() => {
+		focusEl && focusEl?.focus()
+	})
 </script>
 
 {#if notClickable}
-	<!-- svelte-ignore a11y-no-static-element-interactions -->
-	<span {style} use:popperRef on:mouseenter={open} on:mouseleave={close} class={$$props.class}>
-		<slot />
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<span {style} use:popperRef onmouseenter={open} onmouseleave={close} class={clazz}>
+		{@render children?.()}
 	</span>
 {:else}
 	<button
 		{style}
 		use:popperRef
-		on:mouseenter={open}
-		on:mouseleave={close}
-		on:click
-		class={$$props.class}
+		onmouseenter={open}
+		onmouseleave={close}
+		onclick={bubble('click')}
+		class={clazz}
 	>
-		<slot />
+		{@render children?.()}
 	</button>
 {/if}
 {#if showTooltip && !disablePopup}
 	<Portal name="custom-popover">
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div
 			use:popperContent={popperOptions}
-			on:mouseenter={open}
-			on:mouseleave={close}
+			onmouseenter={open}
+			onmouseleave={close}
 			class="z-[5001] border rounded-lg shadow-lg {noPadding ? '' : 'p-4'} bg-surface"
 		>
-			<slot name="overlay" />
+			{@render overlay?.()}
 		</div>
 	</Portal>
 {/if}
