@@ -70,7 +70,7 @@
 		"tar": "^7.4.3",
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
-		"vite": "npm:rolldown-vite@7.3.0",
+		"vite": "npm:rolldown-vite@7.2.8",
 		"vite-plugin-mkcert": "^1.17.5",
 		"vitest": "^4.0.10",
 		"vitest-browser-svelte": "^2.0.1"
@@ -123,7 +123,6 @@
 		"lucide-svelte": "^0.540.0",
 		"minimatch": "^10.0.1",
 		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@=24.2.0",
-		"monaco-graphql": "=1.7.3",
 		"monaco-languageclient": "10.5.0",
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
