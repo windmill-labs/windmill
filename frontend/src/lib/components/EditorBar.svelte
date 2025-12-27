@@ -1032,7 +1032,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.diffMode != false}
 				<div class="flex items-center px-3">
 					<Toggle
-						options={{ right: '' }}
+						options={{ right: 'Diff' }}
 						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}

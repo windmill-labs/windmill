@@ -1,6 +1,7 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import { typescriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -54,8 +55,8 @@
 		MONACO_Y_PADDING
 	} from '$lib/components/vscode'
 
-	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	// import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import {
 		editor as meditor,
@@ -198,7 +199,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
-	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
@@ -606,7 +607,7 @@
 		sqlSchemaCompletor?.dispose()
 	}
 	function disposeGaphqlService() {
-		graphqlService = undefined
+		// graphqlService = undefined
 	}
 
 	function addDBSchemaCompletions() {
@@ -616,14 +617,16 @@
 		}
 		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
-			graphqlService ||= initializeMode()
-			console.log('setting schema config', schema)
-			graphqlService?.setSchemaConfig([
-				{
-					uri: 'my-schema.graphql',
-					introspectionJSON: schema
-				}
-			])
+			//graphql depreciated until https://github.com/graphql/graphiql/issues/4104 is fixed with monaco > 0.52.2
+			// languages.register({ id: 'graphql' })
+			// graphqlService ||= initializeMode()
+			// console.log('setting schema config', schema)
+			// graphqlService?.setSchemaConfig([
+			// 	{
+			// 		uri: 'my-schema.graphql',
+			// 		introspectionJSON: schema
+			// 	}
+			// ])
 		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
@@ -1582,7 +1585,7 @@
 		const isDucklakeOptional = ducklakeNames.includes('main')
 		const isDataTableOptional = datatableNames.includes('main')
 
-		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
+		let disposeTs = typescriptDefaults.addExtraLib(
 			`export {};
 			declare module 'windmill-client' {
 				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
@@ -1613,14 +1616,14 @@
 				scriptLang === 'bunnative' ? 'bun' : scriptLang
 			)
 
-			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
+			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 
 	async function setTypescriptExtraLibs() {
 		if (extraLib) {
 			const uri = mUri.parse('file:///extraLib.d.ts')
-			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+			typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
 
 		if (
@@ -1634,7 +1637,7 @@
 				const path = 'file://' + _path
 				let uri = mUri.parse(path)
 				console.log('adding library to runtime', path)
-				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				typescriptDefaults.addExtraLib(code, path)
 				try {
 					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 				} catch (e) {

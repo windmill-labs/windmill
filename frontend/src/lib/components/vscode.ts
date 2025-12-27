@@ -14,7 +14,6 @@ import { getCssColor } from '$lib/utils'
 
 export function buildWorkerDefinition() {
 	const envEnhanced = getEnhancedMonacoEnvironment()
-
 	const getWorker = (moduleId: string, label: string) => {
 		console.log(`getWorker: moduleId: ${moduleId} label: ${label}`)
 
@@ -59,13 +58,10 @@ export function buildWorkerDefinition() {
 			},
 			typescript: () => {
 				// Use our custom TypeScript worker with SQL type inference plugin
-				return new Worker(
-					new URL('../monaco_workers/sqlTypePlugin.worker.js', import.meta.url),
-					{
-						type: 'module',
-						name: 'typescript-sql-aware'
-					}
-				)
+				return new Worker(new URL('../monaco_workers/sqlTypePlugin.worker.js', import.meta.url), {
+					type: 'module',
+					name: 'typescript-sql-aware'
+				})
 			},
 			json: () => {
 				return new Worker(
@@ -99,13 +95,13 @@ export function buildWorkerDefinition() {
 						type: 'module'
 					}
 				)
-			},
-			graphql: () => {
-				console.log('Creating graphql worker')
-				return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
-					name: 'graphql'
-				})
 			}
+			// graphql: () => {
+			// 	console.log('Creating graphql worker')
+			// 	return new Worker(new URL(`../monaco_workers/graphql.worker.bundle.js`, import.meta.url), {
+			// 		name: 'graphql'
+			// 	})
+			// }
 		}
 		const workerFunc = workerLoaders[selector]
 		if (workerFunc !== undefined) {
@@ -129,6 +125,7 @@ export async function initializeVscode(caller?: string, htmlContainer?: HTMLElem
 				viewsConfig: {
 					$type: 'EditorService'
 				},
+
 				serviceOverrides: {
 					// ...getLogServiceOverride()
 					// ...getThemeServiceOverride(),

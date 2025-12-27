@@ -8,6 +8,7 @@ import { setGlobalCSS } from '../shared'
 import { get } from 'svelte/store'
 import type { MonacoLanguageClient } from 'monaco-languageclient'
 import { copilotInfo } from '$lib/aiStore'
+import { getTypeScriptWorker } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 // max ratio of completions to context window
 const COMPLETIONS_MAX_RATIO = 0.1
@@ -174,17 +175,17 @@ export class Autocompletor {
 								additionalTextEdits:
 									endsWithNewLine && !multiline
 										? [
-											{
-												range: toEol,
-												text: ''
-											}
-										]
+												{
+													range: toEol,
+													text: ''
+												}
+											]
 										: []
 							}
 						]
 					}
 				},
-				disposeInlineCompletions: () => { },
+				disposeInlineCompletions: () => {}
 			}
 		)
 
@@ -340,7 +341,7 @@ export class Autocompletor {
 		try {
 			const offs = model.getOffsetAt(position)
 
-			const workerFactory = await languages.typescript.getTypeScriptWorker()
+			const workerFactory = await getTypeScriptWorker()
 			const worker = await workerFactory(model.uri)
 			const info = await worker.getCompletionsAtPosition(model.uri.toString(), offs)
 
