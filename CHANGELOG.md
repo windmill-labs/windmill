@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.601.0](https://github.com/windmill-labs/windmill/compare/v1.600.1...v1.601.0) (2025-12-27)
+
+
+### Features
+
+* **cli:** add nonDottedPaths option ([#7459](https://github.com/windmill-labs/windmill/issues/7459)) ([5f7f677](https://github.com/windmill-labs/windmill/commit/5f7f67790aace726f0fea345297231d99c3b22e0))
+
+
+### Bug Fixes
+
+* **vscode:** improve paste support for vscode extension ([2bd9c1f](https://github.com/windmill-labs/windmill/commit/2bd9c1fc73604add8cc72a7758b575875666abae))
+
 ## [1.600.1](https://github.com/windmill-labs/windmill/compare/v1.600.0...v1.600.1) (2025-12-26)
 
 
