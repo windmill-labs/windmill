@@ -57,6 +57,8 @@ import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
 import {
   isRawAppBackendPath as isRawAppBackendPathInternal,
+  isAppInlineScriptPath as isAppInlineScriptPathInternal,
+  isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
   isFlowPath,
   isAppPath,
 } from "../../utils/resource_folders.ts";
@@ -77,6 +79,22 @@ export interface ScriptFile {
  */
 export function isRawAppBackendPath(filePath: string): boolean {
   return isRawAppBackendPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a normal app folder (inline script).
+ * Matches patterns like: .../myApp.app/... or .../myApp__app/...
+ */
+export function isAppInlineScriptPath(filePath: string): boolean {
+  return isAppInlineScriptPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a flow folder (inline script).
+ * Matches patterns like: .../myFlow.flow/... or .../myFlow__flow/...
+ */
+export function isFlowInlineScriptPath(filePath: string): boolean {
+  return isFlowInlineScriptPathInternal(filePath);
 }
 
 type PushOptions = GlobalOptions;
@@ -211,7 +229,8 @@ export async function handleFile(
   codebases: SyncCodebase[]
 ): Promise<boolean> {
   if (
-    !path.includes(".inline_script.") &&
+    !isAppInlineScriptPath(path) &&
+    !isFlowInlineScriptPath(path) &&
     !isRawAppBackendPath(path) &&
     exts.some((exts) => path.endsWith(exts))
   ) {

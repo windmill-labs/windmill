@@ -93,6 +93,7 @@ import {
   transformJsonPathToDir,
   getFolderSuffix,
   getFolderSuffixWithSep,
+  getNonDottedPaths,
 } from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
@@ -770,6 +771,8 @@ function ZipFSElement(
                 {},
                 SEP,
                 defaultTs,
+                undefined, // pathAssigner - let it create one
+                { skipInlineScriptSuffix: getNonDottedPaths() },
               );
             } catch (error) {
               log.error(
@@ -811,7 +814,7 @@ function ZipFSElement(
               inlineScripts = extractInlineScriptsForApps(
                 undefined,
                 app?.["value"],
-                newPathAssigner(defaultTs),
+                newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() }),
                 (_, val) => val["name"],
                 false,
               );
