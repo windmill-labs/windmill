@@ -392,7 +392,7 @@
 	}
 
 	let {
-		code = $bindable(''),
+		code = $bindable(),
 		hash = createHash(),
 		automaticLayout = true,
 		extraLib = '',
@@ -459,13 +459,13 @@
 
 		languages.setLanguageConfiguration('template', conf)
 
-		model = meditor.createModel(code, lang, mUri.parse(uri))
+		model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets, false),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, false),
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',
