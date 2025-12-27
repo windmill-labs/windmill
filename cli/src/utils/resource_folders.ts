@@ -158,6 +158,36 @@ export function isRawAppBackendPath(filePath: string): boolean {
   return pattern.test(normalizedPath);
 }
 
+/**
+ * Check if a path is inside a normal app folder (inline script).
+ * Matches patterns like: .../myApp.app/... or .../myApp__app/...
+ * This is used to detect inline scripts that belong to normal apps.
+ */
+export function isAppInlineScriptPath(filePath: string): boolean {
+  const suffixes = getFolderSuffixes();
+  // Normalize path separators for consistent matching
+  const normalizedPath = filePath.replaceAll(SEP, "/");
+  // Check if path contains pattern: *.[suffix]/
+  const escapedSuffix = suffixes.app.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`${escapedSuffix}/`);
+  return pattern.test(normalizedPath);
+}
+
+/**
+ * Check if a path is inside a flow folder (inline script).
+ * Matches patterns like: .../myFlow.flow/... or .../myFlow__flow/...
+ * This is used to detect inline scripts that belong to flows.
+ */
+export function isFlowInlineScriptPath(filePath: string): boolean {
+  const suffixes = getFolderSuffixes();
+  // Normalize path separators for consistent matching
+  const normalizedPath = filePath.replaceAll(SEP, "/");
+  // Check if path contains pattern: *.[suffix]/
+  const escapedSuffix = suffixes.flow.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`${escapedSuffix}/`);
+  return pattern.test(normalizedPath);
+}
+
 // ============================================================================
 // Path Manipulation Functions
 // ============================================================================

@@ -38,6 +38,7 @@ import {
 import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
+import { getNonDottedPaths } from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__app_hash";
 export const APP_BACKEND_FOLDER = "backend";
@@ -62,8 +63,13 @@ async function generateAppHash(
   try {
     const elems = await FSFSElement(runnablesFolder, [], true);
     for await (const f of elems.getChildren()) {
-      if (!rawApp && !f.path.includes(".inline_script.")) {
-        continue;
+      // For normal apps, skip non-script files (metadata files like app.yaml)
+      // For raw apps, all files in backend/ are scripts
+      if (!rawApp) {
+        const isMetadataFile = f.path.endsWith("app.yaml") || f.path.endsWith("app.json");
+        if (isMetadataFile) {
+          continue;
+        }
       }
       if (exts.some((e) => f.path.endsWith(e))) {
         // Embed lock into hash
@@ -442,7 +448,7 @@ async function updateAppInlineScripts(
   rawDeps?: Record<string, string>,
   defaultTs: "bun" | "deno" = "bun"
 ): Promise<any> {
-  const pathAssigner = newPathAssigner(defaultTs);
+  const pathAssigner = newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() });
 
   const processor: InlineScriptProcessor = async (inlineScript, context) => {
     const language = inlineScript.language as SupportedLanguage;

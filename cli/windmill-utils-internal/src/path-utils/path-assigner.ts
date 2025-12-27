@@ -113,13 +113,27 @@ export interface PathAssigner {
   assignPath(summary: string | undefined, language: SupportedLanguage): [string, string];
 }
 
+export interface PathAssignerOptions {
+  defaultTs: "bun" | "deno";
+  /** When true, skip the .inline_script. suffix in file names */
+  skipInlineScriptSuffix?: boolean;
+}
+
 /**
  * Creates a new path assigner for inline scripts.
  *
  * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @param options - Optional configuration (can pass options object instead of defaultTs)
  * @returns Path assigner function
  */
-export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions, options?: { skipInlineScriptSuffix?: boolean }): PathAssigner {
+  // Handle both old signature (defaultTs string) and new signature (options object)
+  const resolvedOptions: PathAssignerOptions = typeof defaultTs === "object"
+    ? defaultTs
+    : { defaultTs, skipInlineScriptSuffix: options?.skipInlineScriptSuffix };
+
+  const { defaultTs: tsRuntime, skipInlineScriptSuffix } = resolvedOptions;
+
   let counter = 0;
   const seen_names = new Set<string>();
   function assignPath(
@@ -143,9 +157,11 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     }
     seen_names.add(name);
 
-    const ext = getLanguageExtension(language, defaultTs);
+    const ext = getLanguageExtension(language, tsRuntime);
 
-    return [`${name}.inline_script.`, ext];
+    // When skipInlineScriptSuffix is true, don't add .inline_script. to the path
+    const suffix = skipInlineScriptSuffix ? "." : ".inline_script.";
+    return [`${name}${suffix}`, ext];
   }
   return { assignPath };
 }

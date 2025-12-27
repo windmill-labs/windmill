@@ -26,7 +26,11 @@ import {
   isAppMetadataFile,
   isRawAppMetadataFile,
   transformJsonPathToDir,
+  isAppInlineScriptPath,
+  isFlowInlineScriptPath,
+  isRawAppBackendPath,
 } from "../src/utils/resource_folders.ts";
+import { newPathAssigner } from "../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 // =============================================================================
 // Test Fixtures - Every Type of Windmill Resource
@@ -596,6 +600,121 @@ Deno.test("getFolderSuffix returns correct suffix based on nonDottedPaths settin
     assertEquals(getFolderSuffix("flow"), "__flow");
     assertEquals(getFolderSuffix("app"), "__app");
     assertEquals(getFolderSuffix("raw_app"), "__raw_app");
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
+});
+
+Deno.test("newPathAssigner with skipInlineScriptSuffix removes .inline_script. from paths", () => {
+  // Test default behavior (with .inline_script. suffix)
+  const defaultAssigner = newPathAssigner("bun");
+  const [defaultPath, defaultExt] = defaultAssigner.assignPath("my_script", "bun");
+  assertEquals(defaultPath, "my_script.inline_script.");
+  assertEquals(defaultExt, "ts");
+
+  // Test with skipInlineScriptSuffix = false (explicit)
+  const withSuffixAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: false });
+  const [withSuffixPath, withSuffixExt] = withSuffixAssigner.assignPath("another_script", "python3");
+  assertEquals(withSuffixPath, "another_script.inline_script.");
+  assertEquals(withSuffixExt, "py");
+
+  // Test with skipInlineScriptSuffix = true (no .inline_script. suffix)
+  const noSuffixAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
+  const [noSuffixPath, noSuffixExt] = noSuffixAssigner.assignPath("clean_script", "bun");
+  assertEquals(noSuffixPath, "clean_script.");
+  assertEquals(noSuffixExt, "ts");
+
+  // Test with skipInlineScriptSuffix = true and different language
+  const noSuffixPyAssigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
+  const [noSuffixPyPath, noSuffixPyExt] = noSuffixPyAssigner.assignPath("python_script", "python3");
+  assertEquals(noSuffixPyPath, "python_script.");
+  assertEquals(noSuffixPyExt, "py");
+});
+
+Deno.test("newPathAssigner generates unique paths for duplicate names", () => {
+  const assigner = newPathAssigner("bun", { skipInlineScriptSuffix: true });
+
+  // First script
+  const [path1, ext1] = assigner.assignPath("my_script", "bun");
+  assertEquals(path1, "my_script.");
+  assertEquals(ext1, "ts");
+
+  // Second script with same name should get counter
+  const [path2, ext2] = assigner.assignPath("my_script", "bun");
+  assertEquals(path2, "my_script_1.");
+  assertEquals(ext2, "ts");
+
+  // Third script with same name should get incremented counter
+  const [path3, ext3] = assigner.assignPath("my_script", "python3");
+  assertEquals(path3, "my_script_2.");
+  assertEquals(ext3, "py");
+});
+
+Deno.test("isAppInlineScriptPath detects app inline scripts correctly", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    // Test with dotted paths (default)
+    setNonDottedPaths(false);
+    assert(isAppInlineScriptPath("f/my_app.app/my_script.ts"), "Should detect script in .app folder");
+    assert(isAppInlineScriptPath("f/my_app.app/app.yaml"), "Should detect metadata in .app folder");
+    assert(!isAppInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
+    assert(!isAppInlineScriptPath("f/my_flow.flow/flow.yaml"), "Should not detect flow files");
+
+    // Test with non-dotted paths
+    setNonDottedPaths(true);
+    assert(isAppInlineScriptPath("f/my_app__app/my_script.ts"), "Should detect script in __app folder");
+    assert(isAppInlineScriptPath("f/my_app__app/app.yaml"), "Should detect metadata in __app folder");
+    assert(!isAppInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
+    assert(!isAppInlineScriptPath("f/my_flow__flow/flow.yaml"), "Should not detect flow files");
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
+});
+
+Deno.test("isFlowInlineScriptPath detects flow inline scripts correctly", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    // Test with dotted paths (default)
+    setNonDottedPaths(false);
+    assert(isFlowInlineScriptPath("f/my_flow.flow/my_script.ts"), "Should detect script in .flow folder");
+    assert(isFlowInlineScriptPath("f/my_flow.flow/flow.yaml"), "Should detect metadata in .flow folder");
+    assert(!isFlowInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
+    assert(!isFlowInlineScriptPath("f/my_app.app/app.yaml"), "Should not detect app files");
+
+    // Test with non-dotted paths
+    setNonDottedPaths(true);
+    assert(isFlowInlineScriptPath("f/my_flow__flow/my_script.ts"), "Should detect script in __flow folder");
+    assert(isFlowInlineScriptPath("f/my_flow__flow/flow.yaml"), "Should detect metadata in __flow folder");
+    assert(!isFlowInlineScriptPath("f/my_script.ts"), "Should not detect standalone script");
+    assert(!isFlowInlineScriptPath("f/my_app__app/app.yaml"), "Should not detect app files");
+  } finally {
+    // Restore original value
+    setNonDottedPaths(wasNonDotted);
+  }
+});
+
+Deno.test("isRawAppBackendPath detects raw app backend paths correctly", () => {
+  // Store original value
+  const wasNonDotted = getNonDottedPaths();
+
+  try {
+    // Test with dotted paths (default)
+    setNonDottedPaths(false);
+    assert(isRawAppBackendPath("f/my_app.raw_app/backend/script.ts"), "Should detect script in .raw_app/backend");
+    assert(!isRawAppBackendPath("f/my_app.raw_app/index.html"), "Should not detect root files in raw_app");
+    assert(!isRawAppBackendPath("f/my_script.ts"), "Should not detect standalone script");
+
+    // Test with non-dotted paths
+    setNonDottedPaths(true);
+    assert(isRawAppBackendPath("f/my_app__raw_app/backend/script.ts"), "Should detect script in __raw_app/backend");
+    assert(!isRawAppBackendPath("f/my_app__raw_app/index.html"), "Should not detect root files in raw_app");
+    assert(!isRawAppBackendPath("f/my_script.ts"), "Should not detect standalone script");
   } finally {
     // Restore original value
     setNonDottedPaths(wasNonDotted);
