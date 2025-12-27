@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.601.1](https://github.com/windmill-labs/windmill/compare/v1.601.0...v1.601.1) (2025-12-27)
+
+
+### Bug Fixes
+
+* fix svelte for full-code apps ([1f5a9f4](https://github.com/windmill-labs/windmill/commit/1f5a9f4b990c3a6a1c79799a6b651fca7ed32402))
+
 ## [1.601.0](https://github.com/windmill-labs/windmill/compare/v1.600.1...v1.601.0) (2025-12-27)
 
 
