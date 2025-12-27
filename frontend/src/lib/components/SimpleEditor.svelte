@@ -7,6 +7,7 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import { javascriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -553,7 +554,7 @@
 				}
 				previousExtraLib = extraLib
 			}
-			languages.typescript.javascriptDefaults.setExtraLibs(libs)
+			javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 
