@@ -82,7 +82,6 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
-			'vscode'
 		]
 	},
 	worker: { format: 'es' },

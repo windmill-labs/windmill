@@ -2,7 +2,9 @@
 """
 Lightweight DAP (Debug Adapter Protocol) WebSocket Server for Python debugging.
 
-This server acts as a bridge between a WebSocket client (Monaco editor) and debugpy.
+This server acts as a bridge between a WebSocket client (Monaco editor) and Python's
+built-in debugging capabilities using the bdb module.
+
 It implements a minimal subset of DAP to support basic Python debugging:
 - Setting breakpoints
 - Stepping through code (step in, step over, step out, continue)
@@ -14,18 +16,19 @@ Usage:
 """
 
 import asyncio
+import bdb
 import json
+import linecache
 import logging
 import os
 import sys
 import tempfile
 import threading
+import traceback
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
+from io import StringIO
 from typing import Any
-
-import debugpy
 
 # Configure logging
 logging.basicConfig(
@@ -82,6 +85,183 @@ class DAPMessage:
         return result
 
 
+class WindmillDebugger(bdb.Bdb):
+    """A debugger based on Python's bdb module."""
+
+    def __init__(self, session: "DebugSession"):
+        super().__init__()
+        self.session = session
+        self.main_thread = threading.current_thread()
+        self._wait_for_continue = threading.Event()
+        self._step_mode = None  # None, 'over', 'in', 'out'
+        self._stop_requested = False
+        self._current_frame = None
+        self._loop = None
+
+    def user_line(self, frame):
+        """Called when we stop at a line."""
+        if self._stop_requested:
+            raise bdb.BdbQuit()
+
+        self._current_frame = frame
+        filename = self.canonic(frame.f_code.co_filename)
+        lineno = frame.f_lineno
+
+        logger.debug(f"user_line called: {filename}:{lineno}, breaks={self.get_all_breaks()}")
+
+        # Check if we should stop here
+        should_stop = False
+        reason = "step"
+
+        # Check breakpoints using bdb's built-in method
+        if self.break_here(frame):
+            should_stop = True
+            reason = "breakpoint"
+            logger.info(f"Breakpoint HIT at {filename}:{lineno}")
+        elif self._step_mode == 'in':
+            should_stop = True
+            reason = "step"
+        elif self._step_mode == 'over':
+            should_stop = True
+            reason = "step"
+        elif self._step_mode == 'out':
+            # Will be handled by user_return
+            pass
+
+        if should_stop:
+            self._step_mode = None
+            # Notify the client that we've stopped
+            asyncio.run_coroutine_threadsafe(
+                self.session.send_event(
+                    "stopped",
+                    {
+                        "reason": reason,
+                        "threadId": 1,
+                        "allThreadsStopped": True,
+                    },
+                ),
+                self._loop,
+            )
+            # Wait for continue/step command
+            self._wait_for_continue.clear()
+            self._wait_for_continue.wait()
+
+            if self._stop_requested:
+                raise bdb.BdbQuit()
+
+    def user_return(self, frame, return_value):
+        """Called when a return is about to happen."""
+        if self._step_mode == 'out':
+            self._step_mode = None
+            self._current_frame = frame
+            asyncio.run_coroutine_threadsafe(
+                self.session.send_event(
+                    "stopped",
+                    {
+                        "reason": "step",
+                        "threadId": 1,
+                        "allThreadsStopped": True,
+                    },
+                ),
+                self._loop,
+            )
+            self._wait_for_continue.clear()
+            self._wait_for_continue.wait()
+
+    def user_exception(self, frame, exc_info):
+        """Called when an exception occurs."""
+        exc_type, exc_value, exc_tb = exc_info
+        self._current_frame = frame
+        asyncio.run_coroutine_threadsafe(
+            self.session.send_event(
+                "stopped",
+                {
+                    "reason": "exception",
+                    "threadId": 1,
+                    "allThreadsStopped": True,
+                    "text": str(exc_value),
+                },
+            ),
+            self._loop,
+        )
+        self._wait_for_continue.clear()
+        self._wait_for_continue.wait()
+
+    def do_continue(self):
+        """Continue execution."""
+        self._step_mode = None
+        self._wait_for_continue.set()
+
+    def do_step_over(self):
+        """Step over (next line)."""
+        self._step_mode = 'over'
+        self.set_next(self._current_frame)
+        self._wait_for_continue.set()
+
+    def do_step_in(self):
+        """Step into."""
+        self._step_mode = 'in'
+        self.set_step()
+        self._wait_for_continue.set()
+
+    def do_step_out(self):
+        """Step out."""
+        self._step_mode = 'out'
+        self.set_return(self._current_frame)
+        self._wait_for_continue.set()
+
+    def do_stop(self):
+        """Stop debugging."""
+        self._stop_requested = True
+        self._wait_for_continue.set()
+
+    def get_stack_frames(self) -> list[dict]:
+        """Get current stack frames."""
+        frames = []
+        if self._current_frame is None:
+            return frames
+
+        frame = self._current_frame
+        frame_id = 1
+        while frame is not None:
+            filename = self.canonic(frame.f_code.co_filename)
+            frames.append({
+                "id": frame_id,
+                "name": frame.f_code.co_name,
+                "source": {"path": filename, "name": os.path.basename(filename)},
+                "line": frame.f_lineno,
+                "column": 0,
+            })
+            frame = frame.f_back
+            frame_id += 1
+        return frames
+
+    def get_frame_by_id(self, frame_id: int):
+        """Get a frame by its ID."""
+        frame = self._current_frame
+        current_id = 1
+        while frame is not None:
+            if current_id == frame_id:
+                return frame
+            frame = frame.f_back
+            current_id += 1
+        return None
+
+    def get_locals(self, frame_id: int = 1) -> dict:
+        """Get local variables for a frame."""
+        frame = self.get_frame_by_id(frame_id)
+        if frame:
+            return frame.f_locals.copy()
+        return {}
+
+    def get_globals(self, frame_id: int = 1) -> dict:
+        """Get global variables for a frame."""
+        frame = self.get_frame_by_id(frame_id)
+        if frame:
+            return frame.f_globals.copy()
+        return {}
+
+
 class DebugSession:
     """Manages a single debug session."""
 
@@ -92,21 +272,23 @@ class DebugSession:
         self.configured = False
         self.script_path: str | None = None
         self.breakpoints: dict[str, list[int]] = {}  # file -> line numbers
-        self.debugpy_port: int | None = None
         self.debug_thread: threading.Thread | None = None
-        self.stopped = False
-        self.thread_id = 1
-        self.frame_id = 1
-        self.variables_ref = 1
-        self.scopes: dict[int, dict] = {}
-        self.frames: list[dict] = []
+        self.debugger: WindmillDebugger | None = None
         self._running = True
         self._temp_file: str | None = None
+        self._variables_ref_counter = 1
+        self._scopes_map: dict[int, dict] = {}  # ref -> {type, frame_id}
+        self._loop = asyncio.get_event_loop()
 
     def next_seq(self) -> int:
         seq = self.seq
         self.seq += 1
         return seq
+
+    def _next_var_ref(self) -> int:
+        ref = self._variables_ref_counter
+        self._variables_ref_counter += 1
+        return ref
 
     async def send_message(self, msg: DAPMessage) -> None:
         """Send a DAP message to the client."""
@@ -153,7 +335,7 @@ class DebugSession:
             "supportsEvaluateForHovers": True,
             "exceptionBreakpointFilters": [],
             "supportsStepBack": False,
-            "supportsSetVariable": True,
+            "supportsSetVariable": False,
             "supportsRestartFrame": False,
             "supportsGotoTargetsRequest": False,
             "supportsStepInTargetsRequest": False,
@@ -201,8 +383,16 @@ class DebugSession:
                 }
             )
 
+        # Store breakpoints - they'll be applied when launch is called
         self.breakpoints[source_path] = line_numbers
-        logger.info(f"Set breakpoints at lines {line_numbers} in {source_path}")
+        logger.info(f"Stored breakpoints at lines {line_numbers} for {source_path}")
+
+        # If debugger already exists and we have a script path, update breakpoints now
+        if self.debugger and self.script_path:
+            self.debugger.clear_all_breaks()
+            for line in line_numbers:
+                self.debugger.set_break(self.script_path, line)
+                logger.info(f"Updated breakpoint at {self.script_path}:{line}")
 
         await self.send_response(request, body={"breakpoints": verified_breakpoints})
 
@@ -216,7 +406,6 @@ class DebugSession:
         args = request.get("arguments", {})
         self.script_path = args.get("program")
         code = args.get("code", "")
-        script_args = args.get("args", [])
         cwd = args.get("cwd", os.getcwd())
 
         if not self.script_path and not code:
@@ -234,69 +423,114 @@ class DebugSession:
 
         await self.send_response(request)
 
-        # Start debugpy in a separate thread
+        # Create debugger
+        self.debugger = WindmillDebugger(self)
+        self.debugger._loop = self._loop
+
+        # Set breakpoints in the debugger using the actual script path
+        # (breakpoints from frontend may use a different path like /tmp/script.py)
+        self.debugger.clear_all_breaks()
+        canonical_path = self.debugger.canonic(self.script_path)
+        logger.info(f"Script path: {self.script_path}, canonical: {canonical_path}")
+        logger.info(f"Stored breakpoints from frontend: {self.breakpoints}")
+
+        for file_path, lines in self.breakpoints.items():
+            logger.info(f"Processing breakpoints for frontend path '{file_path}': lines {lines}")
+            for line in lines:
+                # Use the actual script path, not the frontend path
+                error = self.debugger.set_break(self.script_path, line)
+                if error:
+                    logger.error(f"Failed to set breakpoint at {self.script_path}:{line}: {error}")
+                else:
+                    logger.info(f"Set breakpoint at {self.script_path}:{line}")
+
+        # Log all registered breakpoints for debugging
+        logger.info(f"Debugger breaks after setup: {self.debugger.get_all_breaks()}")
+
+        # Start debugging in a separate thread
         self.debug_thread = threading.Thread(
-            target=self._run_debugpy,
-            args=(self.script_path, script_args, cwd),
+            target=self._run_script,
+            args=(self.script_path, cwd),
             daemon=True,
         )
         self.debug_thread.start()
 
-    def _run_debugpy(
-        self, script_path: str, script_args: list[str], cwd: str
-    ) -> None:
-        """Run the script with debugpy."""
+    def _run_script(self, script_path: str, cwd: str) -> None:
+        """Run the script with the debugger."""
+        old_cwd = os.getcwd()
+        old_argv = sys.argv
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+
+        # Capture stdout/stderr
+        captured_output = StringIO()
+
         try:
-            # Set up debugpy to stop at entry
-            debugpy.configure(python=sys.executable)
-
-            # Set breakpoints before running
-            for file_path, lines in self.breakpoints.items():
-                for line in lines:
-                    debugpy.breakpoint_at(file_path, line)
-
-            # Run the script
-            old_cwd = os.getcwd()
             os.chdir(cwd)
-            old_argv = sys.argv
-            sys.argv = [script_path] + script_args
+            sys.argv = [script_path]
+            sys.stdout = captured_output
+            sys.stderr = captured_output
 
-            try:
-                with open(script_path) as f:
-                    code = compile(f.read(), script_path, "exec")
+            # Read and compile the script
+            with open(script_path) as f:
+                code = f.read()
 
-                # Create globals with debugpy breakpoint support
-                globals_dict = {
-                    "__name__": "__main__",
-                    "__file__": script_path,
-                    "__builtins__": __builtins__,
-                }
+            logger.info(f"Running script: {script_path}")
+            logger.info(f"Script content ({len(code)} chars):\n{code[:500]}...")
 
-                # Execute with debugpy tracing
-                exec(code, globals_dict)
+            # Clear linecache to ensure fresh source
+            linecache.checkcache(script_path)
 
-                # Script completed
-                asyncio.run(self._script_completed())
-            finally:
-                os.chdir(old_cwd)
-                sys.argv = old_argv
+            compiled = compile(code, script_path, "exec")
+            logger.info(f"Compiled code filename: {compiled.co_filename}")
 
+            # Create globals
+            globals_dict = {
+                "__name__": "__main__",
+                "__file__": script_path,
+                "__builtins__": __builtins__,
+            }
+
+            # Run with debugger
+            logger.info(f"Starting debugger.run() with breaks: {self.debugger.get_all_breaks()}")
+            self.debugger.run(compiled, globals_dict)
+            logger.info("debugger.run() completed normally")
+
+            # Script completed normally
+            output = captured_output.getvalue()
+            if output:
+                asyncio.run_coroutine_threadsafe(
+                    self.send_event("output", {"category": "stdout", "output": output}),
+                    self._loop,
+                )
+            asyncio.run_coroutine_threadsafe(
+                self.send_event("terminated"),
+                self._loop,
+            )
+
+        except bdb.BdbQuit:
+            # Normal termination via stop
+            asyncio.run_coroutine_threadsafe(
+                self.send_event("terminated"),
+                self._loop,
+            )
         except Exception as e:
+            error_msg = traceback.format_exc()
             logger.exception("Error running script")
-            asyncio.run(self._script_error(str(e)))
-
-    async def _script_completed(self) -> None:
-        """Notify client that script completed."""
-        await self.send_event("terminated")
-        self._cleanup_temp_file()
-
-    async def _script_error(self, error: str) -> None:
-        """Notify client of script error."""
-        await self.send_event(
-            "output", {"category": "stderr", "output": f"Error: {error}\n"}
-        )
-        await self.send_event("terminated")
-        self._cleanup_temp_file()
+            asyncio.run_coroutine_threadsafe(
+                self.send_event("output", {"category": "stderr", "output": error_msg}),
+                self._loop,
+            )
+            asyncio.run_coroutine_threadsafe(
+                self.send_event("terminated"),
+                self._loop,
+            )
+        finally:
+            os.chdir(old_cwd)
+            sys.argv = old_argv
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+            self._cleanup_temp_file()
 
     def _cleanup_temp_file(self) -> None:
         """Clean up temporary file if created."""
@@ -309,37 +543,29 @@ class DebugSession:
 
     async def handle_threads(self, request: dict) -> None:
         """Handle the 'threads' request."""
-        threads = [{"id": self.thread_id, "name": "MainThread"}]
+        threads = [{"id": 1, "name": "MainThread"}]
         await self.send_response(request, body={"threads": threads})
 
     async def handle_stack_trace(self, request: dict) -> None:
         """Handle the 'stackTrace' request."""
-        # Return mock stack frames for now
-        stack_frames = self.frames or [
-            {
-                "id": self.frame_id,
-                "name": "<module>",
-                "source": {"path": self.script_path or "", "name": "script.py"},
-                "line": 1,
-                "column": 0,
-            }
-        ]
+        if self.debugger:
+            stack_frames = self.debugger.get_stack_frames()
+        else:
+            stack_frames = []
         await self.send_response(
             request, body={"stackFrames": stack_frames, "totalFrames": len(stack_frames)}
         )
 
     async def handle_scopes(self, request: dict) -> None:
         """Handle the 'scopes' request."""
-        frame_id = request.get("arguments", {}).get("frameId", self.frame_id)
+        frame_id = request.get("arguments", {}).get("frameId", 1)
 
         # Create scope references
-        local_ref = self.variables_ref
-        self.variables_ref += 1
-        global_ref = self.variables_ref
-        self.variables_ref += 1
+        local_ref = self._next_var_ref()
+        global_ref = self._next_var_ref()
 
-        self.scopes[local_ref] = {"type": "locals", "frame_id": frame_id}
-        self.scopes[global_ref] = {"type": "globals", "frame_id": frame_id}
+        self._scopes_map[local_ref] = {"type": "locals", "frame_id": frame_id}
+        self._scopes_map[global_ref] = {"type": "globals", "frame_id": frame_id}
 
         scopes = [
             {
@@ -358,14 +584,37 @@ class DebugSession:
     async def handle_variables(self, request: dict) -> None:
         """Handle the 'variables' request."""
         variables_ref = request.get("arguments", {}).get("variablesReference", 0)
-
-        # Return empty for now - full implementation would inspect debugpy state
         variables = []
 
-        scope_info = self.scopes.get(variables_ref)
-        if scope_info:
-            # In a full implementation, we'd get actual variables from debugpy
-            pass
+        scope_info = self._scopes_map.get(variables_ref)
+        if scope_info and self.debugger:
+            frame_id = scope_info["frame_id"]
+            if scope_info["type"] == "locals":
+                var_dict = self.debugger.get_locals(frame_id)
+            else:
+                var_dict = self.debugger.get_globals(frame_id)
+
+            for name, value in var_dict.items():
+                # Skip private/magic attributes for globals
+                if scope_info["type"] == "globals" and name.startswith("_"):
+                    continue
+                try:
+                    value_str = repr(value)
+                    if len(value_str) > 100:
+                        value_str = value_str[:97] + "..."
+                    variables.append({
+                        "name": name,
+                        "value": value_str,
+                        "type": type(value).__name__,
+                        "variablesReference": 0,
+                    })
+                except Exception:
+                    variables.append({
+                        "name": name,
+                        "value": "<error getting value>",
+                        "type": "unknown",
+                        "variablesReference": 0,
+                    })
 
         await self.send_response(request, body={"variables": variables})
 
@@ -373,15 +622,24 @@ class DebugSession:
         """Handle the 'evaluate' request."""
         args = request.get("arguments", {})
         expression = args.get("expression", "")
-        context = args.get("context", "repl")
+        frame_id = args.get("frameId", 1)
 
         try:
-            # Simple evaluation - in production, use debugpy's evaluation
-            result = str(eval(expression))
+            if self.debugger:
+                frame = self.debugger.get_frame_by_id(frame_id)
+                if frame:
+                    result = eval(expression, frame.f_globals, frame.f_locals)
+                    result_str = repr(result)
+                else:
+                    result_str = "<no frame>"
+            else:
+                result_str = eval(expression)
+                result_str = repr(result_str)
+
             await self.send_response(
                 request,
                 body={
-                    "result": result,
+                    "result": result_str,
                     "variablesReference": 0,
                 },
             )
@@ -396,31 +654,36 @@ class DebugSession:
 
     async def handle_continue(self, request: dict) -> None:
         """Handle the 'continue' request."""
-        self.stopped = False
+        if self.debugger:
+            self.debugger.do_continue()
         await self.send_response(request, body={"allThreadsContinued": True})
 
     async def handle_next(self, request: dict) -> None:
         """Handle the 'next' (step over) request."""
+        if self.debugger:
+            self.debugger.do_step_over()
         await self.send_response(request)
-        # In a full implementation, this would step in debugpy
 
     async def handle_step_in(self, request: dict) -> None:
         """Handle the 'stepIn' request."""
+        if self.debugger:
+            self.debugger.do_step_in()
         await self.send_response(request)
 
     async def handle_step_out(self, request: dict) -> None:
         """Handle the 'stepOut' request."""
+        if self.debugger:
+            self.debugger.do_step_out()
         await self.send_response(request)
 
     async def handle_pause(self, request: dict) -> None:
         """Handle the 'pause' request."""
-        self.stopped = True
         await self.send_response(request)
         await self.send_event(
             "stopped",
             {
                 "reason": "pause",
-                "threadId": self.thread_id,
+                "threadId": 1,
                 "allThreadsStopped": True,
             },
         )
@@ -428,13 +691,16 @@ class DebugSession:
     async def handle_disconnect(self, request: dict) -> None:
         """Handle the 'disconnect' request."""
         self._running = False
+        if self.debugger:
+            self.debugger.do_stop()
         self._cleanup_temp_file()
         await self.send_response(request)
-        await self.send_event("terminated")
 
     async def handle_terminate(self, request: dict) -> None:
         """Handle the 'terminate' request."""
         self._running = False
+        if self.debugger:
+            self.debugger.do_stop()
         self._cleanup_temp_file()
         await self.send_response(request)
         await self.send_event("terminated")
@@ -494,6 +760,8 @@ async def handle_connection(websocket) -> None:
     except websockets.exceptions.ConnectionClosed:
         logger.info("Connection closed")
     finally:
+        if session.debugger:
+            session.debugger.do_stop()
         session._cleanup_temp_file()
 
 

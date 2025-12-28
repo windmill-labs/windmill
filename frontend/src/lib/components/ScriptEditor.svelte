@@ -23,6 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
+		Bug,
 		Copy,
 		CornerDownLeft,
 		ExternalLink,
@@ -32,6 +33,8 @@
 		PlayIcon,
 		WandSparkles
 	} from 'lucide-svelte'
+	import { DebugToolbar, DebugPanel, getDAPClient, debugState, resetDAPClient } from '$lib/debug'
+	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -222,6 +225,27 @@
 	>()
 	let ansibleGitSshIdentity = $state<string[]>([])
 
+	// Debug mode state
+	let debugMode = $state(false)
+	let debugBreakpoints = new SvelteSet<number>()
+	let breakpointDecorations: string[] = $state([])
+	let currentLineDecoration: string[] = $state([])
+	let dapClient = $state(getDAPClient())
+	const isPythonScript = $derived(lang === 'python3')
+
+	// Breakpoint decoration options
+	const breakpointDecorationType = {
+		glyphMarginClassName: 'debug-breakpoint-glyph',
+		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
+		stickiness: 1
+	}
+
+	const currentLineDecorationType = {
+		isWholeLine: true,
+		className: 'debug-current-line',
+		glyphMarginClassName: 'debug-current-line-glyph'
+	}
+
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
 
@@ -366,6 +390,154 @@
 		inferSchema(newCode)
 	}
 
+	// Debug functions
+	function toggleBreakpoint(line: number): void {
+		if (debugBreakpoints.has(line)) {
+			debugBreakpoints.delete(line)
+		} else {
+			debugBreakpoints.add(line)
+		}
+		updateBreakpointDecorations()
+	}
+
+	function updateBreakpointDecorations(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		const decorations = Array.from(debugBreakpoints).map((line) => ({
+			range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+			options: breakpointDecorationType
+		}))
+
+		// Use untrack to prevent reactive loop when reading the old decorations
+		const oldDecorations = untrack(() => breakpointDecorations)
+		breakpointDecorations = monacoEditor.deltaDecorations(oldDecorations, decorations)
+	}
+
+	function updateCurrentLineDecoration(line: number | undefined): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		// Use untrack to prevent reactive loop when reading the old decorations
+		const oldDecorations = untrack(() => currentLineDecoration)
+
+		if (!line) {
+			currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+			return
+		}
+
+		const decorations = [
+			{
+				range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+				options: currentLineDecorationType
+			}
+		]
+
+		currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, decorations)
+		monacoEditor.revealLineInCenter(line)
+	}
+
+	async function startDebugging(): Promise<void> {
+		try {
+			await dapClient.connect()
+			await dapClient.initialize()
+			await dapClient.setBreakpoints('/tmp/script.py', Array.from(debugBreakpoints))
+			await dapClient.configurationDone()
+			await dapClient.launch({ code, cwd: '/tmp' })
+		} catch (error) {
+			console.error('Failed to start debugging:', error)
+			sendUserToast('Failed to start debugging. Make sure the DAP server is running.', true)
+		}
+	}
+
+	async function stopDebugging(): Promise<void> {
+		try {
+			await dapClient.terminate()
+			dapClient.disconnect()
+		} catch (error) {
+			console.error('Failed to stop debugging:', error)
+		}
+	}
+
+	async function continueExecution(): Promise<void> {
+		await dapClient.continue_()
+	}
+
+	async function stepOver(): Promise<void> {
+		await dapClient.stepOver()
+	}
+
+	async function stepIn(): Promise<void> {
+		await dapClient.stepIn()
+	}
+
+	async function stepOut(): Promise<void> {
+		await dapClient.stepOut()
+	}
+
+	function clearAllBreakpoints(): void {
+		debugBreakpoints.clear()
+		updateBreakpointDecorations()
+	}
+
+	function toggleDebugMode(): void {
+		debugMode = !debugMode
+		if (!debugMode) {
+			// Clean up when exiting debug mode
+			stopDebugging()
+			clearAllBreakpoints()
+			updateCurrentLineDecoration(undefined)
+		}
+	}
+
+	// Subscribe to debug state changes for current line highlighting
+	$effect(() => {
+		const currentLine = $debugState.currentLine
+		if (debugMode) {
+			untrack(() => updateCurrentLineDecoration(currentLine))
+		}
+	})
+
+	// Set up glyph margin click handler for breakpoints when debug mode is enabled
+	$effect(() => {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		if (debugMode && isPythonScript) {
+			// Enable glyph margin for breakpoints
+			monacoEditor.updateOptions({ glyphMargin: true })
+
+			// Add click handler for glyph margin (breakpoint toggle)
+			const mouseDownDisposable = monacoEditor.onMouseDown((e) => {
+				// MouseTargetType.GUTTER_GLYPH_MARGIN = 2
+				if (e.target.type === 2) {
+					const line = e.target.position?.lineNumber
+					if (line) {
+						toggleBreakpoint(line)
+					}
+				}
+			})
+
+			// Add F9 keyboard shortcut for toggling breakpoint at cursor
+			monacoEditor.addCommand(120, () => {
+				// KeyCode.F9 = 120
+				const position = monacoEditor.getPosition()
+				if (position) {
+					toggleBreakpoint(position.lineNumber)
+				}
+			})
+
+			return () => {
+				mouseDownDisposable.dispose()
+				// Disable glyph margin when exiting debug mode
+				monacoEditor.updateOptions({ glyphMargin: false })
+			}
+		} else {
+			// Ensure glyph margin is disabled when not in debug mode
+			monacoEditor.updateOptions({ glyphMargin: false })
+		}
+	})
+
 	onMount(() => {
 		inferSchema(code, { applyInitialArgs: true })
 		loadPastTests()
@@ -450,6 +622,11 @@
 		aiChatManager.scriptEditorOptions = undefined
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		// Clean up debug mode
+		if (debugMode) {
+			stopDebugging()
+			resetDAPClient()
+		}
 	})
 
 	function asKind(str: string | undefined) {
@@ -678,6 +855,23 @@
 					</div>
 				{/if}
 
+				{#if debugMode && isPythonScript}
+					<div transition:slide={{ duration: 200 }}>
+						<DebugToolbar
+							connected={$debugState.connected}
+							running={$debugState.running}
+							stopped={$debugState.stopped}
+							onStart={startDebugging}
+							onStop={stopDebugging}
+							onContinue={continueExecution}
+							onStepOver={stepOver}
+							onStepIn={stepIn}
+							onStepOut={stepOut}
+							onClearBreakpoints={clearAllBreakpoints}
+						/>
+					</div>
+				{/if}
+
 				<div class="flex justify-center pt-1 relative">
 					<div class="absolute top-2 left-2">
 						<HideButton
@@ -728,8 +922,8 @@
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
 					>
 				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
-					<Pane size={33}>
+				<Splitpanes horizontal class="!max-h-[calc(100%-{debugMode && isPythonScript ? '83' : '43'}px)]">
+					<Pane size={debugMode && $debugState.connected ? 25 : 33}>
 						{#if jsonView}
 							<div
 								class="py-2"
@@ -769,7 +963,7 @@
 							</div>
 						{/if}
 					</Pane>
-					<Pane size={67} class="relative">
+					<Pane size={debugMode && $debugState.connected ? 40 : 67} class="relative">
 						<LogPanel
 							bind:this={logPanel}
 							{lang}
@@ -808,6 +1002,17 @@
 							{/snippet}
 						</LogPanel>
 					</Pane>
+					{#if debugMode && $debugState.connected}
+						<Pane size={35} class="relative">
+							<DebugPanel
+								stackFrames={$debugState.stackFrames}
+								scopes={$debugState.scopes}
+								variables={$debugState.variables}
+								output={$debugState.output}
+								client={dapClient}
+							/>
+						</Pane>
+					{/if}
 				</Splitpanes>
 			</div>
 		</Pane>
@@ -820,11 +1025,25 @@
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
+			{#if isPythonScript}
+				<Button
+					variant={debugMode ? 'accent' : 'default'}
+					size="xs"
+					onclick={toggleDebugMode}
+					startIcon={{ icon: Bug }}
+					btnClasses={debugMode
+						? ''
+						: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
+					title="Toggle Debug Mode (Python)"
+				>
+					{debugMode ? 'Exit Debug' : 'Debug'}
+				</Button>
+			{/if}
 			{#if lang === 'ansible' && hasDelegateToGitRepo}
 				<Button
 					variant="default"
 					size="xs"
-					on:click={() => (gitRepoResourcePickerOpen = true)}
+					onclick={() => (gitRepoResourcePickerOpen = true)}
 					startIcon={{ icon: GitBranch }}
 					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 				>
@@ -959,3 +1178,30 @@
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />
+
+<style global>
+	/* Debug breakpoint glyph - red circle in the glyph margin */
+	.debug-breakpoint-glyph {
+		background-color: #e51400;
+		border-radius: 50%;
+		width: 10px !important;
+		height: 10px !important;
+		margin-left: 5px;
+		margin-top: 4px;
+	}
+
+	/* Current execution line - yellow background */
+	.debug-current-line {
+		background-color: rgba(255, 238, 0, 0.2);
+	}
+
+	/* Current execution line glyph - yellow arrow in the glyph margin */
+	.debug-current-line-glyph {
+		background-color: #ffcc00;
+		clip-path: polygon(0 0, 100% 50%, 0 100%);
+		width: 10px !important;
+		height: 14px !important;
+		margin-left: 5px;
+		margin-top: 2px;
+	}
+</style>
