@@ -2968,3 +2968,76 @@ async fn test_duckdb_ffi(db: Pool<Postgres>) -> anyhow::Result<()> {
     assert_eq!(result, serde_json::json!("Hello world!"));
     Ok(())
 }
+
+/// Test that flow substeps with tags that are not available for the workspace fail.
+/// This validates that `check_tag_available_for_workspace_internal` is properly called
+/// when pushing jobs from worker_flow.
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_substep_tag_availability_check(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_common::worker::{CustomTags, SpecificTagData, SpecificTagType, CUSTOM_TAGS_PER_WORKSPACE};
+
+    initialize_tracing().await;
+
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Set up a restricted tag that is only available to "other-workspace" (not "test-workspace")
+    {
+        let mut custom_tags = CUSTOM_TAGS_PER_WORKSPACE.write().await;
+        *custom_tags = CustomTags {
+            global: vec![],
+            specific: std::collections::HashMap::from([(
+                "restricted-tag".to_string(),
+                SpecificTagData {
+                    tag_type: SpecificTagType::NoneExcept,
+                    workspaces: vec!["other-workspace".to_string()],
+                },
+            )]),
+        };
+    }
+
+    // Create a flow with a substep that uses the restricted tag
+    let flow: FlowValue = serde_json::from_value(serde_json::json!({
+        "modules": [{
+            "id": "a",
+            "value": {
+                "type": "rawscript",
+                "language": "deno",
+                "content": "export function main() { return 42; }",
+                "tag": "restricted-tag",
+            },
+        }],
+    }))
+    .unwrap();
+
+    let result =
+        RunJob::from(JobPayload::RawFlow { value: flow.clone(), path: None, restarted_from: None })
+            .run_until_complete(&db, false, server.addr.port())
+            .await;
+
+    // The flow should fail because the tag is not available for test-workspace
+    assert!(!result.success, "Flow should have failed due to unavailable tag");
+
+    let result_json = result.json_result();
+    assert!(result_json.is_some(), "Result should have error details");
+
+    let error_result = result_json.unwrap();
+    let error_message = error_result["error"]["message"]
+        .as_str()
+        .unwrap_or("");
+
+    // Verify the error is about tag availability
+    assert!(
+        error_message.contains("restricted-tag") || error_message.contains("tag"),
+        "Error message should mention the tag issue: {}",
+        error_message
+    );
+
+    // Clean up: reset custom tags
+    {
+        let mut custom_tags = CUSTOM_TAGS_PER_WORKSPACE.write().await;
+        *custom_tags = CustomTags::default();
+    }
+
+    Ok(())
+}
