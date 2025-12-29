@@ -60,6 +60,9 @@ export interface DebugState {
 	variables: Map<number, Variable[]>
 	breakpoints: Map<string, Breakpoint[]>
 	output: string[]
+	logs: string
+	result?: unknown
+	error?: string
 }
 
 const initialState: DebugState = {
@@ -71,7 +74,10 @@ const initialState: DebugState = {
 	scopes: [],
 	variables: new Map(),
 	breakpoints: new Map(),
-	output: []
+	output: [],
+	logs: '',
+	result: undefined,
+	error: undefined
 }
 
 export const debugState = writable<DebugState>({ ...initialState })
@@ -204,7 +210,15 @@ export class DAPClient {
 
 		switch (event.event) {
 			case 'initialized':
-				debugState.update((s) => ({ ...s, initialized: true }))
+				// Clear logs and result when starting a new session
+				debugState.update((s) => ({
+					...s,
+					initialized: true,
+					logs: '',
+					output: [],
+					result: undefined,
+					error: undefined
+				}))
 				break
 
 			case 'stopped':
@@ -233,7 +247,9 @@ export class DAPClient {
 					...s,
 					running: false,
 					stopped: false,
-					initialized: false
+					initialized: false,
+					result: body?.result,
+					error: body?.error as string | undefined
 				}))
 				break
 
@@ -241,7 +257,8 @@ export class DAPClient {
 				if (body?.output) {
 					debugState.update((s) => ({
 						...s,
-						output: [...s.output, body.output as string]
+						output: [...s.output, body.output as string],
+						logs: s.logs + (body.output as string)
 					}))
 				}
 				break
@@ -307,14 +324,16 @@ export class DAPClient {
 	async launch(options: {
 		program?: string
 		code?: string
-		args?: string[]
+		args?: string[] | Record<string, unknown>
 		cwd?: string
+		callMain?: boolean
 	}): Promise<void> {
 		await this.sendRequest('launch', {
 			program: options.program,
 			code: options.code,
-			args: options.args || [],
-			cwd: options.cwd || '.'
+			args: options.args || {},
+			cwd: options.cwd || '.',
+			callMain: options.callMain || false
 		})
 		debugState.update((s) => ({ ...s, running: true }))
 	}

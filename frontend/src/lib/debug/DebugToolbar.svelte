@@ -1,11 +1,12 @@
 <script lang="ts">
-	import { Bug, Play, Square, SkipForward, ArrowDownToLine, ArrowUpFromLine, Trash2 } from 'lucide-svelte'
+	import { Bug, Play, Square, SkipForward, ArrowDownToLine, ArrowUpFromLine, Trash2, AlertTriangle } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 
 	interface Props {
 		connected: boolean
 		running: boolean
 		stopped: boolean
+		breakpointCount: number
 		onStart: () => Promise<void>
 		onStop: () => Promise<void>
 		onContinue: () => Promise<void>
@@ -19,6 +20,7 @@
 		connected,
 		running,
 		stopped,
+		breakpointCount,
 		onStart,
 		onStop,
 		onContinue,
@@ -96,7 +98,7 @@
 			startIcon={{ icon: Play }}
 			onclick={onContinue}
 			disabled={!stopped}
-			title="Continue (F5)"
+			title="Continue (F8) - Resume execution until the next breakpoint"
 			iconOnly
 		/>
 		<Button
@@ -105,7 +107,7 @@
 			startIcon={{ icon: SkipForward }}
 			onclick={onStepOver}
 			disabled={!stopped}
-			title="Step Over (F10)"
+			title="Step Over (F6) - Execute the current line, skipping over function details"
 			iconOnly
 		/>
 		<Button
@@ -114,7 +116,7 @@
 			startIcon={{ icon: ArrowDownToLine }}
 			onclick={onStepIn}
 			disabled={!stopped}
-			title="Step Into (F11)"
+			title="Step Into (F7) - Enter the function call and debug inside it"
 			iconOnly
 		/>
 		<Button
@@ -123,7 +125,7 @@
 			startIcon={{ icon: ArrowUpFromLine }}
 			onclick={onStepOut}
 			disabled={!stopped}
-			title="Step Out (Shift+F11)"
+			title="Step Out (Shift+F8) - Run until the current function returns"
 			iconOnly
 		/>
 	</div>
@@ -149,3 +151,12 @@
 		</span>
 	{/if}
 </div>
+
+{#if breakpointCount === 0 && !running && !stopped}
+	<div class="flex items-center gap-1 px-2 py-1 bg-yellow-50 dark:bg-yellow-900/20 border-b border-yellow-200 dark:border-yellow-800">
+		<AlertTriangle size={14} class="text-yellow-600 dark:text-yellow-500" />
+		<span class="text-xs text-yellow-700 dark:text-yellow-400">
+			No breakpoints set - click in the gutter to add one
+		</span>
+	</div>
+{/if}

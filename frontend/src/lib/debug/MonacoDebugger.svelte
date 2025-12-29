@@ -219,6 +219,7 @@
 		connected={$debugState.connected}
 		running={$debugState.running}
 		stopped={$debugState.stopped}
+		breakpointCount={breakpoints.size}
 		onStart={startDebugging}
 		onStop={stopDebugging}
 		onContinue={continueExecution}
@@ -233,7 +234,6 @@
 			stackFrames={$debugState.stackFrames}
 			scopes={$debugState.scopes}
 			variables={$debugState.variables}
-			output={$debugState.output}
 			{client}
 		/>
 	{/if}

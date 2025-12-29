@@ -33,6 +33,18 @@ print(f"Final: {w}")
 # Line numbers where we want to set breakpoints (1-indexed)
 BREAKPOINT_LINES = [3, 5]  # z = x + y, w = z * 2
 
+# Test script with main() function (Windmill style)
+TEST_SCRIPT_WITH_MAIN = """
+def main(x: str, count: int = 1):
+    print(f"Starting with x={x}, count={count}")
+    result = x * count
+    print(f"Result: {result}")
+    return result
+"""
+
+# Breakpoints for the main() test: lines 3 and 4 (inside main function)
+MAIN_BREAKPOINT_LINES = [3, 4]
+
 
 class DAPTestClient:
     def __init__(self, url: str = "ws://localhost:5679"):
@@ -116,10 +128,12 @@ class DAPTestClient:
     async def configuration_done(self) -> dict:
         return await self.send_request("configurationDone")
 
-    async def launch(self, code: str, cwd: str = "/tmp") -> dict:
+    async def launch(self, code: str, cwd: str = "/tmp", call_main: bool = False, args: dict = None) -> dict:
         return await self.send_request("launch", {
             "code": code,
             "cwd": cwd,
+            "callMain": call_main,
+            "args": args or {},
         })
 
     async def continue_(self) -> dict:
@@ -292,5 +306,127 @@ async def run_test():
         print("\n=== TEST COMPLETE ===")
 
 
+async def run_main_test():
+    """Test debugging a script with main() function (Windmill style)."""
+    client = DAPTestClient()
+
+    try:
+        await client.connect()
+        await asyncio.sleep(0.1)
+
+        # 1. Initialize
+        print("\n=== MAIN TEST: Initialize ===")
+        response = await client.initialize()
+        assert response.get("success"), f"Initialize failed: {response}"
+        print("Initialize: OK")
+        await asyncio.sleep(0.5)
+
+        # 2. Set breakpoints inside main()
+        print("\n=== MAIN TEST: Set Breakpoints ===")
+        response = await client.set_breakpoints("/tmp/script.py", MAIN_BREAKPOINT_LINES)
+        assert response.get("success"), f"setBreakpoints failed: {response}"
+        print(f"Breakpoints set at lines: {MAIN_BREAKPOINT_LINES}")
+
+        # 3. Configuration done
+        print("\n=== MAIN TEST: Configuration Done ===")
+        response = await client.configuration_done()
+        assert response.get("success"), f"configurationDone failed: {response}"
+
+        # 4. Launch with callMain=True and args
+        print("\n=== MAIN TEST: Launch with callMain=True ===")
+        test_args = {"x": "hello", "count": 3}
+        response = await client.launch(
+            TEST_SCRIPT_WITH_MAIN,
+            call_main=True,
+            args=test_args
+        )
+        assert response.get("success"), f"launch failed: {response}"
+        print(f"Launch with args {test_args}: OK")
+
+        # 5. Wait for breakpoint inside main()
+        print("\n=== MAIN TEST: Wait for Breakpoint in main() ===")
+        try:
+            stopped = await client.wait_for_stopped(timeout=5.0)
+            reason = stopped.get("body", {}).get("reason")
+            print(f"Stopped! Reason: {reason}")
+
+            # Get stack trace
+            stack_response = await client.get_stack_trace()
+            frames = stack_response.get("body", {}).get("stackFrames", [])
+            if frames:
+                current_line = frames[0].get("line")
+                func_name = frames[0].get("name")
+                print(f"Current location: {func_name}() at line {current_line}")
+
+                if func_name == "main":
+                    print("SUCCESS: Stopped inside main() function!")
+                else:
+                    print(f"INFO: Stopped in function '{func_name}'")
+
+                # Get local variables to verify args were passed
+                scopes_response = await client.get_scopes(frames[0]["id"])
+                scopes = scopes_response.get("body", {}).get("scopes", [])
+                if scopes:
+                    vars_response = await client.get_variables(scopes[0]["variablesReference"])
+                    variables = vars_response.get("body", {}).get("variables", [])
+                    var_dict = {v["name"]: v["value"] for v in variables}
+                    print(f"Variables: {var_dict}")
+
+                    # Check if our args are present
+                    if "x" in var_dict and "count" in var_dict:
+                        print(f"SUCCESS: Args passed correctly! x={var_dict['x']}, count={var_dict['count']}")
+
+            # Continue to end
+            print("\n=== MAIN TEST: Continue to End ===")
+            await client.continue_()
+
+            # May hit another breakpoint or end
+            try:
+                stopped = await client.wait_for_stopped(timeout=2.0)
+                print(f"Hit another breakpoint")
+                await client.continue_()
+            except TimeoutError:
+                pass
+
+            # Wait for output/terminated
+            await asyncio.sleep(1.0)
+            for event in client.events:
+                if event.get("event") == "output":
+                    output = event.get("body", {}).get("output", "")
+                    print(f"Script output: {output}")
+
+        except TimeoutError:
+            print("ERROR: No breakpoint hit inside main()!")
+
+        # Terminate
+        print("\n=== MAIN TEST: Terminate ===")
+        try:
+            await client.terminate()
+            print("Terminated: OK")
+        except Exception as e:
+            print(f"Terminate: {e}")
+
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        await client.disconnect()
+        print("\n=== MAIN TEST COMPLETE ===")
+
+
 if __name__ == "__main__":
-    asyncio.run(run_test())
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--main", action="store_true", help="Run main() function test")
+    parser.add_argument("--all", action="store_true", help="Run all tests")
+    args = parser.parse_args()
+
+    if args.main:
+        asyncio.run(run_main_test())
+    elif args.all:
+        asyncio.run(run_test())
+        print("\n" + "=" * 60 + "\n")
+        asyncio.run(run_main_test())
+    else:
+        asyncio.run(run_test())

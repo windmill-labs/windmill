@@ -216,7 +216,7 @@ class WindmillDebugger(bdb.Bdb):
         self._wait_for_continue.set()
 
     def get_stack_frames(self) -> list[dict]:
-        """Get current stack frames."""
+        """Get current stack frames, stopping at <module> (user's script entry point)."""
         frames = []
         if self._current_frame is None:
             return frames
@@ -225,13 +225,17 @@ class WindmillDebugger(bdb.Bdb):
         frame_id = 1
         while frame is not None:
             filename = self.canonic(frame.f_code.co_filename)
+            name = frame.f_code.co_name
             frames.append({
                 "id": frame_id,
-                "name": frame.f_code.co_name,
+                "name": name,
                 "source": {"path": filename, "name": os.path.basename(filename)},
                 "line": frame.f_lineno,
                 "column": 0,
             })
+            # Stop at <module> - don't include debugger/threading internals
+            if name == "<module>":
+                break
             frame = frame.f_back
             frame_id += 1
         return frames
@@ -279,6 +283,8 @@ class DebugSession:
         self._variables_ref_counter = 1
         self._scopes_map: dict[int, dict] = {}  # ref -> {type, frame_id}
         self._loop = asyncio.get_event_loop()
+        self._call_main = False
+        self._main_args: dict = {}
 
     def next_seq(self) -> int:
         seq = self.seq
@@ -407,12 +413,21 @@ class DebugSession:
         self.script_path = args.get("program")
         code = args.get("code", "")
         cwd = args.get("cwd", os.getcwd())
+        self._call_main = args.get("callMain", False)
+        self._main_args = args.get("args", {})
 
         if not self.script_path and not code:
             await self.send_response(
                 request, success=False, message="No program or code specified"
             )
             return
+
+        # If callMain is True, append a call to main() with the provided args
+        if self._call_main and code:
+            # Generate the main() call with kwargs
+            args_str = ", ".join(f"{k}={repr(v)}" for k, v in self._main_args.items())
+            code = code + f"\n\n# Auto-generated call to main entrypoint\n__windmill_result__ = main({args_str})\n"
+            logger.info(f"Added main() call with args: {args_str}")
 
         # If code is provided, write it to a temp file
         if code and not self.script_path:
@@ -462,14 +477,35 @@ class DebugSession:
         old_stdout = sys.stdout
         old_stderr = sys.stderr
 
-        # Capture stdout/stderr
-        captured_output = StringIO()
+        # Create a streaming output wrapper that sends output events in real-time
+        session = self
+        loop = self._loop
+
+        class StreamingOutput:
+            def __init__(self, category: str):
+                self.category = category
+                self.buffer = ""
+
+            def write(self, data: str) -> int:
+                if data:
+                    # Send output event immediately
+                    asyncio.run_coroutine_threadsafe(
+                        session.send_event("output", {"category": self.category, "output": data}),
+                        loop,
+                    )
+                return len(data)
+
+            def flush(self):
+                pass
+
+        streaming_stdout = StreamingOutput("stdout")
+        streaming_stderr = StreamingOutput("stderr")
 
         try:
             os.chdir(cwd)
             sys.argv = [script_path]
-            sys.stdout = captured_output
-            sys.stderr = captured_output
+            sys.stdout = streaming_stdout
+            sys.stderr = streaming_stderr
 
             # Read and compile the script
             with open(script_path) as f:
@@ -496,15 +532,12 @@ class DebugSession:
             self.debugger.run(compiled, globals_dict)
             logger.info("debugger.run() completed normally")
 
-            # Script completed normally
-            output = captured_output.getvalue()
-            if output:
-                asyncio.run_coroutine_threadsafe(
-                    self.send_event("output", {"category": "stdout", "output": output}),
-                    self._loop,
-                )
+            # Script completed normally - get the result from main()
+            result = globals_dict.get("__windmill_result__")
+            logger.info(f"Script result: {result}")
+
             asyncio.run_coroutine_threadsafe(
-                self.send_event("terminated"),
+                self.send_event("terminated", {"result": result}),
                 self._loop,
             )
 
@@ -522,7 +555,7 @@ class DebugSession:
                 self._loop,
             )
             asyncio.run_coroutine_threadsafe(
-                self.send_event("terminated"),
+                self.send_event("terminated", {"error": str(e)}),
                 self._loop,
             )
         finally:

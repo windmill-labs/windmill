@@ -232,6 +232,10 @@
 	let currentLineDecoration: string[] = $state([])
 	let dapClient = $state(getDAPClient())
 	const isPythonScript = $derived(lang === 'python3')
+	// Derived: show debug panel when connected and (running or stopped, but not terminated)
+	const showDebugPanel = $derived(debugMode && $debugState.connected && ($debugState.running || $debugState.stopped))
+	// Derived: debug has a result (script completed)
+	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
 
 	// Breakpoint decoration options
 	const breakpointDecorationType = {
@@ -443,7 +447,13 @@
 			await dapClient.initialize()
 			await dapClient.setBreakpoints('/tmp/script.py', Array.from(debugBreakpoints))
 			await dapClient.configurationDone()
-			await dapClient.launch({ code, cwd: '/tmp' })
+			// Pass the code, args from the test form, and indicate we want to call main()
+			await dapClient.launch({
+				code,
+				cwd: '/tmp',
+				args: args ?? {},
+				callMain: true
+			})
 		} catch (error) {
 			console.error('Failed to start debugging:', error)
 			sendUserToast('Failed to start debugging. Make sure the DAP server is running.', true)
@@ -498,6 +508,7 @@
 		}
 	})
 
+
 	// Set up glyph margin click handler for breakpoints when debug mode is enabled
 	$effect(() => {
 		const monacoEditor = editor?.getEditor?.()
@@ -525,6 +536,27 @@
 				if (position) {
 					toggleBreakpoint(position.lineNumber)
 				}
+			})
+
+			// Debug stepping keyboard shortcuts (only active when stopped)
+			// F8 = Continue (KeyCode.F8 = 119)
+			monacoEditor.addCommand(119, () => {
+				if ($debugState.stopped) continueExecution()
+			})
+
+			// F6 = Step Over (KeyCode.F6 = 117)
+			monacoEditor.addCommand(117, () => {
+				if ($debugState.stopped) stepOver()
+			})
+
+			// F7 = Step Into (KeyCode.F7 = 118)
+			monacoEditor.addCommand(118, () => {
+				if ($debugState.stopped) stepIn()
+			})
+
+			// Shift+F8 = Step Out (KeyMod.Shift | KeyCode.F8 = 1024 | 119 = 1143)
+			monacoEditor.addCommand(1143, () => {
+				if ($debugState.stopped) stepOut()
 			})
 
 			return () => {
@@ -861,6 +893,7 @@
 							connected={$debugState.connected}
 							running={$debugState.running}
 							stopped={$debugState.stopped}
+							breakpointCount={debugBreakpoints.size}
 							onStart={startDebugging}
 							onStop={stopDebugging}
 							onContinue={continueExecution}
@@ -885,45 +918,47 @@
 							}}
 						/>
 					</div>
-					{#if testIsLoading}
-						<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-							<WindmillIcon
-								white={true}
-								class="mr-2 text-white"
-								height="16px"
-								width="20px"
-								spin="fast"
-							/>
-							Cancel
-						</Button>
-					{:else}
-						{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								on:click={() => runTest()}
-								btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-								size="xs"
-								variant="accent-secondary"
-								startIcon={{ icon: Play, classes: 'animate-none' }}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
+					{#if !(debugMode && isPythonScript)}
+						{#if testIsLoading}
+							<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+								<WindmillIcon
+									white={true}
+									class="mr-2 text-white"
+									height="16px"
+									width="20px"
+									spin="fast"
+								/>
+								Cancel
 							</Button>
-							{#if !disableTriggerButton}
-								<CaptureButton on:openTriggers />
-							{/if}
-						</div>
+						{:else}
+							{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
+							<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+								<Button
+									on:click={() => runTest()}
+									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+									size="xs"
+									variant="accent-secondary"
+									startIcon={{ icon: Play, classes: 'animate-none' }}
+									shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+								>
+									{#if testIsLoading}
+										Running
+									{:else}
+										Test
+									{/if}
+								</Button>
+								{#if !disableTriggerButton}
+									<CaptureButton on:openTriggers />
+								{/if}
+							</div>
+						{/if}
 					{/if}
 					<div class="absolute top-2 right-2"
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
 					>
 				</div>
 				<Splitpanes horizontal class="!max-h-[calc(100%-{debugMode && isPythonScript ? '83' : '43'}px)]">
-					<Pane size={debugMode && $debugState.connected ? 25 : 33}>
+					<Pane size={33}>
 						{#if jsonView}
 							<div
 								class="py-2"
@@ -963,20 +998,29 @@
 							</div>
 						{/if}
 					</Pane>
-					<Pane size={debugMode && $debugState.connected ? 40 : 67} class="relative">
+					<Pane size={67} class="relative">
 						<LogPanel
 							bind:this={logPanel}
 							{lang}
-							previewJob={testJob}
+							previewJob={debugMode
+								? {
+										id: 'debug',
+										logs: $debugState.logs,
+										result: $debugState.result,
+										success: !$debugState.error,
+										type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+									} as any
+								: testJob}
 							{pastPreviews}
-							previewIsLoading={testIsLoading}
+							previewIsLoading={debugMode ? ($debugState.running && !$debugState.stopped) : testIsLoading}
 							{editor}
 							{diffEditor}
 							{args}
 							{showCaptures}
 							customUi={customUi?.previewPanel}
+							showCustomResultPanel={showDebugPanel}
 						>
-							{#if scriptProgress}
+							{#if scriptProgress && !debugMode}
 								<!-- Put to the slot in logpanel -->
 								<JobProgressBar
 									job={testJob}
@@ -1000,19 +1044,16 @@
 									/>
 								</div>
 							{/snippet}
+							{#snippet customResultPanel()}
+								<DebugPanel
+									stackFrames={$debugState.stackFrames}
+									scopes={$debugState.scopes}
+									variables={$debugState.variables}
+									client={dapClient}
+								/>
+							{/snippet}
 						</LogPanel>
 					</Pane>
-					{#if debugMode && $debugState.connected}
-						<Pane size={35} class="relative">
-							<DebugPanel
-								stackFrames={$debugState.stackFrames}
-								scopes={$debugState.scopes}
-								variables={$debugState.variables}
-								output={$debugState.output}
-								client={dapClient}
-							/>
-						</Pane>
-					{/if}
 				</Splitpanes>
 			</div>
 		</Pane>
