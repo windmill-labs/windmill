@@ -589,9 +589,10 @@ export async function setInternalState(state: any): Promise<void> {
 /**
  * Set the state
  * @param state state to set
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-export async function setState(state: any): Promise<void> {
-  await setResource(state, undefined, "state");
+export async function setState(state: any, path?: string): Promise<void> {
+  await setResource(state, path ?? getStatePath(), "state");
 }
 
 /**
@@ -706,9 +707,10 @@ export async function getInternalState(): Promise<any> {
 
 /**
  * Get the state shared across executions
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-export async function getState(): Promise<any> {
-  return await getResource(getStatePath(), true);
+export async function getState(path?: string): Promise<any> {
+  return await getResource(path ?? getStatePath(), true);
 }
 
 /**
