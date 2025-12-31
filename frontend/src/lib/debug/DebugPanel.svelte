@@ -16,8 +16,11 @@
 
 	// Auto-expand scopes when they become available
 	$effect(() => {
+		console.log('[DebugPanel] effect running, scopes:', scopes, 'variables:', variables)
 		for (const scope of scopes) {
+			console.log('[DebugPanel] checking scope:', scope.name, 'ref:', scope.variablesReference, 'has:', variables.has(scope.variablesReference))
 			if (!variables.has(scope.variablesReference) && client) {
+				console.log('[DebugPanel] fetching variables for scope:', scope.name)
 				client.getVariables(scope.variablesReference)
 			}
 		}

@@ -98,17 +98,24 @@ export class DAPClient {
 	async connect(): Promise<void> {
 		return new Promise((resolve, reject) => {
 			try {
+				console.log('[DAP] Connecting to:', this.url)
 				this.ws = new WebSocket(this.url)
 
 				this.ws.onopen = () => {
+					console.log('[DAP] Connected successfully')
 					debugState.update((s) => ({ ...s, connected: true }))
 					resolve()
 				}
 
 				this.ws.onclose = () => {
+					console.log('[DAP] WebSocket closed')
 					debugState.update((s) => ({
 						...initialState,
-						breakpoints: s.breakpoints
+						breakpoints: s.breakpoints,
+						// Preserve result and logs after disconnect
+						result: s.result,
+						logs: s.logs,
+						output: s.output
 					}))
 					this.pendingRequests.clear()
 				}
@@ -195,6 +202,7 @@ export class DAPClient {
 					}
 				}
 			} else if (message.type === 'event') {
+				console.log('[DAP] Event received:', message.event, message.body)
 				this.handleEvent(message)
 			}
 		} catch (error) {
@@ -206,6 +214,7 @@ export class DAPClient {
 	 * Handle DAP events.
 	 */
 	private handleEvent(event: DAPMessage): void {
+		console.log('[DAP] Handling event:', event.event)
 		const body = event.body as Record<string, unknown> | undefined
 
 		switch (event.event) {
@@ -295,10 +304,12 @@ export class DAPClient {
 	 * Set breakpoints in a source file.
 	 */
 	async setBreakpoints(path: string, lines: number[]): Promise<Breakpoint[]> {
+		console.log('[DAP] Setting breakpoints at path:', path, 'lines:', lines)
 		const response = await this.sendRequest('setBreakpoints', {
 			source: { path },
 			breakpoints: lines.map((line) => ({ line }))
 		})
+		console.log('[DAP] Breakpoints response:', response.body)
 
 		const breakpoints = (response.body?.breakpoints as Breakpoint[]) || []
 
@@ -414,8 +425,11 @@ export class DAPClient {
 	 * Get scopes for a stack frame.
 	 */
 	async getScopes(frameId: number): Promise<Scope[]> {
+		console.log('[DAP] getScopes called with frameId:', frameId)
 		const response = await this.sendRequest('scopes', { frameId })
+		console.log('[DAP] getScopes response:', response)
 		const scopes = (response.body?.scopes as Scope[]) || []
+		console.log('[DAP] getScopes parsed scopes:', scopes)
 
 		debugState.update((s) => ({ ...s, scopes }))
 
@@ -426,8 +440,11 @@ export class DAPClient {
 	 * Get variables for a scope.
 	 */
 	async getVariables(variablesReference: number): Promise<Variable[]> {
+		console.log('[DAP] getVariables called with variablesReference:', variablesReference)
 		const response = await this.sendRequest('variables', { variablesReference })
+		console.log('[DAP] getVariables response:', response)
 		const variables = (response.body?.variables as Variable[]) || []
+		console.log('[DAP] getVariables parsed variables:', variables)
 
 		debugState.update((s) => {
 			const newVariables = new Map(s.variables)
@@ -461,10 +478,15 @@ export class DAPClient {
 	 * Fetch stack trace (called automatically when stopped).
 	 */
 	private async fetchStackTrace(): Promise<void> {
+		console.log('[DAP] fetchStackTrace called')
 		try {
 			const frames = await this.getStackTrace()
+			console.log('[DAP] fetchStackTrace got frames:', frames)
 			if (frames.length > 0) {
+				console.log('[DAP] fetchStackTrace calling getScopes with frameId:', frames[0].id)
 				await this.getScopes(frames[0].id)
+			} else {
+				console.log('[DAP] fetchStackTrace: no frames, skipping getScopes')
 			}
 		} catch (error) {
 			console.error('Failed to fetch stack trace:', error)

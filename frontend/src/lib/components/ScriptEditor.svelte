@@ -33,7 +33,7 @@
 		PlayIcon,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { DebugToolbar, DebugPanel, getDAPClient, debugState, resetDAPClient } from '$lib/debug'
+	import { DebugToolbar, DebugPanel, getDAPClient, debugState, resetDAPClient, DAP_SERVER_URLS, isDebuggable, getDebugFileExtension } from '$lib/debug'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
@@ -230,8 +230,11 @@
 	let debugBreakpoints = new SvelteSet<number>()
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
-	let dapClient = $state(getDAPClient())
-	const isPythonScript = $derived(lang === 'python3')
+	// Get the DAP server URL based on language
+	const dapServerUrl = $derived(DAP_SERVER_URLS[(lang || '') as keyof typeof DAP_SERVER_URLS] || DAP_SERVER_URLS.python3)
+	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
+	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
+	const isDebuggableScript = $derived(isDebuggable(lang || ''))
 	// Derived: show debug panel when connected and (running or stopped, but not terminated)
 	const showDebugPanel = $derived(debugMode && $debugState.connected && ($debugState.running || $debugState.stopped))
 	// Derived: debug has a result (script completed)
@@ -443,9 +446,11 @@
 
 	async function startDebugging(): Promise<void> {
 		try {
+			// Create a new DAP client with the correct URL for the language
+			dapClient = getDAPClient(dapServerUrl)
 			await dapClient.connect()
 			await dapClient.initialize()
-			await dapClient.setBreakpoints('/tmp/script.py', Array.from(debugBreakpoints))
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
 			await dapClient.configurationDone()
 			// Pass the code, args from the test form, and indicate we want to call main()
 			await dapClient.launch({
@@ -461,6 +466,7 @@
 	}
 
 	async function stopDebugging(): Promise<void> {
+		if (!dapClient) return
 		try {
 			await dapClient.terminate()
 			dapClient.disconnect()
@@ -470,18 +476,22 @@
 	}
 
 	async function continueExecution(): Promise<void> {
+		if (!dapClient) return
 		await dapClient.continue_()
 	}
 
 	async function stepOver(): Promise<void> {
+		if (!dapClient) return
 		await dapClient.stepOver()
 	}
 
 	async function stepIn(): Promise<void> {
+		if (!dapClient) return
 		await dapClient.stepIn()
 	}
 
 	async function stepOut(): Promise<void> {
+		if (!dapClient) return
 		await dapClient.stepOut()
 	}
 
@@ -514,7 +524,7 @@
 		const monacoEditor = editor?.getEditor?.()
 		if (!monacoEditor) return
 
-		if (debugMode && isPythonScript) {
+		if (debugMode && isDebuggableScript) {
 			// Enable glyph margin for breakpoints
 			monacoEditor.updateOptions({ glyphMargin: true })
 
@@ -887,7 +897,7 @@
 					</div>
 				{/if}
 
-				{#if debugMode && isPythonScript}
+				{#if debugMode && isDebuggableScript}
 					<div transition:slide={{ duration: 200 }}>
 						<DebugToolbar
 							connected={$debugState.connected}
@@ -918,7 +928,7 @@
 							}}
 						/>
 					</div>
-					{#if !(debugMode && isPythonScript)}
+					{#if !(debugMode && isDebuggableScript)}
 						{#if testIsLoading}
 							<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
 								<WindmillIcon
@@ -957,7 +967,7 @@
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
 					>
 				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-{debugMode && isPythonScript ? '83' : '43'}px)]">
+				<Splitpanes horizontal class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]">
 					<Pane size={33}>
 						{#if jsonView}
 							<div
@@ -1066,7 +1076,7 @@
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
-			{#if isPythonScript}
+			{#if isDebuggableScript}
 				<Button
 					variant={debugMode ? 'accent' : 'default'}
 					size="xs"
@@ -1075,7 +1085,7 @@
 					btnClasses={debugMode
 						? ''
 						: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
-					title="Toggle Debug Mode (Python)"
+					title="Toggle Debug Mode"
 				>
 					{debugMode ? 'Exit Debug' : 'Debug'}
 				</Button>

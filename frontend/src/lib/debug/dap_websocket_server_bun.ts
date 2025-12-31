@@ -116,6 +116,7 @@ class DebugSession {
 	private initialized = false
 	private configured = false
 	private running = false
+	private terminatedSent = false
 
 	// Bun subprocess
 	private process: Subprocess | null = null
@@ -146,6 +147,16 @@ class DebugSession {
 	// For calling main()
 	private callMain = false
 	private mainArgs: Record<string, unknown> = {}
+
+	// Buffer console output during stepping to ensure correct order
+	private isStepping = false
+	private pendingConsoleOutput: Array<Record<string, unknown>> = []
+
+	// Captured result from main() execution
+	private scriptResult: unknown = undefined
+
+	// Track if current pause is due to a breakpoint (for line number correction)
+	private pausedAtBreakpoint = false
 
 	constructor(ws: WebSocket) {
 		this.ws = ws
@@ -330,7 +341,11 @@ class DebugSession {
 	 * This is called before the script starts running.
 	 */
 	private async applyBreakpointsByUrl(): Promise<void> {
-		if (!this.scriptPath) return
+		logger.info(`applyBreakpointsByUrl called. scriptPath: ${this.scriptPath}, breakpoints: ${JSON.stringify([...this.breakpoints.entries()])}`)
+		if (!this.scriptPath) {
+			logger.warn('No scriptPath set, skipping breakpoints')
+			return
+		}
 
 		// Clear existing breakpoints first
 		for (const [filePath, ids] of this.breakpointIds) {
@@ -346,6 +361,7 @@ class DebugSession {
 
 		// Set breakpoints by URL pattern
 		for (const [filePath, lines] of this.breakpoints) {
+			logger.info(`Setting breakpoints for ${filePath}: lines ${lines}`)
 			const ids: string[] = []
 			for (const line of lines) {
 				try {
@@ -353,20 +369,32 @@ class DebugSession {
 					// For file URLs, we match the end of the path
 					const urlRegex = this.scriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-					// User line numbers are 1-indexed
-					// We injected a debugger statement at line 0 (1 line)
-					// So user line N needs to become line N (0-indexed: N-1, +1 for injected = N)
-					// WebKit uses 0-indexed lines, so we use line directly (line is already 1-indexed)
-					const adjustedLine = line // User's 1-indexed line = 0-indexed line in temp file
+					// Bun's WebKit Inspector has a quirk: breakpoints pause AFTER the line executes,
+					// not BEFORE like traditional debuggers. To work around this:
+					// - Set the breakpoint on the PREVIOUS line (line - 1)
+					// - When that line finishes and we pause, the NEXT line (user's target) hasn't run yet
+					//
+					// Line number conversion:
+					// - User line N (1-indexed from DAP/Monaco)
+					// - After debugger injection: user line N -> temp file line N+1 (1-indexed)
+					// - WebKit uses 0-indexed: temp file line N+1 (1-indexed) = line N (0-indexed)
+					// - Subtract 1 for the "after execution" workaround: line N-1 (0-indexed)
+					//
+					// Edge case: if line <= 1, we can't go earlier, set at line 0 (our debugger statement)
+					const adjustedLine = line > 1 ? line - 1 : 0
 
+					logger.info(`Setting breakpoint: user line ${line} -> adjusted lineNumber ${adjustedLine} (workaround for after-exec pause), urlRegex: ${urlRegex}`)
 					const response = await this.sendInspectorCommand('Debugger.setBreakpointByUrl', {
 						lineNumber: adjustedLine,
 						urlRegex,
 						columnNumber: 0
 					})
+					logger.info(`Breakpoint response: ${JSON.stringify(response)}`)
 					if (response.result?.breakpointId) {
 						ids.push(response.result.breakpointId as string)
 						logger.info(`Breakpoint set by URL at user line ${line} (temp file line ${adjustedLine + 1}, ID: ${response.result.breakpointId})`)
+					} else {
+						logger.warn(`No breakpointId in response for line ${line}`)
 					}
 				} catch (error) {
 					logger.error(`Failed to set breakpoint at line ${line}:`, error)
@@ -374,6 +402,7 @@ class DebugSession {
 			}
 			this.breakpointIds.set(filePath, ids)
 		}
+		logger.info(`Finished setting breakpoints. Total IDs: ${[...this.breakpointIds.values()].flat().length}`)
 	}
 
 	// Track if this is the initial pause from our injected debugger statement
@@ -385,6 +414,8 @@ class DebugSession {
 	private async handlePaused(params: Record<string, unknown>): Promise<void> {
 		const callFrames = params.callFrames as V8CallFrame[] | undefined
 		const reason = params.reason as string
+
+		logger.info(`handlePaused called: reason=${reason}, lineNumber=${callFrames?.[0]?.location?.lineNumber}, scriptId=${callFrames?.[0]?.location?.scriptId}`)
 
 		if (callFrames) {
 			this.callFrames = callFrames
@@ -398,6 +429,8 @@ class DebugSession {
 			callFrames &&
 			callFrames.length > 0 &&
 			callFrames[0].location.lineNumber === 0
+
+		logger.info(`isInitialPause=${isInitialPause}, initialPauseDone=${this.initialPauseDone}`)
 
 		if (isInitialPause) {
 			this.initialPauseDone = true
@@ -441,15 +474,22 @@ class DebugSession {
 
 		// Get current line from first call frame
 		// lineNumber is 0-indexed in WebKit inspector
-		// We injected 1 line at the start, so:
-		// - temp file line 0 = our debugger statement
-		// - temp file line 1 = user line 1
-		// - temp file line N = user line N (because inspector 0-indexed + 1 offset cancel out)
+		// With injected debugger at line 0, inspector line N = user line N
+		// (0-indexed N + 1 for 1-indexed - 1 for injected debugger = N)
+		//
+		// For breakpoints: we set the breakpoint on line N-1 due to WebKit's after-exec behavior,
+		// so we add 1 to report the correct user line (the one about to execute).
+		// For stepping: report the actual line (the one just executed).
+		this.pausedAtBreakpoint = dapReason === 'breakpoint'
 		let line: number | undefined
 		if (callFrames && callFrames.length > 0) {
-			// Convert 0-indexed inspector line to 1-indexed user line, accounting for injected line
 			const inspectorLine = callFrames[0].location.lineNumber
-			line = inspectorLine // inspectorLine 0-indexed + 1 for display - 1 for injected = same value
+			// For breakpoint pauses, add 1 because we set BP on line-1
+			if (this.pausedAtBreakpoint) {
+				line = inspectorLine + 1
+			} else {
+				line = inspectorLine
+			}
 		}
 
 		this.sendEvent('stopped', {
@@ -458,6 +498,13 @@ class DebugSession {
 			allThreadsStopped: true,
 			line
 		})
+
+		// Flush any buffered console output that occurred during stepping
+		this.isStepping = false
+		for (const outputEvent of this.pendingConsoleOutput) {
+			this.sendEvent('output', outputEvent)
+		}
+		this.pendingConsoleOutput = []
 	}
 
 	/**
@@ -492,6 +539,9 @@ class DebugSession {
 			level?: string
 			text?: string
 			type?: string
+			line?: number
+			column?: number
+			url?: string
 			parameters?: Array<{ type: string; value?: unknown; description?: string }>
 		}
 
@@ -510,11 +560,64 @@ class DebugSession {
 			output = message.text || ''
 		}
 
+		// Check for __WINDMILL_RESULT__ prefix and capture the result
+		if (output.startsWith('__WINDMILL_RESULT__:')) {
+			try {
+				const resultJson = output.substring('__WINDMILL_RESULT__:'.length)
+				this.scriptResult = JSON.parse(resultJson)
+				logger.info(`Captured script result: ${resultJson}`)
+
+				// Flush any pending console output before sending terminated
+				// (output may have been buffered during stepping/continue)
+				this.isStepping = false
+				for (const pendingOutput of this.pendingConsoleOutput) {
+					this.sendEvent('output', pendingOutput)
+				}
+				this.pendingConsoleOutput = []
+
+				// Send terminated event immediately after capturing result
+				// This is more reliable than waiting for process.exited or inspector.onclose
+				if (!this.terminatedSent) {
+					this.terminatedSent = true
+					this.running = false
+					logger.info('Sending terminated event after result capture')
+					this.sendEvent('terminated', { result: this.scriptResult })
+				}
+			} catch (error) {
+				logger.error('Failed to parse script result:', error)
+			}
+			// Don't send this as output to the client
+			return
+		}
+
 		const category = message.level === 'error' || message.level === 'warning' ? 'stderr' : 'stdout'
-		this.sendEvent('output', {
+
+		// Build the output event with optional source location
+		const outputEvent: Record<string, unknown> = {
 			category,
 			output: output + '\n'
-		})
+		}
+
+		// If line info is available, include source reference
+		// Line numbers from WebKit are 0-indexed, but we have injected debugger at line 0
+		// So inspector line N = user line N (same as breakpoint handling)
+		if (message.line !== undefined && message.url) {
+			outputEvent.source = {
+				path: message.url,
+				name: message.url.split('/').pop() || 'script.ts'
+			}
+			outputEvent.line = message.line // 0-indexed + 1 - 1 for injected debugger = same
+			if (message.column !== undefined) {
+				outputEvent.column = message.column + 1
+			}
+		}
+
+		// Buffer output during stepping to ensure it appears after the stopped event
+		if (this.isStepping) {
+			this.pendingConsoleOutput.push(outputEvent)
+		} else {
+			this.sendEvent('output', outputEvent)
+		}
 	}
 
 	/**
@@ -644,13 +747,19 @@ class DebugSession {
 
 		// If callMain is true, append a call to main() with the provided args
 		if (this.callMain && code) {
-			const argsStr = Object.entries(this.mainArgs)
-				.map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+			// Generate positional arguments list (like Python's keyword args)
+			// For TypeScript, we pass arguments in order
+			const argsValues = Object.values(this.mainArgs)
+				.map((v) => JSON.stringify(v))
 				.join(', ')
 			code =
 				code +
-				`\n\n// Auto-generated call to main entrypoint\nconst __windmill_result__ = await main({${argsStr}});\nconsole.log("__WINDMILL_RESULT__:" + JSON.stringify(__windmill_result__));\n`
-			logger.info(`Added main() call with args: ${argsStr}`)
+				`\n\n// Auto-generated call to main entrypoint\n` +
+				`globalThis.__windmill_result__ = await main(${argsValues});\n` +
+				`console.log("__WINDMILL_RESULT__:" + JSON.stringify(globalThis.__windmill_result__));\n` +
+				`// Small delay to ensure console output is delivered via inspector before process exits\n` +
+				`await new Promise(r => setTimeout(r, 50));\n`
+			logger.info(`Added main() call with args: ${argsValues}`)
 		}
 
 		// Write code to temp file if provided
@@ -734,11 +843,25 @@ class DebugSession {
 		await this.connectToInspector(wsUrl)
 
 		// Wait for process to exit
-		this.process.exited.then(async () => {
-			logger.info('Bun process exited')
+		this.process.exited.then(async (exitCode) => {
+			logger.info(`Bun process exited with code: ${exitCode}`)
 			this.running = false
+
+			// Send terminated event BEFORE cleanup to ensure WebSocket is still open
+			if (!this.terminatedSent) {
+				this.terminatedSent = true
+				logger.info(`Sending terminated event with result: ${JSON.stringify(this.scriptResult)}`)
+				try {
+					this.sendEvent('terminated', this.scriptResult !== undefined ? { result: this.scriptResult } : {})
+					logger.info('Terminated event sent successfully')
+				} catch (error) {
+					logger.error('Failed to send terminated event:', error)
+				}
+			}
+
 			await this.cleanup()
-			this.sendEvent('terminated')
+		}).catch((error) => {
+			logger.error('Error in process.exited handler:', error)
 		})
 	}
 
@@ -876,6 +999,19 @@ class DebugSession {
 			this.inspectorWs.onclose = () => {
 				logger.info('Inspector WebSocket closed')
 				this.inspectorWs = null
+
+				// When inspector closes, the script has ended - send terminated event
+				if (!this.terminatedSent) {
+					this.terminatedSent = true
+					this.running = false
+					logger.info(`Inspector closed - sending terminated event with result: ${JSON.stringify(this.scriptResult)}`)
+					try {
+						this.sendEvent('terminated', this.scriptResult !== undefined ? { result: this.scriptResult } : {})
+						logger.info('Terminated event sent successfully via inspector close')
+					} catch (error) {
+						logger.error('Failed to send terminated event on inspector close:', error)
+					}
+				}
 			}
 		})
 	}
@@ -893,30 +1029,54 @@ class DebugSession {
 	 * Handle the 'stackTrace' request.
 	 */
 	async handleStackTrace(request: DAPMessage): Promise<void> {
+		logger.info(`handleStackTrace: callFrames.length=${this.callFrames.length}`)
 		const stackFrames: StackFrame[] = []
 
+		// Filter to only include frames from the user's script
+		// The call stack should start at module code, not include internal Bun/loader frames
 		for (let i = 0; i < this.callFrames.length; i++) {
 			const frame = this.callFrames[i]
 			const script = this.scripts.get(frame.location.scriptId)
 
-			// Stop at module level
-			if (frame.functionName === '' && i > 0) {
-				// Skip anonymous functions after the first frame
+			logger.info(`  frame ${i}: functionName="${frame.functionName}", scriptId=${frame.location.scriptId}, lineNumber=${frame.location.lineNumber}, scriptUrl=${script?.url}`)
+
+			// Only include frames from the main script
+			if (!script?.url || !this.scriptPath) {
+				logger.info(`  skipping frame ${i}: no script URL or scriptPath`)
 				continue
+			}
+
+			// Check if this frame is from the user's script
+			const isUserScript = script.url.endsWith(this.scriptPath.split('/').pop()!)
+			if (!isUserScript) {
+				logger.info(`  skipping frame ${i}: not from user script (${script.url})`)
+				continue
+			}
+
+			// Inspector line is 0-indexed. With injected debugger at line 0:
+			// Inspector 0-indexed line N = user's 1-indexed line N
+			// (0-indexed N + 1 to convert to 1-indexed - 1 for injected debugger = N)
+			//
+			// For breakpoint pauses: we set BP on line N-1, so add 1 to the top frame
+			// to show the correct line (about to execute)
+			let frameLine = frame.location.lineNumber
+			if (i === 0 && this.pausedAtBreakpoint) {
+				frameLine = frameLine + 1
 			}
 
 			stackFrames.push({
 				id: i + 1,
-				name: frame.functionName || '<anonymous>',
+				name: frame.functionName || '<module>',
 				source: {
-					path: script?.url || this.scriptPath || '<unknown>',
-					name: script?.url?.split('/').pop() || 'script.ts'
+					path: script.url || this.scriptPath || '<unknown>',
+					name: script.url?.split('/').pop() || 'script.ts'
 				},
-				line: frame.location.lineNumber + 1, // Convert to 1-indexed
+				line: frameLine,
 				column: frame.location.columnNumber + 1
 			})
 		}
 
+		logger.info(`handleStackTrace: returning ${stackFrames.length} frames`)
 		this.sendResponse(request, true, {
 			stackFrames,
 			totalFrames: stackFrames.length
@@ -931,31 +1091,49 @@ class DebugSession {
 		const frameId = (args.frameId as number) || 1
 		const frameIndex = frameId - 1
 
+		logger.info(`handleScopes: frameId=${frameId}, frameIndex=${frameIndex}, callFrames.length=${this.callFrames.length}`)
+
 		const frame = this.callFrames[frameIndex]
 		if (!frame) {
+			logger.warn(`handleScopes: No frame at index ${frameIndex}`)
 			this.sendResponse(request, true, { scopes: [] })
 			return
+		}
+
+		logger.info(`handleScopes: frame.scopeChain has ${frame.scopeChain.length} scopes`)
+		for (const s of frame.scopeChain) {
+			logger.info(`  scope: type=${s.type}, name=${s.name}, hasObjectId=${!!s.object.objectId}`)
 		}
 
 		const scopes: Array<{ name: string; variablesReference: number; expensive: boolean }> = []
 
 		for (const scope of frame.scopeChain) {
-			if (scope.type === 'global') continue // Skip global scope for performance
-
 			const ref = this.nextVarRef()
 			const objectId = scope.object.objectId
 
 			if (objectId) {
 				this.scopesMap.set(ref, { type: scope.type, objectId, frameIndex })
 
+				// Format the name nicely
+				let name: string
+				if (scope.name) {
+					name = scope.name
+				} else {
+					name = scope.type.charAt(0).toUpperCase() + scope.type.slice(1)
+				}
+
 				scopes.push({
-					name: scope.type.charAt(0).toUpperCase() + scope.type.slice(1),
+					name,
 					variablesReference: ref,
 					expensive: scope.type === 'global'
 				})
+				logger.info(`  Added scope: name=${name}, ref=${ref}, type=${scope.type}`)
+			} else {
+				logger.warn(`  Scope ${scope.type} has no objectId, skipping`)
 			}
 		}
 
+		logger.info(`handleScopes: returning ${scopes.length} scopes`)
 		this.sendResponse(request, true, { scopes })
 	}
 
@@ -966,23 +1144,40 @@ class DebugSession {
 		const args = request.arguments || {}
 		const variablesRef = (args.variablesReference as number) || 0
 
+		logger.info(`handleVariables: variablesRef=${variablesRef}`)
+
 		const scopeInfo = this.scopesMap.get(variablesRef)
 		const objectId = this.objectsMap.get(variablesRef) || scopeInfo?.objectId
 
+		logger.info(`handleVariables: scopeInfo=${JSON.stringify(scopeInfo)}, objectId=${objectId}`)
+
 		if (!objectId) {
+			logger.warn(`handleVariables: No objectId found for ref ${variablesRef}`)
 			this.sendResponse(request, true, { variables: [] })
 			return
 		}
 
 		try {
+			// Determine scope type for filtering
+			const scopeType = scopeInfo?.type || 'unknown'
+			const isGlobalScope = scopeType === 'global'
+
+			logger.info(`handleVariables: calling Runtime.getProperties for objectId=${objectId}, scopeType=${scopeType}`)
+
 			const response = await this.sendInspectorCommand('Runtime.getProperties', {
 				objectId,
 				ownProperties: true,
 				generatePreview: true
 			})
 
+			// Log all property names for debugging
+			const allProps = (response.result?.properties as Array<{ name: string }>) || []
+			logger.info(`handleVariables: all property names: ${allProps.map(p => p.name).join(', ')}`)
+
+			logger.info(`handleVariables: got response with ${(response.result?.properties as unknown[])?.length || 0} properties for scope type: ${scopeType}`)
+
 			const variables: Variable[] = []
-			const properties = (response.result?.result as Array<{
+			const properties = (response.result?.properties as Array<{
 				name: string
 				value?: {
 					type: string
@@ -991,19 +1186,71 @@ class DebugSession {
 					objectId?: string
 					subtype?: string
 				}
+				configurable?: boolean
+				enumerable?: boolean
+				writable?: boolean
 			}>) || []
 
 			for (const prop of properties) {
 				if (!prop.value) continue
 
+				// Skip internal properties (start with __)
+				if (prop.name.startsWith('__') && prop.name !== '__windmill_result__') continue
+
+				// Skip native functions (built-in methods)
+				if (prop.value.type === 'function' && prop.value.description?.includes('[native code]')) continue
+
+				// Skip common built-in object names
+				const builtInNames = new Set([
+					'NaN', 'Infinity', 'undefined', 'globalThis', 'global', 'self', 'window',
+					'console', 'Bun', 'process', 'navigator', 'performance', 'crypto', 'Loader',
+					'onmessage', 'onerror', 'toString', 'toLocaleString', 'valueOf',
+					'hasOwnProperty', 'propertyIsEnumerable', 'isPrototypeOf', 'constructor',
+					// Built-in objects
+					'Reflect', 'JSON', 'Math', 'Atomics', 'Intl', 'WebAssembly', 'Proxy',
+					'Object', 'Array', 'Function', 'Boolean', 'Symbol', 'Number', 'BigInt',
+					'String', 'RegExp', 'Date', 'Promise', 'Map', 'Set', 'WeakMap', 'WeakSet',
+					'Error', 'TypeError', 'RangeError', 'SyntaxError', 'ReferenceError',
+					'EvalError', 'URIError', 'AggregateError', 'ArrayBuffer', 'DataView',
+					'Int8Array', 'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array',
+					'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array', 'BigInt64Array',
+					'BigUint64Array', 'SharedArrayBuffer'
+				])
+				if (builtInNames.has(prop.name)) continue
+
+				// Skip properties that look like class/constructor names (PascalCase and are functions)
+				if (prop.value.type === 'function' && /^[A-Z][a-zA-Z0-9]*$/.test(prop.name)) continue
+
 				let value: string
 				let varRef = 0
+				let displayType = prop.value.type
+				const className = (prop.value as { className?: string }).className
+
+				// Log for debugging variable parsing issues
+				logger.debug(`Variable ${prop.name}: type=${prop.value.type}, className=${className}, description=${prop.value.description}, value=${JSON.stringify(prop.value.value)}`)
 
 				if (prop.value.type === 'object' && prop.value.objectId) {
-					// Create a reference for nested objects
-					varRef = this.nextVarRef()
-					this.objectsMap.set(varRef, prop.value.objectId)
-					value = prop.value.description || `[${prop.value.subtype || 'Object'}]`
+					// Check if this is a boxed primitive (String, Number, Boolean)
+					if (className === 'String' && prop.value.description) {
+						// Boxed string - description contains the string value
+						value = prop.value.description.startsWith('"') ? prop.value.description : `"${prop.value.description}"`
+						displayType = 'string'
+					} else if (className === 'Number' && prop.value.description) {
+						value = prop.value.description
+						displayType = 'number'
+					} else if (className === 'Boolean' && prop.value.description) {
+						value = prop.value.description
+						displayType = 'boolean'
+					} else {
+						// Regular object - create a reference for nested inspection
+						varRef = this.nextVarRef()
+						this.objectsMap.set(varRef, prop.value.objectId)
+						value = prop.value.description || `[${prop.value.subtype || className || 'Object'}]`
+					}
+				} else if (prop.value.type === 'string') {
+					// Handle primitive strings - they have value property
+					value = prop.value.value !== undefined ? JSON.stringify(prop.value.value) : (prop.value.description || '""')
+					displayType = 'string'
 				} else if (prop.value.value !== undefined) {
 					value = JSON.stringify(prop.value.value)
 				} else {
@@ -1013,11 +1260,12 @@ class DebugSession {
 				variables.push({
 					name: prop.name,
 					value,
-					type: prop.value.type,
+					type: displayType,
 					variablesReference: varRef
 				})
 			}
 
+			logger.info(`handleVariables: returning ${variables.length} variables (filtered from ${properties.length})`)
 			this.sendResponse(request, true, { variables })
 		} catch (error) {
 			logger.error('Failed to get variables:', error)
@@ -1096,9 +1344,12 @@ class DebugSession {
 	 */
 	async handleContinue(request: DAPMessage): Promise<void> {
 		try {
+			this.isStepping = true
+			this.pausedAtBreakpoint = false // Reset for next pause
 			await this.sendInspectorCommand('Debugger.resume', {})
 			this.sendResponse(request, true, { allThreadsContinued: true })
 		} catch (error) {
+			this.isStepping = false
 			this.sendResponse(request, false, {}, String(error))
 		}
 	}
@@ -1108,9 +1359,12 @@ class DebugSession {
 	 */
 	async handleNext(request: DAPMessage): Promise<void> {
 		try {
+			this.isStepping = true
+			this.pausedAtBreakpoint = false // Reset for next pause
 			await this.sendInspectorCommand('Debugger.stepOver', {})
 			this.sendResponse(request)
 		} catch (error) {
+			this.isStepping = false
 			this.sendResponse(request, false, {}, String(error))
 		}
 	}
@@ -1120,9 +1374,12 @@ class DebugSession {
 	 */
 	async handleStepIn(request: DAPMessage): Promise<void> {
 		try {
+			this.isStepping = true
+			this.pausedAtBreakpoint = false // Reset for next pause
 			await this.sendInspectorCommand('Debugger.stepInto', {})
 			this.sendResponse(request)
 		} catch (error) {
+			this.isStepping = false
 			this.sendResponse(request, false, {}, String(error))
 		}
 	}
@@ -1132,9 +1389,12 @@ class DebugSession {
 	 */
 	async handleStepOut(request: DAPMessage): Promise<void> {
 		try {
+			this.isStepping = true
+			this.pausedAtBreakpoint = false // Reset for next pause
 			await this.sendInspectorCommand('Debugger.stepOut', {})
 			this.sendResponse(request)
 		} catch (error) {
+			this.isStepping = false
 			this.sendResponse(request, false, {}, String(error))
 		}
 	}
@@ -1165,9 +1425,15 @@ class DebugSession {
 	 */
 	async handleTerminate(request: DAPMessage): Promise<void> {
 		this.running = false
+		// Set flag BEFORE cleanup to prevent inspector onclose from sending duplicate
+		const shouldSendTerminated = !this.terminatedSent
+		this.terminatedSent = true
 		await this.cleanup()
 		this.sendResponse(request)
-		this.sendEvent('terminated')
+		// Include the captured result if available
+		if (shouldSendTerminated) {
+			this.sendEvent('terminated', this.scriptResult !== undefined ? { result: this.scriptResult } : {})
+		}
 	}
 
 	/**

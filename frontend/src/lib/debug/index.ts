@@ -53,7 +53,8 @@ export const DAP_SERVER_URLS = {
 	python3: 'ws://localhost:5679',
 	bun: 'ws://localhost:5680',
 	typescript: 'ws://localhost:5680',
-	deno: 'ws://localhost:5680' // Same as bun for now
+	nativets: 'ws://localhost:5680',
+	deno: 'ws://localhost:5680'
 } as const
 
 /**
