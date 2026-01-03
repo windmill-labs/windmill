@@ -59,6 +59,7 @@ interface V8Script {
 	endLine: number
 	endColumn: number
 	hash: string
+	sourceMapURL?: string
 }
 
 // DAP Message types
@@ -108,9 +109,133 @@ const logger = {
 }
 
 /**
+ * VLQ (Variable-Length Quantity) decoder for source maps.
+ * Returns array of decoded integers from VLQ string.
+ */
+function decodeVLQ(encoded: string): number[] {
+	const VLQ_BASE64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+	const values: number[] = []
+	let shift = 0
+	let value = 0
+
+	for (const char of encoded) {
+		const digit = VLQ_BASE64.indexOf(char)
+		if (digit === -1) continue
+
+		const hasContinuation = digit & 32
+		value += (digit & 31) << shift
+
+		if (hasContinuation) {
+			shift += 5
+		} else {
+			const isNegative = value & 1
+			value = value >> 1
+			values.push(isNegative ? -value : value)
+			value = 0
+			shift = 0
+		}
+	}
+	return values
+}
+
+/**
+ * Source map line mappings - both directions.
+ */
+interface SourceMapMappings {
+	// original 0-indexed line -> transpiled 0-indexed line (for setting breakpoints)
+	originalToTranspiled: Map<number, number>
+	// transpiled 0-indexed line -> original 0-indexed line (for reporting positions)
+	transpiledToOriginal: Map<number, number>
+}
+
+/**
+ * Parse source map and build bidirectional line mapping.
+ * Returns Maps for both original->transpiled and transpiled->original mappings.
+ *
+ * Important: When multiple original lines map to the same transpiled line (common with
+ * TypeScript transpilation), we store the LAST/HIGHEST original line for the reverse
+ * mapping. This is because Bun compresses multi-line function signatures, but the
+ * actual statement being executed typically corresponds to the highest original line
+ * that maps to that transpiled line.
+ */
+function parseSourceMapLineMapping(sourceMapUrl: string): SourceMapMappings {
+	const mappings: SourceMapMappings = {
+		originalToTranspiled: new Map(),
+		transpiledToOriginal: new Map()
+	}
+
+	try {
+		// Extract base64 content from data URL
+		const match = sourceMapUrl.match(/^data:application\/json;base64,(.+)$/)
+		if (!match) {
+			logger.warn('Source map is not a base64 data URL')
+			return mappings
+		}
+
+		const decoded = atob(match[1])
+		const sourceMap = JSON.parse(decoded) as {
+			mappings: string
+			sources?: string[]
+			sourcesContent?: string[]
+		}
+
+		if (!sourceMap.mappings) {
+			return mappings
+		}
+
+		// Parse VLQ mappings
+		// Each line in transpiled code is separated by ';'
+		// Each segment within a line is separated by ','
+		// Segment format: [transpiled column, source index, original line, original column, name index]
+		const lines = sourceMap.mappings.split(';')
+		let originalLine = 0
+
+		for (let transpiledLine = 0; transpiledLine < lines.length; transpiledLine++) {
+			const segments = lines[transpiledLine].split(',')
+
+			for (const segment of segments) {
+				if (!segment) continue
+
+				const values = decodeVLQ(segment)
+				if (values.length >= 3) {
+					// values[2] is the delta for original line
+					originalLine += values[2]
+
+					// Map this original line to this transpiled line (for setting breakpoints)
+					// Only store the first occurrence (first transpiled line for this original line)
+					// This ensures breakpoints are set at the earliest transpiled line containing the original code
+					if (!mappings.originalToTranspiled.has(originalLine)) {
+						mappings.originalToTranspiled.set(originalLine, transpiledLine)
+						logger.debug(`Source map: original line ${originalLine} -> transpiled line ${transpiledLine}`)
+					}
+
+					// Map transpiled line to original line (for reporting positions)
+					// ALWAYS update to store the HIGHEST original line for each transpiled line.
+					// This is critical because when Bun compresses code (e.g., multi-line function
+					// params into one line), the actual statement being executed corresponds to
+					// the highest original line that maps to that transpiled line.
+					// Example: transpiled line 3 might map to original lines 6 and 7;
+					// when stopped on transpiled line 3, we want to report line 7 (the return statement)
+					// not line 6 (the console.log that happened earlier).
+					const existing = mappings.transpiledToOriginal.get(transpiledLine)
+					if (existing === undefined || originalLine > existing) {
+						mappings.transpiledToOriginal.set(transpiledLine, originalLine)
+						logger.debug(`Source map: transpiled line ${transpiledLine} -> original line ${originalLine}`)
+					}
+				}
+			}
+		}
+	} catch (error) {
+		logger.error('Failed to parse source map:', error)
+	}
+
+	return mappings
+}
+
+/**
  * Manages a debug session with a Bun subprocess.
  */
-class DebugSession {
+export class DebugSession {
 	private ws: WebSocket
 	private seq = 1
 	private initialized = false
@@ -137,6 +262,13 @@ class DebugSession {
 	// Script ID mapping (V8 uses script IDs, we need to map to file paths)
 	private scripts = new Map<string, V8Script>()
 	private mainScriptId: string | null = null
+
+	// Source map line mappings for both directions
+	// This is needed because Bun transpiles TypeScript and may strip blank lines/comments
+	private sourceMapMappings: SourceMapMappings = {
+		originalToTranspiled: new Map(),
+		transpiledToOriginal: new Map()
+	}
 
 	// Call frames when paused
 	private callFrames: V8CallFrame[] = []
@@ -324,7 +456,7 @@ class DebugSession {
 	}
 
 	/**
-	 * Handle script parsed event - track script IDs.
+	 * Handle script parsed event - track script IDs and parse source maps.
 	 */
 	private handleScriptParsed(script: V8Script): void {
 		this.scripts.set(script.scriptId, script)
@@ -333,6 +465,14 @@ class DebugSession {
 		if (script.url && this.scriptPath && script.url.endsWith(this.scriptPath.split('/').pop()!)) {
 			this.mainScriptId = script.scriptId
 			logger.info(`Main script parsed: ${script.url} (ID: ${script.scriptId})`)
+
+			// Parse source map to get bidirectional line mappings
+			// This is crucial because Bun transpiles TypeScript and may strip blank lines/comments
+			if (script.sourceMapURL) {
+				logger.info('Parsing source map for line number mapping...')
+				this.sourceMapMappings = parseSourceMapLineMapping(script.sourceMapURL)
+				logger.info(`Source map parsed: ${this.sourceMapMappings.originalToTranspiled.size} original->transpiled, ${this.sourceMapMappings.transpiledToOriginal.size} transpiled->original`)
+			}
 		}
 	}
 
@@ -369,30 +509,41 @@ class DebugSession {
 					// For file URLs, we match the end of the path
 					const urlRegex = this.scriptPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-					// Bun's WebKit Inspector has a quirk: breakpoints pause AFTER the line executes,
-					// not BEFORE like traditional debuggers. To work around this:
-					// - Set the breakpoint on the PREVIOUS line (line - 1)
-					// - When that line finishes and we pause, the NEXT line (user's target) hasn't run yet
-					//
 					// Line number conversion:
 					// - User line N (1-indexed from DAP/Monaco)
-					// - After debugger injection: user line N -> temp file line N+1 (1-indexed)
-					// - WebKit uses 0-indexed: temp file line N+1 (1-indexed) = line N (0-indexed)
-					// - Subtract 1 for the "after execution" workaround: line N-1 (0-indexed)
+					// - After debugger injection at line 0: user line N -> temp file line N (0-indexed)
+					// - But Bun transpiles TypeScript and may strip blank lines/comments!
+					// - We need to use the source map to find the correct transpiled line
 					//
-					// Edge case: if line <= 1, we can't go earlier, set at line 0 (our debugger statement)
-					const adjustedLine = line > 1 ? line - 1 : 0
+					// The source map maps original 0-indexed lines to transpiled 0-indexed lines.
+					// Original line 0 is the injected debugger statement.
+					// User line N (1-indexed) in original = line N (0-indexed) in temp file after injection.
+					const originalLine0Indexed = line  // After injection, user line N = temp file line N (0-indexed)
 
-					logger.info(`Setting breakpoint: user line ${line} -> adjusted lineNumber ${adjustedLine} (workaround for after-exec pause), urlRegex: ${urlRegex}`)
+					// Look up the transpiled line from the source map
+					let transpiledLine = originalLine0Indexed
+					if (this.sourceMapMappings.originalToTranspiled.size > 0) {
+						const mappedLine = this.sourceMapMappings.originalToTranspiled.get(originalLine0Indexed)
+						if (mappedLine !== undefined) {
+							transpiledLine = mappedLine
+							logger.info(`Source map: original line ${originalLine0Indexed} -> transpiled line ${transpiledLine}`)
+						} else {
+							// If not found in source map, try to find the nearest mapped line
+							// This handles cases where the exact line isn't in the map (comments, blank lines)
+							logger.warn(`Line ${originalLine0Indexed} not in source map, using as-is`)
+						}
+					}
+
+					logger.info(`Setting breakpoint: user line ${line} -> original line ${originalLine0Indexed} (0-idx) -> transpiled line ${transpiledLine}`)
 					const response = await this.sendInspectorCommand('Debugger.setBreakpointByUrl', {
-						lineNumber: adjustedLine,
+						lineNumber: transpiledLine,
 						urlRegex,
 						columnNumber: 0
 					})
 					logger.info(`Breakpoint response: ${JSON.stringify(response)}`)
 					if (response.result?.breakpointId) {
 						ids.push(response.result.breakpointId as string)
-						logger.info(`Breakpoint set by URL at user line ${line} (temp file line ${adjustedLine + 1}, ID: ${response.result.breakpointId})`)
+						logger.info(`Breakpoint set at transpiled line ${transpiledLine} (user line ${line}, ID: ${response.result.breakpointId})`)
 					} else {
 						logger.warn(`No breakpointId in response for line ${line}`)
 					}
@@ -434,7 +585,12 @@ class DebugSession {
 
 		if (isInitialPause) {
 			this.initialPauseDone = true
-			logger.info('Initial pause from injected debugger statement - auto-resuming')
+			logger.info('Initial pause from injected debugger statement')
+
+			// Re-apply breakpoints now that the script is fully parsed
+			// This ensures breakpoints resolve to actual code locations
+			logger.info('Re-applying breakpoints after script is parsed...')
+			await this.applyBreakpointsByUrl()
 
 			// Auto-resume to continue to actual user code
 			try {
@@ -473,22 +629,24 @@ class DebugSession {
 		}
 
 		// Get current line from first call frame
-		// lineNumber is 0-indexed in WebKit inspector
-		// With injected debugger at line 0, inspector line N = user line N
-		// (0-indexed N + 1 for 1-indexed - 1 for injected debugger = N)
-		//
-		// For breakpoints: we set the breakpoint on line N-1 due to WebKit's after-exec behavior,
-		// so we add 1 to report the correct user line (the one about to execute).
-		// For stepping: report the actual line (the one just executed).
-		this.pausedAtBreakpoint = dapReason === 'breakpoint'
+		// lineNumber is 0-indexed in WebKit inspector (transpiled line)
+		// We need to convert it back to the original user line using the source map
 		let line: number | undefined
 		if (callFrames && callFrames.length > 0) {
-			const inspectorLine = callFrames[0].location.lineNumber
-			// For breakpoint pauses, add 1 because we set BP on line-1
-			if (this.pausedAtBreakpoint) {
-				line = inspectorLine + 1
+			const transpiledLine = callFrames[0].location.lineNumber
+			// Convert transpiled line back to original line using source map
+			if (this.sourceMapMappings.transpiledToOriginal.size > 0) {
+				const originalLine = this.sourceMapMappings.transpiledToOriginal.get(transpiledLine)
+				if (originalLine !== undefined) {
+					line = originalLine
+					logger.info(`Stopped: transpiled line ${transpiledLine} -> original line ${line}`)
+				} else {
+					// If not found in reverse map, use transpiled line as-is
+					line = transpiledLine
+					logger.warn(`Transpiled line ${transpiledLine} not in reverse source map, using as-is`)
+				}
 			} else {
-				line = inspectorLine
+				line = transpiledLine
 			}
 		}
 
@@ -770,6 +928,11 @@ class DebugSession {
 				await writeFile(this.tempFile, code)
 				this.scriptPath = this.tempFile
 				logger.info(`Wrote code to ${this.tempFile}`)
+				// Log lines around breakpoint for debugging
+				const lines = code.split('\n')
+				for (let i = 24; i < Math.min(30, lines.length); i++) {
+					logger.info(`  Line ${i} (0-idx) / ${i+1} (1-idx): ${lines[i]?.substring(0, 80)}`)
+				}
 			} catch (error) {
 				this.sendResponse(request, false, {}, `Failed to create temp file: ${error}`)
 				return
@@ -1053,15 +1216,15 @@ class DebugSession {
 				continue
 			}
 
-			// Inspector line is 0-indexed. With injected debugger at line 0:
-			// Inspector 0-indexed line N = user's 1-indexed line N
-			// (0-indexed N + 1 to convert to 1-indexed - 1 for injected debugger = N)
-			//
-			// For breakpoint pauses: we set BP on line N-1, so add 1 to the top frame
-			// to show the correct line (about to execute)
-			let frameLine = frame.location.lineNumber
-			if (i === 0 && this.pausedAtBreakpoint) {
-				frameLine = frameLine + 1
+			// Inspector line is 0-indexed (transpiled line)
+			// We need to convert it back to the original user line using the source map
+			const transpiledLine = frame.location.lineNumber
+			let frameLine = transpiledLine
+			if (this.sourceMapMappings.transpiledToOriginal.size > 0) {
+				const originalLine = this.sourceMapMappings.transpiledToOriginal.get(transpiledLine)
+				if (originalLine !== undefined) {
+					frameLine = originalLine
+				}
 			}
 
 			stackFrames.push({

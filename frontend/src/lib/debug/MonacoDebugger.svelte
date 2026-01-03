@@ -2,18 +2,25 @@
 	import { onMount, onDestroy } from 'svelte'
 	import { SvelteSet } from 'svelte/reactivity'
 	import type { editor as meditor, IDisposable } from 'monaco-editor'
-	import { debugState, getDAPClient, type DAPClient } from './dapClient'
+	import { debugState, getDAPClient, resetDAPClient, type DAPClient } from './dapClient'
 	import DebugToolbar from './DebugToolbar.svelte'
 	import DebugPanel from './DebugPanel.svelte'
+	import { DAP_SERVER_URLS, getDebugFileExtension, type DebugLanguage } from './index'
 
 	interface Props {
 		editor: meditor.IStandaloneCodeEditor | null
 		code: string
+		language?: DebugLanguage
 		filePath?: string
 		dapServerUrl?: string
 	}
 
-	let { editor, code, filePath = '/tmp/script.py', dapServerUrl = 'ws://localhost:5679' }: Props = $props()
+	let { editor, code, language = 'bun', filePath, dapServerUrl }: Props = $props()
+
+	// Derive the server URL from language if not explicitly provided
+	const effectiveServerUrl = $derived(dapServerUrl ?? DAP_SERVER_URLS[language])
+	// Derive file path from language if not explicitly provided
+	const effectiveFilePath = $derived(filePath ?? `/tmp/script${getDebugFileExtension(language)}`)
 
 	let client: DAPClient | null = $state(null)
 	let breakpointDecorations: string[] = $state([])
@@ -37,10 +44,48 @@
 	// Track breakpoints by line number
 	let breakpoints = new SvelteSet<number>()
 
+	// Track the last used server URL to detect changes
+	let lastServerUrl: string | undefined = undefined
+
+	// React to language/server URL changes - fully exit debug mode and reset client
+	$effect(() => {
+		const newUrl = effectiveServerUrl
+		if (lastServerUrl !== undefined && lastServerUrl !== newUrl) {
+			// Server URL changed (language switched), fully exit debug mode
+			console.log('[DAP] Language changed, switching from', lastServerUrl, 'to', newUrl)
+
+			// Terminate and disconnect if we have an active session
+			if (client) {
+				if (client.isConnected()) {
+					// Try to terminate gracefully, then disconnect
+					client.terminate().catch(() => {}).finally(() => {
+						client?.disconnect()
+					})
+				}
+			}
+
+			// Reset the singleton and clear local client reference
+			resetDAPClient()
+			client = null
+
+			// Clear current line decoration since we're exiting debug mode
+			if (editor) {
+				currentLineDecoration = editor.deltaDecorations(currentLineDecoration, [])
+			}
+		}
+		lastServerUrl = newUrl
+	})
+
+	// Export function to refresh breakpoint positions - called by parent when code changes
+	export function refreshBreakpoints(): void {
+		updateBreakpointPositionsFromDecorations()
+	}
+
 	onMount(() => {
 		if (!editor) return
 
-		client = getDAPClient(dapServerUrl)
+		client = getDAPClient(effectiveServerUrl)
+		lastServerUrl = effectiveServerUrl
 
 		// Add click handler for glyph margin (breakpoint toggle)
 		const mouseDownDisposable = editor.onMouseDown((e) => {
@@ -105,6 +150,45 @@
 		breakpointDecorations = editor.deltaDecorations(breakpointDecorations, decorations)
 	}
 
+	// Update breakpoint line numbers from decoration positions after code edits
+	function updateBreakpointPositionsFromDecorations(): void {
+		console.log('[DAP] updateBreakpointPositionsFromDecorations called, decorations:', breakpointDecorations.length)
+		if (!editor || breakpointDecorations.length === 0) return
+
+		const model = editor.getModel()
+		if (!model) return
+
+		// Get current line numbers from decorations (using plain Set as this is not reactive state)
+		const newLines: Set<number> = new Set()
+		for (const decorationId of breakpointDecorations) {
+			const range = model.getDecorationRange(decorationId)
+			if (range) {
+				newLines.add(range.startLineNumber)
+			}
+		}
+
+		// Check if positions changed
+		const oldLines = Array.from(breakpoints).sort((a, b) => a - b)
+		const updatedLines = Array.from(newLines).sort((a, b) => a - b)
+
+		console.log('[DAP] Old breakpoint lines:', oldLines, 'New lines from decorations:', updatedLines)
+
+		const positionsChanged =
+			oldLines.length !== updatedLines.length ||
+			oldLines.some((line, i) => line !== updatedLines[i])
+
+		if (positionsChanged) {
+			console.log('[DAP] Breakpoint positions changed, syncing with server')
+			// Update breakpoints set with new positions
+			breakpoints.clear()
+			for (const line of newLines) {
+				breakpoints.add(line)
+			}
+			// Sync updated positions with server
+			syncBreakpointsWithServer()
+		}
+	}
+
 	function updateCurrentLineDecoration(line: number | undefined): void {
 		if (!editor) return
 
@@ -127,24 +211,31 @@
 	}
 
 	async function syncBreakpointsWithServer(): Promise<void> {
-		if (!client || !client.isConnected()) return
+		console.log('[DAP] syncBreakpointsWithServer called, connected:', client?.isConnected(), 'breakpoints:', Array.from(breakpoints))
+		if (!client || !client.isConnected()) {
+			console.log('[DAP] Not syncing - client not connected')
+			return
+		}
 
 		try {
-			await client.setBreakpoints(filePath, Array.from(breakpoints))
+			console.log('[DAP] Sending setBreakpoints to server:', effectiveFilePath, Array.from(breakpoints))
+			await client.setBreakpoints(effectiveFilePath, Array.from(breakpoints))
+			console.log('[DAP] setBreakpoints completed')
 		} catch (error) {
 			console.error('Failed to sync breakpoints:', error)
 		}
 	}
 
 	async function startDebugging(): Promise<void> {
-		if (!client) {
-			client = getDAPClient(dapServerUrl)
-		}
+		// Always reset and create a fresh client with the current server URL
+		// This ensures we connect to the correct endpoint for the current language
+		resetDAPClient()
+		client = getDAPClient(effectiveServerUrl)
 
 		try {
 			await client.connect()
 			await client.initialize()
-			await client.setBreakpoints(filePath, Array.from(breakpoints))
+			await client.setBreakpoints(effectiveFilePath, Array.from(breakpoints))
 			await client.configurationDone()
 			await client.launch({ code, cwd: '/tmp' })
 		} catch (error) {

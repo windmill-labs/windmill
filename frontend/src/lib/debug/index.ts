@@ -5,14 +5,19 @@
  * for debugging scripts in the Monaco editor.
  *
  * Supported Languages:
- * - Python: Uses Python's bdb module via dap_websocket_server.py
- * - TypeScript/Bun: Uses V8 Inspector Protocol via dap_websocket_server_bun.ts
+ * - Python: Uses debugpy via the unified DAP Debug Service
+ * - TypeScript/Bun: Uses V8 Inspector Protocol via the unified DAP Debug Service
  *
  * Usage:
- * 1. Start the appropriate DAP WebSocket server:
- *    - Python: python dap_websocket_server.py --port 5679
- *    - TypeScript: bun run dap_websocket_server_bun.ts --port 5680
+ * 1. Start the unified DAP Debug Service:
+ *    bun run src/lib/debug/dap_debug_service.ts
+ *
  * 2. Import and use MonacoDebugger component in your editor
+ *
+ * The service provides path-based routing:
+ * - /python     - Python debugging via debugpy
+ * - /typescript - TypeScript/Bun debugging via WebKit Inspector
+ * - /bun        - Alias for /typescript
  *
  * Example:
  * ```svelte
@@ -22,10 +27,14 @@
  *   let code = 'console.log("Hello")'
  * </script>
  *
+ * <!-- Option 1: Use language prop (recommended) -->
+ * <MonacoDebugger {editor} {code} language="bun" />
+ *
+ * <!-- Option 2: Explicit URL and path -->
  * <MonacoDebugger
  *   {editor}
  *   {code}
- *   dapServerUrl="ws://localhost:5680"
+ *   dapServerUrl="ws://localhost:5679/typescript"
  *   filePath="/tmp/script.ts"
  * />
  * ```
@@ -47,15 +56,21 @@ export {
 } from './dapClient'
 
 /**
- * Default server URLs for each language
+ * Default server URLs for each language.
+ * Uses the unified DAP Debug Service with path-based routing.
  */
 export const DAP_SERVER_URLS = {
-	python3: 'ws://localhost:5679',
-	bun: 'ws://localhost:5680',
-	typescript: 'ws://localhost:5680',
-	nativets: 'ws://localhost:5680',
-	deno: 'ws://localhost:5680'
+	python3: 'ws://localhost:5679/python',
+	bun: 'ws://localhost:5679/bun',
+	typescript: 'ws://localhost:5679/typescript',
+	nativets: 'ws://localhost:5679/typescript',
+	deno: 'ws://localhost:5679/typescript'
 } as const
+
+/**
+ * Supported debug languages
+ */
+export type DebugLanguage = keyof typeof DAP_SERVER_URLS
 
 /**
  * Get the appropriate file extension for a language

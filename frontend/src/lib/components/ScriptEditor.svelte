@@ -241,7 +241,8 @@
 	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
 
 	// Breakpoint decoration options
-	const breakpointDecorationType = {
+	// stickiness: 1 = NeverGrowsWhenTypingAtEdges - decorations track their position when code changes
+	const breakpointDecorationType: meditor.IModelDecorationOptions = {
 		glyphMarginClassName: 'debug-breakpoint-glyph',
 		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
 		stickiness: 1
@@ -421,6 +422,54 @@
 		breakpointDecorations = monacoEditor.deltaDecorations(oldDecorations, decorations)
 	}
 
+	// Refresh breakpoint line numbers from decoration positions after code edits
+	function refreshBreakpointPositions(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor || breakpointDecorations.length === 0) return
+
+		const model = monacoEditor.getModel()
+		if (!model) return
+
+		// Get current line numbers from decorations (Monaco tracks positions when code changes)
+		const newLines = new Set<number>()
+		for (const decorationId of breakpointDecorations) {
+			const range = model.getDecorationRange(decorationId)
+			if (range) {
+				newLines.add(range.startLineNumber)
+			}
+		}
+
+		// Check if positions changed
+		const oldLines = Array.from(debugBreakpoints).sort((a, b) => a - b)
+		const updatedLines = Array.from(newLines).sort((a, b) => a - b)
+
+		const positionsChanged =
+			oldLines.length !== updatedLines.length ||
+			oldLines.some((line, i) => line !== updatedLines[i])
+
+		if (positionsChanged) {
+			console.log('[DAP] Breakpoint positions changed:', oldLines, '->', updatedLines)
+			// Update breakpoints set with new positions
+			debugBreakpoints.clear()
+			for (const line of newLines) {
+				debugBreakpoints.add(line)
+			}
+			// Sync updated positions with server if connected
+			syncBreakpointsWithServer()
+		}
+	}
+
+	// Sync breakpoints with DAP server when connected
+	async function syncBreakpointsWithServer(): Promise<void> {
+		if (!dapClient || !dapClient.isConnected()) return
+
+		try {
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+		} catch (error) {
+			console.error('Failed to sync breakpoints:', error)
+		}
+	}
+
 	function updateCurrentLineDecoration(line: number | undefined): void {
 		const monacoEditor = editor?.getEditor?.()
 		if (!monacoEditor) return
@@ -446,8 +495,17 @@
 
 	async function startDebugging(): Promise<void> {
 		try {
-			// Create a new DAP client with the correct URL for the language
+			// Always reset and create a fresh DAP client with the correct URL for the current language
+			// This ensures we connect to the correct endpoint even if language changed
+			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
+
+			// Debug: log the code being sent
+			const codeLines = code?.split('\n').length ?? 0
+			console.log(`[DEBUG] Starting debug session with ${codeLines} lines of code`)
+			console.log(`[DEBUG] Code preview (first 500 chars):`, code?.substring(0, 500))
+			console.log(`[DEBUG] Breakpoints:`, Array.from(debugBreakpoints))
+
 			await dapClient.connect()
 			await dapClient.initialize()
 			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
@@ -516,6 +574,33 @@
 		if (debugMode) {
 			untrack(() => updateCurrentLineDecoration(currentLine))
 		}
+	})
+
+	// Watch for language changes - exit debug mode and reset client when language changes
+	let lastDebugLang: typeof lang | undefined = undefined
+	$effect(() => {
+		const currentLang = lang
+		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
+			// Language changed while in debug mode - exit debug mode
+			console.log('[DAP] Language changed from', lastDebugLang, 'to', currentLang, '- exiting debug mode')
+			untrack(() => {
+				// Stop any running debug session
+				if (dapClient) {
+					dapClient.terminate().catch(() => {}).finally(() => {
+						dapClient?.disconnect()
+					})
+				}
+				// Reset the singleton
+				resetDAPClient()
+				dapClient = null
+				// Exit debug mode
+				debugMode = false
+				// Clear decorations
+				clearAllBreakpoints()
+				updateCurrentLineDecoration(undefined)
+			})
+		}
+		lastDebugLang = currentLang
 	})
 
 
@@ -1166,6 +1251,10 @@
 				awareness={wsProvider?.awareness}
 				on:change={(e) => {
 					inferSchema(e.detail)
+					// Refresh breakpoint positions when code changes (decorations track their lines)
+					if (debugMode && breakpointDecorations.length > 0) {
+						refreshBreakpointPositions()
+					}
 				}}
 				on:saveDraft
 				on:toggleTestPanel={toggleTestPanel}

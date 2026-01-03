@@ -98,6 +98,16 @@ class WindmillDebugger(bdb.Bdb):
         self._current_frame = None
         self._loop = None
 
+    def stop_here(self, frame):
+        """Override to only stop when in step mode, not by default."""
+        # By default, bdb.stop_here returns True when stopframe is None,
+        # which causes user_line to be called for every line.
+        # We only want to stop at lines when we're actively stepping.
+        if self._step_mode is None:
+            # Not stepping - only stop at breakpoints (handled by break_here in dispatch_line)
+            return False
+        return super().stop_here(frame)
+
     def user_line(self, frame):
         """Called when we stop at a line."""
         if self._stop_requested:
