@@ -1,0 +1,866 @@
+#!/usr/bin/env bun
+/**
+ * Unified DAP Debug Service
+ *
+ * A containerizable WebSocket service that routes debug requests to either
+ * Python (debugpy) or TypeScript/Bun debuggers based on the endpoint hit.
+ *
+ * Endpoints:
+ *   /python     - Python debugging via dap_websocket_server.py (bdb-based)
+ *   /typescript - TypeScript/Bun debugging via WebKit Inspector
+ *   /bun        - Alias for /typescript
+ *
+ * Designed to be compatible with nsjail wrapping for sandboxed execution.
+ *
+ * Usage:
+ *   bun run dap_debug_service.ts [options]
+ *
+ * Options:
+ *   --port PORT           Server port (default: 5679)
+ *   --host HOST           Server host (default: 0.0.0.0)
+ *   --nsjail              Enable nsjail wrapping
+ *   --nsjail-config PATH  Path to nsjail config file
+ *
+ * Environment Variables:
+ *   DAP_PORT              Server port
+ *   DAP_HOST              Server host
+ *   DAP_NSJAIL_ENABLED    Enable nsjail (true/false)
+ *   DAP_NSJAIL_CONFIG     Path to nsjail config file
+ *   DAP_NSJAIL_PATH       Path to nsjail binary (default: nsjail)
+ */
+
+import { spawn, type Subprocess } from 'bun'
+import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// Import the working Bun debug session from the standalone server
+import { DebugSession as BunDebugSessionWorking } from './dap_websocket_server_bun'
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+interface ServiceConfig {
+	port: number
+	host: string
+	nsjail: {
+		enabled: boolean
+		configPath?: string
+		binaryPath: string
+		// Additional nsjail options that can be passed
+		extraArgs: string[]
+	}
+	// Paths to debugger binaries (can be overridden for containerized deployments)
+	pythonPath: string
+	bunPath: string
+}
+
+function parseConfig(): ServiceConfig {
+	const args = process.argv.slice(2)
+	const config: ServiceConfig = {
+		port: parseInt(process.env.DAP_PORT || '5679', 10),
+		host: process.env.DAP_HOST || '0.0.0.0',
+		nsjail: {
+			enabled: process.env.DAP_NSJAIL_ENABLED === 'true',
+			configPath: process.env.DAP_NSJAIL_CONFIG,
+			binaryPath: process.env.DAP_NSJAIL_PATH || 'nsjail',
+			extraArgs: []
+		},
+		pythonPath: process.env.DAP_PYTHON_PATH || 'python3',
+		bunPath: process.env.DAP_BUN_PATH || 'bun'
+	}
+
+	for (let i = 0; i < args.length; i++) {
+		switch (args[i]) {
+			case '--port':
+				config.port = parseInt(args[++i], 10)
+				break
+			case '--host':
+				config.host = args[++i]
+				break
+			case '--nsjail':
+				config.nsjail.enabled = true
+				break
+			case '--nsjail-config':
+				config.nsjail.configPath = args[++i]
+				break
+			case '--nsjail-path':
+				config.nsjail.binaryPath = args[++i]
+				break
+			case '--python-path':
+				config.pythonPath = args[++i]
+				break
+			case '--bun-path':
+				config.bunPath = args[++i]
+				break
+		}
+	}
+
+	return config
+}
+
+const config = parseConfig()
+
+// ============================================================================
+// Logging
+// ============================================================================
+
+const LOG_LEVEL = process.env.LOG_LEVEL || 'INFO'
+const logger = {
+	debug: (...args: unknown[]) => {
+		if (LOG_LEVEL === 'DEBUG') console.log('[DEBUG]', new Date().toISOString(), ...args)
+	},
+	info: (...args: unknown[]) => console.log('[INFO]', new Date().toISOString(), ...args),
+	warn: (...args: unknown[]) => console.warn('[WARN]', new Date().toISOString(), ...args),
+	error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args)
+}
+
+// ============================================================================
+// Process Spawning with nsjail Support
+// ============================================================================
+
+interface SpawnOptions {
+	cmd: string[]
+	cwd?: string
+	env?: Record<string, string>
+	stdout?: 'pipe' | 'inherit'
+	stderr?: 'pipe' | 'inherit'
+}
+
+/**
+ * Spawn a process, optionally wrapped with nsjail.
+ * This is the key function for sandboxed execution.
+ */
+function spawnProcess(options: SpawnOptions): Subprocess {
+	let cmd = options.cmd
+
+	if (config.nsjail.enabled) {
+		// Build nsjail command
+		const nsjailCmd = [config.nsjail.binaryPath]
+
+		// Add config file if specified
+		if (config.nsjail.configPath) {
+			nsjailCmd.push('--config', config.nsjail.configPath)
+		}
+
+		// Add any extra nsjail arguments
+		nsjailCmd.push(...config.nsjail.extraArgs)
+
+		// Add working directory binding if specified
+		if (options.cwd) {
+			nsjailCmd.push('--cwd', options.cwd)
+		}
+
+		// Separator and actual command
+		nsjailCmd.push('--')
+		nsjailCmd.push(...cmd)
+
+		cmd = nsjailCmd
+		logger.info(`Spawning with nsjail: ${cmd.join(' ')}`)
+	} else {
+		logger.info(`Spawning: ${cmd.join(' ')}`)
+	}
+
+	return spawn({
+		cmd,
+		cwd: options.cwd || process.cwd(),
+		stdout: options.stdout || 'pipe',
+		stderr: options.stderr || 'pipe',
+		env: {
+			...process.env,
+			...options.env
+		}
+	})
+}
+
+// ============================================================================
+// DAP Types
+// ============================================================================
+
+interface DAPMessage {
+	seq: number
+	type: 'request' | 'response' | 'event'
+	command?: string
+	event?: string
+	request_seq?: number
+	success?: boolean
+	message?: string
+	body?: Record<string, unknown>
+	arguments?: Record<string, unknown>
+}
+
+// ============================================================================
+// Base Debug Session
+// ============================================================================
+
+abstract class BaseDebugSession {
+	protected ws: { send: (data: string) => void; close: () => void }
+	protected seq = 1
+	protected initialized = false
+	protected configured = false
+	protected running = false
+	protected terminatedSent = false
+
+	protected process: Subprocess | null = null
+	protected scriptPath: string | null = null
+	protected tempDir: string | null = null
+	protected tempFile: string | null = null
+	protected breakpoints = new Map<string, number[]>()
+	protected callMain = false
+	protected mainArgs: Record<string, unknown> = {}
+	protected scriptResult: unknown = undefined
+
+	constructor(ws: { send: (data: string) => void; close: () => void }) {
+		this.ws = ws
+	}
+
+	protected nextSeq(): number {
+		return this.seq++
+	}
+
+	protected sendMessage(msg: DAPMessage): void {
+		const data = JSON.stringify(msg)
+		logger.debug('Sending DAP:', data)
+		this.ws.send(data)
+	}
+
+	protected sendResponse(
+		request: DAPMessage,
+		success = true,
+		body: Record<string, unknown> = {},
+		message = ''
+	): void {
+		this.sendMessage({
+			seq: this.nextSeq(),
+			type: 'response',
+			command: request.command || '',
+			request_seq: request.seq,
+			success,
+			message,
+			body
+		})
+	}
+
+	protected sendEvent(event: string, body: Record<string, unknown> = {}): void {
+		this.sendMessage({
+			seq: this.nextSeq(),
+			type: 'event',
+			event,
+			body
+		})
+	}
+
+	abstract handleRequest(request: DAPMessage): Promise<void>
+	abstract cleanup(): Promise<void>
+}
+
+// ============================================================================
+// Python Debug Session
+// ============================================================================
+
+class PythonDebugSession extends BaseDebugSession {
+	private debugpyWs: WebSocket | null = null
+	private debugpySeq = 1
+	private pendingDebugpyRequests = new Map<
+		number,
+		{ resolve: (value: DAPMessage) => void; reject: (error: Error) => void }
+	>()
+	private callFrames: Array<{ id: number; name: string; line: number; column: number; source?: { path: string; name?: string } }> = []
+	private variablesRefCounter = 1
+	private scopesMap = new Map<number, { variablesReference: number }>()
+	private scriptResult: unknown = undefined
+
+	private nextDebugpySeq(): number {
+		return this.debugpySeq++
+	}
+
+	private nextVarRef(): number {
+		return this.variablesRefCounter++
+	}
+
+	private async sendDebugpyRequest(command: string, args?: Record<string, unknown>): Promise<DAPMessage> {
+		if (!this.debugpyWs || this.debugpyWs.readyState !== WebSocket.OPEN) {
+			throw new Error('Debugpy not connected')
+		}
+
+		const seq = this.nextDebugpySeq()
+		const message: DAPMessage = {
+			seq,
+			type: 'request',
+			command,
+			arguments: args
+		}
+
+		return new Promise((resolve, reject) => {
+			const timeout = setTimeout(() => {
+				this.pendingDebugpyRequests.delete(seq)
+				reject(new Error(`Debugpy command timeout: ${command}`))
+			}, 10000)
+
+			this.pendingDebugpyRequests.set(seq, {
+				resolve: (value) => {
+					clearTimeout(timeout)
+					resolve(value)
+				},
+				reject: (error) => {
+					clearTimeout(timeout)
+					reject(error)
+				}
+			})
+
+			logger.debug('Sending to debugpy:', JSON.stringify(message))
+			this.debugpyWs!.send(JSON.stringify(message))
+		})
+	}
+
+	private handleDebugpyMessage(data: string): void {
+		try {
+			const message: DAPMessage = JSON.parse(data)
+			logger.debug('Debugpy message:', data.substring(0, 200))
+
+			if (message.type === 'response') {
+				const pending = this.pendingDebugpyRequests.get(message.request_seq!)
+				if (pending) {
+					this.pendingDebugpyRequests.delete(message.request_seq!)
+					if (message.success) {
+						pending.resolve(message)
+					} else {
+						pending.reject(new Error(message.message || 'Request failed'))
+					}
+				}
+			} else if (message.type === 'event') {
+				this.handleDebugpyEvent(message)
+			}
+		} catch (error) {
+			logger.error('Failed to parse debugpy message:', error)
+		}
+	}
+
+	private handleDebugpyEvent(event: DAPMessage): void {
+		const body = event.body || {}
+
+		switch (event.event) {
+			case 'initialized':
+				this.sendEvent('initialized')
+				break
+			case 'stopped':
+				this.sendEvent('stopped', {
+					reason: body.reason || 'breakpoint',
+					threadId: body.threadId || 1,
+					allThreadsStopped: body.allThreadsStopped ?? true,
+					line: body.line
+				})
+				break
+			case 'continued':
+				this.sendEvent('continued', { threadId: body.threadId || 1 })
+				break
+			case 'terminated':
+				if (!this.terminatedSent) {
+					this.terminatedSent = true
+					// Include captured result in terminated event
+					this.sendEvent('terminated', { ...body, result: this.scriptResult })
+				}
+				break
+			case 'output': {
+				// Capture the result from __WINDMILL_RESULT__ output
+				const output = body.output as string | undefined
+				if (output && output.startsWith('__WINDMILL_RESULT__:')) {
+					try {
+						const resultJson = output.substring('__WINDMILL_RESULT__:'.length).trim()
+						this.scriptResult = JSON.parse(resultJson)
+						logger.info(`Python: Captured script result: ${resultJson}`)
+					} catch (error) {
+						logger.error('Failed to parse Python result:', error)
+					}
+					// Don't forward __WINDMILL_RESULT__ output to client
+					break
+				}
+				this.sendEvent('output', body)
+				break
+			}
+			case 'exited':
+				if (!this.terminatedSent) {
+					this.terminatedSent = true
+					this.sendEvent('terminated', { result: this.scriptResult })
+				}
+				break
+		}
+	}
+
+	private async startPythonProcess(cwd: string): Promise<void> {
+		if (!this.scriptPath) {
+			throw new Error('No script path')
+		}
+
+		const debugpyPort = 5678 + Math.floor(Math.random() * 1000)
+
+		// Get the directory where this script is located to find dap_websocket_server.py
+		const scriptDir = import.meta.dir
+
+		// Spawn the Python WebSocket DAP server
+		this.process = spawnProcess({
+			cmd: [
+				config.pythonPath,
+				'-u',
+				join(scriptDir, 'dap_websocket_server.py'),
+				'--port', String(debugpyPort),
+				'--host', '127.0.0.1'
+			],
+			cwd,
+			env: { PYTHONUNBUFFERED: '1' }
+		})
+
+		// Read stderr to capture startup messages
+		this.readPythonStderr(this.process.stderr)
+
+		// Wait for the Python server to be ready (check via health endpoint or just wait)
+		await this.waitForPythonServer(debugpyPort)
+
+		// Connect to the Python WebSocket server
+		await this.connectToDebugpy(`ws://127.0.0.1:${debugpyPort}`)
+
+		this.process.exited.then(async (exitCode) => {
+			logger.info(`Python process exited with code: ${exitCode}`)
+			this.running = false
+
+			if (!this.terminatedSent) {
+				this.terminatedSent = true
+				this.sendEvent('terminated', this.scriptResult !== undefined ? { result: this.scriptResult } : {})
+			}
+
+			await this.cleanup()
+		})
+	}
+
+	private async readPythonStderr(stream: ReadableStream<Uint8Array> | null): Promise<void> {
+		if (!stream) return
+
+		const reader = stream.getReader()
+		const decoder = new TextDecoder()
+
+		try {
+			while (true) {
+				const { done, value } = await reader.read()
+				if (done) break
+
+				const text = decoder.decode(value)
+				// Forward stderr output to the client
+				if (text.trim()) {
+					logger.debug('Python stderr:', text)
+				}
+			}
+		} catch (error) {
+			logger.debug('Python stderr stream ended:', error)
+		}
+	}
+
+	private async waitForPythonServer(port: number, maxAttempts = 20): Promise<void> {
+		for (let i = 0; i < maxAttempts; i++) {
+			try {
+				// Try to connect to see if server is up
+				const testWs = new WebSocket(`ws://127.0.0.1:${port}`)
+				await new Promise<void>((resolve, reject) => {
+					const timeout = setTimeout(() => {
+						testWs.close()
+						reject(new Error('Connection timeout'))
+					}, 500)
+
+					testWs.onopen = () => {
+						clearTimeout(timeout)
+						testWs.close()
+						resolve()
+					}
+					testWs.onerror = () => {
+						clearTimeout(timeout)
+						reject(new Error('Connection failed'))
+					}
+				})
+				logger.info(`Python server ready on port ${port}`)
+				return
+			} catch {
+				await new Promise(resolve => setTimeout(resolve, 100))
+			}
+		}
+		throw new Error('Python server did not start in time')
+	}
+
+	private async connectToDebugpy(wsUrl: string): Promise<void> {
+		logger.info(`Connecting to debugpy at ${wsUrl}`)
+
+		return new Promise((resolve, reject) => {
+			this.debugpyWs = new WebSocket(wsUrl)
+
+			const timeout = setTimeout(() => {
+				reject(new Error('Debugpy connection timeout'))
+			}, 5000)
+
+			this.debugpyWs.onopen = async () => {
+				clearTimeout(timeout)
+				logger.info('Connected to debugpy')
+
+				try {
+					await this.sendDebugpyRequest('initialize', {
+						clientID: 'windmill',
+						clientName: 'Windmill Debug Service',
+						adapterID: 'python',
+						pathFormat: 'path',
+						linesStartAt1: true,
+						columnsStartAt1: true
+					})
+					this.running = true
+					resolve()
+				} catch (error) {
+					reject(error)
+				}
+			}
+
+			this.debugpyWs.onmessage = (event) => {
+				this.handleDebugpyMessage(event.data as string)
+			}
+
+			this.debugpyWs.onerror = (error) => {
+				logger.error('Debugpy WebSocket error:', error)
+			}
+
+			this.debugpyWs.onclose = () => {
+				logger.info('Debugpy WebSocket closed')
+				this.debugpyWs = null
+			}
+		})
+	}
+
+	async handleRequest(request: DAPMessage): Promise<void> {
+		const command = request.command || ''
+
+		switch (command) {
+			case 'initialize':
+				await this.handleInitialize(request)
+				break
+			case 'setBreakpoints':
+				await this.handleSetBreakpoints(request)
+				break
+			case 'configurationDone':
+				this.configured = true
+				if (this.debugpyWs) {
+					await this.sendDebugpyRequest('configurationDone')
+				}
+				this.sendResponse(request)
+				break
+			case 'launch':
+				await this.handleLaunch(request)
+				break
+			case 'threads':
+				await this.forwardToDebugpy(request)
+				break
+			case 'stackTrace':
+				await this.forwardToDebugpy(request)
+				break
+			case 'scopes':
+				await this.forwardToDebugpy(request)
+				break
+			case 'variables':
+				await this.forwardToDebugpy(request)
+				break
+			case 'evaluate':
+				await this.forwardToDebugpy(request)
+				break
+			case 'continue':
+				await this.forwardToDebugpy(request)
+				break
+			case 'next':
+				await this.forwardToDebugpy(request)
+				break
+			case 'stepIn':
+				await this.forwardToDebugpy(request)
+				break
+			case 'stepOut':
+				await this.forwardToDebugpy(request)
+				break
+			case 'pause':
+				await this.forwardToDebugpy(request)
+				break
+			case 'disconnect':
+			case 'terminate':
+				await this.handleTerminate(request)
+				break
+			default:
+				this.sendResponse(request, false, {}, `Unsupported command: ${command}`)
+		}
+	}
+
+	private async forwardToDebugpy(request: DAPMessage): Promise<void> {
+		try {
+			const response = await this.sendDebugpyRequest(request.command!, request.arguments)
+			this.sendResponse(request, response.success, response.body, response.message)
+		} catch (error) {
+			this.sendResponse(request, false, {}, String(error))
+		}
+	}
+
+	private async handleInitialize(request: DAPMessage): Promise<void> {
+		this.sendResponse(request, true, {
+			supportsConfigurationDoneRequest: true,
+			supportsEvaluateForHovers: true,
+			supportTerminateDebuggee: true,
+			supportsTerminateRequest: true
+		})
+		this.initialized = true
+	}
+
+	private async handleSetBreakpoints(request: DAPMessage): Promise<void> {
+		const args = request.arguments || {}
+		const source = args.source as { path?: string } | undefined
+		const sourcePath = source?.path || ''
+		const breakpointsData = (args.breakpoints as Array<{ line: number }>) || []
+
+		const lineNumbers = breakpointsData.map(bp => bp.line)
+		this.breakpoints.set(sourcePath, lineNumbers)
+
+		if (this.debugpyWs) {
+			try {
+				const response = await this.sendDebugpyRequest('setBreakpoints', args)
+				this.sendResponse(request, response.success, response.body)
+			} catch (error) {
+				this.sendResponse(request, false, {}, String(error))
+			}
+		} else {
+			// Debugpy not connected yet, respond with unverified breakpoints
+			const breakpoints = lineNumbers.map((line, i) => ({
+				id: i + 1,
+				verified: false,
+				line,
+				source: { path: sourcePath }
+			}))
+			this.sendResponse(request, true, { breakpoints })
+		}
+	}
+
+	private async handleLaunch(request: DAPMessage): Promise<void> {
+		const args = request.arguments || {}
+		let code = args.code as string | undefined
+		this.scriptPath = args.program as string | undefined
+		const cwd = (args.cwd as string) || process.cwd()
+		this.callMain = (args.callMain as boolean) || false
+		this.mainArgs = (args.args as Record<string, unknown>) || {}
+
+		if (!this.scriptPath && !code) {
+			this.sendResponse(request, false, {}, 'No program or code specified')
+			return
+		}
+
+		// If callMain is true, wrap the code to call main() with args
+		if (this.callMain && code) {
+			const argsJson = JSON.stringify(this.mainArgs)
+			code += `
+
+# Auto-generated call to main entrypoint
+import json
+import sys
+_args = json.loads('${argsJson.replace(/'/g, "\\'")}')
+_result = main(**_args)
+print("__WINDMILL_RESULT__:" + json.dumps(_result))
+sys.stdout.flush()
+`
+		}
+
+		if (code && !this.scriptPath) {
+			try {
+				this.tempDir = await mkdtemp(join(tmpdir(), 'windmill_debug_'))
+				this.tempFile = join(this.tempDir, 'script.py')
+				await writeFile(this.tempFile, code)
+				this.scriptPath = this.tempFile
+			} catch (error) {
+				this.sendResponse(request, false, {}, `Failed to create temp file: ${error}`)
+				return
+			}
+		}
+
+		this.sendResponse(request)
+
+		try {
+			await this.startPythonProcess(cwd)
+
+			// Re-apply breakpoints to the Python server using the actual script path
+			for (const [, lines] of this.breakpoints) {
+				await this.sendDebugpyRequest('setBreakpoints', {
+					source: { path: this.scriptPath },
+					breakpoints: lines.map(line => ({ line }))
+				})
+			}
+
+			// Signal configuration done
+			await this.sendDebugpyRequest('configurationDone')
+
+			// Now forward the launch command to the Python server
+			// The Python server needs to know what code/program to debug
+			await this.sendDebugpyRequest('launch', {
+				program: this.scriptPath,
+				code: code,
+				args: this.mainArgs,
+				cwd: cwd,
+				callMain: this.callMain
+			})
+		} catch (error) {
+			this.sendEvent('output', { category: 'stderr', output: `Failed to start Python: ${error}\n` })
+			this.sendEvent('terminated', { error: String(error) })
+		}
+	}
+
+	private async handleTerminate(request: DAPMessage): Promise<void> {
+		this.running = false
+		const shouldSendTerminated = !this.terminatedSent
+		this.terminatedSent = true
+
+		if (this.debugpyWs) {
+			try {
+				await this.sendDebugpyRequest('terminate')
+			} catch {}
+		}
+
+		await this.cleanup()
+		this.sendResponse(request)
+
+		if (shouldSendTerminated) {
+			this.sendEvent('terminated', this.scriptResult !== undefined ? { result: this.scriptResult } : {})
+		}
+	}
+
+	async cleanup(): Promise<void> {
+		if (this.debugpyWs) {
+			this.debugpyWs.close()
+			this.debugpyWs = null
+		}
+
+		if (this.process) {
+			this.process.kill()
+			this.process = null
+		}
+
+		if (this.tempFile) {
+			try {
+				await unlink(this.tempFile)
+			} catch {}
+			this.tempFile = null
+		}
+
+		if (this.tempDir) {
+			try {
+				await rmdir(this.tempDir)
+			} catch {}
+			this.tempDir = null
+		}
+	}
+}
+
+// ============================================================================
+// Main Server
+// ============================================================================
+
+const sessions = new Map<unknown, BaseDebugSession>()
+
+logger.info(`Starting DAP Debug Service on ${config.host}:${config.port}`)
+logger.info(`Endpoints: /python, /typescript, /bun`)
+if (config.nsjail.enabled) {
+	logger.info(`nsjail enabled: ${config.nsjail.binaryPath}`)
+	if (config.nsjail.configPath) {
+		logger.info(`nsjail config: ${config.nsjail.configPath}`)
+	}
+}
+
+const server = Bun.serve({
+	hostname: config.host,
+	port: config.port,
+	fetch(req, server) {
+		const url = new URL(req.url)
+		const path = url.pathname
+
+		// Handle WebSocket upgrade with path-based routing
+		if (server.upgrade(req, { data: { path } })) {
+			return undefined as unknown as Response
+		}
+
+		// Health check endpoint
+		if (path === '/health') {
+			return new Response(JSON.stringify({
+				status: 'ok',
+				endpoints: ['/python', '/typescript', '/bun'],
+				nsjail: config.nsjail.enabled
+			}), {
+				headers: { 'Content-Type': 'application/json' }
+			})
+		}
+
+		return new Response('DAP Debug Service\n\nEndpoints:\n  /python - Python debugging\n  /typescript - TypeScript/Bun debugging\n  /bun - TypeScript/Bun debugging\n  /health - Health check', {
+			status: 200
+		})
+	},
+	websocket: {
+		open(ws) {
+			const path = (ws.data as { path: string }).path
+			logger.info(`New client connected: ${path}`)
+
+			// Create appropriate session based on path
+			const wsWrapper = {
+				send: (data: string) => ws.send(data),
+				close: () => ws.close()
+			}
+
+			let session: BaseDebugSession
+
+			if (path === '/python') {
+				session = new PythonDebugSession(wsWrapper)
+			} else if (path === '/typescript' || path === '/bun' || path === '/') {
+				// Use the working Bun debug session from dap_websocket_server_bun.ts
+				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket) as unknown as BaseDebugSession
+			} else {
+				logger.warn(`Unknown path: ${path}, defaulting to TypeScript`)
+				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket) as unknown as BaseDebugSession
+			}
+
+			sessions.set(ws, session)
+		},
+		async message(ws, message) {
+			const session = sessions.get(ws)
+			if (!session) return
+
+			try {
+				const data = JSON.parse(message as string) as DAPMessage
+				logger.debug('Received:', JSON.stringify(data).substring(0, 200))
+
+				if (data.type === 'request') {
+					await session.handleRequest(data)
+				}
+			} catch (error) {
+				logger.error('Error handling message:', error)
+			}
+		},
+		async close(ws) {
+			logger.info('Client disconnected')
+			const session = sessions.get(ws)
+			if (session) {
+				await session.cleanup()
+				sessions.delete(ws)
+			}
+		}
+	}
+})
+
+logger.info(`Server started on ${server.url}`)
+
+// Handle graceful shutdown
+process.on('SIGTERM', async () => {
+	logger.info('Received SIGTERM, shutting down...')
+	for (const session of sessions.values()) {
+		await session.cleanup()
+	}
+	process.exit(0)
+})
+
+process.on('SIGINT', async () => {
+	logger.info('Received SIGINT, shutting down...')
+	for (const session of sessions.values()) {
+		await session.cleanup()
+	}
+	process.exit(0)
+})
