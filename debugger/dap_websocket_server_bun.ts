@@ -298,6 +298,9 @@ export class DebugSession {
 	// Track if current pause is due to a breakpoint (for line number correction)
 	private pausedAtBreakpoint = false
 
+	// Environment variables to pass to the debugger subprocess (e.g., WM_WORKSPACE, WM_TOKEN, etc.)
+	private envVars: Record<string, string> = {}
+
 	// Nsjail configuration for sandboxed execution
 	private nsjailConfig?: NsjailConfig
 
@@ -705,6 +708,83 @@ export class DebugSession {
 	}
 
 	/**
+	 * Format a console parameter for output.
+	 * Handles primitives, objects with preview, arrays, etc.
+	 */
+	private formatConsoleParameter(p: {
+		type: string
+		value?: unknown
+		description?: string
+		subtype?: string
+		className?: string
+		objectId?: string
+		preview?: {
+			type: string
+			subtype?: string
+			description?: string
+			overflow?: boolean
+			properties?: Array<{ name: string; type: string; value?: string; subtype?: string }>
+		}
+	}): string {
+		// Handle primitives with direct values
+		if (p.value !== undefined) {
+			if (typeof p.value === 'string') return p.value
+			return String(p.value)
+		}
+
+		// Handle null
+		if (p.subtype === 'null') return 'null'
+
+		// Handle undefined
+		if (p.type === 'undefined') return 'undefined'
+
+		// Handle objects with preview (this is the key fix for process.env, etc.)
+		if (p.type === 'object' && p.preview && p.preview.properties) {
+			const props = p.preview.properties
+			const isArray = p.subtype === 'array' || p.preview.subtype === 'array'
+
+			if (isArray) {
+				// Format as array: [val1, val2, ...]
+				const items = props.map((prop) => this.formatPreviewValue(prop))
+				const suffix = p.preview.overflow ? ', ...' : ''
+				return `[${items.join(', ')}${suffix}]`
+			} else {
+				// Format as object: { key1: val1, key2: val2, ... }
+				const items = props.map((prop) => `${prop.name}: ${this.formatPreviewValue(prop)}`)
+				const suffix = p.preview.overflow ? ', ...' : ''
+				return `{ ${items.join(', ')}${suffix} }`
+			}
+		}
+
+		// Handle functions
+		if (p.type === 'function') {
+			return p.description || '[Function]'
+		}
+
+		// Fallback to description (for other object types without preview)
+		if (p.description) return p.description
+
+		return ''
+	}
+
+	/**
+	 * Format a single property from an object preview.
+	 */
+	private formatPreviewValue(prop: { name: string; type: string; value?: string; subtype?: string }): string {
+		if (prop.subtype === 'null') return 'null'
+		if (prop.type === 'undefined') return 'undefined'
+		if (prop.type === 'string') return `"${prop.value ?? ''}"`
+		if (prop.type === 'number' || prop.type === 'boolean') return prop.value ?? ''
+		if (prop.type === 'function') return '[Function]'
+		if (prop.type === 'object') {
+			// Nested objects just show their type/value preview
+			if (prop.subtype === 'array') return prop.value || '[]'
+			return prop.value || '{...}'
+		}
+		return prop.value ?? ''
+	}
+
+	/**
 	 * Handle console output (WebKit/Bun format - Console.messageAdded).
 	 */
 	private handleConsoleMessageAdded(params: Record<string, unknown>): void {
@@ -716,7 +796,21 @@ export class DebugSession {
 			line?: number
 			column?: number
 			url?: string
-			parameters?: Array<{ type: string; value?: unknown; description?: string }>
+			parameters?: Array<{
+				type: string
+				value?: unknown
+				description?: string
+				subtype?: string
+				className?: string
+				objectId?: string
+				preview?: {
+					type: string
+					subtype?: string
+					description?: string
+					overflow?: boolean
+					properties?: Array<{ name: string; type: string; value?: string; subtype?: string }>
+				}
+			}>
 		}
 
 		if (!message) return
@@ -724,11 +818,7 @@ export class DebugSession {
 		let output: string
 		if (message.parameters && message.parameters.length > 0) {
 			output = message.parameters
-				.map((p) => {
-					if (p.value !== undefined) return String(p.value)
-					if (p.description) return p.description
-					return ''
-				})
+				.map((p) => this.formatConsoleParameter(p))
 				.join(' ')
 		} else {
 			output = message.text || ''
@@ -906,6 +996,16 @@ export class DebugSession {
 		const cwd = (args.cwd as string) || process.cwd()
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
+		this.envVars = (args.env as Record<string, string>) || {}
+
+		// If BASE_INTERNAL_URL is set on the server, use it to override WM_BASE_URL
+		if (process.env.BASE_INTERNAL_URL) {
+			this.envVars.WM_BASE_URL = process.env.BASE_INTERNAL_URL
+		}
+
+		if (Object.keys(this.envVars).length > 0) {
+			logger.info(`Launch with env vars: ${Object.keys(this.envVars).join(', ')}`)
+		}
 
 		if (!this.scriptPath && !code) {
 			this.sendResponse(request, false, {}, 'No program or code specified')
@@ -1017,14 +1117,20 @@ export class DebugSession {
 			}, 10000)
 		})
 
+		// Only include essential env vars + client-provided ones
+		// Don't inherit all of process.env to keep debugger environment clean
 		this.process = spawn({
 			cmd,
 			cwd,
 			stdout: 'pipe',
 			stderr: 'pipe',
 			env: {
-				...process.env,
-				NODE_ENV: 'development'
+				// Essential system vars
+				PATH: process.env.PATH || '/usr/bin:/bin',
+				HOME: process.env.HOME,
+				// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
+				// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
+				...this.envVars
 			}
 		})
 
@@ -1385,6 +1491,14 @@ export class DebugSession {
 					description?: string
 					objectId?: string
 					subtype?: string
+					className?: string
+					preview?: {
+						type: string
+						subtype?: string
+						description?: string
+						overflow?: boolean
+						properties?: Array<{ name: string; type: string; value?: string; subtype?: string }>
+					}
 				}
 				configurable?: boolean
 				enumerable?: boolean
@@ -1424,7 +1538,7 @@ export class DebugSession {
 				let value: string
 				let varRef = 0
 				let displayType = prop.value.type
-				const className = (prop.value as { className?: string }).className
+				const className = prop.value.className
 
 				// Log for debugging variable parsing issues
 				logger.debug(`Variable ${prop.name}: type=${prop.value.type}, className=${className}, description=${prop.value.description}, value=${JSON.stringify(prop.value.value)}`)
@@ -1445,7 +1559,22 @@ export class DebugSession {
 						// Regular object - create a reference for nested inspection
 						varRef = this.nextVarRef()
 						this.objectsMap.set(varRef, prop.value.objectId)
-						value = prop.value.description || `[${prop.value.subtype || className || 'Object'}]`
+						// Use preview data to show object contents instead of just "Object"
+						if (prop.value.preview && prop.value.preview.properties) {
+							const previewProps = prop.value.preview.properties
+							const isArray = prop.value.subtype === 'array' || prop.value.preview.subtype === 'array'
+							if (isArray) {
+								const items = previewProps.map((p) => this.formatPreviewValue(p))
+								const suffix = prop.value.preview.overflow ? ', ...' : ''
+								value = `[${items.join(', ')}${suffix}]`
+							} else {
+								const items = previewProps.map((p) => `${p.name}: ${this.formatPreviewValue(p)}`)
+								const suffix = prop.value.preview.overflow ? ', ...' : ''
+								value = `{ ${items.join(', ')}${suffix} }`
+							}
+						} else {
+							value = prop.value.description || `[${prop.value.subtype || className || 'Object'}]`
+						}
 					}
 				} else if (prop.value.type === 'string') {
 					// Handle primitive strings - they have value property

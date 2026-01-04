@@ -41,6 +41,41 @@ def main(name):
     return {"greeting": f"Hello {name}", "count": counter}
 `
 
+const TS_ENV_TEST_CODE = `export async function main() {
+  const workspace = process.env.WM_WORKSPACE || "unknown"
+  const token = process.env.WM_TOKEN || "unknown"
+  console.log("ENV: Workspace=" + workspace)
+  return { workspace, token }
+}
+`
+
+const PYTHON_ENV_TEST_CODE = `import os
+
+def main():
+    workspace = os.environ.get("WM_WORKSPACE", "unknown")
+    token = os.environ.get("WM_TOKEN", "unknown")
+    print(f"ENV: Workspace={workspace}")
+    return {"workspace": workspace, "token": token}
+`
+
+// Test code for console.log with objects (should show object contents, not just "Object")
+const TS_CONSOLE_OBJECT_CODE = `export async function main() {
+  const obj = { foo: "bar", count: 42 }
+  console.log(obj)
+  console.log("Done")
+  return obj
+}
+`
+
+// Test code for variable panel display - object values should show properties, not just "Object"
+const TS_VARIABLE_OBJECT_CODE = `export async function main() {
+  const myObj = { name: "test", value: 123 }
+  const myArr = [1, 2, 3]
+  console.log("breakpoint here")
+  return { myObj, myArr }
+}
+`
+
 interface DAPMessage {
 	seq: number
 	type: 'request' | 'response' | 'event'
@@ -210,8 +245,8 @@ class TestClient {
 		return this.sendRequest('configurationDone')
 	}
 
-	async launch(code: string, callMain = false, args: Record<string, unknown> = {}) {
-		return this.sendRequest('launch', { code, callMain, args })
+	async launch(code: string, callMain = false, args: Record<string, unknown> = {}, env: Record<string, string> = {}) {
+		return this.sendRequest('launch', { code, callMain, args, env })
 	}
 
 	async continue_() {
@@ -231,6 +266,18 @@ class TestClient {
 
 	getResult() {
 		return this.result
+	}
+
+	async stackTrace(threadId: number = 1) {
+		return this.sendRequest('stackTrace', { threadId })
+	}
+
+	async scopes(frameId: number) {
+		return this.sendRequest('scopes', { frameId })
+	}
+
+	async variables(variablesReference: number) {
+		return this.sendRequest('variables', { variablesReference })
 	}
 
 	clearState() {
@@ -436,6 +483,292 @@ async function testPythonEndpoint(): Promise<boolean> {
 	}
 }
 
+async function testEnvVarsTypescript(): Promise<boolean> {
+	console.log('\n=== Testing Environment Variables (TypeScript) ===')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/typescript')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.ts', [])
+		await client.configurationDone()
+
+		// Pass env vars in launch request
+		await client.launch(TS_ENV_TEST_CODE, true, {}, {
+			WM_WORKSPACE: 'test-workspace',
+			WM_TOKEN: 'secret-token-123'
+		})
+		console.log('  Launched with env vars')
+
+		await initP
+
+		// Wait for termination
+		try {
+			await client.waitForEvent('terminated', 10000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 500))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		const result = client.getResult() as { workspace: string; token: string } | undefined
+		console.log(`  Result: ${JSON.stringify(result)}`)
+
+		if (!result || result.workspace !== 'test-workspace' || result.token !== 'secret-token-123') {
+			console.log('  ❌ FAIL: Env vars not passed correctly')
+			return false
+		}
+
+		console.log('  ✓ TypeScript env vars test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
+async function testEnvVarsPython(): Promise<boolean> {
+	console.log('\n=== Testing Environment Variables (Python) ===')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/python')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.py', [])
+		await client.configurationDone()
+
+		// Pass env vars in launch request
+		await client.launch(PYTHON_ENV_TEST_CODE, true, {}, {
+			WM_WORKSPACE: 'py-workspace',
+			WM_TOKEN: 'py-token-456'
+		})
+		console.log('  Launched with env vars')
+
+		await initP
+
+		// Wait for termination
+		try {
+			await client.waitForEvent('terminated', 10000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 500))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		const result = client.getResult() as { workspace: string; token: string } | undefined
+		console.log(`  Result: ${JSON.stringify(result)}`)
+
+		if (!result || result.workspace !== 'py-workspace' || result.token !== 'py-token-456') {
+			console.log('  ❌ FAIL: Env vars not passed correctly')
+			return false
+		}
+
+		console.log('  ✓ Python env vars test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
+async function testConsoleObjectOutput(): Promise<boolean> {
+	console.log('\n=== Testing Console Object Output (TypeScript) ===')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/typescript')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.ts', [])
+		await client.configurationDone()
+
+		await client.launch(TS_CONSOLE_OBJECT_CODE, true, {})
+		console.log('  Launched')
+
+		await initP
+
+		// Wait for termination
+		try {
+			await client.waitForEvent('terminated', 10000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 500))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		// Check that the object output contains actual property values, not just "Object"
+		const objectOutput = output.find(o => o.includes('foo'))
+		if (!objectOutput) {
+			console.log('  ❌ FAIL: Object should show property names like "foo"')
+			return false
+		}
+
+		// Check that we see the property values
+		if (!objectOutput.includes('bar') && !objectOutput.includes('"bar"')) {
+			console.log('  ❌ FAIL: Object should show property values like "bar"')
+			return false
+		}
+
+		// Make sure it's not just showing "Object" or "[object Object]"
+		if (output.some(o => o.trim() === 'Object' || o.includes('[object Object]'))) {
+			console.log('  ❌ FAIL: Should not just show "Object" or "[object Object]"')
+			return false
+		}
+
+		console.log('  ✓ Console object output test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
+async function testVariableObjectDisplay(): Promise<boolean> {
+	console.log('\n=== Testing Variable Panel Object Display ===')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/typescript')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+
+		// Set breakpoint on line 4 (console.log("breakpoint here"))
+		await client.setBreakpoints('/test.ts', [4])
+		console.log('  Breakpoint set on line 4')
+
+		await client.configurationDone()
+		await client.launch(TS_VARIABLE_OBJECT_CODE, true, {})
+		console.log('  Launched')
+
+		await initP
+
+		// Wait for stopped at breakpoint
+		const stopped = await client.waitForEvent('stopped', 15000)
+		console.log(`  Stopped at line ${stopped.body?.line}, reason: ${stopped.body?.reason}`)
+
+		// Get stack trace
+		const stackTraceResponse = await client.stackTrace()
+		const frames = stackTraceResponse.body?.stackFrames as Array<{ id: number; name: string }> | undefined
+		if (!frames || frames.length === 0) {
+			console.log('  ❌ FAIL: No stack frames returned')
+			return false
+		}
+		console.log(`  Stack frames: ${frames.map(f => f.name).join(', ')}`)
+
+		// Get scopes for the first frame
+		const scopesResponse = await client.scopes(frames[0].id)
+		const scopes = scopesResponse.body?.scopes as Array<{ name: string; variablesReference: number }> | undefined
+		if (!scopes || scopes.length === 0) {
+			console.log('  ❌ FAIL: No scopes returned')
+			return false
+		}
+		console.log(`  Scopes: ${scopes.map(s => s.name).join(', ')}`)
+
+		// Get variables from all scopes to find our local variables
+		let foundVariables: Array<{ name: string; value: string; type: string }> = []
+		for (const scope of scopes) {
+			console.log(`  Checking scope: ${scope.name} (variablesReference: ${scope.variablesReference})`)
+			const varsResponse = await client.variables(scope.variablesReference)
+			const scopeVars = varsResponse.body?.variables as Array<{ name: string; value: string; type: string }> | undefined
+			if (scopeVars && scopeVars.length > 0) {
+				console.log(`    Found ${scopeVars.length} variables: ${scopeVars.map(v => v.name).join(', ')}`)
+				// Look for our specific variables
+				const myObj = scopeVars.find(v => v.name === 'myObj')
+				const myArr = scopeVars.find(v => v.name === 'myArr')
+				if (myObj || myArr) {
+					foundVariables = scopeVars
+					console.log(`    Found target variables in this scope!`)
+					break
+				}
+			}
+		}
+
+		if (foundVariables.length === 0) {
+			console.log('  ❌ FAIL: No relevant variables found in any scope')
+			return false
+		}
+
+		const variables = foundVariables
+		console.log(`  Variables: ${JSON.stringify(variables.map(v => ({ name: v.name, value: v.value })))}`)
+
+		// Find myObj variable and check its value
+		const myObjVar = variables.find(v => v.name === 'myObj')
+		if (!myObjVar) {
+			console.log('  ❌ FAIL: myObj variable not found')
+			return false
+		}
+
+		// Check that myObj shows properties, not just "Object"
+		const objValue = myObjVar.value
+		console.log(`  myObj value: ${objValue}`)
+
+		// It should NOT be just "Object" or "[object Object]"
+		if (objValue === 'Object' || objValue === '[object Object]' || objValue === '[Object]') {
+			console.log('  ❌ FAIL: myObj shows just "Object" instead of properties')
+			return false
+		}
+
+		// It should contain property names or values
+		if (!objValue.includes('name') && !objValue.includes('test') && !objValue.includes('value') && !objValue.includes('123')) {
+			console.log('  ❌ FAIL: myObj should show properties like "name" or "value"')
+			return false
+		}
+
+		// Find myArr variable and check its value
+		const myArrVar = variables.find(v => v.name === 'myArr')
+		if (myArrVar) {
+			console.log(`  myArr value: ${myArrVar.value}`)
+			// Array should show contents, not just "Array"
+			if (myArrVar.value === 'Array' || myArrVar.value === '[object Array]') {
+				console.log('  ❌ FAIL: myArr shows just "Array" instead of contents')
+				return false
+			}
+		}
+
+		// Continue and let it finish
+		await client.continue_()
+
+		try {
+			await client.waitForEvent('terminated', 5000)
+		} catch {}
+
+		console.log('  ✓ Variable panel object display test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
 async function testHealthEndpoint(): Promise<boolean> {
 	console.log('\n=== Testing Health Endpoint ===')
 
@@ -529,6 +862,34 @@ async function main() {
 
 	// Test Python endpoint
 	if (await testPythonEndpoint()) {
+		passed++
+	} else {
+		failed++
+	}
+
+	// Test environment variables (TypeScript)
+	if (await testEnvVarsTypescript()) {
+		passed++
+	} else {
+		failed++
+	}
+
+	// Test environment variables (Python)
+	if (await testEnvVarsPython()) {
+		passed++
+	} else {
+		failed++
+	}
+
+	// Test console object output formatting
+	if (await testConsoleObjectOutput()) {
+		passed++
+	} else {
+		failed++
+	}
+
+	// Test variable panel object display
+	if (await testVariableObjectDisplay()) {
 		passed++
 	} else {
 		failed++

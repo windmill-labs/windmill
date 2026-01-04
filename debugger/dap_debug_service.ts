@@ -162,13 +162,19 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 		logger.info(`Spawning: ${cmd.join(' ')}`)
 	}
 
+	// Only include essential env vars + caller-provided ones
+	// Don't inherit all of process.env to keep debugger environment clean
 	return spawn({
 		cmd,
 		cwd: options.cwd || process.cwd(),
 		stdout: options.stdout || 'pipe',
 		stderr: options.stderr || 'pipe',
 		env: {
-			...process.env,
+			// Essential system vars
+			PATH: process.env.PATH || '/usr/bin:/bin',
+			HOME: process.env.HOME,
+			// Caller-provided env vars
+			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
 			...options.env
 		}
 	})
@@ -270,6 +276,7 @@ class PythonDebugSession extends BaseDebugSession {
 	private variablesRefCounter = 1
 	private scopesMap = new Map<number, { variablesReference: number }>()
 	private scriptResult: unknown = undefined
+	private envVars: Record<string, string> = {}
 
 	private nextDebugpySeq(): number {
 		return this.debugpySeq++
@@ -399,6 +406,7 @@ class PythonDebugSession extends BaseDebugSession {
 		const scriptDir = import.meta.dir
 
 		// Spawn the Python WebSocket DAP server
+		// Pass env vars to the server - it will forward them to the debugged script
 		this.process = spawnProcess({
 			cmd: [
 				config.pythonPath,
@@ -408,7 +416,7 @@ class PythonDebugSession extends BaseDebugSession {
 				'--host', '127.0.0.1'
 			],
 			cwd,
-			env: { PYTHONUNBUFFERED: '1' }
+			env: { PYTHONUNBUFFERED: '1', ...this.envVars }
 		})
 
 		// Read stderr to capture startup messages
@@ -643,6 +651,16 @@ class PythonDebugSession extends BaseDebugSession {
 		const cwd = (args.cwd as string) || process.cwd()
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
+		this.envVars = (args.env as Record<string, string>) || {}
+
+		// If BASE_INTERNAL_URL is set on the server, use it to override WM_BASE_URL
+		if (process.env.BASE_INTERNAL_URL) {
+			this.envVars.WM_BASE_URL = process.env.BASE_INTERNAL_URL
+		}
+
+		if (Object.keys(this.envVars).length > 0) {
+			logger.info(`Python launch with env vars: ${Object.keys(this.envVars).join(', ')}`)
+		}
 
 		if (!this.scriptPath && !code) {
 			this.sendResponse(request, false, {}, 'No program or code specified')
@@ -699,7 +717,8 @@ sys.stdout.flush()
 				code: code,
 				args: this.mainArgs,
 				cwd: cwd,
-				callMain: this.callMain
+				callMain: this.callMain,
+				env: this.envVars
 			})
 		} catch (error) {
 			this.sendEvent('output', { category: 'stderr', output: `Failed to start Python: ${error}\n` })

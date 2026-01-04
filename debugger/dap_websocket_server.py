@@ -425,6 +425,10 @@ class DebugSession:
         cwd = args.get("cwd", os.getcwd())
         self._call_main = args.get("callMain", False)
         self._main_args = args.get("args", {})
+        self._env_vars = args.get("env", {})
+
+        if self._env_vars:
+            logger.info(f"Launch with env vars: {list(self._env_vars.keys())}")
 
         if not self.script_path and not code:
             await self.send_response(
@@ -486,6 +490,14 @@ class DebugSession:
         old_argv = sys.argv
         old_stdout = sys.stdout
         old_stderr = sys.stderr
+        old_env = {}
+
+        # Set environment variables for the script
+        if hasattr(self, '_env_vars') and self._env_vars:
+            for key, value in self._env_vars.items():
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = str(value)
+            logger.info(f"Set {len(self._env_vars)} env vars for script")
 
         # Create a streaming output wrapper that sends output events in real-time
         session = self
@@ -573,6 +585,12 @@ class DebugSession:
             sys.argv = old_argv
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            # Restore environment variables
+            for key, old_value in old_env.items():
+                if old_value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = old_value
             self._cleanup_temp_file()
 
     def _cleanup_temp_file(self) -> None:

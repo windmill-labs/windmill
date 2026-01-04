@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang, VariableService, UserService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -33,7 +33,16 @@
 		PlayIcon,
 		WandSparkles
 	} from 'lucide-svelte'
-	import { DebugToolbar, DebugPanel, getDAPClient, debugState, resetDAPClient, DAP_SERVER_URLS, isDebuggable, getDebugFileExtension } from '$lib/debug'
+	import {
+		DebugToolbar,
+		DebugPanel,
+		getDAPClient,
+		debugState,
+		resetDAPClient,
+		DAP_SERVER_URLS,
+		isDebuggable,
+		getDebugFileExtension
+	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
@@ -231,12 +240,16 @@
 	let breakpointDecorations: string[] = $state([])
 	let currentLineDecoration: string[] = $state([])
 	// Get the DAP server URL based on language
-	const dapServerUrl = $derived(DAP_SERVER_URLS[(lang || '') as keyof typeof DAP_SERVER_URLS] || DAP_SERVER_URLS.python3)
+	const dapServerUrl = $derived(
+		DAP_SERVER_URLS[(lang || '') as keyof typeof DAP_SERVER_URLS] || DAP_SERVER_URLS.python3
+	)
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
 	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
 	const isDebuggableScript = $derived(isDebuggable(lang || ''))
 	// Derived: show debug panel when connected and (running or stopped, but not terminated)
-	const showDebugPanel = $derived(debugMode && $debugState.connected && ($debugState.running || $debugState.stopped))
+	const showDebugPanel = $derived(
+		debugMode && $debugState.connected && ($debugState.running || $debugState.stopped)
+	)
 	// Derived: debug has a result (script completed)
 	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
 
@@ -493,6 +506,46 @@
 		monacoEditor.revealLineInCenter(line)
 	}
 
+	async function fetchContextualVariables(): Promise<Record<string, string>> {
+		const workspace = $workspaceStore
+		if (!workspace) {
+			console.log('[DEBUG] No workspace, skipping contextual variables')
+			return {}
+		}
+
+		try {
+			console.log('[DEBUG] Fetching contextual variables for workspace:', workspace)
+			const variables = await VariableService.listContextualVariables({ workspace })
+			const envVars: Record<string, string> = {}
+			for (const v of variables) {
+				envVars[v.name] = v.value
+			}
+
+			// Create a fresh token with 15-minute expiration for the debugger
+			try {
+				const expirationDate = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes from now
+				const freshToken = await UserService.createToken({
+					requestBody: {
+						label: 'debugger-token',
+						expiration: expirationDate.toISOString(),
+						workspace_id: workspace
+					}
+				})
+				envVars['WM_TOKEN'] = freshToken
+				console.log('[DEBUG] Created fresh debugger token (expires in 15 mins)')
+			} catch (tokenError) {
+				console.error('Failed to create debugger token:', tokenError)
+				// Keep the original WM_TOKEN if token creation fails
+			}
+
+			console.log('[DEBUG] Got env vars:', Object.keys(envVars))
+			return envVars
+		} catch (error) {
+			console.error('Failed to fetch contextual variables:', error)
+			return {}
+		}
+	}
+
 	async function startDebugging(): Promise<void> {
 		try {
 			// Always reset and create a fresh DAP client with the correct URL for the current language
@@ -500,22 +553,27 @@
 			resetDAPClient()
 			dapClient = getDAPClient(dapServerUrl)
 
+			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
+			const env = await fetchContextualVariables()
+
 			// Debug: log the code being sent
 			const codeLines = code?.split('\n').length ?? 0
 			console.log(`[DEBUG] Starting debug session with ${codeLines} lines of code`)
 			console.log(`[DEBUG] Code preview (first 500 chars):`, code?.substring(0, 500))
 			console.log(`[DEBUG] Breakpoints:`, Array.from(debugBreakpoints))
+			console.log(`[DEBUG] Env vars:`, Object.keys(env))
 
 			await dapClient.connect()
 			await dapClient.initialize()
 			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
 			await dapClient.configurationDone()
-			// Pass the code, args from the test form, and indicate we want to call main()
+			// Pass the code, args from the test form, env vars, and indicate we want to call main()
 			await dapClient.launch({
 				code,
 				cwd: '/tmp',
 				args: args ?? {},
-				callMain: true
+				callMain: true,
+				env
 			})
 		} catch (error) {
 			console.error('Failed to start debugging:', error)
@@ -582,13 +640,22 @@
 		const currentLang = lang
 		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
 			// Language changed while in debug mode - exit debug mode
-			console.log('[DAP] Language changed from', lastDebugLang, 'to', currentLang, '- exiting debug mode')
+			console.log(
+				'[DAP] Language changed from',
+				lastDebugLang,
+				'to',
+				currentLang,
+				'- exiting debug mode'
+			)
 			untrack(() => {
 				// Stop any running debug session
 				if (dapClient) {
-					dapClient.terminate().catch(() => {}).finally(() => {
-						dapClient?.disconnect()
-					})
+					dapClient
+						.terminate()
+						.catch(() => {})
+						.finally(() => {
+							dapClient?.disconnect()
+						})
 				}
 				// Reset the singleton
 				resetDAPClient()
@@ -602,7 +669,6 @@
 		}
 		lastDebugLang = currentLang
 	})
-
 
 	// Set up glyph margin click handler for breakpoints when debug mode is enabled
 	$effect(() => {
@@ -841,7 +907,9 @@
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 			aiChatManager.scriptEditorGetLintErrors = () => {
-				return editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+				return (
+					editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+				)
 			}
 		})
 	})
@@ -1027,7 +1095,9 @@
 							</Button>
 						{:else}
 							{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
-							<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
+							<div
+								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+							>
 								<Button
 									on:click={() => runTest()}
 									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
@@ -1052,7 +1122,10 @@
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
 					>
 				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]">
+				<Splitpanes
+					horizontal
+					class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
+				>
 					<Pane size={33}>
 						{#if jsonView}
 							<div
@@ -1098,16 +1171,18 @@
 							bind:this={logPanel}
 							{lang}
 							previewJob={debugMode
-								? {
+								? ({
 										id: 'debug',
 										logs: $debugState.logs,
 										result: $debugState.result,
 										success: !$debugState.error,
 										type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
-									} as any
+									} as any)
 								: testJob}
 							{pastPreviews}
-							previewIsLoading={debugMode ? ($debugState.running && !$debugState.stopped) : testIsLoading}
+							previewIsLoading={debugMode
+								? $debugState.running && !$debugState.stopped
+								: testIsLoading}
 							{editor}
 							{diffEditor}
 							{args}
