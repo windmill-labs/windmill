@@ -21,6 +21,7 @@ import json
 import linecache
 import logging
 import os
+import subprocess
 import sys
 import tempfile
 import threading
@@ -279,8 +280,9 @@ class WindmillDebugger(bdb.Bdb):
 class DebugSession:
     """Manages a single debug session."""
 
-    def __init__(self, websocket):
+    def __init__(self, websocket, windmill_path: str | None = None):
         self.websocket = websocket
+        self.windmill_path = windmill_path
         self.seq = 1
         self.initialized = False
         self.configured = False
@@ -295,11 +297,67 @@ class DebugSession:
         self._loop = asyncio.get_event_loop()
         self._call_main = False
         self._main_args: dict = {}
+        self._venv_path: str | None = None
 
     def next_seq(self) -> int:
         seq = self.seq
         self.seq += 1
         return seq
+
+    def prepare_dependencies(self, code: str) -> str | None:
+        """
+        Prepare Python dependencies by calling the windmill CLI.
+        Returns the path to the venv's site-packages directory, or None if no dependencies needed.
+        """
+        if not self.windmill_path:
+            logger.info("No windmill binary path configured, skipping dependency preparation")
+            return None
+
+        logger.info(f"Preparing dependencies using {self.windmill_path}")
+
+        try:
+            # Call the windmill CLI with the code
+            input_data = json.dumps({"code": code, "language": "python3"})
+            result = subprocess.run(
+                [self.windmill_path, "prepare-deps"],
+                input=input_data,
+                capture_output=True,
+                text=True,
+                timeout=120,  # 2 minute timeout for dependency installation
+            )
+
+            if result.returncode != 0:
+                logger.error(f"prepare-deps failed: {result.stderr}")
+                return None
+
+            # Parse the response - may have "Running in standalone mode" prefix
+            output = result.stdout.strip()
+            # Find the JSON part (starts with '{')
+            json_start = output.find('{')
+            if json_start == -1:
+                logger.error(f"No JSON in prepare-deps output: {output}")
+                return None
+
+            response = json.loads(output[json_start:])
+
+            if not response.get("success"):
+                logger.error(f"prepare-deps error: {response.get('error')}")
+                return None
+
+            venv_path = response.get("venv_path")
+            if venv_path:
+                logger.info(f"Dependencies prepared at: {venv_path}")
+            else:
+                logger.info("No external dependencies detected")
+
+            return venv_path
+
+        except subprocess.TimeoutExpired:
+            logger.error("prepare-deps timed out")
+            return None
+        except Exception as e:
+            logger.exception(f"Error preparing dependencies: {e}")
+            return None
 
     def _next_var_ref(self) -> int:
         ref = self._variables_ref_counter
@@ -436,6 +494,10 @@ class DebugSession:
             )
             return
 
+        # Prepare dependencies before modifying the code
+        if code:
+            self._venv_path = self.prepare_dependencies(code)
+
         # If callMain is True, append a call to main() with the provided args
         if self._call_main and code:
             # Generate the main() call with kwargs
@@ -491,6 +553,12 @@ class DebugSession:
         old_stdout = sys.stdout
         old_stderr = sys.stderr
         old_env = {}
+        old_sys_path = sys.path.copy()
+
+        # Add venv site-packages to sys.path if dependencies were prepared
+        if self._venv_path:
+            sys.path.insert(0, self._venv_path)
+            logger.info(f"Added {self._venv_path} to sys.path")
 
         # Set environment variables for the script
         if hasattr(self, '_env_vars') and self._env_vars:
@@ -585,6 +653,7 @@ class DebugSession:
             sys.argv = old_argv
             sys.stdout = old_stdout
             sys.stderr = old_stderr
+            sys.path = old_sys_path
             # Restore environment variables
             for key, old_value in old_env.items():
                 if old_value is None:
@@ -800,9 +869,13 @@ class DebugSession:
             )
 
 
+# Module-level variable to store windmill binary path
+_windmill_path: str | None = None
+
+
 async def handle_connection(websocket) -> None:
     """Handle a WebSocket connection."""
-    session = DebugSession(websocket)
+    session = DebugSession(websocket, windmill_path=_windmill_path)
     logger.info(f"New connection from {websocket.remote_address}")
 
     try:
@@ -826,8 +899,13 @@ async def handle_connection(websocket) -> None:
         session._cleanup_temp_file()
 
 
-async def main(host: str = "localhost", port: int = 5679) -> None:
+async def main(host: str = "localhost", port: int = 5679, windmill_path: str | None = None) -> None:
     """Start the DAP WebSocket server."""
+    global _windmill_path
+    _windmill_path = windmill_path
+
+    if windmill_path:
+        logger.info(f"Windmill binary path: {windmill_path}")
     logger.info(f"Starting DAP WebSocket server on ws://{host}:{port}")
 
     async with serve(handle_connection, host, port):
@@ -840,9 +918,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DAP WebSocket Server for Python debugging")
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
+    parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation")
     args = parser.parse_args()
 
     try:
-        asyncio.run(main(args.host, args.port))
+        asyncio.run(main(args.host, args.port, args.windmill))
     except KeyboardInterrupt:
         logger.info("Server stopped")

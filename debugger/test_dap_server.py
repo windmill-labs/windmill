@@ -415,18 +415,126 @@ async def run_main_test():
         print("\n=== MAIN TEST COMPLETE ===")
 
 
+# Test script with external import (requests)
+TEST_SCRIPT_WITH_IMPORT = """
+import requests
+
+def main(url: str):
+    response = requests.get(url)
+    status = response.status_code
+    print(f"Status: {status}")
+    return {"status": status, "ok": response.ok}
+"""
+
+
+async def run_import_test():
+    """Test that external dependencies are automatically installed."""
+    print("\n" + "=" * 60)
+    print("DYNAMIC IMPORT TEST")
+    print("=" * 60)
+    print("\nThis test verifies that external pip packages are automatically installed.")
+    print("Make sure the server is started with: --windmill /path/to/windmill\n")
+
+    client = DAPTestClient()
+
+    try:
+        await client.connect()
+
+        # Initialize
+        print("\n=== IMPORT TEST: Initialize ===")
+        init_response = await client.initialize()
+        if init_response.get("success"):
+            print("Initialize: OK")
+        else:
+            print(f"Initialize: FAILED - {init_response}")
+            return
+
+        # Wait for initialized event
+        await asyncio.sleep(0.5)
+
+        # Launch with code that uses requests
+        print("\n=== IMPORT TEST: Launch with requests import ===")
+        launch_response = await client.launch(
+            TEST_SCRIPT_WITH_IMPORT,
+            call_main=True,
+            args={"url": "https://httpbin.org/get"}
+        )
+        if launch_response.get("success"):
+            print("Launch: OK")
+        else:
+            print(f"Launch: FAILED - {launch_response}")
+            return
+
+        # Wait for script to run and complete
+        print("\n=== IMPORT TEST: Waiting for completion ===")
+        terminated = False
+        result = None
+        timeout = 30  # 30 seconds for dependency installation + execution
+
+        for _ in range(timeout * 10):  # Check every 100ms
+            await asyncio.sleep(0.1)
+            for event in client.events:
+                if event.get("event") == "terminated":
+                    terminated = True
+                    result = event.get("body", {}).get("result")
+                    break
+            if terminated:
+                break
+
+        if not terminated:
+            print("ERROR: Script did not terminate in time!")
+            return
+
+        # Check result
+        print(f"\n=== IMPORT TEST: Result ===")
+        print(f"Result: {result}")
+
+        if result and result.get("status") == 200 and result.get("ok") is True:
+            print("\nSUCCESS: External package (requests) was installed and worked correctly!")
+        else:
+            print(f"\nFAILED: Unexpected result - {result}")
+
+        # Check output
+        print("\n=== IMPORT TEST: Console Output ===")
+        for event in client.events:
+            if event.get("event") == "output":
+                output = event.get("body", {}).get("output", "")
+                print(f"  {output.strip()}")
+
+        # Terminate
+        print("\n=== IMPORT TEST: Terminate ===")
+        try:
+            await client.terminate()
+            print("Terminated: OK")
+        except Exception:
+            pass  # May already be terminated
+
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        await client.disconnect()
+        print("\n=== IMPORT TEST COMPLETE ===")
+
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--main", action="store_true", help="Run main() function test")
+    parser.add_argument("--imports", action="store_true", help="Run dynamic imports test")
     parser.add_argument("--all", action="store_true", help="Run all tests")
     args = parser.parse_args()
 
     if args.main:
         asyncio.run(run_main_test())
+    elif args.imports:
+        asyncio.run(run_import_test())
     elif args.all:
         asyncio.run(run_test())
         print("\n" + "=" * 60 + "\n")
         asyncio.run(run_main_test())
+        print("\n" + "=" * 60 + "\n")
+        asyncio.run(run_import_test())
     else:
         asyncio.run(run_test())

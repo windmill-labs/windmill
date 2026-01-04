@@ -596,8 +596,172 @@ async function runComprehensiveTest(): Promise<void> {
 	}
 }
 
-// Run the test
-runComprehensiveTest().catch((error) => {
-	console.error('Test runner failed:', error)
-	process.exit(1)
-})
+/**
+ * Test script with a dynamic import (lodash).
+ * This tests that the prepare-deps CLI properly installs dependencies.
+ */
+const TEST_SCRIPT_WITH_IMPORT = `import _ from "lodash"
+
+export async function main(items: number[]) {
+  const sum = _.sum(items)
+  const max = _.max(items)
+  console.log("Sum:", sum)
+  console.log("Max:", max)
+  return { sum, max }
+}`
+
+/**
+ * Test dynamic import installation.
+ * This test requires the server to be started with --windmill pointing to the windmill binary.
+ *
+ * Usage:
+ *   bun run dap_websocket_server_bun.ts --windmill /path/to/windmill
+ *   bun run test_dap_server_bun.ts --test-imports
+ */
+async function testDynamicImports(): Promise<void> {
+	console.log('='.repeat(60))
+	console.log('DYNAMIC IMPORT TEST')
+	console.log('='.repeat(60))
+	console.log('\nThis test verifies that external npm packages are automatically installed.')
+	console.log('Make sure the server is started with: --windmill /path/to/windmill\n')
+
+	const client = new DAPTestClient('ws://localhost:5680')
+	let passed = 0
+	let failed = 0
+	const results: Array<{ test: string; passed: boolean; error?: string }> = []
+
+	function assert(condition: boolean, message: string, error?: string) {
+		if (condition) {
+			passed++
+			console.log(`✓ ${message}`)
+			results.push({ test: message, passed: true })
+		} else {
+			failed++
+			console.log(`✗ ${message}` + (error ? `: ${error}` : ''))
+			results.push({ test: message, passed: false, error })
+		}
+	}
+
+	try {
+		console.log('=== Setup ===')
+		await client.connect()
+		assert(true, 'Connect to server')
+
+		// Initialize
+		const initResult = await client.initialize()
+		assert(
+			initResult.success === true,
+			'Initialize session',
+			initResult.message
+		)
+
+		// Launch with code that uses lodash
+		console.log('\n=== Launch with lodash import ===')
+		const launchResult = await client.launch(TEST_SCRIPT_WITH_IMPORT, true, { items: [1, 2, 3, 4, 5] })
+		assert(
+			launchResult.success === true,
+			'Launch with lodash import',
+			launchResult.message
+		)
+
+		// Wait for initialization events
+		await client.configurationDone()
+
+		// No breakpoints - just run to completion
+		console.log('\n=== Running to completion ===')
+
+		// Wait for completion (with timeout)
+		let terminated = false
+		const startTime = Date.now()
+		while (!terminated && Date.now() - startTime < 30000) {
+			await new Promise(resolve => setTimeout(resolve, 100))
+			// Check if we've received a terminated event by checking for result
+			const result = client.getResult()
+			if (result !== undefined) {
+				terminated = true
+			}
+		}
+
+		if (!terminated) {
+			// Try to continue if we're paused at debugger statement
+			try {
+				await client.continue_()
+				// Wait a bit more
+				await new Promise(resolve => setTimeout(resolve, 2000))
+			} catch {
+				// Ignore if already terminated
+			}
+		}
+
+		// Check console output
+		console.log('\n=== Console Output ===')
+		const output = client.getOutput()
+		console.log(`Output: ${JSON.stringify(output)}`)
+
+		const hasSum = output.some(o => o.includes('Sum:') && o.includes('15'))
+		const hasMax = output.some(o => o.includes('Max:') && o.includes('5'))
+
+		assert(hasSum, 'Console shows correct sum (15)', `Output: ${output.join(', ')}`)
+		assert(hasMax, 'Console shows correct max (5)', `Output: ${output.join(', ')}`)
+
+		// Check return value
+		console.log('\n=== Return Value ===')
+		const result = client.getResult()
+		console.log(`Result: ${JSON.stringify(result)}`)
+
+		if (result && typeof result === 'object') {
+			const resultObj = result as { sum?: number; max?: number }
+			assert(resultObj.sum === 15, 'Return value sum is 15', `Got: ${resultObj.sum}`)
+			assert(resultObj.max === 5, 'Return value max is 5', `Got: ${resultObj.max}`)
+		} else {
+			assert(false, 'Return value has sum and max', `Result: ${JSON.stringify(result)}`)
+		}
+
+		// Terminate
+		console.log('\n=== Terminate ===')
+		try {
+			await client.terminate()
+			assert(true, 'Terminate session')
+		} catch {
+			assert(true, 'Script already terminated naturally')
+		}
+
+	} catch (error) {
+		console.error('[TEST] Error:', error)
+		failed++
+		results.push({ test: 'Unexpected error', passed: false, error: String(error) })
+	} finally {
+		client.disconnect()
+	}
+
+	// Summary
+	console.log('\n' + '='.repeat(60))
+	console.log(`DYNAMIC IMPORT TEST SUMMARY: ${passed} passed, ${failed} failed`)
+	console.log('='.repeat(60))
+
+	if (failed > 0) {
+		console.log('\nFailed tests:')
+		for (const r of results.filter((r) => !r.passed)) {
+			console.log(`  - ${r.test}: ${r.error || 'Unknown error'}`)
+		}
+		process.exit(1)
+	} else {
+		console.log('\n✓ All dynamic import tests passed!')
+		process.exit(0)
+	}
+}
+
+// Parse arguments to choose which test to run
+const testArgs = process.argv.slice(2)
+if (testArgs.includes('--test-imports')) {
+	testDynamicImports().catch((error) => {
+		console.error('Test runner failed:', error)
+		process.exit(1)
+	})
+} else {
+	// Run the main test
+	runComprehensiveTest().catch((error) => {
+		console.error('Test runner failed:', error)
+		process.exit(1)
+	})
+}

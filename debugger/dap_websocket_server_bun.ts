@@ -22,7 +22,7 @@
  */
 
 import { spawn, type Subprocess } from 'bun'
-import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises'
+import { mkdtemp, writeFile, unlink, rmdir, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -307,10 +307,17 @@ export class DebugSession {
 	// Custom bun binary path (can be overridden)
 	private bunPath: string = 'bun'
 
-	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string }) {
+	// Windmill binary path for prepare-deps CLI (optional, for dependency installation)
+	private windmillPath?: string
+
+	// Path to installed node_modules (set after prepare-deps runs)
+	private nodeModulesPath?: string
+
+	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string; windmillPath?: string }) {
 		this.ws = ws
 		this.nsjailConfig = options?.nsjailConfig
 		this.bunPath = options?.bunPath || 'bun'
+		this.windmillPath = options?.windmillPath
 	}
 
 	private nextSeq(): number {
@@ -1012,6 +1019,12 @@ export class DebugSession {
 			return
 		}
 
+		// Prepare dependencies using the original code (before any modifications)
+		// This analyzes imports and installs required npm packages
+		if (code) {
+			this.nodeModulesPath = await this.prepareDependencies(code) || undefined
+		}
+
 		// Reset state for new launch
 		this.initialPauseDone = false
 
@@ -1049,6 +1062,19 @@ export class DebugSession {
 				for (let i = 24; i < Math.min(30, lines.length); i++) {
 					logger.info(`  Line ${i} (0-idx) / ${i+1} (1-idx): ${lines[i]?.substring(0, 80)}`)
 				}
+
+				// If we have installed node_modules, symlink them into the temp directory
+				// so Bun can find them when running the script
+				if (this.nodeModulesPath) {
+					const targetPath = join(this.tempDir, 'node_modules')
+					try {
+						await symlink(this.nodeModulesPath, targetPath)
+						logger.info(`Symlinked ${this.nodeModulesPath} -> ${targetPath}`)
+					} catch (symlinkError) {
+						logger.warn(`Failed to symlink node_modules: ${symlinkError}`)
+						// Don't fail the launch - try NODE_PATH as fallback
+					}
+				}
 			} catch (error) {
 				this.sendResponse(request, false, {}, `Failed to create temp file: ${error}`)
 				return
@@ -1069,6 +1095,78 @@ export class DebugSession {
 	// Store the inspector WebSocket URL when parsed from stderr
 	private inspectorWsUrl: string | null = null
 	private inspectorWsUrlPromise: { resolve: (url: string) => void; reject: (error: Error) => void } | null = null
+
+	/**
+	 * Prepare dependencies by calling the windmill CLI's prepare-deps command.
+	 * This analyzes imports in the code and installs required npm packages.
+	 * Returns the path to node_modules if any were installed.
+	 */
+	private async prepareDependencies(code: string, language: string = 'bun'): Promise<string | null> {
+		if (!this.windmillPath) {
+			logger.info('No windmill binary path configured, skipping dependency preparation')
+			return null
+		}
+
+		logger.info(`Preparing dependencies using ${this.windmillPath}`)
+
+		try {
+			const input = JSON.stringify({ code, language }) + '\n'
+			logger.info(`prepare-deps input length: ${input.length}`)
+
+			// Spawn the windmill binary with prepare-deps command
+			const proc = spawn({
+				cmd: [this.windmillPath, 'prepare-deps'],
+				stdin: new Blob([input]),  // Use Blob for complete stdin data
+				stdout: 'pipe',
+				stderr: 'pipe'
+			})
+
+			// Wait for completion
+			const output = await new Response(proc.stdout).text()
+			const stderr = await new Response(proc.stderr).text()
+			logger.info(`prepare-deps output: ${output.substring(0, 200)}`)
+			logger.info(`prepare-deps stderr: ${stderr.substring(0, 200)}`)
+
+			if (stderr) {
+				// Filter out the "Running in standalone mode" message
+				const filteredStderr = stderr.split('\n').filter(line => !line.includes('Running in standalone mode')).join('\n').trim()
+				if (filteredStderr) {
+					logger.debug(`prepare-deps stderr: ${filteredStderr}`)
+				}
+			}
+
+			// Parse the JSON response
+			const response = JSON.parse(output.trim().split('\n').pop() || '{}')
+
+			if (!response.success) {
+				logger.error(`prepare-deps failed: ${response.error}`)
+				this.sendEvent('output', {
+					category: 'console',
+					output: `Warning: Failed to prepare dependencies: ${response.error}\n`
+				})
+				return null
+			}
+
+			if (response.node_modules_path) {
+				logger.info(`Dependencies installed at: ${response.node_modules_path}`)
+				this.sendEvent('output', {
+					category: 'console',
+					output: `Dependencies installed at: ${response.node_modules_path}\n`
+				})
+				return response.node_modules_path
+			}
+
+			logger.info('No external dependencies to install')
+			return null
+		} catch (error) {
+			logger.error(`Failed to prepare dependencies: ${error}`)
+			this.sendEvent('output', {
+				category: 'console',
+				output: `Warning: Failed to prepare dependencies: ${error}\n`
+			})
+			return null
+		}
+	}
 
 	/**
 	 * Start the Bun subprocess with debugging enabled.
@@ -1119,19 +1217,27 @@ export class DebugSession {
 
 		// Only include essential env vars + client-provided ones
 		// Don't inherit all of process.env to keep debugger environment clean
+		const envVars: Record<string, string | undefined> = {
+			// Essential system vars
+			PATH: process.env.PATH || '/usr/bin:/bin',
+			HOME: process.env.HOME,
+			// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
+			// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
+			...this.envVars
+		}
+
+		// If we have installed node_modules, add NODE_PATH so Bun can find them
+		if (this.nodeModulesPath) {
+			envVars.NODE_PATH = this.nodeModulesPath
+			logger.info(`Setting NODE_PATH=${this.nodeModulesPath}`)
+		}
+
 		this.process = spawn({
 			cmd,
 			cwd,
 			stdout: 'pipe',
 			stderr: 'pipe',
-			env: {
-				// Essential system vars
-				PATH: process.env.PATH || '/usr/bin:/bin',
-				HOME: process.env.HOME,
-				// Client-provided env vars (WM_WORKSPACE, WM_TOKEN, etc.)
-				// Note: WM_BASE_URL is already overridden by BASE_INTERNAL_URL if set
-				...this.envVars
-			}
+			env: envVars
 		})
 
 		// Note: We don't read stdout directly because Console.messageAdded events
@@ -1844,6 +1950,7 @@ const sessions = new Map<unknown, DebugSession>()
 const args = process.argv.slice(2)
 let host = 'localhost'
 let port = 5680 // Different port from Python server
+let windmillPath: string | undefined
 
 for (let i = 0; i < args.length; i++) {
 	if (args[i] === '--host' && args[i + 1]) {
@@ -1852,7 +1959,14 @@ for (let i = 0; i < args.length; i++) {
 	} else if (args[i] === '--port' && args[i + 1]) {
 		port = parseInt(args[i + 1], 10)
 		i++
+	} else if (args[i] === '--windmill' && args[i + 1]) {
+		windmillPath = args[i + 1]
+		i++
 	}
+}
+
+if (windmillPath) {
+	logger.info(`Windmill binary path: ${windmillPath}`)
 }
 
 // Start the server
@@ -1882,7 +1996,7 @@ const server = Bun.serve({
 				CLOSED: WebSocket.CLOSED
 			} as unknown as WebSocket
 
-			const session = new DebugSession(wsWrapper)
+			const session = new DebugSession(wsWrapper, { windmillPath })
 			sessions.set(ws, session)
 		},
 		async message(ws, message) {
