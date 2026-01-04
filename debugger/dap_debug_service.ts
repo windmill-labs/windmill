@@ -35,7 +35,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 // Import the working Bun debug session from the standalone server
-import { DebugSession as BunDebugSessionWorking } from './dap_websocket_server_bun'
+import { DebugSession as BunDebugSessionWorking, type NsjailConfig } from './dap_websocket_server_bun'
 
 // ============================================================================
 // Configuration
@@ -808,14 +808,30 @@ const server = Bun.serve({
 
 			let session: BaseDebugSession
 
+			// Build nsjail config to pass to debuggers
+			const nsjailConfig: NsjailConfig | undefined = config.nsjail.enabled
+				? {
+						enabled: true,
+						binaryPath: config.nsjail.binaryPath,
+						configPath: config.nsjail.configPath,
+						extraArgs: config.nsjail.extraArgs
+					}
+				: undefined
+
 			if (path === '/python') {
 				session = new PythonDebugSession(wsWrapper)
 			} else if (path === '/typescript' || path === '/bun' || path === '/') {
 				// Use the working Bun debug session from dap_websocket_server_bun.ts
-				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket) as unknown as BaseDebugSession
+				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket, {
+					nsjailConfig,
+					bunPath: config.bunPath
+				}) as unknown as BaseDebugSession
 			} else {
 				logger.warn(`Unknown path: ${path}, defaulting to TypeScript`)
-				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket) as unknown as BaseDebugSession
+				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket, {
+					nsjailConfig,
+					bunPath: config.bunPath
+				}) as unknown as BaseDebugSession
 			}
 
 			sessions.set(ws, session)

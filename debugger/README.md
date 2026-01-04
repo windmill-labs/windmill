@@ -51,8 +51,11 @@ bun run debug/dap_debug_service.ts
 Options:
 - `--port PORT` - Server port (default: 5679)
 - `--host HOST` - Server host (default: 0.0.0.0)
-- `--nsjail` - Enable nsjail sandboxing
+- `--python-path PATH` - Python binary path (default: python3)
+- `--bun-path PATH` - Bun binary path (default: bun)
+- `--nsjail` - Enable nsjail sandboxing for debugger processes
 - `--nsjail-config PATH` - Path to nsjail config file
+- `--nsjail-path PATH` - Path to nsjail binary (default: nsjail)
 
 ### Endpoints
 
@@ -66,10 +69,11 @@ Options:
 |----------|-------------|---------|
 | `DAP_PORT` | Server port | 5679 |
 | `DAP_HOST` | Server host | 0.0.0.0 |
-| `DAP_NSJAIL_ENABLED` | Enable nsjail | false |
-| `DAP_NSJAIL_CONFIG` | nsjail config path | - |
 | `DAP_PYTHON_PATH` | Python binary path | python3 |
 | `DAP_BUN_PATH` | Bun binary path | bun |
+| `DAP_NSJAIL_ENABLED` | Enable nsjail sandboxing | false |
+| `DAP_NSJAIL_PATH` | nsjail binary path | nsjail |
+| `DAP_NSJAIL_CONFIG` | nsjail config file path | - |
 
 ### Frontend Integration
 

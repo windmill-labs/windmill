@@ -9,9 +9,16 @@
  *
  * Then run this test:
  *    bun run test_debug_service.ts
+ *
+ * To test with nsjail enabled:
+ *    bun run dap_debug_service.ts --nsjail --nsjail-config /path/to/config.cfg
+ *    bun run test_debug_service.ts --nsjail
  */
 
+import { spawn } from 'bun'
+
 const SERVICE_URL = 'ws://localhost:5679'
+const TEST_NSJAIL = process.argv.includes('--nsjail')
 
 const TS_TEST_CODE = `let counter = 0
 console.log("TS: Starting")
@@ -448,6 +455,16 @@ async function testHealthEndpoint(): Promise<boolean> {
 			return false
 		}
 
+		// If testing nsjail mode, verify nsjail is enabled in health response
+		if (TEST_NSJAIL) {
+			if (data.nsjail !== true) {
+				console.log('  ❌ FAIL: nsjail should be enabled but health shows false')
+				console.log('  → Make sure you started the server with: bun run dap_debug_service.ts --nsjail')
+				return false
+			}
+			console.log('  ✓ nsjail mode confirmed enabled')
+		}
+
 		console.log('  ✓ Health endpoint works!')
 		return true
 	} catch (error) {
@@ -456,9 +473,34 @@ async function testHealthEndpoint(): Promise<boolean> {
 	}
 }
 
+async function checkNsjailAvailable(): Promise<boolean> {
+	try {
+		const proc = spawn({
+			cmd: ['nsjail', '--version'],
+			stdout: 'pipe',
+			stderr: 'pipe'
+		})
+		const exitCode = await proc.exited
+		return exitCode === 0
+	} catch {
+		return false
+	}
+}
+
 async function main() {
 	console.log('='.repeat(60))
 	console.log('DAP Debug Service Tests')
+	if (TEST_NSJAIL) {
+		console.log('Mode: NSJAIL ENABLED')
+		const nsjailAvailable = await checkNsjailAvailable()
+		if (!nsjailAvailable) {
+			console.log('\n⚠️  WARNING: nsjail not found in PATH')
+			console.log('   Tests will verify nsjail configuration is passed correctly,')
+			console.log('   but actual sandboxed execution cannot be tested.')
+		}
+	} else {
+		console.log('Mode: Standard (no nsjail)')
+	}
 	console.log('='.repeat(60))
 
 	let passed = 0

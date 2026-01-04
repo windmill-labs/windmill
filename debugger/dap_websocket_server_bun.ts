@@ -108,6 +108,14 @@ const logger = {
 	error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args)
 }
 
+// Nsjail configuration for sandboxed execution
+export interface NsjailConfig {
+	enabled: boolean
+	binaryPath: string
+	configPath?: string
+	extraArgs?: string[]
+}
+
 /**
  * VLQ (Variable-Length Quantity) decoder for source maps.
  * Returns array of decoded integers from VLQ string.
@@ -290,8 +298,16 @@ export class DebugSession {
 	// Track if current pause is due to a breakpoint (for line number correction)
 	private pausedAtBreakpoint = false
 
-	constructor(ws: WebSocket) {
+	// Nsjail configuration for sandboxed execution
+	private nsjailConfig?: NsjailConfig
+
+	// Custom bun binary path (can be overridden)
+	private bunPath: string = 'bun'
+
+	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string }) {
 		this.ws = ws
+		this.nsjailConfig = options?.nsjailConfig
+		this.bunPath = options?.bunPath || 'bun'
 	}
 
 	private nextSeq(): number {
@@ -965,8 +981,29 @@ export class DebugSession {
 		const inspectPort = 9229 + Math.floor(Math.random() * 1000)
 		const inspectUrl = `127.0.0.1:${inspectPort}`
 
-		// Use --inspect-wait to wait for debugger connection before running
-		logger.info(`Starting Bun with --inspect-wait=${inspectUrl}`)
+		// Build the command - optionally wrapped with nsjail
+		let cmd: string[] = [this.bunPath, `--inspect-wait=${inspectUrl}`, this.scriptPath]
+
+		if (this.nsjailConfig?.enabled) {
+			const nsjailCmd = [this.nsjailConfig.binaryPath]
+
+			if (this.nsjailConfig.configPath) {
+				nsjailCmd.push('--config', this.nsjailConfig.configPath)
+			}
+
+			if (this.nsjailConfig.extraArgs) {
+				nsjailCmd.push(...this.nsjailConfig.extraArgs)
+			}
+
+			nsjailCmd.push('--cwd', cwd)
+			nsjailCmd.push('--')
+			nsjailCmd.push(...cmd)
+
+			cmd = nsjailCmd
+			logger.info(`Starting Bun with nsjail: ${cmd.join(' ')}`)
+		} else {
+			logger.info(`Starting Bun with --inspect-wait=${inspectUrl}`)
+		}
 
 		// Create a promise to wait for the WebSocket URL
 		const wsUrlPromise = new Promise<string>((resolve, reject) => {
@@ -981,7 +1018,7 @@ export class DebugSession {
 		})
 
 		this.process = spawn({
-			cmd: ['bun', `--inspect-wait=${inspectUrl}`, this.scriptPath],
+			cmd,
 			cwd,
 			stdout: 'pipe',
 			stderr: 'pipe',
