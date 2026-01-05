@@ -376,8 +376,8 @@ impl OpenAIQueryBuilder {
             .and_then(|schema| schema.properties.as_ref())
             .filter(|props| !props.is_empty())
             .map(|_| {
-                let schema = args.output_schema.unwrap();
-                let strict_schema = schema.clone().make_strict();
+                let mut strict_schema = args.output_schema.unwrap().clone();
+                strict_schema.make_strict();
                 ResponsesApiTextFormat {
                     format: ResponsesApiTextFormatConfig {
                         r#type: "json_schema".to_string(),
