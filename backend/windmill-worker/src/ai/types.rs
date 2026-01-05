@@ -289,8 +289,16 @@ impl Default for SchemaType {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum AdditionalProperties {
+    Bool(bool),
+    Schema(Box<OpenAPISchema>),
+}
+
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 pub struct OpenAPISchema {
+    // Core type fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#type: Option<SchemaType>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -309,7 +317,61 @@ pub struct OpenAPISchema {
         skip_serializing_if = "Option::is_none",
         rename = "additionalProperties"
     )]
-    pub additional_properties: Option<bool>,
+    pub additional_properties: Option<AdditionalProperties>,
+
+    // Schema metadata
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "$schema")]
+    pub schema_url: Option<String>,
+
+    // References and definitions
+    #[serde(skip_serializing_if = "Option::is_none", rename = "$ref")]
+    pub ref_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "$defs")]
+    pub defs: Option<HashMap<String, Box<OpenAPISchema>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub definitions: Option<HashMap<String, Box<OpenAPISchema>>>,
+
+    // Schema composition
+    #[serde(skip_serializing_if = "Option::is_none", rename = "allOf")]
+    pub all_of: Option<Vec<Box<OpenAPISchema>>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "anyOf")]
+    pub any_of: Option<Vec<Box<OpenAPISchema>>>,
+
+    // Value constraints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#const: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default: Option<serde_json::Value>,
+
+    // String constraints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "minLength")]
+    pub min_length: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "maxLength")]
+    pub max_length: Option<u64>,
+
+    // Number constraints
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "exclusiveMinimum")]
+    pub exclusive_minimum: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "exclusiveMaximum")]
+    pub exclusive_maximum: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "multipleOf")]
+    pub multiple_of: Option<f64>,
+
+    // Array constraints
+    #[serde(skip_serializing_if = "Option::is_none", rename = "minItems")]
+    pub min_items: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "maxItems")]
+    pub max_items: Option<u64>,
 }
 
 impl OpenAPISchema {
@@ -415,32 +477,35 @@ impl OpenAPISchema {
     }
 
     /// Makes this schema compatible with OpenAI's strict mode by:
-    /// - Adding additionalProperties: false to all object types
+    /// - Adding additionalProperties: false to all object types (if not already set)
     /// - Making non-required properties nullable
     /// - Ensuring all properties are in the required array
     pub fn make_strict(mut self) -> Self {
         // Handle this schema if it's an object type
         if let Some(SchemaType::Single(ref type_str)) = self.r#type {
             if type_str == "object" {
-                // Set additionalProperties to false
-                self.additional_properties = Some(false);
+                // Only set additionalProperties to false if not already set
+                // If user provided a value (bool or schema), preserve it and let OpenAI handle it
+                if self.additional_properties.is_none() {
+                    self.additional_properties = Some(AdditionalProperties::Bool(false));
+                }
 
                 if let Some(properties) = self.properties.as_mut() {
                     // Get original required fields
-                    let original_required = self.required.as_ref();
+                    let original_required = self.required.clone();
 
-                    if let Some(required) = original_required {
-                        // Update properties to make non-required fields nullable
-                        for (key, prop) in properties.iter_mut() {
-                            let mut new_prop = (**prop).clone();
-                            // Make non-required fields nullable
+                    // Always iterate over properties to recursively process nested schemas
+                    for (key, prop) in properties.iter_mut() {
+                        let mut new_prop = (**prop).clone();
+                        // Make non-required fields nullable (only if there were required fields specified)
+                        if let Some(ref required) = original_required {
                             if !required.contains(key) {
                                 new_prop = new_prop.make_nullable();
                             }
-                            // Recursively make nested schemas strict
-                            new_prop = new_prop.make_strict();
-                            *prop = Box::new(new_prop);
                         }
+                        // Recursively make nested schemas strict
+                        new_prop = new_prop.make_strict();
+                        *prop = Box::new(new_prop);
                     }
 
                     // All properties must be in required array for strict mode
@@ -461,6 +526,30 @@ impl OpenAPISchema {
                 .collect();
         }
 
+        // Process anyOf schemas (supported by OpenAI)
+        if let Some(ref mut any_of) = self.any_of {
+            *any_of = any_of
+                .iter()
+                .map(|schema| Box::new(schema.as_ref().clone().make_strict()))
+                .collect();
+        }
+
+        // Process $defs schemas (definitions are used via $ref)
+        if let Some(ref mut defs) = self.defs {
+            for (_, schema) in defs.iter_mut() {
+                *schema = Box::new(schema.as_ref().clone().make_strict());
+            }
+        }
+
+        // Process definitions schemas
+        if let Some(ref mut definitions) = self.definitions {
+            for (_, schema) in definitions.iter_mut() {
+                *schema = Box::new(schema.as_ref().clone().make_strict());
+            }
+        }
+
+        // NOTE: allOf is NOT processed - it's not supported by OpenAI strict mode
+        // We let OpenAI return the error for unsupported allOf
         self
     }
 
