@@ -54,8 +54,6 @@
 
 	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
 
-	$inspect('dbSchema', dbSchema)
-
 	function getDbSchemasPath(input: DbInput): string {
 		switch (input.type) {
 			case 'database':
