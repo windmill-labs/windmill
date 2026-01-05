@@ -13,7 +13,7 @@ import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
 import {
 	makeCreateTableQuery,
-	type CreateTableValues
+	type TableEditorValues
 } from './apps/components/display/dbtable/queries/createTable'
 import {
 	makeAlterTableQueries,
@@ -119,8 +119,8 @@ export function dbTableOpsWithPreviewScripts({
 
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
-	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
-	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
+	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => string
 	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
 	onCreateSchema: (params: { schema: string }) => Promise<void>
@@ -128,7 +128,7 @@ export type IDbSchemaOps = {
 	onFetchTableEditorDefinition: (params: {
 		table: string
 		schema?: string
-	}) => Promise<CreateTableValues>
+	}) => Promise<TableEditorValues>
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -193,7 +193,7 @@ export function dbSchemaOpsWithPreviewScripts({
 			return (await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg, schema, table }, language, content: query }
-			})) as CreateTableValues
+			})) as TableEditorValues
 		}
 	}
 }

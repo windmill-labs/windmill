@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	function validate(values: CreateTableValues, dbSchema?: DBSchema) {
+	function validate(values: TableEditorValues, dbSchema?: DBSchema) {
 		const columnNamesErrs = values.columns.flatMap((column) => {
 			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1
 			return !column.name.length || !isUnique ? [column.name] : []
@@ -49,10 +49,6 @@
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
-	import {
-		datatypeDefaultLength,
-		type CreateTableValues
-	} from './apps/components/display/dbtable/queries/createTable'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
@@ -65,15 +61,19 @@
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
 	import { Debounced } from 'runed'
+	import {
+		type TableEditorValues,
+		datatypeDefaultLength
+	} from './apps/components/display/dbtable/tableEditor'
 
 	type Props = {
 		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
-		initialValues?: CreateTableValues
-		onConfirm: (params: { values: CreateTableValues }) => void | Promise<void>
-		computePreview: (params: { values: CreateTableValues }) => string
-		computeBtnProps: (params: { values: CreateTableValues }) => { text: string; disabled?: boolean }
+		initialValues?: TableEditorValues
+		onConfirm: (params: { values: TableEditorValues }) => void | Promise<void>
+		computePreview: (params: { values: TableEditorValues }) => string
+		computeBtnProps: (params: { values: TableEditorValues }) => { text: string; disabled?: boolean }
 	}
 
 	const {
@@ -98,7 +98,7 @@
 		} satisfies Record<DbType, string>
 	)[dbType]
 
-	const values: CreateTableValues = $state(
+	const values: TableEditorValues = $state(
 		$state.snapshot(initialValues) ?? {
 			name: '',
 			columns: [],

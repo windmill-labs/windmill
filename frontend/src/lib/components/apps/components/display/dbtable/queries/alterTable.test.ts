@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { makeAlterTableQueries, diffCreateTableValues } from './alterTable'
-import type { CreateTableValues } from './createTable'
+import { makeAlterTableQueries, diffTableEditorValues } from './alterTable'
+import type { TableEditorValues } from '../tableEditor'
 
 function normalize(sql?: string) {
 	return sql?.replace(/\s+/g, ' ').trim()
@@ -339,9 +339,9 @@ describe('makeAlterTableQueries', () => {
 	})
 })
 
-describe('diffCreateTableValues - Edge Cases', () => {
+describe('diffTableEditorValues - Edge Cases', () => {
 	it('renaming a column that is primary key should only detect one change (rename)', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -358,7 +358,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			pk_constraint_name: 'users_pkey'
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -377,7 +377,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			pk_constraint_name: 'users_pkey'
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should only detect one alterColumn operation (rename), not a PK change
 		expect(diff.operations).toHaveLength(1)
@@ -395,7 +395,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('changing primary keys that contain a column that was renamed should work correctly', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -412,7 +412,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			pk_constraint_name: 'users_pkey'
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -432,7 +432,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			pk_constraint_name: 'users_pkey'
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should detect: rename + drop old PK + add new composite PK
 		expect(diff.operations).toHaveLength(3)
@@ -460,7 +460,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('column a gets renamed to b, foreign key a to c becomes b to c - should only detect one change (rename)', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -489,7 +489,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -519,7 +519,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should only detect column rename, not FK change
 		expect(diff.operations).toHaveLength(1)
@@ -536,7 +536,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('renaming the table should be detected', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'old_users',
 			columns: [
 				{
@@ -548,7 +548,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'new_users',
 			columns: [
 				{
@@ -561,7 +561,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		expect(diff.operations).toHaveLength(1)
 		expect(diff.operations[0]).toEqual({
@@ -571,7 +571,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('changing nullable should be detected', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -583,7 +583,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -596,7 +596,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		expect(diff.operations).toHaveLength(1)
 		expect(diff.operations[0]).toEqual({
@@ -613,7 +613,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('dropping column with FK and adding new column with same name should detect FK change', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -642,7 +642,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -659,7 +659,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should detect: drop FK, drop column, add new column
 		const operations = diff.operations
@@ -691,7 +691,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('composite FK with multiple columns renamed should not detect FK change', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'order_items',
 			columns: [
 				{
@@ -723,7 +723,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'order_items',
 			columns: [
 				{
@@ -756,7 +756,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should only detect two column renames, no FK change
 		expect(diff.operations).toHaveLength(2)
@@ -766,7 +766,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('changing FK onDelete should detect FK change', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -795,7 +795,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -825,7 +825,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should detect: drop old FK, add new FK with different onDelete
 		const operations = diff.operations
@@ -841,7 +841,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('changing FK target table should detect FK change', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -865,7 +865,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -889,7 +889,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			]
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Should detect: drop old FK, add new FK with different target table
 		expect(diff.operations.filter((op) => op.kind === 'dropForeignKey')).toHaveLength(1)
@@ -897,7 +897,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('multiple column changes with rename and nullable should all be detected', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -909,7 +909,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'users',
 			columns: [
 				{
@@ -922,7 +922,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		expect(diff.operations).toHaveLength(1)
 		expect(diff.operations[0]).toEqual({
@@ -940,7 +940,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 	})
 
 	it('operation ordering should be correct', () => {
-		const original: CreateTableValues = {
+		const original: TableEditorValues = {
 			name: 'posts',
 			columns: [
 				{
@@ -974,7 +974,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			pk_constraint_name: 'posts_pkey'
 		}
 
-		const updated: CreateTableValues = {
+		const updated: TableEditorValues = {
 			name: 'articles',
 			columns: [
 				{
@@ -997,7 +997,7 @@ describe('diffCreateTableValues - Edge Cases', () => {
 			foreignKeys: []
 		}
 
-		const diff = diffCreateTableValues(original, updated)
+		const diff = diffTableEditorValues(original, updated)
 
 		// Expected operations in order:
 		// 1. dropForeignKey

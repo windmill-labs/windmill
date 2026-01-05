@@ -1,5 +1,5 @@
 import type { DbType } from '$lib/components/dbTypes'
-import type { CreateForeignKey, CreateTableValuesColumn } from './createTable'
+import type { TableEditorForeignKey, TableEditorValuesColumn } from '../tableEditor'
 
 export function formatDefaultValue(str: string, datatype: string, resourceType: DbType): string {
 	if (!str) return ''
@@ -13,7 +13,7 @@ export function formatDefaultValue(str: string, datatype: string, resourceType: 
 }
 
 export function renderColumn(
-	c: CreateTableValuesColumn,
+	c: TableEditorValuesColumn,
 	dbType: DbType,
 	primaryKeyModifier: boolean = false
 ): string {
@@ -28,7 +28,7 @@ export function renderColumn(
 }
 
 export function renderForeignKey(
-	fk: CreateForeignKey,
+	fk: TableEditorForeignKey,
 	options: {
 		useSchema: boolean
 		dbType: DbType

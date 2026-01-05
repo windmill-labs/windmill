@@ -2,10 +2,10 @@ import type { DbType } from '$lib/components/dbTypes'
 import { deepEqual } from 'fast-equals'
 import { dbSupportsSchemas } from '../utils'
 import {
-	type CreateForeignKey,
-	type CreateTableValues,
-	type CreateTableValuesColumn
-} from './createTable'
+	type TableEditorForeignKey,
+	type TableEditorValues,
+	type TableEditorValuesColumn
+} from '../tableEditor'
 import { formatDefaultValue, renderColumn, renderForeignKey } from './dbQueriesUtils'
 import { clone } from '$lib/utils'
 
@@ -16,7 +16,7 @@ export type AlterTableValues = {
 
 type AddColumnOperation = {
 	kind: 'addColumn'
-	column: CreateTableValuesColumn
+	column: TableEditorValuesColumn
 }
 
 type DropColumnOperation = {
@@ -26,13 +26,13 @@ type DropColumnOperation = {
 
 export type AlterColumnOperation = {
 	kind: 'alterColumn'
-	original: CreateTableValuesColumn
-	changes: Partial<Omit<CreateTableValuesColumn, 'initialName'>>
+	original: TableEditorValuesColumn
+	changes: Partial<Omit<TableEditorValuesColumn, 'initialName'>>
 }
 
 type AddForeignKeyOperation = {
 	kind: 'addForeignKey'
-	foreignKey: CreateForeignKey
+	foreignKey: TableEditorForeignKey
 }
 
 type DropForeignKeyOperation = {
@@ -174,9 +174,9 @@ function renderDropPrimaryKey(tableRef: string, pk_constraint_name: string): str
 	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${pk_constraint_name};`
 }
 
-export function diffCreateTableValues(
-	original: CreateTableValues,
-	updated: CreateTableValues
+export function diffTableEditorValues(
+	original: TableEditorValues,
+	updated: TableEditorValues
 ): AlterTableValues {
 	const operations: AlterTableOperation[] = []
 
@@ -311,7 +311,7 @@ function sortOperations(operations: AlterTableOperation[]): AlterTableOperation[
 	})
 }
 
-function fkEqual(fk1: CreateForeignKey, fk2: CreateForeignKey): boolean {
+function fkEqual(fk1: TableEditorForeignKey, fk2: TableEditorForeignKey): boolean {
 	return (
 		deepEqual(fk1.columns, fk2.columns) &&
 		fk1.onDelete === fk2.onDelete &&
@@ -322,9 +322,9 @@ function fkEqual(fk1: CreateForeignKey, fk2: CreateForeignKey): boolean {
 
 // Avoid detecting fk change if we just renamed the source columns
 function normalizeNewFkToOldColNames(
-	fk: CreateForeignKey,
-	updated: CreateTableValues
-): CreateForeignKey {
+	fk: TableEditorForeignKey,
+	updated: TableEditorValues
+): TableEditorForeignKey {
 	let fkCopy = clone(fk)
 	for (let col of fkCopy.columns) {
 		let col2 = updated.columns.find((c) => c.name === col.sourceColumn)

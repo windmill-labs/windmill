@@ -24,7 +24,7 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
-	import { diffCreateTableValues } from './apps/components/display/dbtable/queries/alterTable'
+	import { diffTableEditorValues } from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
 	import { pluralize } from '$lib/utils'
 
@@ -548,7 +548,7 @@
 					initialValues={dbTableEditorAlterTableData.current}
 					onConfirm={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
-							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
 							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
 						} else {
 							await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
@@ -564,7 +564,7 @@
 					{dbType}
 					computePreview={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
-							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
 							let queries = dbSchemaOps.previewAlterSql({
 								values: diff,
 								schema: selected.schemaKey
@@ -576,7 +576,7 @@
 					}}
 					computeBtnProps={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
-							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
 							let queries = dbSchemaOps.previewAlterSql({
 								values: diff,
 								schema: selected.schemaKey
