@@ -2365,7 +2365,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message),
-                true,
+                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,
