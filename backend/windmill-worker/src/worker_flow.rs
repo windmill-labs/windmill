@@ -601,10 +601,7 @@ pub async fn update_flow_status_after_job_completion_internal(
                 ..
             } if *parallel => {
                 let (nindex, len) = match (iterator, branchall) {
-                    (Some(FlowIterator { itered, .. }), _) => {
-                        // Read itered from separate table or fallback to JSONB
-                        let itered = read_itered_from_db(db, flow, itered).await?;
-
+                    (Some(FlowIterator { itered, itered_len, .. }), _) => {
                         let position = if flow_jobs_success.is_some() {
                             find_flow_job_index(jobs, job_id_for_status)
                         } else {
@@ -663,12 +660,18 @@ pub async fn update_flow_status_after_job_completion_internal(
 
                         // tracing::error!("status_for_debug: {:?}", status_for_debug.flow_status);
 
+                        let itered_len = if let Some(itered_len) = itered_len {
+                            *itered_len
+                        } else {
+                            itered.as_ref().map(|itered| itered.len()).unwrap_or(0)
+                        };
+
                         tracing::info!(
                              "parallel iteration {job_id_for_status} of flow {flow} update nindex: {nindex} len: {len}",
                              nindex = nindex,
-                             len = itered.len()
+                             len = itered_len
                          );
-                        (nindex, itered.len() as i32)
+                        (nindex, itered_len as i32)
                     }
                     (_, Some(BranchAllStatus { len, .. })) => {
                         let position = if flow_jobs_success.is_some() {
@@ -3241,8 +3244,11 @@ async fn push_next_flow_job(
                 simple_input_transforms,
             } => {
                 if let Ok(args) = args.as_ref() {
-                    // Read itered from separate table or fallback to JSONB
-                    let itered = read_itered_from_db(db, flow_job.id, itered).await?;
+                    let Some(itered) = itered else {
+                        return Err(Error::ExecutionErr(format!(
+                            "iterator itered should never be none for parallel for loop jobs"
+                        )));
+                    };
 
                     let mut hm = HashMap::new();
                     for (k, v) in args.iter() {
@@ -3582,12 +3588,8 @@ async fn push_next_flow_job(
             }
         }
         NextStatus::AllFlowJobs { iterator, branchall, .. } => {
-            // Conditionally write itered to separate table if all workers support it
-            // write_itered_to_db returns None if written to table, Some(itered) if should be in JSONB
             let iterator_for_status = if let Some(mut iter) = iterator {
-                if let Some(ref itered) = iter.itered {
-                    iter.itered = write_itered_to_db(db, flow_job.id, itered).await?;
-                }
+                iter.itered = None; // in parallel for loops, itered is only useful when starting the jobs, no need to store it in status/or the dedicated table
                 Some(iter)
             } else {
                 None
@@ -3864,7 +3866,7 @@ struct ForloopNextIteration {
 }
 
 enum ForLoopStatus {
-    ParallelIteration { itered: Vec<Box<RawValue>> },
+    ParallelIteration { itered: Vec<Box<RawValue>>, itered_len: usize },
     NextIteration(ForloopNextIteration),
     EmptyIterator,
 }
@@ -4225,7 +4227,7 @@ async fn compute_next_flow_transform(
                     )
                     .await
                 }
-                ForLoopStatus::ParallelIteration { itered, .. } => {
+                ForLoopStatus::ParallelIteration { itered, itered_len } => {
                     // let inner_path = Some(format!("{}/loop-parallel", flow_job.script_path(),));
                     // let value = &modules[0].get_value()?;
 
@@ -4237,7 +4239,7 @@ async fn compute_next_flow_transform(
                     //     ContinuePayload::ForloopJobs { n: itered.len(), payload: payload }
                     // } else {
 
-                    let payloads = (0..itered.len())
+                    let payloads = (0..itered_len)
                         .into_iter()
                         .filter_map(|i| {
                             let Some(payload) = payload_from_modules(
@@ -4269,7 +4271,7 @@ async fn compute_next_flow_transform(
                             branchall: None,
                             iterator: Some(FlowIterator {
                                 index: 0,
-                                itered_len: Some(itered.len()),
+                                itered_len: Some(itered_len),
                                 itered: Some(itered),
                             }),
                             // we removed the is_simple_case for simple_input_transforms
@@ -4619,7 +4621,7 @@ async fn next_forloop_status(
             if itered.is_empty() {
                 ForLoopStatus::EmptyIterator
             } else if *parallel {
-                ForLoopStatus::ParallelIteration { itered }
+                ForLoopStatus::ParallelIteration { itered_len: itered.len(), itered }
             } else if let Some(first) = itered.first() {
                 let iter = Iter { index: 0 as i32, value: first.to_owned() };
                 ForLoopStatus::NextIteration(ForloopNextIteration {

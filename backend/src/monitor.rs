@@ -1620,6 +1620,16 @@ pub async fn monitor_db(
         }
     };
 
+    let cleanup_flow_iterator_data_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1741,6 +1751,7 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_debounce_keys_f,
         cleanup_debounce_keys_completed_f,
+        cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
     );
 }
@@ -2836,6 +2847,26 @@ RETURNING key,job_id
                 );
             }
         }
+    }
+    Ok(())
+}
+
+async fn cleanup_flow_iterator_data_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM flow_iterator_data
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!(
+            "Cleaned up {} orphaned flow_iterator_data rows",
+            result.len()
+        );
     }
     Ok(())
 }
