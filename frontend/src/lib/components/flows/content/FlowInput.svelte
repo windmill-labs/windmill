@@ -420,8 +420,6 @@
 		const path = getFullPath(arg)
 		const parentPath = path.slice(0, -1)
 
-		// getNestedProperty with empty path returns the object itself, not .properties
-		// So for top-level fields, we need to access .properties directly
 		const getProperties = (schema: Record<string, any>) =>
 			parentPath.length === 0
 				? schema?.properties
