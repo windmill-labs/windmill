@@ -25,7 +25,6 @@
 		icon?: any | undefined
 		iconClasses?: string | null
 		iconProps?: any | null
-		iconBackground?: string | null
 		isCollapsed: boolean
 		disabled?: boolean
 		lightMode?: boolean
