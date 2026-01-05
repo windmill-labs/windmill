@@ -25,7 +25,6 @@ type DropColumnOperation = {
 
 export type AlterColumnOperation = {
 	kind: 'alterColumn'
-	name: string
 	original: CreateTableValuesColumn
 	changes: Partial<Omit<CreateTableValuesColumn, 'initialName'>>
 }
@@ -135,32 +134,32 @@ export function makeAlterTableQueries(
 
 function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: DbType): string[] {
 	const queries: string[] = []
-	const { name, changes, original } = op
+	const { changes, original } = op
 
 	if (changes.datatype || changes.datatype_length) {
 		const baseDatatype = changes.datatype ?? original.datatype
 		const datatypeLength = changes.datatype_length ?? original.datatype_length
 		const datatype = datatypeLength ? `${baseDatatype}(${datatypeLength})` : baseDatatype
-		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} TYPE ${datatype};`)
+		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} TYPE ${datatype};`)
 	}
 
 	if ('defaultValue' in changes) {
 		if (!changes.defaultValue && original.defaultValue) {
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
+			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} DROP DEFAULT;`)
 		} else if (changes.defaultValue) {
 			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
+			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} SET DEFAULT ${def};`)
 		}
 	}
 
 	if (typeof changes.nullable === 'boolean') {
 		queries.push(
-			`ALTER TABLE ${tableRef} ALTER COLUMN ${name} ${changes.nullable ? 'DROP' : 'SET'} NOT NULL;`
+			`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} ${changes.nullable ? 'DROP' : 'SET'} NOT NULL;`
 		)
 	}
 
 	if (changes.name) {
-		queries.push(`ALTER TABLE ${tableRef} RENAME COLUMN ${name} TO ${changes.name};`)
+		queries.push(`ALTER TABLE ${tableRef} RENAME COLUMN ${original.name} TO ${changes.name};`)
 	}
 
 	return queries
@@ -216,12 +215,7 @@ export function diffCreateTableValues(
 				changes.name = updatedCol.name
 			}
 			if (Object.keys(changes).length > 0) {
-				operations.push({
-					kind: 'alterColumn',
-					name: originalCol.name,
-					changes,
-					original: originalCol
-				})
+				operations.push({ kind: 'alterColumn', changes, original: originalCol })
 			}
 		}
 	}

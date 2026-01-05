@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { makeAlterTableQueries } from './alterTable'
 
-function normalize(sql: string) {
-	return sql.replace(/\s+/g, ' ').trim()
+function normalize(sql?: string) {
+	return sql?.replace(/\s+/g, ' ').trim()
 }
 
 describe('makeAlterTableQueries', () => {
@@ -57,8 +57,8 @@ describe('makeAlterTableQueries', () => {
 				operations: [
 					{
 						kind: 'alterColumn',
-						name: 'fullname',
-						changes: { name: 'name' }
+						changes: { name: 'name' },
+						original: { datatype: 'VARCHAR', name: 'fullname' }
 					}
 				]
 			},
@@ -77,7 +77,7 @@ describe('makeAlterTableQueries', () => {
 				operations: [
 					{
 						kind: 'alterColumn',
-						name: 'age',
+						original: { datatype: 'VARCHAR', name: 'age', nullable: true },
 						changes: {
 							datatype: 'BIGINT',
 							nullable: false
@@ -104,14 +104,14 @@ describe('makeAlterTableQueries', () => {
 				operations: [
 					{
 						kind: 'alterColumn',
-						name: 'created_at',
+						original: { datatype: 'TIMESTAMPTZ', name: 'created_at', defaultValue: 'x' },
 						changes: {
 							defaultValue: '{now()}'
 						}
 					},
 					{
 						kind: 'alterColumn',
-						name: 'created_at',
+						original: { datatype: 'TIMESTAMPTZ', name: 'created_at', defaultValue: 'x' },
 						changes: {
 							defaultValue: undefined
 						}
@@ -170,7 +170,7 @@ describe('makeAlterTableQueries', () => {
 				operations: [
 					{
 						kind: 'dropForeignKey',
-						name: 'fk_posts_user'
+						fk_constraint_name: 'fk_posts_user'
 					}
 				]
 			},
@@ -189,7 +189,7 @@ describe('makeAlterTableQueries', () => {
 				operations: [
 					{
 						kind: 'dropForeignKey',
-						name: 'fk_posts_user'
+						fk_constraint_name: 'fk_posts_user'
 					}
 				]
 			},
@@ -197,7 +197,7 @@ describe('makeAlterTableQueries', () => {
 		)
 
 		expect(normalize(queries[0])).toBe(
-			normalize('ALTER TABLE posts DROP FOREIGN KEY fk_posts_user;')
+			normalize('ALTER TABLE posts DROP CONSTRAINT fk_posts_user;')
 		)
 	})
 
@@ -295,7 +295,7 @@ describe('makeAlterTableQueries', () => {
 					},
 					{
 						kind: 'alterColumn',
-						name: 'fullname',
+						original: { datatype: 'VARCHAR', name: 'fullname' },
 						changes: { name: 'name' }
 					},
 					{
