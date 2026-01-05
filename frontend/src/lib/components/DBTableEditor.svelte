@@ -64,25 +64,26 @@
 	import TextInput from './text_input/TextInput.svelte'
 	import type { DbType } from './dbTypes'
 	import Portal from './Portal.svelte'
+	import { Debounced } from 'runed'
 
 	type Props = {
-		onConfirm: (values: CreateTableValues) => void | Promise<void>
-		confirmBtnText?: string
-		previewSql?: (values: CreateTableValues) => string
 		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
 		initialValues?: CreateTableValues
+		onConfirm: (params: { values: CreateTableValues }) => void | Promise<void>
+		computePreview: (params: { values: CreateTableValues }) => string
+		computeBtnProps: (params: { values: CreateTableValues }) => { text: string; disabled?: boolean }
 	}
 
 	const {
-		onConfirm,
 		dbType,
-		previewSql,
 		dbSchema,
 		currentSchema,
 		initialValues,
-		confirmBtnText = 'Create table'
+		onConfirm,
+		computeBtnProps,
+		computePreview
 	}: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
@@ -126,6 +127,8 @@
 		| undefined = $state()
 
 	let darkMode = $state(false)
+
+	let btnProps = new Debounced(() => computeBtnProps({ values }), 500)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -392,13 +395,14 @@
 		</div>
 	</div>
 	<Button
-		disabled={!!errors}
+		disabled={!!errors || btnProps.current.disabled}
+		loading={btnProps.pending}
 		on:click={() =>
 			(askingForConfirmation = {
 				onConfirm: async () => {
 					try {
 						askingForConfirmation && (askingForConfirmation.loading = true)
-						await onConfirm(values)
+						await onConfirm({ values })
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
 						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
@@ -407,11 +411,13 @@
 					askingForConfirmation = undefined
 				},
 				title: 'Confirm running the following:',
-				confirmationText: confirmBtnText,
+				confirmationText: btnProps.current.text,
 				open: true,
-				...(previewSql && { codeContent: previewSql(values) })
-			})}>{confirmBtnText}</Button
+				...(computePreview && { codeContent: computePreview({ values }) })
+			})}
 	>
+		{btnProps.current.text}
+	</Button>
 </div>
 
 <Portal>

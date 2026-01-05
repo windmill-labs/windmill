@@ -26,6 +26,7 @@
 	import type { Snippet } from 'svelte'
 	import { diffCreateTableValues } from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
+	import { pluralize } from '$lib/utils'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -542,13 +543,10 @@
 		{#key dbTableEditorState.alterTableKey}
 			{#if !dbTableEditorState.alterTableKey || dbTableEditorAlterTableData.current}
 				<DbTableEditor
-					confirmBtnText={dbTableEditorState.alterTableKey
-						? `Alter ${dbTableEditorState.alterTableKey}`
-						: 'Create table'}
 					{dbSchema}
 					currentSchema={selected.schemaKey}
 					initialValues={dbTableEditorAlterTableData.current}
-					onConfirm={async (values) => {
+					onConfirm={async ({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
 							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
@@ -564,12 +562,25 @@
 						dbTableEditorState = { open: false }
 					}}
 					{dbType}
-					previewSql={(values) => {
+					computePreview={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
 							return dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
 						} else {
 							return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+						}
+					}}
+					computeBtnProps={({ values }) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							if (!diff.operations.length) {
+								return { text: 'No changes detected', disabled: true }
+							}
+							return {
+								text: `Alter table (${pluralize(diff.operations.length, 'change')} detected)`
+							}
+						} else {
+							return { text: 'Create table' }
 						}
 					}}
 				/>
