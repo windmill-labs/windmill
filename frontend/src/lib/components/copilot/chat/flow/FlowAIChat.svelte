@@ -172,6 +172,12 @@
 		},
 
 		getLintErrors: async (moduleId: string): Promise<ScriptLintResult> => {
+
+			const module = getModule(moduleId)
+			if (!module || module.value.type !== 'rawscript') {
+				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
+
 			// Focus the module first
 			selectionManager.selectId(moduleId)
 
