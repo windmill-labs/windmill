@@ -273,12 +273,43 @@ export function diffCreateTableValues(
 		}
 	}
 
-	// TODO : sort operations to avoid dependency issues (e.g. drop FK then drop column then create column)
+	// Sort operations to avoid dependency issues
+	const sortedOperations = sortOperations(operations)
 
 	return {
 		name: original.name,
-		operations
+		operations: sortedOperations
 	}
+}
+
+/**
+ * Sort operations to avoid dependency issues.
+ *
+ * Order of operations:
+ * 1. Drop foreign keys (must come first as they depend on columns)
+ * 2. Drop primary keys (must come before dropping columns that are part of PK)
+ * 3. Drop columns
+ * 4. Alter columns (modify existing columns)
+ * 5. Add columns (new columns must exist before adding FKs/PKs to them)
+ * 6. Add primary keys (must come after columns exist)
+ * 7. Add foreign keys (must come last as they depend on columns existing)
+ * 8. Rename table (should be last to avoid confusion with table references)
+ */
+function sortOperations(operations: AlterTableOperation[]): AlterTableOperation[] {
+	const operationPriority: Record<AlterTableOperation['kind'], number> = {
+		dropForeignKey: 1,
+		dropPrimaryKey: 2,
+		dropColumn: 3,
+		alterColumn: 4,
+		addColumn: 5,
+		addPrimaryKey: 6,
+		addForeignKey: 7,
+		renameTable: 8
+	}
+
+	return [...operations].sort((a, b) => {
+		return operationPriority[a.kind] - operationPriority[b.kind]
+	})
 }
 
 function fkEqual(fk1: CreateForeignKey, fk2: CreateForeignKey): boolean {
