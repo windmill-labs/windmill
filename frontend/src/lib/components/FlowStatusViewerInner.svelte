@@ -736,7 +736,16 @@
 
 	function setJob(newJob: Job, force: boolean) {
 		if (!deepEqual(job, newJob) || isForloopSelected || force || innerModules == undefined) {
-			job = newJob
+			if (initialJob) {
+				// keep raw_flow/raw_code from initial job if they exist
+				job = {
+					...newJob,
+					raw_flow: initialJob.raw_flow ?? newJob.raw_flow,
+					raw_code: initialJob.raw_code ?? newJob.raw_code
+				}
+			} else {
+				job = newJob
+			}
 			job?.flow_status && updateStatus(job?.flow_status)
 			onJobsLoaded?.({ job, force: false })
 			notAnonynmous = false
@@ -1853,7 +1862,10 @@
 									{/if}
 								{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
 									<div class="p-2">
-										<Alert type="info" title="Web search output is available on the AI agent node" />
+										<Alert
+											type="info"
+											title="Web search output is available on the AI agent node"
+										/>
 									</div>
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
