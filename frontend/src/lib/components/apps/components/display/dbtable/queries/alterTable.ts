@@ -190,9 +190,9 @@ export function diffCreateTableValues(
 
 	// Check for added or modified columns
 	for (const updatedCol of updated.columns) {
-		const originalCol =
-			(!!updatedCol.initialName || undefined) &&
-			original.columns.find((og) => og.name === updatedCol.initialName)
+		const originalCol = updatedCol.initialName
+			? original.columns.find((og) => og.name === updatedCol.initialName)
+			: undefined
 		if (!originalCol) {
 			// New column
 			operations.push({ kind: 'addColumn', column: updatedCol })
