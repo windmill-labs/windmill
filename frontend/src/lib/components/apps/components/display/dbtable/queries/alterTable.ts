@@ -201,7 +201,7 @@ export function diffCreateTableValues(
 			const changes: AlterColumnOperation['changes'] = {}
 			if (
 				originalCol.datatype !== updatedCol.datatype ||
-				originalCol.datatype_length !== updatedCol.datatype_length
+				originalCol.datatype_length != updatedCol.datatype_length
 			) {
 				changes.datatype = updatedCol.datatype
 				changes.datatype_length = updatedCol.datatype_length
@@ -258,9 +258,7 @@ export function diffCreateTableValues(
 
 	const pkChanged =
 		originalPkColumns.length !== updatedPkColumns.length ||
-		!originalPkColumns.every((col) =>
-			updatedPkColumns.map((c) => c.initialName ?? c.name).includes(col)
-		)
+		!originalPkColumns.every((col) => updatedPkColumns.map((c) => c.initialName).includes(col))
 
 	if (pkChanged) {
 		// Drop old primary key if it exists
@@ -329,9 +327,8 @@ function normalizeNewFkToOldColNames(
 ): CreateForeignKey {
 	let fkCopy = clone(fk)
 	for (let col of fkCopy.columns) {
-		let initialName =
-			updated.columns.find((c) => c.name === col.sourceColumn)?.initialName ?? col.sourceColumn
-		col.sourceColumn = initialName
+		let col2 = updated.columns.find((c) => c.name === col.sourceColumn)
+		col.sourceColumn = col2 ? col2.initialName : col.sourceColumn
 	}
 	return fkCopy
 }

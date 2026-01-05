@@ -72,12 +72,12 @@ columns_json AS (
         WHEN data_type = 'ARRAY' THEN
           UPPER(SUBSTRING(udt_name FROM 2)) || '[]'
         -- Map PostgreSQL types to standard types
-        WHEN data_type = 'character varying' THEN 'varchar'
-        WHEN data_type = 'character' THEN 'char'
-        WHEN data_type = 'timestamp without time zone' THEN 'timestamp'
-        WHEN data_type = 'timestamp with time zone' THEN 'timestamptz'
-        WHEN data_type = 'time without time zone' THEN 'time'
-        ELSE data_type
+        WHEN data_type = 'character varying' THEN 'VARCHAR'
+        WHEN data_type = 'character' THEN 'CHAR'
+        WHEN data_type = 'timestamp without time zone' THEN 'TIMESTAMP'
+        WHEN data_type = 'timestamp with time zone' THEN 'TIMESTAMPTZ'
+        WHEN data_type = 'time without time zone' THEN 'TIME'
+        ELSE UPPER(TRIM(data_type))
       END,
       'primaryKey', pk_constraint_name IS NOT NULL,
       'nullable', is_nullable = 'YES',
