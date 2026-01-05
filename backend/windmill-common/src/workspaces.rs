@@ -66,23 +66,24 @@ pub struct GitRepositorySettings {
 impl GitRepositorySettings {
     pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
         // example: "hub/28102/sync-script-to-git-repo-windmill"
-        let current: u32 = self
+        let current = self
             .script_path
             .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
-            .skip(1) // emit "hub"
+            .skip(1) // omit "hub"
             .next() // get numeric id
             .ok_or(Error::InternalErr(format!(
                 "cannot get script version id from: {}",
                 &self.script_path
-            )))
-            .and_then(|s| {
-                s.parse().map_err(|e| {
-                    Error::InternalErr(format!(
-                        "cannot get script version id from: {}. e: {e}",
-                        &self.script_path
-                    ))
-                })
-            })?;
+            )))?
+            .parse()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "cannot get script version id from: {}. e: {e}",
+                    &self.script_path
+                );
+
+                u32::MAX
+            });
 
         Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
     }
