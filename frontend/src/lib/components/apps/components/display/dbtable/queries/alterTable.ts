@@ -7,6 +7,7 @@ import {
 	type CreateTableValuesColumn
 } from './createTable'
 import { formatDefaultValue, renderColumn, renderForeignKey } from './dbQueriesUtils'
+import { clone } from '$lib/utils'
 
 export type AlterTableValues = {
 	name: string
@@ -232,7 +233,9 @@ export function diffCreateTableValues(
 	// Check for dropped foreign keys
 	for (let i = 0; i < originalForeignKeys.length; i++) {
 		const originalFk = originalForeignKeys[i]
-		const stillExists = updatedForeignKeys.some((updFk) => fkEqual(originalFk, updFk))
+		const stillExists = updatedForeignKeys.some((updFk) =>
+			fkEqual(originalFk, normalizeNewFkToOldColNames(updFk, updated))
+		)
 		const fk_constraint_name = originalFk.fk_constraint_name || 'fk_constraint_name_not_found'
 		if (!stillExists) {
 			operations.push({ kind: 'dropForeignKey', fk_constraint_name })
@@ -241,7 +244,9 @@ export function diffCreateTableValues(
 
 	// Check for added foreign keys
 	for (const updatedFk of updatedForeignKeys) {
-		const isNew = !originalForeignKeys.some((origFk) => fkEqual(origFk, updatedFk))
+		const isNew = !originalForeignKeys.some((origFk) =>
+			fkEqual(origFk, normalizeNewFkToOldColNames(updatedFk, updated))
+		)
 		if (isNew) {
 			operations.push({ kind: 'addForeignKey', foreignKey: updatedFk })
 		}
@@ -313,4 +318,18 @@ function fkEqual(fk1: CreateForeignKey, fk2: CreateForeignKey): boolean {
 		fk1.onUpdate === fk2.onUpdate &&
 		fk1.targetTable === fk2.targetTable
 	)
+}
+
+// Avoid detecting fk change if we just renamed the source columns
+function normalizeNewFkToOldColNames(
+	fk: CreateForeignKey,
+	updated: CreateTableValues
+): CreateForeignKey {
+	let fkCopy = clone(fk)
+	for (let col of fkCopy.columns) {
+		let initialName =
+			updated.columns.find((c) => c.name === col.sourceColumn)?.initialName ?? col.sourceColumn
+		col.sourceColumn = initialName
+	}
+	return fkCopy
 }
