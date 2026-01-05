@@ -477,10 +477,14 @@ impl OpenAPISchema {
     }
 
     /// Makes this schema compatible with OpenAI's strict mode by:
+    /// - Flattening allOf schemas (not supported by OpenAI strict mode)
     /// - Adding additionalProperties: false to all object types (if not already set)
     /// - Making non-required properties nullable
     /// - Ensuring all properties are in the required array
     pub fn make_strict(&mut self) {
+        // First, flatten any allOf schemas since OpenAI strict mode doesn't support them
+        self.flatten_all_of();
+
         // Handle this schema if it's an object type
         if let Some(SchemaType::Single(ref type_str)) = self.r#type {
             if type_str == "object" {
@@ -543,9 +547,6 @@ impl OpenAPISchema {
                 schema.make_strict();
             }
         }
-
-        // NOTE: allOf is NOT processed - it's not supported by OpenAI strict mode
-        // We let OpenAI return the error for unsupported allOf
     }
 
     /// Makes this property nullable by converting its type to a union with null
@@ -567,6 +568,147 @@ impl OpenAPISchema {
             None => {
                 self.r#type = Some(SchemaType::Single("null".into()));
             }
+        }
+    }
+
+    /// Flattens all schemas in `allOf` into this schema, then removes `allOf`.
+    /// This is needed because OpenAI strict mode doesn't support allOf.
+    /// The allOf schemas are recursively flattened first, then merged.
+    pub fn flatten_all_of(&mut self) {
+        if let Some(all_of) = self.all_of.take() {
+            for mut schema in all_of {
+                // Recursively flatten any nested allOf in the schema being merged
+                schema.flatten_all_of();
+                self.merge_from(&schema);
+            }
+        }
+    }
+
+    /// Merges fields from another schema into this one.
+    /// Properties from `other` are added if they don't already exist in `self`.
+    /// Required fields from `other` are appended to `self`'s required array.
+    fn merge_from(&mut self, other: &OpenAPISchema) {
+        // Merge type (take other's if self has none)
+        if self.r#type.is_none() {
+            self.r#type = other.r#type.clone();
+        }
+
+        // Merge properties (other's properties are added if key doesn't exist)
+        if let Some(ref other_props) = other.properties {
+            let props = self.properties.get_or_insert_with(HashMap::new);
+            for (key, value) in other_props {
+                props.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+
+        // Merge required arrays (deduplicated)
+        if let Some(ref other_required) = other.required {
+            let required = self.required.get_or_insert_with(Vec::new);
+            for item in other_required {
+                if !required.contains(item) {
+                    required.push(item.clone());
+                }
+            }
+        }
+
+        // Merge items (for arrays) - take other's if self has none
+        if self.items.is_none() && other.items.is_some() {
+            self.items = other.items.clone();
+        }
+
+        // Merge additionalProperties - take other's if self has none
+        if self.additional_properties.is_none() && other.additional_properties.is_some() {
+            self.additional_properties = other.additional_properties.clone();
+        }
+
+        // Merge format - take other's if self has none
+        if self.format.is_none() && other.format.is_some() {
+            self.format = other.format.clone();
+        }
+
+        // Merge enum values - combine them if both have enums
+        if let Some(ref other_enum) = other.r#enum {
+            let enums = self.r#enum.get_or_insert_with(Vec::new);
+            for item in other_enum {
+                if !enums.contains(item) {
+                    enums.push(item.clone());
+                }
+            }
+        }
+
+        // Merge title/description - take other's if self has none
+        if self.title.is_none() && other.title.is_some() {
+            self.title = other.title.clone();
+        }
+        if self.description.is_none() && other.description.is_some() {
+            self.description = other.description.clone();
+        }
+
+        // Merge $defs and definitions
+        if let Some(ref other_defs) = other.defs {
+            let defs = self.defs.get_or_insert_with(HashMap::new);
+            for (key, value) in other_defs {
+                defs.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        if let Some(ref other_definitions) = other.definitions {
+            let definitions = self.definitions.get_or_insert_with(HashMap::new);
+            for (key, value) in other_definitions {
+                definitions.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+
+        // Merge numeric constraints - use the more restrictive values
+        if other.minimum.is_some() {
+            self.minimum = match (self.minimum, other.minimum) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+        if other.maximum.is_some() {
+            self.maximum = match (self.maximum, other.maximum) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+
+        // Merge string constraints
+        if other.min_length.is_some() {
+            self.min_length = match (self.min_length, other.min_length) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+        if other.max_length.is_some() {
+            self.max_length = match (self.max_length, other.max_length) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+
+        // Merge array constraints
+        if other.min_items.is_some() {
+            self.min_items = match (self.min_items, other.min_items) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+        if other.max_items.is_some() {
+            self.max_items = match (self.max_items, other.max_items) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (None, Some(b)) => Some(b),
+                (a, None) => a,
+            };
+        }
+
+        // Merge pattern - take other's if self has none (can't really combine patterns)
+        if self.pattern.is_none() && other.pattern.is_some() {
+            self.pattern = other.pattern.clone();
         }
     }
 }
@@ -911,5 +1053,157 @@ mod tests {
             }
             _ => panic!("Expected multiple types"),
         }
+    }
+
+    // ========== allOf flattening tests ==========
+
+    #[test]
+    fn test_make_strict_flattens_all_of_properties() {
+        let schema1 = object_schema(vec![("name", string_schema())]);
+        let schema2 = object_schema(vec![("age", integer_schema())]);
+
+        let mut schema = OpenAPISchema {
+            all_of: Some(vec![Box::new(schema1), Box::new(schema2)]),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        // allOf should be removed
+        assert!(schema.all_of.is_none(), "allOf should be removed after flattening");
+
+        // Properties should be merged
+        let props = schema.properties.as_ref().expect("properties should exist");
+        assert!(props.contains_key("name"), "Should have 'name' property");
+        assert!(props.contains_key("age"), "Should have 'age' property");
+
+        // Type should be set to object
+        match &schema.r#type {
+            Some(SchemaType::Single(t)) => assert_eq!(t, "object"),
+            _ => panic!("Expected single 'object' type"),
+        }
+
+        // Should have additionalProperties: false (from make_strict)
+        assert!(
+            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "Should have additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn test_make_strict_merges_all_of_required() {
+        let mut schema1 = object_schema(vec![("name", string_schema())]);
+        schema1.required = Some(vec!["name".to_string()]);
+
+        let mut schema2 = object_schema(vec![("age", integer_schema())]);
+        schema2.required = Some(vec!["age".to_string()]);
+
+        let mut schema = OpenAPISchema {
+            all_of: Some(vec![Box::new(schema1), Box::new(schema2)]),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        // Both name and age should be in required (from merge + make_strict makes all required)
+        let required = schema.required.as_ref().expect("required should be set");
+        assert!(required.contains(&"name".to_string()), "name should be required");
+        assert!(required.contains(&"age".to_string()), "age should be required");
+    }
+
+    #[test]
+    fn test_make_strict_nested_all_of() {
+        // Create a nested allOf structure:
+        // allOf: [
+        //   { allOf: [{ properties: { a } }, { properties: { b } }] },
+        //   { properties: { c } }
+        // ]
+        let inner_schema1 = object_schema(vec![("a", string_schema())]);
+        let inner_schema2 = object_schema(vec![("b", string_schema())]);
+        let inner_all_of = OpenAPISchema {
+            all_of: Some(vec![Box::new(inner_schema1), Box::new(inner_schema2)]),
+            ..Default::default()
+        };
+
+        let outer_schema = object_schema(vec![("c", string_schema())]);
+
+        let mut schema = OpenAPISchema {
+            all_of: Some(vec![Box::new(inner_all_of), Box::new(outer_schema)]),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        // All three properties should be present after recursive flattening
+        let props = schema.properties.as_ref().expect("properties should exist");
+        assert!(props.contains_key("a"), "Should have 'a' property");
+        assert!(props.contains_key("b"), "Should have 'b' property");
+        assert!(props.contains_key("c"), "Should have 'c' property");
+    }
+
+    #[test]
+    fn test_make_strict_all_of_with_base_properties() {
+        // Schema has both its own properties AND allOf
+        let all_of_schema = object_schema(vec![("extra", string_schema())]);
+
+        let mut schema = object_schema(vec![("base", string_schema())]);
+        schema.all_of = Some(vec![Box::new(all_of_schema)]);
+
+        schema.make_strict();
+
+        // Both base and extra properties should exist
+        let props = schema.properties.as_ref().expect("properties should exist");
+        assert!(props.contains_key("base"), "Should have 'base' property");
+        assert!(props.contains_key("extra"), "Should have 'extra' property");
+    }
+
+    #[test]
+    fn test_make_strict_all_of_merges_constraints() {
+        let schema1 = OpenAPISchema {
+            r#type: Some(SchemaType::Single("integer".to_string())),
+            minimum: Some(0.0),
+            ..Default::default()
+        };
+
+        let schema2 = OpenAPISchema {
+            r#type: Some(SchemaType::Single("integer".to_string())),
+            minimum: Some(5.0),  // More restrictive
+            maximum: Some(100.0),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            all_of: Some(vec![Box::new(schema1), Box::new(schema2)]),
+            ..Default::default()
+        };
+
+        schema.flatten_all_of();
+
+        // Should take the more restrictive minimum (5.0)
+        assert_eq!(schema.minimum, Some(5.0), "Should have more restrictive minimum");
+        assert_eq!(schema.maximum, Some(100.0), "Should have maximum from schema2");
+    }
+
+    #[test]
+    fn test_flatten_all_of_preserves_defs() {
+        let def_schema = object_schema(vec![("field", string_schema())]);
+        let mut defs = HashMap::new();
+        defs.insert("MyType".to_string(), Box::new(def_schema));
+
+        let schema_with_defs = OpenAPISchema {
+            defs: Some(defs),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            all_of: Some(vec![Box::new(schema_with_defs)]),
+            ..Default::default()
+        };
+
+        schema.flatten_all_of();
+
+        // $defs should be merged
+        let defs = schema.defs.as_ref().expect("defs should exist");
+        assert!(defs.contains_key("MyType"), "Should have 'MyType' def");
     }
 }
