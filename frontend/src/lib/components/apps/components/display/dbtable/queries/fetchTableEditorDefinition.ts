@@ -117,7 +117,8 @@ foreign_keys_json AS (
         WHEN update_rule = 'CASCADE' THEN 'CASCADE'
         WHEN update_rule = 'SET NULL' THEN 'SET NULL'
         ELSE 'NO ACTION'
-      END
+      END,
+      'fk_constraint_name', constraint_name
     )
   ) AS foreign_keys
   FROM foreign_keys_grouped
@@ -125,9 +126,9 @@ foreign_keys_json AS (
 SELECT json_build_object(
   'name', $2,
   'columns', COALESCE((SELECT columns FROM columns_json), '[]'::json),
-  'foreignKeys', COALESCE((SELECT foreign_keys FROM foreign_keys_json), '[]'::json)
+  'foreignKeys', COALESCE((SELECT foreign_keys FROM foreign_keys_json), '[]'::json),
+  'pk_constraint_name', (SELECT MAX(pk_constraint_name) FROM table_info WHERE pk_constraint_name IS NOT NULL)
 ) AS table_definition;
- 
 `
 
 	return query

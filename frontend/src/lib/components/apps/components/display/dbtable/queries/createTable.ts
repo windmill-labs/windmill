@@ -6,6 +6,7 @@ export type CreateTableValues = {
 	name: string
 	columns: CreateTableValuesColumn[]
 	foreignKeys: CreateForeignKey[]
+	pk_constraint_name?: string // Used by alter table to reference existing constraint
 }
 
 export type CreateTableValuesColumn = {
@@ -16,7 +17,7 @@ export type CreateTableValuesColumn = {
 	nullable?: boolean
 	datatype_length?: number // e.g varchar(255)
 
-	// Used for alter table. We need to track the original column for data consistency
+	// Used by alter table. We need to track the original column for data consistency
 	// e.g '(a, b) => (x, y, z)' : can't know which column was renamed without this
 	initialName?: string
 }
@@ -29,6 +30,7 @@ export type CreateForeignKey = {
 	}[]
 	onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
 	onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
+	fk_constraint_name?: string // Used by alter table to reference existing constraint
 }
 
 export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, schema?: string) {
