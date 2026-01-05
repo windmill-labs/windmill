@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 
 use crate::{
-    error::{to_anyhow, Error, Result},
+    error::{self, to_anyhow, Error, Result},
     get_database_url,
     utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
@@ -61,6 +61,31 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+}
+
+impl GitRepositorySettings {
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        // example: "hub/28102/sync-script-to-git-repo-windmill"
+        let current: u32 = self
+            .script_path
+            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
+            .skip(1) // emit "hub"
+            .next() // get numeric id
+            .ok_or(Error::InternalErr(format!(
+                "cannot get script version id from: {}",
+                &self.script_path
+            )))
+            .and_then(|s| {
+                s.parse().map_err(|e| {
+                    Error::InternalErr(format!(
+                        "cannot get script version id from: {}. e: {e}",
+                        &self.script_path
+                    ))
+                })
+            })?;
+
+        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

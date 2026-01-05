@@ -4833,7 +4833,7 @@ pub async fn push<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::DeploymentCallback { path } => JobPayloadUntagged {
+        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
             runnable_path: Some(path.clone()),
             job_kind: JobKind::DeploymentCallback,
             concurrency_settings: ConcurrencySettings {
@@ -4841,13 +4841,7 @@ pub async fn push<'c, 'd>(
                 concurrent_limit: Some(1),
                 concurrency_time_window_s: Some(0),
             },
-            debouncing_settings: DebouncingSettings {
-                debounce_key: None, // leave to none, (it will not include `items` in the key)
-                debounce_delay_s: Some(5),
-                max_total_debouncing_time: Some(15),
-                max_total_debounces_amount: None,
-                debounce_args_to_accumulate: Some(vec!["items".to_owned()]), // <-- IMPORTANT
-            },
+            debouncing_settings,
             ..Default::default()
         },
         JobPayload::Identity => {
