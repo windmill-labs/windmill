@@ -40,6 +40,11 @@ type DropForeignKeyOperation = {
 	name: string
 }
 
+type RenameTableOperation = {
+	kind: 'renameTable'
+	to: string
+}
+
 export type AlterTableOperation =
 	| AddColumnOperation
 	| DropColumnOperation
@@ -47,6 +52,7 @@ export type AlterTableOperation =
 	| AlterColumnOperation
 	| AddForeignKeyOperation
 	| DropForeignKeyOperation
+	| RenameTableOperation
 
 export function makeAlterTableQueries(
 	values: AlterTableValues,
@@ -88,6 +94,10 @@ export function makeAlterTableQueries(
 
 			case 'dropForeignKey':
 				queries.push(renderDropForeignKey(tableRef, op.name, dbType))
+				break
+
+			case 'renameTable':
+				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${op.to};`)
 				break
 
 			default:
