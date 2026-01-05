@@ -254,11 +254,13 @@ export function diffCreateTableValues(
 
 	// Check for primary key changes
 	const originalPkColumns = original.columns.filter((c) => c.primaryKey).map((c) => c.name)
-	const updatedPkColumns = updated.columns.filter((c) => c.primaryKey).map((c) => c.name)
+	const updatedPkColumns = updated.columns.filter((c) => c.primaryKey)
 
 	const pkChanged =
 		originalPkColumns.length !== updatedPkColumns.length ||
-		!originalPkColumns.every((col) => updatedPkColumns.includes(col))
+		!originalPkColumns.every((col) =>
+			updatedPkColumns.map((c) => c.initialName ?? c.name).includes(col)
+		)
 
 	if (pkChanged) {
 		// Drop old primary key if it exists
@@ -268,7 +270,7 @@ export function diffCreateTableValues(
 		}
 		// Add new primary key if columns are specified
 		if (updatedPkColumns.length > 0) {
-			operations.push({ kind: 'addPrimaryKey', columns: updatedPkColumns })
+			operations.push({ kind: 'addPrimaryKey', columns: updatedPkColumns.map((c) => c.name) })
 		}
 	}
 
