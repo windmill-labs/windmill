@@ -68,6 +68,9 @@ columns_json AS (
       'name', column_name,
       'initialName', column_name,
       'datatype', CASE
+        -- Handle array types: udt_name starts with underscore for arrays
+        WHEN data_type = 'ARRAY' THEN
+          UPPER(SUBSTRING(udt_name FROM 2)) || '[]'
         -- Map PostgreSQL types to standard types
         WHEN data_type = 'character varying' THEN 'varchar'
         WHEN data_type = 'character' THEN 'char'
