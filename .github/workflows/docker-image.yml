@@ -593,7 +593,7 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
 
   build_ee_slim:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }} || ((github.event_name != 'workflow_dispatch') || (github.event.inputs.slim))
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.slim) }}
     needs: [build_ee]
     runs-on: ubicloud
     steps:
