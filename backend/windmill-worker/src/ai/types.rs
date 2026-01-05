@@ -480,7 +480,7 @@ impl OpenAPISchema {
     /// - Adding additionalProperties: false to all object types (if not already set)
     /// - Making non-required properties nullable
     /// - Ensuring all properties are in the required array
-    pub fn make_strict(mut self) -> Self {
+    pub fn make_strict(&mut self) {
         // Handle this schema if it's an object type
         if let Some(SchemaType::Single(ref type_str)) = self.r#type {
             if type_str == "object" {
@@ -496,16 +496,14 @@ impl OpenAPISchema {
 
                     // Always iterate over properties to recursively process nested schemas
                     for (key, prop) in properties.iter_mut() {
-                        let mut new_prop = (**prop).clone();
                         // Make non-required fields nullable (only if there were required fields specified)
                         if let Some(ref required) = original_required {
                             if !required.contains(key) {
-                                new_prop = new_prop.make_nullable();
+                                prop.make_nullable();
                             }
                         }
                         // Recursively make nested schemas strict
-                        new_prop = new_prop.make_strict();
-                        *prop = Box::new(new_prop);
+                        prop.make_strict();
                     }
 
                     // All properties must be in required array for strict mode
@@ -516,45 +514,42 @@ impl OpenAPISchema {
 
         // Recursively process nested schemas
         if let Some(ref mut items) = self.items {
-            **items = items.as_ref().clone().make_strict();
+            items.make_strict();
         }
 
         if let Some(ref mut one_of) = self.one_of {
-            *one_of = one_of
-                .iter()
-                .map(|schema| Box::new(schema.as_ref().clone().make_strict()))
-                .collect();
+            for schema in one_of.iter_mut() {
+                schema.make_strict();
+            }
         }
 
         // Process anyOf schemas (supported by OpenAI)
         if let Some(ref mut any_of) = self.any_of {
-            *any_of = any_of
-                .iter()
-                .map(|schema| Box::new(schema.as_ref().clone().make_strict()))
-                .collect();
+            for schema in any_of.iter_mut() {
+                schema.make_strict();
+            }
         }
 
         // Process $defs schemas (definitions are used via $ref)
         if let Some(ref mut defs) = self.defs {
             for (_, schema) in defs.iter_mut() {
-                *schema = Box::new(schema.as_ref().clone().make_strict());
+                schema.make_strict();
             }
         }
 
         // Process definitions schemas
         if let Some(ref mut definitions) = self.definitions {
             for (_, schema) in definitions.iter_mut() {
-                *schema = Box::new(schema.as_ref().clone().make_strict());
+                schema.make_strict();
             }
         }
 
         // NOTE: allOf is NOT processed - it's not supported by OpenAI strict mode
         // We let OpenAI return the error for unsupported allOf
-        self
     }
 
     /// Makes this property nullable by converting its type to a union with null
-    pub fn make_nullable(mut self) -> Self {
+    pub fn make_nullable(&mut self) {
         match self.r#type.take() {
             Some(SchemaType::Single(type_str)) => {
                 if type_str != "null" {
@@ -573,7 +568,6 @@ impl OpenAPISchema {
                 self.r#type = Some(SchemaType::Single("null".into()));
             }
         }
-        self
     }
 }
 
