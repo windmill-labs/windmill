@@ -72,7 +72,9 @@ export function makeAlterTableQuery(
 ): string {
 	let queries = makeAlterTableQueries(values, dbType, schema)
 	if (queries.length === 0) return ''
-	return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
+	let queriesStr = queries.join('\n')
+	if (dbSupportsTransactionalDdl(dbType)) return 'BEGIN;\n' + queriesStr + '\nCOMMIT;'
+	return queriesStr
 }
 
 export function makeAlterTableQueries(
@@ -110,7 +112,7 @@ export function makeAlterTableQueries(
 				break
 
 			case 'dropForeignKey':
-				queries.push(renderDropForeignKey(tableRef, op.fk_constraint_name))
+				queries.push(renderDropForeignKey(tableRef, op.fk_constraint_name, dbType))
 				break
 
 			case 'renameTable':
@@ -166,11 +168,17 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 	return queries
 }
 
-function renderDropForeignKey(tableRef: string, fk_constraint_name: string): string {
+function renderDropForeignKey(
+	tableRef: string,
+	fk_constraint_name: string,
+	dbType: DbType
+): string {
+	if (dbType === 'mysql') return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${fk_constraint_name};`
 	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${fk_constraint_name};`
 }
 
-function renderDropPrimaryKey(tableRef: string, pk_constraint_name: string): string {
+function renderDropPrimaryKey(tableRef: string, pk_constraint_name?: string): string {
+	if (!pk_constraint_name) return `ALTER TABLE ${tableRef} DROP PRIMARY KEY;`
 	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${pk_constraint_name};`
 }
 
@@ -331,4 +339,13 @@ function normalizeNewFkToOldColNames(
 		col.sourceColumn = col2 ? col2.initialName : col.sourceColumn
 	}
 	return fkCopy
+}
+
+export function dbSupportsTransactionalDdl(dbType: DbType): boolean {
+	return (
+		dbType === 'postgresql' ||
+		dbType === 'ms_sql_server' ||
+		dbType === 'snowflake' ||
+		dbType === 'duckdb'
+	)
 }

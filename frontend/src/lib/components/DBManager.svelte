@@ -24,9 +24,12 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
-	import { diffTableEditorValues } from './apps/components/display/dbtable/queries/alterTable'
+	import {
+		dbSupportsTransactionalDdl,
+		diffTableEditorValues
+	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
-	import { pluralize } from '$lib/utils'
+	import { capitalize, pluralize } from '$lib/utils'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -569,9 +572,15 @@
 								values: diff,
 								schema: selected.schemaKey
 							})
-							return queries.join('\n')
+							let alert = !dbSupportsTransactionalDdl(dbType)
+								? {
+										title: capitalize(dbType) + ' does not support transactional DDL',
+										body: 'Any of these statements failing may leave your database in an intermediate state.'
+									}
+								: undefined
+							return { sql: queries.join('\n'), ...(alert ? { alert } : {}) }
 						} else {
-							return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+							return { sql: dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey }) }
 						}
 					}}
 					computeBtnProps={({ values }) => {

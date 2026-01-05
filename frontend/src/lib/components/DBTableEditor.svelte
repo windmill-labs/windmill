@@ -65,6 +65,7 @@
 		type TableEditorValues,
 		datatypeDefaultLength
 	} from './apps/components/display/dbtable/tableEditor'
+	import Alert from './common/alert/Alert.svelte'
 
 	type Props = {
 		dbType: DbType
@@ -72,7 +73,9 @@
 		currentSchema?: string
 		initialValues?: TableEditorValues
 		onConfirm: (params: { values: TableEditorValues }) => void | Promise<void>
-		computePreview: (params: { values: TableEditorValues }) => string
+		computePreview: (params: {
+			values: TableEditorValues
+		}) => { sql: string; alert?: { title: string; body?: string } }
 		computeBtnProps: (params: { values: TableEditorValues }) => { text: string; disabled?: boolean }
 	}
 
@@ -123,7 +126,11 @@
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
 
 	let askingForConfirmation:
-		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
+		| (ConfirmationModal['$$prop_def'] & {
+				onConfirm: () => void
+				codeContent?: string
+				alert?: { title: string; body?: string }
+		  })
 		| undefined = $state()
 
 	let darkMode = $state(false)
@@ -403,8 +410,9 @@
 	<Button
 		disabled={!!errors || btnProps.current.disabled}
 		loading={btnProps.pending}
-		on:click={() =>
-			(askingForConfirmation = {
+		on:click={() => {
+			let preview = computePreview?.({ values })
+			askingForConfirmation = {
 				onConfirm: async () => {
 					try {
 						askingForConfirmation && (askingForConfirmation.loading = true)
@@ -419,8 +427,9 @@
 				title: 'Confirm running the following:',
 				confirmationText: btnProps.current.text,
 				open: true,
-				...(computePreview && { codeContent: computePreview({ values }) })
-			})}
+				...(preview && { codeContent: preview.sql, alert: preview.alert })
+			}
+		}}
 	>
 		{btnProps.current.text}
 	</Button>
@@ -432,6 +441,11 @@
 		on:canceled={() => (askingForConfirmation = undefined)}
 		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
 	>
+		{#if askingForConfirmation?.alert}
+			<Alert title={askingForConfirmation.alert.title} type="error" class="mb-2">
+				{askingForConfirmation.alert.body}
+			</Alert>
+		{/if}
 		{#if askingForConfirmation?.codeContent}
 			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
 				<code class="whitespace-pre-wrap">
