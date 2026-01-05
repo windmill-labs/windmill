@@ -115,7 +115,9 @@
 			...(primaryKey && { primaryKey })
 		})
 	}
-	addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
+	if (!initialValues) {
+		addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
+	}
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
 

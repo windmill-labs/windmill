@@ -516,7 +516,11 @@
 	>
 		{#key dbTableEditorState.alterTableKey}
 			{@const alterTableInitialValues = dbTableEditorState.alterTableKey
-				? { columns: [], foreignKeys: [], name: 'test' } // TODO: fetch existing table definition
+				? {
+						columns: [{ name: 'a', initialName: 'a', datatype: 'bigint' }],
+						foreignKeys: [],
+						name: 'test'
+					} // TODO: fetch existing table definition
 				: undefined}
 			<DbTableEditor
 				confirmBtnText={dbTableEditorState.alterTableKey

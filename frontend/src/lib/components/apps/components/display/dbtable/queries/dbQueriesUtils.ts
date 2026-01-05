@@ -20,7 +20,7 @@ export function renderColumn(
 	const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
 	const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)
 
-	let str = `  ${c.name} ${datatype}`
+	let str = `${c.name} ${datatype}`
 	if (!c.nullable) str += ' NOT NULL'
 	if (defValue) str += ` DEFAULT ${defValue}`
 	if (primaryKeyModifier) str += ' PRIMARY KEY'

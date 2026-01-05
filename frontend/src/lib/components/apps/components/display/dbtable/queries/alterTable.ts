@@ -148,6 +148,14 @@ export function diffCreateTableValues(
 ): AlterTableValues {
 	const operations: AlterTableOperation[] = []
 
+	// Check for dropped columns
+	for (const originalCol of original.columns) {
+		const stillExists = updated.columns.some((upd) => upd.initialName === originalCol.name)
+		if (!stillExists) {
+			operations.push({ kind: 'dropColumn', name: originalCol.name })
+		}
+	}
+
 	// Check for added or modified columns
 	for (const updatedCol of updated.columns) {
 		const originalCol =
@@ -181,20 +189,14 @@ export function diffCreateTableValues(
 		}
 	}
 
-	// Check for dropped columns
-	for (const originalCol of original.columns) {
-		const stillExists = updated.columns.some((upd) => upd.initialName === originalCol.name)
-		if (!stillExists) {
-			operations.push({ kind: 'dropColumn', name: originalCol.name })
-		}
-	}
-
 	// Check for renamed table.
 	if (original.name !== updated.name) {
 		operations.push({ kind: 'renameTable', to: updated.name })
 	}
 
 	// TODO : foreign keys
+
+	// TODO : sort operations to avoid dependency issues (e.g. drop FK then drop column then create column)
 
 	return {
 		name: original.name,
