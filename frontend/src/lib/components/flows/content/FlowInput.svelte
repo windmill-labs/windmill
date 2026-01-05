@@ -149,8 +149,10 @@
 			if (hasAiSchemaChanges) {
 				// In review mode, selectedSchema = beforeSchema (what we might revert to)
 				selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
-				diff = computeDiff(selectedSchema, flowStore.val.schema)
-				previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+				// Swap argument order: flowStore (new with AI changes) vs selectedSchema (old before AI)
+				// This makes AI-added fields 'added' (green) and AI-removed fields 'removed' (red)
+				diff = computeDiff(flowStore.val.schema, selectedSchema)
+				previewSchema = schemaFromDiff(diff, selectedSchema)
 				runDisabled = true
 				if (Object.values(diff).every((d) => d.diff === 'same')) {
 					diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
@@ -309,9 +311,17 @@
 			return
 		}
 		diff = {}
-		const diffSchema = computeDiff(newSchema, flowStore.val.schema)
-		diff = diffSchema
-		previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
+		// In review mode, swap argument order for correct color semantics
+		// (AI-added = green, AI-removed = red)
+		if (hasAiSchemaChanges) {
+			const diffSchema = computeDiff(flowStore.val.schema, newSchema)
+			diff = diffSchema
+			previewSchema = schemaFromDiff(diffSchema, newSchema)
+		} else {
+			const diffSchema = computeDiff(newSchema, flowStore.val.schema)
+			diff = diffSchema
+			previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
+		}
 		runDisabled = true
 	}
 
@@ -428,28 +438,41 @@
 		const beforeSchema = diffManager?.beforeFlow?.schema
 		const sourceSchema = action === 'accept' ? flowStore.val.schema : beforeSchema
 		const targetSchema = action === 'accept' ? beforeSchema : flowStore.val.schema
-		
+
 		if (!beforeSchema || !sourceSchema || !targetSchema) return
 
 		const path = getFullPath(arg)
 		const parentPath = path.slice(0, -1)
 
-		const getProperties = (schema: Record<string, any>) =>
+		const getSchemaAtPath = (schema: Record<string, any>) =>
 			parentPath.length === 0
-				? schema?.properties
-				: getNestedProperty(schema, parentPath, 'properties')?.properties
+				? schema
+				: getNestedProperty(schema, parentPath, 'properties')
+
+		const getProperties = (schema: Record<string, any>) => getSchemaAtPath(schema)?.properties
 
 		const sourceProperties = getProperties(sourceSchema)
 		const targetProperties = getProperties(targetSchema)
+		const targetSchemaAtPath = getSchemaAtPath(targetSchema)
 		const sourceValue = sourceProperties?.[arg.label]
 
 		if (sourceValue !== undefined) {
 			if (targetProperties) {
 				targetProperties[arg.label] = structuredClone($state.snapshot(sourceValue))
+				// Also update the order array to include the field
+				if (targetSchemaAtPath?.order && !targetSchemaAtPath.order.includes(arg.label)) {
+					targetSchemaAtPath.order.push(arg.label)
+				}
 			}
 		} else {
 			if (targetProperties && arg.label in targetProperties) {
 				delete targetProperties[arg.label]
+				// Also remove from order array
+				if (targetSchemaAtPath?.order) {
+					targetSchemaAtPath.order = targetSchemaAtPath.order.filter(
+						(x: string) => x !== arg.label
+					)
+				}
 			}
 		}
 
@@ -457,13 +480,6 @@
 			diffManager.beforeFlow.schema = { ...beforeSchema }
 		} else {
 			flowStore.val.schema = { ...flowStore.val.schema }
-		}
-
-		selectedSchema = structuredClone($state.snapshot(beforeSchema))
-		diff = computeDiff(selectedSchema, flowStore.val.schema)
-		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
-		if (Object.values(diff).every((d) => d.diff === 'same')) {
-			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
 		}
 	}
 
