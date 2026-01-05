@@ -219,6 +219,8 @@ def create_ai_agent_flow(
     streaming: bool | None = None,
     include_user_images: bool = False,
     output_type: str | None = None,
+    temperature: float | None = None,
+    max_completion_tokens: int | None = None,
 ) -> dict[str, Any]:
     """
     Create a FlowValue for an AI agent.
@@ -231,6 +233,8 @@ def create_ai_agent_flow(
         streaming: Optional flag to enable streaming responses
         include_user_images: If True, adds user_images input from flow_input
         output_type: Optional output type ("text" or "image")
+        temperature: Optional temperature for sampling (0.0-2.0)
+        max_completion_tokens: Optional maximum tokens for completion
 
     Returns:
         A FlowValue dictionary ready to be sent to preview_flow
@@ -256,6 +260,14 @@ def create_ai_agent_flow(
     # Add output_type if provided
     if output_type is not None:
         input_transforms["output_type"] = {"type": "static", "value": output_type}
+
+    # Add temperature if provided
+    if temperature is not None:
+        input_transforms["temperature"] = {"type": "static", "value": temperature}
+
+    # Add max_completion_tokens if provided
+    if max_completion_tokens is not None:
+        input_transforms["max_completion_tokens"] = {"type": "static", "value": max_completion_tokens}
 
     module_value = {
         "type": "aiagent",

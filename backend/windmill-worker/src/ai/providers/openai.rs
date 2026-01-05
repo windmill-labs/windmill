@@ -217,7 +217,7 @@ pub struct ResponsesApiRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_completion_tokens: Option<u32>,
+    pub max_output_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<ResponsesApiTextFormat>,
 }
@@ -395,7 +395,7 @@ impl OpenAIQueryBuilder {
             tools,
             stream: Some(true),
             temperature: args.temperature,
-            max_completion_tokens: args.max_tokens,
+            max_output_tokens: args.max_tokens,
             text,
         };
 
@@ -440,7 +440,7 @@ impl OpenAIQueryBuilder {
             tools,
             stream: None, // Image generation doesn't use streaming
             temperature: args.temperature,
-            max_completion_tokens: args.max_tokens,
+            max_output_tokens: args.max_tokens,
             text: None, // No structured output for image generation
         };
 
