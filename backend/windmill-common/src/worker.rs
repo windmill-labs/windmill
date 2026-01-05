@@ -1297,7 +1297,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     }
 
     *MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 999, 0); // todo
+        min_version >= Version::new(1, 602, 0);
     *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
     *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
         min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
