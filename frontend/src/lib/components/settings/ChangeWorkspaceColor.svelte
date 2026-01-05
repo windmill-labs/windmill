@@ -80,7 +80,7 @@
 	</p>
 </div>
 
-<Modal bind:open title="Change Workspace Color">
+<Modal bind:open title="Change workspace color">
 	<div class="flex flex-col gap-4">
 		<label class="block">
 			<span class="text-secondary text-sm">Workspace color</span>
@@ -100,14 +100,15 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<Button
 			size="sm"
+			variant="accent"
 			on:click={() => {
 				changeWorkspaceColor()
 			}}
 		>
 			Save
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 </Modal>
