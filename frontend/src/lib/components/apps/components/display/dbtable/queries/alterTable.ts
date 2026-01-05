@@ -144,11 +144,13 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} TYPE ${datatype};`)
 	}
 
-	if (original.defaultValue && !changes.defaultValue) {
-		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
-	} else if (changes.defaultValue) {
-		const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
-		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
+	if ('defaultValue' in changes) {
+		if (!changes.defaultValue && original.defaultValue) {
+			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
+		} else if (changes.defaultValue) {
+			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
+			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
+		}
 	}
 
 	if (typeof changes.nullable === 'boolean') {
