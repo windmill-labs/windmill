@@ -142,16 +142,23 @@
 
 	// Set up review mode when AI has made schema changes that are pending
 	$effect(() => {
-		if (hasAiSchemaChanges && !selectedSchema) {
-			// In review mode, selectedSchema = beforeSchema (what we might revert to)
-			selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
-			diff = computeDiff(selectedSchema, flowStore.val.schema)
-			previewSchema = schemaFromDiff(diff, flowStore.val.schema)
-			runDisabled = true
-		}
+		hasAiSchemaChanges
+		diffManager?.beforeFlow?.schema
+		flowStore.val.schema
+		untrack(() => {
+			if (hasAiSchemaChanges) {
+				// In review mode, selectedSchema = beforeSchema (what we might revert to)
+				selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
+				diff = computeDiff(selectedSchema, flowStore.val.schema)
+				previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+				runDisabled = true
+				if (Object.values(diff).every((d) => d.diff === 'same')) {
+					diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+				}
+			}
+		})
 	})
 
-	// Remove selectedSchema once we do not have ai schema changes
 	$effect(() => {
 		if (!hasAiSchemaChanges) {
 			selectedSchema = undefined
@@ -416,11 +423,13 @@
 		arg: { label: string; nestedParent: any | undefined },
 		action: 'accept' | 'reject'
 	) {
-		// Accept: source=flowStore.val.schema (current), target=selectedSchema (before)
-		// Reject: source=selectedSchema (before), target=flowStore.val.schema (current)
-		const sourceSchema = action === 'accept' ? flowStore.val.schema : selectedSchema
-		const targetSchema = action === 'accept' ? selectedSchema : flowStore.val.schema
-		if (!selectedSchema || !sourceSchema || !targetSchema) return
+		// Accept: source=flowStore.val.schema (current), target=beforeSchema
+		// Reject: source=beforeSchema, target=flowStore.val.schema (current)
+		const beforeSchema = diffManager?.beforeFlow?.schema
+		const sourceSchema = action === 'accept' ? flowStore.val.schema : beforeSchema
+		const targetSchema = action === 'accept' ? beforeSchema : flowStore.val.schema
+		
+		if (!beforeSchema || !sourceSchema || !targetSchema) return
 
 		const path = getFullPath(arg)
 		const parentPath = path.slice(0, -1)
@@ -444,13 +453,11 @@
 			}
 		}
 
-		// Recompute diff
-		diff = computeDiff(selectedSchema, flowStore.val.schema)
-		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
-
-		// Check if all changes are resolved (diff is empty)
-		if (Object.values(diff).every((d) => d.diff === 'same')) {
-			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+		// Trigger reactivity
+		if (action === 'accept') {
+			diffManager.beforeFlow.schema = { ...beforeSchema }
+		} else {
+			flowStore.val.schema = { ...flowStore.val.schema }
 		}
 	}
 
