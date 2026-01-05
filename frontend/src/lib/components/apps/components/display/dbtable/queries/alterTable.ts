@@ -1,4 +1,5 @@
 import type { DbType } from '$lib/components/dbTypes'
+import { deepEqual } from 'fast-equals'
 import { dbSupportsSchemas } from '../utils'
 import {
 	type CreateForeignKey,
@@ -36,12 +37,22 @@ type AddForeignKeyOperation = {
 
 type DropForeignKeyOperation = {
 	kind: 'dropForeignKey'
-	name: string
+	fk_constraint_name: string
 }
 
 type RenameTableOperation = {
 	kind: 'renameTable'
 	to: string
+}
+
+type AddPrimaryKeyOperation = {
+	kind: 'addPrimaryKey'
+	columns: string[]
+}
+
+type DropPrimaryKeyOperation = {
+	kind: 'dropPrimaryKey'
+	pk_constraint_name: string
 }
 
 export type AlterTableOperation =
@@ -51,6 +62,18 @@ export type AlterTableOperation =
 	| AddForeignKeyOperation
 	| DropForeignKeyOperation
 	| RenameTableOperation
+	| AddPrimaryKeyOperation
+	| DropPrimaryKeyOperation
+
+export function makeAlterTableQuery(
+	values: AlterTableValues,
+	dbType: DbType,
+	schema?: string
+): string {
+	let queries = makeAlterTableQueries(values, dbType, schema)
+	if (queries.length === 0) return ''
+	return 'BEGIN;\n' + queries.join('\n') + '\nCOMMIT;'
+}
 
 export function makeAlterTableQueries(
 	values: AlterTableValues,
@@ -87,11 +110,19 @@ export function makeAlterTableQueries(
 				break
 
 			case 'dropForeignKey':
-				queries.push(renderDropForeignKey(tableRef, op.name, dbType))
+				queries.push(renderDropForeignKey(tableRef, op.fk_constraint_name))
 				break
 
 			case 'renameTable':
 				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${op.to};`)
+				break
+
+			case 'addPrimaryKey':
+				queries.push(`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')});`)
+				break
+
+			case 'dropPrimaryKey':
+				queries.push(renderDropPrimaryKey(tableRef, op.pk_constraint_name))
 				break
 
 			default:
@@ -113,13 +144,11 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} TYPE ${datatype};`)
 	}
 
-	if ('defaultValue' in changes) {
-		if (!changes.defaultValue) {
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
-		} else {
-			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
-		}
+	if (original.defaultValue && !changes.defaultValue) {
+		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
+	} else if (changes.defaultValue) {
+		const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
+		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
 	}
 
 	if (typeof changes.nullable === 'boolean') {
@@ -135,11 +164,12 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 	return queries
 }
 
-function renderDropForeignKey(tableRef: string, name: string, dbType: DbType): string {
-	if (dbType === 'postgresql') {
-		return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${name};`
-	}
-	return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${name};`
+function renderDropForeignKey(tableRef: string, fk_constraint_name: string): string {
+	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${fk_constraint_name};`
+}
+
+function renderDropPrimaryKey(tableRef: string, pk_constraint_name: string): string {
+	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${pk_constraint_name};`
 }
 
 export function diffCreateTableValues(
@@ -199,7 +229,47 @@ export function diffCreateTableValues(
 		operations.push({ kind: 'renameTable', to: updated.name })
 	}
 
-	// TODO : foreign keys
+	// Check for foreign key changes
+	const originalForeignKeys = original.foreignKeys ?? []
+	const updatedForeignKeys = updated.foreignKeys ?? []
+
+	// Check for dropped foreign keys
+	for (let i = 0; i < originalForeignKeys.length; i++) {
+		const originalFk = originalForeignKeys[i]
+		const stillExists = updatedForeignKeys.some((updFk) => fkEqual(originalFk, updFk))
+		const fk_constraint_name = originalFk.fk_constraint_name || 'fk_constraint_name_not_found'
+		if (!stillExists) {
+			operations.push({ kind: 'dropForeignKey', fk_constraint_name })
+		}
+	}
+
+	// Check for added foreign keys
+	for (const updatedFk of updatedForeignKeys) {
+		const isNew = !originalForeignKeys.some((origFk) => fkEqual(origFk, updatedFk))
+		if (isNew) {
+			operations.push({ kind: 'addForeignKey', foreignKey: updatedFk })
+		}
+	}
+
+	// Check for primary key changes
+	const originalPkColumns = original.columns.filter((c) => c.primaryKey).map((c) => c.name)
+	const updatedPkColumns = updated.columns.filter((c) => c.primaryKey).map((c) => c.name)
+
+	const pkChanged =
+		originalPkColumns.length !== updatedPkColumns.length ||
+		!originalPkColumns.every((col) => updatedPkColumns.includes(col))
+
+	if (pkChanged) {
+		// Drop old primary key if it exists
+		if (originalPkColumns.length > 0) {
+			const pk_constraint_name = original.pk_constraint_name || 'pk_constraint_name_not_found'
+			operations.push({ kind: 'dropPrimaryKey', pk_constraint_name })
+		}
+		// Add new primary key if columns are specified
+		if (updatedPkColumns.length > 0) {
+			operations.push({ kind: 'addPrimaryKey', columns: updatedPkColumns })
+		}
+	}
 
 	// TODO : sort operations to avoid dependency issues (e.g. drop FK then drop column then create column)
 
@@ -207,4 +277,13 @@ export function diffCreateTableValues(
 		name: original.name,
 		operations
 	}
+}
+
+function fkEqual(fk1: CreateForeignKey, fk2: CreateForeignKey): boolean {
+	return (
+		deepEqual(fk1.columns, fk2.columns) &&
+		fk1.onDelete === fk2.onDelete &&
+		fk1.onUpdate === fk2.onUpdate &&
+		fk1.targetTable === fk2.targetTable
+	)
 }

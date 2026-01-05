@@ -16,7 +16,7 @@ import {
 	type CreateTableValues
 } from './apps/components/display/dbtable/queries/createTable'
 import {
-	makeAlterTableQueries,
+	makeAlterTableQuery,
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
 import { makeFetchTableEditorDefinitionQuery } from './apps/components/display/dbtable/queries/fetchTableEditorDefinition'
@@ -159,15 +159,14 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
 		onAlter: async ({ values, schema }) => {
-			let query = makeAlterTableQueries(values, dbType, schema).join('\n')
+			let query = makeAlterTableQuery(values, dbType, schema)
 			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: dbArg, content: query, language }
 			})
 		},
-		previewAlterSql: ({ values, schema }) =>
-			makeAlterTableQueries(values, dbType, schema).join('\n'),
+		previewAlterSql: ({ values, schema }) => makeAlterTableQuery(values, dbType, schema),
 		onCreateSchema: async ({ schema }) => {
 			let createSchemaQuery = `CREATE SCHEMA ${schema};`
 			if (input.type === 'ducklake')
