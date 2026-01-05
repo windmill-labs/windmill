@@ -578,3 +578,338 @@ pub struct S3ObjectWithType {
     pub s3_object: S3Object,
     pub r#type: String,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Helper to create a simple string type schema
+    fn string_schema() -> OpenAPISchema {
+        OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// Helper to create a simple integer type schema
+    fn integer_schema() -> OpenAPISchema {
+        OpenAPISchema {
+            r#type: Some(SchemaType::Single("integer".to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// Helper to create an object schema with given properties
+    fn object_schema(properties: Vec<(&str, OpenAPISchema)>) -> OpenAPISchema {
+        OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            properties: Some(
+                properties
+                    .into_iter()
+                    .map(|(k, v)| (k.to_string(), Box::new(v)))
+                    .collect(),
+            ),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_make_strict_adds_additional_properties_false() {
+        let mut schema = object_schema(vec![("name", string_schema())]);
+
+        schema.make_strict();
+
+        assert!(
+            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "Expected additionalProperties to be false"
+        );
+    }
+
+    #[test]
+    fn test_make_strict_preserves_existing_additional_properties() {
+        let mut schema = object_schema(vec![("name", string_schema())]);
+        schema.additional_properties = Some(AdditionalProperties::Bool(true));
+
+        schema.make_strict();
+
+        assert!(
+            matches!(schema.additional_properties, Some(AdditionalProperties::Bool(true))),
+            "Expected additionalProperties to remain true (user-specified)"
+        );
+    }
+
+    #[test]
+    fn test_make_strict_all_properties_required() {
+        let mut schema = object_schema(vec![
+            ("name", string_schema()),
+            ("age", integer_schema()),
+        ]);
+        schema.required = Some(vec!["name".to_string()]); // Only name is required initially
+
+        schema.make_strict();
+
+        let required = schema.required.as_ref().expect("required should be set");
+        assert!(required.contains(&"name".to_string()), "name should be required");
+        assert!(required.contains(&"age".to_string()), "age should be required");
+        assert_eq!(required.len(), 2, "Should have exactly 2 required fields");
+    }
+
+    #[test]
+    fn test_make_strict_non_required_becomes_nullable() {
+        let mut schema = object_schema(vec![
+            ("name", string_schema()),
+            ("age", integer_schema()),
+        ]);
+        schema.required = Some(vec!["name".to_string()]); // Only name is required
+
+        schema.make_strict();
+
+        // age field should now be nullable (type becomes ["integer", "null"])
+        let age_prop = schema
+            .properties
+            .as_ref()
+            .unwrap()
+            .get("age")
+            .expect("age property should exist");
+
+        match &age_prop.r#type {
+            Some(SchemaType::Multiple(types)) => {
+                assert!(types.contains(&"integer".to_string()), "Should contain integer");
+                assert!(types.contains(&"null".to_string()), "Should contain null");
+            }
+            _ => panic!("Expected age to have multiple types including null"),
+        }
+
+        // name field should NOT be nullable (it was already required)
+        let name_prop = schema
+            .properties
+            .as_ref()
+            .unwrap()
+            .get("name")
+            .expect("name property should exist");
+
+        match &name_prop.r#type {
+            Some(SchemaType::Single(t)) => {
+                assert_eq!(t, "string", "name should remain a simple string type");
+            }
+            _ => panic!("Expected name to remain a single type"),
+        }
+    }
+
+    #[test]
+    fn test_make_strict_recursive_nested_objects() {
+        let nested = object_schema(vec![("field", string_schema())]);
+        let mut schema = object_schema(vec![("nested", nested)]);
+
+        schema.make_strict();
+
+        // Nested object should also have additionalProperties: false
+        let nested_prop = schema
+            .properties
+            .as_ref()
+            .unwrap()
+            .get("nested")
+            .expect("nested property should exist");
+
+        assert!(
+            matches!(nested_prop.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "Nested object should have additionalProperties: false"
+        );
+
+        // Nested object should have all properties required
+        let nested_required = nested_prop.required.as_ref().expect("nested required should be set");
+        assert!(nested_required.contains(&"field".to_string()));
+    }
+
+    #[test]
+    fn test_make_strict_array_items() {
+        let item_schema = object_schema(vec![("id", string_schema())]);
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("array".to_string())),
+            items: Some(Box::new(item_schema)),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        let items = schema.items.as_ref().expect("items should exist");
+        assert!(
+            matches!(items.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "Array items should have additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn test_make_strict_one_of() {
+        let variant1 = object_schema(vec![("type", string_schema())]);
+        let variant2 = object_schema(vec![("value", integer_schema())]);
+
+        let mut schema = OpenAPISchema {
+            one_of: Some(vec![Box::new(variant1), Box::new(variant2)]),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        for (i, variant) in schema.one_of.as_ref().unwrap().iter().enumerate() {
+            assert!(
+                matches!(variant.additional_properties, Some(AdditionalProperties::Bool(false))),
+                "oneOf variant {} should have additionalProperties: false",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_make_strict_any_of() {
+        let variant1 = object_schema(vec![("a", string_schema())]);
+        let variant2 = object_schema(vec![("b", integer_schema())]);
+
+        let mut schema = OpenAPISchema {
+            any_of: Some(vec![Box::new(variant1), Box::new(variant2)]),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        for (i, variant) in schema.any_of.as_ref().unwrap().iter().enumerate() {
+            assert!(
+                matches!(variant.additional_properties, Some(AdditionalProperties::Bool(false))),
+                "anyOf variant {} should have additionalProperties: false",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_make_strict_defs() {
+        let def_schema = object_schema(vec![("prop", string_schema())]);
+        let mut defs = HashMap::new();
+        defs.insert("MyType".to_string(), Box::new(def_schema));
+
+        let mut schema = OpenAPISchema {
+            defs: Some(defs),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        let my_type = schema
+            .defs
+            .as_ref()
+            .unwrap()
+            .get("MyType")
+            .expect("MyType def should exist");
+
+        assert!(
+            matches!(my_type.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "$defs schema should have additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn test_make_strict_definitions() {
+        let def_schema = object_schema(vec![("prop", string_schema())]);
+        let mut definitions = HashMap::new();
+        definitions.insert("MyType".to_string(), Box::new(def_schema));
+
+        let mut schema = OpenAPISchema {
+            definitions: Some(definitions),
+            ..Default::default()
+        };
+
+        schema.make_strict();
+
+        let my_type = schema
+            .definitions
+            .as_ref()
+            .unwrap()
+            .get("MyType")
+            .expect("MyType definition should exist");
+
+        assert!(
+            matches!(my_type.additional_properties, Some(AdditionalProperties::Bool(false))),
+            "definitions schema should have additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn test_make_nullable_single_type() {
+        let mut schema = string_schema();
+
+        schema.make_nullable();
+
+        match &schema.r#type {
+            Some(SchemaType::Multiple(types)) => {
+                assert!(types.contains(&"string".to_string()));
+                assert!(types.contains(&"null".to_string()));
+                assert_eq!(types.len(), 2);
+            }
+            _ => panic!("Expected multiple types after make_nullable"),
+        }
+    }
+
+    #[test]
+    fn test_make_nullable_already_null() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("null".to_string())),
+            ..Default::default()
+        };
+
+        schema.make_nullable();
+
+        // Should remain just "null"
+        match &schema.r#type {
+            Some(SchemaType::Single(t)) => {
+                assert_eq!(t, "null");
+            }
+            _ => panic!("Expected single null type"),
+        }
+    }
+
+    #[test]
+    fn test_make_nullable_multiple_types() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Multiple(vec![
+                "string".to_string(),
+                "integer".to_string(),
+            ])),
+            ..Default::default()
+        };
+
+        schema.make_nullable();
+
+        match &schema.r#type {
+            Some(SchemaType::Multiple(types)) => {
+                assert!(types.contains(&"string".to_string()));
+                assert!(types.contains(&"integer".to_string()));
+                assert!(types.contains(&"null".to_string()));
+                assert_eq!(types.len(), 3);
+            }
+            _ => panic!("Expected multiple types after make_nullable"),
+        }
+    }
+
+    #[test]
+    fn test_make_nullable_already_has_null() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Multiple(vec![
+                "string".to_string(),
+                "null".to_string(),
+            ])),
+            ..Default::default()
+        };
+
+        schema.make_nullable();
+
+        match &schema.r#type {
+            Some(SchemaType::Multiple(types)) => {
+                // Should not duplicate null
+                assert_eq!(types.iter().filter(|t| *t == "null").count(), 1);
+                assert_eq!(types.len(), 2);
+            }
+            _ => panic!("Expected multiple types"),
+        }
+    }
+}
