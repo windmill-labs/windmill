@@ -11,6 +11,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		settings?: boolean
+		draft?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {
@@ -77,6 +78,7 @@ export type EditorBarUi = {
 	s3object?: boolean
 	database?: boolean
 	ducklake?: boolean
+	dataTable?: boolean
 }
 
 export type EditableSchemaFormUi = {

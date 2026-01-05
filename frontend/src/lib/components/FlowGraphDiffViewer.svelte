@@ -1,11 +1,9 @@
 <script lang="ts">
-	import type { FlowModule, FlowValue, OpenFlow } from '$lib/gen'
+	import type { OpenFlow } from '$lib/gen'
 	import YAML from 'yaml'
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { Alert, Button } from './common'
-	import { buildFlowTimeline, hasInputSchemaChanged } from './flows/flowDiff'
-	import { dfs } from './flows/dfs'
-	import DiffDrawer from './DiffDrawer.svelte'
+	import { computeFlowModuleDiff } from './flows/flowDiff'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
@@ -22,7 +20,6 @@
 	let { beforeYaml, afterYaml }: Props = $props()
 
 	let parseError = $state<string | undefined>(undefined)
-	let moduleDiffDrawer: DiffDrawer | undefined = $state(undefined)
 	let viewerWidth = $state(SIDE_BY_SIDE_MIN_WIDTH)
 	let beforePaneSize = $state(50)
 	let viewMode = $state<'sidebyside' | 'unified'>('sidebyside')
@@ -53,72 +50,21 @@
 		}
 	})
 
-	// Detect if input schema has changed
-	let inputSchemaModified = $derived(hasInputSchemaChanged(beforeFlow, afterFlow))
-
 	// Determine if we should render side-by-side or unified (user controlled via toggle)
 	let isSideBySide = $derived(viewMode === 'sidebyside')
 
 	// Build timeline using history-based approach
 	// In side-by-side view, mark removed modules as 'shadowed' in the After graph
 	// In unified view, mark removed modules as 'removed' to show them in red
-	let timeline = $derived.by(() => {
-		if (!beforeFlow || !afterFlow) return undefined
-		return buildFlowTimeline(beforeFlow.value, afterFlow.value, {
-			markRemovedAsShadowed: isSideBySide
-		})
+	const { beforeActions } = $derived.by(() => {
+		if (!beforeFlow || !afterFlow) return { beforeActions: undefined }
+		return computeFlowModuleDiff(beforeFlow.value, afterFlow.value)
 	})
-
-	// Extract merged flow from timeline
-	let mergedFlow = $derived(timeline?.mergedFlow)
-
-	// Get the unified actions directly from timeline
-	let unifiedActions = $derived(timeline?.afterActions ?? {})
-
-	// Helper to find module by ID in a flow
-	function getModuleById(flow: FlowValue, moduleId: string): FlowModule | undefined {
-		const allModules = dfs(flow.modules ?? [], (m) => m)
-		return (
-			allModules.find((m) => m?.id === moduleId) ??
-			(flow.failure_module?.id === moduleId ? flow.failure_module : undefined) ??
-			(flow.preprocessor_module?.id === moduleId ? flow.preprocessor_module : undefined)
-		)
-	}
 
 	// Handler for viewport changes - updates shared state for synchronization
 	function handleViewportChange(viewport: Viewport, isUserInitiated: boolean) {
 		if (isUserInitiated) {
 			sharedViewport = viewport
-		}
-	}
-
-	// Callback to show module diff
-	function handleShowModuleDiff(moduleId: string) {
-		if (!beforeFlow || !afterFlow) return
-
-		// Handle special case for Input schema diff
-		if (moduleId === 'Input') {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: 'Flow Input Schema Diff',
-				original: { schema: beforeFlow.schema ?? {} },
-				current: { schema: afterFlow.schema ?? {} }
-			})
-			return
-		}
-
-		const beforeModule = getModuleById(beforeFlow.value, moduleId)
-		const afterModule = getModuleById(afterFlow.value, moduleId)
-
-		if (beforeModule && afterModule) {
-			moduleDiffDrawer?.openDrawer()
-			moduleDiffDrawer?.setDiff({
-				mode: 'simple',
-				title: `Module Diff: ${moduleId}`,
-				original: beforeModule,
-				current: afterModule
-			})
 		}
 	}
 
@@ -198,9 +144,7 @@
 									preprocessorModule={beforeFlow.value.preprocessor_module}
 									earlyStop={beforeFlow.value.skip_expr !== undefined}
 									cache={beforeFlow.value.cache_ttl !== undefined}
-									moduleActions={timeline?.beforeActions}
-									{inputSchemaModified}
-									onShowModuleDiff={handleShowModuleDiff}
+									moduleActions={beforeActions}
 									notSelectable={true}
 									insertable={false}
 									editMode={false}
@@ -223,63 +167,56 @@
 					<Pane minSize={30} class="flex flex-col h-full">
 						<div class="flex flex-col h-full">
 							<div class="flex-1 overflow-hidden">
-								{#if mergedFlow}
-									<FlowGraphV2
-										bind:this={afterGraph}
-										modules={mergedFlow.modules}
-										failureModule={mergedFlow.failure_module}
-										preprocessorModule={mergedFlow.preprocessor_module}
-										earlyStop={mergedFlow.skip_expr !== undefined}
-										cache={mergedFlow.cache_ttl !== undefined}
-										moduleActions={unifiedActions}
-										{inputSchemaModified}
-										onShowModuleDiff={handleShowModuleDiff}
-										notSelectable={true}
-										insertable={false}
-										editMode={false}
-										download={false}
-										scroll={false}
-										minHeight={400}
-										triggerNode={false}
-										{sharedViewport}
-										onViewportChange={handleViewportChange}
-									>
-										{#snippet leftHeader()}
-											<span class="text-sm text-primary">After</span>
-										{/snippet}
-									</FlowGraphV2>
-								{/if}
+								<FlowGraphV2
+									bind:this={afterGraph}
+									diffBeforeFlow={beforeFlow}
+									modules={afterFlow.value.modules}
+									failureModule={afterFlow.value.failure_module}
+									preprocessorModule={afterFlow.value.preprocessor_module}
+									earlyStop={afterFlow.value.skip_expr !== undefined}
+									cache={afterFlow.value.cache_ttl !== undefined}
+									currentInputSchema={afterFlow.schema}
+									markRemovedAsShadowed={true}
+									notSelectable={true}
+									insertable={false}
+									editMode={false}
+									download={false}
+									scroll={false}
+									minHeight={400}
+									triggerNode={false}
+									{sharedViewport}
+									onViewportChange={handleViewportChange}
+								>
+									{#snippet leftHeader()}
+										<span class="text-sm text-primary">After</span>
+									{/snippet}
+								</FlowGraphV2>
 							</div>
 						</div>
 					</Pane>
 				</Splitpanes>
 			{:else}
-				<!-- Unified view for narrow screens - show merged flow with all diff colors -->
-				{#if mergedFlow}
-					<div class="h-full overflow-hidden">
-						<FlowGraphV2
-							modules={mergedFlow.modules}
-							failureModule={mergedFlow.failure_module}
-							preprocessorModule={mergedFlow.preprocessor_module}
-							earlyStop={mergedFlow.skip_expr !== undefined}
-							cache={mergedFlow.cache_ttl !== undefined}
-							moduleActions={unifiedActions}
-							{inputSchemaModified}
-							onShowModuleDiff={handleShowModuleDiff}
-							notSelectable={true}
-							insertable={false}
-							editMode={false}
-							download={false}
-							scroll={false}
-							minHeight={400}
-							triggerNode={false}
-						/>
-					</div>
-				{/if}
+				<!-- Unified view - uses FlowGraphV2's built-in diff mode -->
+				<div class="h-full overflow-hidden">
+					<FlowGraphV2
+						diffBeforeFlow={beforeFlow}
+						modules={afterFlow.value.modules}
+						failureModule={afterFlow.value.failure_module}
+						preprocessorModule={afterFlow.value.preprocessor_module}
+						earlyStop={afterFlow.value.skip_expr !== undefined}
+						cache={afterFlow.value.cache_ttl !== undefined}
+						currentInputSchema={afterFlow.schema}
+						notSelectable={true}
+						insertable={false}
+						editMode={false}
+						download={false}
+						scroll={false}
+						minHeight={400}
+						triggerNode={false}
+					/>
+				</div>
 			{/if}
 		</div>
-		<!-- Nested DiffDrawer for module-level diffs -->
-		<DiffDrawer bind:this={moduleDiffDrawer} />
 	</div>
 {:else}
 	<div class="flex items-center justify-center h-full">

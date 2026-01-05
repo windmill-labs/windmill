@@ -1,12 +1,14 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
 	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
-	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
+	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
 	interface Props {
 		disableSettings?: boolean
@@ -18,6 +20,7 @@
 		noteMode?: boolean
 		toggleNoteMode?: () => void
 		disableAi?: boolean
+		diffManager?: FlowDiffManager
 	}
 
 	let {
@@ -29,7 +32,8 @@
 		toggleAiChat,
 		noteMode,
 		toggleNoteMode,
-		disableAi
+		disableAi,
+		diffManager
 	}: Props = $props()
 
 	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -54,7 +58,7 @@
 		</Button>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} on:generateStep />
+		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {diffManager} on:generateStep />
 		{#snippet text()}
 			Error Handler
 		{/snippet}
@@ -77,11 +81,11 @@
 	{/if}
 	{#if showFlowAiButton}
 		<Popover>
-			<FlowAIButton
+			<AIButton
 				togglePanel={() => {
 					toggleAiChat?.()
 				}}
-				selected={aiChatOpen}
+				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
 			/>
 			{#snippet text()}
 				Flow AI Chat

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.587.1
+  version: 1.601.1
   title: Windmill API
 
   contact:
@@ -64,6 +64,41 @@ paths:
       responses:
         "200":
           description: get license id (empty if not ee)
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /inkeep:
+    post:
+      summary: query Windmill AI documentation assistant (EE only)
+      operationId: queryDocumentation
+      x-mcp-tool: true
+      tags:
+        - documentation
+      requestBody:
+        description: query to send to the AI documentation assistant
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: The documentation query to send to the AI assistant
+              required:
+                - query
+      responses:
+        "200":
+          description: AI documentation assistant response
+          content:
+            application/json:
+              schema:
+                type: object
+                description: Response from Inkeep service
+        "403":
+          description: Enterprise Edition required
           content:
             text/plain:
               schema:
@@ -847,28 +882,51 @@ paths:
               schema:
                 type: boolean
 
-  /settings/get_ducklake_instance_catalog_db_status:
+  /settings/refresh_custom_instance_user_pwd:
     post:
-      summary: Returns the set-up statuses of ducklake instance catalog dbs
-      operationId: getDucklakeInstanceCatalogDbStatus
+      summary: Refreshes the password for the custom_instance_user
+      operationId: refreshCustomInstanceUserPwd
       tags:
         - setting
       responses:
         "200":
-          description: Statuses of all ducklake instance catalog dbs
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+
+  /settings/list_custom_instance_pg_databases:
+    post:
+      summary: Returns the set-up statuses of custom instance pg databases
+      operationId: listCustomInstanceDbs
+      tags:
+        - setting
+      responses:
+        "200":
+          description: Statuses of all custom instance dbs
           content:
             application/json:
               schema:
                 type: object
                 additionalProperties:
-                  $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                  $ref: "#/components/schemas/CustomInstanceDb"
 
-  /settings/setup_ducklake_catalog_db/{name}:
+  /settings/setup_custom_instance_pg_database/{name}:
     post:
-      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the ducklake_user
-      operationId: setupDucklakeCatalogDb
+      summary: Runs CREATE DATABASE on the Windmill Postgres and grants access to the custom_instance_user
+      operationId: setupCustomInstanceDb
       tags:
         - setting
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tag:
+                  $ref: "#/components/schemas/CustomInstanceDbTag"
       parameters:
         - in: path
           name: name
@@ -882,7 +940,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatus"
+                $ref: "#/components/schemas/CustomInstanceDb"
 
   /settings/global/{key}:
     get:
@@ -1326,6 +1384,8 @@ paths:
                 properties:
                   progress:
                     type: integer
+                  skipped_all:
+                    type: boolean
     post:
       summary: update tutorial progress
       operationId: updateTutorialProgress
@@ -1341,6 +1401,8 @@ paths:
               properties:
                 progress:
                   type: integer
+                skipped_all:
+                  type: boolean
       responses:
         "200":
           description: tutorial progress
@@ -1962,6 +2024,52 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/workspaces/compare/{target_workspace_id}:
+    get:
+      operationId: compareWorkspaces
+      summary: Compare two workspaces
+      description: Compares the current workspace with a target workspace to find differences in scripts, flows, apps, resources, and variables. Returns information about items that are ahead, behind, or in conflict.
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: target_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+      responses:
+        "200":
+          description: Workspace comparison results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkspaceComparison"
+
+  /w/{workspace}/workspaces/reset_diff_tally/{fork_workspace_id}:
+    post:
+      operationId: resetDiffTally
+      summary: Resets the ahead and behind deployement counter after a deployement
+      description: This endpoint should be called after a fork deployement
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: fork_workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The ID of the workspace to compare with
+
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
   /users/exists/{email}:
     get:
       summary: exists email
@@ -2059,6 +2167,8 @@ paths:
                     type: string
                   teams_team_name:
                     type: string
+                  teams_team_guid:
+                    type: string
                   auto_invite_domain:
                     type: string
                   auto_invite_operator:
@@ -2093,6 +2203,8 @@ paths:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
                     $ref: "#/components/schemas/DucklakeSettings"
+                  datatable:
+                    $ref: "#/components/schemas/DataTableSettings"
                   git_sync:
                     $ref: "#/components/schemas/WorkspaceGitSyncSettings"
                   deploy_ui:
@@ -2448,7 +2560,13 @@ paths:
         - $ref: "#/components/parameters/WorkspaceId"
         - name: search
           in: query
-          description: Search teams by name
+          description: Search teams by name. If omitted, returns first page of all teams.
+          required: false
+          schema:
+            type: string
+        - name: next_link
+          in: query
+          description: Pagination cursor URL from previous response. Pass this to fetch the next page of results.
           required: false
           schema:
             type: string
@@ -2458,14 +2576,27 @@ paths:
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    team_name:
-                      type: string
-                    team_id:
-                      type: string
+                type: object
+                properties:
+                  teams:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        team_name:
+                          type: string
+                        team_id:
+                          type: string
+                  total_count:
+                    type: integer
+                    description: Total number of teams across all pages
+                  per_page:
+                    type: integer
+                    description: Number of teams per page (configurable via TEAMS_PER_PAGE env var)
+                  next_link:
+                    type: string
+                    nullable: true
+                    description: URL to fetch next page of results. Null if no more pages.
 
   /w/{workspace}/workspaces/available_teams_channels:
     get:
@@ -2481,26 +2612,25 @@ paths:
           required: true
           schema:
             type: string
-        - name: search
-          in: query
-          description: Search channels by name
-          required: false
-          schema:
-            type: string
       responses:
         "200":
           description: List of channels for the specified team
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  properties:
-                    channel_name:
-                      type: string
-                    channel_id:
-                      type: string
+                type: object
+                properties:
+                  channels:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        channel_name:
+                          type: string
+                        channel_id:
+                          type: string
+                  total_count:
+                    type: integer
 
   /w/{workspace}/workspaces/connect_teams:
     post:
@@ -2828,6 +2958,42 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/list_datatables:
+    get:
+      summary: list Datatables
+      operationId: listDataTables
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workspaces/list_datatable_schemas:
+    get:
+      summary: list schemas of all connected Datatables
+      operationId: listDataTableSchemas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: schemas of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableSchema"
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -2848,6 +3014,32 @@ paths:
                 settings:
                   $ref: "#/components/schemas/DucklakeSettings"
 
+      responses:
+        "200":
+          description: status
+          content:
+            application/json:
+              schema: {}
+
+  /w/{workspace}/workspaces/edit_datatable_config:
+    post:
+      summary: edit datatable settings
+      operationId: editDataTableConfig
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: DataTable settings
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [settings]
+              properties:
+                settings:
+                  $ref: "#/components/schemas/DataTableSettings"
       responses:
         "200":
           description: status
@@ -3394,6 +3586,10 @@ paths:
           required: true
           schema:
             type: string
+        - name: expires_in
+          in: query
+          schema:
+            type: number
 
       responses:
         "200":
@@ -5950,6 +6146,9 @@ paths:
                     type: string
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/jobs/list_selected_job_groups:
     # We use post because sending a huge array as a query param can produce
@@ -6741,7 +6940,7 @@ paths:
                 items:
                   type: string
 
-  /w/{workspace}/flows/get/v/{version}/p/{path}:
+  /w/{workspace}/flows/get/v/{version}:
     get:
       summary: get flow version
       operationId: getFlowVersion
@@ -6752,7 +6951,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       tags:
         - flow
       responses:
@@ -6763,7 +6961,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Flow"
 
-  /w/{workspace}/flows/history_update/v/{version}/p/{path}:
+  /w/{workspace}/flows/history_update/v/{version}:
     post:
       summary: update flow history
       operationId: updateFlowHistory
@@ -6774,7 +6972,6 @@ paths:
           required: true
           schema:
             type: number
-        - $ref: "#/components/parameters/ScriptPath"
       requestBody:
         description: Flow deployment message
         required: true
@@ -6838,6 +7035,9 @@ paths:
                 properties:
                   lock_error_logs:
                     type: string
+                  job_id:
+                    type: string
+                    format: uuid
 
   /w/{workspace}/flows/get_triggers_count/{path}:
     get:
@@ -8155,7 +8355,7 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/jobs/restart/f/{id}/from/{step_id}/{branch_or_iteration_n}:
+  /w/{workspace}/jobs/restart/f/{id}:
     post:
       summary: restart a completed flow at a given step
       operationId: restartFlowAtStep
@@ -8164,20 +8364,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/JobId"
-        - name: step_id
-          description: step id to restart the flow from
-          required: true
-          in: path
-          schema:
-            type: string
-        - name: branch_or_iteration_n
-          description:
-            for branchall or loop, the iteration at which the flow should
-            restart
-          required: true
-          in: path
-          schema:
-            type: integer
         - name: scheduled_for
           description: when to schedule this job (leave empty for immediate run)
           in: query
@@ -8200,12 +8386,24 @@ paths:
             type: boolean
 
       requestBody:
-        description: flow args
+        description: restart flow parameters
         required: true
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/ScriptArgs"
+              type: object
+              required:
+                - step_id
+              properties:
+                step_id:
+                  type: string
+                  description: step id to restart the flow from
+                branch_or_iteration_n:
+                  type: integer
+                  description: for branchall or loop, the iteration at which the flow should restart (optional)
+                flow_version:
+                  type: integer
+                  description: specific flow version to use for restart (optional, uses current version if not specified)
 
       responses:
         "201":
@@ -8296,6 +8494,29 @@ paths:
               schema:
                 type: string
                 format: uuid
+
+  /w/{workspace}/jobs/run_inline/preview:
+    post:
+      summary: run script preview without starting a new job
+      operationId: runScriptPreviewInline
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: preview
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewInline"
+
+      responses:
+        "200":
+          description: script result
+          content:
+            application/json:
+              schema: {}
 
   /w/{workspace}/jobs/run_wait_result/preview:
     post:
@@ -8512,6 +8733,8 @@ paths:
         - $ref: "#/components/parameters/ScriptExactPath"
         - $ref: "#/components/parameters/ScriptStartPath"
         - $ref: "#/components/parameters/SchedulePath"
+        - $ref: "#/components/parameters/TriggerPath"
+        - $ref: "#/components/parameters/JobTriggerKind"
         - $ref: "#/components/parameters/ScriptExactHash"
         - $ref: "#/components/parameters/StartedBefore"
         - $ref: "#/components/parameters/StartedAfter"
@@ -8784,6 +9007,94 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{trigger_path}:
+    post:
+      summary: resume all suspended jobs for a specific trigger
+      operationId: resumeSuspendedTriggerJobs
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
+      requestBody:
+        description: Optional list of job IDs to reassign
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to reassign. If not provided, all suspended jobs for the trigger will be reassigned.
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/trigger/{trigger_kind}/cancel_suspended_trigger_jobs/{trigger_path}:
+    post:
+      summary: cancel all suspended jobs for a specific trigger
+      operationId: cancelSuspendedTriggerJobs
+      tags:
+        - trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: trigger_kind
+          description: The kind of trigger
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/JobTriggerKind"
+        - name: trigger_path
+          description: The path of the trigger (can contain forward slashes)
+          in: path
+          required: true
+          schema:
+            type: string
+          style: simple
+          explode: false
+      requestBody:
+        description: Optional list of job IDs to cancel
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                job_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: Optional list of specific job UUIDs to cancel. If not provided, all suspended jobs for the trigger will be canceled.
+      responses:
+        "200":
+          description: confirmation message
+          content:
+            application/json:
+              schema:
+                type: string
+
   /w/{workspace}/jobs/completed/list:
     get:
       summary: list all completed jobs
@@ -8840,6 +9151,121 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/CompletedJob"
+
+  /w/{workspace}/jobs/completed/export:
+    get:
+      summary: export all completed jobs for backup/migration
+      operationId: exportCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: All completed jobs exported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportableCompletedJob"
+
+  /w/{workspace}/jobs/completed/import:
+    post:
+      summary: import completed jobs from backup/migration
+      operationId: importCompletedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportableCompletedJob"
+      responses:
+        "200":
+          description: Successfully imported completed jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/queue/export:
+    get:
+      summary: export all queued jobs for backup/migration
+      operationId: exportQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: All queued jobs exported
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ExportableQueuedJob"
+
+  /w/{workspace}/jobs/queue/import:
+    post:
+      summary: import queued jobs from backup/migration
+      operationId: importQueuedJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: "#/components/schemas/ExportableQueuedJob"
+      responses:
+        "200":
+          description: Successfully imported queued jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/jobs/delete:
+    post:
+      summary: delete jobs by IDs from all related tables
+      operationId: deleteJobs
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: Array of job IDs to delete
+      responses:
+        "200":
+          description: Successfully deleted jobs
+          content:
+            text/plain:
+              schema:
+                type: string
+                description: Summary of deleted jobs and rows
 
   /w/{workspace}/jobs/list:
     get:
@@ -9307,6 +9733,34 @@ paths:
                 required:
                   - completed
                   - result
+
+  /w/{workspace}/jobs_u/completed/get_timing/{id}:
+    get:
+      summary: get completed job timing
+      operationId: getCompletedJobTiming
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job timing details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
+                  started_at:
+                    type: string
+                    format: date-time
+                  duration_ms:
+                    type: integer
+                required:
+                  - created_at
 
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
@@ -10367,10 +10821,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/http_triggers/setenabled/{path}:
+  /w/{workspace}/http_triggers/setmode/{path}:
     post:
       summary: enable/disable http trigger
-      operationId: setHttpTriggerEnabled
+      operationId: setHttpTriggerMode
       tags:
         - http_trigger
       parameters:
@@ -10383,10 +10837,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: http trigger enable/disable
@@ -10527,10 +10981,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/websocket_triggers/setenabled/{path}:
+  /w/{workspace}/websocket_triggers/setmode/{path}:
     post:
       summary: set enabled websocket trigger
-      operationId: setWebsocketTriggerEnabled
+      operationId: setWebsocketTriggerMode
       tags:
         - websocket_trigger
       parameters:
@@ -10544,10 +10998,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: websocket trigger enabled set
@@ -10721,10 +11175,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/kafka_triggers/setenabled/{path}:
+  /w/{workspace}/kafka_triggers/setmode/{path}:
     post:
       summary: set enabled kafka trigger
-      operationId: setKafkaTriggerEnabled
+      operationId: setKafkaTriggerMode
       tags:
         - kafka_trigger
       parameters:
@@ -10738,10 +11192,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: kafka trigger enabled set
@@ -10910,10 +11364,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/nats_triggers/setenabled/{path}:
+  /w/{workspace}/nats_triggers/setmode/{path}:
     post:
       summary: set enabled nats trigger
-      operationId: setNatsTriggerEnabled
+      operationId: setNatsTriggerMode
       tags:
         - nats_trigger
       parameters:
@@ -10927,10 +11381,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: nats trigger enabled set
@@ -11099,10 +11553,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/sqs_triggers/setenabled/{path}:
+  /w/{workspace}/sqs_triggers/setmode/{path}:
     post:
       summary: set enabled sqs trigger
-      operationId: setSqsTriggerEnabled
+      operationId: setSqsTriggerMode
       tags:
         - sqs_trigger
       parameters:
@@ -11116,10 +11570,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: sqs trigger enabled set
@@ -11288,10 +11742,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/mqtt_triggers/setenabled/{path}:
+  /w/{workspace}/mqtt_triggers/setmode/{path}:
     post:
       summary: set enabled mqtt trigger
-      operationId: setMqttTriggerEnabled
+      operationId: setMqttTriggerMode
       tags:
         - mqtt_trigger
       parameters:
@@ -11305,10 +11759,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: mqtt trigger enabled set
@@ -11477,10 +11931,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/gcp_triggers/setenabled/{path}:
+  /w/{workspace}/gcp_triggers/setmode/{path}:
     post:
       summary: set enabled gcp trigger
-      operationId: setGcpTriggerEnabled
+      operationId: setGcpTriggerMode
       tags:
         - gcp_trigger
       parameters:
@@ -11494,10 +11948,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: gcp trigger enabled set
@@ -11981,10 +12435,10 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/postgres_triggers/setenabled/{path}:
+  /w/{workspace}/postgres_triggers/setmode/{path}:
     post:
       summary: set enabled postgres trigger
-      operationId: setPostgresTriggerEnabled
+      operationId: setPostgresTriggerMode
       tags:
         - postgres_trigger
       parameters:
@@ -11998,10 +12452,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: postgres trigger enabled set
@@ -12202,10 +12656,10 @@ paths:
             application/json:
               schema:
                 type: boolean
-  /w/{workspace}/email_triggers/setenabled/{path}:
+  /w/{workspace}/email_triggers/setmode/{path}:
     post:
       summary: enable/disable email trigger
-      operationId: setEmailTriggerEnabled
+      operationId: setEmailTriggerMode
       tags:
         - email_trigger
       parameters:
@@ -12218,10 +12672,10 @@ paths:
             schema:
               type: object
               properties:
-                enabled:
-                  type: boolean
+                mode:
+                  $ref: "#/components/schemas/TriggerMode"
               required:
-                - enabled
+                - mode
       responses:
         "200":
           description: email trigger enable/disable
@@ -12631,6 +13085,40 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/groups_history/get/{name}:
+    get:
+      summary: get group permission history
+      operationId: getGroupPermissionHistory
+      tags:
+        - group
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: group permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    member_affected:
+                      type: string
+                      nullable: true
+
   /w/{workspace}/folders/list:
     get:
       summary: list folders
@@ -12893,6 +13381,40 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /w/{workspace}/folders_history/get/{name}:
+    get:
+      summary: get folder permission history
+      operationId: getFolderPermissionHistory
+      tags:
+        - folder
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/Name"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: folder permission history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    changed_by:
+                      type: string
+                    changed_at:
+                      type: string
+                      format: date-time
+                    change_type:
+                      type: string
+                    affected:
+                      type: string
+                      nullable: true
 
   /workers/list:
     get:
@@ -13283,6 +13805,21 @@ paths:
                     - expires_at
                     - blacklisted_at
                     - blacklisted_by
+
+  /agent_workers/get_min_version:
+    get:
+      summary: get minimum worker version across all workers
+      operationId: getMinVersion
+      tags:
+        - agent_workers
+      responses:
+        "200":
+          description: minimum worker version
+          content:
+            application/json:
+              schema:
+                type: string
+                description: Minimum semantic version across all workers (e.g. "1.583.0")
 
   /w/{workspace}/acls/get/{kind}/{path}:
     get:
@@ -15348,22 +15885,7 @@ components:
       description: trigger kind (schedule, http, websocket...)
       in: query
       schema:
-        type: string
-        enum:
-          - webhook
-          - default_email
-          - email
-          - schedule
-          - http
-          - websocket
-          - postgres
-          - kafka
-          - nats
-          - mqtt
-          - sqs
-          - gcp
-          - poll
-          - cli
+        $ref: "#/components/schemas/JobTriggerKind"
     OrderDesc:
       name: order_desc
       description: order by desc order (default true)
@@ -15457,6 +15979,12 @@ components:
     SchedulePath:
       name: schedule_path
       description: mask to filter by schedule path
+      in: query
+      schema:
+        type: string
+    TriggerPath:
+      name: trigger_path
+      description: mask to filter by trigger path
       in: query
       schema:
         type: string
@@ -16044,6 +16572,14 @@ components:
           type: string
         debounce_delay_s:
           type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -16125,6 +16661,8 @@ components:
           type: integer
         cache_ttl:
           type: number
+        cache_ignore_s3_path:
+          type: boolean
         dedicated_worker:
           type: boolean
         ws_error_handler_muted:
@@ -16144,6 +16682,14 @@ components:
         debounce_key:
           type: string
         debounce_delay_s:
+          type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
           type: integer
         visible_to_runner_only:
           type: boolean
@@ -16324,6 +16870,9 @@ components:
               "flownode",
               "appscript",
               "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16437,6 +16986,9 @@ components:
               "flownode",
               "appscript",
               "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow",
             ]
         schedule_path:
           type: string
@@ -16494,6 +17046,305 @@ components:
         - email
         - visible_to_owner
         - tag
+
+    ExportableCompletedJob:
+      type: object
+      description: Completed job with full data for export/import operations
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_job:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        script_path:
+          type: string
+        script_hash:
+          type: string
+        args:
+          type: object
+          description: Full job arguments without size restrictions
+        result:
+          type: object
+          description: Full job result without size restrictions
+        logs:
+          type: string
+          description: Complete job logs from v2_job table
+        raw_code:
+          type: string
+        raw_lock:
+          type: string
+        canceled_by:
+          type: string
+        canceled_reason:
+          type: string
+        job_kind:
+          type: string
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flow",
+              "flowdependencies",
+              "appdependencies",
+              "flowpreview",
+              "script_hub",
+              "identity",
+              "deploymentcallback",
+              "singlestepflow",
+              "flowscript",
+              "flownode",
+              "appscript",
+              "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow",
+            ]
+        trigger:
+          type: string
+          description: Trigger path for the job (replaces schedule_path)
+        trigger_kind:
+          type: string
+          enum:
+            [
+              "webhook",
+              "http",
+              "websocket",
+              "kafka",
+              "email",
+              "nats",
+              "schedule",
+              "app",
+              "ui",
+              "postgres",
+              "sqs",
+              "gcp",
+            ]
+        permissioned_as:
+          type: string
+        permissioned_as_email:
+          type: string
+        flow_status:
+          type: object
+          description: Flow status from v2_job_status table
+        workflow_as_code_status:
+          type: object
+        raw_flow:
+          type: object
+        is_flow_step:
+          type: boolean
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        is_skipped:
+          type: boolean
+        email:
+          type: string
+        visible_to_owner:
+          type: boolean
+        mem_peak:
+          type: integer
+        tag:
+          type: string
+        priority:
+          type: integer
+        labels:
+          type: array
+          items:
+            type: string
+        same_worker:
+          type: boolean
+        flow_step_id:
+          type: string
+        flow_innermost_root_job:
+          type: string
+          format: uuid
+        concurrent_limit:
+          type: integer
+        concurrency_time_window_s:
+          type: integer
+        timeout:
+          type: integer
+        cache_ttl:
+          type: integer
+        self_wait_time_ms:
+          type: integer
+        aggregate_wait_time_ms:
+          type: integer
+        preprocessed:
+          type: boolean
+        worker:
+          type: string
+        status:
+          type: string
+          description: Actual job status from database
+      required:
+        - id
+        - created_by
+        - created_at
+        - job_kind
+        - permissioned_as
+        - email
+        - visible_to_owner
+
+    ExportableQueuedJob:
+      type: object
+      description: Queued job with full data for export/import operations
+      properties:
+        id:
+          type: string
+          format: uuid
+        parent_job:
+          type: string
+          format: uuid
+        created_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        scheduled_for:
+          type: string
+          format: date-time
+        script_path:
+          type: string
+        script_hash:
+          type: string
+        args:
+          type: object
+          description: Full job arguments without size restrictions
+        logs:
+          type: string
+          description: Complete job logs from v2_job table
+        raw_code:
+          type: string
+        raw_lock:
+          type: string
+        canceled_by:
+          type: string
+        canceled_reason:
+          type: string
+        job_kind:
+          type: string
+          enum:
+            [
+              "script",
+              "preview",
+              "dependencies",
+              "flowdependencies",
+              "appdependencies",
+              "flow",
+              "flowpreview",
+              "script_hub",
+              "identity",
+              "deploymentcallback",
+              "singlestepflow",
+              "flowscript",
+              "flownode",
+              "appscript",
+              "aiagent",
+              "unassigned_script",
+              "unassigned_flow",
+              "unassigned_singlestepflow",
+            ]
+        trigger:
+          type: string
+          description: Trigger path for the job (replaces schedule_path)
+        trigger_kind:
+          type: string
+          enum:
+            [
+              "webhook",
+              "http",
+              "websocket",
+              "kafka",
+              "email",
+              "nats",
+              "schedule",
+              "app",
+              "ui",
+              "postgres",
+              "sqs",
+              "gcp",
+            ]
+        permissioned_as:
+          type: string
+        permissioned_as_email:
+          type: string
+        flow_status:
+          type: object
+          description: Flow status from v2_job_status table
+        workflow_as_code_status:
+          type: object
+        raw_flow:
+          type: object
+        is_flow_step:
+          type: boolean
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+        email:
+          type: string
+        visible_to_owner:
+          type: boolean
+        mem_peak:
+          type: integer
+        tag:
+          type: string
+        priority:
+          type: integer
+        labels:
+          type: array
+          items:
+            type: string
+        same_worker:
+          type: boolean
+        flow_step_id:
+          type: string
+        flow_innermost_root_job:
+          type: string
+          format: uuid
+        concurrent_limit:
+          type: integer
+        concurrency_time_window_s:
+          type: integer
+        timeout:
+          type: integer
+        cache_ttl:
+          type: integer
+        self_wait_time_ms:
+          type: integer
+        aggregate_wait_time_ms:
+          type: integer
+        preprocessed:
+          type: boolean
+        suspend:
+          type: integer
+        suspend_until:
+          type: string
+          format: date-time
+      required:
+        - id
+        - created_by
+        - created_at
+        - job_kind
+        - permissioned_as
+        - email
+        - visible_to_owner
 
     ObscuredJob:
       type: object
@@ -17081,6 +17932,18 @@ components:
       required:
         - args
 
+    PreviewInline:
+      type: object
+      properties:
+        content:
+          type: string
+          description: The code to run
+        args:
+          $ref: "#/components/schemas/ScriptArgs"
+        language:
+          $ref: "#/components/schemas/ScriptLang"
+      required: [content, args, language]
+
     WorkflowTask:
       type: object
       properties:
@@ -17506,6 +18369,31 @@ components:
         - timezone
         - args
 
+    JobTriggerKind:
+      description: job trigger kind (schedule, http, websocket...)
+      type: string
+      enum:
+        - webhook
+        - default_email
+        - email
+        - schedule
+        - http
+        - websocket
+        - postgres
+        - kafka
+        - nats
+        - mqtt
+        - sqs
+        - gcp
+
+    TriggerMode:
+      description: job trigger mode
+      type: string
+      enum:
+        - enabled
+        - disabled
+        - suspended
+
     TriggerExtraProperty:
       type: object
       properties:
@@ -17528,8 +18416,8 @@ components:
           format: date-time
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
       required:
         - path
         - script_path
@@ -17539,7 +18427,7 @@ components:
         - edited_by
         - edited_at
         - is_flow
-        - enabled
+        - mode
 
     AuthenticationMethod:
       type: string
@@ -17765,8 +18653,8 @@ components:
           type: boolean
         wrap_body:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         raw_string:
           type: boolean
         error_handler_path:
@@ -17937,8 +18825,8 @@ components:
           type: boolean
         url:
           type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         filters:
           type: array
           items:
@@ -18143,8 +19031,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18181,8 +19069,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18281,8 +19169,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         auto_acknowledge_msg:
           type: boolean
         ack_deadline:
@@ -18368,7 +19256,7 @@ components:
         - SKIP
         - FAIL
 
-    DucklakeInstanceCatalogDbStatusLogs:
+    CustomInstanceDbLogs:
       type: object
       properties:
         super_admin:
@@ -18379,20 +19267,25 @@ components:
           $ref: "#/components/schemas/LoggedWizardStatus"
         created_database:
           $ref: "#/components/schemas/LoggedWizardStatus"
-          description: Created database status log
         db_connect:
           $ref: "#/components/schemas/LoggedWizardStatus"
         grant_permissions:
           $ref: "#/components/schemas/LoggedWizardStatus"
 
-    DucklakeInstanceCatalogDbStatus:
+    CustomInstanceDbTag:
+      type: string
+      enum:
+        - ducklake
+        - datatable
+
+    CustomInstanceDb:
       type: object
       required:
         - logs
         - success
       properties:
         logs:
-          $ref: "#/components/schemas/DucklakeInstanceCatalogDbStatusLogs"
+          $ref: "#/components/schemas/CustomInstanceDbLogs"
         success:
           type: boolean
           description: Whether the operation completed successfully
@@ -18402,6 +19295,8 @@ components:
           nullable: true
           description: Error message if the operation failed
           example: "Connection timeout"
+        tag:
+          $ref: "#/components/schemas/CustomInstanceDbTag"
 
     NewSqsTrigger:
       type: object
@@ -18422,8 +19317,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18457,8 +19352,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18592,8 +19487,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
         publication:
@@ -18624,8 +19519,8 @@ components:
           type: string
         is_flow:
           type: boolean
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         postgres_resource_path:
           type: string
         publication:
@@ -18694,8 +19589,8 @@ components:
           type: array
           items:
             type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18800,8 +19695,8 @@ components:
           type: array
           items:
             type: string
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
           type: string
         error_handler_args:
@@ -18844,7 +19739,6 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-
       required:
         - path
         - script_path
@@ -18891,8 +19785,9 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
         retry:
           $ref: "../../openflow.openapi.yaml#/components/schemas/Retry"
-        enabled:
-          type: boolean
+        mode:
+          $ref: "#/components/schemas/TriggerMode"
+
       required:
         - path
         - script_path
@@ -19367,6 +20262,8 @@ components:
           type: string
         branch_or_iteration_n:
           type: integer
+        flow_version:
+          type: integer
 
     Policy:
       type: object
@@ -19709,6 +20606,50 @@ components:
                     type: string
                 required:
                   - path
+
+    DataTableSettings:
+      type: object
+      required: [datatables]
+      properties:
+        datatables:
+          type: object
+          additionalProperties:
+            type: object
+            required: [database]
+            properties:
+              database:
+                type: object
+                properties:
+                  resource_type:
+                    type: string
+                    enum:
+                      - postgresql
+                      - instance
+                  resource_path:
+                    type: string
+                required:
+                  - resource_type
+
+    DataTableSchema:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical schema: schema_name -> table_name -> column_name -> compact_type (e.g. 'int4', 'text?', 'int4?=0')"
+          additionalProperties:
+            type: object
+            description: "Tables in this schema"
+            additionalProperties:
+              type: object
+              description: "Columns in this table"
+              additionalProperties:
+                type: string
+                description: "Compact type: 'type[?][=default]' where ? means nullable"
+        error:
+          type: string
 
     DynamicInputData:
       type: object
@@ -20203,6 +21144,108 @@ components:
           type: boolean
           description: Whether operators can view workers page
 
+    WorkspaceComparison:
+      type: object
+      required:
+        - all_ahead_items_visible
+        - all_behind_items_visible
+        - skipped_comparison
+        - diffs
+        - summary
+      properties:
+        all_ahead_items_visible:
+          type: boolean
+          description: All items with changes ahead are visible by the user of the request.
+        all_behind_items_visible:
+          type: boolean
+          description: All items with changes behind are visible by the user of the request.
+        skipped_comparison:
+          type: boolean
+          description: Whether the comparison was skipped. This happens with old forks that where not being kept track of
+        diffs:
+          type: array
+          description: List of differences found between workspaces
+          items:
+            $ref: "#/components/schemas/WorkspaceItemDiff"
+        summary:
+          $ref: "#/components/schemas/CompareSummary"
+          description: Summary statistics of the comparison
+
+    WorkspaceItemDiff:
+      type: object
+      required:
+        - kind
+        - path
+        - ahead
+        - behind
+        - has_changes
+        - exists_in_source
+        - exists_in_fork
+      properties:
+        kind:
+          type: string
+          enum: ["script", "flow", "app", "resource", "variable"]
+          description: Type of the item
+        path:
+          type: string
+          description: Path of the item in the workspace
+        ahead:
+          type: integer
+          description: Number of versions source is ahead of target
+        behind:
+          type: integer
+          description: Number of versions source is behind target
+        has_changes:
+          type: boolean
+          description: Whether the item has any differences
+        exists_in_source:
+          type: boolean
+          description: If the item exists in the source workspace
+        exists_in_fork:
+          type: boolean
+          description: If the item exists in the fork workspace
+
+    CompareSummary:
+      type: object
+      required:
+        - total_diffs
+        - total_ahead
+        - total_behind
+        - scripts_changed
+        - flows_changed
+        - apps_changed
+        - resources_changed
+        - variables_changed
+        - conflicts
+      properties:
+        total_diffs:
+          type: integer
+          description: Total number of items with differences
+        total_ahead:
+          type: integer
+          description: Total number of ahead changes
+        total_behind:
+          type: integer
+          description: Total number of behind changes
+        scripts_changed:
+          type: integer
+          description: Number of scripts with differences
+        flows_changed:
+          type: integer
+          description: Number of flows with differences
+        apps_changed:
+          type: integer
+          description: Number of apps with differences
+        resources_changed:
+          type: integer
+          description: Number of resources with differences
+        variables_changed:
+          type: integer
+          description: Number of variables with differences
+        conflicts:
+          type: integer
+          description: Number of items that are both ahead and behind (conflicts)
+
     TeamInfo:
       type: object
       required:
@@ -20278,6 +21321,9 @@ components:
           per_page:
             type: number
             description: Number of repositories loaded per page
+          error:
+            type: string
+            description: Error message if token retrieval failed
         required:
           - installation_id
           - account_id
@@ -20350,6 +21396,7 @@ components:
         - s3object
         - resource
         - ducklake
+        - datatable
     Asset:
       type: object
       properties:

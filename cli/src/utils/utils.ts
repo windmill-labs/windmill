@@ -4,6 +4,9 @@
 
 import { colors, encodeHex, log, SEP } from "../../deps.ts";
 import crypto from "node:crypto";
+import { fetchVersion } from "../core/context.ts";
+import { updateGlobalVersions } from "../commands/sync/global.ts";
+import { isRawAppPath } from "./resource_folders.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
@@ -151,11 +154,11 @@ export function isFileResource(path: string): boolean {
 }
 
 export function isRawAppFile(path: string): boolean {
-  return path.includes(".raw_app" + SEP) ;
+  return isRawAppPath(path);
 }
 
 export function isWorkspaceDependencies(path: string): boolean {
-  return path.startsWith("dependencies/")
+  return path.startsWith("dependencies/");
 }
 
 export function printSync(input: string | Uint8Array, to = Deno.stdout) {
@@ -262,4 +265,24 @@ export function writeIfChanged(path: string, content: string): boolean {
   // console.log(`Writing content to ${path}`);
   Deno.writeTextFileSync(path, content);
   return true; // File was written
+}
+
+export async function fetchRemoteVersion(
+  workspace: Workspace
+): Promise<string> {
+  const version = await fetchVersion(workspace.remote);
+  if (version) {
+    updateGlobalVersions(version);
+  }
+  log.info(colors.gray("Remote version: " + version));
+}
+
+export function toCamel(s: string) {
+  return s.replace(/([-_][a-z])/gi, ($1) => {
+    return $1.toUpperCase().replace("-", "").replace("_", "");
+  });
+}
+
+export function capitalize(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }

@@ -1,16 +1,6 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.90-slim-bookworm
 
-# Build libwindmill_duckdb_ffi_internal.so separately
-FROM ${RUST_IMAGE} AS windmill_duckdb_ffi_internal_builder
-
-WORKDIR /windmill-duckdb-ffi-internal
-RUN apt-get update && apt-get install -y pkg-config clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-COPY ./backend/windmill-duckdb-ffi-internal .
-RUN cargo build --release -p windmill_duckdb_ffi_internal
-
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -30,6 +20,20 @@ WORKDIR /windmill
 ENV SQLX_OFFLINE=true
 # ENV CARGO_INCREMENTAL=1
 
+FROM rust_base AS windmill_duckdb_ffi_internal_builder
+
+WORKDIR /windmill-duckdb-ffi-internal
+
+RUN apt-get update && apt-get install -y clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY ./backend/windmill-duckdb-ffi-internal .
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
+    cargo build --release -p windmill_duckdb_ffi_internal
+
 FROM node:24-alpine as frontend
 
 # install dependencies
@@ -44,6 +48,7 @@ RUN mkdir /backend
 COPY /backend/windmill-api/openapi.yaml /backend/windmill-api/openapi.yaml
 COPY /openflow.openapi.yaml /openflow.openapi.yaml
 COPY /backend/windmill-api/build_openapi.sh /backend/windmill-api/build_openapi.sh
+COPY /system_prompts/auto-generated /system_prompts/auto-generated
 
 RUN cd /backend/windmill-api && . ./build_openapi.sh
 COPY /backend/parsers/windmill-parser-wasm/pkg/ /backend/parsers/windmill-parser-wasm/pkg/
@@ -54,7 +59,7 @@ RUN npm run generate-backend-client
 ENV NODE_OPTIONS "--max-old-space-size=8192"
 ARG VITE_BASE_URL ""
 # Read more about macro in docker/dev.nu
-# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- # 
+# -- MACRO-SPREAD-WASM-PARSER-DEV-ONLY -- #
 RUN npm run build
 
 
@@ -112,7 +117,7 @@ ARG WITH_GIT=true
 # 1. Change placeholder in instanceSettings.ts
 # 2. Change LATEST_STABLE_PY in dockerfile
 # 3. Change #[default] annotation for PyVersion in backend
-ARG LATEST_STABLE_PY=3.11.10
+ARG LATEST_STABLE_PY=3.12
 ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
 ENV UV_PYTHON_PREFERENCE=only-managed
 
@@ -120,7 +125,7 @@ RUN mkdir -p /usr/local/uv
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 ENV UV_TOOL_DIR=/usr/local/uv
 
-ENV PATH /usr/local/bin:/root/.local/bin:$PATH
+ENV PATH /usr/local/bin:/root/.local/bin:/tmp/.local/bin:$PATH
 
 
 RUN apt-get update \
@@ -187,19 +192,32 @@ ENV GO_PATH=/usr/local/go/bin/go
 # Install UV
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
-# Preinstall python runtimes
-RUN uv python install 3.11
-RUN uv python install $LATEST_STABLE_PY
-
-RUN uv venv
+# Preinstall python runtimes to temp build location (will copy with world-writable perms later)
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
+RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install $LATEST_STABLE_PY
 
 
-RUN curl -sL https://deb.nodesource.com/setup_20.x | bash - 
+RUN curl -sL https://deb.nodesource.com/setup_20.x | bash -
 RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-RUN mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+# export ensures GOCACHE applies to all commands in the chain (not just the first)
+RUN export GOCACHE=/tmp/build_cache/go && mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+
+# Copy build caches to final location, then add write permissions for any UID
+# chmod a+rw adds read+write WITHOUT removing execute bits (755->777, 644->666)
+# Note: uv python install only creates py_runtime, not uv cache - we create uv/go dirs for runtime
+RUN mkdir -p /tmp/windmill/cache && \
+    cp -r /tmp/build_cache/* /tmp/windmill/cache/ && \
+    chmod -R a+rw /tmp/windmill/cache && \
+    rm -rf /tmp/build_cache && \
+    mkdir -p -m 777 /tmp/windmill/cache/uv /tmp/windmill/cache/go
+
+# Runtime cache locations
+ENV UV_CACHE_DIR=/tmp/windmill/cache/uv
+ENV UV_PYTHON_INSTALL_DIR=/tmp/windmill/cache/py_runtime
+ENV GOCACHE=/tmp/windmill/cache/go
 
 ENV TZ=Etc/UTC
 
@@ -227,23 +245,20 @@ RUN ln -s ${APP}/windmill /usr/local/bin/windmill
 
 COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
-RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json && chmod -R 777 /tmp/windmill
+RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json
+
+
 
 # Create a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \
     adduser --disabled-password --gecos "" --uid 1000 --gid 1000 windmill
 
-RUN cp -r /root/.cache /home/windmill/.cache
+# /tmp/.cache may be created by earlier build steps with 755; chmod ensures any UID can write
+RUN mkdir -p -m 777 /tmp/windmill/logs /tmp/windmill/search /tmp/.cache && chmod 777 /tmp/.cache
 
-RUN mkdir -p /tmp/windmill/logs && \
-    mkdir -p /tmp/windmill/search
-
-# Make directories world-readable and writable
-RUN chmod -R 777 ${APP} && \
-     chmod -R 777 /tmp/windmill && \
-     chmod -R 777 /home/windmill/.cache
-
-USER root
+# Make directories world-accessible for any UID
+# (cache files already have 666 from umask copy above, cache_nomount is read-only)
+RUN find ${APP} /tmp/windmill -type d -exec chmod 777 {} +
 
 EXPOSE 8000
 

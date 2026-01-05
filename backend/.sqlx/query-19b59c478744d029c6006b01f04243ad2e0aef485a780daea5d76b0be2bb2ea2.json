@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        id,\n                        args as \"args: _\",\n                        created_at\n                    FROM v2_job\n                    WHERE workspace_id = $1\n                      AND (\n                            kind = 'unassigned_script'::JOB_KIND OR\n                            kind = 'unassigned_flow'::JOB_KIND OR\n                            kind = 'unassigned_singlestepflow'::JOB_KIND\n                      )\n                      AND trigger_kind = $2\n                      AND trigger = $3\n                      AND id = ANY($4)\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "args: _",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "job_trigger_kind",
+            "kind": {
+              "Enum": [
+                "webhook",
+                "http",
+                "websocket",
+                "kafka",
+                "email",
+                "nats",
+                "schedule",
+                "app",
+                "ui",
+                "postgres",
+                "sqs",
+                "gcp",
+                "mqtt"
+              ]
+            }
+          }
+        },
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "19b59c478744d029c6006b01f04243ad2e0aef485a780daea5d76b0be2bb2ea2"
+}

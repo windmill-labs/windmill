@@ -32,8 +32,11 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::utils::{query_elems_from_hub, WarnAfterExt};
-use windmill_common::worker::{to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING};
+use windmill_common::runnable_settings::RunnableSettingsTrait;
+use windmill_common::utils::query_elems_from_hub;
+use windmill_common::worker::{
+    to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -45,6 +48,7 @@ use windmill_common::{
     utils::{http_get_from_hub, not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
+use windmill_queue::WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 use windmill_queue::{push, schedule::push_scheduled_job, PushIsolationLevel};
 use windmill_worker::scoped_dependency_map::ScopedDependencyMap;
 
@@ -69,10 +73,8 @@ pub fn workspaced_service() -> Router {
             "/list_paths_from_workspace_runnable/:runnable_kind/*path",
             get(list_paths_from_workspace_runnable),
         )
-        .route(
-            "/history_update/v/:version/p/*path",
-            post(update_flow_history),
-        )
+        .route("/history_update/v/:version", post(update_flow_history))
+        .route("/get/v/:version", get(get_flow_version_by_id))
         .route("/get/v/:version/p/*path", get(get_flow_version))
         .route(
             "/toggle_workspace_error_handler/*path",
@@ -542,6 +544,7 @@ async fn create_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
             version: version,
+            debouncing_settings: Default::default(),
         },
         windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
@@ -575,6 +578,20 @@ async fn create_flow(
         dependency_job_uuid,
         nf.path,
         w_id
+    )
+    .execute(&mut *new_tx)
+    .await?;
+
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
     )
     .execute(&mut *new_tx)
     .await?;
@@ -709,6 +726,72 @@ async fn get_flow_version(
     Ok(Json(flow))
 }
 
+async fn get_flow_version_by_id(
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
+    Path((w_id, version)): Path<(String, i64)>,
+) -> JsonResult<Flow> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    // First, fetch the path to perform authorization check early
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE id = $1 AND workspace_id = $2")
+            .bind(version)
+            .bind(&w_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let path = not_found_if_none(
+        path,
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
+
+    // Perform authorization check before fetching full data
+    check_scopes(&authed, || format!("flows:read:{}", path))?;
+
+    // Now fetch the full flow data with INNER JOIN to ensure flow exists
+    let flow = sqlx::query_as::<_, Flow>(
+        "SELECT
+            flow.workspace_id,
+            flow.path,
+            flow.summary,
+            flow.description,
+            flow.archived,
+            flow.extra_perms,
+            flow.draft_only,
+            flow.dedicated_worker,
+            flow.tag,
+            flow.ws_error_handler_muted,
+            flow.timeout,
+            flow.visible_to_runner_only,
+            flow.on_behalf_of_email,
+            flow_version.schema,
+            flow_version.value,
+            flow_version.created_at as edited_at,
+            flow_version.created_by as edited_by
+        FROM flow
+        INNER JOIN flow_version
+            ON flow_version.path = flow.path
+            AND flow_version.workspace_id = flow.workspace_id
+        WHERE flow_version.id = $1 AND flow.workspace_id = $2",
+    )
+    .bind(version)
+    .bind(&w_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    let flow = not_found_if_none(
+        flow,
+        "Flow",
+        format!("for version {} (flow may have been deleted)", version),
+    )?;
+
+    Ok(Json(flow))
+}
+
 #[derive(Deserialize)]
 pub struct FlowHistoryUpdate {
     pub deployment_msg: String,
@@ -717,42 +800,41 @@ pub struct FlowHistoryUpdate {
 async fn update_flow_history(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
-    Path((w_id, version, path)): Path<(String, i64, StripPath)>,
+    Path((w_id, version)): Path<(String, i64)>,
     Json(history_update): Json<FlowHistoryUpdate>,
 ) -> Result<()> {
-    let path = path.to_path();
-    check_scopes(&authed, || format!("flows:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
-    let path_o = sqlx::query_scalar!(
-        "SELECT flow.path FROM flow
-        LEFT JOIN flow_version
-            ON flow_version.path = flow.path AND flow_version.workspace_id = flow.workspace_id
-        WHERE flow.path = $1 AND flow.workspace_id = $2 AND flow_version.id = $3",
+
+    // Fetch path and perform authorization check early
+    let path: Option<String> =
+        sqlx::query_scalar("SELECT path FROM flow_version WHERE workspace_id = $1 AND id = $2")
+            .bind(&w_id)
+            .bind(version)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let path = not_found_if_none(
         path,
-        w_id,
-        version
-    )
-    .fetch_optional(&mut *tx)
-    .await?;
+        "Flow version",
+        format!("{} in workspace {}", version, w_id),
+    )?;
 
-    if path_o.is_none() {
-        tx.commit().await?;
-        return Err(Error::NotFound(
-            format!("Flow version {version} for path {path} not found").to_string(),
-        ));
-    }
+    // Perform authorization check before any modifications
+    check_scopes(&authed, || format!("flows:write:{}", path))?;
 
+    // Insert or update deployment metadata
     sqlx::query!(
         "INSERT INTO deployment_metadata (workspace_id, path, flow_version, deployment_msg) VALUES ($1, $2, $3, $4) ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL DO UPDATE SET deployment_msg = EXCLUDED.deployment_msg",
-        w_id,
-        path_o.unwrap(),
+        &w_id,
+        path,
         version,
         history_update.deployment_msg,
     )
     .fetch_optional(&mut *tx)
     .await?;
+
     tx.commit().await?;
-    return Ok(());
+    Ok(())
 }
 
 async fn update_flow(
@@ -889,14 +971,6 @@ async fn update_flow(
         .await?;
     }
 
-    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
-    tokio::time::timeout(
-        core::time::Duration::from_secs(60),
-        windmill_common::jobs::lock_debounce_key(&w_id, &nf.path, &mut tx),
-    )
-    .warn_after_seconds(10)
-    .await??;
-
     // tracing::error!("Updating flow: {:?}", nf.value.get());
 
     // This will lock anyone who is trying to iterate on flow_versions with given path and parameters.
@@ -1008,6 +1082,7 @@ async fn update_flow(
             path: nf.path.clone(),
             dedicated_worker: nf.dedicated_worker,
             version,
+            debouncing_settings: Default::default(),
         },
         windmill_queue::PushArgs { args: &args, extra: None },
         &authed.username,
@@ -1050,6 +1125,25 @@ async fn update_flow(
         ))
     })?;
 
+    // Store the job_id in deployment_metadata for this flow deployment
+    sqlx::query!(
+        "INSERT INTO deployment_metadata (workspace_id, path, flow_version, job_id)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (workspace_id, path, flow_version) WHERE flow_version IS NOT NULL
+         DO UPDATE SET job_id = EXCLUDED.job_id",
+        w_id,
+        nf.path,
+        version,
+        dependency_job_uuid
+    )
+    .execute(&mut *new_tx)
+    .await
+    .map_err(|e| {
+        error::Error::internal_err(format!(
+            "Error updating deployment_metadata with job_id: {e:#}"
+        ))
+    })?;
+
     if let Some(old_dep_job) = old_dep_job {
         sqlx::query!(
             "UPDATE v2_job_queue SET
@@ -1089,9 +1183,10 @@ async fn list_tokens(
     list_tokens_internal(&db, &w_id, &path, true).await
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
@@ -1099,9 +1194,12 @@ async fn get_deployment_status(
 ) -> JsonResult<DeploymentStatus> {
     let path = path.to_path();
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock_error_logs FROM flow WHERE path = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT f.lock_error_logs, dm.job_id
+         FROM flow f
+         LEFT JOIN deployment_metadata dm ON f.versions[array_upper(f.versions, 1)] = dm.flow_version
+             AND f.workspace_id = dm.workspace_id AND f.path = dm.path
+         WHERE f.path = $1 AND f.workspace_id = $2",
         path,
         w_id,
     )
@@ -1110,8 +1208,11 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", path)?;
 
+    let deployment_status =
+        DeploymentStatus { lock_error_logs: status.lock_error_logs, job_id: status.job_id };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 async fn get_flow_by_path(
@@ -1375,14 +1476,27 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && {
-        let flow_value = nf.parse_flow_value()?;
-        flow_value.debounce_key.is_some() || flow_value.debounce_delay_s.is_some()
-    } {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+        && !nf.parse_flow_value()?.debouncing_settings.is_default()
+    {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        && !nf
+            .parse_flow_value()?
+            .debouncing_settings
+            .is_legacy_compatible()
+        && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+    {
+        tracing::warn!(
+            "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind {
+            feature: "V2 Debouncing".into(),
+            min_version: "1.597.0".into(),
+        })
     } else {
         Ok(())
     }
@@ -1497,6 +1611,9 @@ mod tests {
             ConstantDelay, ExponentialDelay, FlowModule, FlowModuleValue, FlowValue,
             InputTransform, Retry, StopAfterIf,
         },
+        runnable_settings::{
+            ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings,
+        },
         scripts,
     };
 
@@ -1529,6 +1646,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1547,11 +1665,9 @@ mod tests {
                         path: None,
                         lock: None,
                         tag: None,
-                        custom_concurrency_key: None,
-                        concurrent_limit: None,
-                        concurrency_time_window_s: None,
                         is_trigger: None,
                         assets: None,
+                        concurrency_settings: ConcurrencySettingsWithCustom::default(),
                     }),
                     stop_after_if: Some(StopAfterIf {
                         expr: "foo = 'bar'".to_string(),
@@ -1563,6 +1679,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1595,6 +1712,7 @@ mod tests {
                     retry: None,
                     sleep: None,
                     cache_ttl: None,
+                    cache_ignore_s3_path: None,
                     mock: None,
                     timeout: None,
                     priority: None,
@@ -1626,6 +1744,7 @@ mod tests {
                 retry: None,
                 sleep: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 mock: None,
                 timeout: None,
                 priority: None,
@@ -1637,17 +1756,15 @@ mod tests {
             })),
             preprocessor_module: None,
             same_worker: false,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             skip_expr: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             early_return: None,
-            concurrency_key: None,
             chat_input_enabled: None,
             flow_env: None,
-            debounce_key: None,
-            debounce_delay_s: None,
+            concurrency_settings: ConcurrencySettings::default(),
+            debouncing_settings: DebouncingSettings::default(),
         };
         let expect = serde_json::json!({
           "modules": [

@@ -361,24 +361,32 @@ pub async fn load_otel(db: &DB) {
                 OTEL_TRACING_ENABLED.store(tracing_enabled, Ordering::Relaxed);
 
                 let endpoint = if let Some(endpoint) = o.otel_exporter_otlp_endpoint {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint.clone());
+                    }
                     Some(endpoint.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok()
                 };
 
                 let headers = if let Some(headers) = o.otel_exporter_otlp_headers {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_HEADERS", headers.clone());
+                    }
                     Some(headers.clone())
                 } else {
                     std::env::var("OTEL_EXPORTER_OTLP_HEADERS").ok()
                 };
 
                 if let Some(protocol) = o.otel_exporter_otlp_protocol {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_PROTOCOL", protocol);
+                    }
                 }
                 if let Some(compression) = o.otel_exporter_otlp_compression {
-                    std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    unsafe {
+                        std::env::set_var("OTEL_EXPORTER_OTLP_COMPRESSION", compression);
+                    }
                 }
                 println!("OTEL settings loaded: tracing ({tracing_enabled}), logs ({logs_enabled}), metrics ({metrics_enabled}), endpoint ({:?}), headers defined: ({})",
                 endpoint, headers.is_some());
@@ -1598,6 +1606,20 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30s (every iteration)
+    let cleanup_debounce_keys_completed_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_debounce_keys_for_completed_jobs(&db).await {
+                    tracing::error!(
+                        "Error cleaning up debounce keys for completed jobs: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+    };
+
     // run every hour (60 minutes / 30 seconds = 120)
     let cleanup_worker_group_stats_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(120) {
@@ -1718,6 +1740,7 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_debounce_keys_f,
+        cleanup_debounce_keys_completed_f,
         cleanup_worker_group_stats_f,
     );
 }
@@ -2331,7 +2354,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message),
-                true,
+                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,
@@ -2779,6 +2802,39 @@ RETURNING key,job_id
                 row.key,
                 row.job_id
             );
+        }
+    }
+    Ok(())
+}
+
+async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
+    // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
+    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
+        .read()
+        .await
+    {
+        let result = sqlx::query!(
+            "
+DELETE FROM debounce_key
+WHERE job_id IN (SELECT id FROM v2_job_completed)
+RETURNING key,job_id
+            ",
+        )
+        .fetch_all(db)
+        .await?;
+
+        if result.len() > 0 {
+            tracing::warn!(
+                "Cleaned up {} debounce keys for completed jobs (runnable settings v0 not supported by all workers)",
+                result.len()
+            );
+            for row in result {
+                tracing::debug!(
+                    "Debounce key for completed job cleaned up: key: {}, job_id: {:?}",
+                    row.key,
+                    row.job_id
+                );
+            }
         }
     }
     Ok(())

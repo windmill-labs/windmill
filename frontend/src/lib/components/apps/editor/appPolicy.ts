@@ -10,7 +10,7 @@ import type { App } from '../types'
 import {
 	computeS3FileInputPolicy,
 	computeWorkspaceS3FileInputPolicy,
-	computeS3ImageViewerPolicy
+	computeS3FileViewerPolicy
 } from './appUtilsS3'
 import { collectStaticFields, type TriggerableV2 } from './commonAppUtils'
 import type { Policy } from '$lib/gen'
@@ -165,11 +165,16 @@ export async function updatePolicy(app: App, currentPolicy: Policy | undefined):
 	}
 
 	const s3FileKeys = items
-		.filter((x) => (x.data as AppComponent).type === 'imagecomponent')
+		.filter(
+			(x) =>
+				(x.data as AppComponent).type === 'imagecomponent' ||
+				(x.data as AppComponent).type === 'pdfcomponent' ||
+				(x.data as AppComponent).type === 'downloadcomponent'
+		)
 		.map((x) => {
 			const c = x.data as AppComponent
 			const config = c.configuration
-			return computeS3ImageViewerPolicy(config)
+			return computeS3FileViewerPolicy(config)
 		})
 		.filter(Boolean) as { s3_path: string; storage?: string | undefined }[]
 

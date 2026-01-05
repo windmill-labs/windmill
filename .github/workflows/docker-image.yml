@@ -29,6 +29,11 @@ on:
         required: false
         default: false
         type: boolean
+      slim:
+        description: "Build slim image (true, false)"
+        required: false
+        default: false
+        type: boolean
 concurrency:
   group: ${{ github.ref }}
   cancel-in-progress: false
@@ -588,7 +593,7 @@ jobs:
             ${{ steps.meta-ee-public.outputs.labels }}
 
   build_ee_slim:
-    if: ${{ startsWith(github.ref, 'refs/tags/v') }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') }} || ((github.event_name != 'workflow_dispatch') || (github.event.inputs.slim))
     needs: [build_ee]
     runs-on: ubicloud
     steps:
@@ -608,6 +613,7 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee-slim
           tags: |
+            type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
 
@@ -622,7 +628,7 @@ jobs:
         uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           file: "./docker/DockerfileSlimEe"
           tags: |

@@ -17,7 +17,7 @@
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -57,6 +57,7 @@
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { editor as meditor } from 'monaco-editor'
 	import { DynamicInput } from '$lib/utils'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 
 	const {
 		selectionManager,
@@ -139,6 +140,7 @@
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -345,6 +347,11 @@
 	function onJobDone() {
 		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
 	}
+
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
+		() => $workspaceStore
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -458,50 +465,53 @@
 													<AssetsDropdownButton {assets} />
 												{/if}
 											</div>
-											<Editor
-												loadAsync
-												folding
-												path={$pathStore + '/' + flowModule.id}
-												bind:websocketAlive
-												bind:this={editor}
-												class="h-full relative"
-												code={flowModule.value.content}
-												scriptLang={flowModule?.value?.language}
-												automaticLayout={true}
-												cmdEnterAction={async () => {
-													selected = 'test'
-													if (selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
+											<div id="flow-editor-code-section" class="h-full relative">
+												<Editor
+													loadAsync
+													folding
+													path={$pathStore + '/' + flowModule.id}
+													bind:websocketAlive
+													bind:this={editor}
+													class="h-full relative"
+													code={flowModule.value.content}
+													scriptLang={flowModule?.value?.language}
+													automaticLayout={true}
+													cmdEnterAction={async () => {
+														selected = 'test'
+														if (selectedId == flowModule.id) {
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
+															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
-													}
-												}}
-												on:change={async (event) => {
-													const content = event.detail
-													if (flowModule.value.type === 'rawscript') {
-														if (flowModule.value.content !== content) {
-															flowModule.value.content = content
+													}}
+													on:change={async (event) => {
+														const content = event.detail
+														if (flowModule.value.type === 'rawscript') {
+															if (flowModule.value.content !== content) {
+																flowModule.value.content = content
+															}
+															await reload(flowModule)
 														}
-														await reload(flowModule)
-													}
-												}}
-												formatAction={() => {
-													reload(flowModule)
-													saveDraft()
-												}}
-												fixedOverflowWidgets={true}
-												args={Object.entries(flowModule.value.input_transforms).reduce(
-													(acc, [key, obj]) => {
-														acc[key] = obj.type === 'static' ? obj.value : undefined
-														return acc
-													},
-													{}
-												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-												moduleId={flowModule.id}
-											/>
+													}}
+													formatAction={() => {
+														reload(flowModule)
+														saveDraft()
+													}}
+													fixedOverflowWidgets={true}
+													args={Object.entries(flowModule.value.input_transforms).reduce(
+														(acc, [key, obj]) => {
+															acc[key] = obj.type === 'static' ? obj.value : undefined
+															return acc
+														},
+														{}
+													)}
+													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+													moduleId={flowModule.id}
+													preparedAssetsSqlQueries={preparedSqlQueries.current}
+												/>
+											</div>
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
@@ -601,6 +611,7 @@
 														{enableAi}
 														{isAgentTool}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>
 												</PropPickerWrapper>
 											</div>

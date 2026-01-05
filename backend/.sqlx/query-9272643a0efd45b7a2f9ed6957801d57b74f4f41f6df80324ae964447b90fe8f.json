@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT \n                    CASE \n                        WHEN flow_version.id IS NOT NULL THEN\n                            (flow_version.value -> 'flow_env' -> $3) #> $4\n                        ELSE\n                            (root_job.raw_flow -> 'flow_env' -> $3) #> $4\n                    END AS \"flow_env: sqlx::types::Json<Box<RawValue>>\"\n                FROM \n                    v2_job current_job\n                JOIN \n                    v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)\n                    AND root_job.workspace_id = current_job.workspace_id\n                LEFT JOIN\n                    flow_version ON flow_version.id = root_job.runnable_id\n                    AND flow_version.path = root_job.runnable_path\n                    AND flow_version.workspace_id = root_job.workspace_id\n            WHERE \n                    current_job.id = $1 AND \n                    current_job.workspace_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "flow_env: sqlx::types::Json<Box<RawValue>>",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9272643a0efd45b7a2f9ed6957801d57b74f4f41f6df80324ae964447b90fe8f"
+}

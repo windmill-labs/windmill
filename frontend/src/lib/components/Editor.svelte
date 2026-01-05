@@ -1,6 +1,7 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import { typescriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -40,7 +41,13 @@
 	import { editorConfig, updateOptions } from '$lib/editorUtils'
 	import { createHash as randomHash } from '$lib/editorLangUtils'
 	import { workspaceStore } from '$lib/stores'
-	import { type Preview, ResourceService, type ScriptLang, UserService } from '$lib/gen'
+	import {
+		type Preview,
+		ResourceService,
+		type ScriptLang,
+		UserService,
+		WorkspaceService
+	} from '$lib/gen'
 	import type { Text } from 'yjs'
 	import {
 		initializeVscode,
@@ -48,8 +55,8 @@
 		MONACO_Y_PADDING
 	} from '$lib/components/vscode'
 
-	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	// import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import {
 		editor as meditor,
@@ -72,8 +79,9 @@
 		SNOWFLAKE_TYPES
 	} from '$lib/consts'
 	import { setupTypeAcquisition, type DepsToGet } from '$lib/ata/index'
-	import { initWasmTs } from '$lib/infer'
+	import { initWasmTs, type InferAssetsSqlQueryDetails } from '$lib/infer'
 	import { initVim } from './monaco_keybindings'
+	import { updateSqlQueriesInWorker, waitForWorkerInitialization } from './sqlTypeService'
 	import { parseTypescriptDeps } from '$lib/relative_imports'
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
@@ -86,6 +94,7 @@
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
+	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
@@ -95,6 +104,9 @@
 	import { setMonacoTypescriptOptions } from './monacoLanguagesOptions'
 	import { copilotInfo } from '$lib/aiStore'
 	import { getDbSchemas } from './apps/components/display/dbtable/metadata'
+	import { rawAppLintStore, type MonacoLintError } from './raw_apps/lintStore'
+	import { MarkerSeverity } from 'monaco-editor'
+	import { resource, useDebounce, watch } from 'runed'
 	// import EditorTheme from './EditorTheme.svelte'
 
 	let divEl: HTMLDivElement | null = $state(null)
@@ -126,6 +138,10 @@
 		class?: string | undefined
 		moduleId?: string
 		enablePreprocessorSnippet?: boolean
+		/** When set, enables raw app lint collection mode and reports Monaco markers to the lint store under this key */
+		rawAppRunnableKey?: string | undefined
+		// Used to provide typed queries in TypeScript when detecting assets
+		preparedAssetsSqlQueries?: InferAssetsSqlQueryDetails[] | undefined
 	}
 
 	let {
@@ -153,7 +169,9 @@
 		key = undefined,
 		class: clazz = undefined,
 		moduleId = undefined,
-		enablePreprocessorSnippet = false
+		enablePreprocessorSnippet = false,
+		rawAppRunnableKey = undefined,
+		preparedAssetsSqlQueries
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -181,7 +199,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
-	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
@@ -346,6 +364,25 @@
 				editor.pushUndoStop()
 			}
 		}
+		// Update lint diagnostics after code change
+		updateRawAppLintDiagnostics()
+	}
+
+	/** Collect Monaco markers and update the raw app lint store */
+	function updateRawAppLintDiagnostics(): void {
+		if (!rawAppRunnableKey || !model) return
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const lintErrors: MonacoLintError[] = markers
+			.filter((m) => m.severity === MarkerSeverity.Error || m.severity === MarkerSeverity.Warning)
+			.map((m) => ({
+				message: m.message,
+				severity: m.severity === MarkerSeverity.Error ? 'error' : 'warning',
+				startLineNumber: m.startLineNumber,
+				startColumn: m.startColumn,
+				endLineNumber: m.endLineNumber,
+				endColumn: m.endColumn
+			}))
+		rawAppLintStore.setDiagnostics(rawAppRunnableKey, lintErrors)
 	}
 
 	function updateCode() {
@@ -427,6 +464,24 @@
 
 	export function getScriptLang(): string | undefined {
 		return scriptLang
+	}
+
+	/** Get lint errors and warnings from the Monaco editor */
+	export function getLintErrors(): ScriptLintResult {
+		if (!model) {
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+		}
+
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
+		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
+
+		return {
+			errorCount: errors.length,
+			warningCount: warnings.length,
+			errors,
+			warnings
+		}
 	}
 
 	let command: IDisposable | undefined = undefined
@@ -552,7 +607,7 @@
 		sqlSchemaCompletor?.dispose()
 	}
 	function disposeGaphqlService() {
-		graphqlService = undefined
+		// graphqlService = undefined
 	}
 
 	function addDBSchemaCompletions() {
@@ -562,14 +617,16 @@
 		}
 		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
-			graphqlService ||= initializeMode()
-			console.log('setting schema config', schema)
-			graphqlService?.setSchemaConfig([
-				{
-					uri: 'my-schema.graphql',
-					introspectionJSON: schema
-				}
-			])
+			//graphql depreciated until https://github.com/graphql/graphiql/issues/4104 is fixed with monaco > 0.52.2
+			// languages.register({ id: 'graphql' })
+			// graphqlService ||= initializeMode()
+			// console.log('setting schema config', schema)
+			// graphqlService?.setSchemaConfig([
+			// 	{
+			// 		uri: 'my-schema.graphql',
+			// 		introspectionJSON: schema
+			// 	}
+			// ])
 		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
@@ -1322,7 +1379,53 @@
 
 		keepModelAroundToAvoidDisposalOfWorkers()
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				try {
+					// Use Clipboard API to read text, then insert via Monaco's API
+					const text = await navigator.clipboard.readText()
+					if (text && editor) {
+						const selection = editor.getSelection()
+						if (selection) {
+							editor.executeEdits('paste', [
+								{
+									range: selection,
+									text: text,
+									forceMoveMarkers: true
+								}
+							])
+						}
+					}
+				} catch (e) {
+					// Clipboard API failed, try execCommand as fallback
+					document.execCommand('paste')
+				}
+			})
+		}
+
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
+
+		// Raw app lint collection: listen for marker changes and report to store
+		let markerChangeDisposable: IDisposable | undefined = undefined
+		if (rawAppRunnableKey && model) {
+			markerChangeDisposable = meditor.onDidChangeMarkers((uris) => {
+				if (!model || !rawAppRunnableKey) return
+				const modelUri = model.uri.toString()
+				if (uris.some((u) => u.toString() === modelUri)) {
+					updateRawAppLintDiagnostics()
+				}
+			})
+			// Initial lint diagnostics collection
+			updateRawAppLintDiagnostics()
+		}
 
 		let ataModel: number | undefined = undefined
 
@@ -1443,6 +1546,9 @@
 				closeWebsockets()
 				vimDisposable?.dispose()
 				closeAIInlineWidget()
+				markerChangeDisposable?.dispose()
+				// Note: We don't clear lint diagnostics on dispose - they persist across runnable switches
+				// Diagnostics are only updated when Monaco reports new markers for this runnable
 				console.log('disposing editor')
 				model?.dispose()
 				editor && editor.dispose()
@@ -1455,6 +1561,42 @@
 
 	export async function fetchPackageDeps(deps: DepsToGet) {
 		ata?.(deps)
+	}
+
+	let customTsTypesData = resource([() => lang], async () => {
+		if (lang !== 'typescript') return undefined
+		let datatables = await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+		let ducklakes = await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+		return { datatables, ducklakes }
+	})
+	function setTypescriptCustomTypes() {
+		if (!customTsTypesData.current) return
+		if (lang !== 'typescript') return
+
+		const ducklakeNames = customTsTypesData.current.ducklakes
+		const datatableNames = customTsTypesData.current.datatables
+
+		const ducklakeNameType = ducklakeNames.length
+			? ducklakeNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const datatableNameType = datatableNames.length
+			? datatableNames.map((name) => JSON.stringify(name)).join(' | ')
+			: 'string'
+		const isDucklakeOptional = ducklakeNames.includes('main')
+		const isDataTableOptional = datatableNames.includes('main')
+
+		let disposeTs = typescriptDefaults.addExtraLib(
+			`export {};
+			declare module 'windmill-client' {
+				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
+				export function ducklake(name${isDucklakeOptional ? '?' : ''}: ${ducklakeNameType}): SqlTemplateFunction;
+				export function datatable(name${isDataTableOptional ? '?' : ''}: ${datatableNameType}): DatatableSqlTemplateFunction;
+			}`,
+			'file:///custom_wmill_types.d.ts'
+		)
+		return () => {
+			disposeTs.dispose()
+		}
 	}
 
 	async function setTypescriptRTNamespace() {
@@ -1474,15 +1616,16 @@
 				scriptLang === 'bunnative' ? 'bun' : scriptLang
 			)
 
-			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
+			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 
 	async function setTypescriptExtraLibs() {
 		if (extraLib) {
 			const uri = mUri.parse('file:///extraLib.d.ts')
-			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+			typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
+
 		if (
 			lang === 'typescript' &&
 			(scriptLang == 'bun' || scriptLang == 'tsx' || scriptLang == 'bunnative') &&
@@ -1494,7 +1637,7 @@
 				const path = 'file://' + _path
 				let uri = mUri.parse(path)
 				console.log('adding library to runtime', path)
-				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				typescriptDefaults.addExtraLib(code, path)
 				try {
 					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 				} catch (e) {
@@ -1763,6 +1906,48 @@
 			lineNumbers: $relativeLineNumbers ? 'relative' : 'on'
 		})
 	})
+
+	let isTsWorkerInitialized = resource(
+		[() => lang, () => initialized, () => filePath],
+		async () => {
+			if (lang !== 'typescript' || !initialized) return false
+			console.log('[Editor.isTsWorkerInitialized] Waiting for TS Worker...')
+			await waitForWorkerInitialization(filePath)
+			console.log('[Editor.isTsWorkerInitialized] TS Worker initialized successfully')
+			return true
+		}
+	)
+
+	// Update SQL query type information in the TypeScript worker
+	// This enables TypeScript to show proper types for SQL template literals
+	let handleSqlTypingInTs = useDebounce(function handleSqlTypingInTs() {
+		if (lang !== 'typescript' || !isTsWorkerInitialized.current) return
+		if (!preparedAssetsSqlQueries || preparedAssetsSqlQueries.length === 0) {
+			// Clear SQL queries if none exist
+			updateSqlQueriesInWorker(filePath, [])
+			return
+		}
+
+		// Send SQL query information to the custom TypeScript worker
+		// The worker will inject type parameters into the code that TypeScript analyzes
+
+		// Worker async function call freezes if we pass a Proxy, $state.snapshot() is very important here
+		updateSqlQueriesInWorker(filePath, $state.snapshot(preparedAssetsSqlQueries))
+	}, 250)
+
+	watch(
+		[
+			() => preparedAssetsSqlQueries,
+			() => lang,
+			() => filePath,
+			() => isTsWorkerInitialized.current
+		],
+		() => {
+			handleSqlTypingInTs()
+		}
+	)
+
+	watch([() => customTsTypesData.current], setTypescriptCustomTypes)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />

@@ -30,9 +30,19 @@
 		id: string
 		appPath: string
 		lastDeployedCode?: string | undefined
+		/** Called when code is selected in the editor */
+		onSelectionChange?: (
+			selection: {
+				content: string
+				startLine: number
+				endLine: number
+				startColumn: number
+				endColumn: number
+			} | null
+		) => void
 	}
 
-	let { runnable = $bindable(), id, appPath }: Props = $props()
+	let { runnable = $bindable(), id, appPath, onSelectionChange }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -131,6 +141,7 @@
 					}}
 					on:delete
 					path={appPath}
+					{onSelectionChange}
 				/>
 			{:else if isRunnableByPath(runnable)}
 				<InlineScriptRunnableByPath

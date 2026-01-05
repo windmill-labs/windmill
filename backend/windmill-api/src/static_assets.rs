@@ -19,7 +19,7 @@ use mime_guess::mime;
 #[cfg(feature = "static_frontend")]
 use rust_embed::RustEmbed;
 
-// Content Security Policy configuration  
+// Content Security Policy configuration
 #[cfg(feature = "static_frontend")]
 lazy_static::lazy_static! {
     static ref CSP_POLICY: String = std::env::var("CSP_POLICY").unwrap_or_default();
@@ -38,15 +38,24 @@ pub struct StaticFile(Uri);
 
 impl IntoResponse for StaticFile {
     fn into_response(self) -> Response<Body> {
-        let path = self.0.path().trim_start_matches('/');
-        serve_path(path)
+        let original_path = self.0.path();
+        let path = original_path.trim_start_matches('/');
+        serve_path(path, original_path)
     }
 }
 
 #[cfg(feature = "static_frontend")]
 const TWO_HUNDRED: &str = "200.html";
 
-fn serve_path(path: &str) -> Response<Body> {
+/// Check if the original path requires cross-origin isolation headers
+/// These headers are needed for SharedArrayBuffer and TypeScript workers
+/// Only enabled for /apps_raw paths (raw app editor)
+#[cfg(feature = "static_frontend")]
+fn needs_cross_origin_isolation(original_path: &str) -> bool {
+    original_path.starts_with("/apps_raw/") || original_path.starts_with("/ui_builder/")
+}
+
+fn serve_path(path: &str, original_path: &str) -> Response<Body> {
     if path.starts_with("api/") {
         return Response::builder().status(404).body(Body::empty()).unwrap();
     }
@@ -59,7 +68,16 @@ fn serve_path(path: &str) -> Response<Body> {
             let mut res = Response::builder()
                 .header(header::CONTENT_TYPE, mime.as_ref())
                 .header(header::ACCESS_CONTROL_ALLOW_ORIGIN, "*");
-            
+
+            // Add cross-origin isolation headers only for paths that need them
+            // (apps_raw editor needs SharedArrayBuffer for TypeScript workers)
+            if needs_cross_origin_isolation(original_path) {
+                res = res
+                    .header("Cross-Origin-Opener-Policy", "same-origin")
+                    .header("Cross-Origin-Embedder-Policy", "require-corp")
+                    .header("Cross-Origin-Resource-Policy", "cross-origin");
+            }
+
             // Add Content-Security-Policy header for static assets when policy is set
             if !CSP_POLICY.is_empty() {
                 if let Ok(header_value) = HeaderValue::try_from(CSP_POLICY.as_str()) {
@@ -84,11 +102,12 @@ fn serve_path(path: &str) -> Response<Body> {
         None if path.starts_with("_app/") => {
             Response::builder().status(404).body(Body::empty()).unwrap()
         }
-        None => serve_path(TWO_HUNDRED),
+        None => serve_path(TWO_HUNDRED, original_path),
     }
 
     #[cfg(not(feature = "static_frontend"))]
     {
+        let _ = original_path; // suppress unused warning
         Response::builder().status(404).body(Body::empty()).unwrap()
     }
 }

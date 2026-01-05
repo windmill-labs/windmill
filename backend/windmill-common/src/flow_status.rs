@@ -72,12 +72,16 @@ pub struct RestartedFrom {
     pub flow_job_id: Uuid,
     pub step_id: String,
     pub branch_or_iteration_n: Option<usize>,
+    pub flow_version: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Iterator {
     pub index: usize,
-    pub itered: Vec<Box<serde_json::value::RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub itered: Option<Vec<Box<serde_json::value::RawValue>>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub itered_len: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -200,6 +204,7 @@ pub enum AgentAction {
         arguments: Option<serde_json::Value>,
     },
     Message {},
+    WebSearch {},
 }
 
 #[derive(Serialize, Debug, Clone)]

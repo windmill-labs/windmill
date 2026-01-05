@@ -21,6 +21,7 @@
 	export let schema: any | undefined = undefined
 
 	export let stepDetail: FlowModule | string | undefined = undefined
+	export let jobScriptHash: string | undefined = undefined
 	let codeViewer: Drawer
 </script>
 
@@ -219,7 +220,7 @@
 					></iframe>
 				</div>
 			{:else}
-				<FlowModuleScript path={stepDetail.value.path} />
+				<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
 			{/if}
 		{:else if stepDetail.value.type == 'aiagent'}
 			<div class="text-2xs">

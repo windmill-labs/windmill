@@ -1,18 +1,23 @@
-import { ScriptService, type FlowModule, type RawScript, type Script, JobService } from '$lib/gen'
-import { emitUiIntent } from './uiIntents'
+import {
+	ScriptService,
+	type FlowModule,
+	type InputTransform,
+	type RawScript,
+	type Script,
+	JobService
+} from '$lib/gen'
 import type {
 	ChatCompletionSystemMessageParam,
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
-import YAML from 'yaml'
 import { z } from 'zod'
 import uFuzzy from '@leeoniya/ufuzzy'
-import { emptySchema, emptyString } from '$lib/utils'
+import { emptyString } from '$lib/utils'
 import {
+	createDbSchemaTool,
 	getFormattedResourceTypes,
 	getLangContext,
-	SUPPORTED_CHAT_SCRIPT_LANGUAGES,
-	createDbSchemaTool
+	SUPPORTED_CHAT_SCRIPT_LANGUAGES
 } from '../script/core'
 import {
 	createSearchHubScriptsTool,
@@ -23,59 +28,60 @@ import {
 	buildTestRunArgs,
 	buildContextString,
 	applyCodePiecesToFlowModules,
-	findModuleById
+	findModuleById,
+	SPECIAL_MODULE_IDS,
+	formatScriptLintResult,
+	type ScriptLintResult
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
+import { inlineScriptStore, extractAndReplaceInlineScripts } from './inlineScriptsUtils'
+import { flowModulesSchema } from './openFlowZod'
+import { collectAllModuleIdsFromArray } from './utils'
+import { getFlowPrompt } from '$system_prompts'
 
-export type AIModuleAction = 'added' | 'modified' | 'removed' | 'shadowed' | undefined
-
+/**
+ * Helper interface for AI chat flow operations
+ *
+ * Note: AI chat is only responsible for setting the beforeFlow snapshot when making changes.
+ * Accept/reject operations are exposed here but implemented via flowDiffManager.
+ */
 export interface FlowAIChatHelpers {
 	// flow context
 	getFlowAndSelectedId: () => { flow: ExtendedOpenFlow; selectedId: string }
-	// flow apply/reject
-	getPreviewFlow: () => ExtendedOpenFlow
-	hasDiff: () => boolean
-	setLastSnapshot: (snapshot: ExtendedOpenFlow) => void
-	showModuleDiff: (id: string) => void
-	getModuleAction: (id: string) => AIModuleAction | undefined
-	revertModuleAction: (id: string) => void
-	acceptModuleAction: (id: string) => void
-	acceptAllModuleActions: () => void
-	rejectAllModuleActions: () => void
-	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
-	// ai chat tools
-	insertStep: (location: InsertLocation, step: NewStep) => Promise<string>
-	removeStep: (id: string) => void
-	getStepInputs: (id: string) => Promise<Record<string, any>>
-	setStepInputs: (id: string, inputs: string) => Promise<void>
-	getFlowInputsSchema: () => Promise<Record<string, any>>
-	setFlowInputsSchema: (inputs: Record<string, any>) => Promise<void>
-	selectStep: (id: string) => void
-	getStepCode: (id: string) => string
 	getModules: (id?: string) => FlowModule[]
-	setBranchPredicate: (id: string, branchIndex: number, expression: string) => Promise<void>
-	addBranch: (id: string) => Promise<void>
-	removeBranch: (id: string, branchIndex: number) => Promise<void>
-	setForLoopIteratorExpression: (id: string, expression: string) => Promise<void>
-	setForLoopOptions: (
-		id: string,
-		opts: {
-			skip_failures?: boolean | null
-			parallel?: boolean | null
-			parallelism?: number | null
-		}
-	) => Promise<void>
-	setModuleControlOptions: (
-		id: string,
-		opts: {
-			stop_after_if?: boolean | null
-			stop_after_if_expr?: string | null
-			skip_if?: boolean | null
-			skip_if_expr?: string | null
-		}
-	) => Promise<void>
+
+	// snapshot management (AI sets this when making changes)
+	/** Set the before flow snapshot */
+	setSnapshot: (snapshot: ExtendedOpenFlow) => void
+	/** Revert the entire flow to a previous snapshot */
+	revertToSnapshot: (snapshot?: ExtendedOpenFlow) => void
+
+	// ai chat tools
 	setCode: (id: string, code: string) => Promise<void>
+	setFlowJson: (
+		modules: FlowModule[] | undefined,
+		schema: Record<string, any> | undefined
+	) => Promise<void>
+	getFlowInputsSchema: () => Promise<Record<string, any>>
+	/** Update exprsToSet store for InputTransformForm components (only if module is selected) */
+	updateExprsToSet: (id: string, inputTransforms: Record<string, InputTransform>) => void
+
+	// accept/reject operations (via flowDiffManager)
+	/** Accept all pending module changes */
+	acceptAllModuleActions: () => void
+	/** Reject all pending module changes */
+	rejectAllModuleActions: () => void
+	/** Check if there are pending changes requiring user approval */
+	hasPendingChanges: () => boolean
+	/** Select a step in the flow */
+	selectStep: (id: string) => void
+
+	/** Run a test of the current flow using the UI's preview mechanism */
+	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
+
+	/** Get lint errors from a specific module (focuses it first, waits for Monaco to analyze) */
+	getLintErrors: (moduleId: string) => Promise<ScriptLintResult>
 }
 
 const searchScriptsSchema = z.object({
@@ -87,280 +93,47 @@ const searchScriptsSchema = z.object({
 const searchScriptsToolDef = createToolDef(
 	searchScriptsSchema,
 	'search_scripts',
-	'Search for scripts in the workspace'
+	'Search for scripts in the workspace. Returns array of {path, summary} objects.'
 )
 
 const langSchema = z.enum(
 	SUPPORTED_CHAT_SCRIPT_LANGUAGES as [RawScript['language'], ...RawScript['language'][]]
 )
 
-const newStepSchema = z.union([
-	z
-		.object({
-			type: z.literal('rawscript'),
-			language: langSchema.describe(
-				'The language to use for the code, default to bun if none specified'
-			),
-			summary: z.string().describe('The summary of what the step does, in 3-5 words')
-		})
-		.describe('Add a raw script step at the specified location'),
-	z
-		.object({
-			type: z.literal('script'),
-			path: z.string().describe('The path of the script to use for the step.')
-		})
-		.describe('Add a script step at the specified location'),
-	z
-		.object({
-			type: z.literal('forloop')
-		})
-		.describe('Add a for loop at the specified location'),
-	z
-		.object({
-			type: z.literal('branchall')
-		})
-		.describe('Add a branch all at the specified location: all branches will be executed'),
-	z
-		.object({
-			type: z.literal('branchone')
-		})
-		.describe(
-			'Add a branch one at the specified location: only the first branch that evaluates to true will be executed'
-		)
-])
-
-type NewStep = z.infer<typeof newStepSchema>
-
-const insertLocationSchema = z.union([
-	z
-		.object({
-			type: z.literal('after'),
-			afterId: z.string().describe('The id of the step after which the new step will be added.')
-		})
-		.describe('Add a step after the given step id'),
-	z
-		.object({
-			type: z.literal('start')
-		})
-		.describe('Add a step at the start of the flow'),
-	z
-		.object({
-			type: z.literal('start_inside_forloop'),
-			inside: z
-				.string()
-				.describe('The id of the step inside which the new step will be added (forloop step only)')
-		})
-		.describe('Add a step at the start of the given step (forloop step only)'),
-	z
-		.object({
-			type: z.literal('start_inside_branch'),
-			inside: z
-				.string()
-				.describe(
-					'The id of the step inside which the new step will be added (branchone or branchall only).'
-				),
-			branchIndex: z
-				.number()
-				.describe(
-					'The index of the branch inside the forloop step, starting at 0. For the default branch (branchone only), the branch index is -1.'
-				)
-		})
-		.describe(
-			'Add a step at the start of a given branch of the given step (branchone or branchall only)'
-		),
-	z
-		.object({
-			type: z.literal('preprocessor')
-		})
-		.describe('Insert a preprocessor step (runs before the first step when triggered externally)'),
-	z
-		.object({
-			type: z.literal('failure')
-		})
-		.describe('Insert a failure step (only executed when the flow fails)')
-])
-
-type InsertLocation = z.infer<typeof insertLocationSchema>
-
-const addStepSchema = z.object({
-	location: insertLocationSchema,
-	step: newStepSchema
+const resourceTypeToolSchema = z.object({
+	query: z.string().describe('The query to search for, e.g. stripe, google, etc..'),
+	language: langSchema.describe(
+		'The programming language the code using the resource type will be written in'
+	)
 })
 
-const addStepToolDef = createToolDef(
-	addStepSchema,
-	'add_step',
-	'Add a step at the specified location'
+const resourceTypeToolDef = createToolDef(
+	resourceTypeToolSchema,
+	'resource_type',
+	'Search for resource types (e.g., postgresql, stripe). Returns formatted resource type definitions with usage examples.'
 )
 
-const removeStepSchema = z.object({
-	id: z.string().describe('The id of the step to remove')
+const getInstructionsForCodeGenerationToolSchema = z.object({
+	language: langSchema.describe('The programming language the code will be written in')
 })
 
-const removeStepToolDef = createToolDef(
-	removeStepSchema,
-	'remove_step',
-	'Remove the step with the given id'
+const getInstructionsForCodeGenerationToolDef = createToolDef(
+	getInstructionsForCodeGenerationToolSchema,
+	'get_instructions_for_code_generation',
+	'Get instructions for code generation for a raw script step'
 )
 
-const setForLoopIteratorExpressionSchema = z.object({
-	id: z.string().describe('The id of the forloop step to set the iterator expression for'),
-	expression: z.string().describe('The JavaScript expression to set for the iterator')
+// Using string for modules and schema because Gemini-2.5-flash performs better with strings (MALFORMED_FUNCTION_CALL errors happens more often with objects)
+const setFlowJsonToolSchema = z.object({
+	modules: z.string().optional().nullable().describe('JSON string containing the flow modules'),
+	schema: z.string().optional().nullable().describe('JSON string containing the flow input schema')
 })
 
-const setForLoopIteratorExpressionToolDef = createToolDef(
-	setForLoopIteratorExpressionSchema,
-	'set_forloop_iterator_expression',
-	'Set the iterator JavaScript expression for the given forloop step'
-)
-
-const setForLoopOptionsSchema = z.object({
-	id: z.string().describe('The id of the forloop step to configure'),
-	skip_failures: z
-		.boolean()
-		.nullable()
-		.optional()
-		.describe('Whether to skip failures in the loop (null to not change)'),
-	parallel: z
-		.boolean()
-		.nullable()
-		.optional()
-		.describe('Whether to run iterations in parallel (null to not change)'),
-	parallelism: z
-		.number()
-		.int()
-		.min(1)
-		.nullable()
-		.optional()
-		.describe('Maximum number of parallel iterations (null to not change)')
-})
-
-const setForLoopOptionsToolDef = createToolDef(
-	setForLoopOptionsSchema,
-	'set_forloop_options',
-	'Set advanced options for a forloop step: skip_failures, parallel, and parallelism'
-)
-
-const setModuleControlOptionsSchema = z.object({
-	id: z.string().describe('The id of the module to configure'),
-	stop_after_if: z
-		.boolean()
-		.nullable()
-		.optional()
-		.describe('Early stop condition (true to set, false to clear, null to not change)'),
-	stop_after_if_expr: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			'JavaScript expression for early stop condition. Can use `flow_input` or `result`. `result` is the result of the step. `results.<step_id>` is not supported, do not use it. Only used if stop_after_if is true. Example: `flow_input.x > 10` or `result === "failure"`'
-		),
-	skip_if: z
-		.boolean()
-		.nullable()
-		.optional()
-		.describe('Skip condition (true to set, false to clear, null to not change)'),
-	skip_if_expr: z
-		.string()
-		.nullable()
-		.optional()
-		.describe(
-			'JavaScript expression for skip condition. Can use `flow_input` or `results.<step_id>`. Only used if skip_if is true. Example: `flow_input.x > 10` or `results.a === "failure"`'
-		)
-})
-
-const setModuleControlOptionsToolDef = createToolDef(
-	setModuleControlOptionsSchema,
-	'set_module_control_options',
-	'Set control options for any module: stop_after_if (early stop) and skip_if (conditional skip)'
-)
-
-const setBranchPredicateSchema = z.object({
-	id: z.string().describe('The id of the branchone step to set the predicates for'),
-	branchIndex: z
-		.number()
-		.describe('The index of the branch to set the predicate for, starting at 0.'),
-	expression: z.string().describe('The JavaScript expression to set for the predicate')
-})
-const setBranchPredicateToolDef = createToolDef(
-	setBranchPredicateSchema,
-	'set_branch_predicate',
-	'Set the predicates using a JavaScript expression for the given branch, only applicable for branchone branches.'
-)
-
-const addBranchSchema = z.object({
-	id: z.string().describe('The id of the step to add the branch to')
-})
-const addBranchToolDef = createToolDef(
-	addBranchSchema,
-	'add_branch',
-	'Add a branch to the given step, applicable to branchall and branchone steps'
-)
-
-const removeBranchSchema = z.object({
-	id: z.string().describe('The id of the step to remove the branch from'),
-	branchIndex: z.number().describe('The index of the branch to remove, starting at 0')
-})
-const removeBranchToolDef = createToolDef(
-	removeBranchSchema,
-	'remove_branch',
-	'Remove the branch with the given index from the given step, applicable to branchall and branchone steps.'
-)
-
-const getStepInputsSchema = z.object({
-	id: z.string().describe('The id of the step to get the inputs for')
-})
-
-const getStepInputsToolDef = createToolDef(
-	getStepInputsSchema,
-	'get_step_inputs',
-	'Get the inputs for the given step id'
-)
-
-const setStepInputsSchema = z.object({
-	id: z.string().describe('The id of the step to set the inputs for'),
-	inputs: z.string().describe('The inputs to set for the step')
-})
-
-const setStepInputsToolDef = createToolDef(
-	setStepInputsSchema,
-	'set_step_inputs',
-	`Set all inputs for the given step id. 
-
-Return a list of input. Each input should be defined by its input name enclosed in double square brackets ([[inputName]]), followed by a JavaScript expression that sets its value.
-The value expression can span multiple lines. Separate each input block with a blank line.
-
-Example:
-
-[[input1]]
-\`Hello, \${results.a}\`
-
-[[input2]]
-flow_input.iter.value
-
-[[input3]]
-flow_input.x`
-)
-
-const setFlowInputsSchemaSchema = z.object({
-	schema: z.string().describe('JSON string of the flow inputs schema (draft 2020-12)')
-})
-
-const setFlowInputsSchemaToolDef = createToolDef(
-	setFlowInputsSchemaSchema,
-	'set_flow_inputs_schema',
-	'Set the flow inputs schema. **Overrides the current schema.**'
-)
-
-const setCodeSchema = z.object({
-	id: z.string().describe('The id of the step to set the code for'),
-	code: z.string().describe('The code to apply')
-})
-
-const setCodeToolDef = createToolDef(
-	setCodeSchema,
-	'set_code',
-	'Set the code for the current step.'
+const setFlowJsonToolDef = createToolDef(
+	setFlowJsonToolSchema,
+	'set_flow_json',
+	'Set the entire flow by providing the complete flow object. This replaces all existing modules and schema.',
+	{ strict: false }
 )
 
 class WorkspaceScriptsSearch {
@@ -374,7 +147,7 @@ class WorkspaceScriptsSearch {
 
 	private async init(workspace: string) {
 		this.scripts = await ScriptService.listScripts({
-			workspace,
+			workspace
 		})
 		this.workspace = workspace
 	}
@@ -404,36 +177,10 @@ class WorkspaceScriptsSearch {
 	}
 }
 
-const resourceTypeToolSchema = z.object({
-	query: z.string().describe('The query to search for, e.g. stripe, google, etc..'),
-	language: langSchema.describe(
-		'The programming language the code using the resource type will be written in'
-	)
-})
-
-const resourceTypeToolDef = createToolDef(
-	resourceTypeToolSchema,
-	'resource_type',
-	'Search for resource types'
-)
-
-const getInstructionsForCodeGenerationToolSchema = z.object({
-	id: z.string().describe('The id of the step to generate code for'),
-	language: langSchema.describe('The programming language the code will be written in')
-})
-
-const getInstructionsForCodeGenerationToolDef = createToolDef(
-	getInstructionsForCodeGenerationToolSchema,
-	'get_instructions_for_code_generation',
-	'Get instructions for code generation for a raw script step'
-)
-
 // Will be overridden by setSchema
 const testRunFlowSchema = z.object({
 	args: z
 		.object({})
-		.nullable()
-		.optional()
 		.describe('Arguments to pass to the flow (optional, uses default flow inputs if not provided)')
 })
 
@@ -455,7 +202,41 @@ const testRunStepSchema = z.object({
 const testRunStepToolDef = createToolDef(
 	testRunStepSchema,
 	'test_run_step',
-	'Execute a test run of a specific step in the flow'
+	'Execute a test run of a specific step in the flow',
+	{ strict: false }
+)
+
+const inspectInlineScriptSchema = z.object({
+	moduleId: z
+		.string()
+		.describe('The ID of the module whose inline script content you want to inspect')
+})
+
+const inspectInlineScriptToolDef = createToolDef(
+	inspectInlineScriptSchema,
+	'inspect_inline_script',
+	'Inspect the full content of an inline script. Use this to view the actual script code before making changes with set_module_code.'
+)
+
+const setModuleCodeSchema = z.object({
+	moduleId: z.string().describe('The ID of the module to set code for'),
+	code: z.string().describe('The full script code content')
+})
+
+const setModuleCodeToolDef = createToolDef(
+	setModuleCodeSchema,
+	'set_module_code',
+	'Set or modify the code for an existing inline script module. Use this for quick code-only changes. The module must already exist in the flow.'
+)
+
+const getLintErrorsSchema = z.object({
+	module_id: z.string().describe('The ID of the module to get lint errors for.')
+})
+
+const getLintErrorsToolDef = createToolDef(
+	getLintErrorsSchema,
+	'get_lint_errors',
+	'Get lint errors and warnings from a rawscript module. Pass module_id to focus a specific module and check its errors. ALWAYS call this for EACH module where you modified inline script code.'
 )
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
@@ -483,229 +264,6 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
-		def: addStepToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = addStepSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content:
-					parsedArgs.location.type === 'after'
-						? `Adding a step after step '${parsedArgs.location.afterId}'`
-						: parsedArgs.location.type === 'start'
-							? 'Adding a step at the start'
-							: parsedArgs.location.type === 'start_inside_forloop'
-								? `Adding a step at the start of the forloop step '${parsedArgs.location.inside}'`
-								: parsedArgs.location.type === 'start_inside_branch'
-									? `Adding a step at the start of the branch ${parsedArgs.location.branchIndex + 1} of step '${parsedArgs.location.inside}'`
-									: parsedArgs.location.type === 'preprocessor'
-										? 'Adding a preprocessor step'
-										: parsedArgs.location.type === 'failure'
-											? 'Adding a failure step'
-											: 'Adding a step'
-			})
-			const id = await helpers.insertStep(parsedArgs.location, parsedArgs.step)
-			helpers.selectStep(id)
-
-			toolCallbacks.setToolStatus(toolId, { content: `Added step '${id}'` })
-
-			return `Step ${id} added. Here is the updated flow, make sure to take it into account when adding another step:\n${YAML.stringify(helpers.getModules())}`
-		}
-	},
-	{
-		def: removeStepToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Removing step ${args.id}...` })
-			const parsedArgs = removeStepSchema.parse(args)
-			helpers.removeStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Removed step '${parsedArgs.id}'` })
-			return `Step '${parsedArgs.id}' removed. Here is the updated flow:\n${YAML.stringify(helpers.getModules())}`
-		}
-	},
-	{
-		def: getStepInputsToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Getting step ${args.id} inputs...` })
-			const parsedArgs = getStepInputsSchema.parse(args)
-			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Retrieved step '${parsedArgs.id}' inputs` })
-			return YAML.stringify(inputs)
-		}
-	},
-	{
-		def: setStepInputsToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: `Setting step ${args.id} inputs...` })
-			const parsedArgs = setStepInputsSchema.parse(args)
-			await helpers.setStepInputs(parsedArgs.id, parsedArgs.inputs)
-			helpers.selectStep(parsedArgs.id)
-			const inputs = await helpers.getStepInputs(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Set step '${parsedArgs.id}' inputs` })
-			return `Step '${parsedArgs.id}' inputs set. New inputs:\n${YAML.stringify(inputs)}`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting step inputs...' })
-		}
-	},
-	{
-		def: setFlowInputsSchemaToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
-			const parsedArgs = setFlowInputsSchemaSchema.parse(args)
-			const schema = JSON.parse(parsedArgs.schema)
-			await helpers.setFlowInputsSchema(schema)
-			helpers.selectStep('Input')
-			const updatedSchema = await helpers.getFlowInputsSchema()
-			toolCallbacks.setToolStatus(toolId, { content: 'Set flow inputs schema' })
-			return `Flow inputs schema set. New schema:\n${JSON.stringify(updatedSchema)}`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting flow inputs schema...' })
-		}
-	},
-	{
-		def: getInstructionsForCodeGenerationToolDef,
-		fn: async ({ args, toolId, toolCallbacks }) => {
-			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
-			const langContext = getLangContext(parsedArgs.language, {
-				allowResourcesFetch: true,
-				isPreprocessor: parsedArgs.id === 'preprocessor'
-			})
-			toolCallbacks.setToolStatus(toolId, {
-				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
-			})
-			return langContext
-		}
-	},
-	{
-		def: setCodeToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setCodeSchema.parse(args)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Setting code for step '${parsedArgs.id}'...`
-			})
-			await helpers.setCode(parsedArgs.id, parsedArgs.code)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Set code for step '${parsedArgs.id}'` })
-			return `Step code set`
-		},
-		preAction: ({ toolCallbacks, toolId }) => {
-			toolCallbacks.setToolStatus(toolId, { content: 'Setting code for step...' })
-		}
-	},
-	{
-		def: setBranchPredicateToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setBranchPredicateSchema.parse(args)
-			await helpers.setBranchPredicate(parsedArgs.id, parsedArgs.branchIndex, parsedArgs.expression)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Set predicate of branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			})
-			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' predicate set`
-		}
-	},
-	{
-		def: addBranchToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = addBranchSchema.parse(args)
-			await helpers.addBranch(parsedArgs.id)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, { content: `Added branch to '${parsedArgs.id}'` })
-			return `Branch added to '${parsedArgs.id}'`
-		}
-	},
-	{
-		def: removeBranchToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = removeBranchSchema.parse(args)
-			await helpers.removeBranch(parsedArgs.id, parsedArgs.branchIndex)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Removed branch ${parsedArgs.branchIndex + 1} of '${parsedArgs.id}'`
-			})
-			return `Branch ${parsedArgs.branchIndex} of '${parsedArgs.id}' removed`
-		}
-	},
-	{
-		def: setForLoopIteratorExpressionToolDef,
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setForLoopIteratorExpressionSchema.parse(args)
-			await helpers.setForLoopIteratorExpression(parsedArgs.id, parsedArgs.expression)
-			helpers.selectStep(parsedArgs.id)
-			toolCallbacks.setToolStatus(toolId, {
-				content: `Set forloop '${parsedArgs.id}' iterator expression`
-			})
-			return `Forloop '${parsedArgs.id}' iterator expression set`
-		}
-	},
-	{
-		def: {
-			...setForLoopOptionsToolDef,
-			function: { ...setForLoopOptionsToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setForLoopOptionsSchema.parse(args)
-			await helpers.setForLoopOptions(parsedArgs.id, {
-				skip_failures: parsedArgs.skip_failures,
-				parallel: parsedArgs.parallel,
-				parallelism: parsedArgs.parallelism
-			})
-			helpers.selectStep(parsedArgs.id)
-
-			const message = `Set forloop '${parsedArgs.id}' options`
-			toolCallbacks.setToolStatus(toolId, {
-				content: message
-			})
-			return `${message}: ${JSON.stringify(parsedArgs)}`
-		}
-	},
-	{
-		def: {
-			...setModuleControlOptionsToolDef,
-			function: { ...setModuleControlOptionsToolDef.function, strict: false }
-		},
-		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
-			const parsedArgs = setModuleControlOptionsSchema.parse(args)
-			await helpers.setModuleControlOptions(parsedArgs.id, {
-				stop_after_if: parsedArgs.stop_after_if,
-				stop_after_if_expr: parsedArgs.stop_after_if_expr,
-				skip_if: parsedArgs.skip_if,
-				skip_if_expr: parsedArgs.skip_if_expr
-			})
-			helpers.selectStep(parsedArgs.id)
-
-			// Emit UI intent to show early-stop tab when stop_after_if is configured
-			const modules = helpers.getModules()
-			const module = findModuleById(modules, parsedArgs.id)
-			if (!module) {
-				throw new Error(`Module with id '${parsedArgs.id}' not found in flow.`)
-			}
-			const moduleType = module?.value.type
-			const hasSpecificComponents = ['forloopflow', 'whileloopflow', 'branchall', 'branchone']
-			const prefix = hasSpecificComponents.includes(moduleType) ? `${moduleType}` : 'flow'
-			if (typeof parsedArgs.stop_after_if === 'boolean') {
-				emitUiIntent({
-					kind: 'open_module_tab',
-					componentId: `${prefix}-${parsedArgs.id}`,
-					tab: 'early-stop'
-				})
-			}
-
-			if (typeof parsedArgs.skip_if === 'boolean') {
-				emitUiIntent({
-					kind: 'open_module_tab',
-					componentId: `${prefix}-${parsedArgs.id}`,
-					tab: 'skip'
-				})
-			}
-
-			const message = `Set module '${parsedArgs.id}' control options`
-			toolCallbacks.setToolStatus(toolId, {
-				content: message
-			})
-			return `${message}: ${JSON.stringify(parsedArgs)}`
-		}
-	},
-	{
 		def: resourceTypeToolDef,
 		fn: async ({ args, toolId, workspace, toolCallbacks }) => {
 			const parsedArgs = resourceTypeToolSchema.parse(args)
@@ -724,6 +282,19 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		}
 	},
 	{
+		def: getInstructionsForCodeGenerationToolDef,
+		fn: async ({ args, toolId, toolCallbacks }) => {
+			const parsedArgs = getInstructionsForCodeGenerationToolSchema.parse(args)
+			const langContext = getLangContext(parsedArgs.language, {
+				allowResourcesFetch: true
+			})
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Retrieved instructions for code generation in ' + parsedArgs.language
+			})
+			return langContext
+		}
+	},
+	{
 		def: testRunFlowToolDef,
 		fn: async function ({ args, workspace, helpers, toolCallbacks, toolId }) {
 			const { flow } = helpers.getFlowAndSelectedId()
@@ -739,15 +310,15 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			}
 
 			const parsedArgs = await buildTestRunArgs(args, this.def)
+			// Use the UI test mechanism - this opens the preview panel
 			return executeTestRun({
-				jobStarter: () =>
-					JobService.runFlowPreview({
-						workspace: workspace,
-						requestBody: {
-							args: parsedArgs,
-							value: flow.value
-						}
-					}),
+				jobStarter: async () => {
+					const jobId = await helpers.testFlow(parsedArgs)
+					if (!jobId) {
+						throw new Error('Failed to start test run - testFlow returned undefined')
+					}
+					return jobId
+				},
 				workspace,
 				toolCallbacks,
 				toolId,
@@ -767,7 +338,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 	},
 	{
 		// set strict to false to avoid issues with open ai models
-		def: { ...testRunStepToolDef, function: { ...testRunStepToolDef.function, strict: false } },
+		def: testRunStepToolDef,
 		fn: async ({ args, workspace, helpers, toolCallbacks, toolId }) => {
 			const { flow } = helpers.getFlowAndSelectedId()
 
@@ -812,7 +383,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 								content: moduleValue.content ?? '',
 								language: moduleValue.language,
 								args:
-									module.id === 'preprocessor'
+									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
 										: stepArgs
 							}
@@ -843,7 +414,7 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 								content: script.content,
 								language: script.language,
 								args:
-									module.id === 'preprocessor'
+									module.id === SPECIAL_MODULE_IDS.PREPROCESSOR
 										? { _ENTRYPOINT_OVERRIDE: 'preprocessor', ...stepArgs }
 										: stepArgs
 							}
@@ -882,135 +453,455 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 		requiresConfirmation: true,
 		confirmationMessage: 'Run flow step test',
 		showDetails: true
+	},
+	{
+		def: inspectInlineScriptToolDef,
+		fn: async ({ args, toolCallbacks, toolId }) => {
+			const parsedArgs = inspectInlineScriptSchema.parse(args)
+			const moduleId = parsedArgs.moduleId
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieving inline script content for module '${moduleId}'...`
+			})
+
+			const content = inlineScriptStore.get(moduleId)
+
+			if (content === undefined) {
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Module '${moduleId}' not found in inline script store`,
+					error: `No inline script found for module ID '${moduleId}'`
+				})
+				throw new Error(
+					`Module '${moduleId}' not found. This module either doesn't exist, isn't a rawscript, or wasn't replaced with a reference.`
+				)
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Retrieved inline script for module '${moduleId}'`
+			})
+
+			return JSON.stringify({
+				moduleId,
+				content,
+				note: 'To modify this script, use the set_module_code tool with the new code'
+			})
+		}
+	},
+	{
+		def: setModuleCodeToolDef,
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = setModuleCodeSchema.parse(args)
+			const { moduleId, code } = parsedArgs
+
+			toolCallbacks.setToolStatus(toolId, { content: `Setting code for module '${moduleId}'...` })
+
+			// Update store to keep it coherent (for subsequent set_flow_json calls with references)
+			inlineScriptStore.set(moduleId, code)
+
+			// Update the flow directly via helper
+			await helpers.setCode(moduleId, code)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Code updated for module '${moduleId}'`,
+				result: 'Success'
+			})
+			return `Code for module '${moduleId}' has been updated successfully.`
+		}
+	},
+	{
+		def: setFlowJsonToolDef,
+		streamArguments: true,
+		showDetails: true,
+		showFade: true,
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const { modules, schema } = args
+
+			let parsedModules: FlowModule[] | undefined
+			let parsedSchema: Record<string, any> | undefined
+
+			// Parse JSON strings
+			try {
+				parsedModules = modules
+					? typeof modules === 'string'
+						? JSON.parse(modules)
+						: modules
+					: undefined
+				parsedSchema = schema
+					? typeof schema === 'string'
+						? JSON.parse(schema)
+						: schema
+					: undefined
+			} catch (e) {
+				const errorMessage = e instanceof Error ? e.message : String(e)
+				throw new Error(`Invalid JSON: ${errorMessage}`)
+			}
+
+			// Validate modules against OpenFlow schema
+			if (parsedModules) {
+				const result = flowModulesSchema.safeParse(parsedModules)
+				if (!result.success) {
+					const errors = result.error.errors.slice(0, 5).map((e) => {
+						const path = e.path
+						// Try to find module id for better context
+						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
+						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const fieldPath = path.slice(1).join('.')
+
+						let message = e.message
+						if (e.code === 'invalid_type') {
+							message = `expected ${(e as any).expected}, got ${(e as any).received}`
+						}
+
+						if (moduleId) {
+							return `Module "${moduleId}" -> ${fieldPath}: ${message}`
+						}
+						return `${path.join('.')}: ${message}`
+					})
+
+					throw new Error(`Invalid flow modules:\n${errors.join('\n')}`)
+				} else {
+					// check for duplicate ids
+					const ids = collectAllModuleIdsFromArray(parsedModules)
+					if (ids.length !== new Set(ids).size) {
+						throw new Error('Duplicate module IDs found in flow')
+					}
+				}
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Setting flow...`
+			})
+			await helpers.setFlowJson(parsedModules, parsedSchema)
+
+			// Update exprsToSet if the selected module has input_transforms
+			if (parsedModules) {
+				const { selectedId } = helpers.getFlowAndSelectedId()
+				const selectedModule = findModuleById(parsedModules, selectedId)
+				if (
+					selectedModule &&
+					'input_transforms' in selectedModule.value &&
+					selectedModule.value.input_transforms
+				) {
+					helpers.updateExprsToSet(selectedId, selectedModule.value.input_transforms)
+				}
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Flow updated`,
+				result: 'Success'
+			})
+			return `Flow updated`
+		}
+	},
+	{
+		def: getLintErrorsToolDef,
+		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
+			const parsedArgs = getLintErrorsSchema.parse(args)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Getting lint errors for module "${parsedArgs.module_id}"...`
+			})
+
+			const lintResult = await helpers.getLintErrors(parsedArgs.module_id)
+
+			const status =
+				lintResult.errorCount > 0
+					? `Found ${lintResult.errorCount} error(s)`
+					: lintResult.warningCount > 0
+						? `Found ${lintResult.warningCount} warning(s)`
+						: 'No issues found'
+
+			toolCallbacks.setToolStatus(toolId, { content: status })
+
+			return formatScriptLintResult(lintResult)
+		}
 	}
 ]
 
 export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
-	let content = `You are a helpful assistant that creates and edits workflows on the Windmill platform. You're provided with a bunch of tools to help you edit the flow.
+	// Get base flow documentation from centralized prompts (includes FLOW_BASE, OPENFLOW_SCHEMA, RESOURCE_TYPES)
+	const flowBaseContext = getFlowPrompt()
+
+	// Chat-specific tool instructions
+	const chatToolInstructions = `You are a helpful assistant that creates and edits workflows on the Windmill platform.
+
+## Tool Selection Guide
+
+**Flow Modification:**
+- **Create or modify the entire flow** → \`set_flow_json\` (provide complete modules array and optional schema)
+
+**Code & Scripts:**
+- **View existing inline script code** → \`inspect_inline_script\`
+- **Change module code only** → \`set_module_code\`
+- **Get language-specific coding instructions** → \`get_instructions_for_code_generation\` (call BEFORE writing code)
+- **Find workspace scripts** → \`search_scripts\`
+- **Find Windmill Hub scripts** → \`search_hub_scripts\`
+
+**Testing & Linting:**
+- **Check for lint errors after writing new code or modifying existing code** → \`get_lint_errors({ module_id: "..." })\`
+  - ALWAYS call this for EACH rawscript module that you added or modified
+  - Pass the module_id to get the lint errors for that module
+  - Example: After modifying modules "a" and "b", call \`get_lint_errors({ module_id: "a" })\` and \`get_lint_errors({ module_id: "b" })\`
+- **Test entire flow** → \`test_run_flow\`
+- **Test single step** → \`test_run_step\`
+
+**Resources & Schema:**
+- **Search resource types** → \`resource_type\`
+- **Get database schema** → \`get_db_schema\`
+
+## Flow Modification with set_flow_json
+
+Use the \`set_flow_json\` tool to set the entire flow structure at once. Provide the complete modules array and optionally the flow input schema.
+
+**Parameters:**
+- \`modules\`: Array of flow modules (required)
+- \`schema\`: Flow input schema in JSON Schema format (optional)
+
+**Example - Simple flow:**
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "fetch_data",
+      summary: "Fetch user data from API",
+      value: {
+        type: "rawscript",
+        language: "bun",
+        content: "export async function main(userId: string) { return { id: userId, name: 'John' }; }",
+        input_transforms: {
+          userId: { type: "javascript", expr: "flow_input.user_id" }
+        }
+      }
+    },
+    {
+      id: "process_data",
+      summary: "Process the fetched data",
+      value: {
+        type: "rawscript",
+        language: "bun",
+        content: "export async function main(data: any) { return { processed: true, ...data }; }",
+        input_transforms: {
+          data: { type: "javascript", expr: "results.fetch_data" }
+        }
+      }
+    }
+  ],
+  schema: {
+    type: "object",
+    properties: {
+      user_id: { type: "string", description: "User ID to fetch" }
+    },
+    required: ["user_id"]
+  }
+})
+\`\`\`
+
+**Example - Flow with for loop:**
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "get_items",
+      summary: "Get list of items",
+      value: {
+        type: "rawscript",
+        language: "bun",
+        content: "export async function main() { return [1, 2, 3]; }",
+        input_transforms: {}
+      }
+    },
+    {
+      id: "loop_items",
+      summary: "Process each item",
+      value: {
+        type: "forloopflow",
+        iterator: { type: "javascript", expr: "results.get_items" },
+        skip_failures: false,
+        parallel: true,
+        modules: [
+          {
+            id: "process_item",
+            summary: "Process single item",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main(item: number) { return item * 2; }",
+              input_transforms: {
+                item: { type: "javascript", expr: "flow_input.iter.value" }
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+})
+\`\`\`
+
+**Example - Flow with branches (branchone):**
+\`\`\`javascript
+set_flow_json({
+  modules: [
+    {
+      id: "get_value",
+      summary: "Get a value to branch on",
+      value: {
+        type: "rawscript",
+        language: "bun",
+        content: "export async function main() { return 50; }",
+        input_transforms: {}
+      }
+    },
+    {
+      id: "branch_on_value",
+      summary: "Branch based on value",
+      value: {
+        type: "branchone",
+        branches: [
+          {
+            summary: "High value",
+            expr: "results.get_value > 75",
+            modules: [
+              {
+                id: "high_handler",
+                value: {
+                  type: "rawscript",
+                  language: "bun",
+                  content: "export async function main() { return 'high'; }",
+                  input_transforms: {}
+                }
+              }
+            ]
+          },
+          {
+            summary: "Medium value",
+            expr: "results.get_value > 25",
+            modules: [
+              {
+                id: "medium_handler",
+                value: {
+                  type: "rawscript",
+                  language: "bun",
+                  content: "export async function main() { return 'medium'; }",
+                  input_transforms: {}
+                }
+              }
+            ]
+          }
+        ],
+        default: [
+          {
+            id: "low_handler",
+            value: {
+              type: "rawscript",
+              language: "bun",
+              content: "export async function main() { return 'low'; }",
+              input_transforms: {}
+            }
+          }
+        ]
+      }
+    }
+  ]
+})
+\`\`\`
+
 Follow the user instructions carefully.
-Go step by step, and explain what you're doing as you're doing it.
-DO NOT wait for user confirmation before performing an action. Only do it if the user explicitly asks you to wait in their initial instructions.
-ALWAYS test your modifications. You have access to the \`test_run_flow\` and \`test_run_step\` tools to test the flow and steps. If you only modified a single step, use the \`test_run_step\` tool to test it. If you modified the flow, use the \`test_run_flow\` tool to test it. If the user cancels the test run, do not try again and wait for the next user instruction.
+At the end of your changes, explain precisely what you did and what the flow does now.
+ALWAYS test your modifications using the \`test_run_flow\` tool. If the user cancels the test run, do not try again and wait for the next user instruction.
 When testing steps that are sql scripts, the arguments to be passed are { database: $res:<db_resource> }.
 
-## Code Markers in Flow Modules
+### Inline Script References (Token Optimization)
 
-When viewing flow modules, the code content of rawscript steps may include \`[#START]\` and \`[#END]\` markers:
-- These markers indicate specific code sections that need attention
-- You MUST only modify the code between these markers when using the \`set_code\` tool
-- After modifying the code, remove the markers from your response
-- If a question is asked about the code, focus only on the code between the markers
-- The markers appear in the YAML representation of flow modules when specific code pieces are selected
+To reduce token usage, rawscript content in the flow you receive is replaced with references in the format \`inline_script.{module_id}\`. For example:
 
-## Understanding User Requests
+\`\`\`json
+{
+  "id": "step_a",
+  "value": {
+    "type": "rawscript",
+    "content": "inline_script.step_a",
+    "language": "bun"
+  }
+}
+\`\`\`
 
-### Individual Actions
-When the user asks for a specific action, perform ONLY that action:
-- Updating code for a step
-- Setting step inputs
-- Setting flow inputs schema
-- Setting branch predicates
-- Setting forloop iterator expressions
-- Adding/removing branches
-- etc.
+**To modify existing script code:**
+- Use \`set_module_code\` tool for code-only changes: \`set_module_code({ moduleId: "step_a", code: "..." })\`
 
-### Full Step Creation Process
-When the user asks to add one or more steps with broad instructions (e.g., "add a step to send an email", "create a flow to process data"), follow the complete process below for EACH step.
+**To inspect existing code:**
+- Use \`inspect_inline_script\` tool to view the current code: \`inspect_inline_script({ moduleId: "step_a" })\`
 
-### Complete Step Creation Process
-When creating new steps, follow this process for EACH step:
-1. If the user hasn't explicitly asked to write from scratch:
-   - First search for matching scripts in the workspace
-   - Then search for matching scripts in the hub, but ONLY consider highly relevant results that match the user's requirements
-   - Only if no suitable script is found, create a raw script step
-2. For raw script steps:
-   - If no language is specified, use 'bun' as the default language
-   - Use get_instructions_for_code_generation to get the correct code format
-   - Display the code to the user before setting it
-   - Set the code using set_code
-3. After adding any step:
-   - Get the step inputs using get_step_inputs
-   - Set the step inputs using set_step_inputs
-   - If any inputs use flow_input properties that don't exist yet, add them to the schema using set_flow_inputs_schema
+### Writing Code for Modules
 
-## Additional instructions for the Flow Editor
+**IMPORTANT: Before writing any code for a rawscript module, you MUST call the \`get_instructions_for_code_generation\` tool with the target language.** This tool provides essential language-specific instructions.
 
-### Special Step Types
-For special step types, follow these additional steps:
-- For forloop steps: 
-  - Set the iterator expression using set_forloop_iterator_expression
-  - Set advanced options (parallel, parallelism, skip_failures) using set_forloop_options
-- For branchone steps: Set the predicates for each branch using set_branch_predicate
-- For branchall steps: No additional setup needed
+Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_generation({ language: "bun" })\`
 
-### Module Control Options
-For any module type, you can set control flow options using set_module_control_options:
-- **stop_after_if**: Early stop condition - stops the module if expression evaluates to true. Can use "flow_input" or "result". "result" is the result of the step. "results.<step_id>" is not supported, do not use it. Example: "flow_input.x > 10" or "result === "failure""
-- **skip_if**: Skip condition - skips the module entirely if expression evaluates to true. Can use "flow_input" or "results.<step_id>". Example: "flow_input.x > 10" or "results.a === "failure""
+### Creating Flows
 
-### Step Insertion Rules
-When adding steps, carefully consider the execution order:
-1. Steps are executed in the order they appear in the flow definition, not in the order they were added
-2. For inserting steps:
-   - Use 'start' to add at the beginning of the flow
-   - Use 'after' with the previous step's ID to add in sequence (can be inside a branch or a forloop)
-   - Use 'start_inside_forloop' to add at the start of a forloop
-   - Use 'start_inside_branch' to add at the start of a branch
-   - Use 'preprocessor' to add a preprocessor step
-   - Use 'failure' to add a failure step
-3. Always verify the flow structure after adding steps to ensure correct execution order
+1. **Search for existing scripts first** (unless user explicitly asks to write from scratch):
+   - First: \`search_scripts\` to find workspace scripts
+   - Then: \`search_hub_scripts\` (only consider highly relevant results)
+   - Only create raw scripts if no suitable script is found
 
-### Flow Inputs and Schema
-- Use set_flow_inputs_schema to define or update the flow's input schema
-- When using flow_input in step inputs, ensure the properties exist in the schema
-- For resource inputs, set the property type to "object" and add a "format" key with value "resource-nameofresourcetype"
+2. **Build the complete flow using \`set_flow_json\`:**
+   - If using existing script: use \`type: "script"\` with \`path\`
+   - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
+   - **First call \`get_instructions_for_code_generation\` to get the correct code format**
+   - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
 
-### JavaScript Expressions
-For step inputs, forloop iterator expressions and branch predicates, use JavaScript expressions with these variables:
-- Step results: results.stepid or results.stepid.property_name
-- Break condition (stop_after_if) in for loops: result (contains the result of the last iteration)
-- Loop iterator: flow_input.iter.value (inside loops)
-- Flow inputs: flow_input.property_name
-- Static values: Use JavaScript syntax (e.g., "hello", true, 3)
+3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
 
-Note: These variables are only accessible in step inputs, forloop iterator expressions and branch predicates. They must be passed as script arguments using the set_step_inputs tool.
+### AI Agent Modules
 
-For truly static values in step inputs (those not linked to previous steps or loop iterations), prefer using flow inputs by default unless explicitly specified otherwise. This makes the flow more configurable and reusable. For example, instead of hardcoding an email address in a step input, create a flow input for it.
+AI agents can use tools to accomplish tasks. When creating an AI agent module:
 
-### For Loop Advanced Options
-When configuring for-loop steps, consider these options:
-- **parallel: true** - Run iterations in parallel for independent operations (significantly faster for I/O bound tasks)
-- **parallelism: N** - Limit concurrent iterations (only applies when parallel=true). Use to prevent overwhelming external APIs
-- **skip_failures: true** - Continue processing remaining iterations even if some fail. Failed iterations return error objects as results
+\`\`\`javascript
+{
+  id: "support_agent",
+  summary: "AI agent for customer support",
+  value: {
+    type: "aiagent",
+    input_transforms: {
+      provider: { type: "static", value: "$res:f/ai_providers/openai" },
+      output_type: { type: "static", value: "text" },
+      user_message: { type: "javascript", expr: "flow_input.query" },
+      system_prompt: { type: "static", value: "You are a helpful assistant." }
+    },
+    tools: [
+      {
+        id: "search_docs",
+        summary: "Search_documentation",
+        value: {
+          tool_type: "flowmodule",
+          type: "rawscript",
+          language: "bun",
+          content: "export async function main(query: string) { return ['doc1', 'doc2']; }",
+          input_transforms: { query: { type: "static", value: "" } }
+        }
+      }
+    ]
+  }
+}
+\`\`\`
 
-### Special Modules
-- Preprocessor: Runs before the first step when triggered externally
-  - ID: 'preprocessor'
-  - Cannot link inputs
-  - Only supports script/rawscript steps
-- Error handler: Runs when the flow fails
-  - ID: 'failure'
-  - Can only reference flow_input and error object
-  - Error object structure: { message, name, stack, step_id }
-  - Only supports script/rawscript steps
-
-Both modules only support a script or rawscript step. You cannot nest modules using forloop/branchone/branchall.
+- **Tool IDs**: Cannot contain spaces - use underscores
+- **Tool summaries**: Cannot contain spaces - use underscores
+- **Tool types**: \`flowmodule\` for scripts/flows, \`mcp\` for MCP server tools
 
 ### Contexts
 
 You have access to the following contexts:
-- Database schemas
-- Flow diffs
-- Focused flow modules
-Database schemas give you the schema of databases the user is using.
-Flow diffs give you the diff between the current flow and the last deployed flow.
-Focused flow modules give you the ids of the flow modules the user is focused on. Your response should focus on these modules.
-
-## Resource types
-On Windmill, credentials and configuration are stored in resources. Resource types define the format of the resource.
-If the user needs a resource as flow input, you should set the property type in the schema to "object" as well as add a key called "format" and set it to "resource-nameofresourcetype" (e.g. "resource-stripe").
-If the user wants a specific resource as step input, you should set the step value to a static string in the following format: "$res:path/to/resource".
+- Database schemas: Schema of databases the user is using
+- Flow diffs: Diff between current flow and last deployed flow
+- Focused flow modules: IDs of modules the user is focused on. Your response should focus on these modules
 `
+
+	let content = chatToolInstructions + '\n\n' + flowBaseContext
 
 	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
@@ -1034,7 +925,7 @@ export function prepareFlowUserMessage(
 	// Handle context elements
 	const contextInstructions = selectedContext ? buildContextString(selectedContext) : ''
 
-	if (!flow || !selectedId) {
+	if (!flow) {
 		let userMessage = `## INSTRUCTIONS:
 ${instructions}`
 		return {
@@ -1044,20 +935,48 @@ ${instructions}`
 	}
 
 	const codePieces = selectedContext.filter((c) => c.type === 'flow_module_code_piece')
-	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, flow.value.modules)
 
-	let flowContent = `## FLOW:
-flow_input schema:
-${JSON.stringify(flow.schema ?? emptySchema())}
+	// Clear the inline script store and extract inline scripts for token optimization
+	inlineScriptStore.clear()
+	const optimizedModules = extractAndReplaceInlineScripts(flow.value.modules)
 
-flow modules:
-${flowModulesYaml}
+	// Apply code pieces to the optimized modules (returns YAML string)
+	const flowModulesYaml = applyCodePiecesToFlowModules(codePieces, optimizedModules)
 
-preprocessor module:
-${YAML.stringify(flow.value.preprocessor_module)}
+	// Handle preprocessor and failure modules
+	let optimizedPreprocessor = flow.value.preprocessor_module
+	if (optimizedPreprocessor?.value?.type === 'rawscript' && optimizedPreprocessor.value.content) {
+		inlineScriptStore.set(optimizedPreprocessor.id, optimizedPreprocessor.value.content)
+		optimizedPreprocessor = {
+			...optimizedPreprocessor,
+			value: {
+				...optimizedPreprocessor.value,
+				content: `inline_script.${optimizedPreprocessor.id}`
+			}
+		}
+	}
 
-failure module:
-${YAML.stringify(flow.value.failure_module)}
+	let optimizedFailure = flow.value.failure_module
+	if (optimizedFailure?.value?.type === 'rawscript' && optimizedFailure.value.content) {
+		inlineScriptStore.set(optimizedFailure.id, optimizedFailure.value.content)
+		optimizedFailure = {
+			...optimizedFailure,
+			value: {
+				...optimizedFailure.value,
+				content: `inline_script.${optimizedFailure.id}`
+			}
+		}
+	}
+
+	const finalFlow = {
+		schema: flow.schema,
+		modules: flowModulesYaml,
+		preprocessor_module: optimizedPreprocessor,
+		failure_module: optimizedFailure
+	}
+
+	let flowContent = `## CURRENT FLOW JSON:
+${JSON.stringify(finalFlow, null, 2)}
 
 currently selected step:
 ${selectedId}`

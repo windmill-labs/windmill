@@ -1,12 +1,12 @@
 <script lang="ts">
 	import { AlertTriangle, Edit2 } from 'lucide-svelte'
 	import { Button } from '../common'
-	import { Tooltip } from '../meltComponents'
 	import ExploreAssetButton, { assetCanBeExplored } from '../ExploreAssetButton.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import type { Asset } from '$lib/gen'
+	import Popover from '../meltComponents/Popover.svelte'
 
 	type Props = {
 		s3FilePicker?: S3FilePicker | undefined
@@ -14,6 +14,8 @@
 		resourceEditorDrawer?: ResourceEditorDrawer | undefined
 		resourceDataCache: Record<string, string | undefined>
 		asset: Asset
+		ducklakeNotFound?: boolean
+		datatableNotFound?: boolean
 		onClick?: () => void
 	}
 	let {
@@ -22,35 +24,61 @@
 		resourceEditorDrawer,
 		resourceDataCache,
 		asset,
+		ducklakeNotFound = false,
+		datatableNotFound = false,
 		onClick
 	}: Props = $props()
+
+	let resourceDataCacheValue = $derived.by(() => {
+		let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+		return resourceDataCache[truncatedPath]
+	})
 </script>
 
 <div class="flex gap-2 items-center">
-	{#if asset.kind === 'resource' && resourceDataCache[asset.path] !== undefined}
+	{#if asset.kind === 'resource' && resourceDataCacheValue !== undefined}
 		<Button
 			startIcon={{ icon: Edit2 }}
-			size="xs"
 			variant="default"
-			spacingSize="xs2"
+			unifiedSize="md"
 			iconOnly
 			on:click={() => (resourceEditorDrawer?.initEdit(asset.path), onClick?.())}
 		/>
 	{/if}
-	{#if asset.kind === 'resource' && resourceDataCache[asset.path] === undefined}
-		<Tooltip class="mr-2.5">
-			<AlertTriangle size={16} class="text-orange-600 dark:text-orange-500" />
-			<svelte:fragment slot="text">Could not find resource</svelte:fragment>
-		</Tooltip>
-	{/if}
-	{#if assetCanBeExplored(asset, { resource_type: resourceDataCache[asset.path] })}
+	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}
+		<Popover contentClasses="px-3 py-2">
+			<svelte:fragment slot="trigger">
+				<Button
+					startIcon={{ icon: AlertTriangle }}
+					variant="default"
+					unifiedSize="md"
+					btnClasses="text-red-500"
+					iconOnly
+				/>
+			</svelte:fragment>
+			<svelte:fragment slot="content">
+				<span class="text-sm">Not found</span>
+				{#if ducklakeNotFound}
+					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_lfs">
+						Go to Ducklake settings
+					</Button>
+				{:else if datatableNotFound}
+					<Button wrapperClasses="mt-1" href="/workspace_settings?tab=windmill_data_tables">
+						Go to Data Table settings
+					</Button>
+				{:else if asset.kind === 'resource' && resourceDataCacheValue === undefined}
+					<Button wrapperClasses="mt-1" href="/resources">Go to Resources</Button>
+				{/if}
+			</svelte:fragment>
+		</Popover>
+	{:else if assetCanBeExplored(asset, { resource_type: resourceDataCacheValue })}
 		<ExploreAssetButton
 			{asset}
 			{s3FilePicker}
 			{dbManagerDrawer}
 			onClick={() => onClick?.()}
 			noText
-			_resourceMetadata={{ resource_type: resourceDataCache[asset.path] }}
+			_resourceMetadata={{ resource_type: resourceDataCacheValue }}
 		/>
 	{/if}
 </div>

@@ -21,11 +21,14 @@ use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
 use windmill_common::jobs::JobPayload;
+use windmill_common::runnable_settings::DebouncingSettings;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
+use windmill_common::worker::{
+    to_raw_value, to_raw_value_owned, write_file, Connection, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
@@ -44,7 +47,10 @@ use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 #[cfg(feature = "python")]
 use windmill_parser_py_imports::parse_relative_imports;
 use windmill_parser_ts::parse_expr_for_imports;
-use windmill_queue::{append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel};
+use windmill_queue::{
+    append_logs, CanceledBy, MiniPulledJob, PushIsolationLevel,
+    WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
+};
 
 // TODO: To be removed in future versions
 lazy_static::lazy_static! {
@@ -497,27 +503,14 @@ pub async fn trigger_dependents_to_recompute_dependencies(
 
         args.insert(
             "triggered_by_relative_import".to_string(),
-            to_raw_value(&()),
+            to_raw_value(&true),
         );
 
-        // Lock the debounce_key entry FOR UPDATE to coordinate with the push side.
-        // This prevents concurrent modifications during dependency job scheduling.
-        //
-        // The lock serves two purposes:
-        // 1. Ensures we get the current debounce_job_id atomically
-        // 2. Blocks new push requests from modifying this key until we commit
-        // 3. Blocks puller from actually starting the job and gives us a chance to still squeeze the debounce in.
-        //
-        // After our transaction commits, any pending push/pull requests can proceed with
-        // their debounce logic.
-        let debounce_job_id_o =
-            windmill_common::jobs::lock_debounce_key(w_id, &importer_path, &mut tx).await?;
-
-        tracing::debug!(
-            debounce_job_id = ?debounce_job_id_o,
-            importer_path = %importer_path,
-            "Retrieved debounce job ID (if exists)"
-        );
+        let mut debouncing_settings = DebouncingSettings {
+            debounce_key: Some(format!("{w_id}:{importer_path}:dependency")),
+            debounce_delay_s: Some(5),
+            ..Default::default()
+        };
 
         let job_payload = match importer_kind.as_str() {
             // TODO: Make it query only non-archived
@@ -541,6 +534,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         hash: ScriptHash(hash),
                         language: info.language,
                         dedicated_worker: info.dedicated_worker,
+                        debouncing_settings,
                     }
                 }
                 None => {
@@ -575,10 +569,13 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(&importer_node_ids),
                     );
 
+                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["nodes_to_relock".into()]);
+
                     JobPayload::FlowDependencies {
                         path: importer_path.clone(),
                         version,
                         dedicated_worker: None,
+                        debouncing_settings,
                     }
                 }
                 None => {
@@ -608,7 +605,9 @@ pub async fn trigger_dependents_to_recompute_dependencies(
                         to_raw_value(importer_node_ids),
                     );
 
-                    JobPayload::AppDependencies { path: importer_path.clone(), version }
+                    debouncing_settings.debounce_args_to_accumulate = Some(vec!["components_to_relock".into()]);
+
+                    JobPayload::AppDependencies { path: importer_path.clone(), version, debouncing_settings }
                 }
                 None => {
                     ScopedDependencyMap::clear_map_for_item(importer_path, w_id, "app", tx, &None)
@@ -658,7 +657,7 @@ pub async fn trigger_dependents_to_recompute_dependencies(
             None,
             false,
             None,
-            debounce_job_id_o,
+            None,
             None,
         )
         .await?;
@@ -1171,11 +1170,9 @@ async fn lock_modules<'c>(
             mut language,
             input_transforms,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             is_trigger,
             assets,
+            concurrency_settings,
         } = e.get_value()?
         else {
             let mut nmodified_ids = Vec::new();
@@ -1458,8 +1455,10 @@ async fn lock_modules<'c>(
             }
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
-                let skip_creating_new_lock = skip_creating_new_lock(&language, &content);
-                if skip_creating_new_lock {
+                if skip_creating_new_lock(&language, &content)
+                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
+                {
                     tx = dependency_map
                         .patch(get_references(), e.id.clone(), tx)
                         .await?;
@@ -1541,11 +1540,9 @@ async fn lock_modules<'c>(
             content,
             language,
             tag,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             is_trigger,
             assets,
+            concurrency_settings,
         });
         new_flow_modules.push(e);
 
@@ -1737,11 +1734,9 @@ async fn reduce_flow<'c>(
                     language,
                     input_transforms,
                     tag,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
                     is_trigger,
                     assets,
+                    concurrency_settings,
                     ..
                 } = std::mem::replace(&mut val, Identity)
                 else {
@@ -1764,11 +1759,9 @@ async fn reduce_flow<'c>(
                     id,
                     tag,
                     language,
-                    custom_concurrency_key,
-                    concurrent_limit,
-                    concurrency_time_window_s,
                     is_trigger,
                     assets,
+                    concurrency_settings,
                 };
             }
             ForloopFlow { modules, modules_node, .. }
@@ -1985,7 +1978,10 @@ async fn lock_modules_app(
                                 .get("lock")
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
-                                if skip_creating_new_lock(&language, &content) {
+                                if skip_creating_new_lock(&language, &content)
+                                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
+                                {
                                     dependency_map
                                         .patch(
                                             referenced_paths.clone(),
@@ -2730,8 +2726,11 @@ async fn capture_dependency_job(
             .await?
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
+            let wd_exist = workspace_dependencies.get_bun()?.is_some();
             // TODO: move inside gen_bun_lockfile
-            write_file(job_dir, "main.ts", job_raw_code)?;
+            if !wd_exist {
+                write_file(job_dir, "main.ts", job_raw_code)?;
+            }
             if let Some(lock) = gen_bun_lockfile(
                 mem_peak,
                 canceled_by,
@@ -2750,20 +2749,22 @@ async fn capture_dependency_job(
             )
             .await?
             {
-                crate::bun_executor::prebundle_bun_script(
-                    job_raw_code,
-                    &lock,
-                    script_path,
-                    job_id,
-                    w_id,
-                    Some(&db),
-                    &job_dir,
-                    base_internal_url,
-                    worker_name,
-                    &token,
-                    &mut Some(occupancy_metrics),
-                )
-                .await?;
+                if !wd_exist {
+                    crate::bun_executor::prebundle_bun_script(
+                        job_raw_code,
+                        &lock,
+                        script_path,
+                        job_id,
+                        w_id,
+                        Some(&db),
+                        &job_dir,
+                        base_internal_url,
+                        worker_name,
+                        &token,
+                        &mut Some(occupancy_metrics),
+                    )
+                    .await?;
+                }
 
                 lock
             } else {

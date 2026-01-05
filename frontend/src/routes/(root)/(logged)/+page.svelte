@@ -34,28 +34,35 @@
 	import { setQuery } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { goto, replaceState } from '$app/navigation'
+	import ForkWorkspaceBanner from '$lib/components/ForkWorkspaceBanner.svelte'
+	import WorkspaceTutorials from '$lib/components/WorkspaceTutorials.svelte'
+	import { onMount, setContext } from 'svelte'
+	import { tutorialsToDo } from '$lib/stores'
+	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
+	import TutorialBanner from '$lib/components/home/TutorialBanner.svelte'
 
 	type Tab = 'hub' | 'workspace'
 
-	let tab: Tab =
+	let tab: Tab = $state(
 		window.location.hash == '#workspace' || window.location.hash == '#hub'
 			? (window.location.hash?.replace('#', '') as Tab)
 			: 'workspace'
+	)
 
-	let subtab: 'flow' | 'script' | 'app' = 'script'
+	let subtab: 'flow' | 'script' | 'app' = $state('script')
 
-	let filter: string = ''
+	let filter: string = $state('')
 
-	let flowViewer: Drawer
-	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined
+	let flowViewer: Drawer | undefined = $state(undefined)
+	let flowViewerFlow: { flow?: OpenFlow & { id?: number } } | undefined = $state(undefined)
 
-	let appViewer: Drawer
-	let appViewerApp: { app?: any & { id?: number } } | undefined
+	let appViewer: Drawer | undefined = $state(undefined)
+	let appViewerApp: { app?: any & { id?: number } } | undefined = $state(undefined)
 
-	let codeViewer: Drawer
-	let codeViewerContent: string = ''
-	let codeViewerLanguage: Script['language'] = 'deno'
-	let codeViewerObj: HubItem | undefined = undefined
+	let codeViewer: Drawer | undefined = $state(undefined)
+	let codeViewerContent: string = $state('')
+	let codeViewerLanguage: Script['language'] = $state('deno')
+	let codeViewerObj: HubItem | undefined = $state(undefined)
 
 	const breakpoint = writable<EditorBreakpoint>('lg')
 
@@ -68,7 +75,7 @@
 			codeViewerObj = obj
 		})
 
-		codeViewer.openDrawer?.()
+		codeViewer?.openDrawer?.()
 	}
 
 	async function viewFlow(obj: { flow_id: number }): Promise<void> {
@@ -77,7 +84,7 @@
 			delete hub['comments']
 			flowViewerFlow = hub
 		})
-		flowViewer.openDrawer?.()
+		flowViewer?.openDrawer?.()
 	}
 
 	async function viewApp(obj: { app_id: number }): Promise<void> {
@@ -86,8 +93,36 @@
 			delete hub['comments']
 			appViewerApp = hub
 		})
-		appViewer.openDrawer?.()
+		appViewer?.openDrawer?.()
 	}
+
+	let workspaceTutorials: WorkspaceTutorials | undefined = $state(undefined)
+
+	// Provide workspaceTutorials to child components via a reactive wrapper
+	let workspaceTutorialsContext = $derived(workspaceTutorials)
+	setContext('workspaceTutorials', { get value() { return workspaceTutorialsContext } })
+
+	onMount(() => {
+		// Check if there's a tutorial parameter in the URL
+		const tutorialParam = $page.url.searchParams.get('tutorial')
+		if (tutorialParam === 'workspace-onboarding') {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding')
+			}, 500)
+		} else if (tutorialParam === 'workspace-onboarding-operator') {
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding-operator')
+			}, 500)
+		} else if (!$ignoredTutorials.includes(8) && $tutorialsToDo.includes(8)) {
+			// Check if user hasn't completed or ignored the workspace onboarding tutorial
+			// Small delay to ensure page is fully loaded
+			setTimeout(() => {
+				workspaceTutorials?.runTutorialById('workspace-onboarding')
+			}, 500)
+		}
+	})
 </script>
 
 <Drawer bind:this={codeViewer} size="900px">
@@ -224,6 +259,7 @@
 	</DrawerContent>
 </Drawer>
 
+<ForkWorkspaceBanner />
 <div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit">
 	{#if $workspaceStore == 'admins'}
 		<div class="my-4"></div>
@@ -233,16 +269,19 @@
 			Windmill instance, such as keeping resource types up to date.
 		</Alert>
 	{/if}
-	<PageHeader title="Home">
-		<div class="flex flex-row gap-4 flex-wrap justify-end items-center">
-			{#if !$userStore?.operator}
-				<span class="text-xs font-normal text-primary">Create a</span>
-				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
-			{/if}
-		</div>
+	<PageHeader
+		title="Home"
+		childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
+	>
+		{#if !$userStore?.operator}
+			<span class="text-xs font-normal text-primary">Create a</span>
+			<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
+			{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+			{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+		{/if}
 	</PageHeader>
+
+	<TutorialBanner />
 
 	{#if !$userStore?.operator}
 		<div class="w-full overflow-auto scrollbar-hidden pb-2">
@@ -320,3 +359,5 @@
 {#if tab == 'workspace'}
 	<ItemsList bind:filter bind:subtab />
 {/if}
+
+<WorkspaceTutorials bind:this={workspaceTutorials} />

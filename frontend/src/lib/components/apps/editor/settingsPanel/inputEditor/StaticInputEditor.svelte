@@ -29,6 +29,7 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import FileUpload from '$lib/components/common/fileUpload/FileUpload.svelte'
 	import DucklakePicker from '$lib/components/DucklakePicker.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	interface Props {
 		componentInput: StaticInput<any> | undefined
@@ -56,8 +57,11 @@
 		componentInput && appContext?.onchange?.()
 	})
 
-	let s3FileUploadRawMode = $state(false)
+	let s3FileUploadRawMode = $state(
+		componentInput?.value && typeof componentInput.value == 'object' && !!componentInput.value?.s3
+	)
 	let s3FilePicker: S3FilePicker | undefined = $state(undefined)
+	let s3JsonEditor: SimpleEditor | undefined = $state()
 </script>
 
 {#key subFieldType}
@@ -216,6 +220,7 @@
 							<Module.default
 								code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
 								bind:value={componentInput.value}
+								bind:editor={s3JsonEditor}
 							/>
 						{/await}
 					{:else}
@@ -255,13 +260,12 @@
 				<S3FilePicker
 					bind:this={s3FilePicker}
 					readOnlyMode={false}
-					on:close={(e) => {
-						if (e.detail) {
-							if (componentInput) {
-								componentInput.value = e.detail
-							}
-							s3FileUploadRawMode = true
+					onSelectAndClose={(selected) => {
+						if (componentInput) {
+							componentInput.value = selected
+							s3JsonEditor?.setCode(JSON.stringify(selected, null, 2))
 						}
+						s3FileUploadRawMode = true
 					}}
 				/>
 			{:else if format?.startsWith('resource-') && (componentInput.value == undefined || typeof componentInput.value == 'string')}

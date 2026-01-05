@@ -5,6 +5,7 @@
 	import type { JobById } from '../apps/types'
 	import { JobService } from '$lib/gen'
 	import type { Runnable } from './rawAppPolicy'
+	import { undefinedIfEmpty } from '$lib/utils'
 
 	interface Props {
 		iframe: HTMLIFrameElement | undefined
@@ -45,6 +46,21 @@
 			if (event.data.type == 'backend') {
 				respond({ result, error })
 			}
+			if (editor) {
+				try {
+					let jobInfo = await JobService.getCompletedJobTiming({ workspace, id: uuid })
+					if (jobInfo.started_at) {
+						jobsById[uuid] = {
+							...(jobsById[uuid] ?? {}),
+							created_at: new Date(jobInfo.created_at).getTime(),
+							started_at: new Date(jobInfo.started_at).getTime(),
+							duration_ms: jobInfo.duration_ms
+						}
+					}
+				} catch (e) {
+					console.error('Error getting job info', e)
+				}
+			}
 			return result
 		}
 		if (event.data.type == 'backend' || event.data.type == 'backendAsync') {
@@ -60,15 +76,17 @@
 					runnable_id,
 					{
 						component: runnable_id,
-						args: data.v,
+						args: data.v ?? {},
 						force_viewer_allow_user_resources: editor
-							? Object.keys(runnable?.fields ?? {}).filter(
-									(k) =>
-										runnable?.fields?.[k]?.type == 'user' &&
-										runnable?.fields?.[k]?.allowUserResources
+							? undefinedIfEmpty(
+									Object.keys(runnable?.fields ?? {}).filter(
+										(k) =>
+											runnable?.fields?.[k]?.type == 'user' &&
+											runnable?.fields?.[k]?.allowUserResources
+									)
 								)
 							: undefined,
-						force_viewer_one_of_fields: editor ? {} : undefined,
+						force_viewer_one_of_fields: undefined,
 						force_viewer_static_fields: editor
 							? Object.fromEntries(
 									Object.entries(runnable?.fields ?? {})
@@ -97,7 +115,7 @@
 			} else if (event.data.type == 'waitJob') {
 				await respondWithResult(data.jobId)
 			} else if (event.data.type == 'getJob') {
-				const job = JobService.getJob({ workspace, id: data.jobId })
+				const job = await JobService.getJob({ workspace, id: data.jobId })
 				respond({ result: job })
 			} else {
 				console.error('No runnable found for', runnable_id)

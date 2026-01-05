@@ -43,6 +43,7 @@
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
+		AI_WEBSEARCH_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -509,7 +510,12 @@
 		if (localModuleStates) {
 			innerModules?.forEach((mod, i) => {
 				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
-					setModuleState(mod.id ?? '', { type: mod.type, args: job?.args, tag: job?.tag })
+					setModuleState(mod.id ?? '', {
+						type: mod.type,
+						args: job?.args,
+						tag: job?.tag,
+						script_hash: job?.script_hash
+					})
 				} else if (
 					mod.type === 'WaitingForExecutor' &&
 					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
@@ -527,7 +533,8 @@
 								job_id: job?.id,
 								parent_module: mod['parent_module'],
 								args: job?.args,
-								tag: job?.tag
+								tag: job?.tag,
+								script_hash: job?.script_hash
 							}
 
 							setModuleState(mod.id ?? '', newState)
@@ -564,7 +571,7 @@
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
 						flow_jobs: mod.flow_jobs,
-						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
+						iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
 					})
 				}
 
@@ -686,6 +693,11 @@
 								setModuleState(mcpToolCallId, {
 									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 								})
+							} else if (action.type == 'web_search') {
+								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
+								setModuleState(websearchId, {
+									type: 'Success'
+								})
 							} else if (action.type == 'message') {
 								const toolCallId = getToolCallId(idx, mod.id)
 								setModuleState(toolCallId, {
@@ -724,7 +736,16 @@
 
 	function setJob(newJob: Job, force: boolean) {
 		if (!deepEqual(job, newJob) || isForloopSelected || force || innerModules == undefined) {
-			job = newJob
+			if (initialJob) {
+				// keep raw_flow/raw_code from initial job if they exist
+				job = {
+					...newJob,
+					raw_flow: initialJob.raw_flow ?? newJob.raw_flow,
+					raw_code: initialJob.raw_code ?? newJob.raw_code
+				}
+			} else {
+				job = newJob
+			}
 			job?.flow_status && updateStatus(job?.flow_status)
 			onJobsLoaded?.({ job, force: false })
 			notAnonynmous = false
@@ -851,7 +872,8 @@
 						args: job.args,
 						tag: job.tag,
 						started_at,
-						parent_module: mod['parent_module']
+						parent_module: mod['parent_module'],
+						script_hash: job.script_hash
 					},
 					force
 				)
@@ -885,10 +907,11 @@
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
-						iteration_total: mod.iterator?.itered?.length,
+						iteration_total: mod.iterator?.itered_len,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
-						agent_actions: mod.agent_actions
+						agent_actions: mod.agent_actions,
+						script_hash: job.script_hash
 						// retries: flowStateStore?.raw_flow
 					},
 					force
@@ -1576,7 +1599,7 @@
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success ?? [],
 													flowJobsDuration: mod.flow_jobs_duration,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													length: mod.iterator?.itered_len ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
 											: undefined}
@@ -1837,6 +1860,13 @@
 											workspaceId={job?.workspace_id}
 										/>
 									{/if}
+								{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
+									<div class="p-2">
+										<Alert
+											type="info"
+											title="Web search output is available on the AI agent node"
+										/>
+									</div>
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}
@@ -1979,7 +2009,8 @@
 									>{/if}
 							</div>
 						{:else if rightColumnSelect == 'node_definition'}
-							<FlowGraphViewerStep {stepDetail} />
+							{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+							<FlowGraphViewerStep {stepDetail} jobScriptHash={node?.script_hash} />
 						{:else if rightColumnSelect == 'user_states'}
 							<div class="p-2">
 								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />

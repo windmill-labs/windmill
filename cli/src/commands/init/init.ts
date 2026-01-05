@@ -4,6 +4,8 @@ import { readLockfile } from "../../utils/metadata.ts";
 import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
 import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
+import { generateRTNamespace } from "../resource-type/resource-type.ts";
+import { CLI_COMMANDS } from "../../guidance/prompts.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -48,6 +50,7 @@ async function initAction(opts: InitOptions) {
       initialConfig.gitBranches = {};
     }
 
+    initialConfig.nonDottedPaths = true;
     await Deno.writeTextFile("wmill.yaml", yamlStringify(initialConfig));
     log.info(colors.green("wmill.yaml created with default settings"));
 
@@ -239,40 +242,31 @@ async function initAction(opts: InitOptions) {
   try {
     const scriptGuidanceContent = SCRIPT_GUIDANCE;
     const flowGuidanceContent = FLOW_GUIDANCE;
+    const cliCommandsContent = CLI_COMMANDS;
 
-    // Create .cursor/rules directory
-    await Deno.mkdir(".cursor/rules", { recursive: true });
-
-    // Create windmill.mdc file
-    if (!(await Deno.stat(".cursor/rules/script.mdc").catch(() => null))) {
+    // Create AGENTS.md file
+    if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
       await Deno.writeTextFile(
-        ".cursor/rules/script.mdc",
-        scriptGuidanceContent
-      );
-      log.info(colors.green("Created .cursor/rules/script.mdc"));
-    }
-
-    if (!(await Deno.stat(".cursor/rules/flow.mdc").catch(() => null))) {
-      await Deno.writeTextFile(".cursor/rules/flow.mdc", flowGuidanceContent);
-      log.info(colors.green("Created .cursor/rules/flow.mdc"));
-    }
-
-    // Create CLAUDE.md file
-    if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
-      await Deno.writeTextFile(
-        "CLAUDE.md",
+        "AGENTS.md",
         `
-                        # Claude
+You are a helpful assistant that can help with Windmill scripts and flows creation.
 
-                        You are a helpful assistant that can help with Windmill scripts and flows creation.
+## Script Guidance
+${scriptGuidanceContent}
 
-                        ## Script Guidance
-                        ${scriptGuidanceContent}
+## Flow Guidance
+${flowGuidanceContent}
 
-                        ## Flow Guidance
-                        ${flowGuidanceContent}
-                    `
+## CLI Commands
+${cliCommandsContent}
+`
       );
+      log.info(colors.green("Created AGENTS.md"));
+    }
+
+    // Create CLAUDE.md file, referencing AGENTS.md
+    if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
+      await Deno.writeTextFile("CLAUDE.md", "Instructions are in @AGENTS.md");
       log.info(colors.green("Created CLAUDE.md"));
     }
   } catch (error) {
@@ -281,6 +275,17 @@ async function initAction(opts: InitOptions) {
     } else {
       log.warn(`Could not create guidance files: ${error}`);
     }
+  }
+
+  // Generate resource type namespace
+  try {
+    await generateRTNamespace(opts as GlobalOptions);
+  } catch (error) {
+    log.warn(
+      `Could not pull resource types and generate TypeScript namespace: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
   }
 }
 

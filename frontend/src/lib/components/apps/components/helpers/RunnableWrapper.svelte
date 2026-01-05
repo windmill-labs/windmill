@@ -78,6 +78,10 @@
 		doOnSuccess?: SideEffectAction
 		doOnSubmit?: SideEffectAction
 		doOnError?: SideEffectAction
+		clearFormInputs?: {
+			selected: 'never' | 'onSuccess' | 'onSubmit' | 'onError'
+			onClear: () => void
+		}
 		render: boolean
 		recomputeIds?: string[]
 		outputs: {
@@ -115,6 +119,7 @@
 		doOnSuccess = undefined,
 		doOnSubmit = undefined,
 		doOnError = undefined,
+		clearFormInputs,
 		render,
 		recomputeIds = [],
 		outputs,
@@ -194,6 +199,10 @@
 	}
 
 	async function handleSubmitSideEffect() {
+		if (clearFormInputs) {
+			if (clearFormInputs.selected === 'onSubmit') clearFormInputs.onClear()
+		}
+
 		if (!doOnSubmit) return
 
 		if (doOnSubmit.selected == 'none') return
@@ -202,6 +211,10 @@
 	}
 
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
+		if (clearFormInputs) {
+			if (!success && clearFormInputs.selected === 'onError') clearFormInputs.onClear()
+			if (success && clearFormInputs.selected === 'onSuccess') clearFormInputs.onClear()
+		}
 		const sideEffect = success ? doOnSuccess : doOnError
 
 		if (recomputeIds && success) {
@@ -214,7 +227,11 @@
 		await executeSideEffect(sideEffect, success, errorMessage)
 	}
 
-	async function executeSideEffect(sideEffect: SideEffectAction, success: boolean = true, errorMessage?: string) {
+	async function executeSideEffect(
+		sideEffect: SideEffectAction,
+		success: boolean = true,
+		errorMessage?: string
+	) {
 		if (!sideEffect) return
 
 		switch (sideEffect.selected) {

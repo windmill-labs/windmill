@@ -56,7 +56,6 @@
 			insertable={data.insertable}
 			editMode={data.editMode}
 			moduleAction={data.moduleAction}
-			onShowModuleDiff={data.onShowModuleDiff}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +

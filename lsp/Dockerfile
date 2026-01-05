@@ -1,5 +1,5 @@
-FROM python:3.11-slim as python-base
-FROM node:19-slim as node-base
+FROM python:3.12-slim as python-base
+FROM node:22-slim as node-base
 
 FROM python-base
 COPY --from=node-base /usr/local /usr/local

@@ -10,7 +10,7 @@
 	} from '$lib/consts'
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
+	import { ArrowDownRight, ArrowUpRight, Copy } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
@@ -430,7 +430,7 @@ done`
 												}}
 											>
 												<Highlight language={bash} code={curlCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}
 									{/key}
@@ -452,7 +452,7 @@ done`
 												}}
 											>
 												<Highlight language={typescript} code={fetchCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}{/key}{/key}{/key}
 						{/key}
