@@ -557,6 +557,7 @@
 			let error = e?.body ?? e?.message
 			updateResult({ error })
 			$errorByComponent[id] = { error }
+			loading = false // Ensure loading is reset on any error
 		}
 	}
 
