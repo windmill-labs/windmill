@@ -453,11 +453,17 @@
 			}
 		}
 
-		// Trigger reactivity
 		if (action === 'accept') {
 			diffManager.beforeFlow.schema = { ...beforeSchema }
 		} else {
 			flowStore.val.schema = { ...flowStore.val.schema }
+		}
+
+		selectedSchema = structuredClone($state.snapshot(beforeSchema))
+		diff = computeDiff(selectedSchema, flowStore.val.schema)
+		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+		if (Object.values(diff).every((d) => d.diff === 'same')) {
+			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
 		}
 	}
 
