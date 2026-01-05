@@ -139,7 +139,7 @@
 			Name
 			<TextInput
 				inputProps={{ type: 'text', placeholder: 'my_table' }}
-				class={errors?.name ? 'border !border-red-600/60' : ''}
+				error={errors?.name}
 				bind:value={values.name}
 			/>
 		</label>
@@ -269,10 +269,8 @@
 						<tr>
 							<Cell first class="flex">
 								<Select
-									inputClass={twMerge(
-										'!w-48',
-										fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
-									)}
+									inputClass={twMerge('!w-48')}
+									error={fkErrors?.emptyTarget}
 									placeholder=""
 									bind:value={foreignKey.targetTable}
 									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
@@ -294,11 +292,7 @@
 												<div class="grow h-[2rem] relative">
 													<Select
 														class="!absolute inset-0"
-														inputClass={twMerge(
-															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
-																? 'border !border-red-600/60'
-																: ''
-														)}
+														error={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)}
 														placeholder=""
 														bind:value={column.sourceColumn}
 														items={values.columns
@@ -311,11 +305,7 @@
 												<div class="grow h-[2rem] relative">
 													<Select
 														class="!absolute inset-0"
-														inputClass={twMerge(
-															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
-																? 'border !border-red-600/60'
-																: ''
-														)}
+														error={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)}
 														placeholder=""
 														bind:value={column.targetColumn}
 														items={Object.keys(
