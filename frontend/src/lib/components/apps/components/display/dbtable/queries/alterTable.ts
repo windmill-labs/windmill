@@ -25,6 +25,7 @@ type DropColumnOperation = {
 export type AlterColumnOperation = {
 	kind: 'alterColumn'
 	name: string
+	original: CreateTableValuesColumn
 	changes: Partial<Omit<CreateTableValuesColumn, 'initialName'>>
 }
 
@@ -103,13 +104,12 @@ export function makeAlterTableQueries(
 
 function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: DbType): string[] {
 	const queries: string[] = []
-	const { name, changes } = op
+	const { name, changes, original } = op
 
-	if (changes.datatype) {
-		const datatype = changes.datatype_length
-			? `${changes.datatype}(${changes.datatype_length})`
-			: changes.datatype
-
+	if (changes.datatype || changes.datatype_length) {
+		const baseDatatype = changes.datatype ?? original.datatype
+		const datatypeLength = changes.datatype_length ?? original.datatype_length
+		const datatype = datatypeLength ? `${baseDatatype}(${datatypeLength})` : baseDatatype
 		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} TYPE ${datatype};`)
 	}
 
@@ -117,7 +117,7 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 		if (!changes.defaultValue) {
 			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} DROP DEFAULT;`)
 		} else {
-			const def = formatDefaultValue(changes.defaultValue, changes.datatype ?? '', dbType)
+			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
 			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${name} SET DEFAULT ${def};`)
 		}
 	}
@@ -184,7 +184,12 @@ export function diffCreateTableValues(
 				changes.name = updatedCol.name
 			}
 			if (Object.keys(changes).length > 0) {
-				operations.push({ kind: 'alterColumn', name: originalCol.name, changes })
+				operations.push({
+					kind: 'alterColumn',
+					name: originalCol.name,
+					changes,
+					original: originalCol
+				})
 			}
 		}
 	}

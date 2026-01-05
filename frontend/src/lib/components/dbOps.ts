@@ -19,6 +19,7 @@ import {
 	makeAlterTableQueries,
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
+import { makeFetchTableEditorDefinitionQuery } from './apps/components/display/dbtable/queries/fetchTableEditorDefinition'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -123,6 +124,10 @@ export type IDbSchemaOps = {
 	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onFetchTableEditorDefinition: (params: {
+		table: string
+		schema?: string
+	}) => Promise<CreateTableValues>
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -180,6 +185,15 @@ export function dbSchemaOpsWithPreviewScripts({
 				workspace,
 				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
 			})
+		},
+		onFetchTableEditorDefinition: async ({ table, schema }) => {
+			schema ??= 'public'
+			let query = makeFetchTableEditorDefinitionQuery(dbType)
+			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			return (await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg, schema, table }, language, content: query }
+			})) as CreateTableValues
 		}
 	}
 }

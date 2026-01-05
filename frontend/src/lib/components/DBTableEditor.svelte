@@ -156,11 +156,16 @@
 					{#each values.columns as column, i}
 						<tr>
 							<Cell first>
-								<TextInput
-									error={errors?.columns?.includes(column.name)}
-									inputProps={{ type: 'text', placeholder: 'column_name' }}
-									bind:value={column.name}
-								/>
+								<div class="flex flex-col">
+									<TextInput
+										error={errors?.columns?.includes(column.name)}
+										inputProps={{ type: 'text', placeholder: 'column_name' }}
+										bind:value={column.name}
+									/>
+									{#if column.initialName && column.name !== column.initialName}
+										<span class="text-xs text-hint">Old name: {column.initialName}</span>
+									{/if}
+								</div>
 							</Cell>
 							<Cell>
 								<Select
@@ -178,6 +183,9 @@
 									items={safeSelectItems(columnTypes)}
 									class="w-48"
 								/>
+								{#if column.initialName && column.name !== column.initialName}
+									<span class="text-xs">&nbsp;</span>
+								{/if}
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
 								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />

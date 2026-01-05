@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { ChevronDownIcon, EditIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import {
+		ChevronDownIcon,
+		EditIcon,
+		Loader2,
+		MoreVertical,
+		Plus,
+		Table2,
+		Trash2Icon
+	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -17,6 +25,7 @@
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
 	import { diffCreateTableValues } from './apps/components/display/dbtable/queries/alterTable'
+	import { resource } from 'runed'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -193,6 +202,17 @@
 		| { open: true; alterTableKey: string } = $state({
 		open: false
 	})
+	let dbTableEditorAlterTableData = resource(
+		() => dbTableEditorState.alterTableKey,
+		async (tableKey) => {
+			if (!tableKey) return
+			return await dbSchemaOps.onFetchTableEditorDefinition({
+				table: tableKey,
+				schema: selected.schemaKey
+			})
+		}
+	)
+
 	let newSchemaDialogOpen = $state(false)
 	let newSchemaName = $state('')
 
@@ -448,16 +468,21 @@
 											}
 										})
 								},
-								{
-									displayName: 'Alter table',
-									icon: EditIcon,
-									action: () => {
-										dbTableEditorState = {
-											open: true,
-											alterTableKey: tableKey
-										}
-									}
-								}
+								// Only support "Alter table" for PostgreSQL for now
+								...(dbType == 'postgresql'
+									? [
+											{
+												displayName: 'Alter table',
+												icon: EditIcon,
+												action: () => {
+													dbTableEditorState = {
+														open: true,
+														alterTableKey: tableKey
+													}
+												}
+											}
+										]
+									: [])
 							]}
 							class="w-fit"
 						>
@@ -515,45 +540,45 @@
 			: 'Create a new table'}
 	>
 		{#key dbTableEditorState.alterTableKey}
-			{@const alterTableInitialValues = dbTableEditorState.alterTableKey
-				? {
-						columns: [{ name: 'a', initialName: 'a', datatype: 'bigint' }],
-						foreignKeys: [],
-						name: 'test'
-					} // TODO: fetch existing table definition
-				: undefined}
-			<DbTableEditor
-				confirmBtnText={dbTableEditorState.alterTableKey
-					? `Alter ${dbTableEditorState.alterTableKey}`
-					: 'Create table'}
-				{dbSchema}
-				currentSchema={selected.schemaKey}
-				initialValues={alterTableInitialValues}
-				onConfirm={async (values) => {
-					if (dbTableEditorState.alterTableKey && alterTableInitialValues) {
-						let diff = diffCreateTableValues(alterTableInitialValues, values)
-						await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
-					} else {
-						await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
-					}
-					refresh?.()
-					sendUserToast(
-						dbTableEditorState.alterTableKey
-							? dbTableEditorState.alterTableKey + ' updated!'
-							: values.name + ' created!'
-					)
-					dbTableEditorState = { open: false }
-				}}
-				{dbType}
-				previewSql={(values) => {
-					if (dbTableEditorState.alterTableKey && alterTableInitialValues) {
-						let diff = diffCreateTableValues(alterTableInitialValues, values)
-						return dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
-					} else {
-						return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
-					}
-				}}
-			/>
+			{#if !dbTableEditorState.alterTableKey || dbTableEditorAlterTableData.current}
+				<DbTableEditor
+					confirmBtnText={dbTableEditorState.alterTableKey
+						? `Alter ${dbTableEditorState.alterTableKey}`
+						: 'Create table'}
+					{dbSchema}
+					currentSchema={selected.schemaKey}
+					initialValues={dbTableEditorAlterTableData.current}
+					onConfirm={async (values) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
+						} else {
+							await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+						}
+						refresh?.()
+						sendUserToast(
+							dbTableEditorState.alterTableKey
+								? dbTableEditorState.alterTableKey + ' updated!'
+								: values.name + ' created!'
+						)
+						dbTableEditorState = { open: false }
+					}}
+					{dbType}
+					previewSql={(values) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
+							return dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
+						} else {
+							return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+						}
+					}}
+				/>
+			{:else if dbTableEditorAlterTableData.loading}
+				<Loader2 class="animate-spin" size={32} />
+			{:else}
+				<p class="text-sm text-tertiary">Failed to load table definition.</p>
+				<p>{dbTableEditorAlterTableData.error}</p>
+			{/if}
 		{/key}
 	</DrawerContent>
 </Drawer>
