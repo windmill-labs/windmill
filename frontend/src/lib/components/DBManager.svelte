@@ -565,7 +565,11 @@
 					computePreview={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
-							return dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
+							let queries = dbSchemaOps.previewAlterSql({
+								values: diff,
+								schema: selected.schemaKey
+							})
+							return queries.join('\n')
 						} else {
 							return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
 						}
@@ -573,11 +577,15 @@
 					computeBtnProps={({ values }) => {
 						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
 							let diff = diffCreateTableValues(dbTableEditorAlterTableData.current, values)
-							if (!diff.operations.length) {
+							let queries = dbSchemaOps.previewAlterSql({
+								values: diff,
+								schema: selected.schemaKey
+							})
+							if (!queries.length) {
 								return { text: 'No changes detected', disabled: true }
 							}
 							return {
-								text: `Alter table (${pluralize(diff.operations.length, 'change')} detected)`
+								text: `Alter table (${pluralize(queries.length, 'change')} detected)`
 							}
 						} else {
 							return { text: 'Create table' }

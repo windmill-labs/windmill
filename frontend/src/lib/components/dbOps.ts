@@ -16,6 +16,7 @@ import {
 	type CreateTableValues
 } from './apps/components/display/dbtable/queries/createTable'
 import {
+	makeAlterTableQueries,
 	makeAlterTableQuery,
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
@@ -121,7 +122,7 @@ export type IDbSchemaOps = {
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
 	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
-	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
@@ -166,7 +167,7 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: dbArg, content: query, language }
 			})
 		},
-		previewAlterSql: ({ values, schema }) => makeAlterTableQuery(values, dbType, schema),
+		previewAlterSql: ({ values, schema }) => makeAlterTableQueries(values, dbType, schema),
 		onCreateSchema: async ({ schema }) => {
 			let createSchemaQuery = `CREATE SCHEMA ${schema};`
 			if (input.type === 'ducklake')
