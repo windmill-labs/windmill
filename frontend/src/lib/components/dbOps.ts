@@ -15,6 +15,10 @@ import {
 	makeCreateTableQuery,
 	type CreateTableValues
 } from './apps/components/display/dbtable/queries/createTable'
+import {
+	makeAlterTableQueries,
+	type AlterTableValues
+} from './apps/components/display/dbtable/queries/alterTable'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -115,6 +119,8 @@ export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
 	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
 	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 }
@@ -147,6 +153,16 @@ export function dbSchemaOpsWithPreviewScripts({
 			})
 		},
 		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		onAlter: async ({ values, schema }) => {
+			let query = makeAlterTableQueries(values, dbType, schema).join('\n')
+			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewAlterSql: ({ values, schema }) =>
+			makeAlterTableQueries(values, dbType, schema).join('\n'),
 		onCreateSchema: async ({ schema }) => {
 			let createSchemaQuery = `CREATE SCHEMA ${schema};`
 			if (input.type === 'ducklake')

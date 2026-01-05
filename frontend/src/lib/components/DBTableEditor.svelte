@@ -67,13 +67,23 @@
 
 	type Props = {
 		onConfirm: (values: CreateTableValues) => void | Promise<void>
+		confirmBtnText?: string
 		previewSql?: (values: CreateTableValues) => string
 		dbType: DbType
 		dbSchema?: DBSchema
 		currentSchema?: string
+		initialValues?: CreateTableValues
 	}
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: Props = $props()
+	const {
+		onConfirm,
+		dbType,
+		previewSql,
+		dbSchema,
+		currentSchema,
+		initialValues,
+		confirmBtnText = 'Create table'
+	}: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
@@ -87,11 +97,13 @@
 		} satisfies Record<DbType, string>
 	)[dbType]
 
-	const values: CreateTableValues = $state({
-		name: '',
-		columns: [],
-		foreignKeys: []
-	})
+	const values: CreateTableValues = $state(
+		$state.snapshot(initialValues) ?? {
+			name: '',
+			columns: [],
+			foreignKeys: []
+		}
+	)
 
 	function addColumn({ name, primaryKey }: { name: string; primaryKey?: boolean }) {
 		values.columns.push({
@@ -377,7 +389,6 @@
 					try {
 						askingForConfirmation && (askingForConfirmation.loading = true)
 						await onConfirm(values)
-						sendUserToast(values.name + ' created!')
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
 						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
@@ -386,10 +397,10 @@
 					askingForConfirmation = undefined
 				},
 				title: 'Confirm running the following:',
-				confirmationText: 'Create ' + values.name,
+				confirmationText: confirmBtnText,
 				open: true,
 				...(previewSql && { codeContent: previewSql(values) })
-			})}>Create table</Button
+			})}>{confirmBtnText}</Button
 	>
 </div>
 

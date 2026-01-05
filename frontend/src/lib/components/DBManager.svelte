@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { ChevronDownIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import { ChevronDownIcon, EditIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -16,6 +16,7 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
+	import { diffCreateTableValues } from './apps/components/display/dbtable/queries/alterTable'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -187,7 +188,11 @@
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
 		| undefined = $state()
 
-	let dbTableEditorState: { open: boolean } = $state({ open: false })
+	let dbTableEditorState:
+		| { open: boolean; alterTableKey?: undefined }
+		| { open: true; alterTableKey: string } = $state({
+		open: false
+	})
 	let newSchemaDialogOpen = $state(false)
 	let newSchemaName = $state('')
 
@@ -297,7 +302,9 @@
 						<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
 							>{schemaKey}</span
 						>
-						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">{schemaTables.length}</span>
+						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">
+							{schemaTables.length}
+						</span>
 						<!-- Delete schema button (on hover) -->
 						<button
 							class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
@@ -331,7 +338,8 @@
 					{#each schemaTables as tableKey}
 						{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
 						{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
-						{@const isCurrentPreview = selected.schemaKey === schemaKey && selected.tableKey === tableKey}
+						{@const isCurrentPreview =
+							selected.schemaKey === schemaKey && selected.tableKey === tableKey}
 						<div
 							class={'group w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
 								(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
@@ -439,6 +447,16 @@
 												askingForConfirmation = undefined
 											}
 										})
+								},
+								{
+									displayName: 'Alter table',
+									icon: EditIcon,
+									action: () => {
+										dbTableEditorState = {
+											open: true,
+											alterTableKey: tableKey
+										}
+									}
 								}
 							]}
 							class="w-fit"
@@ -490,18 +508,49 @@
 	open={dbTableEditorState.open}
 	on:close={() => (dbTableEditorState = { open: false })}
 >
-	<DrawerContent on:close={() => (dbTableEditorState = { open: false })} title="Create a new table">
-		<DbTableEditor
-			{dbSchema}
-			currentSchema={selected.schemaKey}
-			onConfirm={async (values) => {
-				await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
-				refresh?.()
-				dbTableEditorState = { open: false }
-			}}
-			{dbType}
-			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
-		/>
+	<DrawerContent
+		on:close={() => (dbTableEditorState = { open: false })}
+		title={dbTableEditorState.alterTableKey
+			? `Alter ${dbTableEditorState.alterTableKey}`
+			: 'Create a new table'}
+	>
+		{#key dbTableEditorState.alterTableKey}
+			{@const alterTableInitialValues = dbTableEditorState.alterTableKey
+				? { columns: [], foreignKeys: [], name: 'test' } // TODO: fetch existing table definition
+				: undefined}
+			<DbTableEditor
+				confirmBtnText={dbTableEditorState.alterTableKey
+					? `Alter ${dbTableEditorState.alterTableKey}`
+					: 'Create table'}
+				{dbSchema}
+				currentSchema={selected.schemaKey}
+				initialValues={alterTableInitialValues}
+				onConfirm={async (values) => {
+					if (dbTableEditorState.alterTableKey && alterTableInitialValues) {
+						let diff = diffCreateTableValues(alterTableInitialValues, values)
+						await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
+					} else {
+						await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+					}
+					refresh?.()
+					sendUserToast(
+						dbTableEditorState.alterTableKey
+							? dbTableEditorState.alterTableKey + ' updated!'
+							: values.name + ' created!'
+					)
+					dbTableEditorState = { open: false }
+				}}
+				{dbType}
+				previewSql={(values) => {
+					if (dbTableEditorState.alterTableKey && alterTableInitialValues) {
+						let diff = diffCreateTableValues(alterTableInitialValues, values)
+						return dbSchemaOps.previewAlterSql({ values: diff, schema: selected.schemaKey })
+					} else {
+						return dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })
+					}
+				}}
+			/>
+		{/key}
 	</DrawerContent>
 </Drawer>
 

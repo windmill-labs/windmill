@@ -56,9 +56,9 @@ describe('makeAlterTableQueries', () => {
 				name: 'users',
 				operations: [
 					{
-						kind: 'renameColumn',
-						from: 'fullname',
-						to: 'name'
+						kind: 'alterColumn',
+						name: 'fullname',
+						changes: { name: 'name' }
 					}
 				]
 			},
@@ -294,9 +294,9 @@ describe('makeAlterTableQueries', () => {
 						}
 					},
 					{
-						kind: 'renameColumn',
-						from: 'fullname',
-						to: 'name'
+						kind: 'alterColumn',
+						name: 'fullname',
+						changes: { name: 'name' }
 					},
 					{
 						kind: 'renameTable',
