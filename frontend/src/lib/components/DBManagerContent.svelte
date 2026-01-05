@@ -24,7 +24,7 @@
 	import type { SelectedTable } from './DBManager.svelte'
 
 	interface Props {
-		input: DbInput
+		input?: DbInput
 		showRepl?: boolean
 		hasReplResult?: boolean
 		isRefreshing?: boolean
@@ -52,7 +52,9 @@
 		disabledTables = []
 	}: Props = $props()
 
-	let dbSchema: DBSchema | undefined = $derived($dbSchemas[getDbSchemasPath(input)])
+	let dbSchema: DBSchema | undefined = $derived(input && $dbSchemas[getDbSchemasPath(input)])
+
+	$inspect('dbSchema', dbSchema)
 
 	function getDbSchemasPath(input: DbInput): string {
 		switch (input.type) {
