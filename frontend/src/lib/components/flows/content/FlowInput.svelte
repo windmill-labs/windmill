@@ -148,7 +148,12 @@
 			diff = computeDiff(selectedSchema, flowStore.val.schema)
 			previewSchema = schemaFromDiff(diff, flowStore.val.schema)
 			runDisabled = true
-		} else if (!hasAiSchemaChanges && selectedSchema) {
+		}
+	})
+
+	// Remove selectedSchema once we do not have ai schema changes
+	$effect(() => {
+		if (!hasAiSchemaChanges) {
 			selectedSchema = undefined
 			previewSchema = undefined
 			diff = {}
