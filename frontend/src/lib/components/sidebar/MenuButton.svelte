@@ -105,16 +105,19 @@
 			title={isCollapsed ? undefined : label}
 			{...$trigger}
 		>
-			<div style="background-color: {color}" class="rounded-full p-1.5 center-center">
-				{#if icon}
-					{@const SvelteComponent = icon}
+			{#if icon}
+				{@const SvelteComponent = icon}
+				<div
+					style="background-color: {color}"
+					class={twMerge('rounded-full center-center', color ? 'p-1 -ml-1' : '')}
+				>
 					<SvelteComponent
-						size={14}
+						size={16}
 						class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
 						{...iconProps}
 					/>
-				{/if}
-			</div>
+				</div>
+			{/if}
 
 			<div class="flex flex-col text-left grow min-w-0">
 				{#if !isCollapsed && label}
