@@ -161,18 +161,20 @@
 {/if}
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
-	<h2 class="mb-4 inline-flex gap-2 text-sm font-semibold text-emphasis">
-		Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
-	</h2>
+	<div class="flex flex-row items-center gap-2 justify-between">
+		<h2 class="mb-4 inline-flex gap-2 text-sm font-semibold text-emphasis">
+			Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
+		</h2>
 
-	{#if $superadmin}
-		<div class="flex flex-row-reverse pb-2">
-			<Toggle
-				bind:checked={list_all_as_super_admin}
-				options={{ right: 'List all workspaces as superadmin' }}
-			/>
-		</div>
-	{/if}
+		{#if $superadmin}
+			<div class="flex flex-row-reverse pb-2">
+				<Toggle
+					bind:checked={list_all_as_super_admin}
+					options={{ right: 'List all workspaces as superadmin' }}
+				/>
+			</div>
+		{/if}
+	</div>
 
 	{#if adminsInstance}
 		<Button
@@ -201,7 +203,7 @@
 				workspace.
 			</p>
 		{/if}
-		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked, parentName } (workspace.id)}
+		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked } (workspace.id)}
 			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
 				<Button
 					variant="default"
@@ -216,14 +218,14 @@
 					{#if isForked}
 						<GitFork size={12} class="text-primary mr-2 flex-shrink-0" />
 					{/if}
-					<span class="flex-1">
+					<span class="flex-1 items-center">
 						{#if workspace.color}
-							<span
-								class="inline-block w-3 h-3 mr-2 rounded-full border border-gray-400"
+							<div
+								class="inline-block w-4 h-4 mr-2 rounded-full border"
 								style="background-color: {workspace.color}"
-							></span>
+							></div>
 						{/if}
-						<span class="font-mono" class:text-secondary={isForked}>{workspace.id}</span> -
+						<span class="font-mono text-secondary">{workspace.id}</span> -
 						<span class:text-secondary={isForked}>{workspace.name}</span>
 						as
 						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
@@ -232,12 +234,6 @@
 						{/if}
 						{#if workspace.disabled}
 							<span class="text-red-500"> (user disabled in this workspace)</span>
-						{/if}
-						{#if isForked && parentName}
-							<span class="text-secondary text-2xs mt-1">
-								<br />
-								Fork of {parentName}
-							</span>
 						{/if}
 					</span>
 				</Button>
