@@ -61,19 +61,20 @@
 <Modal bind:open title="Change workspace name">
 	<div class="flex flex-col gap-4 mt-4">
 		{#if currentName}
-			<p class="text-secondary text-sm"
-				>Current name <br /> <span class="font-bold">{currentName}</span></p
+			<p class="text-secondary text-xs"
+				>Current name <br /> <span class="text-emphasis">{currentName}</span></p
 			>
 		{/if}
-		<label class="block">
-			<span class="text-secondary text-sm">New name</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-emphasis text-xs">New name</span>
 			<input type="text" bind:value={newName} />
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<Button
 			size="sm"
+			variant="accent"
 			disabled={!newName}
 			on:click={() => {
 				renameWorkspace()
@@ -81,5 +82,5 @@
 		>
 			Save
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 </Modal>
