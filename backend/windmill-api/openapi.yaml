@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.596.0
+  version: 1.601.1
   title: Windmill API
 
   contact:
@@ -2976,6 +2976,24 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/workspaces/list_datatable_schemas:
+    get:
+      summary: list schemas of all connected Datatables
+      operationId: listDataTableSchemas
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: schemas of all datatables
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DataTableSchema"
+
   /w/{workspace}/workspaces/edit_ducklake_config:
     post:
       summary: edit ducklake settings
@@ -3028,7 +3046,6 @@ paths:
           content:
             application/json:
               schema: {}
-
 
   /w/{workspace}/workspaces/edit_git_sync_config:
     post:
@@ -9716,6 +9733,34 @@ paths:
                 required:
                   - completed
                   - result
+
+  /w/{workspace}/jobs_u/completed/get_timing/{id}:
+    get:
+      summary: get completed job timing
+      operationId: getCompletedJobTiming
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: job timing details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created_at:
+                    type: string
+                    format: date-time
+                  started_at:
+                    type: string
+                    format: date-time
+                  duration_ms:
+                    type: integer
+                required:
+                  - created_at
 
   /w/{workspace}/jobs/completed/delete/{id}:
     post:
@@ -16527,6 +16572,14 @@ components:
           type: string
         debounce_delay_s:
           type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
+          type: integer
         cache_ttl:
           type: number
         dedicated_worker:
@@ -16629,6 +16682,14 @@ components:
         debounce_key:
           type: string
         debounce_delay_s:
+          type: integer
+        debounce_args_to_accumulate:
+          type: array
+          items:
+            type: string
+        max_total_debouncing_time:
+          type: integer
+        max_total_debounces_amount:
           type: integer
         visible_to_runner_only:
           type: boolean
@@ -20568,6 +20629,27 @@ components:
                     type: string
                 required:
                   - resource_type
+
+    DataTableSchema:
+      type: object
+      required: [datatable_name, schemas]
+      properties:
+        datatable_name:
+          type: string
+        schemas:
+          type: object
+          description: "Hierarchical schema: schema_name -> table_name -> column_name -> compact_type (e.g. 'int4', 'text?', 'int4?=0')"
+          additionalProperties:
+            type: object
+            description: "Tables in this schema"
+            additionalProperties:
+              type: object
+              description: "Columns in this table"
+              additionalProperties:
+                type: string
+                description: "Compact type: 'type[?][=default]' where ? means nullable"
+        error:
+          type: string
 
     DynamicInputData:
       type: object

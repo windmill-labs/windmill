@@ -1,7 +1,18 @@
 <script lang="ts">
 	import AIChatMessage from './AIChatMessage.svelte'
 	import { type Snippet } from 'svelte'
-	import { CheckIcon, HistoryIcon, Loader2, Plus, X, XIcon } from 'lucide-svelte'
+	import {
+		CheckIcon,
+		Code2,
+		FileCode,
+		HistoryIcon,
+		Loader2,
+		MousePointer2,
+		Plus,
+		TextSelect,
+		X,
+		XIcon
+	} from 'lucide-svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { type DisplayMessage } from './shared'
@@ -9,10 +20,12 @@
 	import ChatQuickActions from './ChatQuickActions.svelte'
 	import ProviderModelSelector from './ProviderModelSelector.svelte'
 	import ChatMode from './ChatMode.svelte'
+	import DatatableCreationPolicy from './DatatableCreationPolicy.svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
 	import AIChatInput from './AIChatInput.svelte'
 	import { getModifierKey } from '$lib/utils'
+	import type { SelectedContext } from './app/core'
 
 	let {
 		messages,
@@ -87,6 +100,14 @@
 	const isLastMessageTool = $derived(
 		messages.length > 0 && messages[messages.length - 1].role === 'tool'
 	)
+
+	// Get app context for display when in APP mode
+	const appContext = $derived.by((): SelectedContext | undefined => {
+		if (aiChatManager.mode !== AIMode.APP || !aiChatManager.appAiChatHelpers) {
+			return undefined
+		}
+		return aiChatManager.appAiChatHelpers.getSelectedContext()
+	})
 </script>
 
 <div class="flex flex-col h-full">
@@ -259,9 +280,87 @@
 						<Markdown md={disabledMessage} />
 					</div>
 				{:else}
-					<div class="flex flex-row gap-2 min-w-0">
+					<div class="flex flex-row gap-x-1.5 min-w-0 flex-wrap items-center">
 						<ChatMode />
+						{#if aiChatManager.mode === AIMode.APP}
+							<DatatableCreationPolicy />
+						{/if}
 						<ProviderModelSelector />
+
+						{#if aiChatManager.mode === AIMode.APP && appContext && (appContext.type !== 'none' || appContext.inspectorElement || appContext.codeSelection)}
+							{#if appContext.type === 'frontend' && appContext.frontendPath && !appContext.selectionExcluded}
+								<div
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-2xs"
+									title={appContext.frontendPath}
+								>
+									<FileCode class="w-3 h-3" />
+									<span class="truncate max-w-[80px]">{appContext.frontendPath}</span>
+									<button
+										class="hover:bg-blue-200 dark:hover:bg-blue-800/50 rounded p-0.5 -mr-0.5"
+										onclick={() => appContext.toggleSelectionExcluded?.()}
+										title="Exclude from prompt"
+									>
+										<X class="w-2.5 h-2.5" />
+									</button>
+								</div>
+							{:else if appContext.type === 'backend' && appContext.backendKey && !appContext.selectionExcluded}
+								<div
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-2xs"
+									title={appContext.backendKey}
+								>
+									<Code2 class="w-3 h-3" />
+									<span class="truncate max-w-[80px]">{appContext.backendKey}</span>
+									<button
+										class="hover:bg-green-200 dark:hover:bg-green-800/50 rounded p-0.5 -mr-0.5"
+										onclick={() => appContext.toggleSelectionExcluded?.()}
+										title="Exclude from prompt"
+									>
+										<X class="w-2.5 h-2.5" />
+									</button>
+								</div>
+							{/if}
+							{#if appContext.inspectorElement}
+								<div
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 text-2xs"
+									title={appContext.inspectorElement.path}
+								>
+									<MousePointer2 class="w-3 h-3" />
+									<span class="truncate max-w-[60px]">
+										{appContext.inspectorElement.tagName.toLowerCase()}{appContext.inspectorElement
+											.id
+											? `#${appContext.inspectorElement.id}`
+											: ''}{appContext.inspectorElement.className
+											? `.${appContext.inspectorElement.className.split(' ')[0]}`
+											: ''}
+									</span>
+									<button
+										class="hover:bg-purple-200 dark:hover:bg-purple-800/50 rounded p-0.5 -mr-0.5"
+										onclick={() => appContext.clearInspector?.()}
+										title="Clear element selection"
+									>
+										<X class="w-2.5 h-2.5" />
+									</button>
+								</div>
+							{/if}
+							{#if appContext.codeSelection}
+								<div
+									class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-2xs"
+									title={`${appContext.codeSelection.source}: lines ${appContext.codeSelection.startLine}-${appContext.codeSelection.endLine}`}
+								>
+									<TextSelect class="w-3 h-3" />
+									<span class="truncate max-w-[80px]">
+										L{appContext.codeSelection.startLine}-{appContext.codeSelection.endLine}
+									</span>
+									<button
+										class="hover:bg-amber-200 dark:hover:bg-amber-800/50 rounded p-0.5 -mr-0.5"
+										onclick={() => appContext.clearCodeSelection?.()}
+										title="Clear code selection"
+									>
+										<X class="w-2.5 h-2.5" />
+									</button>
+								</div>
+							{/if}
+						{/if}
 					</div>
 				{/if}
 			</div>

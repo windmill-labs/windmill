@@ -50,6 +50,7 @@ async function initAction(opts: InitOptions) {
       initialConfig.gitBranches = {};
     }
 
+    initialConfig.nonDottedPaths = true;
     await Deno.writeTextFile("wmill.yaml", yamlStringify(initialConfig));
     log.info(colors.green("wmill.yaml created with default settings"));
 

@@ -1,6 +1,7 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import { typescriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -54,8 +55,8 @@
 		MONACO_Y_PADDING
 	} from '$lib/components/vscode'
 
-	import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
-	import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
+	// import { initializeMode } from 'monaco-graphql/esm/initializeMode.js'
+	// import type { MonacoGraphQLAPI } from 'monaco-graphql/esm/api.js'
 
 	import {
 		editor as meditor,
@@ -93,6 +94,7 @@
 	import AIChatInlineWidget from './copilot/chat/AIChatInlineWidget.svelte'
 	import { writable } from 'svelte/store'
 	import { formatResourceTypes } from './copilot/chat/script/core'
+	import type { ScriptLintResult } from './copilot/chat/shared'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { editorPositionMap } from '$lib/utils'
 	import { extToLang, langToExt } from '$lib/editorLangUtils'
@@ -197,7 +199,7 @@
 	let nbWsAttempt = 0
 	let disposeMethod: (() => void) | undefined
 	const dispatch = createEventDispatcher()
-	let graphqlService: MonacoGraphQLAPI | undefined = undefined
+	// let graphqlService: MonacoGraphQLAPI | undefined = undefined
 
 	let dbSchema: DBSchema | undefined = $state(undefined)
 
@@ -464,6 +466,24 @@
 		return scriptLang
 	}
 
+	/** Get lint errors and warnings from the Monaco editor */
+	export function getLintErrors(): ScriptLintResult {
+		if (!model) {
+			return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+		}
+
+		const markers = meditor.getModelMarkers({ resource: model.uri })
+		const errors = markers.filter((m) => m.severity === MarkerSeverity.Error)
+		const warnings = markers.filter((m) => m.severity === MarkerSeverity.Warning)
+
+		return {
+			errorCount: errors.length,
+			warningCount: warnings.length,
+			errors,
+			warnings
+		}
+	}
+
 	let command: IDisposable | undefined = undefined
 
 	let sqlTypeCompletor: IDisposable | undefined = $state(undefined)
@@ -587,7 +607,7 @@
 		sqlSchemaCompletor?.dispose()
 	}
 	function disposeGaphqlService() {
-		graphqlService = undefined
+		// graphqlService = undefined
 	}
 
 	function addDBSchemaCompletions() {
@@ -597,14 +617,16 @@
 		}
 		console.log('adding db schema completions', schemaLang)
 		if (schemaLang === 'graphql') {
-			graphqlService ||= initializeMode()
-			console.log('setting schema config', schema)
-			graphqlService?.setSchemaConfig([
-				{
-					uri: 'my-schema.graphql',
-					introspectionJSON: schema
-				}
-			])
+			//graphql depreciated until https://github.com/graphql/graphiql/issues/4104 is fixed with monaco > 0.52.2
+			// languages.register({ id: 'graphql' })
+			// graphqlService ||= initializeMode()
+			// console.log('setting schema config', schema)
+			// graphqlService?.setSchemaConfig([
+			// 	{
+			// 		uri: 'my-schema.graphql',
+			// 		introspectionJSON: schema
+			// 	}
+			// ])
 		} else {
 			if (sqlSchemaCompletor) {
 				sqlSchemaCompletor.dispose()
@@ -1357,6 +1379,38 @@
 
 		keepModelAroundToAvoidDisposalOfWorkers()
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				try {
+					// Use Clipboard API to read text, then insert via Monaco's API
+					const text = await navigator.clipboard.readText()
+					if (text && editor) {
+						const selection = editor.getSelection()
+						if (selection) {
+							editor.executeEdits('paste', [
+								{
+									range: selection,
+									text: text,
+									forceMoveMarkers: true
+								}
+							])
+						}
+					}
+				} catch (e) {
+					// Clipboard API failed, try execCommand as fallback
+					document.execCommand('paste')
+				}
+			})
+		}
+
 		// updateEditorKeybindingsMode(editor, 'vim', undefined)
 
 		// Raw app lint collection: listen for marker changes and report to store
@@ -1531,7 +1585,7 @@
 		const isDucklakeOptional = ducklakeNames.includes('main')
 		const isDataTableOptional = datatableNames.includes('main')
 
-		let disposeTs = languages.typescript.typescriptDefaults.addExtraLib(
+		let disposeTs = typescriptDefaults.addExtraLib(
 			`export {};
 			declare module 'windmill-client' {
 				import { type DatatableSqlTemplateFunction, type SqlTemplateFunction } from 'windmill-client';
@@ -1562,14 +1616,14 @@
 				scriptLang === 'bunnative' ? 'bun' : scriptLang
 			)
 
-			languages.typescript.typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
+			typescriptDefaults.addExtraLib(namespace, 'rt.d.ts')
 		}
 	}
 
 	async function setTypescriptExtraLibs() {
 		if (extraLib) {
 			const uri = mUri.parse('file:///extraLib.d.ts')
-			languages.typescript.typescriptDefaults.addExtraLib(extraLib, uri.toString())
+			typescriptDefaults.addExtraLib(extraLib, uri.toString())
 		}
 
 		if (
@@ -1583,7 +1637,7 @@
 				const path = 'file://' + _path
 				let uri = mUri.parse(path)
 				console.log('adding library to runtime', path)
-				languages.typescript.typescriptDefaults.addExtraLib(code, path)
+				typescriptDefaults.addExtraLib(code, path)
 				try {
 					await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code))
 				} catch (e) {

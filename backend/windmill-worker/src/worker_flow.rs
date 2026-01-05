@@ -43,7 +43,8 @@ use windmill_common::flow_status::{
 };
 use windmill_common::flows::{add_virtual_items_if_necessary, Branch, FlowNodeId, StopAfterIf};
 use windmill_common::jobs::{
-    script_path_to_payload, JobKind, JobPayload, OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
+    check_tag_available_for_workspace_internal, script_path_to_payload, JobKind, JobPayload,
+    OnBehalfOf, RawCode, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
 use windmill_common::scripts::{ScriptHash, ScriptRunnableSettingsInline};
@@ -3359,6 +3360,22 @@ async fn push_next_flow_job(
             )
         };
 
+        // Check tag availability for flow substeps to prevent abuse
+        if let Some(tag_str) = tag.as_deref().filter(|t| !t.is_empty()) {
+            check_tag_available_for_workspace_internal(
+                &db,
+                &flow_job.workspace_id,
+                tag_str,
+                email,
+                None, // no token for flow substeps so no scopes so no scope_tags
+            )
+            .warn_after_seconds_with_sql(
+                1,
+                "check_tag_available_for_workspace_internal".to_string(),
+            )
+            .await?;
+        }
+
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
             let ctx = get_transform_context(&flow_job, &previous_id, &status)
                 .warn_after_seconds(3)
@@ -3415,7 +3432,6 @@ async fn push_next_flow_job(
             new_job_priority_override,
             job_perms.as_ref(),
             continue_with_runners,
-            None,
             None,
             None,
             None,

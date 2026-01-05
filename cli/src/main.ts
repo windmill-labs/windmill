@@ -70,9 +70,10 @@ export {
 //   }
 // });
 
-export const VERSION = "1.596.0";
+export const VERSION = "1.601.1";
 
-export const WM_FORK_PREFIX = "wm-fork";
+// Re-exported from constants.ts to maintain backwards compatibility
+export { WM_FORK_PREFIX } from "./core/constants.ts";
 
 const command = new Command()
   .name("wmill")

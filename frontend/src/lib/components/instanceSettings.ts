@@ -277,7 +277,7 @@ export const settings: Record<string, Setting[]> = {
 				{
 					label: 'Latest Stable',
 					value: 'default',
-					tooltip: 'python-3.11'
+					tooltip: 'python-3.12'
 				},
 				{
 					label: '3.10'

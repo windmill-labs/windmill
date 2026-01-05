@@ -30,6 +30,7 @@ import {
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
+import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -44,7 +45,12 @@ import { untrack } from 'svelte'
 import { type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
-import type { ContextElement } from './context'
+import type {
+	ContextElement,
+	AppFrontendFileElement,
+	AppBackendRunnableElement,
+	AppDatatableElement
+} from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
@@ -97,11 +103,20 @@ class AIChatManager {
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
+	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
+	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	datatableCreationPolicy = $state<{
+		enabled: boolean
+		datatable: string | undefined
+		schema: string | undefined
+	}>({ enabled: false, datatable: undefined, schema: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
+	/** Cached datatables for app context (fetched asynchronously) */
+	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
@@ -235,6 +250,12 @@ class AIChatManager {
 				},
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
+				},
+				getLintErrors: () => {
+					if (this.scriptEditorGetLintErrors) {
+						return this.scriptEditorGetLintErrors()
+					}
+					return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 				}
 			}
 			if (options?.closeScriptSettings) {
@@ -699,7 +720,8 @@ class AIChatManager {
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
 						oldInstructions,
-						this.appAiChatHelpers?.getSelectedContext()
+						this.appAiChatHelpers?.getSelectedContext(),
+						oldSelectedContext
 					)
 					break
 			}
@@ -976,14 +998,22 @@ class AIChatManager {
 					currentEditor.showDiffMode()
 				}
 			}
+			this.scriptEditorGetLintErrors = () => {
+				if (currentEditor && currentEditor.type === 'script') {
+					return currentEditor.editor.getLintErrors()
+				}
+				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
 		} else {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 
 		return () => {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 	}
 
@@ -1067,11 +1097,109 @@ class AIChatManager {
 		}
 	}
 
+	/**
+	 * Refresh cached datatables from the app helpers (async)
+	 * Creates one context element per table (not per datatable)
+	 */
+	refreshDatatables = async (): Promise<void> => {
+		if (!this.appAiChatHelpers) {
+			this.cachedDatatables = []
+			return
+		}
+
+		try {
+			const datatables = await this.appAiChatHelpers.getDatatables()
+			console.log('Refreshed datatables:', datatables)
+
+			// Flatten to individual tables
+			const tableElements: AppDatatableElement[] = []
+			for (const dt of datatables) {
+				if (dt.error) {
+					// Skip datatables with errors
+					continue
+				}
+				for (const [schemaName, tables] of Object.entries(dt.schemas)) {
+					for (const [tableName, columns] of Object.entries(tables)) {
+						// Format title as "datatable/schema:table" or "datatable/table" if schema is public
+						const title =
+							schemaName === 'public'
+								? `${dt.datatable_name}/${tableName}`
+								: `${dt.datatable_name}/${schemaName}:${tableName}`
+						tableElements.push({
+							type: 'app_datatable',
+							datatableName: dt.datatable_name,
+							schemaName,
+							tableName,
+							title,
+							columns
+						})
+					}
+				}
+			}
+			this.cachedDatatables = tableElements
+		} catch (err) {
+			console.error('Failed to refresh datatables:', err)
+			this.cachedDatatables = []
+		}
+	}
+
+	/**
+	 * Get available context elements for app mode (frontend files + backend runnables + datatables)
+	 */
+	getAppAvailableContext = (): ContextElement[] => {
+		if (!this.appAiChatHelpers) {
+			return []
+		}
+
+		const context: ContextElement[] = []
+
+		// Add frontend files
+		const frontendFiles = this.appAiChatHelpers.listFrontendFiles()
+		for (const path of frontendFiles) {
+			const content = this.appAiChatHelpers.getFrontendFile(path)
+			if (content !== undefined) {
+				const element: AppFrontendFileElement = {
+					type: 'app_frontend_file',
+					path,
+					title: path,
+					content
+				}
+				context.push(element)
+			}
+		}
+
+		// Add backend runnables
+		const runnables = this.appAiChatHelpers.listBackendRunnables()
+		for (const { key } of runnables) {
+			const runnable = this.appAiChatHelpers.getBackendRunnable(key)
+			if (runnable) {
+				const element: AppBackendRunnableElement = {
+					type: 'app_backend_runnable',
+					key,
+					title: key,
+					runnable
+				}
+				context.push(element)
+			}
+		}
+
+		// Add cached datatables
+		context.push(...this.cachedDatatables)
+
+		return context
+	}
+
 	setAppHelpers = (appHelpers: AppAIChatHelpers) => {
 		this.appAiChatHelpers = appHelpers
+		// Refresh datatables when app helpers are set (deferred to avoid loop)
+		// Use setTimeout to ensure this runs after the effect completes
+		setTimeout(() => {
+			this.refreshDatatables()
+		}, 50)
 
 		return () => {
 			this.appAiChatHelpers = undefined
+			this.cachedDatatables = []
 		}
 	}
 }

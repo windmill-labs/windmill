@@ -104,6 +104,34 @@ export function createAppEvalHelpers(
 		lint: () => {
 			// Return mock lint result - no actual linting in eval
 			return createEmptyLintResult()
+		},
+
+		// Data table operations (mock implementation for testing)
+		getDatatables: async () => {
+			// Return empty array for eval testing - no real datatables in test context
+			return []
+		},
+
+		getAvailableDatatableNames: () => {
+			// Return empty array for eval testing - no real datatables in test context
+			return []
+		},
+
+		execDatatableSql: async (
+			_datatableName: string,
+			_sql: string,
+			_newTable?: { schema: string; name: string }
+		) => {
+			// Return success with empty result for eval testing
+			return { success: true, result: [] }
+		},
+
+		addTableToWhitelist: (
+			_datatableName: string,
+			_schemaName: string,
+			_tableName: string
+		) => {
+			// No-op for eval testing - tables are not tracked in test context
 		}
 	}
 

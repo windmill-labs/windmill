@@ -1606,6 +1606,20 @@ pub async fn monitor_db(
         }
     };
 
+    // run every 30s (every iteration)
+    let cleanup_debounce_keys_completed_f = async {
+        if server_mode && !initial_load {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_debounce_keys_for_completed_jobs(&db).await {
+                    tracing::error!(
+                        "Error cleaning up debounce keys for completed jobs: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+    };
+
     let cleanup_flow_iterator_data_f = async {
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {
@@ -1736,6 +1750,7 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_f,
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_debounce_keys_f,
+        cleanup_debounce_keys_completed_f,
         cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
     );
@@ -2803,6 +2818,39 @@ RETURNING key,job_id
     Ok(())
 }
 
+async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
+    // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
+    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
+        .read()
+        .await
+    {
+        let result = sqlx::query!(
+            "
+DELETE FROM debounce_key
+WHERE job_id IN (SELECT id FROM v2_job_completed)
+RETURNING key,job_id
+            ",
+        )
+        .fetch_all(db)
+        .await?;
+
+        if result.len() > 0 {
+            tracing::warn!(
+                "Cleaned up {} debounce keys for completed jobs (runnable settings v0 not supported by all workers)",
+                result.len()
+            );
+            for row in result {
+                tracing::debug!(
+                    "Debounce key for completed job cleaned up: key: {}, job_id: {:?}",
+                    row.key,
+                    row.job_id
+                );
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn cleanup_flow_iterator_data_orphaned_jobs(db: &DB) -> error::Result<()> {
     let result = sqlx::query!(
         "
@@ -2815,7 +2863,10 @@ RETURNING job_id
     .await?;
 
     if result.len() > 0 {
-        tracing::info!("Cleaned up {} orphaned flow_iterator_data rows", result.len());
+        tracing::info!(
+            "Cleaned up {} orphaned flow_iterator_data rows",
+            result.len()
+        );
     }
     Ok(())
 }

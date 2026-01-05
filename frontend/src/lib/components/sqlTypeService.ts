@@ -6,9 +6,13 @@
  */
 
 import type { InferAssetsSqlQueryDetails } from '$lib/infer'
-import { languages, Uri, editor, MarkerSeverity } from 'monaco-editor'
+import {
+	getTypeScriptWorker,
+	type TypeScriptWorker
+} from '@codingame/monaco-vscode-standalone-typescript-language-features'
+import { Uri, editor, MarkerSeverity } from 'monaco-editor'
 
-type ExtendedTypeScriptWorker = languages.typescript.TypeScriptWorker & {
+type ExtendedTypeScriptWorker = TypeScriptWorker & {
 	updateSqlQueries: (fileUri: string, queries: InferAssetsSqlQueryDetails[]) => Promise<void>
 }
 
@@ -22,7 +26,7 @@ async function getWorkerClient(): Promise<(...uris: Uri[]) => Promise<ExtendedTy
 	try {
 		// Get or create the worker client
 		if (!_workerClient) {
-			_workerClient = (await languages.typescript.getTypeScriptWorker()) as any
+			_workerClient = (await getTypeScriptWorker()) as any
 		}
 		return _workerClient!
 	} catch (error) {
@@ -123,7 +127,7 @@ export async function updateSqlQueriesInWorker(
 async function revalidateModel(model: editor.ITextModel) {
 	if (!model || model.isDisposed()) return
 
-	const getWorker = await languages.typescript.getTypeScriptWorker()
+	const getWorker = await getTypeScriptWorker()
 	const worker = await getWorker(model.uri)
 	const diagnostics = (
 		await Promise.all([
@@ -149,7 +153,7 @@ async function revalidateModel(model: editor.ITextModel) {
 }
 
 function flattenDiagnosticMessageText(
-	messageText: string | languages.typescript.DiagnosticMessageChain | undefined,
+	messageText: string | any | undefined,
 	newLine: string
 ): string {
 	if (typeof messageText === 'string') {

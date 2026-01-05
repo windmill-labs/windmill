@@ -29,7 +29,9 @@ import {
 	buildContextString,
 	applyCodePiecesToFlowModules,
 	findModuleById,
-	SPECIAL_MODULE_IDS
+	SPECIAL_MODULE_IDS,
+	formatScriptLintResult,
+	type ScriptLintResult
 } from '../shared'
 import type { ContextElement } from '../context'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
@@ -77,6 +79,9 @@ export interface FlowAIChatHelpers {
 
 	/** Run a test of the current flow using the UI's preview mechanism */
 	testFlow: (args?: Record<string, any>, conversationId?: string) => Promise<string | undefined>
+
+	/** Get lint errors from a specific module (focuses it first, waits for Monaco to analyze) */
+	getLintErrors: (moduleId: string) => Promise<ScriptLintResult>
 }
 
 const searchScriptsSchema = z.object({
@@ -222,6 +227,16 @@ const setModuleCodeToolDef = createToolDef(
 	setModuleCodeSchema,
 	'set_module_code',
 	'Set or modify the code for an existing inline script module. Use this for quick code-only changes. The module must already exist in the flow.'
+)
+
+const getLintErrorsSchema = z.object({
+	module_id: z.string().describe('The ID of the module to get lint errors for.')
+})
+
+const getLintErrorsToolDef = createToolDef(
+	getLintErrorsSchema,
+	'get_lint_errors',
+	'Get lint errors and warnings from a rawscript module. Pass module_id to focus a specific module and check its errors. ALWAYS call this for EACH module where you modified inline script code.'
 )
 
 const workspaceScriptsSearch = new WorkspaceScriptsSearch()
@@ -580,6 +595,29 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			})
 			return `Flow updated`
 		}
+	},
+	{
+		def: getLintErrorsToolDef,
+		fn: async ({ args, helpers, toolCallbacks, toolId }) => {
+			const parsedArgs = getLintErrorsSchema.parse(args)
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Getting lint errors for module "${parsedArgs.module_id}"...`
+			})
+
+			const lintResult = await helpers.getLintErrors(parsedArgs.module_id)
+
+			const status =
+				lintResult.errorCount > 0
+					? `Found ${lintResult.errorCount} error(s)`
+					: lintResult.warningCount > 0
+						? `Found ${lintResult.warningCount} warning(s)`
+						: 'No issues found'
+
+			toolCallbacks.setToolStatus(toolId, { content: status })
+
+			return formatScriptLintResult(lintResult)
+		}
 	}
 ]
 
@@ -602,7 +640,11 @@ export function prepareFlowSystemMessage(customPrompt?: string): ChatCompletionS
 - **Find workspace scripts** → \`search_scripts\`
 - **Find Windmill Hub scripts** → \`search_hub_scripts\`
 
-**Testing:**
+**Testing & Linting:**
+- **Check for lint errors after writing new code or modifying existing code** → \`get_lint_errors({ module_id: "..." })\`
+  - ALWAYS call this for EACH rawscript module that you added or modified
+  - Pass the module_id to get the lint errors for that module
+  - Example: After modifying modules "a" and "b", call \`get_lint_errors({ module_id: "a" })\` and \`get_lint_errors({ module_id: "b" })\`
 - **Test entire flow** → \`test_run_flow\`
 - **Test single step** → \`test_run_step\`
 
@@ -811,6 +853,8 @@ Example: Before writing TypeScript/Bun code, call \`get_instructions_for_code_ge
    - If creating rawscript: use \`type: "rawscript"\` with \`language\` and \`content\`
    - **First call \`get_instructions_for_code_generation\` to get the correct code format**
    - Always define \`input_transforms\` to connect parameters to flow inputs or previous step results
+
+3. **After making code changes, ALWAYS use \`get_lint_errors\` to check for issues.** Fix any errors before proceeding with testing.
 
 ### AI Agent Modules
 

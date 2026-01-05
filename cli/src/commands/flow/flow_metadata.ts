@@ -26,6 +26,7 @@ import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
+import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -58,9 +59,7 @@ export async function generateFlowLockInternal(
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
-  const remote_path = folder
-    .replaceAll(SEP, "/")
-    .substring(0, folder.length - ".flow".length);
+  const remote_path = extractNameFromFolder(folder.replaceAll(SEP, "/"), "flow");
   if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }

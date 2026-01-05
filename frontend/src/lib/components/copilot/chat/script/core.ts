@@ -15,7 +15,9 @@ import {
 	type Tool,
 	executeTestRun,
 	buildTestRunArgs,
-	buildContextString
+	buildContextString,
+	type ScriptLintResult,
+	formatScriptLintResult
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
@@ -176,7 +178,7 @@ function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
-	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
+	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`get_lint_errors\` tool to check for lint errors. If there are errors, fix them before proceeding. Then use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	${useDiffBasedEdit ? '- Each old_string must match the exact text in the current code, including whitespace and indentation.' : ''}
@@ -326,6 +328,7 @@ export function prepareScriptTools(
 		tools.push(editCodeTool)
 	}
 	tools.push(testRunScriptTool)
+	tools.push(getLintErrorsTool)
 	return tools
 }
 
@@ -407,6 +410,8 @@ export interface ScriptChatHelpers {
 		args: Record<string, any>
 	}
 	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
+	/** Get lint errors from the Monaco editor */
+	getLintErrors?: () => ScriptLintResult
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -699,6 +704,22 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
+const GET_LINT_ERRORS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'get_lint_errors',
+		description:
+			'Get lint errors and warnings from the current script in the editor. Use this after making code changes to check for issues.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false,
+			strict: true,
+			required: []
+		}
+	}
+}
+
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
 	streamArguments: true,
@@ -859,4 +880,32 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Run script test',
 	showDetails: true
+}
+
+export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
+	def: GET_LINT_ERRORS_TOOL,
+	fn: async function ({ helpers, toolCallbacks, toolId }) {
+		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
+
+		if (!helpers.getLintErrors) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Lint errors not available',
+				error: 'getLintErrors helper is not available in this context'
+			})
+			return 'Lint errors are not available in this context. The editor may not support lint error reporting.'
+		}
+
+		const lintResult = helpers.getLintErrors()
+
+		const status =
+			lintResult.errorCount > 0
+				? `Found ${lintResult.errorCount} error(s)`
+				: lintResult.warningCount > 0
+					? `Found ${lintResult.warningCount} warning(s)`
+					: 'No issues found'
+
+		toolCallbacks.setToolStatus(toolId, { content: status })
+
+		return formatScriptLintResult(lintResult)
+	}
 }

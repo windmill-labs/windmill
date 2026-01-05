@@ -7,6 +7,14 @@ import { createSearchHubScriptsTool, createToolDef, type Tool } from '../shared'
 import { FlowService, ScriptService, type Flow, type Script } from '$lib/gen'
 import uFuzzy from '@leeoniya/ufuzzy'
 import { emptyString } from '$lib/utils'
+import { aiChatManager } from '../AIChatManager.svelte'
+import type {
+	ContextElement,
+	AppFrontendFileElement,
+	AppBackendRunnableElement,
+	AppCodeSelectionElement,
+	AppDatatableElement
+} from '../context'
 
 // Backend runnable types
 export type BackendRunnableType = 'script' | 'flow' | 'hubscript' | 'inline'
@@ -50,16 +58,63 @@ export interface LintResult {
 	warnings: LintMessages
 }
 
+/** Information about an element selected via the inspector tool */
+export interface InspectorElementInfo {
+	/** CSS selector path to the element */
+	path: string
+	/** Tag name of the element (e.g., 'div', 'button') */
+	tagName: string
+	/** Element's id attribute, if any */
+	id?: string
+	/** Element's class names, if any */
+	className?: string
+	/** Bounding rectangle of the element */
+	rect: { top: number; left: number; width: number; height: number }
+	/** Outer HTML of the element (may be truncated) */
+	html: string
+	/** Text content of the element (may be truncated) */
+	textContent?: string
+	/** Computed styles of the element */
+	styles: Record<string, string>
+}
+
 /** Context about the currently selected file or runnable in the app editor */
 export interface SelectedContext {
 	/** Type of selection: 'frontend' for frontend files, 'backend' for backend runnables, or 'none' if nothing is selected */
 	type: 'frontend' | 'backend' | 'none'
 	/** The path of the selected frontend file (when type is 'frontend') */
 	frontendPath?: string
+	/** The content of the selected frontend file */
+	frontendContent?: string
 	/** The key of the selected backend runnable (when type is 'backend') */
 	backendKey?: string
-	// Future: text selection within the file
-	// textSelection?: { startLine: number; endLine: number; startColumn: number; endColumn: number }
+	/** The configuration of the selected backend runnable */
+	backendRunnable?: BackendRunnable
+	/** Inspector-selected element info (when user has used the inspector tool) */
+	inspectorElement?: InspectorElementInfo
+	/** Whether the file/runnable selection is excluded from being sent to the AI prompt */
+	selectionExcluded?: boolean
+	/** Function to toggle whether the selection is excluded from the prompt */
+	toggleSelectionExcluded?: () => void
+	/** Function to clear the inspector selection */
+	clearInspector?: () => void
+	/** Function to clear the runnable selection (go back to frontend view) */
+	clearRunnable?: () => void
+	/** Code selection from the editor (either frontend or backend) */
+	codeSelection?: AppCodeSelectionElement
+	/** Function to clear the code selection */
+	clearCodeSelection?: () => void
+}
+
+/**
+ * Datatable schema matching the backend's DataTableSchema type.
+ * Hierarchical structure: schema_name -> table_name -> column_name -> compact_type
+ * Compact type format: 'type[?][=default]' where ? means nullable (e.g. 'int4', 'text?', 'int4?=0')
+ */
+export interface DataTableSchema {
+	datatable_name: string
+	schemas: Record<string, Record<string, Record<string, string>>>
+	error?: string
 }
 
 export interface AppAIChatHelpers {
@@ -85,6 +140,19 @@ export interface AppAIChatHelpers {
 	// Linting
 	/** Lint all frontend files and backend runnables, returns errors and warnings */
 	lint: () => LintResult
+	// Data table operations
+	/** Get all datatables configured in the app with their schemas */
+	getDatatables: () => Promise<DataTableSchema[]>
+	/** Get unique datatable names configured in the app (for UI policy selector) */
+	getAvailableDatatableNames: () => string[]
+	/** Execute a SQL query on a datatable. Optionally specify newTable to register a newly created table. */
+	execDatatableSql: (
+		datatableName: string,
+		sql: string,
+		newTable?: { schema: string; name: string }
+	) => Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }>
+	/** Add a table to the app's whitelisted tables (called when user selects a table via @) */
+	addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => void
 }
 
 // ============= Utility =============
@@ -241,6 +309,49 @@ const getGetFilesToolDef = memo(() =>
 		getGetFilesSchema(),
 		'get_files',
 		'Get an overview of all files in the app. Content may be truncated for large apps - use get_frontend_file or get_backend_runnable for full content of specific files.'
+	)
+)
+
+// ============= Data Table Tools =============
+
+const getGetDatatablesSchema = memo(() => z.object({}))
+const getGetDatatablesToolDef = memo(() =>
+	createToolDef(
+		getGetDatatablesSchema(),
+		'get_datatables',
+		'Get all datatables configured in this app with their full schemas. Returns datatable names, tables, and column definitions. Use this to understand the data layer available to the app.'
+	)
+)
+
+const getExecDatatableSqlSchema = memo(() =>
+	z.object({
+		datatable_name: z
+			.string()
+			.describe(
+				'The name of the datatable to query (e.g., "main"). Must be one of the datatables configured in the app.'
+			),
+		sql: z
+			.string()
+			.describe(
+				'The SQL query to execute. Supports SELECT, INSERT, UPDATE, DELETE, CREATE TABLE, etc. For SELECT queries, results are returned as an array of objects.'
+			),
+		new_table: z
+			.object({
+				schema: z.string().describe('The schema name where the table was created (e.g., "public")'),
+				name: z.string().describe('The name of the newly created table')
+			})
+			.optional()
+			.describe(
+				'When executing a CREATE TABLE statement, provide this to register the new table in the app so it can be queried and its schema retrieved later.'
+			)
+	})
+)
+const getExecDatatableSqlToolDef = memo(() =>
+	createToolDef(
+		getExecDatatableSqlSchema(),
+		'exec_datatable_sql',
+		'Execute a SQL query on a datatable. Use this to explore data, test queries, create tables, or make changes. When creating a new table, pass new_table to register it in the app for future use.',
+		{ strict: false }
 	)
 )
 
@@ -649,7 +760,113 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 		}
 	},
 	// Hub scripts search (reuse from shared)
-	createSearchHubScriptsTool(false)
+	createSearchHubScriptsTool(false),
+	// Data table tools
+	{
+		def: getGetDatatablesToolDef(),
+		fn: async ({ helpers, toolId, toolCallbacks }) => {
+			toolCallbacks.setToolStatus(toolId, { content: 'Getting datatables...' })
+			try {
+				const datatables = await helpers.getDatatables()
+				if (datatables.length === 0) {
+					toolCallbacks.setToolStatus(toolId, { content: 'No datatables configured' })
+					return 'No datatables are configured in this app. Use the Data panel in the sidebar to add datatable references.'
+				}
+				const totalTables = datatables.reduce(
+					(acc, dt) =>
+						acc +
+						Object.values(dt.schemas).reduce(
+							(schemaAcc, tables) => schemaAcc + Object.keys(tables).length,
+							0
+						),
+					0
+				)
+				toolCallbacks.setToolStatus(toolId, {
+					content: `Found ${datatables.length} datatable(s) with ${totalTables} table(s)`
+				})
+				return JSON.stringify(datatables, null, 2)
+			} catch (e) {
+				const errorMsg = `Error getting datatables: ${e instanceof Error ? e.message : String(e)}`
+				toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+				return errorMsg
+			}
+		}
+	},
+	{
+		def: getExecDatatableSqlToolDef(),
+		fn: async ({ args, helpers, toolId, toolCallbacks }) => {
+			const parsedArgs = getExecDatatableSqlSchema().parse(args)
+
+			// Enforce datatable creation policy when new_table is specified
+			if (parsedArgs.new_table) {
+				const policy = aiChatManager.datatableCreationPolicy
+				if (!policy.enabled) {
+					const errorMsg =
+						'Table creation is not allowed. The user has disabled the "New tables" option.'
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+				if (policy.datatable && policy.datatable !== parsedArgs.datatable_name) {
+					const errorMsg = `Table creation is only allowed on datatable "${policy.datatable}", but you tried to create on "${parsedArgs.datatable_name}".`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+				if (policy.schema && policy.schema !== parsedArgs.new_table.schema) {
+					const errorMsg = `Table creation is only allowed in schema "${policy.schema}", but you tried to create in "${parsedArgs.new_table.schema}".`
+					toolCallbacks.setToolStatus(toolId, { content: errorMsg, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+			}
+
+			toolCallbacks.setToolStatus(toolId, {
+				content: `Executing SQL on "${parsedArgs.datatable_name}"...`
+			})
+			try {
+				const result = await helpers.execDatatableSql(
+					parsedArgs.datatable_name,
+					parsedArgs.sql,
+					parsedArgs.new_table
+				)
+				if (result.success) {
+					let successMessage = 'Query executed successfully'
+					if (parsedArgs.new_table) {
+						successMessage = `Table "${parsedArgs.new_table.schema}.${parsedArgs.new_table.name}" created and registered`
+					}
+					if (result.result) {
+						const rowCount = result.result.length
+						toolCallbacks.setToolStatus(toolId, {
+							content: `Query returned ${rowCount} row(s)`
+						})
+						// Truncate large results
+						const MAX_ROWS = 100
+						if (rowCount > MAX_ROWS) {
+							return JSON.stringify(
+								{
+									success: true,
+									rowCount,
+									result: result.result.slice(0, MAX_ROWS),
+									note: `Showing first ${MAX_ROWS} of ${rowCount} rows`
+								},
+								null,
+								2
+							)
+						}
+						return JSON.stringify({ success: true, rowCount, result: result.result }, null, 2)
+					}
+					toolCallbacks.setToolStatus(toolId, { content: successMessage })
+					return JSON.stringify({ success: true, message: successMessage })
+				} else {
+					const errorMsg = result.error || 'Unknown error'
+					toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
+					return JSON.stringify({ success: false, error: errorMsg })
+				}
+			} catch (e) {
+				const errorMsg = e instanceof Error ? e.message : String(e)
+				toolCallbacks.setToolStatus(toolId, { content: `Error: ${errorMsg}`, error: errorMsg })
+				return JSON.stringify({ success: false, error: errorMsg })
+			}
+		}
+	}
 ])
 
 export function prepareAppSystemMessage(customPrompt?: string): ChatCompletionSystemMessageParam {
@@ -690,6 +907,80 @@ For inline scripts, the code must have a \`main\` function as its entrypoint.
 ### Discovery
 - \`list_workspace_runnables(query, type?)\`: Search workspace scripts and flows
 - \`search_hub_scripts(query)\`: Search hub scripts
+
+### Data Tables
+- \`get_datatables()\`: Get all datatables configured in the app with their schemas (tables, columns, types)
+- \`exec_datatable_sql(datatable_name, sql, new_table?)\`: Execute SQL query on a datatable. Use for data exploration or modifications. When creating a new table, pass \`new_table: { schema, name }\` to register it in the app.
+
+## Data Storage with Data Tables
+
+**When the app needs to store or persist data, you MUST use datatables.** Datatables provide a managed PostgreSQL database that integrates seamlessly with Windmill apps, with near-zero setup and workspace-scoped access.
+
+### Key Principles
+
+1. **Always check existing tables first**: Use \`get_datatables()\` to see what tables are already available. If a suitable table exists, **always reuse it** rather than creating a new one.
+
+2. **CRITICAL: Create tables ONLY via exec_datatable_sql tool**: When you need to create a new table, you MUST use the \`exec_datatable_sql\` tool with the \`new_table\` parameter. **NEVER** create tables inside backend runnables using SQL queries - this will not register the table properly and it won't be available for future use.
+   \`\`\`
+   exec_datatable_sql({
+     datatable_name: "main",
+     sql: "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT UNIQUE, created_at TIMESTAMP DEFAULT NOW())",
+     new_table: { schema: "public", name: "users" }
+   })
+   \`\`\`
+
+3. **Use schemas to organize data**: Use PostgreSQL schemas to organize tables logically. Reference schemas with \`schema.table\` syntax.
+
+4. **Use datatables for**:
+   - User data, settings, preferences
+   - Application state that needs to persist
+   - Lists, records, logs, history
+   - Any data the app needs to store and retrieve
+
+### Accessing Data Tables from Backend Runnables
+
+Backend runnables should only perform **data operations** (SELECT, INSERT, UPDATE, DELETE) on **existing tables**. Never use CREATE TABLE, DROP TABLE, or ALTER TABLE inside runnables.
+
+**TypeScript (Bun)**:
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  // Use default 'main' datatable
+  let sql = wmill.datatable();
+  // Or specify a named datatable: wmill.datatable('named_datatable')
+
+  // Safe string interpolation (parameterized query)
+  let user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  return user;
+}
+\`\`\`
+
+**Python**:
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()  # or wmill.datatable('named_datatable')
+
+    # Use positional arguments ($1, $2, etc.)
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    return user
+\`\`\`
+
+### Common Operations (for use in backend runnables)
+
+- **Fetch all**: \`sql\`SELECT * FROM table\`.fetch()\` or \`db.query('SELECT * FROM table').fetch()\`
+- **Fetch one**: \`.fetchOne()\` or \`.fetch_one()\`
+- **Insert**: \`sql\`INSERT INTO table (col) VALUES (\${value})\`\`
+- **Update**: \`sql\`UPDATE table SET col = \${value} WHERE id = \${id}\`\`
+- **Delete**: \`sql\`DELETE FROM table WHERE id = \${id}\`\`
+
+The "main" datatable is the default and can be accessed without specifying a name.
+
+### Schema Modifications (DDL) - Use exec_datatable_sql tool ONLY
+
+For any schema changes (CREATE TABLE, DROP TABLE, ALTER TABLE, CREATE INDEX, etc.), you MUST use the \`exec_datatable_sql\` tool directly. This ensures tables are properly registered in the app.
 
 ## Backend Runnable Configuration
 
@@ -769,8 +1060,29 @@ When creating a new app, use \`list_workspace_runnables\` or \`search_hub_script
 
 `
 
+	// Add datatable creation policy context
+	const policy = aiChatManager.datatableCreationPolicy
+	if (policy.enabled && policy.datatable) {
+		const schemaPrefix = policy.schema ? `${policy.schema}.` : ''
+		content += `## Datatable Creation Policy
+
+**Table creation is ENABLED.** You can create new tables using \`exec_datatable_sql\` with the \`new_table\` parameter.
+- **Default datatable**: ${policy.datatable}${policy.schema ? `\n- **Default schema**: ${policy.schema}` : ''}
+
+When creating new tables, you MUST use the default datatable${policy.schema ? ` and schema` : ''} specified above. Do not create tables in other datatables or schemas.
+${policy.schema ? `\n**IMPORTANT**: Always use the schema prefix \`${schemaPrefix}\` in your SQL queries when creating or referencing tables. For example: \`CREATE TABLE ${schemaPrefix}my_table (...)\` and \`SELECT * FROM ${schemaPrefix}my_table\`. Never create tables without the schema prefix as they would go to the public schema instead.` : ''}
+
+`
+	} else {
+		content += `## Datatable Creation Policy
+
+**Table creation is DISABLED.** You must NOT create new datatable tables. If you need to create a table to complete the task, inform the user that table creation is disabled and ask them to enable it in the Data panel settings.
+
+`
+	}
+
 	if (customPrompt?.trim()) {
-		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
+		content = `${content}\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
 
 	return {
@@ -779,19 +1091,159 @@ When creating a new app, use \`list_workspace_runnables\` or \`search_hub_script
 	}
 }
 
+/** Maximum characters for file content in context */
+const MAX_CONTEXT_CONTENT_LENGTH = 3000
+
 export function prepareAppUserMessage(
 	instructions: string,
-	selectedContext?: SelectedContext
+	selectedContext?: SelectedContext,
+	additionalContext?: ContextElement[]
 ): ChatCompletionUserMessageParam {
 	let content = ''
 
-	if (selectedContext && selectedContext.type !== 'none') {
+	// Check if we have any context to add
+	const hasSelectedContext =
+		selectedContext && (selectedContext.type !== 'none' || selectedContext.inspectorElement)
+	const hasAdditionalContext = additionalContext && additionalContext.length > 0
+
+	if (hasSelectedContext || hasAdditionalContext) {
 		content += `## SELECTED CONTEXT:\n`
-		if (selectedContext.type === 'frontend') {
-			content += `The user is currently viewing the frontend file: ${selectedContext.frontendPath}\n\n`
-		} else if (selectedContext.type === 'backend') {
-			content += `The user is currently viewing the backend runnable: ${selectedContext.backendKey}\n\n`
+
+		// Add frontend file context with content (unless excluded)
+		if (
+			selectedContext &&
+			selectedContext.type === 'frontend' &&
+			selectedContext.frontendPath &&
+			!selectedContext.selectionExcluded
+		) {
+			content += `The user is currently viewing the frontend file: **${selectedContext.frontendPath}**\n`
+			if (selectedContext.frontendContent) {
+				const truncatedContent =
+					selectedContext.frontendContent.length > MAX_CONTEXT_CONTENT_LENGTH
+						? selectedContext.frontendContent.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+							'\n... [TRUNCATED]'
+						: selectedContext.frontendContent
+				content += `\n\`\`\`\n${truncatedContent}\n\`\`\`\n`
+			}
 		}
+
+		// Add backend runnable context with content (unless excluded)
+		if (
+			selectedContext &&
+			selectedContext.type === 'backend' &&
+			selectedContext.backendKey &&
+			!selectedContext.selectionExcluded
+		) {
+			content += `The user is currently viewing the backend runnable: **${selectedContext.backendKey}**\n`
+			if (selectedContext.backendRunnable) {
+				const runnable = selectedContext.backendRunnable
+				content += `- **Name**: ${runnable.name}\n`
+				content += `- **Type**: ${runnable.type}\n`
+				if (runnable.path) {
+					content += `- **Path**: ${runnable.path}\n`
+				}
+				if (runnable.inlineScript) {
+					const truncatedCode =
+						runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
+							? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+								'\n... [TRUNCATED]'
+							: runnable.inlineScript.content
+					content += `- **Language**: ${runnable.inlineScript.language}\n`
+					content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
+				}
+				if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
+					content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
+				}
+			}
+		}
+
+		// Add inspector element context if available
+		if (selectedContext?.inspectorElement) {
+			const el = selectedContext.inspectorElement
+			content += `\nThe user has selected an element in the app preview using the inspector tool:\n`
+			content += `- **Element**: ${el.tagName}${el.id ? `#${el.id}` : ''}${el.className ? `.${el.className.split(' ').join('.')}` : ''}\n`
+			content += `- **Selector path**: ${el.path}\n`
+			content += `- **Dimensions**: ${Math.round(el.rect.width)}x${Math.round(el.rect.height)} at (${Math.round(el.rect.left)}, ${Math.round(el.rect.top)})\n`
+			if (el.textContent) {
+				const truncatedText =
+					el.textContent.length > 100 ? el.textContent.slice(0, 100) + '...' : el.textContent
+				content += `- **Text content**: "${truncatedText}"\n`
+			}
+			// Include HTML (truncated) for more context
+			const truncatedHtml = el.html.length > 500 ? el.html.slice(0, 500) + '...' : el.html
+			content += `- **HTML**:\n\`\`\`html\n${truncatedHtml}\n\`\`\`\n`
+		}
+
+		// Add code selection context if available
+		if (selectedContext?.codeSelection) {
+			const selection = selectedContext.codeSelection
+			content += `\n### CODE SELECTION:\n`
+			content += `The user has selected code in the ${selection.sourceType} editor:\n`
+			content += `- **File/Source**: ${selection.source}\n`
+			content += `- **Lines**: ${selection.startLine}-${selection.endLine}\n`
+			const truncatedCode =
+				selection.content.length > MAX_CONTEXT_CONTENT_LENGTH
+					? selection.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+					: selection.content
+			content += `\`\`\`\n${truncatedCode}\n\`\`\`\n`
+		}
+
+		// Add additional context from @ mentions
+		if (additionalContext && additionalContext.length > 0) {
+			content += `\n### ADDITIONAL CONTEXT (mentioned by user):\n`
+
+			for (const ctx of additionalContext) {
+				if (ctx.type === 'app_frontend_file') {
+					const fileCtx = ctx as AppFrontendFileElement
+					content += `\n**Frontend File: ${fileCtx.path}**\n`
+					const truncatedContent =
+						fileCtx.content.length > MAX_CONTEXT_CONTENT_LENGTH
+							? fileCtx.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+							: fileCtx.content
+					content += `\`\`\`\n${truncatedContent}\n\`\`\`\n`
+				} else if (ctx.type === 'app_backend_runnable') {
+					const runnableCtx = ctx as AppBackendRunnableElement
+					const runnable = runnableCtx.runnable
+					content += `\n**Backend Runnable: ${runnableCtx.key}**\n`
+					content += `- **Name**: ${runnable.name}\n`
+					content += `- **Type**: ${runnable.type}\n`
+					if (runnable.path) {
+						content += `- **Path**: ${runnable.path}\n`
+					}
+					if (runnable.inlineScript) {
+						const truncatedCode =
+							runnable.inlineScript.content.length > MAX_CONTEXT_CONTENT_LENGTH
+								? runnable.inlineScript.content.slice(0, MAX_CONTEXT_CONTENT_LENGTH) +
+									'\n... [TRUNCATED]'
+								: runnable.inlineScript.content
+						content += `- **Language**: ${runnable.inlineScript.language}\n`
+						content += `- **Code**:\n\`\`\`${runnable.inlineScript.language === 'bun' ? 'typescript' : 'python'}\n${truncatedCode}\n\`\`\`\n`
+					}
+					if (runnable.staticInputs && Object.keys(runnable.staticInputs).length > 0) {
+						content += `- **Static inputs**: ${JSON.stringify(runnable.staticInputs)}\n`
+					}
+				} else if (ctx.type === 'app_datatable') {
+					const datatableCtx = ctx as AppDatatableElement
+					const tableRef =
+						datatableCtx.schemaName === 'public'
+							? `${datatableCtx.datatableName}/${datatableCtx.tableName}`
+							: `${datatableCtx.datatableName}/${datatableCtx.schemaName}:${datatableCtx.tableName}`
+					content += `\n**Table: ${tableRef}**\n`
+					content += `- **Datatable**: ${datatableCtx.datatableName}\n`
+					content += `- **Schema**: ${datatableCtx.schemaName}\n`
+					content += `- **Table**: ${datatableCtx.tableName}\n`
+					// Format columns as column_name: type
+					const columnsStr = JSON.stringify(datatableCtx.columns, null, 2)
+					const truncatedColumns =
+						columnsStr.length > MAX_CONTEXT_CONTENT_LENGTH
+							? columnsStr.slice(0, MAX_CONTEXT_CONTENT_LENGTH) + '\n... [TRUNCATED]'
+							: columnsStr
+					content += `- **Columns** (column_name -> type):\n\`\`\`json\n${truncatedColumns}\n\`\`\`\n`
+				}
+			}
+		}
+
+		content += '\n'
 	}
 
 	content += `## INSTRUCTIONS:\n${instructions}`
