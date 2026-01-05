@@ -2,6 +2,7 @@
 	export const sidebarClasses = {
 		text: 'text-primary-inverse dark:text-primary data-[light-mode=true]:text-primary text-xs font-normal',
 		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
+		sublabelText: 'text-secondary-inverse dark:text-secondary text-2xs font-normal',
 		hoverBg:
 			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'
 	}
@@ -20,9 +21,11 @@
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		label?: string | undefined
+		sublabel?: string | undefined
 		icon?: any | undefined
 		iconClasses?: string | null
 		iconProps?: any | null
+		iconBackground?: string | null
 		isCollapsed: boolean
 		disabled?: boolean
 		lightMode?: boolean
@@ -39,6 +42,7 @@
 		aiId = undefined,
 		aiDescription = undefined,
 		label = undefined,
+		sublabel = undefined,
 		icon = undefined,
 		iconClasses = null,
 		iconProps = null,
@@ -91,41 +95,59 @@
 			{href}
 			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
+				'group flex items-center px-2 py-2 font-light rounded-md gap-2 w-full',
 				sidebarClasses.hoverBg,
-				color ? 'border-4' : '',
 				'transition-all relative',
+				sublabel ? 'h-10' : 'h-8',
 				classNames
 			)}
-			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
 			use:conditionalMelt={trigger}
 			title={isCollapsed ? undefined : label}
 			{...$trigger}
 		>
-			{#if icon}
-				{@const SvelteComponent = icon}
-				<SvelteComponent
-					size={16}
-					class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
-					{...iconProps}
-				/>
-			{/if}
+			<div style="background-color: {color}" class="rounded-full p-1.5 center-center">
+				{#if icon}
+					{@const SvelteComponent = icon}
+					<SvelteComponent
+						size={14}
+						class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
+						{...iconProps}
+					/>
+				{/if}
+			</div>
 
-			{#if !isCollapsed && label}
-				<span
-					class={twMerge(
-						'whitespace-pre truncate',
-						sidebarClasses.text,
-						'transition-all',
-						classNames
-					)}
-				>
-					{label}
-					<span class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold">
-						{shortcut}
-					</span>
-				</span>
-			{/if}
+			<div class="flex flex-col text-left grow min-w-0">
+				{#if !isCollapsed && label}
+					<div
+						class={twMerge(
+							'whitespace-pre truncate w-full',
+							sidebarClasses.text,
+							'transition-all',
+							classNames
+						)}
+						title={label}
+					>
+						{label}
+						<span
+							class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold"
+						>
+							{shortcut}
+						</span>
+					</div>
+				{/if}
+
+				{#if sublabel}
+					<div
+						class={twMerge(
+							'whitespace-pre truncate w-full',
+							sidebarClasses.sublabelText,
+							'transition-all',
+							classNames
+						)}
+						title={sublabel}>{sublabel}</div
+					>
+				{/if}
+			</div>
 
 			{#if isCollapsed && notificationsCount > 0}
 				<div class="absolute translate-x-1/2 translate-y-1/2 -top-2 right-1 flex h-fit w-fit">
