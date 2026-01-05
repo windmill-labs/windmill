@@ -149,8 +149,6 @@
 			if (hasAiSchemaChanges) {
 				// In review mode, selectedSchema = beforeSchema (what we might revert to)
 				selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
-				// Swap argument order: flowStore (new with AI changes) vs selectedSchema (old before AI)
-				// This makes AI-added fields 'added' (green) and AI-removed fields 'removed' (red)
 				diff = computeDiff(flowStore.val.schema, selectedSchema)
 				previewSchema = schemaFromDiff(diff, selectedSchema)
 				runDisabled = true
@@ -311,17 +309,9 @@
 			return
 		}
 		diff = {}
-		// In review mode, swap argument order for correct color semantics
-		// (AI-added = green, AI-removed = red)
-		if (hasAiSchemaChanges) {
-			const diffSchema = computeDiff(flowStore.val.schema, newSchema)
-			diff = diffSchema
-			previewSchema = schemaFromDiff(diffSchema, newSchema)
-		} else {
-			const diffSchema = computeDiff(newSchema, flowStore.val.schema)
-			diff = diffSchema
-			previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
-		}
+		const diffSchema = computeDiff(newSchema, flowStore.val.schema)
+		diff = diffSchema
+		previewSchema = schemaFromDiff(diffSchema, flowStore.val.schema)
 		runDisabled = true
 	}
 
@@ -459,7 +449,6 @@
 		if (sourceValue !== undefined) {
 			if (targetProperties) {
 				targetProperties[arg.label] = structuredClone($state.snapshot(sourceValue))
-				// Also update the order array to include the field
 				if (targetSchemaAtPath?.order && !targetSchemaAtPath.order.includes(arg.label)) {
 					targetSchemaAtPath.order.push(arg.label)
 				}
@@ -467,7 +456,6 @@
 		} else {
 			if (targetProperties && arg.label in targetProperties) {
 				delete targetProperties[arg.label]
-				// Also remove from order array
 				if (targetSchemaAtPath?.order) {
 					targetSchemaAtPath.order = targetSchemaAtPath.order.filter(
 						(x: string) => x !== arg.label
@@ -707,13 +695,19 @@
 						{diff}
 						disableDnd={!!previewSchema}
 						on:rejectChange={(e) => {
+							const isAiChange = hasAiSchemaChanges
 							rejectChange(e.detail).then(() => {
-								updatePreviewSchema(selectedSchema)
+								if (!isAiChange) {
+									updatePreviewSchema(selectedSchema)
+								}
 							})
 						}}
 						on:acceptChange={(e) => {
 							acceptChange(e.detail).then(() => {
-								updatePreviewSchema(selectedSchema)
+								const isAiChange = hasAiSchemaChanges
+								if (!isAiChange) {
+									updatePreviewSchema(selectedSchema)
+								}
 							})
 						}}
 						shouldDispatchChanges={true}
