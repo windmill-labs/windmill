@@ -163,7 +163,23 @@
 									<TextInput
 										error={errors?.columns?.includes(column.name)}
 										inputProps={{ type: 'text', placeholder: 'column_name' }}
-										bind:value={column.name}
+										bind:value={
+											() => column.name,
+											(newName) => {
+												const oldName = column.name
+												column.name = newName
+												// Update all foreign keys that reference this column
+												if (oldName && oldName !== newName) {
+													values.foreignKeys.forEach((fk) => {
+														fk.columns.forEach((fkCol) => {
+															if (fkCol.sourceColumn === oldName) {
+																fkCol.sourceColumn = newName
+															}
+														})
+													})
+												}
+											}
+										}
 									/>
 									{#if column.initialName && column.name !== column.initialName}
 										<span class="text-xs text-hint">Old name: {column.initialName}</span>
