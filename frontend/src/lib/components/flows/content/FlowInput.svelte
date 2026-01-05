@@ -49,6 +49,7 @@
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
+	import { SPECIAL_MODULE_IDS } from '$lib/components/copilot/chat/shared'
 
 	interface Props {
 		noEditor: boolean
@@ -80,6 +81,11 @@
 
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
 	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
+
+	// Detect if we're in "review mode" (AI has made schema changes that are pending)
+	const hasAiSchemaChanges = $derived(
+		Boolean(diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending && diffManager?.beforeFlow?.schema)
+	)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
@@ -132,6 +138,22 @@
 
 	$effect(() => {
 		chatInputEnabled = Boolean(flowStore.val.value?.chat_input_enabled)
+	})
+
+	// Set up review mode when AI has made schema changes that are pending
+	$effect(() => {
+		if (hasAiSchemaChanges && !selectedSchema) {
+			// In review mode, selectedSchema = beforeSchema (what we might revert to)
+			selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
+			diff = computeDiff(selectedSchema, flowStore.val.schema)
+			previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+			runDisabled = true
+		} else if (!hasAiSchemaChanges && selectedSchema) {
+			selectedSchema = undefined
+			previewSchema = undefined
+			diff = {}
+			runDisabled = false
+		}
 	})
 
 	const getDropdownItems = () => {
@@ -282,13 +304,19 @@
 	}
 
 	async function applySchemaAndArgs() {
-		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
-		if (previewArgs.val) {
-			savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
-		}
-		updatePreviewSchemaAndArgs(undefined)
-		if ($flowInputEditorState) {
-			$flowInputEditorState.selectedTab = undefined
+		if (hasAiSchemaChanges) {
+			// Review mode: Accept all AI changes
+			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+		} else {
+			// Preview mode: Apply the diff to flowStore
+			flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
+			if (previewArgs.val) {
+				savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
+			}
+			updatePreviewSchemaAndArgs(undefined)
+			if ($flowInputEditorState) {
+				$flowInputEditorState.selectedTab = undefined
+			}
 		}
 	}
 
@@ -327,16 +355,28 @@
 	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
-			flowStore.val.schema = newSchema
-		})
+		if (hasAiSchemaChanges) {
+			// Review mode: Accept = finalize the AI change (keep current value)
+			handleChangeInReviewMode(arg, 'accept')
+		} else {
+			// Preview mode: Accept = apply the change to flowStore
+			handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
+				flowStore.val.schema = newSchema
+			})
+		}
 	}
 
 	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
-		const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
-		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
-			selectedSchema = newSchema
-		})
+		if (hasAiSchemaChanges) {
+			// Review mode: Reject = revert flowStore field to beforeSchema value
+			handleChangeInReviewMode(arg, 'reject')
+		} else {
+			// Preview mode: Reject = remove proposal from selectedSchema
+			const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
+			handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
+				selectedSchema = newSchema
+			})
+		}
 	}
 
 	function handleChange(
@@ -365,6 +405,50 @@
 
 		diff = computeDiff(selectedSchema, flowStore.val.schema)
 		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+	}
+
+	function handleChangeInReviewMode(
+		arg: { label: string; nestedParent: any | undefined },
+		action: 'accept' | 'reject'
+	) {
+		// Accept: source=flowStore.val.schema (current), target=selectedSchema (before)
+		// Reject: source=selectedSchema (before), target=flowStore.val.schema (current)
+		const sourceSchema = action === 'accept' ? flowStore.val.schema : selectedSchema
+		const targetSchema = action === 'accept' ? selectedSchema : flowStore.val.schema
+		if (!selectedSchema || !sourceSchema || !targetSchema) return
+
+		const path = getFullPath(arg)
+		const parentPath = path.slice(0, -1)
+
+		// getNestedProperty with empty path returns the object itself, not .properties
+		// So for top-level fields, we need to access .properties directly
+		const getProperties = (schema: Record<string, any>) =>
+			parentPath.length === 0
+				? schema?.properties
+				: getNestedProperty(schema, parentPath, 'properties')?.properties
+
+		const sourceProperties = getProperties(sourceSchema)
+		const targetProperties = getProperties(targetSchema)
+		const sourceValue = sourceProperties?.[arg.label]
+
+		if (sourceValue !== undefined) {
+			if (targetProperties) {
+				targetProperties[arg.label] = structuredClone($state.snapshot(sourceValue))
+			}
+		} else {
+			if (targetProperties && arg.label in targetProperties) {
+				delete targetProperties[arg.label]
+			}
+		}
+
+		// Recompute diff
+		diff = computeDiff(selectedSchema, flowStore.val.schema)
+		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+
+		// Check if all changes are resolved (diff is empty)
+		if (Object.values(diff).every((d) => d.diff === 'same')) {
+			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+		}
 	}
 
 	function resetArgs() {
@@ -540,7 +624,7 @@
 			<Toggle
 				size="sm"
 				bind:checked={chatInputEnabled}
-				on:change={(e) => {
+				on:change={() => {
 					handleToggleChatMode()
 				}}
 				options={{
@@ -651,9 +735,13 @@
 											connectFirstNode()
 										}}
 									>
-										{Object.values(diff).every((el) => el.diff === 'same')
-											? 'Apply args'
-											: 'Update schema'}
+										{#if hasAiSchemaChanges}
+											Accept all changes
+										{:else if Object.values(diff).every((el) => el.diff === 'same')}
+											Apply args
+										{:else}
+											Update schema
+										{/if}
 									</Button>
 									<Button
 										variant="default"
@@ -661,7 +749,13 @@
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}
 										on:click={() => {
-											resetSelected()
+											if (hasAiSchemaChanges) {
+												if (diffManager?.beforeFlow?.schema) {
+													diffManager.rejectModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+												}
+											} else {
+												resetSelected()
+											}
 										}}
 									/>
 								</div>
