@@ -1,27 +1,30 @@
 import { dbSupportsSchemas } from '../utils'
 import type { DbType } from '$lib/components/dbTypes'
+import { formatDefaultValue } from './dbQueriesUtils'
 
 export type CreateTableValues = {
 	name: string
 	columns: CreateTableValuesColumn[]
-	foreignKeys: {
-		targetTable?: string
-		columns: {
-			sourceColumn?: string
-			targetColumn?: string
-		}[]
-		onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-		onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-	}[]
+	foreignKeys: CreateForeignKey[]
 }
 
-type CreateTableValuesColumn = {
+export type CreateTableValuesColumn = {
 	name: string
 	datatype: string
 	primaryKey?: boolean
 	defaultValue?: string
 	nullable?: boolean
 	datatype_length?: number // e.g varchar(255)
+}
+
+export type CreateForeignKey = {
+	targetTable?: string
+	columns: {
+		sourceColumn?: string
+		targetColumn?: string
+	}[]
+	onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
+	onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
 }
 
 export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, schema?: string) {
@@ -66,17 +69,6 @@ export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, 
 	return `CREATE TABLE ${useSchema && schema ? schema.trim() + '.' : ''}${values.name.trim()} (
 ${lines.join(',\n')}
 );`
-}
-
-function formatDefaultValue(str: string, datatype: string, resourceType: DbType): string {
-	if (!str) return ''
-	if (str.startsWith('{') && str.endsWith('}')) {
-		return str.slice(1, str.length - 1)
-	}
-	if (resourceType === 'postgresql') {
-		return `CAST('${str}' AS ${datatype})`
-	}
-	return `'${str}'`
 }
 
 export function datatypeDefaultLength(datatype: string): number {
