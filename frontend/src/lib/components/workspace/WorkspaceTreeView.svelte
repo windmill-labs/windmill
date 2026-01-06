@@ -16,15 +16,26 @@
 		workspaces: UserWorkspace[]
 		onEnterWorkspace: (workspaceId: string) => Promise<void>
 		onUnarchive?: (workspaceId: string) => Promise<void>
+		searchFilter?: string
+		showControls?: boolean
+		onExpandCollapseAll?: () => void
+		allExpanded?: boolean
+		hasForks?: boolean
 	}
 
-	let { workspaces, onEnterWorkspace, onUnarchive }: Props = $props()
+	let {
+		workspaces,
+		onEnterWorkspace,
+		onUnarchive,
+		searchFilter = $bindable(''),
+		showControls = true,
+		onExpandCollapseAll = $bindable(),
+		allExpanded = $bindable(false),
+		hasForks = $bindable(false)
+	}: Props = $props()
 
 	// State for manually toggled expansion status
 	let manualExpansionStates = $state<Record<string, boolean>>({})
-
-	// Search state
-	let searchFilter = $state('')
 	let filteredWorkspaces: (UserWorkspace & { marked?: string })[] | undefined = $state()
 
 	// Computed expansion states that include auto-expansion for search results
@@ -161,19 +172,33 @@
 	})
 
 	// Check if all expandable workspaces are currently expanded
-	let allExpanded = $derived(
+	let allExpandedInternal = $derived(
 		workspacesWithChildren.length > 0 &&
 			workspacesWithChildren.every((id) => expansionStates[id] === true)
 	)
 
+	// Sync internal state to bindable props
+	$effect(() => {
+		allExpanded = allExpandedInternal
+	})
+
+	$effect(() => {
+		hasForks = workspacesWithChildren.length > 0
+	})
+
 	function handleExpandCollapseAll() {
-		const newState = !allExpanded
+		const newState = !allExpandedInternal
 		const newExpansionStates: Record<string, boolean> = {}
 		workspacesWithChildren.forEach((id) => {
 			newExpansionStates[id] = newState
 		})
 		manualExpansionStates = newExpansionStates
 	}
+
+	// Expose the function via bindable prop
+	$effect(() => {
+		onExpandCollapseAll = handleExpandCollapseAll
+	})
 </script>
 
 <!-- Search Items Component for fuzzy search with highlighting -->
@@ -185,8 +210,8 @@
 />
 
 <div class="space-y-4">
-	<!-- Search Input and Expand/Collapse All (only show if more than one workspace) -->
-	{#if workspaces.length > 1}
+	<!-- Search Input and Expand/Collapse All (only show if more than one workspace and showControls is true) -->
+	{#if showControls && workspaces.length > 1}
 		<div class="flex gap-2 items-center">
 			<div class="relative text-primary flex-1">
 				<TextInput
@@ -202,12 +227,12 @@
 			{#if workspacesWithChildren.length > 0}
 				<Button
 					onClick={handleExpandCollapseAll}
-					title={allExpanded ? 'Collapse all' : 'Expand all'}
-					startIcon={{ icon: allExpanded ? ChevronsDownUp : ChevronsUpDown }}
+					title={allExpandedInternal ? 'Collapse all' : 'Expand all'}
+					startIcon={{ icon: allExpandedInternal ? ChevronsDownUp : ChevronsUpDown }}
 					unifiedSize="md"
 					variant="default"
 				>
-					{#if allExpanded}
+					{#if allExpandedInternal}
 						<span>Collapse</span>
 					{:else}
 						<span>Expand</span>

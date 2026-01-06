@@ -21,18 +21,25 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { GitFork, Settings, User } from 'lucide-svelte'
+	import { GitFork, Settings, User, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { refreshSuperadmin } from '$lib/refreshUser'
 	import WorkspaceTreeView from '$lib/components/workspace/WorkspaceTreeView.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import type { UserWorkspace } from '$lib/stores'
 
 	let invites: WorkspaceInvite[] = []
 	let list_all_as_super_admin: boolean = false
 	let workspaces: UserWorkspace[] | undefined = undefined
 	let showAllForks: boolean = false
+
+	// Workspace tree controls
+	let workspaceSearchFilter = ''
+	let workspaceAllExpanded = false
+	let workspaceHasForks = false
+	let workspaceExpandCollapseAll: (() => void) | undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -154,21 +161,48 @@
 {/if}
 
 <CenteredModal title="Select a workspace" subtitle="Logged in as {$usersWorkspaceStore?.email}">
-	<div class="flex flex-row items-center gap-2 justify-between">
-		<h2 class="mb-4 inline-flex gap-2 text-sm font-semibold text-emphasis">
+	<div class="flex flex-row items-center gap-2 justify-between mb-4">
+		<h2 class="inline-flex gap-2 text-sm font-semibold text-emphasis flex-shrink-0">
 			Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
 		</h2>
 
-		{#if $superadmin}
-			<div class="flex flex-row-reverse pb-2">
-				<Toggle
-					bind:checked={list_all_as_super_admin}
-					options={{ right: 'List all workspaces as superadmin' }}
-					size="xs"
-				/>
+		{#if nonAdminWorkspaces.length > 1}
+			<div class="flex gap-2 items-center flex-1 max-w-xs">
+				<div class="relative text-primary flex-1">
+					<TextInput
+						inputProps={{
+							placeholder: 'Search workspaces...'
+						}}
+						size="sm"
+						bind:value={workspaceSearchFilter}
+						class="!pr-8"
+					/>
+					<Search size={14} class="text-secondary absolute right-2 top-0 mt-2" />
+				</div>
+				{#if workspaceHasForks}
+					<Button
+						onClick={() => workspaceExpandCollapseAll?.()}
+						title={workspaceAllExpanded ? 'Collapse all' : 'Expand all'}
+						startIcon={{ icon: workspaceAllExpanded ? ChevronsDownUp : ChevronsUpDown }}
+						size="xs2"
+						variant="default"
+					>
+						{workspaceAllExpanded ? 'Collapse' : 'Expand'}
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	</div>
+
+	{#if $superadmin}
+		<div class="flex justify-start mb-2">
+			<Toggle
+				bind:checked={list_all_as_super_admin}
+				options={{ right: 'List all workspaces as superadmin' }}
+				size="xs"
+			/>
+		</div>
+	{/if}
 
 	{#if adminsInstance}
 		<Button
@@ -207,6 +241,11 @@
 						loadWorkspaces()
 					}
 				}}
+				showControls={false}
+				bind:searchFilter={workspaceSearchFilter}
+				bind:allExpanded={workspaceAllExpanded}
+				bind:hasForks={workspaceHasForks}
+				bind:onExpandCollapseAll={workspaceExpandCollapseAll}
 			/>
 		{/if}
 	{:else}
