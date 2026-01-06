@@ -251,7 +251,7 @@ ORDER BY
 		DATA_TYPE as DataType,
 		COLUMN_DEFAULT as DefaultValue,
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
+		0 as IsPrimaryKey, -- a one-query solution is not trivial, we will use SHOW PRIMARY KEYS separately
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
 			table
