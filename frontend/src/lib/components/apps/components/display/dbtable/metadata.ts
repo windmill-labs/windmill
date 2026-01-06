@@ -51,11 +51,7 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-					return testResult.result[0].map(lowercaseKeys)
-				} else {
-					return testResult.result.map(lowercaseKeys)
-				}
+				return testResult.result.map(lowercaseKeys)
 			} else {
 				attempts++
 			}
@@ -85,9 +81,6 @@ export async function loadAllTablesMetaData(
 				args: getDatabaseArg(input)
 			}
 		})) as ({ table_name: string; schema_name?: string } & object)[]
-		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-			result = (result as any)[0]
-		}
 		const map: Record<string, TableMetadata> = {}
 
 		for (const _col of result) {
@@ -301,8 +294,9 @@ export async function getDbSchemas(
 	} = {}
 ): Promise<void> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
+	let sqlScript = scripts[getLanguageByResourceType(resourceType)]
 
-	if (!scripts[resourceType]) return
+	if (!sqlScript) return
 
 	return new Promise(async (resolve, reject) => {
 		if (!resourceType || !resourcePath || !workspace) {
@@ -313,10 +307,10 @@ export async function getDbSchemas(
 		const job = await JobService.runScriptPreview({
 			workspace: workspace,
 			requestBody: {
-				language: scripts[resourceType].lang as Preview['language'],
-				content: scripts[resourceType].code,
+				language: sqlScript.lang as Preview['language'],
+				content: sqlScript.code,
 				args: {
-					[scripts[resourceType].argName]: resourcePath.startsWith('datatable://')
+					[sqlScript.argName]: resourcePath.startsWith('datatable://')
 						? resourcePath
 						: '$res:' + resourcePath
 				}
@@ -343,7 +337,7 @@ export async function getDbSchemas(
 						}
 						if (resourceType !== undefined) {
 							if (resourceType !== 'graphql') {
-								const { processingFn } = scripts[resourceType]
+								const { processingFn } = sqlScript
 								let schema: any
 								try {
 									schema =

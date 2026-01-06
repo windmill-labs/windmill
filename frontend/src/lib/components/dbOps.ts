@@ -91,8 +91,6 @@ export function dbTableOpsWithPreviewScripts({
 				workspace,
 				requestBody: { args: { ...dbArg, ...params }, language, content: query }
 			})) as unknown[]
-			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
-				items = items?.[0] as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
@@ -204,7 +202,11 @@ export function dbSchemaOpsWithPreviewScripts({
 			// Fetch foreign keys
 			let foreignKeys: TableEditorForeignKey[] = []
 			try {
-				let fkQuery = makeForeignKeysQuery(dbType, table, input.type === 'database' ? input.specificSchema : undefined)
+				let fkQuery = makeForeignKeysQuery(
+					dbType,
+					table,
+					input.type === 'database' ? input.specificSchema : undefined
+				)
 				if (input.type === 'ducklake') fkQuery = wrapDucklakeQuery(fkQuery, input.ducklake)
 
 				const fkResult = await runScriptAndPollResult({
@@ -212,15 +214,13 @@ export function dbSchemaOpsWithPreviewScripts({
 					requestBody: { args: dbArg, content: fkQuery, language }
 				})
 
-				let rawForeignKeys = (input.type === 'database' && input.resourceType === 'ms_sql_server'
-					? (fkResult as any)[0]
-					: fkResult) as RawForeignKey[]
+				let rawForeignKeys = fkResult as RawForeignKey[]
 
 				if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
 					// Lowercase keys for consistency
-					rawForeignKeys = rawForeignKeys.map(fk => {
+					rawForeignKeys = rawForeignKeys.map((fk) => {
 						const lowerFk: any = {}
-						Object.keys(fk).forEach(key => {
+						Object.keys(fk).forEach((key) => {
 							lowerFk[key.toLowerCase()] = fk[key]
 						})
 						return lowerFk
@@ -234,7 +234,11 @@ export function dbSchemaOpsWithPreviewScripts({
 			// Fetch primary key constraint name
 			let pk_constraint_name = ''
 			try {
-				let pkQuery = makePrimaryKeyConstraintQuery(dbType, table, input.type === 'database' ? input.specificSchema : undefined)
+				let pkQuery = makePrimaryKeyConstraintQuery(
+					dbType,
+					table,
+					input.type === 'database' ? input.specificSchema : undefined
+				)
 				if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
 
 				const pkResult = await runScriptAndPollResult({
@@ -242,9 +246,7 @@ export function dbSchemaOpsWithPreviewScripts({
 					requestBody: { args: dbArg, content: pkQuery, language }
 				})
 
-				let rawPkResult = (input.type === 'database' && input.resourceType === 'ms_sql_server'
-					? (pkResult as any)[0]
-					: pkResult) as RawPrimaryKeyConstraint[]
+				let rawPkResult = pkResult as RawPrimaryKeyConstraint[]
 
 				if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
 					const pkRecord: any = rawPkResult[0]

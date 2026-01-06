@@ -233,7 +233,8 @@ return schema
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
 		lang: 'mssql',
 		processingFn: (rows) => {
-			const schemas = rows[0].reduce((acc, a) => {
+			if (!rows || rows.length === 0) return {}
+			const schemas = rows.reduce((acc, a) => {
 				const table_schema = a.TABLE_SCHEMA
 				delete a.TABLE_SCHEMA
 				acc[table_schema] = acc[table_schema] || []
@@ -325,6 +326,7 @@ export function getLanguageByResourceType(name: string): ScriptLang {
 		postgresql: 'postgresql',
 		mysql: 'mysql',
 		ms_sql_server: 'mssql',
+		mssql: 'mssql',
 		snowflake: 'snowflake',
 		snowflake_oauth: 'snowflake',
 		bigquery: 'bigquery',
