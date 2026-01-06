@@ -25,13 +25,14 @@ jobs:
           --health-retries 5
 
       windmill:
-        image: ghcr.io/windmill-labs/windmill:main
+        image: ghcr.io/windmill-labs/windmill-ee:dev
         ports:
           - 8000:8000
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill?sslmode=disable
           MODE: server
           PORT: "8000"
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
         options: >-
           --health-cmd "curl -f http://localhost:8000/api/version || exit 1"
           --health-interval 10s
@@ -40,11 +41,12 @@ jobs:
           --health-start-period 30s
 
       windmill_worker:
-        image: ghcr.io/windmill-labs/windmill:main
+        image: ghcr.io/windmill-labs/windmill-ee:dev
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill?sslmode=disable
           MODE: worker
           WORKER_GROUP: default
+          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
 
     steps:
       - name: Wait for services to stabilize
