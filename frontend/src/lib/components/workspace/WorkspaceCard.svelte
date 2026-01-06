@@ -90,7 +90,7 @@
 								workspaceColor={workspace.color}
 								{isForked}
 								parentName={workspace.parent_workspace_id ?? undefined}
-								size={14}
+								size={12}
 							/>
 						</div>
 
@@ -161,7 +161,7 @@
 
 	<!-- Expanded forks -->
 	{#if children.length > 0 && isExpanded}
-		<div class="mt-2 ml-6 space-y-2" transition:slide={{ duration: 150 }}>
+		<div class="mt-2 ml-6" transition:slide={{ duration: 150 }}>
 			{#each children as child (child.id)}
 				<WorkspaceCard
 					workspace={child}

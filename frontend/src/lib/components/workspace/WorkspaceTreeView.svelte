@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { Building2, Search } from 'lucide-svelte'
+	import { Building2, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 	import WorkspaceCard from './WorkspaceCard.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import type { UserWorkspace } from '$lib/stores'
+	import { Button } from '../common'
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
@@ -149,6 +150,30 @@
 		const currentState = expansionStates[workspaceId] ?? false
 		manualExpansionStates = { ...manualExpansionStates, [workspaceId]: !currentState }
 	}
+
+	// Get IDs of workspaces that have children (can be expanded)
+	let workspacesWithChildren = $derived.by(() => {
+		if (!workspaces) return []
+		const parentIds = new Set(
+			workspaces.filter((w) => w.parent_workspace_id).map((w) => w.parent_workspace_id)
+		)
+		return workspaces.filter((w) => parentIds.has(w.id)).map((w) => w.id)
+	})
+
+	// Check if all expandable workspaces are currently expanded
+	let allExpanded = $derived(
+		workspacesWithChildren.length > 0 &&
+			workspacesWithChildren.every((id) => expansionStates[id] === true)
+	)
+
+	function handleExpandCollapseAll() {
+		const newState = !allExpanded
+		const newExpansionStates: Record<string, boolean> = {}
+		workspacesWithChildren.forEach((id) => {
+			newExpansionStates[id] = newState
+		})
+		manualExpansionStates = newExpansionStates
+	}
 </script>
 
 <!-- Search Items Component for fuzzy search with highlighting -->
@@ -160,18 +185,37 @@
 />
 
 <div class="space-y-4">
-	<!-- Search Input -->
-	<div class="relative text-primary">
-		<TextInput
-			inputProps={{
-				placeholder: 'Search workspaces...'
-			}}
-			size="md"
-			bind:value={searchFilter}
-			class="!pr-10"
-		/>
-		<Search size={16} class="text-secondary absolute right-2 top-0 mt-2" />
-	</div>
+	<!-- Search Input and Expand/Collapse All (only show if more than one workspace) -->
+	{#if workspaces.length > 1}
+		<div class="flex gap-2 items-center">
+			<div class="relative text-primary flex-1">
+				<TextInput
+					inputProps={{
+						placeholder: 'Search workspaces...'
+					}}
+					size="md"
+					bind:value={searchFilter}
+					class="!pr-10"
+				/>
+				<Search size={16} class="text-secondary absolute right-2 top-0 mt-2" />
+			</div>
+			{#if workspacesWithChildren.length > 0}
+				<Button
+					onClick={handleExpandCollapseAll}
+					title={allExpanded ? 'Collapse all' : 'Expand all'}
+					startIcon={{ icon: allExpanded ? ChevronsDownUp : ChevronsUpDown }}
+					unifiedSize="md"
+					variant="default"
+				>
+					{#if allExpanded}
+						<span>Collapse</span>
+					{:else}
+						<span>Expand</span>
+					{/if}
+				</Button>
+			{/if}
+		</div>
+	{/if}
 
 	<!-- Workspace Tree -->
 	<div class="space-y-2">
