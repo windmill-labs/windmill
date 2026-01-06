@@ -61,9 +61,6 @@ export class FlowChatManager {
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
-	// Callback for when a new conversation is created (for localStorage migration)
-	#onConversationCreated?: (conversationId: string) => void
-
 	initialize(
 		onRunFlow: (
 			userMessage: string,
@@ -71,21 +68,15 @@ export class FlowChatManager {
 			additionalInputs?: Record<string, any>
 		) => Promise<string | undefined>,
 		path: string,
-		useStreaming: boolean = false,
-		onConversationCreated?: (conversationId: string) => void
+		useStreaming: boolean = false
 	) {
 		this.#onRunFlow = onRunFlow
 		this.#path = path
 		this.#useStreaming = useStreaming
-		this.#onConversationCreated = onConversationCreated
 	}
 
 	updateConversationId(conversationId: string | undefined) {
 		this.selectedConversationId = conversationId
-	}
-
-	setOnConversationCreated(callback: (conversationId: string) => void) {
-		this.#onConversationCreated = callback
 	}
 
 	cleanup() {
@@ -405,10 +396,6 @@ export class FlowChatManager {
 		if (!this.selectedConversationId) {
 			const newConversationId = await this.createConversation({ clearMessages: false })
 			currentConversationId = newConversationId
-			// Notify that a new conversation was created (for localStorage migration)
-			if (this.#onConversationCreated && newConversationId) {
-				this.#onConversationCreated(newConversationId)
-			}
 		}
 
 		if (!currentConversationId) {
@@ -625,13 +612,6 @@ export class FlowChatManager {
 		// Start polling for intermediate messages in non-streaming mode too
 		this.startPolling(currentConversationId)
 		this.pollJobResult(jobId)
-	}
-
-	handleKeyDown = (event: KeyboardEvent) => {
-		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-			event.preventDefault()
-			this.sendMessage()
-		}
 	}
 }
 
