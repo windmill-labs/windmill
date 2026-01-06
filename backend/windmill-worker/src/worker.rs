@@ -2088,7 +2088,7 @@ pub async fn run_worker(
                     if job.id == Uuid::nil() {
                         tracing::info!("running warmup job");
                     } else {
-                        tracing::info!(target: VERBOSE_TARGET, workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {} (root job: {}, scheduled for: {})", job.id, job_root, job.scheduled_for);
+                        tracing::info!(workspace_id = %job.workspace_id, job_id = %job.id, root_id = %job_root, "fetched job {} (root job: {}, scheduled for: {})", job.id, job_root, job.scheduled_for);
                     } // Here we can't remove the job id, but maybe with the
                       // fields macro we can make a job id that only appears when
                       // the job is defined?
