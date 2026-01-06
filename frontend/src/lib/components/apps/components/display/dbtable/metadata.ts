@@ -91,6 +91,9 @@ export async function loadAllTablesMetaData(
 			}
 			map[tableKey].push(col)
 		}
+
+		fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+
 		return map
 	} catch (e) {
 		throw new Error('Error loading all tables metadata: ' + e)
@@ -292,6 +295,50 @@ order by c.ORDINAL_POSITION;`
 	} else {
 		throw new Error('Unsupported database type:' + input.resourceType)
 	}
+}
+
+type SnowflakeShowPrimaryKeysResult = {
+	column_name: string
+	database_name: string
+	schema_name: string
+	table_name: string
+}
+
+// We can't get primary keys in a single query for Snowflake, so we fetch them separately
+async function fetchAndAddSnowflakePrimaryKeysInMap(
+	map: Record<string, TableMetadata>,
+	input: DbInput,
+	workspace: string,
+	tableKey?: string
+) {
+	if (input.type == 'database' && input.resourceType === 'snowflake') {
+		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
+		for (const pk of pkResult) {
+			const tableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
+			if (tableKey in map) {
+				for (const col of map[tableKey]) {
+					if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
+						col.isprimarykey = true
+					}
+				}
+			}
+		}
+	}
+}
+
+async function fetchSnowflakePrimaryKeys(
+	workspace: string,
+	dbArg: any,
+	tableKey?: string
+): Promise<SnowflakeShowPrimaryKeysResult[]> {
+	return (await JobService.runScriptPreviewAndWaitResult({
+		workspace,
+		requestBody: {
+			language: 'snowflake',
+			args: dbArg,
+			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS'
+		}
+	})) as SnowflakeShowPrimaryKeysResult[]
 }
 
 function lowercaseKeys(obj: Record<string, any>): any {
