@@ -431,3 +431,269 @@ def main(post: Post):
 
     Ok(())
 }
+
+#[test]
+fn test_self_referential_model() -> anyhow::Result<()> {
+    let code = "
+from pydantic import BaseModel
+from typing import List, Optional
+
+class TreeNode(BaseModel):
+    value: str
+    children: List[TreeNode]
+    parent: Optional[TreeNode]
+
+def main(root: TreeNode):
+    return root.value
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    // Should not panic and handle the cycle gracefully
+    assert_eq!(result.args.len(), 1);
+    assert_eq!(result.args[0].name, "root");
+
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("TreeNode".to_string()));
+            assert!(obj.props.is_some());
+
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 3);
+
+            // value: str
+            assert_eq!(props[0].key, "value");
+            assert_eq!(*props[0].typ, Typ::Str(None));
+
+            // children: List[TreeNode] - self-reference should return placeholder
+            assert_eq!(props[1].key, "children");
+            match props[1].typ.as_ref() {
+                Typ::List(inner) => match inner.as_ref() {
+                    Typ::Object(nested) => {
+                        assert_eq!(nested.name, Some("TreeNode".to_string()));
+                        // Placeholder has no props (to break the cycle)
+                        assert!(nested.props.is_none());
+                    }
+                    _ => panic!("Expected nested Typ::Object for TreeNode"),
+                },
+                _ => panic!("Expected Typ::List for children"),
+            }
+
+            // parent: Optional[TreeNode] - self-reference should return placeholder
+            assert_eq!(props[2].key, "parent");
+            match props[2].typ.as_ref() {
+                Typ::Object(nested) => {
+                    assert_eq!(nested.name, Some("TreeNode".to_string()));
+                    assert!(nested.props.is_none());
+                }
+                _ => panic!("Expected Typ::Object for parent"),
+            }
+        }
+        _ => panic!("Expected Typ::Object for TreeNode"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_any_type() -> anyhow::Result<()> {
+    let code = "
+from pydantic import BaseModel
+from typing import Any
+
+class FlexibleModel(BaseModel):
+    name: str
+    data: Any
+    metadata: Any
+
+def main(model: FlexibleModel):
+    return model.name
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 1);
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("FlexibleModel".to_string()));
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 3);
+
+            assert_eq!(props[0].key, "name");
+            assert_eq!(*props[0].typ, Typ::Str(None));
+
+            // Any should map to Unknown
+            assert_eq!(props[1].key, "data");
+            assert_eq!(*props[1].typ, Typ::Unknown);
+
+            assert_eq!(props[2].key, "metadata");
+            assert_eq!(*props[2].typ, Typ::Unknown);
+        }
+        _ => panic!("Expected Typ::Object"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_annotated_type() -> anyhow::Result<()> {
+    let code = "
+from pydantic import BaseModel, Field
+from typing import Annotated
+
+class User(BaseModel):
+    name: Annotated[str, Field(min_length=1)]
+    age: Annotated[int, Field(ge=0)]
+    email: Annotated[str, Field(pattern=r'^[a-z]+@[a-z]+\\.[a-z]+$')]
+
+def main(user: User):
+    return user.name
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 1);
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("User".to_string()));
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 3);
+
+            // Annotated[str, ...] should unwrap to str
+            assert_eq!(props[0].key, "name");
+            assert_eq!(*props[0].typ, Typ::Str(None));
+
+            // Annotated[int, ...] should unwrap to int
+            assert_eq!(props[1].key, "age");
+            assert_eq!(*props[1].typ, Typ::Int);
+
+            // Annotated[str, ...] should unwrap to str
+            assert_eq!(props[2].key, "email");
+            assert_eq!(*props[2].typ, Typ::Str(None));
+        }
+        _ => panic!("Expected Typ::Object"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_pydantic_dataclass() -> anyhow::Result<()> {
+    let code = "
+import pydantic.dataclasses
+
+@pydantic.dataclasses.dataclass
+class PydanticConfig:
+    host: str
+    port: int
+    debug: bool
+
+def main(config: PydanticConfig):
+    return config.host
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 1);
+    assert_eq!(result.args[0].name, "config");
+
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("PydanticConfig".to_string()));
+            assert!(obj.props.is_some());
+
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 3);
+
+            assert_eq!(props[0].key, "host");
+            assert_eq!(*props[0].typ, Typ::Str(None));
+
+            assert_eq!(props[1].key, "port");
+            assert_eq!(*props[1].typ, Typ::Int);
+
+            assert_eq!(props[2].key, "debug");
+            assert_eq!(*props[2].typ, Typ::Bool);
+        }
+        _ => panic!("Expected Typ::Object for pydantic dataclass"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_pydantic_dataclass_with_args() -> anyhow::Result<()> {
+    let code = "
+import pydantic.dataclasses
+
+@pydantic.dataclasses.dataclass(frozen=True)
+class ImmutablePydanticConfig:
+    name: str
+    value: int
+
+def main(config: ImmutablePydanticConfig):
+    return config.name
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 1);
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("ImmutablePydanticConfig".to_string()));
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 2);
+        }
+        _ => panic!("Expected Typ::Object for pydantic dataclass"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_unknown_type_in_pydantic_field() -> anyhow::Result<()> {
+    let code = "
+from pydantic import BaseModel
+
+class SomeOtherClass:
+    pass
+
+class Model(BaseModel):
+    field: SomeOtherClass
+
+def main(m: Model):
+    return 'ok'
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 1);
+    match &result.args[0].typ {
+        Typ::Object(obj) => {
+            assert_eq!(obj.name, Some("Model".to_string()));
+            let props = obj.props.as_ref().unwrap();
+            assert_eq!(props.len(), 1);
+
+            // SomeOtherClass inside Model becomes Unknown (not Resource)
+            assert_eq!(props[0].key, "field");
+            assert_eq!(*props[0].typ, Typ::Unknown);
+        }
+        _ => panic!("Expected Typ::Object"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn test_simple_script_without_models() -> anyhow::Result<()> {
+    // This test verifies the optimization: simple scripts without Pydantic/dataclass
+    // should not trigger the expensive full AST parse
+    let code = "
+def main(name: str, age: int, active: bool = True):
+    return f'Hello {name}, you are {age} years old'
+";
+    let result = parse_python_signature(code, None, false)?;
+
+    assert_eq!(result.args.len(), 3);
+    assert_eq!(result.args[0].name, "name");
+    assert_eq!(result.args[0].typ, Typ::Str(None));
+    assert_eq!(result.args[1].name, "age");
+    assert_eq!(result.args[1].typ, Typ::Int);
+    assert_eq!(result.args[2].name, "active");
+    assert_eq!(result.args[2].typ, Typ::Bool);
+
+    Ok(())
+}
