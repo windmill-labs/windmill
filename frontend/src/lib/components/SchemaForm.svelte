@@ -289,6 +289,7 @@
 	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
+			{@const prop = schema?.properties?.[argName]}
 			<ResizeTransitionWrapper
 				vertical
 				class={twMerge(
@@ -361,7 +362,7 @@
 							dispatch('click', argName)
 						}}
 					>
-						{#if args && typeof args == 'object' && schema?.properties[argName]}
+						{#if args && typeof args == 'object' && prop}
 							<!-- {argName}
 							{args == undefined}
 							{JSON.stringify(args?.[argName])} -->
@@ -382,38 +383,44 @@
 									{prettifyHeader}
 									autofocus={i == 0 && autofocus ? true : null}
 									label={argName}
-									description={schema.properties[argName].description}
+									description={prop?.description}
 									bind:value={args[argName]}
-									type={schema.properties[argName].type}
-									oneOf={schema.properties[argName].oneOf}
+									type={prop?.type}
+									oneOf={prop?.oneOf}
 									required={schema?.required?.includes(argName)}
-									pattern={schema.properties[argName].pattern}
+									pattern={prop?.pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
-										structuredClone($state.snapshot(schema.properties[argName].default))}
-									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
-									format={schema.properties[argName].format}
-									contentEncoding={schema.properties[argName].contentEncoding}
-									customErrorMessage={schema.properties[argName].customErrorMessage}
-									bind:properties={schema.properties[argName].properties}
-									bind:order={schema.properties[argName].order}
-									nestedRequired={schema.properties[argName]?.required}
-									itemsType={schema.properties[argName].items}
+										structuredClone($state.snapshot(prop?.default))}
+									enum_={dynamicEnums?.[argName] ?? prop?.enum}
+									format={prop?.format}
+									contentEncoding={prop?.contentEncoding}
+									customErrorMessage={prop?.customErrorMessage}
+									bind:properties={
+										() => prop?.properties,
+										(v) => { if (prop) prop.properties = v }
+									}
+									bind:order={
+										() => prop?.order,
+										(v) => { if (prop) prop.order = v }
+									}
+									nestedRequired={prop?.required}
+									itemsType={prop?.items}
 									disabled={disabledArgs.includes(argName) ||
 										disabled ||
-										schema.properties[argName].disabled}
+										prop?.disabled}
 									{compact}
 									{variableEditor}
 									{itemPicker}
 									bind:pickForField
 									password={linkedSecret == argName}
-									extra={schema.properties[argName]}
+									extra={prop}
 									{showSchemaExplorer}
 									simpleTooltip={schemaFieldTooltip[argName]}
 									{onlyMaskPassword}
-									nullable={schema.properties[argName].nullable}
-									title={schema.properties[argName].title}
-									placeholder={schema.properties[argName].placeholder}
+									nullable={prop?.nullable}
+									title={prop?.title}
+									placeholder={prop?.placeholder}
 									orderEditable={dndConfig != undefined}
 									otherArgs={{ ...args, [argName]: undefined }}
 									{helperScript}
