@@ -38,7 +38,7 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 
 lazy_static::lazy_static! {
     pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
-    pub static ref QUIET_MODE: bool = std::env::var("QUIET_MODE").map(|x| x == "true" || x == "1").unwrap_or(false);
+    pub static ref QUIET_MODE: bool = std::env::var("QUIET").map(|x| x == "true" || x == "1").unwrap_or(false);
 }
 
 /// Target name for verbose logs that should be filtered in quiet mode.
