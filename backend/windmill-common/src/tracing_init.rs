@@ -38,6 +38,25 @@ fn compact_layer<S>() -> Layer<S, format::DefaultFields, format::Format<format::
 
 lazy_static::lazy_static! {
     pub static ref JSON_FMT: bool = std::env::var("JSON_FMT").map(|x| x == "true").unwrap_or(false);
+    pub static ref QUIET_MODE: bool = std::env::var("QUIET").map(|x| x == "true" || x == "1").unwrap_or(false);
+}
+
+/// Target name for verbose logs that should be filtered in quiet mode.
+/// Use `tracing::info!(target: windmill_common::tracing_init::VERBOSE_TARGET, ...)` for logs that should be suppressed in quiet mode.
+pub const VERBOSE_TARGET: &str = "windmill_verbose";
+
+/// Creates a Targets filter that optionally filters out verbose logs when quiet mode is enabled.
+fn create_targets_filter(default_env_filter: LevelFilter) -> Targets {
+    let targets = Targets::new()
+        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF);
+
+    if *QUIET_MODE {
+        targets
+            .with_target(VERBOSE_TARGET, tracing::level_filters::LevelFilter::OFF)
+            .with_default(default_env_filter)
+    } else {
+        targets.with_default(default_env_filter)
+    }
 }
 
 pub const LOGS_SERVICE: &str = "logs/services/";
@@ -156,22 +175,14 @@ pub fn initialize_tracing(
                 .with_writer(std::io::stdout)
                 .flatten_event(true)
                 .with_filter(stdout_env_filter)
-                .with_filter(
-                    Targets::new()
-                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
-                        .with_default(default_env_filter),
-                );
+                .with_filter(create_targets_filter(default_env_filter));
 
             // File layer with its own filter
             let file_layer = json_layer()
                 .with_writer(log_file_writer)
                 .flatten_event(true)
                 .with_filter(file_env_filter)
-                .with_filter(
-                    Targets::new()
-                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
-                        .with_default(default_env_filter),
-                );
+                .with_filter(create_targets_filter(default_env_filter));
 
             base_layer
                 .with(stdout_layer)
@@ -188,11 +199,7 @@ pub fn initialize_tracing(
                 .with_line_number(true)
                 .with_target(false)
                 .with_filter(stdout_env_filter)
-                .with_filter(
-                    Targets::new()
-                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
-                        .with_default(default_env_filter),
-                );
+                .with_filter(create_targets_filter(default_env_filter));
 
             // File layer with its own filter
             let file_layer = compact_layer()
@@ -202,11 +209,7 @@ pub fn initialize_tracing(
                 .with_line_number(true)
                 .with_target(false)
                 .with_filter(file_env_filter)
-                .with_filter(
-                    Targets::new()
-                        .with_target("windmill:job_log", tracing::level_filters::LevelFilter::OFF)
-                        .with_default(default_env_filter),
-                );
+                .with_filter(create_targets_filter(default_env_filter));
 
             base_layer
                 .with(stdout_layer)
