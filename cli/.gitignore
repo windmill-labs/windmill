@@ -1,3 +1,4 @@
 npm/
 gen/
 node_modules/
+windmill-utils-internal/.npmrc
