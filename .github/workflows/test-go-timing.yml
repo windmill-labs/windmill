@@ -2,6 +2,9 @@ name: Test Go Execution Time
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - alp/test-go-timing
 
 jobs:
   test-go-timing:
