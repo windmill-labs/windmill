@@ -99,7 +99,7 @@ export function makeAlterTableQueries(
 				break
 
 			case 'dropColumn':
-				queries.push(`ALTER TABLE ${tableRef} DROP COLUMN ${op.name};`)
+				queries.push(`ALTER TABLE ${tableRef} DROP COLUMN ${renderDbQuotedIdentifier(op.name, dbType)};`)
 				break
 
 			case 'alterColumn':
