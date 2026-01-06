@@ -5357,7 +5357,23 @@ pub async fn insert_concurrency_key<'d, 'c>(
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
-        .map(|x| interpolate_args(x, args, workspace_id))
+        .map(|x| {
+            let interpolated = interpolate_args(x.clone(), args, workspace_id);
+            // In cloud mode, enforce workspace isolation by prefixing with workspace
+            // if the custom key doesn't already specify $workspace
+            #[cfg(feature = "cloud")]
+            {
+                if !x.contains("$workspace") {
+                    format!("{}/{}", workspace_id, interpolated)
+                } else {
+                    interpolated
+                }
+            }
+            #[cfg(not(feature = "cloud"))]
+            {
+                interpolated
+            }
+        })
         .unwrap_or(fullpath_with_workspace(
             workspace_id,
             script_path.as_ref(),
