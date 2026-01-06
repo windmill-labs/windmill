@@ -62,7 +62,7 @@ const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
     std::env::consts::OS,
     "_",
     std::env::consts::ARCH,
-    "csharpbin/"
+    "_csharpbin/"
 );
 
 #[cfg(feature = "csharp")]
