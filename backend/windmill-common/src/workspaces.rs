@@ -239,6 +239,8 @@ pub async fn get_datatable_resource_from_db_unchecked(
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -270,6 +272,8 @@ pub struct DucklakeWithConnData {
     pub catalog: DucklakeCatalog,
     pub catalog_resource: serde_json::Value,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -313,6 +317,7 @@ pub async fn get_ducklake_from_db_unchecked(
         catalog_resource,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
+        extra_args: ducklake.extra_args,
     };
     Ok(ducklake)
 }
