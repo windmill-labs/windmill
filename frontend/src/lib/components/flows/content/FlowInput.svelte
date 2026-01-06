@@ -698,7 +698,7 @@
 										color={chatInputsEditTab ? 'blue' : 'light'}
 										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
 										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
-										onclick={() => {
+										onClick={() => {
 											chatInputsEditTab = !chatInputsEditTab
 										}}
 									/>
@@ -822,7 +822,7 @@
 										disabled={!previewSchema}
 										shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
 										startIcon={{ icon: Check }}
-										on:click={() => {
+										onClick={() => {
 											applySchemaAndArgs()
 											connectFirstNode()
 										}}
@@ -840,7 +840,7 @@
 										size="xs"
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}
-										on:click={() => {
+										onClick={() => {
 											if (hasAiSchemaChanges) {
 												if (diffManager?.beforeFlow?.schema) {
 													diffManager.rejectModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
@@ -994,7 +994,7 @@
 									disabled={runDisabled || !isValid}
 									size="xs"
 									shortCut={{ Icon: CornerDownLeft, hide: false }}
-									on:click={() => {
+									onClick={() => {
 										runPreview()
 									}}
 								>

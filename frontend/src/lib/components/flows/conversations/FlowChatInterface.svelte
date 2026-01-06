@@ -16,12 +16,14 @@
 
 	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
 
-	// State for additional inputs modal
-	let showInputsModal = $state(false)
-	let additionalInputsValues = $state<Record<string, any> | undefined>(undefined)
-
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
+
+	// State for additional inputs modal
+	let showInputsModal = $state(false)
+	let additionalInputsValues = $state<Record<string, any> | undefined>(
+		loadInputsFromStorage() ?? undefined
+	)
 
 	function getStorageKey(): string {
 		return `${STORAGE_KEY_PREFIX}${path}`
@@ -31,7 +33,8 @@
 		try {
 			const stored = localStorage.getItem(getStorageKey())
 			return stored ? JSON.parse(stored) : null
-		} catch {
+		} catch (e) {
+			console.error('Failed to load inputs from localStorage:', e)
 			return null
 		}
 	}
@@ -61,6 +64,15 @@
 		if (stored) additionalInputsValues = stored
 		showInputsModal = true
 	}
+
+	const hasMissingRequired = $derived.by(() => {
+		if (!additionalInputsSchema?.required?.length) return false
+		const values = additionalInputsValues ?? {}
+		return additionalInputsSchema.required.some(
+			(field: string) =>
+				values[field] === undefined || values[field] === '' || values[field] === null
+		)
+	})
 </script>
 
 <!-- Additional Inputs Modal -->
@@ -115,18 +127,23 @@
 	</div>
 
 	<!-- Chat Input -->
-	<div class="flex flex-col items-center py-2 xl:max-w-7xl mx-auto w-full gap-2">
+	<div class="flex flex-col items-center p-2 xl:max-w-7xl mx-auto w-full gap-2">
 		{#if additionalInputsSchema}
 			<div class="flex items-center justify-end w-full">
-				<Button
-					size="xs"
-					variant="default"
-					startIcon={{ icon: Settings2 }}
-					title="Inputs"
-					on:click={openInputsModal}
-				>
-					Inputs
-				</Button>
+				<div class="relative">
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: Settings2 }}
+						title="Inputs"
+						onClick={openInputsModal}
+					>
+						Inputs
+					</Button>
+					{#if hasMissingRequired}
+						<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
+					{/if}
+				</div>
 			</div>
 		{/if}
 		<div class="w-full" class:opacity-50={deploymentInProgress}>
