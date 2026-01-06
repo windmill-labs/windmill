@@ -7,6 +7,7 @@ use std::{
     sync::Arc,
 };
 
+use std::os::unix::process::ExitStatusExt; 
 use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
@@ -1299,6 +1300,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
             worker_dir,
             occupancy_metrics,
             pyv.clone(),
+            None,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -1532,6 +1534,7 @@ pub async fn handle_python_reqs(
     worker_dir: &str,
     _occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     py_version: PyV,
+    reduced_concurrent_downloads: Option<usize>,
 ) -> error::Result<Vec<String>> {
     let worker_dir = worker_dir.to_string();
 
@@ -1585,8 +1588,10 @@ pub async fn handle_python_reqs(
     }
 
     // Parallelism level (N)
-    let parallel_limit = // Semaphore will panic if value less then 1
-        PY_CONCURRENT_DOWNLOADS.clamp(1, 30);
+    let parallel_limit = reduced_concurrent_downloads
+        .unwrap_or(*PY_CONCURRENT_DOWNLOADS)
+        .clamp(1, 30);
+    // Semaphore will panic if value less then 1
 
     tracing::info!(
         workspace_id = %w_id,
@@ -1616,7 +1621,7 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
-    for req in requirements {
+    for req in &requirements {
         // Ignore python version annotation backed into lockfile
         if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
@@ -1650,8 +1655,8 @@ pub async fn handle_python_reqs(
         .map(|_| kill_tx.subscribe())
         .collect();
 
-    //   ________ Read comments at the end of the function to get more context
-    let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    //   _______ Read comments at the end of the function to get more context
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     let job_id_2 = job_id.clone();
     let conn_2 = conn.clone();
@@ -1739,7 +1744,6 @@ pub async fn handle_python_reqs(
                         };
 
                         if canceled {
-
                             tracing::info!(
                                 // If there is listener on other side,
                                 workspace_id = %w_id_2,
@@ -1966,22 +1970,21 @@ pub async fn handle_python_reqs(
                 _ = kill_rx.recv() => {
                     Box::into_pin(uv_install_proccess.kill()).await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
-                    return Err(anyhow::anyhow!("uv pip install was canceled"));
+                    return Err(Error::from(anyhow::anyhow!("uv pip install was canceled")));
                 },
                 (_, _, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
-                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
+                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited first 
                     (stderr_future.await, stdout_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
-                        let code = status.code();
+                        let code = status.signal();
                         tracing::warn!(
                             workspace_id = %w_id,
                             "uv install {} did not succeed, exit status: {:?}",
                             &req,
                             code
                         );
-
                         append_logs(
                             &job_id,
                             w_id,
@@ -1994,7 +1997,7 @@ pub async fn handle_python_reqs(
                         )
                         .await;
                         pids.lock().await.get_mut(i).and_then(|e| e.take());
-                        return Err(anyhow!(stderr_buf));
+                        return Err(Error::ExitStatus(stderr_buf, code.unwrap_or(1)));
                     },
                     Err(e) => {
                         tracing::error!(
@@ -2070,13 +2073,19 @@ pub async fn handle_python_reqs(
         }));
     }
 
-    let mut failed = false;
+    let (mut failed, mut oom_killed) = (false, false);
     for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
         if let Err(e) = handle
             .await
-            .unwrap_or(Err(anyhow!("Problem by joining handle")))
+            .unwrap_or(Err(Error::from(anyhow!("Problem by joining handle"))))
         {
             failed = true;
+
+            // OOM code is 9 or 137
+            if matches!(e, Error::ExitStatus(_, 9)) {
+                oom_killed = true;
+            }
+
             append_logs(
                 &job_id,
                 w_id,
@@ -2112,7 +2121,49 @@ pub async fn handle_python_reqs(
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
-        Err(anyhow!("Env installation did not succeed, check logs").into())
+        if oom_killed && parallel_limit > 1 {
+            // We want to drop it and stop monitor
+            // new invocation will create another one
+            drop(done_tx);
+
+            let reduced_limit = parallel_limit / 2;
+
+            append_logs(
+                &job_id,
+                w_id,
+                format!("\n
+    ======================
+    ===== IMPORTANT! =====
+    ======================
+
+Some of installations have been killed by OOM,
+restarting with reduced concurrency: {parallel_limit} -> {reduced_limit}
+
+This is not normal behavior, please make sure all workers have enough memory.\n
+"),
+                conn,
+            )
+            .await;
+
+            // restart with half of concurrency
+            Box::pin(handle_python_reqs(
+                requirements,
+                job_id,
+                w_id,
+                mem_peak,
+                _canceled_by,
+                conn,
+                _worker_name,
+                job_dir,
+                &worker_dir,
+                _occupancy_metrics,
+                py_version,
+                Some(reduced_limit),
+            ))
+            .await
+        } else {
+            Err(anyhow!("Env installation did not succeed, check logs").into())
+        }
     } else {
         Ok(req_paths)
     };
