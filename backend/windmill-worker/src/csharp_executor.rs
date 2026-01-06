@@ -31,8 +31,8 @@ use crate::{
         get_reserved_variables, read_result, start_child_process,
     },
     handle_child::handle_child,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV,
-    NSJAIL_PATH, NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
+    NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
 
 use crate::common::OccupancyMetrics;
@@ -58,7 +58,12 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
+const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
+    std::env::consts::OS,
+    "_",
+    std::env::consts::ARCH,
+    "csharpbin/"
+);
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
