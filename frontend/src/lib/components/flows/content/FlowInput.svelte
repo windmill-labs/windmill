@@ -85,7 +85,10 @@
 
 	// Detect if we're in "review mode" (AI has made schema changes that are pending)
 	const hasAiSchemaChanges = $derived(
-		Boolean(diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending && diffManager?.beforeFlow?.schema)
+		Boolean(
+			diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending &&
+				diffManager?.beforeFlow?.schema
+		)
 	)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
@@ -100,7 +103,7 @@
 	})
 	let showChatModeWarning = $state(false)
 	let showAdditionalInputs = $state(false)
-	let chatInputsEditTab: 'inputEditor' | undefined = $state(undefined)
+	let chatInputsEditTab = $state(false)
 	let chatInputsAddPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
@@ -439,9 +442,7 @@
 		const parentPath = path.slice(0, -1)
 
 		const getSchemaAtPath = (schema: Record<string, any>) =>
-			parentPath.length === 0
-				? schema
-				: getNestedProperty(schema, parentPath, 'properties')
+			parentPath.length === 0 ? schema : getNestedProperty(schema, parentPath, 'properties')
 
 		const getProperties = (schema: Record<string, any>) => getSchemaAtPath(schema)?.properties
 
@@ -461,9 +462,7 @@
 			if (targetProperties && arg.label in targetProperties) {
 				delete targetProperties[arg.label]
 				if (targetSchemaAtPath?.order) {
-					targetSchemaAtPath.order = targetSchemaAtPath.order.filter(
-						(x: string) => x !== arg.label
-					)
+					targetSchemaAtPath.order = targetSchemaAtPath.order.filter((x: string) => x !== arg.label)
 				}
 			}
 		}
@@ -663,17 +662,17 @@
 					}}
 				/>
 				{#if flowStore.val.value?.chat_input_enabled}
-				<Button
-					size="xs"
-					variant="border"
-					color={showAdditionalInputs ? 'blue' : 'light'}
-					startIcon={{ icon: Settings2 }}
-					title="Manage inputs"
-					on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
-				>
-					Manage inputs
-				</Button>
-			{/if}
+					<Button
+						size="xs"
+						variant="border"
+						color={showAdditionalInputs ? 'blue' : 'light'}
+						startIcon={{ icon: Settings2 }}
+						title="Manage inputs"
+						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+					>
+						Manage inputs
+					</Button>
+				{/if}
 			</div>
 		{/if}
 	{/snippet}
@@ -687,7 +686,7 @@
 								bind:schema={flowStore.val.schema}
 								hiddenArgs={['user_message']}
 								isFlowInput
-								editTab={chatInputsEditTab}
+								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
 								on:delete={(e) => {
 									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
 								}}
@@ -700,7 +699,7 @@
 										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
 										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
 										onclick={() => {
-											chatInputsEditTab = chatInputsEditTab ? undefined : 'inputEditor'
+											chatInputsEditTab = !chatInputsEditTab
 										}}
 									/>
 								{/snippet}

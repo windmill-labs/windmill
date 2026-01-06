@@ -11,7 +11,7 @@
 		manager: FlowChatManager
 		deploymentInProgress?: boolean
 		additionalInputsSchema?: Record<string, any>
-		path?: string
+		path: string
 	}
 
 	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
@@ -24,7 +24,7 @@
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
 	function getStorageKey(): string {
-		return `${STORAGE_KEY_PREFIX}${path ?? 'unknown'}`
+		return `${STORAGE_KEY_PREFIX}${path}`
 	}
 
 	function loadInputsFromStorage(): Record<string, any> | null {
@@ -51,7 +51,7 @@
 
 	function handleSendMessage() {
 		const inputs = additionalInputsSchema
-			? loadInputsFromStorage() ?? additionalInputsValues
+			? (loadInputsFromStorage() ?? additionalInputsValues)
 			: undefined
 		manager.sendMessage(inputs)
 	}
@@ -61,7 +61,6 @@
 		if (stored) additionalInputsValues = stored
 		showInputsModal = true
 	}
-
 </script>
 
 <!-- Additional Inputs Modal -->
@@ -75,21 +74,6 @@
 {/if}
 
 <div class="flex flex-col h-full flex-1 min-w-0">
-	<!-- Header with settings button -->
-	{#if additionalInputsSchema}
-		<div class="flex items-center justify-end px-4 py-2 border-b">
-			<Button
-				size="xs"
-				variant="default"
-				startIcon={{ icon: Settings2 }}
-				title="Inputs"
-				on:click={openInputsModal}
-			>
-				Inputs
-			</Button>
-		</div>
-	{/if}
-
 	<!-- Messages Container -->
 	<div
 		bind:this={manager.messagesContainer}
@@ -131,7 +115,20 @@
 	</div>
 
 	<!-- Chat Input -->
-	<div class="flex flex-row justify-center py-2 xl:max-w-7xl mx-auto w-full">
+	<div class="flex flex-col items-center py-2 xl:max-w-7xl mx-auto w-full gap-2">
+		{#if additionalInputsSchema}
+			<div class="flex items-center justify-end w-full">
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: Settings2 }}
+					title="Inputs"
+					on:click={openInputsModal}
+				>
+					Inputs
+				</Button>
+			</div>
+		{/if}
 		<div class="w-full" class:opacity-50={deploymentInProgress}>
 			<ChatInput
 				bind:value={manager.inputMessage}
