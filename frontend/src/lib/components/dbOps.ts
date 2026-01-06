@@ -232,25 +232,27 @@ export function dbSchemaOpsWithPreviewScripts({
 			}
 
 			// Fetch primary key constraint name
-			let pk_constraint_name = ''
+			let pk_constraint_name: string | undefined
 			try {
-				let pkQuery = makePrimaryKeyConstraintQuery(
-					dbType,
-					table,
-					input.type === 'database' ? input.specificSchema : undefined
-				)
-				if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
+				if (dbType !== 'bigquery' && dbType !== 'mysql') {
+					let pkQuery = makePrimaryKeyConstraintQuery(
+						dbType,
+						table,
+						input.type === 'database' ? input.specificSchema : undefined
+					)
+					if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
 
-				const pkResult = await runScriptAndPollResult({
-					workspace,
-					requestBody: { args: dbArg, content: pkQuery, language }
-				})
+					const pkResult = await runScriptAndPollResult({
+						workspace,
+						requestBody: { args: dbArg, content: pkQuery, language }
+					})
 
-				let rawPkResult = pkResult as RawPrimaryKeyConstraint[]
+					let rawPkResult = pkResult as RawPrimaryKeyConstraint[]
 
-				if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
-					const pkRecord: any = rawPkResult[0]
-					pk_constraint_name = pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+					if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
+						const pkRecord: any = rawPkResult[0]
+						pk_constraint_name = pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+					}
 				}
 			} catch (e) {
 				console.warn('Failed to fetch primary key constraint:', e)

@@ -53,7 +53,7 @@ type AddPrimaryKeyOperation = {
 
 type DropPrimaryKeyOperation = {
 	kind: 'dropPrimaryKey'
-	pk_constraint_name: string
+	pk_constraint_name?: string
 }
 
 export type AlterTableOperation =
@@ -391,8 +391,7 @@ export function diffTableEditorValues(
 	if (pkChanged) {
 		// Drop old primary key if it exists
 		if (originalPkColumns.length > 0) {
-			const pk_constraint_name = original.pk_constraint_name || 'pk_constraint_name_not_found'
-			operations.push({ kind: 'dropPrimaryKey', pk_constraint_name })
+			operations.push({ kind: 'dropPrimaryKey', pk_constraint_name: original.pk_constraint_name })
 		}
 		// Add new primary key if columns are specified
 		if (updatedPkColumns.length > 0) {

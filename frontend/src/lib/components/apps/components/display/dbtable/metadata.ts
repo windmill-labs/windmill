@@ -125,7 +125,7 @@ async function makeLoadTableMetaDataQuery(
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
 			COLUMN_DEFAULT as DefaultValue,
-			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
+			CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END as IsPrimaryKey,
 			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
 			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${

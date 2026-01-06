@@ -51,7 +51,7 @@ export function buildTableEditorValues({
 }: {
 	metadata: TableMetadata
 	tableName: string
-	pk_constraint_name: string
+	pk_constraint_name?: string
 	foreignKeys: TableEditorForeignKey[]
 }): TableEditorValues {
 	return {
