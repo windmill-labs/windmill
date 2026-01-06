@@ -7,7 +7,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(unix)]
 use std::os::unix::process::ExitStatusExt; 
+
 use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
@@ -1875,7 +1877,7 @@ pub async fn handle_python_reqs(
                 if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
-                        _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
+                        _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
                         pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
@@ -1936,7 +1938,7 @@ pub async fn handle_python_reqs(
                     )
                     .await;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
-                    return Err(e.into());
+                    return Err(Error::from(e));
                 }
             };
 
@@ -1978,7 +1980,11 @@ pub async fn handle_python_reqs(
                     (stderr_future.await, stdout_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
+                        #[cfg(unix)]
                         let code = status.signal();
+                        #[cfg(not(unix))]
+                        let code = status.code();
+
                         tracing::warn!(
                             workspace_id = %w_id,
                             "uv install {} did not succeed, exit status: {:?}",
@@ -2005,7 +2011,7 @@ pub async fn handle_python_reqs(
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
                         );
                         pids.lock().await.get_mut(i).and_then(|e| e.take());
-                        return Err(e.into());
+                        return Err(Error::from(e));
                     }
                 }
             };
@@ -2082,7 +2088,7 @@ pub async fn handle_python_reqs(
             failed = true;
 
             // OOM code is 9 or 137
-            if matches!(e, Error::ExitStatus(_, 9)) {
+            if matches!(e, Error::ExitStatus(_, 9 | 137)) {
                 oom_killed = true;
             }
 
@@ -2121,7 +2127,7 @@ pub async fn handle_python_reqs(
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
-        if oom_killed && parallel_limit > 1 {
+        if cfg!(unix) && oom_killed && parallel_limit > 1 {
             // We want to drop it and stop monitor
             // new invocation will create another one
             drop(done_tx);
