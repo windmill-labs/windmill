@@ -99,7 +99,9 @@ export function makeAlterTableQueries(
 				break
 
 			case 'dropColumn':
-				queries.push(`ALTER TABLE ${tableRef} DROP COLUMN ${renderDbQuotedIdentifier(op.name, dbType)};`)
+				queries.push(
+					`ALTER TABLE ${tableRef} DROP COLUMN ${renderDbQuotedIdentifier(op.name, dbType)};`
+				)
 				break
 
 			case 'alterColumn':
@@ -162,7 +164,7 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 			queries.push(
 				renderDropDefaultValue(tableRef, original.name, datatype, dbType, op.defaultConstraintName)
 			)
-		} else if (changes.defaultValue) {
+		} else if (changes.defaultValue !== undefined) {
 			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
 			queries.push(renderAddDefaultValue(tableRef, original.name, def, dbType))
 		}
