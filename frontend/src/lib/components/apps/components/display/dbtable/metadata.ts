@@ -199,29 +199,44 @@ async function makeLoadTableMetaDataQuery(
 	`
 	} else if (input.resourceType === 'ms_sql_server') {
 		return `
-		SELECT 
-    COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    COLUMN_DEFAULT as DefaultValue,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
-    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+		SELECT
+    c.COLUMN_NAME as field,
+    c.DATA_TYPE as DataType,
+    c.COLUMN_DEFAULT as DefaultValue,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IsPrimaryKey,
+    CASE WHEN c.IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
 			table
 				? ''
 				: `,
-		TABLE_NAME as table_name`
+		c.TABLE_NAME as table_name`
 		}
-FROM    
-    INFORMATION_SCHEMA.COLUMNS${
-			table
-				? `
-WHERE   
-    TABLE_NAME = '${table}'`
-				: ''
-		}
+FROM
+    INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN (
+        SELECT
+            ku.TABLE_SCHEMA,
+            ku.TABLE_NAME,
+            ku.COLUMN_NAME
+        FROM
+            INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
+                AND tc.TABLE_NAME = ku.TABLE_NAME
+    ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
+        AND c.TABLE_NAME = pk.TABLE_NAME
+        AND c.COLUMN_NAME = pk.COLUMN_NAME${
+					table
+						? `
+WHERE
+    c.TABLE_NAME = '${table}'`
+						: ''
+				}
 ORDER BY
-    ORDINAL_POSITION;
+    c.ORDINAL_POSITION;
 	`
 	} else if (
 		input.resourceType === 'snowflake' ||
