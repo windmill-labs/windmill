@@ -95,6 +95,7 @@ export function filteredContentForExport(flow: ExtendedOpenFlow) {
 }
 
 import { dfs as dfsApply } from './dfs'
+import { randomUUID } from './conversations/FlowChatManager.svelte'
 
 export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 	tag?: string
@@ -121,6 +122,28 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		}
 		if (mod.value.type == 'rawscript' && mod.value.assets?.length == 0) {
 			mod.value.assets = undefined
+		}
+		// Generate memory_id for AI agents with auto memory if not already set
+		// Only if chat input is not enabled, as otherwise memory id is based on conversation id
+		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
+			const memoryTransform = mod.value.input_transforms?.memory
+			if (memoryTransform?.type === 'static' && memoryTransform.value) {
+				const memoryValue = memoryTransform.value as {
+					kind: string
+					context_length: number
+					memory_id: string
+				}
+				if (
+					memoryValue.kind === 'auto' &&
+					memoryValue.context_length > 0 &&
+					!memoryValue.memory_id
+				) {
+					memoryTransform.value = {
+						...memoryValue,
+						memory_id: randomUUID()
+					}
+				}
+			}
 		}
 	})
 	if (newFlow.value.concurrency_key == '') {

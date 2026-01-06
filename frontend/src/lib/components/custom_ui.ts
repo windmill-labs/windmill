@@ -11,6 +11,7 @@ export type FlowBuilderWhitelabelCustomUi = {
 		extraDeployOptions?: boolean
 		editableSummary?: boolean
 		settings?: boolean
+		draft?: boolean
 	}
 	settingsPanel?: boolean
 	settingsTabs?: {

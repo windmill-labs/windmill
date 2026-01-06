@@ -16,7 +16,8 @@
 					return getAllModules(getModules())
 						.flatMap((m) => getFlowModuleAssets(m, s.val.additionalAssetsMap) ?? [])
 						.filter((a) => assetEq(asset, a)).length
-				}
+				},
+				sqlQueries: {}
 			}
 		} satisfies FlowGraphAssetContext)
 		return s
@@ -31,10 +32,9 @@
 		type AssetWithAccessType,
 		type AssetWithAltAccessType
 	} from '../assets/lib'
-	import OnChange from '../common/OnChange.svelte'
 	import { getAllModules } from './flowExplorer'
 	import { getContext, untrack } from 'svelte'
-	import type { FlowGraphAssetContext } from './types'
+	import type { FlowEditorContext, FlowGraphAssetContext } from './types'
 	import {
 		AssetService,
 		ResourceService,
@@ -47,6 +47,7 @@
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
+	import { watch } from 'runed'
 
 	let {
 		modules,
@@ -61,6 +62,8 @@
 	} = $props()
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
+	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext') || {}
+	let selectedId = $derived(selectionManager?.getSelectedId())
 
 	let allModules = $derived(getAllModules(modules))
 
@@ -73,13 +76,14 @@
 				(m) => getFlowModuleAssets(m, flowGraphAssetsCtx?.val.additionalAssetsMap) ?? []
 			) ?? []
 		for (const asset of assets) {
-			if (asset.kind !== 'resource' || asset.path in resMetadataCache) continue
-			resMetadataCache[asset.path] = undefined // avoid fetching multiple times because of async
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((r) => (resMetadataCache[asset.path] = { resource_type: r.resource_type }))
-				.catch((err) => {
-					console.error("Couldn't fetch resource", asset.path, err)
-				})
+			if (asset.kind == 'resource') {
+				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				if (truncatedPath in resMetadataCache) continue
+				resMetadataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					.then((r) => (resMetadataCache[truncatedPath] = { resource_type: r.resource_type }))
+					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+			}
 		}
 	})
 
@@ -118,15 +122,17 @@
 		}
 	})
 
-	async function parseAndUpdateRawScriptModule(v: RawScript) {
-		try {
-			let parsedAssets: AssetWithAltAccessType[] = await inferAssets(v.language, v.content)
-			for (const asset of parsedAssets) {
-				const old = v.assets?.find((a) => assetEq(a, asset))
-				if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
-			}
-			if (!deepEqual(v.assets, parsedAssets)) v.assets = parsedAssets
-		} catch (e) {}
+	async function parseAndUpdateRawScriptModule(v: RawScript, modId: string) {
+		console.log('Parsing assets for RawScript module', modId)
+		let inferAssetsResult = await inferAssets(v.language, v.content)
+		if (inferAssetsResult.status === 'error') return
+		if (flowGraphAssetsCtx) flowGraphAssetsCtx.val.sqlQueries[modId] = inferAssetsResult.sql_queries
+		let newAssets = inferAssetsResult.assets as AssetWithAltAccessType[]
+		for (const asset of newAssets) {
+			const old = v.assets?.find((a) => assetEq(a, asset))
+			if (old?.alt_access_type) asset.alt_access_type = old.alt_access_type
+		}
+		if (!deepEqual(v.assets, newAssets)) v.assets = newAssets
 	}
 
 	// Check for raw script modules whose assets were not parsed. Useful for flows created
@@ -138,22 +144,35 @@
 				for (const mod of allModules) {
 					if (mod.value.type === 'rawscript' && mod.value.assets === undefined) {
 						console.log('RawScript module', mod.id, 'without assets field, parsing')
-						parseAndUpdateRawScriptModule(mod.value)
+						parseAndUpdateRawScriptModule(mod.value, mod.id)
 					}
 				}
 			}, 500) // ensure modules are loaded
 		})
 	})
-</script>
 
-{#if enableParser}
-	{#each allModules as mod (mod.id)}
-		{#if mod.value.type === 'rawscript'}
-			{@const v = mod.value}
-			<OnChange key={v.content} onChange={() => parseAndUpdateRawScriptModule(v)} />
-		{/if}
-	{/each}
-{/if}
+	$effect(() => {
+		if (!enableParser) return
+		for (const mod of allModules) {
+			const modValue = mod.value
+			if (modValue.type === 'rawscript') {
+				// Recompute any raw script module assets when its content changes
+				watch(
+					[() => modValue.content],
+					() => {
+						parseAndUpdateRawScriptModule(modValue, mod.id)
+					},
+					{ lazy: true }
+				)
+
+				// Also recompute if the module is selected
+				watch([() => selectedId === mod.id], () => {
+					if (selectedId === mod.id) parseAndUpdateRawScriptModule(modValue, mod.id)
+				})
+			}
+		}
+	})
+</script>
 
 {#if flowGraphAssetsCtx}
 	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />

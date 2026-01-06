@@ -88,7 +88,6 @@ export class FlowChatManager {
 	}
 
 	focusInput() {
-		console.log('focusInput', this.inputElement)
 		this.inputElement?.focus()
 	}
 
@@ -596,7 +595,7 @@ export class FlowChatManager {
 	}
 
 	handleKeyDown = (event: KeyboardEvent) => {
-		if (event.key === 'Enter' && !event.shiftKey) {
+		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 			event.preventDefault()
 			this.sendMessage()
 		}

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetUsageAccessType {
     R,
@@ -10,7 +10,7 @@ pub enum AssetUsageAccessType {
 
 use AssetUsageAccessType::*;
 
-#[derive(Serialize, PartialEq, Clone, Copy)]
+#[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
 pub enum AssetKind {
     S3Object,
@@ -19,12 +19,28 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize)]
-pub struct ParseAssetsResult<S: AsRef<str>> {
+#[derive(Serialize, Debug, PartialEq)]
+pub struct ParseAssetsResult {
     pub kind: AssetKind,
-    pub path: S,
+    pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
+}
+
+#[derive(Serialize, Debug, PartialEq)]
+pub struct SqlQueryDetails {
+    pub query_string: String, // SQL query with $1 placeholders for interpolations
+    pub span: (u32, u32),     // (start, end) byte positions in source code
+    pub source_kind: AssetKind, // DataTable or Ducklake
+    pub source_name: String,  // e.g., "main", "dt"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_schema: Option<String>, // e.g., Some("public"), None
+}
+
+#[derive(Serialize, Debug, Default)]
+pub struct ParseAssetsOutput {
+    pub assets: Vec<ParseAssetsResult>,
+    pub sql_queries: Vec<SqlQueryDetails>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -34,13 +50,13 @@ pub struct DelegateToGitRepoDetails {
     pub commit: Option<String>,
 }
 
-pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<ParseAssetsResult<S>> {
-    let mut arr: Vec<ParseAssetsResult<S>> = vec![];
+pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
+    let mut arr: Vec<ParseAssetsResult> = vec![];
     for asset in assets {
         // Remove duplicates
         if let Some(existing) = arr
             .iter_mut()
-            .find(|x| x.path.as_ref() == asset.path.as_ref() && x.kind == asset.kind)
+            .find(|x| x.path == asset.path && x.kind == asset.kind)
         {
             // merge access types
             existing.access_type = match (asset.access_type, existing.access_type) {
@@ -54,12 +70,33 @@ pub fn merge_assets<S: AsRef<str>>(assets: Vec<ParseAssetsResult<S>>) -> Vec<Par
             arr.push(asset);
         }
     }
-    arr.sort_by(|a, b| a.path.as_ref().cmp(b.path.as_ref()));
+    arr.sort_by(|a, b| a.path.cmp(&b.path));
     arr
 }
 
-pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
-    if s.starts_with("s3://") {
+// Will return false if the user assigned an asset to a variable like:
+//   let sql = wmill.datatable('main')
+// But never used it. In that case we don't know which table is being used,
+// but we still want to add the main datatable as an asset with unknown access type.
+//
+// This function takes care of the fact that assets can be suffixed (e.g. "main/users")
+pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind, &String)) -> bool {
+    assets.iter().any(|a| {
+        let a_path = a.path.as_str();
+        let has_same_path_base = a_path
+            .strip_prefix(path)
+            .map(|p| p.starts_with('/'))
+            .unwrap_or(false);
+        (has_same_path_base || a_path == path) && a.kind == kind
+    })
+}
+
+pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
+    if enable_default_syntax && s == "datatable" {
+        Some((AssetKind::DataTable, "main"))
+    } else if enable_default_syntax && s == "ducklake" {
+        Some((AssetKind::Ducklake, "main"))
+    } else if s.starts_with("s3://") {
         Some((AssetKind::S3Object, &s[5..]))
     } else if s.starts_with("res://") {
         Some((AssetKind::Resource, &s[6..]))
@@ -68,41 +105,8 @@ pub fn parse_asset_syntax(s: &str) -> Option<(AssetKind, &str)> {
     } else if s.starts_with("ducklake://") {
         Some((AssetKind::Ducklake, &s[11..]))
     } else if s.starts_with("datatable://") {
-        Some((AssetKind::DataTable, &s[11..]))
+        Some((AssetKind::DataTable, &s[12..]))
     } else {
         None
-    }
-}
-
-pub fn detect_sql_access_type(sql: &str) -> Option<AssetUsageAccessType> {
-    let first_kw = sql
-        .trim()
-        .split_whitespace()
-        .next()
-        .unwrap_or("")
-        .to_lowercase();
-
-    // Check for write operations
-    let has_write = first_kw.starts_with("insert")
-        || first_kw.starts_with("update")
-        || first_kw.starts_with("delete")
-        || first_kw.starts_with("drop")
-        || first_kw.starts_with("create")
-        || first_kw.starts_with("alter")
-        || first_kw.starts_with("truncate")
-        || first_kw.starts_with("merge");
-
-    // Check for read operations
-    let has_read = first_kw.starts_with("select")
-        || first_kw.starts_with("with")  // CTEs, usually for reads
-        || first_kw.starts_with("show")
-        || first_kw.starts_with("describe")
-        || first_kw.starts_with("explain");
-
-    match (has_read, has_write) {
-        (true, true) => Some(RW),
-        (true, false) => Some(R),
-        (false, true) => Some(W),
-        (false, false) => None, // Unknown - couldn't determine
     }
 }

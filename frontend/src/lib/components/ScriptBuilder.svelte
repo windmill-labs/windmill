@@ -45,7 +45,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
-	import type { SupportedLanguage } from '$lib/common'
+	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -522,6 +522,12 @@
 					concurrency_time_window_s: script.concurrency_time_window_s,
 					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 					debounce_delay_s: script.debounce_delay_s,
+					debounce_args_to_accumulate:
+						script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+							? script.debounce_args_to_accumulate
+							: undefined,
+					max_total_debouncing_time: script.max_total_debouncing_time,
+					max_total_debounces_amount: script.max_total_debounces_amount,
 					cache_ttl: script.cache_ttl,
 					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
@@ -666,6 +672,12 @@
 						concurrency_time_window_s: script.concurrency_time_window_s,
 						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
 						debounce_delay_s: script.debounce_delay_s,
+						debounce_args_to_accumulate:
+							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+								? script.debounce_args_to_accumulate
+								: undefined,
+						max_total_debouncing_time: script.max_total_debouncing_time,
+						max_total_debounces_amount: script.max_total_debounces_amount,
 						cache_ttl: script.cache_ttl,
 						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
@@ -1369,6 +1381,10 @@
 											size="sm"
 											bind:debounce_delay_s={script.debounce_delay_s}
 											bind:debounce_key={script.debounce_key}
+											bind:debounce_args_to_accumulate={script.debounce_args_to_accumulate}
+											bind:max_total_debouncing_time={script.max_total_debouncing_time}
+											bind:max_total_debounces_amount={script.max_total_debounces_amount}
+											schema={script.schema as Schema}
 											placeholder={`$workspace/script/${script.path}-$args[foo]`}
 										/>
 

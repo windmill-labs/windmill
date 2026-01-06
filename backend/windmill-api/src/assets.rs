@@ -39,7 +39,9 @@ async fn list_assets(
                 )
             )) as "list!: _"
         FROM asset
-        LEFT JOIN resource ON asset.kind = 'resource' AND asset.path = resource.path AND resource.workspace_id = $1
+        LEFT JOIN resource ON asset.kind = 'resource'
+          AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path -- With specific table, asset path can be e.g u/diego/pg_db/table_name
+          AND resource.workspace_id = $1
         WHERE asset.workspace_id = $1
           AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
           AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))

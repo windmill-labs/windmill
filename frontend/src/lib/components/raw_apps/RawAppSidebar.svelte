@@ -4,9 +4,15 @@
 	import RawAppInlineScriptPanelList from './RawAppInlineScriptPanelList.svelte'
 	import FileTreeNode from './FileTreeNode.svelte'
 	import { buildFileTree } from './fileTreeUtils'
-	import { Plus, File, Folder, Undo2, Redo2 } from 'lucide-svelte'
+	import { Plus, File, Folder, Camera } from 'lucide-svelte'
 	import type { Modules } from './RawAppModules.svelte'
 	import RawAppModules from './RawAppModules.svelte'
+	import RawAppHistoryList from './RawAppHistoryList.svelte'
+	import type { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
+	import Button from '../common/button/Button.svelte'
+	import RawAppDataTableList from './RawAppDataTableList.svelte'
+	import type { DataTableRef } from './dataTableRefUtils'
+	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -15,6 +21,17 @@
 		modules?: Modules
 		onSelectFile?: (path: string) => void
 		selectedDocument: string | undefined
+		historyManager?: RawAppHistoryManager
+		historySelectedId?: number | undefined
+		onHistorySelect?: (id: number) => void
+		onManualSnapshot?: () => void
+		dataTableRefs?: DataTableRef[]
+		onDataTableRefsChange?: (refs: DataTableRef[]) => void
+		/** Default datatable for new tables */
+		defaultDatatable?: string | undefined
+		/** Default schema for new tables */
+		defaultSchema?: string | undefined
+		onDefaultChange?: (datatable: string | undefined, schema: string | undefined) => void
 	}
 
 	let {
@@ -23,60 +40,44 @@
 		files = $bindable(),
 		modules,
 		onSelectFile,
-		selectedDocument = $bindable()
+		selectedDocument = $bindable(),
+		historyManager,
+		historySelectedId,
+		onHistorySelect,
+		onManualSnapshot,
+		dataTableRefs = [],
+		onDataTableRefsChange,
+		defaultDatatable = undefined,
+		defaultSchema = undefined,
+		onDefaultChange
 	}: Props = $props()
+
+	let dataTableDrawer: RawAppDataTableDrawer | undefined = $state()
+	let selectedDataTableIndex: number | undefined = $state(undefined)
+
+	function handleAddDataTable(ref: DataTableRef) {
+		onDataTableRefsChange?.([...dataTableRefs, ref])
+	}
+
+	function handleRemoveDataTable(index: number) {
+		onDataTableRefsChange?.(dataTableRefs.filter((_, i) => i !== index))
+		if (selectedDataTableIndex === index) {
+			selectedDataTableIndex = undefined
+		}
+	}
+
+	function handleSelectDataTable(ref: DataTableRef, index: number) {
+		selectedDataTableIndex = selectedDataTableIndex === index ? undefined : index
+		// Open the drawer in manage mode when selecting a data table
+		if (selectedDataTableIndex === index) {
+			dataTableDrawer?.openDrawerWithRef(ref)
+		}
+	}
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
 
 	let pathToRename = $state<string | undefined>(undefined)
 	let pathToExpand = $state<string | undefined>(undefined)
-
-	// History management for undo/redo
-	const MAX_HISTORY = 5
-	let history = $state<Record<string, string>[]>([])
-	let historyIndex = $state(-1)
-
-	const canUndo = $derived(historyIndex > 0)
-	const canRedo = $derived(historyIndex < history.length - 1)
-
-	function addToHistory(newFiles: Record<string, string>) {
-		// Remove any future history if we're not at the end
-		if (historyIndex < history.length - 1) {
-			history = history.slice(0, historyIndex + 1)
-		}
-
-		// Add new state
-		history = [...history, $state.snapshot(newFiles)]
-
-		// Keep only last MAX_HISTORY items
-		if (history.length > MAX_HISTORY) {
-			history = history.slice(-MAX_HISTORY)
-		} else {
-			historyIndex++
-		}
-	}
-
-	function undo() {
-		if (canUndo && files) {
-			historyIndex--
-			files = $state.snapshot(history[historyIndex])
-		}
-	}
-
-	function redo() {
-		if (canRedo && files) {
-			historyIndex++
-			files = $state.snapshot(history[historyIndex])
-		}
-	}
-
-	// Initialize history with current state
-	$effect(() => {
-		if (files && history.length === 0) {
-			history = [$state.snapshot(files)]
-			historyIndex = 0
-		}
-	})
 
 	function handleFileClick(path: string) {
 		console.log('File clicked:', path)
@@ -93,7 +94,6 @@
 			const newPath = normalizedFolder + 'newfile.txt'
 			nfiles[newPath] = ''
 			files = nfiles
-			addToHistory(nfiles)
 			pathToRename = newPath
 			pathToExpand = normalizedFolder
 		}
@@ -148,7 +148,6 @@
 			}
 
 			files = nfiles
-			addToHistory(nfiles)
 			pathToRename = undefined
 		}
 	}
@@ -162,7 +161,6 @@
 			const newPath = normalizedFolder + 'newfolder/'
 			nfiles[newPath] = ''
 			files = nfiles
-			addToHistory(nfiles)
 			pathToRename = newPath
 			pathToExpand = normalizedFolder
 		}
@@ -199,7 +197,6 @@
 
 			nfiles[newPath] = ''
 			files = nfiles
-			addToHistory(nfiles)
 			pathToRename = newPath
 			if (targetFolder) {
 				pathToExpand = targetFolder
@@ -237,7 +234,6 @@
 
 			nfiles[newPath] = ''
 			files = nfiles
-			addToHistory(nfiles)
 			pathToRename = newPath
 			if (targetFolder) {
 				pathToExpand = targetFolder
@@ -267,7 +263,6 @@
 
 			files = nfiles
 			console.log(nfiles)
-			addToHistory(nfiles)
 
 			// Clear selection if deleted item was selected
 			if (selectedDocument === path || (isFolder && selectedDocument?.startsWith(path))) {
@@ -277,28 +272,9 @@
 	}
 </script>
 
-<!-- {JSON.stringify(history)} -->
-<PanelSection size="lg" fullHeight={false} title="Frontend" id="app-editor-frontend-panel">
+<PanelSection size="lg" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
 	{#snippet action()}
 		<div class="flex gap-1">
-			<div class="flex gap-0.5 border-r border-gray-200 dark:border-gray-700 pr-1">
-				<button
-					onclick={undo}
-					disabled={!canUndo}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-					title="Undo (Ctrl+Z)"
-				>
-					<Undo2 size={12} class="text-secondary" />
-				</button>
-				<button
-					onclick={redo}
-					disabled={!canRedo}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-					title="Redo (Ctrl+Y)"
-				>
-					<Redo2 size={12} class="text-secondary" />
-				</button>
-			</div>
 			<div class="flex gap-0.5">
 				<button
 					onclick={handleAddRootFile}
@@ -350,5 +326,46 @@
 
 <RawAppModules {modules} />
 
-<div class="py-10"></div>
+<div class="py-4"></div>
 <RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />
+
+<div class="py-4"></div>
+<RawAppDataTableList
+	{dataTableRefs}
+	{defaultDatatable}
+	{defaultSchema}
+	onAdd={() => dataTableDrawer?.openDrawer()}
+	onRemove={handleRemoveDataTable}
+	onSelect={handleSelectDataTable}
+	{onDefaultChange}
+	selectedIndex={selectedDataTableIndex}
+/>
+<RawAppDataTableDrawer
+	bind:this={dataTableDrawer}
+	onAdd={handleAddDataTable}
+	existingRefs={dataTableRefs}
+/>
+
+{#if historyManager && onHistorySelect && onManualSnapshot}
+	<div class="py-4"></div>
+	<PanelSection fullHeight={false} size="md" title="history" id="app-editor-history-panel">
+		{#snippet action()}
+			<div class="flex items-center gap-2">
+				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>
+				<Button
+					size="xs2"
+					color="dark"
+					variant="border"
+					startIcon={{ icon: Camera }}
+					on:click={onManualSnapshot}
+				></Button>
+			</div>
+		{/snippet}
+		<RawAppHistoryList
+			entries={historyManager.allEntries}
+			branches={historyManager.allBranches}
+			selectedId={historySelectedId}
+			onSelect={onHistorySelect}
+		/>
+	</PanelSection>
+{/if}

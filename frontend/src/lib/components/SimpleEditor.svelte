@@ -7,6 +7,7 @@
 	import '@codingame/monaco-vscode-standalone-css-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
 	import '@codingame/monaco-vscode-standalone-html-language-features'
+	import { javascriptDefaults } from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -360,6 +361,21 @@
 		}
 		keepModelAroundToAvoidDisposalOfWorkers()
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				inputEl?.focus()
+				document.execCommand('paste')
+			})
+		}
+
 		let timeoutModel: number | undefined = undefined
 		editor.onDidChangeModelContent((event) => {
 			timeoutModel && clearTimeout(timeoutModel)
@@ -538,7 +554,7 @@
 				}
 				previousExtraLib = extraLib
 			}
-			languages.typescript.javascriptDefaults.setExtraLibs(libs)
+			javascriptDefaults.setExtraLibs(libs)
 		}
 	}
 
@@ -583,8 +599,38 @@
 	}
 
 	updatePlaceholderVisibility(code ?? '')
+
+	let inputEl = $state<HTMLInputElement | null>(null)
+	let pasteValue = $state('')
+	$effect(() => {
+		if (inputEl && pasteValue) {
+			untrack(() => {
+				editor?.executeEdits('paste', [
+					{
+						range: editor?.getSelection() ?? {
+							startLineNumber: 1,
+							startColumn: 1,
+							endLineNumber: 1,
+							endColumn: 1
+						},
+						text: pasteValue,
+						forceMoveMarkers: true
+					}
+				])
+				pasteValue = ''
+			})
+		}
+	})
 </script>
 
+{#if parent.window !== window}
+	<input
+		style="height: 0; width: 0; opacity: 0; position: absolute; top: 0; left: 0; z-index: -1;"
+		type="text"
+		bind:this={inputEl}
+		bind:value={pasteValue}
+	/>
+{/if}
 <EditorTheme />
 {#if !editor || suggestion}
 	<FakeMonacoPlaceHolder

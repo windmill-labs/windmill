@@ -31,7 +31,6 @@ use crate::utils::require_devops_role;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
-use windmill_common::error::to_anyhow;
 use windmill_common::{
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -41,9 +40,9 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
-    parse_postgres_url,
     server::Smtp,
 };
+use windmill_common::{error::to_anyhow, PgDatabase};
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
@@ -704,7 +703,7 @@ async fn setup_custom_instance_pg_database_inner(
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
-    let pg_creds = parse_postgres_url(&get_database_url().await?.as_str().await)?;
+    let pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters
@@ -717,7 +716,7 @@ async fn setup_custom_instance_pg_database_inner(
             "Catalog name must be alphanumeric, underscores allowed".to_string(),
         ));
     }
-    if pg_creds.database.trim().eq_ignore_ascii_case(dbname.trim()) {
+    if pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
         return Err(error::Error::BadRequest(
             "Database name cannot be the same as the main database".to_string(),
         ));
@@ -740,56 +739,9 @@ async fn setup_custom_instance_pg_database_inner(
         logs.created_database = "OK".to_string();
     }
 
-    let ssl_mode = match pg_creds.ssl_mode.as_deref() {
-        Some("allow") => "prefer".to_string(),
-        Some("verify-ca") | Some("verify-full") => "require".to_string(),
-        Some(s) => s.to_string(),
-        None => "prefer".to_string(),
-    };
     // We have to connect to the newly created database as admin to grant permissions
-    let conn_str = format!(
-        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
-        password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
-        host = &pg_creds.host,
-        port = pg_creds.port.unwrap_or(5432),
-        dbname = dbname,
-        sslmode = ssl_mode
-    );
-
-    let (client, join_handle) = if ssl_mode == "require" {
-        use native_tls::TlsConnector;
-        use postgres_native_tls::MakeTlsConnector;
-
-        let mut connector = TlsConnector::builder();
-        connector.danger_accept_invalid_certs(true);
-        connector.danger_accept_invalid_hostnames(true);
-
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(
-                &conn_str,
-                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-            ),
-        )
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
-
-        let join_handle = tokio::spawn(async move { connection.await });
-        (client, join_handle)
-    } else {
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-        )
-        .await
-        .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-        .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
-
-        let join_handle = tokio::spawn(async move { connection.await });
-        (client, join_handle)
-    };
+    let (client, connection) = pg_creds.connect().await?;
+    let join_handle = tokio::spawn(async move { connection.await });
 
     logs.db_connect = "OK".to_string();
 
@@ -798,6 +750,7 @@ async fn setup_custom_instance_pg_database_inner(
             "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
              GRANT USAGE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
                  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))

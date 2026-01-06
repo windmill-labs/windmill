@@ -153,6 +153,7 @@
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let hovering = $state(false)
 </script>
 
 <AppConnect
@@ -177,7 +178,12 @@
 />
 <!-- {JSON.stringify({ value, collection })} -->
 <div class="flex flex-col w-full items-start {className}">
-	<div class="flex flex-row w-full items-center">
+	<div
+		class="flex flex-row w-full items-center relative"
+		role="group"
+		onmouseenter={() => (hovering = true)}
+		onmouseleave={() => (hovering = false)}
+	>
 		<Select
 			{disabled}
 			{disablePortal}
@@ -200,7 +206,6 @@
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
-			itemButtonWrapperClasses="flex items-center"
 		>
 			{#snippet endSnippet({ item, close })}
 				<Button
@@ -267,6 +272,19 @@
 				</div>
 			{/snippet}
 		</Select>
+		{#if value && hovering}
+			<div class="absolute {disabled ? 'right-2' : 'right-10'} z-20">
+				<Button
+					variant="subtle"
+					size="xs2"
+					wrapperClasses="pl-1"
+					btnClasses="hover:bg-surface-tertiary"
+					on:click={() => resourceEditor?.initEdit?.(value ?? '')}
+					startIcon={{ icon: Pen }}
+					iconOnly
+				/>
+			</div>
+		{/if}
 	</div>
 	{#if showSchemaExplorer && value && assetCanBeExplored({ kind: 'resource', path: value }, { resource_type: resourceType })}
 		<ExploreAssetButton

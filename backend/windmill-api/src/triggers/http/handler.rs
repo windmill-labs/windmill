@@ -19,7 +19,7 @@ use crate::{
         Trigger, TriggerCrud, TriggerData, TriggerMode,
     },
     users::fetch_api_authed,
-    utils::ExpiringCacheEntry,
+    utils::{check_scopes, ExpiringCacheEntry},
 };
 use axum::{
     async_trait,
@@ -736,6 +736,8 @@ async fn get_http_route_trigger(
             None
         };
         if let Some(authed) = opt_authed {
+            check_scopes(&authed, || format!("http_triggers:read:{}", &trigger.path))?;
+
             // check that the user has access to the trigger
             let cache_key = (
                 trigger.workspace_id.clone(),
@@ -924,7 +926,6 @@ async fn route_job(
                 &authed,
                 &db,
                 None,
-                &"NO_TOKEN".to_string(), // no token is provided in this case
                 &trigger.workspace_id,
                 config.storage,
             )

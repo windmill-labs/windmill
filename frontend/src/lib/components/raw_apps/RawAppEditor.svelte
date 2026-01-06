@@ -3,9 +3,10 @@
 	import RawAppInlineScriptsPanel from './RawAppInlineScriptsPanel.svelte'
 	import type { JobById } from '../apps/types'
 	import RawAppEditorHeader from './RawAppEditorHeader.svelte'
-	import { type Policy } from '$lib/gen'
+	import { type Policy, WorkspaceService } from '$lib/gen'
 	import DiffDrawer from '../DiffDrawer.svelte'
 	import { encodeState } from '$lib/utils'
+	import { deepEqual } from 'fast-equals'
 
 	// import { addWmillClient } from './utils'
 	import RawAppBackgroundRunner from './RawAppBackgroundRunner.svelte'
@@ -17,12 +18,25 @@
 	import { isRunnableByName, isRunnableByPath } from '../apps/inputType'
 	import { aiChatManager, AIMode } from '../copilot/chat/AIChatManager.svelte'
 	import { onMount } from 'svelte'
-	import type { LintResult } from '../copilot/chat/app/core'
+	import type { LintResult, DataTableSchema, InspectorElementInfo } from '../copilot/chat/app/core'
+	import type { AppCodeSelectionElement } from '../copilot/chat/context'
 	import { rawAppLintStore } from './lintStore'
+	import { dbSchemas } from '$lib/stores'
+	import { runScriptAndPollResult } from '../jobs/utils'
+	import { RawAppHistoryManager } from './RawAppHistoryManager.svelte'
+	import { sendUserToast } from '$lib/utils'
+	import {
+		parseDataTableRef,
+		formatDataTableRef,
+		type RawAppData,
+		DEFAULT_DATA
+	} from './dataTableRefUtils'
 
 	interface Props {
 		initFiles: Record<string, string>
 		initRunnables: Record<string, Runnable>
+		/** Data configuration including tables and creation policy */
+		initData: RawAppData | undefined
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -45,6 +59,7 @@
 	let {
 		initFiles,
 		initRunnables,
+		initData,
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -57,6 +72,11 @@
 
 	let runnables = $state(initRunnables)
 
+	// Data configuration with tables and creation policy
+	let data: RawAppData = $state(initData ?? DEFAULT_DATA)
+
+	// Convert to object format for child components
+	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
 	let initRunnablesContent = Object.fromEntries(
 		Object.entries(initRunnables).map(([key, runnable]) => {
 			if (isRunnableByName(runnable)) {
@@ -68,6 +88,13 @@
 
 	let files: Record<string, string> | undefined = $state(initFiles)
 
+	// Initialize history manager
+	const historyManager = new RawAppHistoryManager({
+		maxEntries: 50,
+		autoSnapshotInterval: 5 * 60 * 1000 // 5 minutes
+	})
+	historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+
 	let draftTimeout: number | undefined = undefined
 	function saveFrontendDraft() {
 		draftTimeout && clearTimeout(draftTimeout)
@@ -77,7 +104,8 @@
 					path != '' ? `rawapp-${path}` : 'rawapp',
 					encodeState({
 						files,
-						runnables: runnables
+						runnables: runnables,
+						data: data
 					})
 				)
 			} catch (err) {
@@ -88,7 +116,7 @@
 
 	let iframe: HTMLIFrameElement | undefined = $state(undefined)
 
-	let sidebarPanelSize = $state(10)
+	let sidebarPanelSize = $state(15)
 
 	let jobs: string[] = $state([])
 	let jobsById: Record<string, JobById> = $state({})
@@ -177,8 +205,36 @@
 		aiChatManager.changeMode(AIMode.APP)
 		rawAppLintStore.enable()
 
+		// Initialize aiChatManager.datatableCreationPolicy from stored data
+		aiChatManager.datatableCreationPolicy = {
+			enabled: data.datatable !== undefined,
+			datatable: data.datatable,
+			schema: data.schema
+		}
+
+		// Start auto-snapshot
+		historyManager.startAutoSnapshot(() => ({
+			files: files ?? {},
+			runnables,
+			summary,
+			data
+		}))
+
 		return () => {
 			rawAppLintStore.disable()
+			historyManager.destroy()
+		}
+	})
+
+	// Sync data with aiChatManager.datatableCreationPolicy (bidirectional)
+	$effect(() => {
+		// Read the current policy from aiChatManager
+		const policy = aiChatManager.datatableCreationPolicy
+		// Only update if different to avoid infinite loops
+		if (data.datatable !== policy.datatable || data.schema !== policy.schema) {
+			data.datatable = policy.datatable
+			data.schema = policy.schema
+			saveFrontendDraft()
 		}
 	})
 
@@ -332,41 +388,260 @@
 				}
 			},
 			getSelectedContext: () => {
+				const baseContext = {
+					inspectorElement: inspectorElement,
+					selectionExcluded: selectionExcludedFromPrompt,
+					toggleSelectionExcluded: toggleSelectionExcluded,
+					clearInspector: clearInspectorSelection,
+					clearRunnable: handleClearRunnable,
+					codeSelection: codeSelection,
+					clearCodeSelection: () => {
+						codeSelection = undefined
+					}
+				}
 				if (selectedRunnable) {
-					console.log('selectedRunnable', selectedRunnable)
+					const runnable = convertToBackendRunnable(selectedRunnable, runnables[selectedRunnable])
 					return {
-						type: 'backend',
-						content: selectedRunnable ?? ''
+						type: 'backend' as const,
+						backendKey: selectedRunnable,
+						backendRunnable: runnable,
+						...baseContext
 					}
 				}
 				if (selectedDocument) {
-					console.log('selectedDocument', selectedDocument)
 					return {
-						type: 'frontend',
-						content: selectedDocument ?? ''
+						type: 'frontend' as const,
+						frontendPath: selectedDocument,
+						frontendContent: files?.[selectedDocument],
+						...baseContext
 					}
 				}
-				console.log('no selection')
 				return {
-					type: 'none',
-					content: ''
+					type: 'none' as const,
+					...baseContext
+				}
+			},
+			snapshot: () => {
+				// Force create snapshot for AI - it needs a restore point
+				return (
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)?.id ??
+					historyManager.getId()
+				)
+			},
+			revertToSnapshot: (id: number) => {
+				console.log('reverting to snapshot', id)
+				handleHistorySelect(id)
+			},
+			getDatatables: async (): Promise<DataTableSchema[]> => {
+				if (!$workspaceStore) {
+					return []
+				}
+
+				// Get all datatable schemas from the backend
+				const allSchemas = await WorkspaceService.listDataTableSchemas({
+					workspace: $workspaceStore
+				})
+
+				// Get unique datatable names from dataTableRefs (the whitelisted tables)
+				const whitelistedDatatables = new Set(dataTableRefsObjects.map((ref) => ref.datatable))
+
+				// If no datatables are configured, return all available datatables
+				// This allows users to see all datatables in the @ context menu
+				if (whitelistedDatatables.size === 0) {
+					return allSchemas
+				}
+
+				// Build a map of whitelisted tables per datatable: datatable -> schema -> Set<table>
+				const whitelistedTables = new Map<string, Map<string, Set<string>>>()
+				for (const ref of dataTableRefsObjects) {
+					if (!ref.table) continue
+					if (!whitelistedTables.has(ref.datatable)) {
+						whitelistedTables.set(ref.datatable, new Map())
+					}
+					const schemaKey = ref.schema || 'public'
+					const schemaMap = whitelistedTables.get(ref.datatable)!
+					if (!schemaMap.has(schemaKey)) {
+						schemaMap.set(schemaKey, new Set())
+					}
+					schemaMap.get(schemaKey)!.add(ref.table)
+				}
+
+				// Filter schemas to only include whitelisted datatables and tables
+				const results: DataTableSchema[] = []
+				for (const schema of allSchemas) {
+					if (!whitelistedDatatables.has(schema.datatable_name)) {
+						continue
+					}
+
+					const allowedTables = whitelistedTables.get(schema.datatable_name)
+					if (!allowedTables) {
+						// Include the datatable but with empty schemas
+						results.push({
+							datatable_name: schema.datatable_name,
+							schemas: {},
+							error: schema.error
+						})
+						continue
+					}
+
+					// Filter schemas to only include whitelisted tables
+					const filteredSchemas: Record<string, Record<string, Record<string, string>>> = {}
+					for (const [schemaName, tables] of Object.entries(schema.schemas)) {
+						const allowedTablesInSchema = allowedTables.get(schemaName)
+						if (!allowedTablesInSchema) continue
+
+						const filteredTables: Record<string, Record<string, string>> = {}
+						for (const [tableName, columns] of Object.entries(tables)) {
+							if (allowedTablesInSchema.has(tableName)) {
+								filteredTables[tableName] = columns
+							}
+						}
+
+						if (Object.keys(filteredTables).length > 0) {
+							filteredSchemas[schemaName] = filteredTables
+						}
+					}
+
+					results.push({
+						datatable_name: schema.datatable_name,
+						schemas: filteredSchemas,
+						error: schema.error
+					})
+				}
+
+				return results
+			},
+			getAvailableDatatableNames: (): string[] => {
+				// Get unique datatable names from dataTableRefs
+				return [...new Set(dataTableRefsObjects.map((ref) => ref.datatable))]
+			},
+			execDatatableSql: async (
+				datatableName: string,
+				sql: string,
+				newTable?: { schema: string; name: string }
+			): Promise<{ success: boolean; result?: Record<string, any>[]; error?: string }> => {
+				if (!$workspaceStore) {
+					return { success: false, error: 'Workspace not available' }
+				}
+
+				try {
+					const result = await runScriptAndPollResult({
+						workspace: $workspaceStore,
+						requestBody: {
+							language: 'postgresql',
+							content: sql,
+							args: { database: `datatable://${datatableName}` }
+						}
+					})
+
+					// If newTable was specified and the query succeeded, add it to data.tables
+					if (newTable) {
+						const newRef = formatDataTableRef({
+							datatable: datatableName,
+							schema: newTable.schema === 'public' ? undefined : newTable.schema,
+							table: newTable.name
+						})
+						// Only add if not already present
+						if (!data.tables.includes(newRef)) {
+							data.tables = [...data.tables, newRef]
+							saveFrontendDraft()
+							// Clear the cached schema so it gets refreshed with the new table
+							const resourcePath = `datatable://${datatableName}`
+							delete $dbSchemas[resourcePath]
+						}
+					}
+
+					// Check if result is an array (SELECT) or something else
+					if (Array.isArray(result)) {
+						return { success: true, result }
+					} else {
+						return { success: true, result: [] }
+					}
+				} catch (e) {
+					const errorMsg = e instanceof Error ? e.message : String(e)
+					return { success: false, error: errorMsg }
+				}
+			},
+			addTableToWhitelist: (datatableName: string, schemaName: string, tableName: string) => {
+				// Format the table reference
+				const newRef = formatDataTableRef({
+					datatable: datatableName,
+					schema: schemaName === 'public' ? undefined : schemaName,
+					table: tableName
+				})
+				// Only add if not already present
+				if (!data.tables.includes(newRef)) {
+					data.tables = [...data.tables, newRef]
+					saveFrontendDraft()
 				}
 			}
 		})
 	})
 	let selectedRunnable: string | undefined = $state(undefined)
 	let selectedDocument: string | undefined = $state(undefined)
+	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
+	let selectionExcludedFromPrompt: boolean = $state(false)
+	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
+
+	function toggleSelectionExcluded() {
+		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
+	}
 
 	let modules = $state({}) as Modules
+
+	// Normalize Windows-style path separators to Linux-style
+	function normalizeFilePaths(
+		filesObj: Record<string, string> | undefined
+	): Record<string, string> | undefined {
+		if (!filesObj) return filesObj
+		return Object.fromEntries(
+			Object.entries(filesObj).map(([path, content]) => [path.replace(/\\/g, '/'), content])
+		)
+	}
+
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
-			files = e.data.files
+			// Normalize Windows-style path separators to Linux-style
+			const normalizedFiles = normalizeFilePaths(e.data.files)
+			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
+			if (!deepEqual(files, normalizedFiles)) {
+				files = normalizedFiles
+				historyManager.markPendingChanges()
+			}
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
 		} else if (e.data.type === 'updateModules') {
 			modules = e.data.modules
 		} else if (e.data.type === 'setActiveDocument') {
-			selectedDocument = e.data.path
+			// Normalize Windows-style path separators to Linux-style
+			selectedDocument = e.data.path?.replace(/\\/g, '/')
+		} else if (e.data.type === 'inspectorSelect') {
+			// Handle inspector element selection from the iframe preview
+			inspectorElement = e.data.element as InspectorElementInfo
+		} else if (e.data.type === 'inspectorClear') {
+			// Clear the inspector element when user dismisses the selection
+			inspectorElement = undefined
+		} else if (e.data.type === 'editorSelection') {
+			// Handle code selection from the iframe editor
+			const selection = e.data.selection
+			if (selection === null) {
+				// Selection cleared
+				codeSelection = undefined
+			} else {
+				// Normalize path
+				const normalizedPath = selection.path?.replace(/\\/g, '/')
+				codeSelection = {
+					type: 'app_code_selection',
+					source: normalizedPath,
+					sourceType: 'frontend',
+					title: `${normalizedPath}:L${selection.range.startLine}-L${selection.range.endLine}`,
+					content: selection.content,
+					startLine: selection.range.startLine,
+					endLine: selection.range.endLine,
+					startColumn: selection.range.startColumn,
+					endColumn: selection.range.endColumn
+				}
+			}
 		}
 	}
 
@@ -400,9 +675,15 @@
 		iframe && iframeLoaded && runnables && populateRunnables()
 	})
 
+	function clearInspectorSelection() {
+		inspectorElement = undefined
+		iframe?.contentWindow?.postMessage({ type: 'inspectorClear' }, '*')
+	}
+
 	function handleSelectFile(path: string) {
 		console.log('event Select file:', path)
 		selectedRunnable = undefined
+		// Inspector is cleared by the $effect watching selection changes
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'selectFile',
@@ -411,9 +692,101 @@
 			'*'
 		)
 	}
+
+	function handleClearRunnable() {
+		selectedRunnable = undefined
+	}
+
+	// Track previous values for change detection
+	let prevSelectedRunnable: string | undefined = undefined
+	let prevSelectedDocument: string | undefined = undefined
+
+	// Clear inspector and reset exclusion when selection changes
+	$effect(() => {
+		if (selectedRunnable !== prevSelectedRunnable || selectedDocument !== prevSelectedDocument) {
+			// Only clear if we're actually switching to something different
+			if (prevSelectedRunnable !== undefined || prevSelectedDocument !== undefined) {
+				clearInspectorSelection()
+			}
+			// Reset exclusion when switching files/runnables
+			selectionExcludedFromPrompt = false
+			prevSelectedRunnable = selectedRunnable
+			prevSelectedDocument = selectedDocument
+		}
+	})
+
+	function handleUndo() {
+		// Create a snapshot if we're at the latest position with pending changes
+		if (historyManager.needsSnapshotBeforeNav) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+		}
+
+		const entry = historyManager.undo()
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function handleRedo() {
+		const entry = historyManager.redo()
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function handleHistorySelect(id: number) {
+		// Create a snapshot if we have pending changes before navigating
+		if (historyManager.needsSnapshotBeforeNav) {
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+		}
+
+		const entry = historyManager.selectEntry(id)
+		if (entry) {
+			applyEntry(entry)
+		}
+	}
+
+	function applyEntry(entry: {
+		files: Record<string, string>
+		runnables: Record<string, Runnable>
+		summary: string
+		data: RawAppData
+	}) {
+		try {
+			files = structuredClone($state.snapshot(entry.files))
+			runnables = structuredClone($state.snapshot(entry.runnables))
+			summary = entry.summary
+			data = structuredClone($state.snapshot(entry.data))
+
+			setFilesInIframe(entry.files)
+			populateRunnables()
+
+			// Re-select the current document if it exists in the new files
+			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+				iframe?.contentWindow?.postMessage(
+					{
+						type: 'selectFile',
+						path: selectedDocument
+					},
+					'*'
+				)
+			}
+		} catch (error) {
+			console.error('Failed to apply entry:', error)
+			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
+		}
+	}
+
+	function handleKeydown(e: KeyboardEvent) {
+		// Ctrl/Cmd + Shift + H for manual snapshot
+		if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'H') {
+			e.preventDefault()
+			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+		}
+	}
 </script>
 
-<svelte:window onmessage={listener} />
+<svelte:window onmessage={listener} onkeydown={handleKeydown} />
 <DarkModeObserver bind:darkMode />
 
 <RawAppBackgroundRunner
@@ -439,8 +812,13 @@
 		{newPath}
 		appPath={path}
 		{files}
+		{data}
 		{runnables}
 		{getBundle}
+		canUndo={historyManager.canUndo}
+		canRedo={historyManager.canRedo}
+		onUndo={handleUndo}
+		onRedo={handleRedo}
 	/>
 
 	<Splitpanes id="o2" class="grow">
@@ -456,29 +834,74 @@
 				onSelectFile={handleSelectFile}
 				bind:selectedRunnable
 				bind:selectedDocument
+				dataTableRefs={dataTableRefsObjects}
+				onDataTableRefsChange={(newRefs) => {
+					data.tables = newRefs.map(formatDataTableRef)
+					saveFrontendDraft()
+				}}
+				defaultDatatable={data.datatable}
+				defaultSchema={data.schema}
+				onDefaultChange={(datatable, schema) => {
+					data.datatable = datatable
+					data.schema = schema
+					// Also sync to aiChatManager
+					aiChatManager.datatableCreationPolicy = {
+						...aiChatManager.datatableCreationPolicy,
+						datatable,
+						schema
+					}
+					saveFrontendDraft()
+				}}
 				{runnables}
 				{modules}
+				{historyManager}
+				historySelectedId={historyManager.selectedEntryId}
+				onHistorySelect={handleHistorySelect}
+				onManualSnapshot={() => {
+					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
+				}}
 			></RawAppSidebar>
 		</Pane>
 		<Pane>
-			<iframe
-				bind:this={iframe}
-				title="UI builder"
-				style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
-				src="/ui_builder/index.html?dark={darkMode}"
-				class="w-full h-full"
-			></iframe>
-			{#if selectedRunnable !== undefined}
-				<!-- svelte-ignore a11y_no_static_element_interactions -->
-				<div class="flex h-full w-full">
-					<RawAppInlineScriptsPanel
-						appPath={path}
-						{selectedRunnable}
-						{initRunnablesContent}
-						{runnables}
-					/>
-				</div>
-			{/if}
+			<div class="h-full w-full">
+				<iframe
+					bind:this={iframe}
+					title="UI builder"
+					style="display: {selectedRunnable == undefined ? 'block' : 'none'}"
+					src="/ui_builder/index.html?dark={darkMode}"
+					class="w-full h-full"
+				></iframe>
+				{#if selectedRunnable !== undefined}
+					<!-- svelte-ignore a11y_no_static_element_interactions -->
+					<div class="flex h-full w-full">
+						<RawAppInlineScriptsPanel
+							appPath={path}
+							{selectedRunnable}
+							{initRunnablesContent}
+							{runnables}
+							onSelectionChange={(selection) => {
+								console.log('handle selection', selection)
+
+								if (selection === null) {
+									codeSelection = undefined
+								} else if (selectedRunnable) {
+									codeSelection = {
+										type: 'app_code_selection',
+										source: selectedRunnable,
+										sourceType: 'backend',
+										title: `${selectedRunnable}:L${selection.startLine}-L${selection.endLine}`,
+										content: selection.content,
+										startLine: selection.startLine,
+										endLine: selection.endLine,
+										startColumn: selection.startColumn,
+										endColumn: selection.endColumn
+									}
+								}
+							}}
+						/>
+					</div>
+				{/if}
+			</div>
 
 			<!-- <div class="bg-red-400 h-full w-full" /> -->
 		</Pane>

@@ -40,6 +40,7 @@
 	size="sm"
 	collapsible
 	initiallyCollapsed
+	titlePadding="pl-1 !text-tertiary"
 	fullHeight={false}
 	title="packages ({Object.keys(props.modules?.installed ?? {}).length})"
 	id="app-editor-frontend-panel-modules"

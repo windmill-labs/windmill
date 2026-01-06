@@ -5,13 +5,16 @@ import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
-import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
+import {
+	makeCreateTableQuery,
+	type CreateTableValues
+} from './apps/components/display/dbtable/queries/createTable'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -108,51 +111,61 @@ export function dbTableOpsWithPreviewScripts({
 	}
 }
 
-export type DbTableAction = {
-	action: () => void | Promise<void>
-	displayName: string
-	confirmTitle?: string
-	confirmBtnText?: string
-	icon?: any
-	successText?: string
+export type IDbSchemaOps = {
+	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
+	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
+	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	onCreateSchema: (params: { schema: string }) => Promise<void>
+	onDeleteSchema: (params: { schema: string }) => Promise<void>
 }
 
-export type DbTableActionFactory = (params: {
-	tableKey: string
-	refresh: () => void
-}) => DbTableAction
-
-export function dbDeleteTableActionWithPreviewScript({
+export function dbSchemaOpsWithPreviewScripts({
 	workspace,
 	input
 }: {
 	workspace: string
 	input: DbInput
-}): DbTableActionFactory {
+}): IDbSchemaOps {
+	const dbType = getDbType(input)
 	const dbArg = getDatabaseArg(input)
-
-	return ({ tableKey, refresh }) => ({
-		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
-		displayName: 'Delete',
-		confirmBtnText: `Delete permanently`,
-		icon: Trash2,
-		successText: `Table '${tableKey}' deleted successfully`,
-		action: async () => {
-			const dbType = getDbType(input)
-			const language = getLanguageByResourceType(dbType)
-			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
+	const language = getLanguageByResourceType(dbType)
+	return {
+		onDelete: async ({ tableKey, schema }) => {
+			let deleteQuery = makeDeleteTableQuery(tableKey, dbType, schema)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args: { ...dbArg },
-					language,
-					content: deleteQuery
-				}
+				requestBody: { args: { ...dbArg }, language, content: deleteQuery }
 			})
-			refresh()
+		},
+		onCreate: async ({ values, schema }) => {
+			let query = makeCreateTableQuery(values, dbType, schema)
+			if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		onCreateSchema: async ({ schema }) => {
+			let createSchemaQuery = `CREATE SCHEMA ${schema};`
+			if (input.type === 'ducklake')
+				createSchemaQuery = wrapDucklakeQuery(createSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: createSchemaQuery }
+			})
+		},
+		onDeleteSchema: async ({ schema }) => {
+			let dropSchemaQuery = `DROP SCHEMA ${schema} CASCADE;`
+			if (input.type === 'ducklake')
+				dropSchemaQuery = wrapDucklakeQuery(dropSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
+			})
 		}
-	})
+	}
 }
 
 export async function getDucklakeSchema({
@@ -213,7 +226,7 @@ export function getDbType(input: DbInput): DbType {
 export function getDatabaseArg(input: DbInput | undefined) {
 	if (input?.type === 'database') {
 		if (input.resourcePath.startsWith('datatable://')) {
-			return { database: 'datatable://' + input.resourcePath }
+			return { database: input.resourcePath }
 		} else {
 			return { database: '$res:' + input.resourcePath }
 		}

@@ -28,6 +28,10 @@ export function formatAsset(asset: Asset): string {
 	return 'unknown'
 }
 
+export function formatShortAssetPath(asset: Asset): string {
+	return asset.path.split('/').pop() || asset.path
+}
+
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
 	if (usage.kind === 'script') {
 		return `/scripts/get/${usage.path}`
@@ -93,8 +97,8 @@ export function formatAssetAccessType(accessType: AssetUsageAccessType | undefin
 }
 
 export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {
-	if (asset.alt_access_type) return asset.alt_access_type
 	if (asset.access_type) return asset.access_type
+	if (asset.alt_access_type) return asset.alt_access_type
 }
 
 export function getFlowModuleAssets(

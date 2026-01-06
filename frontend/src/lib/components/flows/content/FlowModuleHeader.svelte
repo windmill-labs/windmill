@@ -5,7 +5,6 @@
 	import {
 		Bed,
 		Database,
-		ExternalLink,
 		Gauge,
 		GitFork,
 		Pen,
@@ -29,7 +28,7 @@
 	}
 
 	let { module, tag }: Props = $props()
-	const { scriptEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { scriptEditorDrawer, flowEditorDrawer } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const dispatch = createEventDispatcher()
 	let customUi: undefined | FlowBuilderWhitelabelCustomUi = getContext('customUi')
@@ -128,6 +127,7 @@
 		{/if}
 		{#if customUi?.tagEdit != false}
 			<FlowModuleWorkerTagSelect
+				isPreprocessor={module.id == 'preprocessor'}
 				placeholder={customUi?.tagSelectPlaceholder}
 				noLabel={customUi?.tagSelectNoLabel}
 				nullTag={tag}
@@ -152,13 +152,16 @@
 			variant="subtle"
 			on:click={async () => {
 				if (module.value.type == 'flow') {
-					window.open(`/flows/edit/${module.value.path}`, '_blank', 'noopener,noreferrer')
+					$flowEditorDrawer?.openDrawer(module.value.path, () => {
+						dispatch('reload')
+						sendUserToast('Flow has been updated')
+					})
 				}
 			}}
 			startIcon={{ icon: Pen }}
 			iconOnly={false}
 		>
-			Edit <ExternalLink size={12} />
+			Edit
 		</Button>
 		<Button
 			unifiedSize="sm"
@@ -175,6 +178,7 @@
 
 	{#if module.value.type === 'rawscript'}
 		<FlowModuleWorkerTagSelect
+			isPreprocessor={module.id == 'preprocessor'}
 			placeholder={customUi?.tagSelectPlaceholder}
 			noLabel={customUi?.tagSelectNoLabel}
 			nullTag={tag}

@@ -99,8 +99,10 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
 	const commaOrEmpty = shouldInsertComma ? ', ' : ''
+	const valuesStr = `${insertValues}${commaOrEmpty}${defaultValues}`
 
-	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
+	if (!valuesStr.trim()) return `INSERT INTO ${table} DEFAULT VALUES`
+	query += `INSERT INTO ${table} (${columnNames}) VALUES (${valuesStr})`
 	return query
 }
 

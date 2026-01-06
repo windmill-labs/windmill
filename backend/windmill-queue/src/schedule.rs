@@ -20,10 +20,11 @@ use windmill_common::flows::Retry;
 use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
-use windmill_common::jobs::ConcurrencySettings;
-use windmill_common::jobs::DebouncingSettings;
 use windmill_common::jobs::JobPayload;
 use windmill_common::jobs::JobTriggerKind;
+use windmill_common::runnable_settings::ConcurrencySettings;
+use windmill_common::runnable_settings::DebouncingSettings;
+use windmill_common::runnable_settings::RunnableSettings;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
 use windmill_common::triggers::TriggerMetadata;
@@ -101,6 +102,7 @@ async fn get_schedule_metadata<'c>(
             timeout,
             on_behalf_of_email,
             created_by,
+            _runnable_settings_handle,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             &schedule.workspace_id,
@@ -319,10 +321,10 @@ pub async fn push_scheduled_job<'c>(
         let (
             hash,
             tag,
-            custom_concurrency_key,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
-            custom_debounce_key,
+            debounce_key,
             debounce_delay_s,
             cache_ttl,
             cache_ignore_s3_path,
@@ -332,6 +334,7 @@ pub async fn push_scheduled_job<'c>(
             timeout,
             on_behalf_of_email,
             created_by,
+            runnable_settings_handle,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             &schedule.workspace_id,
@@ -340,6 +343,12 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
+
+        let (debouncing_settings, concurrency_settings) =
+            RunnableSettings::from_runnable_settings_handle(runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?;
 
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
@@ -393,16 +402,13 @@ pub async fn push_scheduled_job<'c>(
                     language,
                     priority,
                     apply_preprocessor: false,
-                    debouncing_settings: DebouncingSettings {
-                        custom_key: custom_debounce_key,
-                        delay_s: debounce_delay_s,
-                        ..Default::default()
-                    },
-                    concurrency_settings: ConcurrencySettings {
-                        concurrency_key: custom_concurrency_key,
+                    debouncing_settings: debouncing_settings
+                        .maybe_fallback(debounce_key, debounce_delay_s),
+                    concurrency_settings: concurrency_settings.maybe_fallback(
+                        concurrency_key,
                         concurrent_limit,
                         concurrency_time_window_s,
-                    },
+                    ),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -506,7 +512,6 @@ pub async fn push_scheduled_job<'c>(
         None,
         push_authed,
         false,
-        None,
         None,
         Some(TriggerMetadata::new(
             Some(schedule.path.clone()),

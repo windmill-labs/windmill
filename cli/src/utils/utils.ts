@@ -6,6 +6,7 @@ import { colors, encodeHex, log, SEP } from "../../deps.ts";
 import crypto from "node:crypto";
 import { fetchVersion } from "../core/context.ts";
 import { updateGlobalVersions } from "../commands/sync/global.ts";
+import { isRawAppPath } from "./resource_folders.ts";
 
 export function deepEqual<T>(a: T, b: T): boolean {
   if (a === b) return true;
@@ -153,7 +154,7 @@ export function isFileResource(path: string): boolean {
 }
 
 export function isRawAppFile(path: string): boolean {
-  return path.includes(".raw_app" + SEP);
+  return isRawAppPath(path);
 }
 
 export function isWorkspaceDependencies(path: string): boolean {

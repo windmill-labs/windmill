@@ -12,6 +12,14 @@ interface InlineScript {
 }
 
 /**
+ * Options for extractInlineScripts function
+ */
+export interface ExtractInlineScriptsOptions {
+  /** When true, skip the .inline_script. suffix in file names */
+  skipInlineScriptSuffix?: boolean;
+}
+
+/**
  * Extracts inline scripts from flow modules, converting them to separate files
  * and replacing the original content with file references.
  *
@@ -20,6 +28,7 @@ interface InlineScript {
  * @param separator - Path separator to use
  * @param defaultTs - Default TypeScript runtime to use ("bun" or "deno")
  * @param pathAssigner - Optional path assigner to reuse (for nested calls)
+ * @param options - Optional configuration options
  * @returns Array of inline scripts with their paths and content
  */
 export function extractInlineScripts(
@@ -27,10 +36,11 @@ export function extractInlineScripts(
   mapping: Record<string, string> = {},
   separator: string = "/",
   defaultTs?: "bun" | "deno",
-  pathAssigner?: PathAssigner
+  pathAssigner?: PathAssigner,
+  options?: ExtractInlineScriptsOptions
 ): InlineScript[] {
   // Create pathAssigner only if not provided (top-level call), but reuse it for nested calls
-  const assigner = pathAssigner ?? newPathAssigner(defaultTs ?? "bun");
+  const assigner = pathAssigner ?? newPathAssigner(defaultTs ?? "bun", { skipInlineScriptSuffix: options?.skipInlineScriptSuffix });
 
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {

@@ -159,15 +159,18 @@ exit $exit_status
     let _ = write_file(job_dir, "result.out", "")?;
     let _ = write_file(job_dir, "result2.out", "")?;
 
-    let nsjail = !*DISABLE_NSJAIL
-        && job
-            .runnable_path
-            .as_ref()
-            .map(|x| {
-                !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
-                    && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
-            })
-            .unwrap_or(true);
+    // Check if this is a regular job (not init or periodic script)
+    // Init/periodic scripts need full system access without isolation
+    let is_regular_job = job
+        .runnable_path
+        .as_ref()
+        .map(|x| {
+            !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
+                && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+        })
+        .unwrap_or(true);
+
+    let nsjail = !*DISABLE_NSJAIL && is_regular_job;
     let child = if nsjail {
         let _ = write_file(
             job_dir,
@@ -200,10 +203,17 @@ exit $exit_status
     } else {
         let mut cmd_args = vec!["wrapper.sh"];
         cmd_args.extend(&args);
-        let mut bash_cmd = build_command_with_isolation(
-            BIN_BASH.as_str(),
-            &cmd_args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
-        );
+        // Only apply unshare isolation for regular jobs, not init/periodic scripts
+        let mut bash_cmd = if is_regular_job {
+            build_command_with_isolation(
+                BIN_BASH.as_str(),
+                &cmd_args.iter().map(|s| s.as_ref()).collect::<Vec<&str>>(),
+            )
+        } else {
+            let mut cmd = Command::new(BIN_BASH.as_str());
+            cmd.args(&cmd_args);
+            cmd
+        };
         bash_cmd
             .current_dir(job_dir)
             .env_clear()

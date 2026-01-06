@@ -16,6 +16,7 @@ use std::{
 use crate::{
     assets::AssetWithAltAccessType,
     error::{to_anyhow, Error},
+    runnable_settings::{ConcurrencySettings, DebouncingSettings, RunnableSettings},
     utils::http_get_from_hub,
     workspace_dependencies::WorkspaceDependenciesAnnotatedRefs,
     DB, DEFAULT_HUB_BASE_URL, HUB_BASE_URL, PRIVATE_HUB_MIN_VERSION,
@@ -348,7 +349,7 @@ pub fn id_to_codebase_info(id: &str) -> CodebaseInfo {
     CodebaseInfo { is_tar, is_esm }
 }
 #[derive(Serialize, sqlx::FromRow, Debug)]
-pub struct Script {
+pub struct Script<SR> {
     pub workspace_id: String,
     pub hash: ScriptHash,
     pub path: String,
@@ -374,16 +375,6 @@ pub struct Script {
     pub draft_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_delay_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -413,15 +404,118 @@ pub struct Script {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub runnable_settings: SR,
+}
+
+// Not serializable
+#[derive(sqlx::FromRow, Debug, Clone)]
+pub struct ScriptRunnableSettingsHandle {
+    // legacy - for backwards compatibility
+    // don't add new values.
+    pub concurrency_key: Option<String>,
+    pub concurrent_limit: Option<i32>,
+    pub concurrency_time_window_s: Option<i32>,
+    pub debounce_key: Option<String>,
+    pub debounce_delay_s: Option<i32>,
+
+    // add here as well.
+    pub runnable_settings_handle: Option<i64>,
+}
+
+// Not sqlx queriable
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct ScriptRunnableSettingsInline {
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[serde(flatten)]
+    pub debouncing_settings: DebouncingSettings,
+}
+
+impl Script<ScriptRunnableSettingsHandle> {
+    pub async fn prefetch_cached<'a>(
+        self,
+        db: &DB,
+    ) -> crate::error::Result<Script<ScriptRunnableSettingsInline>> {
+        let (debouncing_settings, concurrency_settings) =
+            RunnableSettings::from_runnable_settings_handle(
+                self.runnable_settings.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .prefetch_cached(db)
+            .await?;
+
+        Ok(Script {
+            workspace_id: self.workspace_id,
+            hash: self.hash,
+            path: self.path,
+            parent_hashes: self.parent_hashes,
+            summary: self.summary,
+            description: self.description,
+            content: self.content,
+            created_by: self.created_by,
+            created_at: self.created_at,
+            archived: self.archived,
+            schema: self.schema,
+            deleted: self.deleted,
+            is_template: self.is_template,
+            extra_perms: self.extra_perms,
+            lock: self.lock,
+            lock_error_logs: self.lock_error_logs,
+            language: self.language,
+            kind: self.kind,
+            tag: self.tag,
+            draft_only: self.draft_only,
+            envs: self.envs,
+            dedicated_worker: self.dedicated_worker,
+            ws_error_handler_muted: self.ws_error_handler_muted,
+            priority: self.priority,
+            cache_ttl: self.cache_ttl,
+            cache_ignore_s3_path: self.cache_ignore_s3_path,
+            timeout: self.timeout,
+            delete_after_use: self.delete_after_use,
+            restart_unless_cancelled: self.restart_unless_cancelled,
+            visible_to_runner_only: self.visible_to_runner_only,
+            no_main_func: self.no_main_func,
+            codebase: self.codebase,
+            has_preprocessor: self.has_preprocessor,
+            on_behalf_of_email: self.on_behalf_of_email,
+            assets: self.assets,
+            runnable_settings: ScriptRunnableSettingsInline {
+                concurrency_settings: concurrency_settings.maybe_fallback(
+                    self.runnable_settings.concurrency_key,
+                    self.runnable_settings.concurrent_limit,
+                    self.runnable_settings.concurrency_time_window_s,
+                ),
+                debouncing_settings: debouncing_settings.maybe_fallback(
+                    self.runnable_settings.debounce_key,
+                    self.runnable_settings.debounce_delay_s,
+                ),
+            },
+        })
+    }
 }
 
 #[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWithStarred {
+pub struct ScriptWithStarred<SR> {
     #[sqlx(flatten)]
     #[serde(flatten)]
-    pub script: Script,
+    pub script: Script<SR>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub starred: Option<bool>,
+}
+impl ScriptWithStarred<ScriptRunnableSettingsHandle> {
+    pub async fn prefetch_cached<'a>(
+        self,
+        db: &DB,
+    ) -> crate::error::Result<ScriptWithStarred<ScriptRunnableSettingsInline>> {
+        Ok(ScriptWithStarred {
+            script: self.script.prefetch_cached(db).await?,
+            starred: self.starred,
+        })
+    }
 }
 
 #[derive(Serialize, sqlx::FromRow)]
@@ -497,17 +591,10 @@ pub struct NewScript {
     pub tag: Option<String>,
     pub draft_only: Option<bool>,
     pub envs: Option<Vec<String>>,
-    // NOTE: concurrency and debounce data is inline,
-    // bc it was this before refactor
-    // and rust seems to hash it differently
-    // for backwards compat we keep them inline
-    pub concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub debounce_delay_s: Option<i32>,
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[serde(flatten)]
+    pub debouncing_settings: DebouncingSettings,
     pub cache_ttl: Option<i32>,
     pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
@@ -824,11 +911,11 @@ pub fn hash_script(ns: &NewScript) -> i64 {
 }
 
 pub async fn fetch_script_for_update<'a>(
-    hash: ScriptHash,
+    path: &str,
     w_id: &str,
     e: impl sqlx::Executor<'a, Database = sqlx::Postgres>,
-) -> crate::error::Result<Option<Script>> {
-    sqlx::query_as::<_, Script>(
+) -> crate::error::Result<Option<Script<ScriptRunnableSettingsHandle>>> {
+    sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT
             workspace_id,
             hash,
@@ -857,6 +944,7 @@ pub async fn fetch_script_for_update<'a>(
             debounce_key,
             debounce_delay_s,
             dedicated_worker,
+            runnable_settings_handle,
             ws_error_handler_muted,
             priority,
             cache_ttl,
@@ -870,9 +958,9 @@ pub async fn fetch_script_for_update<'a>(
             has_preprocessor,
             on_behalf_of_email,
             assets
-         FROM script WHERE hash = $1 AND workspace_id = $2 AND archived = false FOR UPDATE",
+         FROM script WHERE path = $1 AND workspace_id = $2 AND archived = false ORDER BY created_at DESC LIMIT 1 FOR UPDATE",
     )
-    .bind(hash.0)
+    .bind(path)
     .bind(w_id)
     .fetch_optional(e)
     .await
@@ -885,23 +973,32 @@ pub struct ClonedScript {
 }
 // TODO: What if dependency job fails, there is script with NULL in the lock
 pub async fn clone_script<'c>(
-    base_hash: ScriptHash,
+    path: &str,
     w_id: &str,
     deployment_message: Option<String>,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
 ) -> crate::error::Result<ClonedScript> {
-    let s = if let Some(s) = fetch_script_for_update(base_hash, w_id, &mut **tx).await? {
+    let mut tx = db.begin().await?;
+    let s = if let Some(s) = fetch_script_for_update(path, w_id, &mut *tx).await? {
         s
     } else {
         return Err(crate::error::Error::NotFound(format!(
-            "Non-archived script with hash {} not found",
-            base_hash.0
+            "Non-archived script with path '{}' not found", path
         )));
     };
 
+    let (debouncing_settings, concurrency_settings) =
+        RunnableSettings::from_runnable_settings_handle(
+            s.runnable_settings.runnable_settings_handle,
+            db,
+        )
+        .await?
+        .prefetch_cached(db)
+        .await?;
+
     let ns = NewScript {
         path: s.path.clone(),
-        parent_hash: Some(base_hash),
+        parent_hash: Some(s.hash),
         summary: s.summary,
         description: s.description,
         content: s.content,
@@ -915,8 +1012,15 @@ pub async fn clone_script<'c>(
         tag: s.tag,
         draft_only: s.draft_only,
         envs: s.envs,
-        concurrent_limit: s.concurrent_limit,
-        concurrency_time_window_s: s.concurrency_time_window_s,
+        concurrency_settings: concurrency_settings.maybe_fallback(
+            s.runnable_settings.concurrency_key,
+            s.runnable_settings.concurrent_limit,
+            s.runnable_settings.concurrency_time_window_s,
+        ),
+        debouncing_settings: debouncing_settings.maybe_fallback(
+            s.runnable_settings.debounce_key,
+            s.runnable_settings.debounce_delay_s,
+        ),
         cache_ttl: s.cache_ttl,
         cache_ignore_s3_path: s.cache_ignore_s3_path,
         dedicated_worker: s.dedicated_worker,
@@ -926,15 +1030,12 @@ pub async fn clone_script<'c>(
         delete_after_use: s.delete_after_use,
         restart_unless_cancelled: s.restart_unless_cancelled,
         deployment_message,
-        concurrency_key: s.concurrency_key,
         visible_to_runner_only: s.visible_to_runner_only,
         no_main_func: s.no_main_func,
         codebase: s.codebase,
         has_preprocessor: s.has_preprocessor,
         on_behalf_of_email: s.on_behalf_of_email,
         assets: s.assets,
-        debounce_delay_s: s.debounce_delay_s,
-        debounce_key: s.debounce_key,
     };
 
     let new_hash = hash_script(&ns);
@@ -942,7 +1043,7 @@ pub async fn clone_script<'c>(
     tracing::debug!(
         "cloning script at path {} from '{}' to '{}'",
         s.path,
-        *base_hash,
+        *s.hash,
         new_hash
     );
 
@@ -953,26 +1054,27 @@ pub async fn clone_script<'c>(
     draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
     dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
     delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s)
+    codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle)
 
     SELECT  workspace_id, $1, path, array_prepend($2::bigint, COALESCE(parent_hashes, '{}'::bigint[])), summary, description, \
             content, created_by, schema, is_template, extra_perms, NULL, language, kind, tag, \
             draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, \
             dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
             delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, \
-            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s
+            codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, runnable_settings_handle
 
     FROM script WHERE hash = $2 AND workspace_id = $3;
-            ", new_hash, base_hash.0, w_id).execute(&mut **tx).await?;
+            ", new_hash, s.hash.0, w_id).execute(&mut *tx).await?;
 
     // Archive base.
     sqlx::query!(
         "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2",
-        *base_hash,
+        *s.hash,
         w_id
     )
-    .execute(&mut **tx)
+    .execute(&mut *tx)
     .await?;
 
+    tx.commit().await?;
     Ok(ClonedScript { old_script: ns, new_hash })
 }

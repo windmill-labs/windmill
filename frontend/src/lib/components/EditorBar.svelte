@@ -1,5 +1,16 @@
 <script module lang="ts">
 	export const EDITOR_BAR_WIDTH_THRESHOLD = 1420
+
+	function getImportWmillTsStatement(lang: string | undefined) {
+		if (lang === 'deno') {
+			return `import * as wmill from "npm:windmill-client@1"\n`
+		} else if (lang === 'bun' || lang === 'bunnative') {
+			return `import * as wmill from "windmill-client"\n`
+		} else if (lang === 'nativets') {
+			return `import * as wmill from "./windmill.ts"\n`
+		}
+		return ''
+	}
 </script>
 
 <script lang="ts">
@@ -516,15 +527,9 @@
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
-		if (lang == 'deno') {
+		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-		} else if (lang === 'bun' || lang === 'bunnative') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
+				editor.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'python3') {
@@ -546,12 +551,6 @@
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
 			)
-		} else if (lang == 'nativets') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'php') {
 			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/variables/get_value/${path}');
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
@@ -605,15 +604,9 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	bind:this={resourcePicker}
 	pickCallback={(path, _, resType) => {
 		if (!editor) return
-		if (lang == 'deno') {
+		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else if (lang === 'bun' || lang === 'bunnative') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
+				editor.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'python3') {
@@ -635,12 +628,6 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
 			)
-		} else if (lang == 'nativets') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'php') {
 			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/resources/get_value_interpolated/${path}');
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
@@ -735,13 +722,13 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				editor?.insertAtCursor(`dl = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
 			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 				if (!editor?.getCode().includes('import * as wmill from')) {
-					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+					editor?.insertAtBeginning(getImportWmillTsStatement(lang))
 				}
 				editor?.insertAtCursor(`let sql = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
 			}
 		}}
 		tooltip="Attach a Ducklake to your scripts. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
 			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
@@ -769,7 +756,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		pickCallback={async (_, name) => {
 			if (lang === 'duckdb') {
 				const connStr = name == 'main' ? 'datatable' : `datatable://${name}`
-				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt;\n`)
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt; USE dt;\n`)
 			} else if (lang === 'python3') {
 				if (!editor?.getCode().includes('import wmill')) {
 					editor?.insertAtBeginning('import wmill\n')
@@ -777,13 +764,14 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 				editor?.insertAtCursor(`db = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
 			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 				if (!editor?.getCode().includes('import * as wmill from')) {
-					editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+					editor?.insertAtBeginning(getImportWmillTsStatement(lang))
 				}
 				editor?.insertAtCursor(`let sql = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+				editor?.insertAtCursor(`let query_result = await sql\`SELECT * FROM _\`.fetchOne()\n`)
 			}
 		}}
 		tooltip="Attach a datatable to your script."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/data_tables"
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
 		itemName="data table"
 		loadItems={async () =>
 			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
@@ -836,7 +824,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	onSelectAndClose={(s3obj) => {
 		let s = `'${formatS3Object(s3obj)}'`
 		if (lang === 'duckdb') {
-			editor?.insertAtCursor(`SELECT * FROM ${s}`)
+			editor?.insertAtCursor(`SELECT * FROM ${s};`)
 		} else if (lang === 'python3') {
 			if (!editor?.getCode().includes('import wmill')) {
 				editor?.insertAtBeginning('import wmill\n')
@@ -844,7 +832,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			editor?.insertAtCursor(`wmill.load_s3_file(${s})`)
 		} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor?.getCode().includes('import * as wmill from')) {
-				editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				editor?.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor?.insertAtCursor(`wmill.loadS3File(${s})`)
 		}
@@ -1044,7 +1032,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.diffMode != false}
 				<div class="flex items-center px-3">
 					<Toggle
-						options={{ right: '' }}
+						options={{ right: 'Diff' }}
 						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}

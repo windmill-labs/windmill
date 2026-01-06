@@ -40,6 +40,7 @@
 		btnText?: string
 		buttonReplacement?: import('svelte').Snippet
 		menu?: import('svelte').Snippet
+		maxHeight?: string | undefined
 	}
 
 	let {
@@ -60,7 +61,8 @@
 		size = 'md',
 		btnText = '',
 		buttonReplacement,
-		menu
+		menu,
+		maxHeight = undefined
 	}: Props = $props()
 
 	let buttonEl: HTMLButtonElement | undefined = $state(undefined)
@@ -169,8 +171,8 @@
 			{@render menu?.()}
 		{:else}
 			<div
-				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1 max-h-[50vh]"
-				style={customWidth ? `width: ${customWidth}px` : ''}
+				class="bg-surface-tertiary dark:border w-56 origin-top-right rounded-lg shadow-lg focus:outline-none overflow-y-auto py-1"
+				style={`${customWidth ? `width: ${customWidth}px;` : ''} max-height: ${maxHeight || '50vh'};`}
 			>
 				<DropdownV2Inner {aiId} items={computeItems} meltItem={item} />
 			</div>

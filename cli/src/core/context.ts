@@ -20,7 +20,7 @@ import {
   getWorkspaceIdForWorkspaceForkFromBranchName,
   isGitRepository,
 } from "../utils/git.ts";
-import { WM_FORK_PREFIX } from "../main.ts";
+import { WM_FORK_PREFIX } from "./constants.ts";
 
 // Helper function to select from multiple matching profiles
 async function selectFromMultipleProfiles(

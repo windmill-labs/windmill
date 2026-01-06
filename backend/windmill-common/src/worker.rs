@@ -34,7 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::GIT_SEM_VERSION,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -265,6 +265,8 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
     /// This flag is updated during worker initialization by checking the minimum version across all workers
     /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
@@ -277,6 +279,7 @@ lazy_static::lazy_static! {
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
@@ -411,7 +414,7 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
-                canceled_by, canceled_reason, worker, cache_ignore_s3_path
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
@@ -427,17 +430,13 @@ fn format_pull_query(peek: String) -> String {
                 raw_flow, script_entrypoint_override, preprocessed
             FROM v2_job
             WHERE id = (SELECT id FROM peek)
-        ), delete_debounce AS NOT MATERIALIZED (
-            DELETE FROM debounce_key
-            USING j
-            WHERE j.kind::text != 'flowdependencies' AND j.kind::text != 'appdependencies' AND j.kind::text != 'dependencies' AND debounce_key.job_id = j.id
         ) SELECT j.id, j.workspace_id, j.parent_job, j.created_by, started_at, scheduled_for,
             j.runnable_id, j.runnable_path, j.args, canceled_by,
             canceled_reason, j.kind, j.trigger, j.trigger_kind, j.permissioned_as,
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
@@ -705,6 +704,7 @@ pub struct TypeScriptAnnotations {
 pub struct SqlAnnotations {
     pub return_last_result: bool, // deprecated, use result_collection instead
     pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]
@@ -850,7 +850,7 @@ impl SqlResultCollectionStrategy {
                 }
             }
             (true, false) => match values.into_iter().last() {
-                Some(rows) => Ok(to_raw_value(&rows)),
+                Some(rows) => Ok(merge_raw_values_to_array(rows.as_slice())),
                 None => Ok(null()),
             },
             (false, true) => {
@@ -858,9 +858,11 @@ impl SqlResultCollectionStrategy {
                     .into_iter()
                     .map(|rows| rows.into_iter().next().unwrap_or_else(null))
                     .collect::<Vec<_>>();
-                Ok(to_raw_value(&values))
+                Ok(merge_raw_values_to_array(values.as_slice()))
             }
-            (false, false) => Ok(to_raw_value(&values)),
+            (false, false) => Ok(merge_nested_raw_values_to_array(
+                values.iter().map(|x| x.iter()),
+            )),
         }
     }
 }
@@ -1293,6 +1295,10 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
+    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
+        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
+
     // Workspace dependencies feature requires minimum version across all workers
     *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
         >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
@@ -1304,6 +1310,7 @@ pub async fn update_min_version(conn: &Connection) -> bool {
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
+    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version
@@ -1995,8 +2002,8 @@ pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> 
 #[repr(u32)]
 pub enum PyVAlias {
     Py310 = 10,
-    #[default]
     Py311,
+    #[default]
     Py312,
     Py313,
 }

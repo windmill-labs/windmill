@@ -43,6 +43,7 @@
 		AI_TOOL_CALL_PREFIX,
 		AI_TOOL_MESSAGE_PREFIX,
 		AI_MCP_TOOL_CALL_PREFIX,
+		AI_WEBSEARCH_PREFIX,
 		getToolCallId
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
@@ -570,7 +571,7 @@
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
 						flow_jobs: mod.flow_jobs,
-						iteration_total: mod.iterator?.itered?.length ?? mod.flow_jobs?.length
+						iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
 					})
 				}
 
@@ -692,6 +693,11 @@
 								setModuleState(mcpToolCallId, {
 									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
 								})
+							} else if (action.type == 'web_search') {
+								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
+								setModuleState(websearchId, {
+									type: 'Success'
+								})
 							} else if (action.type == 'message') {
 								const toolCallId = getToolCallId(idx, mod.id)
 								setModuleState(toolCallId, {
@@ -730,7 +736,16 @@
 
 	function setJob(newJob: Job, force: boolean) {
 		if (!deepEqual(job, newJob) || isForloopSelected || force || innerModules == undefined) {
-			job = newJob
+			if (initialJob) {
+				// keep raw_flow/raw_code from initial job if they exist
+				job = {
+					...newJob,
+					raw_flow: initialJob.raw_flow ?? newJob.raw_flow,
+					raw_code: initialJob.raw_code ?? newJob.raw_code
+				}
+			} else {
+				job = newJob
+			}
 			job?.flow_status && updateStatus(job?.flow_status)
 			onJobsLoaded?.({ job, force: false })
 			notAnonynmous = false
@@ -892,7 +907,7 @@
 						flow_jobs: mod.flow_jobs,
 						flow_jobs_success: mod.flow_jobs_success,
 						flow_jobs_duration: mod.flow_jobs_duration,
-						iteration_total: mod.iterator?.itered?.length,
+						iteration_total: mod.iterator?.itered_len,
 						retries: mod?.failed_retries?.length,
 						skipped: mod.skipped,
 						agent_actions: mod.agent_actions,
@@ -1584,7 +1599,7 @@
 													flowJobs: mod.flow_jobs,
 													flowJobsSuccess: mod.flow_jobs_success ?? [],
 													flowJobsDuration: mod.flow_jobs_duration,
-													length: mod.iterator?.itered?.length ?? mod.flow_jobs.length,
+													length: mod.iterator?.itered_len ?? mod.flow_jobs.length,
 													branchall: job?.raw_flow?.modules?.[i]?.value?.type == 'branchall'
 												}
 											: undefined}
@@ -1845,6 +1860,13 @@
 											workspaceId={job?.workspace_id}
 										/>
 									{/if}
+								{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
+									<div class="p-2">
+										<Alert
+											type="info"
+											title="Web search output is available on the AI agent node"
+										/>
+									</div>
 								{:else if selectedNode}
 									{@const node = localModuleStates[selectedNode]}
 									{#if selectedNode == 'end'}

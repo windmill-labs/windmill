@@ -14,7 +14,17 @@ export {
   UserService,
   WorkspaceService,
 } from "./index";
-export { datatable, ducklake, type SqlTemplateFunction } from "./sqlUtils";
+export {
+  type S3Object,
+  type S3ObjectRecord,
+  type S3ObjectURI,
+} from "./s3Types";
+export {
+  datatable,
+  ducklake,
+  type SqlTemplateFunction,
+  type DatatableSqlTemplateFunction,
+} from "./sqlUtils";
 export type Sql = string;
 export type Email = string;
 export type Base64 = string;
@@ -180,6 +190,43 @@ export declare function writeS3File(
   fileContent: string | Blob,
   s3ResourcePath?: string | undefined
 ): Promise<S3Object>;
+
+/**
+ * Sign S3 objects to be used by anonymous users in public apps
+ * @param s3objects s3 objects to sign
+ * @returns signed s3 objects
+ */
+export declare function signS3Objects(
+  s3objects: S3Object[]
+): Promise<S3Object[]>;
+/**
+ * Sign S3 object to be used by anonymous users in public apps
+ * @param s3object s3 object to sign
+ * @returns signed s3 object
+ */
+export declare function signS3Object(s3object: S3Object): Promise<S3Object>;
+
+/**
+ * Generate a presigned public URL for an array of S3 objects.
+ * If an S3 object is not signed yet, it will be signed first.
+ * @param s3Objects s3 objects to sign
+ * @returns list of signed public URLs
+ */
+export declare function getPresignedS3PublicUrls(
+  s3Objects: S3Object[],
+  { baseUrl }: { baseUrl?: string }
+): Promise<string[]>;
+
+/**
+ * Generate a presigned public URL for an S3 object. If the S3 object is not signed yet, it will be signed first.
+ * @param s3Object s3 object to sign
+ * @returns signed public URL
+ */
+export declare function getPresignedS3PublicUrl(
+  s3Objects: S3Object,
+  { baseUrl }: { baseUrl?: string }
+): Promise<string>;
+
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name

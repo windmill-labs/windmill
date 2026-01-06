@@ -346,11 +346,13 @@ lazy_static::lazy_static! {
                         \n\
                         Solutions:\n\
                         • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • Check max user namespaces limit: 'cat /proc/sys/user/max_user_namespaces'\n\
+                          (Some AMIs like Bottlerocket have max_user_namespaces=0 which disables user namespaces entirely)\n\
                         • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
                         • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
                         • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
                         • Alternative: Use NSJAIL instead\n\
-                        • Disable: Set ENABLE_UNSHARE_PID=false",
+                        • Disable: Set ENABLE_UNSHARE_PID=false (or disableUnsharePid=true in Helm chart)",
                         stderr.trim(),
                         flags
                     );
@@ -984,6 +986,7 @@ pub fn start_interactive_worker_shell(
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
+
                         let job = pull(
                             &db,
                             false,
@@ -994,22 +997,23 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
+                        use PulledJobResultToJobErr::*;
                         match job {
-                            Ok(j) => {
-                                match j.to_pulled_job() {
-                                    Ok(j) => Ok(j
-                                        .clone()
-                                        .map(|job| NextJob::Sql { flow_runners: None, job })),
-                                    Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
-                                    | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
-                                        if let Err(err) = job_completed_tx.send_job(jc, true).await
-                                        {
-                                            tracing::error!("An error occurred while sending job completed: {:#?}", err)
-                                        }
-                                        Ok(None)
+                            Ok(j) => match j.to_pulled_job() {
+                                Ok(j) => Ok(j
+                                    .clone()
+                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                Err(MissingConcurrencyKey(jc))
+                                | Err(ErrorWhilePreprocessing(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!(
+                                            "An error occurred while sending job completed: {:#?}",
+                                            err
+                                        )
                                     }
+                                    Ok(None)
                                 }
-                            }
+                            },
                             Err(err) => Err(err),
                         }
                     }
@@ -1764,7 +1768,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
                         let mut job = match timeout(
-                            Duration::from_secs(10),
+                            Duration::from_secs(30),
                             pull(
                                 &db,
                                 suspend_first,
@@ -1779,7 +1783,7 @@ pub async fn run_worker(
                         {
                             Ok(job) => job,
                             Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
                                 tokio::time::sleep(Duration::from_secs(30)).await;
                                 continue;
                             }
@@ -1790,7 +1794,7 @@ pub async fn run_worker(
                             if let Err(e) = timeout(
                                 // Will fail if longer than 10 seconds
                                 core::time::Duration::from_secs(10),
-                                pulled_job_res.preprocess(db),
+                                pulled_job_res.maybe_apply_debouncing(db),
                             )
                             .warn_after_seconds(2)
                             .await
@@ -2832,10 +2836,14 @@ pub async fn handle_queued_job(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        if job.concurrent_limit.is_some() && !job.kind.is_dependency() {
-            logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
-            logs.push_str("---\n");
+        if let Connection::Sql(db) = conn {
+            if (job.concurrent_limit.is_some() ||
+                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                && !job.kind.is_dependency() {
+                logs.push_str("---\n");
+                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
+                logs.push_str("---\n");
+            }
         }
 
         // Only used for testing in tests/relative_imports.rs
@@ -4282,8 +4290,6 @@ pub fn init_worker_internal_server_inline_utils(
                 script_lang: Some(params.lang),
                 same_worker: true,
                 pre_run_error: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 flow_innermost_root_job: None,
                 root_job: None,
                 timeout: None,
@@ -4297,6 +4303,9 @@ pub fn init_worker_internal_server_inline_utils(
                 trigger_kind: None,
                 visible_to_owner: false,
                 permissioned_as_end_user_email: None,
+                runnable_settings_handle: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
             };
             Box::pin(async move {
                 let mut mem_peak: i32 = -1;

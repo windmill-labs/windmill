@@ -26,10 +26,11 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/chat/completions.mjs'
 import {
-	INLINE_CHAT_SYSTEM_PROMPT,
+	prepareInlineChatSystemPrompt,
 	prepareScriptSystemMessage,
 	prepareScriptTools
 } from './script/core'
+import type { ScriptLintResult } from './shared'
 import { navigatorTools, prepareNavigatorSystemMessage } from './navigator/core'
 import { loadApiTools } from './api/apiTools'
 import { prepareScriptUserMessage } from './script/core'
@@ -44,7 +45,12 @@ import { untrack } from 'svelte'
 import { type DBSchemas } from '$lib/stores'
 import { askTools, prepareAskSystemMessage, prepareAskUserMessage } from './ask/core'
 import { chatState, DEFAULT_SIZE, triggerablesByAi } from './sharedChatState.svelte'
-import type { ContextElement } from './context'
+import type {
+	ContextElement,
+	AppFrontendFileElement,
+	AppBackendRunnableElement,
+	AppDatatableElement
+} from './context'
 import type { Selection } from 'monaco-editor'
 import type AIChatInput from './AIChatInput.svelte'
 import { prepareApiSystemMessage, prepareApiUserMessage } from './api/core'
@@ -67,14 +73,12 @@ export enum AIMode {
 }
 
 class AIChatManager {
-	NAVIGATION_SYSTEM_PROMPT = `
-	CONSIDERATIONS:
-	 - You are provided with a tool to switch to navigation mode, only use it when you are sure that the user is asking you to navigate the application, help them find something or fetch data from the API. Do not use it otherwise.
-	`
 	contextManager = new ContextManager()
 	historyManager = new HistoryManager()
 	abortController: AbortController | undefined = undefined
 	inlineAbortController: AbortController | undefined = undefined
+	// Flag to skip Responses API if it's not available (e.g., Azure region doesn't support it)
+	skipResponsesApi = false
 
 	mode = $state<AIMode>(AIMode.NAVIGATOR)
 	readonly isOpen = $derived(chatState.size > 0)
@@ -99,11 +103,20 @@ class AIChatManager {
 		undefined
 	)
 	scriptEditorShowDiffMode = $state<(() => void) | undefined>(undefined)
+	scriptEditorGetLintErrors = $state<(() => ScriptLintResult) | undefined>(undefined)
 	flowAiChatHelpers = $state<FlowAIChatHelpers | undefined>(undefined)
 	appAiChatHelpers = $state<AppAIChatHelpers | undefined>(undefined)
+	/** Datatable creation policy: enabled flag, datatable name, and optional schema */
+	datatableCreationPolicy = $state<{
+		enabled: boolean
+		datatable: string | undefined
+		schema: string | undefined
+	}>({ enabled: false, datatable: undefined, schema: undefined })
 	pendingNewCode = $state<string | undefined>(undefined)
 	apiTools = $state<Tool<any>[]>([])
 	aiChatInput = $state<AIChatInput | null>(null)
+	/** Cached datatables for app context (fetched asynchronously) */
+	cachedDatatables = $state<AppDatatableElement[]>([])
 
 	private confirmationCallback = $state<((value: boolean) => void) | undefined>(undefined)
 
@@ -221,10 +234,10 @@ class AIChatManager {
 		if (mode === AIMode.SCRIPT) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			const currentModel = getCurrentModel()
-			this.systemMessage = prepareScriptSystemMessage(currentModel, customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
-			const context = this.contextManager.getSelectedContext()
 			const lang = this.scriptEditorOptions?.lang ?? 'bun'
+			const context = this.contextManager.getSelectedContext()
+			this.systemMessage = prepareScriptSystemMessage(currentModel, lang, {}, customPrompt)
+			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...prepareScriptTools(currentModel, lang, context)]
 			this.helpers = {
 				getScriptOptions: () => {
@@ -237,6 +250,12 @@ class AIChatManager {
 				},
 				applyCode: (code: string, opts?: ReviewChangesOpts) => {
 					this.scriptEditorApplyCode?.(code, opts)
+				},
+				getLintErrors: () => {
+					if (this.scriptEditorGetLintErrors) {
+						return this.scriptEditorGetLintErrors()
+					}
+					return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
 				}
 			}
 			if (options?.closeScriptSettings) {
@@ -248,7 +267,7 @@ class AIChatManager {
 		} else if (mode === AIMode.FLOW) {
 			const customPrompt = getCombinedCustomPrompt(mode)
 			this.systemMessage = prepareFlowSystemMessage(customPrompt)
-			this.systemMessage.content = this.NAVIGATION_SYSTEM_PROMPT + this.systemMessage.content
+			this.systemMessage.content = this.systemMessage.content
 			this.tools = [...flowTools]
 			this.helpers = this.flowAiChatHelpers
 		} else if (mode === AIMode.NAVIGATOR) {
@@ -408,7 +427,6 @@ class AIChatManager {
 					if (this.mode === AIMode.SCRIPT) {
 						pendingUserMessage = prepareScriptUserMessage(
 							pendingPrompt,
-							this.scriptEditorOptions?.lang as ScriptLang | 'bunnative',
 							this.contextManager.getSelectedContext()
 						)
 					} else if (this.mode === AIMode.FLOW) {
@@ -426,9 +444,6 @@ class AIChatManager {
 				const isOpenAI = model.provider === 'openai' || model.provider === 'azure_openai'
 				const isAnthropic = model.provider === 'anthropic'
 
-				let completion: any
-				let parseFn: any
-
 				const messageParams = [
 					systemMessage,
 					...messages,
@@ -438,40 +453,83 @@ class AIChatManager {
 
 				// For OpenAI/Azure, try Responses API first, fallback to Completions API
 				if (isOpenAI) {
-					try {
-						completion = await getOpenAIResponsesCompletion(
-							messageParams,
-							abortController,
-							toolDefs
-						)
-						parseFn = parseOpenAIResponsesCompletion
-					} catch (err) {
-						console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
-						completion = await getCompletion(messageParams, abortController, toolDefs, {
+					let useCompletionsApi = this.skipResponsesApi
+					if (!this.skipResponsesApi) {
+						try {
+							const completion = await getOpenAIResponsesCompletion(
+								messageParams,
+								abortController,
+								toolDefs
+							)
+							const continueCompletion = await parseOpenAIResponsesCompletion(
+								completion,
+								callbacks,
+								messages,
+								addedMessages,
+								tools,
+								helpers
+							)
+							if (!continueCompletion) {
+								break
+							}
+						} catch (err) {
+							console.warn('OpenAI Responses API failed, falling back to Completions API:', err)
+							// If the error indicates Responses API is not available in this region, skip it for future requests
+							const errorMessage = err instanceof Error ? err.message : String(err)
+							if (errorMessage.includes('Responses API is not enabled')) {
+								this.skipResponsesApi = true
+							}
+							useCompletionsApi = true
+						}
+					}
+
+					// Use Completions API if Responses API is not available or failed
+					if (useCompletionsApi) {
+						const completion = await getCompletion(messageParams, abortController, toolDefs, {
 							forceCompletions: true
 						})
-						parseFn = parseOpenAICompletion
+						const continueCompletion = await parseOpenAICompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				} else if (isAnthropic) {
-					completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseAnthropicCompletion
+					const completion = await getAnthropicCompletion(messageParams, abortController, toolDefs)
+					if (completion) {
+						const continueCompletion = await parseAnthropicCompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers,
+							abortController
+						)
+						if (!continueCompletion) {
+							break
+						}
+					}
 				} else {
-					completion = await getCompletion(messageParams, abortController, toolDefs)
-					parseFn = parseOpenAICompletion
-				}
-
-				if (completion) {
-					const continueCompletion = await parseFn(
-						completion as any,
-						callbacks,
-						messages,
-						addedMessages,
-						tools,
-						helpers,
-						isAnthropic ? abortController : undefined
-					)
-					if (!continueCompletion) {
-						break
+					const completion = await getCompletion(messageParams, abortController, toolDefs)
+					if (completion) {
+						const continueCompletion = await parseOpenAICompletion(
+							completion,
+							callbacks,
+							messages,
+							addedMessages,
+							tools,
+							helpers
+						)
+						if (!continueCompletion) {
+							break
+						}
 					}
 				}
 			}
@@ -508,15 +566,13 @@ class AIChatManager {
 
 		const systemMessage: ChatCompletionSystemMessageParam = {
 			role: 'system',
-			content: INLINE_CHAT_SYSTEM_PROMPT
+			content: prepareInlineChatSystemPrompt(lang)
 		}
 
 		let reply = ''
 
 		try {
-			const userMessage = prepareScriptUserMessage(instructions, lang, selectedContext, {
-				isPreprocessor: false
-			})
+			const userMessage = prepareScriptUserMessage(instructions, selectedContext)
 			const messages = [userMessage]
 
 			const params = {
@@ -606,10 +662,15 @@ class AIChatManager {
 				throw new Error('No flow helpers found')
 			}
 
-			let snapshot: ExtendedOpenFlow | undefined = undefined
+			let snapshot:
+				| { type: 'flow'; value: ExtendedOpenFlow }
+				| { type: 'app'; value: number }
+				| undefined = undefined
 			if (this.mode === AIMode.FLOW) {
-				snapshot = this.flowAiChatHelpers!.getFlowAndSelectedId().flow
-				this.flowAiChatHelpers!.setSnapshot(snapshot)
+				snapshot = { type: 'flow', value: this.flowAiChatHelpers!.getFlowAndSelectedId().flow }
+				this.flowAiChatHelpers!.setSnapshot(snapshot.value)
+			} else if (this.mode === AIMode.APP) {
+				snapshot = { type: 'app', value: this.appAiChatHelpers!.snapshot() }
 			}
 
 			this.displayMessages = [
@@ -632,10 +693,6 @@ class AIChatManager {
 				throw new Error('No script options passed')
 			}
 
-			const lang = this.scriptEditorOptions?.lang ?? options.lang ?? 'bun'
-			const isPreprocessor =
-				this.scriptEditorOptions?.path === 'preprocessor' || options.isPreprocessor
-
 			let userMessage: ChatCompletionMessageParam = {
 				role: 'user',
 				content: ''
@@ -655,9 +712,7 @@ class AIChatManager {
 					userMessage = prepareAskUserMessage(oldInstructions)
 					break
 				case AIMode.SCRIPT:
-					userMessage = prepareScriptUserMessage(oldInstructions, lang, oldSelectedContext, {
-						isPreprocessor
-					})
+					userMessage = prepareScriptUserMessage(oldInstructions, oldSelectedContext)
 					break
 				case AIMode.API:
 					userMessage = prepareApiUserMessage(oldInstructions)
@@ -665,8 +720,8 @@ class AIChatManager {
 				case AIMode.APP:
 					userMessage = prepareAppUserMessage(
 						oldInstructions,
-						this.appAiChatHelpers?.getFiles(),
-						this.appAiChatHelpers?.getSelectedContext()
+						this.appAiChatHelpers?.getSelectedContext(),
+						oldSelectedContext
 					)
 					break
 			}
@@ -943,14 +998,22 @@ class AIChatManager {
 					currentEditor.showDiffMode()
 				}
 			}
+			this.scriptEditorGetLintErrors = () => {
+				if (currentEditor && currentEditor.type === 'script') {
+					return currentEditor.editor.getLintErrors()
+				}
+				return { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+			}
 		} else {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 
 		return () => {
 			this.scriptEditorApplyCode = undefined
 			this.scriptEditorShowDiffMode = undefined
+			this.scriptEditorGetLintErrors = undefined
 		}
 	}
 
@@ -1034,11 +1097,109 @@ class AIChatManager {
 		}
 	}
 
+	/**
+	 * Refresh cached datatables from the app helpers (async)
+	 * Creates one context element per table (not per datatable)
+	 */
+	refreshDatatables = async (): Promise<void> => {
+		if (!this.appAiChatHelpers) {
+			this.cachedDatatables = []
+			return
+		}
+
+		try {
+			const datatables = await this.appAiChatHelpers.getDatatables()
+			console.log('Refreshed datatables:', datatables)
+
+			// Flatten to individual tables
+			const tableElements: AppDatatableElement[] = []
+			for (const dt of datatables) {
+				if (dt.error) {
+					// Skip datatables with errors
+					continue
+				}
+				for (const [schemaName, tables] of Object.entries(dt.schemas)) {
+					for (const [tableName, columns] of Object.entries(tables)) {
+						// Format title as "datatable/schema:table" or "datatable/table" if schema is public
+						const title =
+							schemaName === 'public'
+								? `${dt.datatable_name}/${tableName}`
+								: `${dt.datatable_name}/${schemaName}:${tableName}`
+						tableElements.push({
+							type: 'app_datatable',
+							datatableName: dt.datatable_name,
+							schemaName,
+							tableName,
+							title,
+							columns
+						})
+					}
+				}
+			}
+			this.cachedDatatables = tableElements
+		} catch (err) {
+			console.error('Failed to refresh datatables:', err)
+			this.cachedDatatables = []
+		}
+	}
+
+	/**
+	 * Get available context elements for app mode (frontend files + backend runnables + datatables)
+	 */
+	getAppAvailableContext = (): ContextElement[] => {
+		if (!this.appAiChatHelpers) {
+			return []
+		}
+
+		const context: ContextElement[] = []
+
+		// Add frontend files
+		const frontendFiles = this.appAiChatHelpers.listFrontendFiles()
+		for (const path of frontendFiles) {
+			const content = this.appAiChatHelpers.getFrontendFile(path)
+			if (content !== undefined) {
+				const element: AppFrontendFileElement = {
+					type: 'app_frontend_file',
+					path,
+					title: path,
+					content
+				}
+				context.push(element)
+			}
+		}
+
+		// Add backend runnables
+		const runnables = this.appAiChatHelpers.listBackendRunnables()
+		for (const { key } of runnables) {
+			const runnable = this.appAiChatHelpers.getBackendRunnable(key)
+			if (runnable) {
+				const element: AppBackendRunnableElement = {
+					type: 'app_backend_runnable',
+					key,
+					title: key,
+					runnable
+				}
+				context.push(element)
+			}
+		}
+
+		// Add cached datatables
+		context.push(...this.cachedDatatables)
+
+		return context
+	}
+
 	setAppHelpers = (appHelpers: AppAIChatHelpers) => {
 		this.appAiChatHelpers = appHelpers
+		// Refresh datatables when app helpers are set (deferred to avoid loop)
+		// Use setTimeout to ensure this runs after the effect completes
+		setTimeout(() => {
+			this.refreshDatatables()
+		}, 50)
 
 		return () => {
 			this.appAiChatHelpers = undefined
+			this.cachedDatatables = []
 		}
 	}
 }

@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
 import { getCurrentModel } from '$lib/aiStore'
+import { type editor as meditor } from 'monaco-editor'
 
 // Prettify function for code arguments - extracts and formats code from JSON
 function prettifyCodeArguments(content: string): string {
@@ -325,7 +326,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 type BaseDisplayMessage = {
 	content: string
 	contextElements?: ContextElement[]
-	snapshot?: ExtendedOpenFlow
+	snapshot?: { type: 'flow'; value: ExtendedOpenFlow } | { type: 'app'; value: number }
 }
 
 export type UserDisplayMessage = BaseDisplayMessage & {
@@ -506,7 +507,8 @@ export interface ToolCallbacks {
 export function createToolDef(
 	zodSchema: z.ZodSchema,
 	name: string,
-	description: string
+	description: string,
+	{ strict = true }: { strict?: boolean } = {} // we sometimes have to set strict to false for open ai models to avoid issues with complex properties
 ): ChatCompletionFunctionTool {
 	// console.log('creating tool def for', name, zodSchema)
 	let parameters = z.toJSONSchema(zodSchema)
@@ -516,7 +518,7 @@ export function createToolDef(
 	return {
 		type: 'function',
 		function: {
-			strict: true,
+			strict,
 			name,
 			description,
 			parameters
@@ -570,6 +572,46 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
+/**
+ * Recursively removes format: null or format: '' from a JSON schema object
+ */
+function removeNullFormats(schema: Record<string, any> | undefined): void {
+	if (!schema || typeof schema !== 'object') {
+		return
+	}
+
+	// Remove format if it's null or empty string
+	if (schema.format === null || schema.format === '') {
+		delete schema.format
+	}
+
+	// Recurse into properties
+	if (schema.properties && typeof schema.properties === 'object') {
+		for (const key of Object.keys(schema.properties)) {
+			removeNullFormats(schema.properties[key])
+		}
+	}
+
+	// Recurse into items (for arrays)
+	if (schema.items) {
+		removeNullFormats(schema.items)
+	}
+
+	// Recurse into additionalProperties if it's an object schema
+	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+		removeNullFormats(schema.additionalProperties)
+	}
+
+	// Recurse into allOf, anyOf, oneOf
+	for (const key of ['allOf', 'anyOf', 'oneOf']) {
+		if (Array.isArray(schema[key])) {
+			for (const subSchema of schema[key]) {
+				removeNullFormats(subSchema)
+			}
+		}
+	}
+}
+
 export async function buildSchemaForTool(
 	toolDef: ChatCompletionFunctionTool,
 	schemaBuilder: () => Promise<FunctionParameters>
@@ -587,6 +629,10 @@ export async function buildSchemaForTool(
 		}
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
+
+		// recursively remove any format: null or format: '' (empty string) from schema
+		removeNullFormats(toolDef.function.parameters)
+
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
 		if (model.provider === 'openai' || model.provider === 'azure_openai') {
@@ -803,4 +849,40 @@ function formatResultSummary(result: unknown, logs: string | undefined, success:
 	resultSummary += '\n\nLogs:\n\n'
 	resultSummary += formatLogs(logs) ?? 'No logs available'
 	return resultSummary
+}
+
+// ============= Script/Flow Lint Types =============
+
+/** Result of linting a script */
+export interface ScriptLintResult {
+	errorCount: number
+	warningCount: number
+	errors: meditor.IMarker[]
+	warnings: meditor.IMarker[]
+}
+
+/** Format script lint result for display */
+export function formatScriptLintResult(lintResult: ScriptLintResult): string {
+	let response = ''
+	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
+
+	if (hasIssues) {
+		if (lintResult.errorCount > 0) {
+			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
+			for (const error of lintResult.errors) {
+				response += `- Line ${error.startLineNumber}: ${error.message}\n`
+			}
+		}
+
+		if (lintResult.warningCount > 0) {
+			response += `\n⚠️ **${lintResult.warningCount} warning(s)** found:\n`
+			for (const warning of lintResult.warnings) {
+				response += `- Line ${warning.startLineNumber}: ${warning.message}\n`
+			}
+		}
+	} else {
+		response = '✅ No lint issues found.'
+	}
+
+	return response
 }

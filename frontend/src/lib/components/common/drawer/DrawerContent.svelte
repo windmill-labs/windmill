@@ -20,6 +20,7 @@
 		fullScreen?: boolean
 		eeOnly?: boolean
 		actions?: import('svelte').Snippet
+		titleExtra?: import('svelte').Snippet
 		children?: import('svelte').Snippet
 	}
 
@@ -36,6 +37,7 @@
 		fullScreen = true,
 		eeOnly = false,
 		actions,
+		titleExtra,
 		children
 	}: Props = $props()
 
@@ -65,6 +67,9 @@
 			{#if eeOnly && !$enterpriseLicense}
 				<EEOnly />
 			{/if}
+			{#if titleExtra}
+				{@render titleExtra()}
+			{/if}
 		</div>
 		{#if actions}
 			<div class="flex gap-2 items-center justify-end shrink-0">
@@ -80,6 +85,7 @@
 			forceOverflowVisible ? '!overflow-visible' : ''
 		)}
 		class:overflow-y-auto={overflow_y}
+		style={overflow_y ? 'scrollbar-gutter: stable;' : ''}
 	>
 		{@render children?.()}
 	</div>
