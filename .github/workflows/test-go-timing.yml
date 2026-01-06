@@ -1,0 +1,180 @@
+name: Test Go Execution Time
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-go-timing:
+    runs-on: ubicloud
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: windmill
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      windmill:
+        image: ghcr.io/windmill-labs/windmill-ee:dev
+        ports:
+          - 8000:8000
+        env:
+          DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill?sslmode=disable
+          MODE: server
+          PORT: "8000"
+        options: >-
+          --health-cmd "curl -f http://localhost:8000/api/version || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+          --health-start-period 30s
+
+      windmill_worker:
+        image: ghcr.io/windmill-labs/windmill-ee:dev
+        env:
+          DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill?sslmode=disable
+          MODE: worker
+          WORKER_GROUP: default
+
+    steps:
+      - name: Wait for services to stabilize
+        run: sleep 15
+
+      - name: Test API is up
+        run: |
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/api/version; then
+              echo ""
+              echo "API is up!"
+              break
+            fi
+            echo "Waiting for API... ($i)"
+            sleep 2
+          done
+
+      - name: Login and get token
+        id: auth
+        run: |
+          TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@windmill.dev","password":"changeme"}' | tr -d '"')
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          echo "Got token: ${TOKEN:0:20}..."
+
+      - name: Create workspace
+        run: |
+          EXISTS=$(curl -s -X POST http://localhost:8000/api/workspaces/exists \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            -d '{"id":"test"}')
+
+          if [ "$EXISTS" != "true" ]; then
+            curl -s -X POST http://localhost:8000/api/workspaces/create \
+              -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+              -H "Content-Type: application/json" \
+              -d '{"id":"test","name":"test"}'
+            echo "Created workspace"
+          else
+            echo "Workspace exists"
+          fi
+
+      - name: Wait for worker to be ready
+        run: |
+          echo "Waiting for worker to register..."
+          for i in {1..60}; do
+            WORKERS=$(curl -s "http://localhost:8000/api/workers/list?ping_since=60" \
+              -H "Authorization: Bearer ${{ steps.auth.outputs.token }}")
+            COUNT=$(echo "$WORKERS" | jq 'length')
+            if [ "$COUNT" -gt "0" ]; then
+              echo "Worker registered! Count: $COUNT"
+              echo "$WORKERS" | jq '.[0].worker'
+              break
+            fi
+            echo "Waiting for worker... ($i)"
+            sleep 2
+          done
+
+      - name: Create Go script
+        run: |
+          SCRIPT='package inner
+          func main(x int) (interface{}, error) {
+            return x, nil
+          }'
+
+          HASH=$(curl -s -X POST "http://localhost:8000/api/w/test/scripts/create" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"path\":\"u/admin/go_test\",\"content\":$(echo "$SCRIPT" | jq -Rs .),\"description\":\"\",\"summary\":\"\",\"language\":\"go\"}")
+
+          echo "Script hash: $HASH"
+
+          echo "Waiting for script deployment..."
+          for i in {1..60}; do
+            STATUS=$(curl -s "http://localhost:8000/api/w/test/scripts/deployment_status/h/$HASH" \
+              -H "Authorization: Bearer ${{ steps.auth.outputs.token }}")
+            LOCK=$(echo "$STATUS" | jq -r '.lock')
+            if [ "$LOCK" != "null" ]; then
+              echo "Script deployed!"
+              break
+            fi
+            echo "Waiting... ($i)"
+            sleep 1
+          done
+
+      - name: Run Go script and measure time (first run - cold)
+        run: |
+          echo "Starting first Go script execution (cold)..."
+          START=$(date +%s%N)
+
+          RESULT=$(curl -s -X POST "http://localhost:8000/api/w/test/jobs/run_wait_result/p/u/admin/go_test" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            -d '{"x": 42}')
+
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+
+          echo "Result: $RESULT"
+          echo "::notice::First run (cold) duration: ${DURATION}ms"
+
+      - name: Run Go script and measure time (second run - warm)
+        run: |
+          echo "Starting second Go script execution (warm)..."
+          START=$(date +%s%N)
+
+          RESULT=$(curl -s -X POST "http://localhost:8000/api/w/test/jobs/run_wait_result/p/u/admin/go_test" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            -d '{"x": 42}')
+
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+
+          echo "Result: $RESULT"
+          echo "::notice::Second run (warm) duration: ${DURATION}ms"
+
+      - name: Run Go script and measure time (third run)
+        run: |
+          echo "Starting third Go script execution..."
+          START=$(date +%s%N)
+
+          RESULT=$(curl -s -X POST "http://localhost:8000/api/w/test/jobs/run_wait_result/p/u/admin/go_test" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.token }}" \
+            -H "Content-Type: application/json" \
+            --max-time 120 \
+            -d '{"x": 42}')
+
+          END=$(date +%s%N)
+          DURATION=$(( (END - START) / 1000000 ))
+
+          echo "Result: $RESULT"
+          echo "::notice::Third run duration: ${DURATION}ms"
