@@ -26,7 +26,7 @@
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import WorkspaceTreeView from '$lib/components/workspace/WorkspaceTreeView.svelte'
 	import type { UserWorkspace } from '$lib/stores'
 
 	let invites: WorkspaceInvite[] = []
@@ -86,18 +86,11 @@
 
 	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
 
-	// Complete workspace hierarchy with all forks
-	$: forkedWorkspacesHierarchy = (() => {
+	$: nonAdminWorkspaces = (() => {
 		if (!workspaces) return []
-
-		// Filter out admin workspace
-		const nonAdminWorkspaces = workspaces.filter((x) => x.id !== 'admins')
-
-		return buildWorkspaceHierarchy(nonAdminWorkspaces)
+		return workspaces.filter((x) => x.id !== 'admins')
 	})()
-
-	$: groupedNonAdminWorkspaces = forkedWorkspacesHierarchy
-	$: noWorkspaces = $superadmin && groupedNonAdminWorkspaces.length == 0
+	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -202,56 +195,19 @@
 					create your own{/if}
 				workspace.
 			</p>
+		{:else}
+			<WorkspaceTreeView
+				workspaces={nonAdminWorkspaces}
+				onEnterWorkspace={speakFriendAndEnterWorkspace}
+				onUnarchive={async (_workspaceId) => {
+					if (list_all_as_super_admin) {
+						loadWorkspacesAsAdmin()
+					} else {
+						loadWorkspaces()
+					}
+				}}
+			/>
 		{/if}
-		{#each groupedNonAdminWorkspaces as { workspace, depth, isForked } (workspace.id)}
-			<label class="block pb-2" style:padding-left={`${depth * 24}px`}>
-				<Button
-					variant="default"
-					btnClasses="bg-surface-tertiary hover:bg-surface-secondary"
-					disabled={workspace.disabled}
-					on:click={async () => {
-						if (!workspace.disabled) {
-							speakFriendAndEnterWorkspace(workspace.id)
-						}
-					}}
-				>
-					{#if isForked}
-						<GitFork size={12} class="text-primary mr-2 flex-shrink-0" />
-					{/if}
-					<span class="flex-1 items-center">
-						{#if workspace.color}
-							<div
-								class="inline-block w-4 h-4 mr-2 rounded-full border"
-								style="background-color: {workspace.color}"
-							></div>
-						{/if}
-						<span class="font-mono text-secondary">{workspace.id}</span> -
-						<span class:text-secondary={isForked}>{workspace.name}</span>
-						as
-						<span class="font-mono" class:text-secondary={isForked}>{workspace.username}</span>
-						{#if workspace['deleted']}
-							<span class="text-red-500"> (archived)</span>
-						{/if}
-						{#if workspace.disabled}
-							<span class="text-red-500"> (user disabled in this workspace)</span>
-						{/if}
-					</span>
-				</Button>
-				{#if $superadmin && workspace['deleted']}
-					<Button
-						size="xs"
-						btnClasses="w-full mt-1"
-						variant="default"
-						on:click={async () => {
-							await WorkspaceService.unarchiveWorkspace({ workspace: workspace.id })
-							loadWorkspacesAsAdmin()
-						}}
-					>
-						Unarchive {workspace.id}
-					</Button>
-				{/if}
-			</label>
-		{/each}
 	{:else}
 		{#each new Array(3) as _}
 			<Skeleton layout={[[2], 0.5]} />
@@ -273,7 +229,7 @@
 
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 
-	<div class="flex flex-row items-center justify-between mt-6 mb-2">
+	<div class="flex flex-row items-center justify-between mt-8 mb-2">
 		<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
 		{#if workspaces}
 			<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
