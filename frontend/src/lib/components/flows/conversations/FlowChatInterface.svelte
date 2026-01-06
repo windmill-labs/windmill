@@ -6,7 +6,6 @@
 	import { FlowChatManager } from './FlowChatManager.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
-	import { untrack } from 'svelte'
 
 	interface Props {
 		manager: FlowChatManager
@@ -19,115 +18,58 @@
 
 	// State for additional inputs modal
 	let showInputsModal = $state(false)
-	let additionalInputsValues = $state<Record<string, any>>({})
+	let additionalInputsValues = $state<Record<string, any> | undefined>(undefined)
 
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
-	function getStorageKey(conversationId: string | undefined): string {
-		return `${STORAGE_KEY_PREFIX}${path ?? 'unknown'}_${conversationId ?? 'new'}`
+	function getStorageKey(): string {
+		return `${STORAGE_KEY_PREFIX}${path ?? 'unknown'}`
 	}
 
-	function loadInputsFromStorage(conversationId: string | undefined): Record<string, any> | null {
+	function loadInputsFromStorage(): Record<string, any> | null {
 		try {
-			const stored = localStorage.getItem(getStorageKey(conversationId))
+			const stored = localStorage.getItem(getStorageKey())
 			return stored ? JSON.parse(stored) : null
 		} catch {
 			return null
 		}
 	}
 
-	function saveInputsToStorage(conversationId: string | undefined, values: Record<string, any>) {
+	function saveInputsToStorage(values: Record<string, any>) {
 		try {
-			localStorage.setItem(getStorageKey(conversationId), JSON.stringify(values))
+			localStorage.setItem(getStorageKey(), JSON.stringify(values))
 		} catch (e) {
 			console.error('Failed to save inputs to localStorage:', e)
 		}
 	}
 
-	function migrateNewToConversationId(newConversationId: string) {
-		const newKey = getStorageKey(undefined) // 'new' key
-		try {
-			const stored = localStorage.getItem(newKey)
-			if (stored) {
-				localStorage.setItem(getStorageKey(newConversationId), stored)
-				localStorage.removeItem(newKey)
-			}
-		} catch (e) {
-			console.error('Failed to migrate localStorage:', e)
-		}
-	}
-
-	// Show modal on conversation focus/selection
-	let lastCheckedConversationId: string | undefined = undefined
-	$effect(() => {
-		const conversationId = manager.selectedConversationId
-
-		// Only trigger when conversation actually changes
-		if (conversationId === lastCheckedConversationId) return
-
-		untrack(() => {
-			lastCheckedConversationId = conversationId
-
-			if (additionalInputsSchema) {
-				const stored = loadInputsFromStorage(conversationId)
-				if (stored) {
-					additionalInputsValues = stored
-				} else {
-					// No values stored, show modal
-					additionalInputsValues = {}
-					showInputsModal = true
-				}
-			}
-		})
-	})
-
 	function handleModalConfirm() {
-		const conversationId = manager.selectedConversationId
-		saveInputsToStorage(conversationId, additionalInputsValues)
-		showInputsModal = false
-	}
-
-	function handleModalCancel() {
+		saveInputsToStorage(additionalInputsValues ?? {})
 		showInputsModal = false
 	}
 
 	function handleSendMessage() {
-		const conversationId = manager.selectedConversationId
 		const inputs = additionalInputsSchema
-			? loadInputsFromStorage(conversationId) ?? additionalInputsValues
+			? loadInputsFromStorage() ?? additionalInputsValues
 			: undefined
 		manager.sendMessage(inputs)
 	}
 
 	function openInputsModal() {
-		const stored = loadInputsFromStorage(manager.selectedConversationId)
+		const stored = loadInputsFromStorage()
 		if (stored) additionalInputsValues = stored
 		showInputsModal = true
 	}
 
-	// Called when a new conversation is created to migrate localStorage
-	function onConversationCreated(newConversationId: string) {
-		migrateNewToConversationId(newConversationId)
-	}
-
-	// Set the callback on the manager when mounted
-	$effect(() => {
-		if (additionalInputsSchema) {
-			manager.setOnConversationCreated(onConversationCreated)
-		}
-	})
 </script>
 
 <!-- Additional Inputs Modal -->
 {#if additionalInputsSchema}
-	<Modal title="Configure Additional Inputs" bind:open={showInputsModal}>
-		<div class="p-4">
-			<SchemaForm schema={additionalInputsSchema} bind:args={additionalInputsValues} />
-		</div>
+	<Modal title="Configure inputs" bind:open={showInputsModal}>
+		<SchemaForm schema={additionalInputsSchema} bind:args={additionalInputsValues} />
 		{#snippet actions()}
-			<Button variant="border" on:click={handleModalCancel}>Cancel</Button>
-			<Button on:click={handleModalConfirm}>Save</Button>
+			<Button onClick={handleModalConfirm} variant="accent">Save</Button>
 		{/snippet}
 	</Modal>
 {/if}
@@ -137,13 +79,14 @@
 	{#if additionalInputsSchema}
 		<div class="flex items-center justify-end px-4 py-2 border-b">
 			<Button
-				iconOnly
 				size="xs"
-				variant="border"
+				variant="default"
 				startIcon={{ icon: Settings2 }}
-				title="Edit additional inputs"
+				title="Inputs"
 				on:click={openInputsModal}
-			/>
+			>
+				Inputs
+			</Button>
 		</div>
 	{/if}
 

@@ -542,22 +542,6 @@
 		}
 	}
 
-	// Derive additional inputs schema (excluding user_message) for chat mode
-	const additionalInputsSchema = $derived.by(() => {
-		const props = flowStore.val.schema?.properties ?? {}
-		const filtered = Object.fromEntries(
-			Object.entries(props).filter(([k]) => k !== 'user_message')
-		)
-		if (Object.keys(filtered).length === 0) return undefined
-		const required = flowStore.val.schema?.required
-		const requiredArray: string[] = Array.isArray(required) ? required : []
-		return {
-			...flowStore.val.schema,
-			properties: filtered,
-			required: requiredArray.filter((k: string) => k !== 'user_message')
-		}
-	})
-
 	function enableChatMode() {
 		// Enable chat input - set in flow.value
 		flowStore.val.value.chat_input_enabled = true
@@ -666,17 +650,6 @@
 	{#snippet action()}
 		{#if !disabled}
 			<div class="flex items-center gap-2">
-				{#if flowStore.val.value?.chat_input_enabled}
-					<Button
-						iconOnly
-						size="xs"
-						variant="border"
-						color={showAdditionalInputs ? 'blue' : 'light'}
-						startIcon={{ icon: Settings2 }}
-						title="Configure additional inputs"
-						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
-					/>
-				{/if}
 				<Toggle
 					size="sm"
 					bind:checked={chatInputEnabled}
@@ -689,6 +662,18 @@
 							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
 					}}
 				/>
+				{#if flowStore.val.value?.chat_input_enabled}
+				<Button
+					size="xs"
+					variant="border"
+					color={showAdditionalInputs ? 'blue' : 'light'}
+					startIcon={{ icon: Settings2 }}
+					title="Manage inputs"
+					on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+				>
+					Manage inputs
+				</Button>
+			{/if}
 			</div>
 		{/if}
 	{/snippet}
@@ -697,7 +682,7 @@
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">
 					{#if showAdditionalInputs}
-						<div class="border-b">
+						<div class="border-b p-2">
 							<EditableSchemaForm
 								bind:schema={flowStore.val.schema}
 								hiddenArgs={['user_message']}
@@ -745,7 +730,7 @@
 						path={$pathStore}
 						hideSidebar={true}
 						useStreaming={shouldUseStreaming}
-						{additionalInputsSchema}
+						inputSchema={flowStore.val.schema}
 					/>
 				</div>
 			{:else}

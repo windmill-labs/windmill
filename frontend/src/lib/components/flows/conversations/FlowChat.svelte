@@ -15,7 +15,7 @@
 		deploymentInProgress?: boolean
 		path: string
 		hideSidebar?: boolean
-		additionalInputsSchema?: Record<string, any>
+		inputSchema?: Record<string, any>
 	}
 
 	let {
@@ -24,7 +24,7 @@
 		useStreaming = false,
 		path,
 		hideSidebar = false,
-		additionalInputsSchema = undefined
+		inputSchema = undefined,
 	}: Props = $props()
 
 	const manager = createFlowChatManager()
@@ -46,6 +46,22 @@
 			untrack(() => {
 				manager.setupInfiniteList()
 			})
+		}
+	})
+
+	// Derive additional inputs schema (excluding user_message) for chat mode
+	const additionalInputsSchema = $derived.by(() => {
+		const props = inputSchema?.properties ?? {}
+		const filtered = Object.fromEntries(
+			Object.entries(props).filter(([k]) => k !== 'user_message')
+		)
+		if (Object.keys(filtered).length === 0) return undefined
+		const required = inputSchema?.required
+		const requiredArray: string[] = Array.isArray(required) ? required : []
+		return {
+			...inputSchema,
+			properties: filtered,
+			required: requiredArray.filter((k: string) => k !== 'user_message')
 		}
 	})
 </script>
