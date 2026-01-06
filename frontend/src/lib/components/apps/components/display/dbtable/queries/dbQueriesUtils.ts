@@ -42,9 +42,9 @@ export function renderForeignKey(
 			? fk.targetTable
 			: fk.targetTable?.split('.').pop()
 
-	let sql = ''
+	let sql = 'CONSTRAINT '
 
-	sql += `CONSTRAINT fk_${[
+	sql += `fk_${[
 		options.tableName,
 		...sourceColumns.map((c) => c?.substring(0, 10)),
 		targetTable,
