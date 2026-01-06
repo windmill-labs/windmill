@@ -139,7 +139,7 @@
 		<!-- Forks section - clickable to expand -->
 		{#if children.length > 0}
 			<div
-				class="border-t border-border-light px-4 py-1 hover:bg-surface-hover transition-colors cursor-pointer"
+				class="border-t border-border-light px-4 py-1.5 hover:bg-surface-hover transition-colors cursor-pointer"
 				role="button"
 				tabindex="0"
 				onclick={() => onToggleExpand?.(workspace.id)}

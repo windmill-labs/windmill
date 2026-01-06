@@ -164,6 +164,7 @@
 				<Toggle
 					bind:checked={list_all_as_super_admin}
 					options={{ right: 'List all workspaces as superadmin' }}
+					size="xs"
 				/>
 			</div>
 		{/if}
@@ -171,9 +172,8 @@
 
 	{#if adminsInstance}
 		<Button
-			btnClasses="w-full mt-2 mb-4 truncate bg-surface-tertiary hover:bg-surface-secondary"
-			size="sm"
-			on:click={async () => {
+			unifiedSize="md"
+			onClick={async () => {
 				workspaceStore.set('admins')
 				loading = true
 				if (rd?.startsWith('http')) {
@@ -186,6 +186,7 @@
 			variant="default"
 			>Manage Windmill on the superadmins workspace
 		</Button>
+		<div class="mt-6"></div>
 	{/if}
 
 	{#if workspaces && $usersWorkspaceStore}
