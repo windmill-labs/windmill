@@ -27,6 +27,7 @@ type DropColumnOperation = {
 export type AlterColumnOperation = {
 	kind: 'alterColumn'
 	original: TableEditorValuesColumn
+	defaultConstraintName?: string // MS SQL requires it to drop default
 	changes: Partial<Omit<TableEditorValuesColumn, 'initialName'>>
 }
 
@@ -155,7 +156,9 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 
 	if ('defaultValue' in changes) {
 		if (!changes.defaultValue && original.defaultValue) {
-			queries.push(renderDropDefaultValue(tableRef, original.name, datatype, dbType))
+			queries.push(
+				renderDropDefaultValue(tableRef, original.name, datatype, dbType, op.defaultConstraintName)
+			)
 		} else if (changes.defaultValue) {
 			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
 			queries.push(renderAddDefaultValue(tableRef, original.name, def, dbType))
@@ -199,7 +202,8 @@ function renderDropDefaultValue(
 	tableRef: string,
 	columnName: string,
 	datatype: string,
-	dbType: DbType
+	dbType: DbType,
+	defaultConstraintName?: string
 ): string {
 	switch (dbType) {
 		case 'postgresql':
@@ -209,9 +213,7 @@ function renderDropDefaultValue(
 		case 'bigquery':
 			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} DROP DEFAULT;`
 		case 'ms_sql_server':
-			// MS SQL requires dropping the constraint, but we need the constraint name
-			// For now, use a simplified approach that sets NULL
-			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} ${datatype} NULL;`
+			return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${defaultConstraintName};`
 		default:
 			throw new Error(`Unsupported database type: ${dbType}`)
 	}
@@ -337,7 +339,12 @@ export function diffTableEditorValues(
 				changes.name = updatedCol.name
 			}
 			if (Object.keys(changes).length > 0) {
-				operations.push({ kind: 'alterColumn', changes, original: originalCol })
+				operations.push({
+					kind: 'alterColumn',
+					changes,
+					original: originalCol,
+					defaultConstraintName: originalCol.default_constraint_name
+				})
 			}
 		}
 	}

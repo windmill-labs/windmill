@@ -23,6 +23,7 @@ export type ColumnMetadata = {
 	isidentity: ColumnIdentity
 	isnullable: 'YES' | 'NO'
 	isenum: boolean
+	default_constraint_name?: string // MS SQL requires to know this to drop default
 }
 export type TableMetadata = ColumnMetadata[]
 

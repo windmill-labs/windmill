@@ -206,7 +206,8 @@ async function makeLoadTableMetaDataQuery(
     CASE WHEN COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
     CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IsPrimaryKey,
     CASE WHEN c.IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum,
+    dc.name as default_constraint_name${
 			table
 				? ''
 				: `,
@@ -228,7 +229,10 @@ FROM
                 AND tc.TABLE_NAME = ku.TABLE_NAME
     ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
         AND c.TABLE_NAME = pk.TABLE_NAME
-        AND c.COLUMN_NAME = pk.COLUMN_NAME${
+        AND c.COLUMN_NAME = pk.COLUMN_NAME
+    LEFT JOIN sys.default_constraints dc
+        ON dc.parent_object_id = OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME)
+        AND dc.parent_column_id = COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'ColumnId')${
 					table
 						? `
 WHERE

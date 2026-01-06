@@ -19,6 +19,7 @@ export type TableEditorValuesColumn = {
 	// Used by alter table. We need to track the original column for data consistency
 	// e.g '(a, b) => (x, y, z)' : can't know which column was renamed without this
 	initialName?: string
+	default_constraint_name?: string // Used by alter table (MS SQL requires it to drop default)
 }
 
 export type TableEditorForeignKey = {
@@ -90,6 +91,7 @@ export function columnDefToTableEditorValuesColumn(
 		nullable: colDef.isnullable !== 'NO',
 		datatype,
 		datatype_length,
-		initialName: colDef.field
+		initialName: colDef.field,
+		default_constraint_name: colDef.default_constraint_name
 	}
 }
