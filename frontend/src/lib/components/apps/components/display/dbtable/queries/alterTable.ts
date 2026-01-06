@@ -1,6 +1,6 @@
 import type { DbType } from '$lib/components/dbTypes'
 import { deepEqual } from 'fast-equals'
-import { dbSupportsSchemas } from '../utils'
+import { datatypeHasLength, dbSupportsSchemas } from '../utils'
 import {
 	type TableEditorForeignKey,
 	type TableEditorValues,
@@ -73,7 +73,11 @@ export function makeAlterTableQuery(
 	let queries = makeAlterTableQueries(values, dbType, schema)
 	if (queries.length === 0) return ''
 	let queriesStr = queries.join('\n')
-	if (dbSupportsTransactionalDdl(dbType)) return 'BEGIN;\n' + queriesStr + '\nCOMMIT;'
+	if (dbSupportsTransactionalDdl(dbType)) {
+		if (dbType === 'ms_sql_server')
+			return 'BEGIN TRANSACTION;\n' + queriesStr + '\nCOMMIT TRANSACTION;'
+		return 'BEGIN;\n' + queriesStr + '\nCOMMIT;'
+	}
 	return queriesStr
 }
 
@@ -139,33 +143,142 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 	const queries: string[] = []
 	const { changes, original } = op
 
+	const baseDatatype = changes.datatype ?? original.datatype
+	const datatypeLength = datatypeHasLength(baseDatatype)
+		? (changes.datatype_length ?? original.datatype_length)
+		: undefined
+	const datatype = datatypeLength ? `${baseDatatype}(${datatypeLength})` : baseDatatype
+
 	if (changes.datatype || changes.datatype_length) {
-		const baseDatatype = changes.datatype ?? original.datatype
-		const datatypeLength = changes.datatype_length ?? original.datatype_length
-		const datatype = datatypeLength ? `${baseDatatype}(${datatypeLength})` : baseDatatype
-		queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} TYPE ${datatype};`)
+		queries.push(renderAlterDatatype(tableRef, original.name, datatype, dbType))
 	}
 
 	if ('defaultValue' in changes) {
 		if (!changes.defaultValue && original.defaultValue) {
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} DROP DEFAULT;`)
+			queries.push(renderDropDefaultValue(tableRef, original.name, datatype, dbType))
 		} else if (changes.defaultValue) {
 			const def = formatDefaultValue(changes.defaultValue, original.datatype ?? '', dbType)
-			queries.push(`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} SET DEFAULT ${def};`)
+			queries.push(renderAddDefaultValue(tableRef, original.name, def, dbType))
 		}
 	}
 
 	if (typeof changes.nullable === 'boolean') {
-		queries.push(
-			`ALTER TABLE ${tableRef} ALTER COLUMN ${original.name} ${changes.nullable ? 'DROP' : 'SET'} NOT NULL;`
-		)
+		queries.push(renderAlterNullable(tableRef, original.name, changes.nullable, datatype, dbType))
 	}
 
 	if (changes.name) {
-		queries.push(`ALTER TABLE ${tableRef} RENAME COLUMN ${original.name} TO ${changes.name};`)
+		queries.push(renderRenameColumn(tableRef, original.name, changes.name, dbType))
 	}
 
 	return queries
+}
+
+function renderAlterDatatype(
+	tableRef: string,
+	columnName: string,
+	datatype: string,
+	dbType: DbType
+): string {
+	switch (dbType) {
+		case 'postgresql':
+		case 'duckdb':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} TYPE ${datatype};`
+		case 'ms_sql_server':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} ${datatype};`
+		case 'mysql':
+			return `ALTER TABLE ${tableRef} MODIFY COLUMN ${columnName} ${datatype};`
+		case 'snowflake':
+		case 'bigquery':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} SET DATA TYPE ${datatype};`
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`)
+	}
+}
+
+function renderDropDefaultValue(
+	tableRef: string,
+	columnName: string,
+	datatype: string,
+	dbType: DbType
+): string {
+	switch (dbType) {
+		case 'postgresql':
+		case 'duckdb':
+		case 'mysql':
+		case 'snowflake':
+		case 'bigquery':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} DROP DEFAULT;`
+		case 'ms_sql_server':
+			// MS SQL requires dropping the constraint, but we need the constraint name
+			// For now, use a simplified approach that sets NULL
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} ${datatype} NULL;`
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`)
+	}
+}
+
+function renderAddDefaultValue(
+	tableRef: string,
+	columnName: string,
+	defaultValue: string,
+	dbType: DbType
+): string {
+	switch (dbType) {
+		case 'postgresql':
+		case 'duckdb':
+		case 'mysql':
+		case 'snowflake':
+		case 'bigquery':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} SET DEFAULT ${defaultValue};`
+		case 'ms_sql_server':
+			// MS SQL uses constraints for defaults
+			return `ALTER TABLE ${tableRef} ADD CONSTRAINT DF_${tableRef}_${columnName} DEFAULT ${defaultValue} FOR ${columnName};`
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`)
+	}
+}
+
+function renderAlterNullable(
+	tableRef: string,
+	columnName: string,
+	nullable: boolean,
+	datatype: string,
+	dbType: DbType
+): string {
+	switch (dbType) {
+		case 'postgresql':
+		case 'duckdb':
+		case 'snowflake':
+		case 'bigquery':
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} ${nullable ? 'DROP' : 'SET'} NOT NULL;`
+		case 'ms_sql_server':
+			// MS SQL requires specifying the datatype when altering nullability
+			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} ${datatype} ${nullable ? 'NULL' : 'NOT NULL'};`
+		case 'mysql':
+			return `ALTER TABLE ${tableRef} MODIFY COLUMN ${columnName} ${datatype} ${nullable ? 'NULL' : 'NOT NULL'};`
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`)
+	}
+}
+
+function renderRenameColumn(
+	tableRef: string,
+	oldName: string,
+	newName: string,
+	dbType: DbType
+): string {
+	switch (dbType) {
+		case 'postgresql':
+		case 'duckdb':
+		case 'snowflake':
+		case 'bigquery':
+		case 'mysql':
+			return `ALTER TABLE ${tableRef} RENAME COLUMN ${oldName} TO ${newName};`
+		case 'ms_sql_server':
+			return `EXEC sp_rename '${tableRef}.${oldName}', '${newName}', 'COLUMN';`
+		default:
+			throw new Error(`Unsupported database type: ${dbType}`)
+	}
 }
 
 function renderDropForeignKey(
