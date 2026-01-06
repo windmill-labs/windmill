@@ -343,7 +343,7 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace">
+<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
 	<div class="flex flex-col gap-8">
 		{#if isFork}
 			<div class="flex flex-block gap-2">
@@ -581,7 +581,7 @@
 				{/if}
 			</div>
 		{/if}
-		<div class="flex flex-wrap flex-row justify-between pt-12 gap-4">
+		<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
 			<Button
 				disabled={forkCreationLoading}
 				variant="default"
