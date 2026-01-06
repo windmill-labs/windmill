@@ -15,12 +15,12 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
+		ChevronsDownUp,
+		ChevronsUpDown,
 		Code2,
-		FoldVertical,
 		LayoutDashboard,
 		ListFilterPlus,
-		SearchCode,
-		UnfoldVertical
+		SearchCode
 	} from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
@@ -502,11 +502,11 @@
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						size="xs2"
-						variant="default"
+						unifiedSize="sm"
+						variant="subtle"
 						on:click={() => (collapseAll = !collapseAll)}
 						startIcon={{
-							icon: collapseAll ? UnfoldVertical : FoldVertical
+							icon: collapseAll ? ChevronsUpDown : ChevronsDownUp
 						}}
 					>
 						{#if collapseAll}
