@@ -47,6 +47,24 @@ pub(crate) async fn change_workspace_id(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
+    // Check total job count before attempting migration
+    let job_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM v2_job WHERE workspace_id = $1",
+        &old_id
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(0);
+
+    if job_count > 100_000 {
+        return Err(Error::BadRequest(
+            format!(
+                "Workspace has {} jobs which exceeds the 100k limit for direct migration. Please use the Windmill CLI to migrate jobs instead: `wmill jobs pull/push`.",
+                job_count
+            )
+        ));
+    }
+
     let mut tx = db.begin().await?;
 
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
@@ -127,6 +145,38 @@ pub(crate) async fn change_workspace_id(
 
     sqlx::query!(
         "UPDATE nats_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE postgres_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE mqtt_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE gcp_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE sqs_trigger SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -275,7 +325,14 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE v2_job_queue SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE v2_job_queue SET workspace_id = $1
+         WHERE id IN (
+             SELECT id FROM v2_job_queue
+             WHERE workspace_id = $2
+             AND running = false
+             AND id IN (SELECT id FROM v2_job WHERE workspace_id = $2 AND parent_job IS NULL)
+             FOR UPDATE SKIP LOCKED
+         )",
         &rw.new_id,
         &old_id
     )
@@ -283,7 +340,10 @@ pub(crate) async fn change_workspace_id(
     .await?;
 
     sqlx::query!(
-        "UPDATE v2_job SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE v2_job SET workspace_id = $1
+         WHERE workspace_id = $2
+         AND (id IN (SELECT id FROM v2_job_queue WHERE workspace_id = $1)
+              OR id IN (SELECT id FROM v2_job_completed WHERE workspace_id = $1))",
         &rw.new_id,
         &old_id
     )
