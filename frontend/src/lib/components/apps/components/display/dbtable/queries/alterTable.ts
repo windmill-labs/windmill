@@ -158,7 +158,7 @@ function renderAlterColumn(tableRef: string, op: AlterColumnOperation, dbType: D
 	}
 
 	if ('defaultValue' in changes) {
-		if (!changes.defaultValue && original.defaultValue) {
+		if (changes.defaultValue === undefined && original.defaultValue) {
 			queries.push(
 				renderDropDefaultValue(tableRef, original.name, datatype, dbType, op.defaultConstraintName)
 			)
