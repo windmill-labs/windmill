@@ -366,7 +366,6 @@
 		<Select
 			bind:value={username}
 			class="w-full"
-			disablePortal
 			RightIcon={ChevronDown}
 			items={usernames
 				? [
@@ -386,7 +385,6 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
-			disablePortal
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
 			createText="Press enter to use this value"
 			bind:value={resource}
@@ -401,7 +399,6 @@
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
-			disablePortal
 			bind:value={operation}
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
@@ -416,7 +413,6 @@
 		<Select
 			class="w-full"
 			bind:value={actionKind}
-			disablePortal
 			RightIcon={ChevronDown}
 			items={[
 				{ value: 'all', label: 'all' },
