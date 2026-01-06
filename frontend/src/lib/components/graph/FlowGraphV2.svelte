@@ -1,7 +1,8 @@
 <script lang="ts">
-	import { FlowService, type FlowModule, type FlowNote, type Job } from '../../gen'
+	import { FlowService, type FlowModule, type FlowNote, type Job, type OpenFlow } from '../../gen'
 	import { AI_OR_ASSET_NODE_TYPES, NODE, type GraphModuleState } from '.'
 	import { getContext, onDestroy, onMount, tick, untrack, type Snippet } from 'svelte'
+	import { createFlowDiffManager } from '../flows/flowDiffManager.svelte'
 
 	import { get, writable, type Writable } from 'svelte/store'
 	import '@xyflow/svelte/dist/base.css'
@@ -51,6 +52,7 @@
 	import type { TriggerContext } from '../triggers'
 	import { workspaceStore } from '$lib/stores'
 	import SubflowBound from './renderers/nodes/SubflowBound.svelte'
+	import DiffDrawer from '../DiffDrawer.svelte'
 	import ViewportResizer from './ViewportResizer.svelte'
 	import ViewportSynchronizer from './ViewportSynchronizer.svelte'
 	import AssetNode, { computeAssetNodes } from './renderers/nodes/AssetNode.svelte'
@@ -69,7 +71,7 @@
 	import type { ModulesTestStates } from '../modulesTest.svelte'
 	import { deepEqual } from 'fast-equals'
 	import type { AssetWithAltAccessType } from '../assets/lib'
-	import type { AIModuleAction } from '../copilot/chat/flow/core'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 	import { setGraphContext } from './graphContext'
 	import { computeNoteNodes } from './noteUtils.svelte'
 	import { Tooltip } from '../meltComponents'
@@ -80,6 +82,9 @@
 	let showNotes = $state(true)
 
 	const triggerContext = getContext<TriggerContext>('TriggerContext')
+
+	// Create diffManager instance for this FlowGraphV2
+	const diffManager = createFlowDiffManager()
 
 	let fullWidth = 0
 	let width = $state(0)
@@ -96,8 +101,7 @@
 		notSelectable?: boolean
 		flowModuleStates?: Record<string, GraphModuleState> | undefined
 		testModuleStates?: ModulesTestStates
-		moduleActions?: Record<string, AIModuleAction>
-		inputSchemaModified?: boolean
+		moduleActions?: Record<string, ModuleActionInfo>
 		selectionManager?: SelectionManager
 		path?: string | undefined
 		newFlow?: boolean
@@ -152,7 +156,6 @@
 		onCancelTestFlow?: () => void
 		onOpenPreview?: () => void
 		onHideJobStatus?: () => void
-		onShowModuleDiff?: (moduleId: string) => void
 		flowHasChanged?: boolean
 		exitNoteMode?: () => void
 		onNotePositionUpdate?: (noteId: string, position: { x: number; y: number }) => void
@@ -160,6 +163,10 @@
 		sharedViewport?: Viewport
 		onViewportChange?: (viewport: Viewport, isUserInitiated: boolean) => void
 		leftHeader?: Snippet
+		// Diff mode props
+		diffBeforeFlow?: OpenFlow
+		currentInputSchema?: Record<string, any>
+		markRemovedAsShadowed?: boolean
 	}
 
 	let {
@@ -182,7 +189,6 @@
 		flowModuleStates = undefined,
 		testModuleStates = undefined,
 		moduleActions = undefined,
-		inputSchemaModified = undefined,
 		selectionManager: selectionManagerProp = undefined,
 		path = undefined,
 		newFlow = false,
@@ -207,7 +213,6 @@
 		onCancelTestFlow = undefined,
 		onOpenPreview = undefined,
 		onHideJobStatus = undefined,
-		onShowModuleDiff = undefined,
 		individualStepTests = false,
 		flowJob = undefined,
 		showJobStatus = false,
@@ -221,6 +226,9 @@
 		sharedViewport = undefined,
 		onViewportChange = undefined,
 		leftHeader = undefined,
+		diffBeforeFlow = undefined,
+		currentInputSchema = undefined,
+		markRemovedAsShadowed = false,
 		multiSelectEnabled = false
 	}: Props = $props()
 
@@ -273,7 +281,8 @@
 		showAssets,
 		noteManager,
 		clearFlowSelection,
-		yOffset
+		yOffset,
+		diffManager
 	} as any)
 
 	if (triggerContext && allowSimplifiedPoll) {
@@ -294,6 +303,7 @@
 		if (isSimplifiable(modules)) {
 			triggerContext?.simplifiedPoll?.set(undefined)
 		}
+		diffManager.setDiffDrawer(undefined)
 	})
 
 	function onModulesChange(modules: FlowModule[]) {
@@ -454,7 +464,50 @@
 		}
 	}
 
-	let moduleTracker = new ChangeTracker($state.snapshot(modules))
+	// Validation: error if both diffBeforeFlow and moduleActions are provided
+	$effect(() => {
+		if (diffBeforeFlow && moduleActions) {
+			throw new Error('Cannot provide both diffBeforeFlow and moduleActions props to FlowGraphV2')
+		}
+	})
+
+	// Sync props to diffManager
+	$effect(() => {
+		const currentFlowValue = {
+			modules: modules,
+			failure_module: failureModule,
+			preprocessor_module: preprocessorModule
+		}
+		diffManager.setCurrentFlow(currentFlowValue)
+		diffManager.setCurrentInputSchema(currentInputSchema)
+
+		// Handle diff mode setup
+		if (diffBeforeFlow) {
+			diffManager.setEditMode(editMode)
+			diffManager.setBeforeFlow(diffBeforeFlow)
+			diffManager.setMarkRemovedAsShadowed(markRemovedAsShadowed)
+		} else if (moduleActions) {
+			// Display-only mode: just set the module actions
+			diffManager.setModuleActions(moduleActions)
+		}
+	})
+
+	// Use diffManager state for rendering
+	let effectiveModuleActions = $derived(diffManager.moduleActions)
+
+	// Use merged flow when in diff mode (includes removed modules), otherwise use raw modules
+	let effectiveModules = $derived(diffManager.mergedFlow?.modules ?? modules)
+
+	let effectiveFailureModule = $derived(diffManager.mergedFlow?.failure_module ?? failureModule)
+
+	let effectivePreprocessorModule = $derived(
+		diffManager.mergedFlow?.preprocessor_module ?? preprocessorModule
+	)
+
+	let canUseDiffDrawer = $derived(diffBeforeFlow || moduleActions || editMode)
+
+	// Initialize moduleTracker with effectiveModules
+	let moduleTracker = $state(new ChangeTracker<FlowModule[]>([]))
 
 	let nodes = $state.raw<Node[]>([])
 	let edges = $state.raw<Edge[]>([])
@@ -641,6 +694,7 @@
 	// 	centerViewport(width)
 	// })
 	let yamlEditorDrawer: Drawer | undefined = $state(undefined)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
 
 	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
@@ -648,21 +702,26 @@
 		allowSimplifiedPoll && modules && untrack(() => onModulesChange(modules ?? []))
 	})
 	$effect(() => {
-		readFieldsRecursively(modules)
-		untrack(() => moduleTracker.track($state.snapshot(modules)))
+		readFieldsRecursively(effectiveModules)
+		untrack(() => moduleTracker.track($state.snapshot(effectiveModules)))
+	})
+
+	// Wire up the diff drawer to the diffManager
+	$effect(() => {
+		diffManager.setDiffDrawer(diffDrawer)
 	})
 
 	let graph = $derived.by(() => {
 		moduleTracker.counter
+		effectiveModuleActions
 		return graphBuilder(
-			untrack(() => modules),
+			untrack(() => effectiveModules),
 			{
 				disableAi,
 				insertable,
 				flowModuleStates: untrack(() => flowModuleStates),
 				testModuleStates: untrack(() => testModuleStates),
-				moduleActions: untrack(() => moduleActions),
-				inputSchemaModified: untrack(() => inputSchemaModified),
+				moduleActions: untrack(() => effectiveModuleActions),
 				selectedId: untrack(() => selectedId),
 				path,
 				newFlow,
@@ -677,11 +736,10 @@
 				suspendStatus,
 				flowHasChanged,
 				chatInputEnabled,
-				onShowModuleDiff: untrack(() => onShowModuleDiff),
 				additionalAssetsMap: flowGraphAssetsCtx?.val.additionalAssetsMap
 			},
-			untrack(() => failureModule),
-			preprocessorModule,
+			untrack(() => effectiveFailureModule),
+			effectivePreprocessorModule,
 			eventHandler,
 			success,
 			$useDataflow,
@@ -805,6 +863,10 @@
 		viewportSynchronizer?.zoomOut()
 	}
 
+	export function getDiffManager() {
+		return diffManager
+	}
+
 	export function enableNotes() {
 		if (!showNotes) {
 			showNotes = true
@@ -816,6 +878,9 @@
 
 {#if insertable}
 	<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
+{/if}
+{#if canUseDiffDrawer}
+	<DiffDrawer bind:this={diffDrawer} />
 {/if}
 <div
 	style={`height: ${height}px; max-height: ${maxHeight}px;`}

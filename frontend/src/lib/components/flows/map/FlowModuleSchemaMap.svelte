@@ -23,11 +23,9 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import { tutorialsToDo, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
@@ -41,7 +39,12 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
-	import { type AgentTool, flowModuleToAgentTool, createMcpTool } from '../agentToolUtils'
+	import {
+		type AgentTool,
+		flowModuleToAgentTool,
+		createMcpTool,
+		createWebsearchTool
+	} from '../agentToolUtils'
 	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
@@ -104,8 +107,6 @@
 		flowHasChanged
 	}: Props = $props()
 
-	let flowTutorials: FlowTutorials | undefined = $state(undefined)
-
 	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
@@ -122,7 +123,7 @@
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
 		inlineScript?: InlineScript,
-		toolKind?: 'mcpTool' | 'flowmoduleTool'
+		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool'
 	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
@@ -178,6 +179,11 @@
 			// Create MCP AgentTool
 			const mcpTool = createMcpTool(module.id)
 			;(modules as AgentTool[]).splice(index, 0, mcpTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'websearchTool') {
+			// Create Websearch AgentTool
+			const websearchTool = createWebsearchTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, websearchTool)
 			return modules as AgentTool[]
 		} else if (toolKind === 'flowmoduleTool') {
 			// Create AgentTool from FlowModule
@@ -295,8 +301,13 @@
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
 	let noteMode = $state(false)
+	let diffManager = $derived(getDiffManager())
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
+	}
+
+	export function getDiffManager() {
+		return graph?.getDiffManager()
 	}
 
 	export function enableNotes(): void {
@@ -307,14 +318,6 @@
 		noteMode = !noteMode
 	}
 
-	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
-		return (
-			$tutorialsToDo.includes(index) &&
-			name == tutorialName &&
-			!$ignoredTutorials.includes(index) &&
-			!tutorialInProgress()
-		)
-	}
 
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
@@ -415,6 +418,7 @@
 			{toggleAiChat}
 			{noteMode}
 			{toggleNoteMode}
+			{diffManager}
 		/>
 	</div>
 
@@ -436,6 +440,8 @@
 			{noteMode}
 			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
+			failureModule={flowStore.val.value?.failure_module}
+			currentInputSchema={flowStore.val.schema}
 			{selectionManager}
 			{workspace}
 			editMode
@@ -473,13 +479,7 @@
 				}
 			}}
 			onInsert={async (detail) => {
-				if (shouldRunTutorial('forloop', detail.detail, 1)) {
-					flowTutorials?.runTutorialById('forloop', detail.index)
-				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
-					flowTutorials?.runTutorialById('branchone')
-				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
-					flowTutorials?.runTutorialById('branchall')
-				} else {
+				{
 					let originalModules
 					let targetModules
 					if (
@@ -538,6 +538,8 @@
 								const toolKind = detail.agentId
 									? detail.kind === 'mcpTool'
 										? 'mcpTool'
+										: detail.kind === 'websearchTool'
+											? 'websearchTool'
 										: 'flowmoduleTool'
 									: undefined
 
@@ -675,5 +677,5 @@
 </div>
 
 {#if !disableTutorials}
-	<FlowTutorials bind:this={flowTutorials} on:reload />
+	<FlowTutorials on:reload />
 {/if}

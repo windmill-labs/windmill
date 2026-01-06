@@ -308,6 +308,7 @@ pub async fn do_mysql(
                 &statement_values,
                 conn_a_ref.clone(),
                 if i == queries.len() - 1
+                    && s3.is_none()
                     && collection_strategy.collect_last_statement_only(queries.len())
                     && !collection_strategy.collect_scalar()
                 {
@@ -358,12 +359,14 @@ static DATE_REGEX_TZ: Lazy<regex::Regex> = Lazy::new(|| {
 // 2025-04-21 10:08:00
 static DATE_REGEX: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r"(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})").unwrap());
+// 2025-01-05
+static DATE_REGEX_DATE_ONLY: Lazy<regex::Regex> =
+    Lazy::new(|| regex::Regex::new(r"^(\d{4})-(\d{2})-(\d{2})$").unwrap());
 
 fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
-    let caps = DATE_REGEX_TZ.captures(s).or_else(|| DATE_REGEX.captures(s));
-
-    if let Some(caps) = caps {
-        mysql_async::Value::Date(
+    // Try ISO format with timezone (most specific)
+    if let Some(caps) = DATE_REGEX_TZ.captures(s) {
+        return mysql_async::Value::Date(
             get_capture_by_index(&caps, 1),
             get_capture_by_index(&caps, 2),
             get_capture_by_index(&caps, 3),
@@ -371,10 +374,34 @@ fn string_date_to_mysql_date(s: &str) -> mysql_async::Value {
             get_capture_by_index(&caps, 5),
             get_capture_by_index(&caps, 6),
             get_capture_by_index(&caps, 7),
-        )
-    } else {
-        mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
+        );
     }
+
+    // Try datetime without timezone
+    if let Some(caps) = DATE_REGEX.captures(s) {
+        return mysql_async::Value::Date(
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            get_capture_by_index(&caps, 4),
+            get_capture_by_index(&caps, 5),
+            get_capture_by_index(&caps, 6),
+            0,
+        );
+    }
+
+    // Try date-only format (YYYY-MM-DD)
+    if let Some(caps) = DATE_REGEX_DATE_ONLY.captures(s) {
+        return mysql_async::Value::Date(
+            get_capture_by_index(&caps, 1),
+            get_capture_by_index(&caps, 2),
+            get_capture_by_index(&caps, 3),
+            0, 0, 0, 0,
+        );
+    }
+
+    // Fallback for invalid format
+    mysql_async::Value::Date(0, 0, 0, 0, 0, 0, 0)
 }
 
 fn get_capture_by_index<T: FromStr + Default>(caps: &regex::Captures, n: usize) -> T {

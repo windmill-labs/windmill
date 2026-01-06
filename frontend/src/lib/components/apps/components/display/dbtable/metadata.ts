@@ -2,7 +2,13 @@ import { JobService, ResourceService } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
-import { getLanguageByResourceType, resourceTypeToLang, scripts, type TableMetadata } from './utils'
+import {
+	getLanguageByResourceType,
+	resourceTypeToLang,
+	legacyScripts,
+	scriptsV2,
+	type TableMetadata
+} from './utils'
 
 import { type Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
@@ -10,6 +16,7 @@ import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
+import { getDatabaseArg } from '$lib/components/dbOps'
 
 export async function loadTableMetaData(
 	input: DbInput,
@@ -26,7 +33,7 @@ export async function loadTableMetaData(
 		requestBody: {
 			language,
 			content,
-			args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+			args: getDatabaseArg(input)
 		}
 	})
 
@@ -75,7 +82,7 @@ export async function loadAllTablesMetaData(
 			requestBody: {
 				language,
 				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
-				args: input.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+				args: getDatabaseArg(input)
 			}
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
@@ -288,8 +295,13 @@ export async function getDbSchemas(
 	resourcePath: string,
 	workspace: string | undefined,
 	dbSchemas: DBSchemas,
-	errorCallback: (message: string) => void
+	errorCallback: (message: string) => void,
+	options: {
+		useLegacyScripts?: boolean // To avoid breaking app policies
+	} = {}
 ): Promise<void> {
+	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
+
 	if (!scripts[resourceType]) return
 
 	return new Promise(async (resolve, reject) => {
@@ -304,7 +316,9 @@ export async function getDbSchemas(
 				language: scripts[resourceType].lang as Preview['language'],
 				content: scripts[resourceType].code,
 				args: {
-					[scripts[resourceType].argName]: '$res:' + resourcePath
+					[scripts[resourceType].argName]: resourcePath.startsWith('datatable://')
+						? resourcePath
+						: '$res:' + resourcePath
 				}
 			}
 		})

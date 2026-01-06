@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.586.0"
+version = "1.601.1"
 authors.workspace = true
 edition.workspace = true
 
@@ -33,7 +33,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.586.0"
+version = "1.601.1"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -125,6 +125,7 @@ windmill-autoscaling = { workspace = true, optional = true }
 futures.workspace = true
 tracing.workspace = true
 sqlx.workspace = true
+sql-builder.workspace = true
 rand.workspace = true
 chrono.workspace = true
 git-version.workspace = true
@@ -158,7 +159,6 @@ kube.workspace = true
 k8s-openapi.workspace = true
 libloading.workspace = true
 bitflags.workspace = true
-nom.workspace = true
 globset.workspace = true
 
 
@@ -256,11 +256,11 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
-reqwest = { version = "^0.12", features = ["json", "stream", "gzip", "multipart"] }
+reqwest = { version = "=0.12.24", features = ["json", "stream", "gzip", "multipart"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
-tokio-tar = "^0"
+astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
 tokio-util = { version = "^0", features = ["io"] }
 json-pointer = "^0"
@@ -328,7 +328,7 @@ futures = "^0"
 futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
-const_format = { version = "0.2", features = ["rust_1_64", "rust_1_51"] }
+const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"
@@ -378,7 +378,6 @@ pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
-nom = "8.0.0"
 globset = "0.4.16"
 
 process-wrap = { version = "8.2.1", features = ["tokio1"] }

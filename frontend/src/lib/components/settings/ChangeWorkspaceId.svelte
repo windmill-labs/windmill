@@ -84,15 +84,15 @@
 			Renaming the workspace may take a few minutes to complete. Once finished, please update your
 			webhook calls and adjust your CLI sync configuration accordingly.
 		</Alert>
-		<p class="text-secondary text-sm"
-			>Current ID <br /> <span class="font-bold">{$workspaceStore ?? ''}</span></p
+		<p class="text-secondary text-xs"
+			>Current ID <br /> <span class="text-emphasis">{$workspaceStore ?? ''}</span></p
 		>
-		<label class="block">
-			<span class="text-secondary text-sm">New name</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-emphasis text-xs">New name</span>
 			<input type="text" bind:value={newName} />
 		</label>
 		<label class="block">
-			<span class="text-secondary text-sm">New ID</span>
+			<span class="text-emphasis text-xs">New ID</span>
 			<input type="text" bind:value={newId} />
 			{#if errorId}
 				<div class="text-red-500 text-xs mt-1">{errorId}</div>
@@ -100,9 +100,10 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<Button
 			size="sm"
+			variant="accent"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
 			{loading}
 			on:click={() => {
@@ -111,5 +112,5 @@
 		>
 			Save
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 </Modal>

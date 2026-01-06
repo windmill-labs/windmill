@@ -11,6 +11,7 @@
 		disabled?: boolean
 		required?: boolean
 		small?: boolean
+		id?: string
 		onKeyDown?: (event: KeyboardEvent) => void
 		onBlur?: (event: FocusEvent) => void
 	}
@@ -21,6 +22,7 @@
 		disabled = false,
 		required = false,
 		small = false,
+		id,
 		onKeyDown,
 		onBlur
 	}: Props = $props()
@@ -46,6 +48,7 @@
 		error={red}
 		bind:value={password}
 		inputProps={{
+			id,
 			disabled,
 			placeholder,
 			autocomplete: 'new-password',
@@ -56,6 +59,7 @@
 			},
 			type: hideValue ? 'password' : 'text'
 		}}
+		class="pr-8"
 	/>
 </div>
 {#if red}

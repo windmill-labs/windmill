@@ -18,7 +18,6 @@
 		Loader2,
 		TriangleAlert,
 		Timer,
-		DiffIcon,
 		Maximize2
 	} from 'lucide-svelte'
 	import { createEventDispatcher, getContext } from 'svelte'
@@ -37,22 +36,23 @@
 	import OutputPicker from '$lib/components/flows/propPicker/OutputPicker.svelte'
 	import OutputPickerInner from '$lib/components/flows/propPicker/OutputPickerInner.svelte'
 	import type { FlowState } from '$lib/components/flows/flowState'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
 	import { Button } from '$lib/components/common'
 	import ModuleTest from '$lib/components/ModuleTest.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import type { Job } from '$lib/gen'
-	import { getNodeColorClasses, type FlowNodeState } from '$lib/components/graph'
-	import type { AIModuleAction } from '$lib/components/copilot/chat/flow/core'
+	import {
+		getNodeColorClasses,
+		aiActionToNodeState,
+		type FlowNodeState
+	} from '$lib/components/graph'
+	import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
+	import DiffActionBar from './DiffActionBar.svelte'
+	import { getGraphContext } from '$lib/components/graph/graphContext'
 
 	interface Props {
 		selected?: boolean
 		deletable?: boolean
-		moduleAction: AIModuleAction | undefined
-		onShowModuleDiff?: (moduleId: string) => void
+		moduleAction: ModuleActionInfo | undefined
 		retry?: boolean
 		cache?: boolean
 		earlyStop?: boolean
@@ -95,7 +95,6 @@
 		selected = false,
 		deletable = false,
 		moduleAction = undefined,
-		onShowModuleDiff = undefined,
 		retry = false,
 		cache = false,
 		earlyStop = false,
@@ -127,12 +126,18 @@
 		maximizeSubflow = undefined
 	}: Props = $props()
 
-	let colorClasses = $derived(getNodeColorClasses(nodeState, selected))
-
-	let pickableIds: Record<string, any> | undefined = $state(undefined)
+	// AI action colors take priority over execution state
+	let effectiveState = $derived(aiActionToNodeState(moduleAction?.action) ?? nodeState)
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 
 	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
 	const flowInputsStore = flowEditorContext?.flowInputsStore
+	const flowStore = flowEditorContext?.flowStore
+
+	const flowGraphContext = getGraphContext()
+	const diffManager = flowGraphContext?.diffManager
+
+	let pickableIds: Record<string, any> | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
 
@@ -185,8 +190,6 @@
 	)
 
 	const icon_render = $derived(icon)
-
-	const action = $derived(getAiModuleAction(id))
 
 	let testRunDropdownOpen = $state(false)
 
@@ -252,9 +255,9 @@
 	</Drawer>
 {/if}
 
-{#if deletable && id && flowEditorContext?.flowStore && outputPickerVisible}
-	{@const flowStore = flowEditorContext?.flowStore.val}
-	{@const mod = flowStore?.value ? dfsPreviousResults(id, flowStore, false)[0] : undefined}
+{#if deletable && id && flowStore && outputPickerVisible}
+	{@const flowStoreVal = flowStore.val}
+	{@const mod = flowStoreVal?.value ? dfsPreviousResults(id, flowStoreVal, false)[0] : undefined}
 	{#if mod && flowStateStore?.val?.[id]}
 		<ModuleTest
 			bind:this={moduleTest}
@@ -269,13 +272,11 @@
 {/if}
 
 <div class="relative">
-	<!-- TODO: Use existing function to get module color classes instead of using aiModuleActionToBgColor -->
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
 		class={classNames(
 			'w-full module flex rounded-md cursor-pointer max-w-full drop-shadow-base',
-			deletable || moduleAction ? aiModuleActionToBgColor(moduleAction ?? action) : '',
 			colorClasses.bg
 		)}
 		style="width: 275px; height: 34px;"
@@ -283,21 +284,8 @@
 		onmouseleave={() => (hover = false)}
 		onpointerdown={stopPropagation(preventDefault((e) => dispatch('pointerdown', e)))}
 	>
-		{#if deletable}
-			<ModuleAcceptReject action={moduleAction ?? action} {id} />
-		{/if}
-		{#if moduleAction === 'modified' && onShowModuleDiff && id}
-			<div class="absolute right-0 left-0 top-0 -translate-y-full flex justify-start z-50">
-				<Button
-					class="p-1 bg-surface hover:bg-surface-hover rounded-t-md text-3xs font-normal flex flex-row items-center gap-1 text-orange-800 dark:text-orange-400"
-					onClick={() => {
-						onShowModuleDiff?.(id)
-					}}
-					startIcon={{ icon: DiffIcon }}
-				>
-					Diff
-				</Button>
-			</div>
+		{#if id}
+			<DiffActionBar moduleId={id} {moduleAction} {diffManager} {flowStore} />
 		{/if}
 		<div
 			class={classNames('absolute z-0 rounded-md outline-offset-0', colorClasses.outline)}
@@ -432,14 +420,12 @@
 			{/if}
 		</div>
 
-		<div
-			class={twMerge('flex flex-col w-full', deletable && action === 'removed' ? 'opacity-50' : '')}
-		>
+		<div class="flex flex-col w-full">
 			<FlowModuleSchemaItemViewer
 				{label}
 				{path}
 				{id}
-				deletable={deletable && !action}
+				{deletable}
 				{bold}
 				bind:editId
 				{hover}
@@ -488,7 +474,7 @@
 			{/if}
 		</div>
 
-		{#if deletable && !action}
+		{#if deletable}
 			{#if maximizeSubflow !== undefined}
 				{@render buttonMaximizeSubflow?.()}
 			{/if}

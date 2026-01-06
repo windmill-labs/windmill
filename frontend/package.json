@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.586.0",
+	"version": "1.601.1",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -11,12 +11,13 @@
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --ignore-path .gitignore --check --plugin-search-dir=. . && eslint --ignore-path .gitignore .",
 		"format": "prettier --ignore-path .gitignore --write --plugin-search-dir=. .",
-		"package": "svelte-package -o package",
+		"package": "svelte-package -o package && node scripts/package-system-prompts.js",
 		"generate-backend-client": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript --format false",
 		"generate-backend-client-mac": "openapi-ts --input ../backend/windmill-api/openapi.yaml --output ./src/lib/gen --useOptions --enums javascript",
 		"pretest": "tsc --incremental -p tests/tsconfig.json",
-		"test": "playwright test --config=tests-out/playwright.config.js",
-		"filter-classes": "node filterTailwindClasses.js"
+		"test": "playwright test --config=tests-out/playwright.config.js && npm run test:unit -- --run",
+		"filter-classes": "node filterTailwindClasses.js",
+		"test:unit": "vitest"
 	},
 	"devDependencies": {
 		"@floating-ui/core": "^1.3.1",
@@ -25,9 +26,9 @@
 		"@melt-ui/svelte": "^0.86.2",
 		"@playwright/test": "^1.34.3",
 		"@sveltejs/adapter-static": "^3.0.6",
-		"@sveltejs/kit": "^2.28.0",
+		"@sveltejs/kit": "^2.49.2",
 		"@sveltejs/package": "^2.3.7",
-		"@sveltejs/vite-plugin-svelte": "^6.1.1",
+		"@sveltejs/vite-plugin-svelte": "^6.2.1",
 		"@tailwindcss/forms": "^0.5.3",
 		"@tailwindcss/typography": "^0.5.8",
 		"@types/d3": "^7.4.0",
@@ -37,6 +38,7 @@
 		"@types/vscode": "^1.83.5",
 		"@typescript-eslint/eslint-plugin": "^5.59.8",
 		"@typescript-eslint/parser": "^5.60.0",
+		"@vitest/browser-playwright": "^4.0.10",
 		"@zerodevx/svelte-toast": "^0.9.6",
 		"autoprefixer": "^10.4.13",
 		"cssnano": "^6.0.1",
@@ -45,7 +47,10 @@
 		"eslint": "^8.47.0",
 		"eslint-config-prettier": "^8.6.0",
 		"eslint-plugin-svelte": "^2.45.1",
+		"json-refs": "^3.0.15",
+		"json-schema-to-zod": "^2.7.0",
 		"path-browserify": "^1.0.1",
+		"playwright": "^1.56.1",
 		"postcss": "^8.4.49",
 		"postcss-load-config": "^4.0.1",
 		"prettier": "^3.1.0",
@@ -61,14 +66,14 @@
 		"svelte-preprocess": "^6.0.0",
 		"svelte-range-slider-pips": "^2.3.1",
 		"svelte-splitpanes": "^8.0.9",
-		"svelte2tsx": "^0.6.16",
 		"tailwindcss": "^3.4.1",
 		"tar": "^7.4.3",
 		"tslib": "^2.6.1",
 		"typescript": "^5.5.0",
-		"vite": "npm:rolldown-vite@7.2.8",
+		"vite": "npm:rolldown-vite@7.3.0",
 		"vite-plugin-mkcert": "^1.17.5",
-		"yootils": "^0.3.1"
+		"vitest": "^4.0.10",
+		"vitest-browser-svelte": "^2.0.1"
 	},
 	"overrides": {
 		"monaco-graphql": {
@@ -79,15 +84,15 @@
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.60.0",
 		"@aws-crypto/sha256-js": "^4.0.0",
-		"@codingame/monaco-vscode-editor-api": "=21.6.0",
-		"@codingame/monaco-vscode-standalone-css-language-features": "=21.6.0",
-		"@codingame/monaco-vscode-standalone-html-language-features": "=21.6.0",
-		"@codingame/monaco-vscode-standalone-json-language-features": "=21.6.0",
-		"@codingame/monaco-vscode-standalone-languages": "=21.6.0",
-		"@codingame/monaco-vscode-standalone-typescript-language-features": "=21.6.0",
+		"@codingame/monaco-vscode-editor-api": "=24.2.0",
+		"@codingame/monaco-vscode-languages-service-override": "=24.2.0",
+		"@codingame/monaco-vscode-standalone-css-language-features": "=24.2.0",
+		"@codingame/monaco-vscode-standalone-html-language-features": "=24.2.0",
+		"@codingame/monaco-vscode-standalone-json-language-features": "=24.2.0",
+		"@codingame/monaco-vscode-standalone-languages": "=24.2.0",
+		"@codingame/monaco-vscode-standalone-typescript-language-features": "=24.2.0",
 		"@json2csv/plainjs": "^7.0.6",
 		"@leeoniya/ufuzzy": "^1.0.8",
-		"@popperjs/core": "^2.11.6",
 		"@redocly/json-to-json-schema": "^0.0.1",
 		"@scalar/openapi-parser": "^0.15.0",
 		"@tanstack/svelte-table": "npm:tanstack-table-8-svelte-5@^0.1",
@@ -117,12 +122,12 @@
 		"lru-cache": "^11.1.0",
 		"lucide-svelte": "^0.540.0",
 		"minimatch": "^10.0.1",
-		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@=21.6.0",
-		"monaco-graphql": "=1.6.0",
-		"monaco-languageclient": "10.1.0",
+		"monaco-editor": "npm:@codingame/monaco-vscode-editor-api@=24.2.0",
+		"monaco-graphql": "=1.7.3",
+		"monaco-languageclient": "10.5.0",
 		"monaco-vim": "^0.4.1",
 		"ol": "^7.4.0",
-		"openai": "^6.9.0",
+		"openai": "^6.9.1",
 		"openapi-types": "^12.1.3",
 		"p-limit": "^6.1.0",
 		"panzoom": "^9.4.3",
@@ -132,11 +137,12 @@
 		"rehype-github-alerts": "^3.0.0",
 		"rehype-raw": "^7.0.0",
 		"rfc4648": "^1.5.3",
+		"runed": "^0.36.0",
 		"svelte-carousel": "^1.0.25",
 		"svelte-exmarkdown": "^5.0.0",
 		"svelte-infinite-loading": "^1.4.0",
 		"tailwind-merge": "^1.13.2",
-		"vscode": "npm:@codingame/monaco-vscode-extension-api@=21.6.0",
+		"vscode": "npm:@codingame/monaco-vscode-extension-api@=24.2.0",
 		"vscode-languageclient": "~9.0.1",
 		"vscode-uri": "~3.1.0",
 		"vscode-ws-jsonrpc": "~3.5.0",
@@ -145,12 +151,12 @@
 		"windmill-parser-wasm-java": "1.510.1",
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.574.1",
-		"windmill-parser-wasm-py": "1.538.0",
-		"windmill-parser-wasm-regex": "1.576.3",
+		"windmill-parser-wasm-py": "1.595.0",
+		"windmill-parser-wasm-regex": "1.593.0",
 		"windmill-parser-wasm-ruby": "1.526.1",
 		"windmill-parser-wasm-rust": "1.558.1",
-		"windmill-parser-wasm-ts": "1.565.0",
-		"windmill-parser-wasm-yaml": "1.561.0",
+		"windmill-parser-wasm-ts": "1.593.0",
+		"windmill-parser-wasm-yaml": "1.593.0",
 		"windmill-sql-datatype-parser-wasm": "1.512.0",
 		"windmill-utils-internal": "^1.3.1",
 		"xterm": "^5.3.0",
@@ -159,8 +165,7 @@
 		"y-websocket": "^1.5.4",
 		"yaml": "^2.8.0",
 		"yjs": "^13.6.7",
-		"zod": "^3.24.2",
-		"zod-to-json-schema": "^3.24.5"
+		"zod": "^4.1.10"
 	},
 	"peerDependencies": {
 		"svelte": "^5.0.0"
@@ -245,6 +250,16 @@
 			"types": "./package/components/common/tabs/Tab.svelte.d.ts",
 			"svelte": "./package/components/common/tabs/Tab.svelte",
 			"default": "./package/components/common/tabs/Tab.svelte"
+		},
+		"./components/common/toggleButton-v2/ToggleButtonGroup.svelte": {
+			"types": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte.d.ts",
+			"svelte": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte",
+			"default": "./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte"
+		},
+		"./components/common/toggleButton-v2/ToggleButton.svelte": {
+			"types": "./package/components/common/toggleButton-v2/ToggleButton.svelte.d.ts",
+			"svelte": "./package/components/common/toggleButton-v2/ToggleButton.svelte",
+			"default": "./package/components/common/toggleButton-v2/ToggleButton.svelte"
 		},
 		"./components/common/alert/Alert.svelte": {
 			"types": "./package/components/common/alert/Alert.svelte.d.ts",
@@ -440,6 +455,12 @@
 			],
 			"components/Toggle.svelte": [
 				"./package/components/Toggle.svelte.d.ts"
+			],
+			"components/common/toggleButton-v2/ToggleButtonGroup.svelte": [
+				"./package/components/common/toggleButton-v2/ToggleButtonGroup.svelte.d.ts"
+			],
+			"components/common/toggleButton-v2/ToggleButton.svelte": [
+				"./package/components/common/toggleButton-v2/ToggleButton.svelte.d.ts"
 			],
 			"components/common/tabs/Tabs.svelte": [
 				"./package/components/common/tabs/Tabs.svelte.d.ts"

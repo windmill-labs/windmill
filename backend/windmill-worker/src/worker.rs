@@ -15,6 +15,8 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::jobs::WorkerInternalServerInlineUtils;
+use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -344,11 +346,13 @@ lazy_static::lazy_static! {
                         \n\
                         Solutions:\n\
                         • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • Check max user namespaces limit: 'cat /proc/sys/user/max_user_namespaces'\n\
+                          (Some AMIs like Bottlerocket have max_user_namespaces=0 which disables user namespaces entirely)\n\
                         • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
                         • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
                         • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
                         • Alternative: Use NSJAIL instead\n\
-                        • Disable: Set ENABLE_UNSHARE_PID=false",
+                        • Disable: Set ENABLE_UNSHARE_PID=false (or disableUnsharePid=true in Helm chart)",
                         stderr.trim(),
                         flags
                     );
@@ -980,9 +984,9 @@ pub fn start_interactive_worker_shell(
                     Connection::Sql(db) => {
                         let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
+
                         let job = pull(
                             &db,
                             false,
@@ -993,22 +997,23 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
+                        use PulledJobResultToJobErr::*;
                         match job {
-                            Ok(j) => {
-                                match j.to_pulled_job() {
-                                    Ok(j) => Ok(j
-                                        .clone()
-                                        .map(|job| NextJob::Sql { flow_runners: None, job })),
-                                    Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
-                                    | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
-                                        if let Err(err) = job_completed_tx.send_job(jc, true).await
-                                        {
-                                            tracing::error!("An error occurred while sending job completed: {:#?}", err)
-                                        }
-                                        Ok(None)
+                            Ok(j) => match j.to_pulled_job() {
+                                Ok(j) => Ok(j
+                                    .clone()
+                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                Err(MissingConcurrencyKey(jc))
+                                | Err(ErrorWhilePreprocessing(jc)) => {
+                                    if let Err(err) = job_completed_tx.send_job(jc, true).await {
+                                        tracing::error!(
+                                            "An error occurred while sending job completed: {:#?}",
+                                            err
+                                        )
                                     }
+                                    Ok(None)
                                 }
-                            }
+                            },
                             Err(err) => Err(err),
                         }
                     }
@@ -1023,7 +1028,6 @@ pub fn start_interactive_worker_shell(
                 match pulled_job {
                     Ok(Some(job)) => {
                         tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -1764,7 +1768,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
                         let mut job = match timeout(
-                            Duration::from_secs(10),
+                            Duration::from_secs(30),
                             pull(
                                 &db,
                                 suspend_first,
@@ -1779,7 +1783,7 @@ pub async fn run_worker(
                         {
                             Ok(job) => job,
                             Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
                                 tokio::time::sleep(Duration::from_secs(30)).await;
                                 continue;
                             }
@@ -1790,7 +1794,7 @@ pub async fn run_worker(
                             if let Err(e) = timeout(
                                 // Will fail if longer than 10 seconds
                                 core::time::Duration::from_secs(10),
-                                pulled_job_res.preprocess(db),
+                                pulled_job_res.maybe_apply_debouncing(db),
                             )
                             .warn_after_seconds(2)
                             .await
@@ -2638,6 +2642,13 @@ pub async fn handle_queued_job(
         return Err(Error::ExecutionErr(e.to_string()));
     }
 
+    match job.kind {
+        JobKind::UnassignedScript | JobKind::UnassignedFlow | JobKind::UnassignedSinglestepFlow => {
+            return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
+        }
+        _ => {}
+    }
+
     #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
     match conn {
         Connection::Sql(db) => {
@@ -2727,7 +2738,6 @@ pub async fn handle_queued_job(
             let cached_result_maybe = get_cached_resource_value_if_valid(
                 db,
                 &client,
-                &job.id,
                 &job.workspace_id,
                 &cached_res_path,
             )
@@ -2826,10 +2836,14 @@ pub async fn handle_queued_job(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        if job.concurrent_limit.is_some() {
-            logs.push_str("---\n");
-            logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
-            logs.push_str("---\n");
+        if let Connection::Sql(db) = conn {
+            if (job.concurrent_limit.is_some() ||
+                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                && !job.kind.is_dependency() {
+                logs.push_str("---\n");
+                logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
+                logs.push_str("---\n");
+            }
         }
 
         // Only used for testing in tests/relative_imports.rs
@@ -3167,6 +3181,9 @@ async fn try_validate_schema(
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
                 JobKind::AIAgent => 15,
+                JobKind::UnassignedScript => 16,
+                JobKind::UnassignedFlow => 17,
+                JobKind::UnassignedSinglestepFlow => 18,
             };
 
             let sv = match job.runnable_id {
@@ -3365,6 +3382,57 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
+    run_language_executor(
+        job,
+        conn,
+        client,
+        parent_runnable_path,
+        job_dir,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        base_internal_url,
+        worker_name,
+        column_order,
+        new_args,
+        occupancy_metrics,
+        killpill_rx,
+        precomputed_agent_info,
+        has_stream,
+        language,
+        code,
+        envs,
+        codebase,
+        lock,
+        false,
+    )
+    .await
+}
+
+pub async fn run_language_executor(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
+    job_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    base_internal_url: &str,
+    worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
+    language: Option<ScriptLang>,
+    code: &String,
+    envs: &Option<Vec<String>>,
+    codebase: &Option<String>,
+    lock: &Option<String>,
+    run_inline: bool,
+) -> error::Result<Box<RawValue>> {
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
             job,
@@ -3377,6 +3445,7 @@ async fn handle_code_execution_job(
             column_order,
             occupancy_metrics,
             parent_runnable_path,
+            run_inline,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -3386,19 +3455,26 @@ async fn handle_code_execution_job(
         ));
 
         #[cfg(feature = "mysql")]
-        return do_mysql(
-            job,
-            &client,
-            &code,
-            conn,
-            mem_peak,
-            canceled_by,
-            worker_name,
-            column_order,
-            occupancy_metrics,
-            parent_runnable_path,
-        )
-        .await;
+        {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            return do_mysql(
+                job,
+                &client,
+                &code,
+                conn,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                column_order,
+                occupancy_metrics,
+                parent_runnable_path,
+            )
+            .await;
+        }
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -3417,6 +3493,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "bigquery"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_bigquery(
                 job,
                 &client,
@@ -3441,6 +3522,11 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_snowflake(
                 job,
                 &client,
@@ -3473,6 +3559,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "mssql"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_mssql(
                 job,
                 &client,
@@ -3505,6 +3596,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "oracledb"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_oracledb(
                 job,
                 &client,
@@ -3541,10 +3637,16 @@ async fn handle_code_execution_job(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
+                run_inline,
             )
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
+        if run_inline {
+            return Err(Error::internal_err(
+                "Inline execution is not yet supported for this language".to_string(),
+            ));
+        }
         return do_graphql(
             job,
             &client,
@@ -3557,6 +3659,11 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Nativets) {
+        if run_inline {
+            return Err(Error::internal_err(
+                "Inline execution is not yet supported for this language".to_string(),
+            ));
+        }
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -3672,29 +3779,41 @@ mount {{
             ));
 
             #[cfg(feature = "python")]
-            Box::pin(handle_python_job(
-                lock.as_ref(),
-                job_dir,
-                worker_dir,
-                worker_name,
-                job,
-                mem_peak,
-                canceled_by,
-                conn,
-                client,
-                parent_runnable_path,
-                &code,
-                &shared_mount,
-                base_internal_url,
-                envs,
-                new_args,
-                occupancy_metrics,
-                precomputed_agent_info,
-                has_stream,
-            ))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_python_job(
+                    lock.as_ref(),
+                    job_dir,
+                    worker_dir,
+                    worker_name,
+                    job,
+                    mem_peak,
+                    canceled_by,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    &shared_mount,
+                    base_internal_url,
+                    envs,
+                    new_args,
+                    occupancy_metrics,
+                    precomputed_agent_info,
+                    has_stream,
+                ))
+                .await
+            }
         }
         ScriptLang::Deno => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             Box::pin(handle_deno_job(
                 lock.as_ref(),
                 mem_peak,
@@ -3715,6 +3834,11 @@ mount {{
             .await
         }
         ScriptLang::Bun | ScriptLang::Bunnative => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             let maybe_lock = resolve_maybe_lock(
                 &lock,
                 &code,
@@ -3747,6 +3871,11 @@ mount {{
             .await
         }
         ScriptLang::Go => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             let maybe_lock = resolve_maybe_lock(
                 &lock,
                 &code,
@@ -3775,6 +3904,11 @@ mount {{
             .await
         }
         ScriptLang::Bash => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             Box::pin(handle_bash_job(
                 mem_peak,
                 canceled_by,
@@ -3794,6 +3928,11 @@ mount {{
             .await
         }
         ScriptLang::Powershell => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             Box::pin(handle_powershell_job(
                 mem_peak,
                 canceled_by,
@@ -3819,6 +3958,11 @@ mount {{
 
             #[cfg(feature = "php")]
             {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
                 let maybe_lock = resolve_maybe_lock(
                     &lock,
                     &code,
@@ -3854,23 +3998,30 @@ mount {{
             ));
 
             #[cfg(feature = "rust")]
-            Box::pin(handle_rust_job(
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                &code,
-                job_dir,
-                lock.as_ref(),
-                &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            ))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_rust_job(
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    job_dir,
+                    lock.as_ref(),
+                    &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                ))
+                .await
+            }
         }
         ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
@@ -3879,26 +4030,38 @@ mount {{
             ));
 
             #[cfg(feature = "python")]
-            Box::pin(handle_ansible_job(
-                lock.as_ref(),
-                job_dir,
-                worker_dir,
-                worker_name,
-                job,
-                mem_peak,
-                canceled_by,
-                conn,
-                client,
-                parent_runnable_path,
-                &code,
-                &shared_mount,
-                base_internal_url,
-                envs,
-                occupancy_metrics,
-            ))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_ansible_job(
+                    lock.as_ref(),
+                    job_dir,
+                    worker_dir,
+                    worker_name,
+                    job,
+                    mem_peak,
+                    canceled_by,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    &shared_mount,
+                    base_internal_url,
+                    envs,
+                    occupancy_metrics,
+                ))
+                .await
+            }
         }
         ScriptLang::CSharp => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             Box::pin(handle_csharp_job(
                 mem_peak,
                 canceled_by,
@@ -3924,23 +4087,30 @@ mount {{
             );
 
             #[cfg(feature = "nu")]
-            Box::pin(handle_nu_job(JobHandlerInputNu {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            }))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_nu_job(JobHandlerInputNu {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
         ScriptLang::Java => {
             #[cfg(not(feature = "java"))]
@@ -3950,23 +4120,30 @@ mount {{
             .into());
 
             #[cfg(feature = "java")]
-            Box::pin(handle_java_job(JobHandlerInputJava {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            }))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_java_job(JobHandlerInputJava {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
         ScriptLang::Ruby => {
             #[cfg(not(feature = "ruby"))]
@@ -3976,23 +4153,30 @@ mount {{
             .into());
 
             #[cfg(feature = "ruby")]
-            Box::pin(handle_ruby_job(JobHandlerInputRuby {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            }))
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_ruby_job(JobHandlerInputRuby {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
@@ -4076,4 +4260,106 @@ pub fn parse_sig_of_lang(
     } else {
         None
     })
+}
+
+pub fn init_worker_internal_server_inline_utils(
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    base_internal_url: String,
+) -> windmill_common::error::Result<()> {
+    let utils = WorkerInternalServerInlineUtils {
+        base_internal_url,
+        killpill_rx: Arc::new(killpill_rx),
+        run_inline_preview_script: Arc::new(|params| {
+            let job = MiniPulledJob {
+                workspace_id: params.workspace_id,
+                id: Uuid::new_v4(),
+                args: params.args.map(Json),
+                parent_job: None,
+                created_by: params.created_by,
+                scheduled_for: chrono::Utc::now(),
+                started_at: None,
+                runnable_path: None,
+                kind: JobKind::Preview,
+                runnable_id: None,
+                canceled_reason: None,
+                canceled_by: None,
+                permissioned_as: params.permissioned_as,
+                permissioned_as_email: params.permissioned_as_email,
+                flow_status: None,
+                tag: "inline_preview".to_string(),
+                script_lang: Some(params.lang),
+                same_worker: true,
+                pre_run_error: None,
+                flow_innermost_root_job: None,
+                root_job: None,
+                timeout: None,
+                flow_step_id: None,
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                preprocessed: None,
+                script_entrypoint_override: None,
+                trigger: None,
+                trigger_kind: None,
+                visible_to_owner: false,
+                permissioned_as_end_user_email: None,
+                runnable_settings_handle: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+            };
+            Box::pin(async move {
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                run_language_executor(
+                    &job,
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                    Some(params.lang),
+                    &params.content,
+                    &None,
+                    &None,
+                    &None,
+                    true,
+                )
+                .await
+            })
+        }),
+    };
+    WORKER_INTERNAL_SERVER_INLINE_UTILS
+        .set(utils)
+        .map_err(|_| {
+            error::Error::InternalErr(
+                "Couldn't set WorkerInternalServerInlineUtils OnceCell".to_string(),
+            )
+        })?;
+    Ok(())
+}
+
+pub fn get_worker_internal_server_inline_utils(
+) -> windmill_common::error::Result<&'static WorkerInternalServerInlineUtils> {
+    match WORKER_INTERNAL_SERVER_INLINE_UTILS.get() {
+        Some(utils) => Ok(utils),
+        None => Err(error::Error::internal_err(
+            "worker inline functions are meant to be called from a worker's internal server",
+        )),
+    }
 }

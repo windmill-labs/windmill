@@ -16,10 +16,10 @@ use crate::{
             get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
             trigger_runnable_inner, RunnableId,
         },
-        Trigger, TriggerCrud, TriggerData,
+        Trigger, TriggerCrud, TriggerData, TriggerMode,
     },
     users::fetch_api_authed,
-    utils::ExpiringCacheEntry,
+    utils::{check_scopes, ExpiringCacheEntry},
 };
 use axum::{
     async_trait,
@@ -40,7 +40,8 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    triggers::TriggerKind,
+    jobs::JobTriggerKind,
+    triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, require_admin, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -196,7 +197,7 @@ pub async fn insert_new_trigger_into_db(
                 summary,
                 description,
                 is_flow,
-                enabled,
+                mode,
                 request_type,
                 authentication_method,
                 http_method,
@@ -225,7 +226,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.summary,
             trigger.config.description,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             request_type as _,
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
@@ -483,7 +484,7 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $7,
                 path = $8,
                 is_flow = $9,
-                enabled = $10,
+                mode = $10,
                 http_method = $11,
                 static_asset_config = $12,
                 edited_by = $13,
@@ -510,7 +511,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
-                trigger.base.enabled.unwrap_or(true),
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -542,7 +543,7 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $4,
                 path = $5,
                 is_flow = $6,
-                enabled = $7,
+                mode = $7,
                 http_method = $8,
                 static_asset_config = $9,
                 edited_by = $10,
@@ -566,7 +567,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
-                trigger.base.enabled.unwrap_or(true),
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -591,7 +592,7 @@ impl TriggerCrud for HttpTrigger {
         Ok(())
     }
 
-    async fn set_enabled_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
+    async fn set_trigger_mode_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
         increase_trigger_version(tx).await
     }
 
@@ -735,6 +736,8 @@ async fn get_http_route_trigger(
             None
         };
         if let Some(authed) = opt_authed {
+            check_scopes(&authed, || format!("http_triggers:read:{}", &trigger.path))?;
+
             // check that the user has access to the trigger
             let cache_key = (
                 trigger.workspace_id.clone(),
@@ -923,7 +926,6 @@ async fn route_job(
                 &authed,
                 &db,
                 None,
-                &"NO_TOKEN".to_string(), // no token is provided in this case
                 &trigger.workspace_id,
                 config.storage,
             )
@@ -1042,12 +1044,44 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
+    let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
+    if trigger.mode == TriggerMode::Suspended {
+        let _ = trigger_runnable(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            None,
+            true,
+            trigger_info,
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        return Ok((
+            StatusCode::OK,
+            format!(
+                "Trigger {} is in suspended mode, jobs are added to the queue but suspended",
+                &trigger.path
+            ),
+        )
+            .into_response());
+    }
+
     // Handle execution based on the execution mode
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, _) = trigger_runnable_inner(
+            let (uuid, _, _, _) = trigger_runnable_inner(
                 &db,
+                None,
                 Some(user_db.clone()),
                 authed.clone(),
                 &trigger.workspace_id,
@@ -1059,7 +1093,8 @@ async fn route_job(
                 trigger.error_handler_args.as_ref(),
                 format!("http_trigger/{}", trigger.path),
                 None,
-                Some(windmill_common::jobs::JobTriggerKind::Http),
+                trigger_info,
+                None,
             )
             .await
             .map_err(|e| e.into_response())?;
@@ -1118,7 +1153,8 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
-            Some(windmill_common::jobs::JobTriggerKind::Http),
+            false,
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),
@@ -1134,7 +1170,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
-            Some(windmill_common::jobs::JobTriggerKind::Http),
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),

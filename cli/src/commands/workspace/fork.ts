@@ -1,10 +1,10 @@
 // deno-lint-ignore-file no-explicit-any
 import { GlobalOptions } from "../../types.ts";
 import { colors, Input, log, setClient } from "../../../deps.ts";
-import {  addWorkspace, allWorkspaces, list, removeWorkspace } from "./workspace.ts";
+import {   allWorkspaces, list, removeWorkspace } from "./workspace.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { getCurrentGitBranch, getOriginalBranchForWorkspaceForks, isGitRepository } from "../../utils/git.ts";
-import { WM_FORK_PREFIX } from "../../main.ts";
+import { WM_FORK_PREFIX } from "../../core/constants.ts";
 import { tryResolveBranchWorkspace } from "../../core/context.ts";
 
 // NOTE: This import will work after regenerating the API client
@@ -123,19 +123,14 @@ async function createWorkspaceFork(
     throw error;
   }
 
-  await addWorkspace(
-    {
-      name: workspaceName,
-      remote: remote,
-      workspaceId: trueWorkspaceId,
-      token: token,
-    },
-    opts
-  );
 
   const newBranchName = `${WM_FORK_PREFIX}/${clonedBranchName}/${workspaceId}`
 
-  log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:\n\n\t`+colors.white(`git checkout -b ${newBranchName}`) + `\n\nThe changes will then be reflected in your fork if you've setup the git sync workflows correctly.`);
+  log.info(`Created forked workspace ${trueWorkspaceId}. To start contributing to your fork, create and push edits to the branch \`${newBranchName}\` by using the command:
+    
+\t`+colors.white(`git checkout -b ${newBranchName}`) + `
+    
+When doing operations on the forked workspace, it will use the remote setup in gitBranches for the branch it was forked from.`);
 }
 
 async function deleteWorkspaceFork(

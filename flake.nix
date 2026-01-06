@@ -143,14 +143,12 @@
           ] ++ (with pkgs; [
             # Essentials
             rust
-            cargo-watch
-            cargo-sweep
             git
-            xcaddy
             sqlx-cli
-            sccache
-            nsjail
+
+            # Build/helper scripts
             jq
+            gnused # other implementations are inconsistent on osx
 
             # Python
             flock
@@ -171,6 +169,7 @@
             oracle-instantclient
             ansible
             ruby_3_4
+            cargo-sweep # We use it for rust
 
             # LSP/Local dev
             svelte-language-server
@@ -182,6 +181,12 @@
             kubernetes-helm
             conntrack-tools # To run minikube without driver (--driver=none)
             cri-tools
+
+            # Extra
+            xcaddy
+            cargo-watch
+            nsjail
+            sccache
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
@@ -269,7 +274,7 @@
 
           REMOTE = "http://127.0.0.1:8000";
           REMOTE_LSP = "http://127.0.0.1:3001";
-          RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
+          # RUSTC_WRAPPER = "${pkgs.sccache}/bin/sccache";
           DENO_PATH = "${pkgs.deno}/bin/deno";
           GO_PATH = "${pkgs.go}/bin/go";
           PHP_PATH = "${pkgs.php}/bin/php";

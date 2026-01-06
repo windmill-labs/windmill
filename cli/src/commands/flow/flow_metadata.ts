@@ -18,15 +18,15 @@ import {
 } from "../../utils/metadata.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
-
 import { generateHash, getHeaders, writeIfChanged } from "../../utils/utils.ts";
-import { exts,  } from "../script/script.ts";
+import { exts } from "../script/script.ts";
 import { FSFSElement } from "../sync/sync.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { FlowFile } from "./flow.ts";
 import { FlowValue } from "../../../gen/types.gen.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { workspaceDependenciesLanguages } from "../../utils/script_common.ts";
+import { extractNameFromFolder, getFolderSuffix } from "../../utils/resource_folders.ts";
 
 const TOP_HASH = "__flow_hash";
 async function generateFlowHash(
@@ -59,16 +59,19 @@ export async function generateFlowLockInternal(
   if (folder.endsWith(SEP)) {
     folder = folder.substring(0, folder.length - 1);
   }
-  const remote_path = folder
-    .replaceAll(SEP, "/")
-    .substring(0, folder.length - ".flow".length);
+  const remote_path = extractNameFromFolder(folder.replaceAll(SEP, "/"), "flow");
   if (!justUpdateMetadataLock && !noStaleMessage) {
     log.info(`Generating lock for flow ${folder} at ${remote_path}`);
   }
 
   // Always get out-of-sync workspace dependencies
-  const rawWorkspaceDependencies: Record<string, string> = await getRawWorkspaceDependencies();
-  let hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
+  const rawWorkspaceDependencies: Record<string, string> =
+    await getRawWorkspaceDependencies();
+  let hashes = await generateFlowHash(
+    rawWorkspaceDependencies,
+    folder,
+    opts.defaultTs
+  );
 
   const conf = await readLockfile();
   if (await checkifMetadataUptodate(folder, hashes[TOP_HASH], conf, TOP_HASH)) {
@@ -115,7 +118,7 @@ export async function generateFlowLockInternal(
       log,
       folder + SEP!,
       SEP,
-      changedScripts,
+      changedScripts
       // (path: string, newPath: string) => Deno.renameSync(path, newPath),
       // (path: string) => Deno.removeSync(path)
     );
@@ -145,15 +148,17 @@ export async function generateFlowLockInternal(
     );
   }
 
-  hashes = await generateFlowHash(rawWorkspaceDependencies, folder, opts.defaultTs);
+  hashes = await generateFlowHash(
+    rawWorkspaceDependencies,
+    folder,
+    opts.defaultTs
+  );
   await clearGlobalLock(folder);
   for (const [path, hash] of Object.entries(hashes)) {
     await updateMetadataGlobalLock(folder, hash, path);
   }
   log.info(colors.green(`Flow ${remote_path} lockfiles updated`));
 }
-
-
 
 export async function updateFlow(
   workspace: Workspace,
@@ -164,7 +169,9 @@ export async function updateFlow(
   let rawResponse;
 
   if (Object.keys(rawWorkspaceDependencies).length > 0) {
-    log.info(colors.blue("Using raw workspace dependencies for flow dependencies"));
+    log.info(
+      colors.blue("Using raw workspace dependencies for flow dependencies")
+    );
 
     // generate the script lock running a dependency job in Windmill and update it inplace
     const extraHeaders = getHeaders();
@@ -181,9 +188,10 @@ export async function updateFlow(
           flow_value,
           path: remotePath,
           use_local_lockfiles: true,
-          raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
-          ? rawWorkspaceDependencies
-          : null,
+          raw_workspace_dependencies:
+            Object.keys(rawWorkspaceDependencies).length > 0
+              ? rawWorkspaceDependencies
+              : null,
         }),
       }
     );

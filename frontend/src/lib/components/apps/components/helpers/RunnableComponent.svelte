@@ -3,7 +3,13 @@
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import { type ExecuteComponentData } from '$lib/gen'
-	import { classNames, defaultIfEmptyString, emptySchema, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		defaultIfEmptyString,
+		emptySchema,
+		sendUserToast,
+		undefinedIfEmpty
+	} from '$lib/utils'
 	import { deepEqual } from 'fast-equals'
 	import { Bug } from 'lucide-svelte'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
@@ -519,8 +525,10 @@
 			args: nonStaticRunnableInputs,
 			component: id,
 			force_viewer_static_fields: !isEditor ? undefined : staticRunnableInputs,
-			force_viewer_one_of_fields: !isEditor ? undefined : oneOfRunnableInputs,
-			force_viewer_allow_user_resources: !isEditor ? undefined : allowUserResources
+			force_viewer_one_of_fields: !isEditor ? undefined : undefinedIfEmpty(oneOfRunnableInputs),
+			force_viewer_allow_user_resources: !isEditor
+				? undefined
+				: undefinedIfEmpty(allowUserResources)
 		}
 		return requestBody
 	}
@@ -549,6 +557,7 @@
 			let error = e?.body ?? e?.message
 			updateResult({ error })
 			$errorByComponent[id] = { error }
+			loading = false // Ensure loading is reset on any error
 		}
 	}
 

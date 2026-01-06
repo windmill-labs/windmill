@@ -1,10 +1,21 @@
 <script lang="ts">
 	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Bug, DiffIcon, FileJson, FileUp, History, MoreVertical, Pen, Save } from 'lucide-svelte'
+	import {
+		Bug,
+		DiffIcon,
+		FileJson,
+		FileUp,
+		History,
+		MoreVertical,
+		Pen,
+		Save,
+		WandSparkles
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import {
 		cleanValueProperties,
@@ -34,7 +45,10 @@
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
 	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
 	import { updateRawAppPolicy } from './rawAppPolicy'
-
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import type { RawAppData } from './dataTableRefUtils'
+	
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -73,12 +87,18 @@
 		appPath: string
 		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
+		/** Data configuration including tables and creation policy */
+		data: RawAppData
 		jobs: string[]
 		jobsById: Record<string, any>
 		getBundle: () => Promise<{
 			js: string
 			css: string
 		}>
+		canUndo?: boolean
+		canRedo?: boolean
+		onUndo?: () => void
+		onRedo?: () => void
 	}
 
 	let {
@@ -91,10 +111,15 @@
 		newPath = '',
 		appPath,
 		runnables,
+		data,
 		files,
 		jobs = $bindable(),
 		jobsById = $bindable(),
-		getBundle
+		getBundle,
+		canUndo = false,
+		canRedo = false,
+		onUndo = undefined,
+		onRedo = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -562,7 +587,7 @@
 			}
 		}
 	}
-	let app = $derived(files ? { runnables: runnables, files } : undefined)
+	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
@@ -708,6 +733,13 @@
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />
+		<div></div>
+		<UndoRedo
+			undoProps={{ disabled: !canUndo }}
+			redoProps={{ disabled: !canRedo }}
+			on:undo={() => onUndo?.()}
+			on:redo={() => onRedo?.()}
+		/>
 	</div>
 
 	<div class=" flex">
@@ -769,7 +801,7 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
-					<div>Debug runs</div>
+					<div>Jobs</div>
 
 					<div class="text-2xs text-primary"
 						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
@@ -778,6 +810,17 @@
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
+		<Button
+			unifiedSized="sm"
+			color="light"
+			variant="default"
+			onClick={() => aiChatManager.toggleOpen()}
+			startIcon={{ icon: WandSparkles }}
+			iconOnly
+			btnClasses={AIBtnClasses('default')}
+		>
+			AI
+		</Button>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}

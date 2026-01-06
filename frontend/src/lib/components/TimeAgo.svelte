@@ -1,18 +1,25 @@
 <script lang="ts">
 	import { getDbClockNow } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
-	import { onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 
-	export let date: string
-	export let agoOnlyIfRecent: boolean = false
-	export let noDate = false
-	export let isRecent: boolean = true
+	interface Props {
+		date: string
+		agoOnlyIfRecent?: boolean
+		noDate?: boolean
+		isRecent?: boolean
+	}
 
-	let computedTimeAgo: string | undefined = undefined
+	let {
+		date,
+		agoOnlyIfRecent = false,
+		noDate = false,
+		isRecent = $bindable(true)
+	}: Props = $props()
+
+	let computedTimeAgo: string | undefined = $state(undefined)
 
 	let interval
-
-	$: date && computeDate()
 
 	onMount(() => {
 		interval = setInterval(() => {
@@ -73,6 +80,9 @@
 			}
 		}
 	}
+	$effect(() => {
+		date && untrack(() => computeDate())
+	})
 </script>
 
 {#if computedTimeAgo && (!agoOnlyIfRecent || isRecent)}

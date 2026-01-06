@@ -17,7 +17,8 @@
 	import DropdownSelect from '../DropdownSelect.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { jobTriggerTypes, triggerDisplayNamesMap, type JobTriggerType } from '../triggers/utils'
+	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
+	import type { JobTriggerKind } from '$lib/gen'
 
 	interface Props {
 		// Filters
@@ -31,7 +32,7 @@
 		argFilter: string
 		argError: string
 		resultFilter: string
-		jobTriggerKind: JobTriggerType | undefined
+		jobTriggerKind: JobTriggerKind | undefined
 		resultError: string
 		jobKindsCat: string
 		user?: string | null
@@ -964,7 +965,7 @@
 							{`Filter by what kind of trigger started the run.`}
 						</span>
 						<Select
-							items={jobTriggerTypes.map((value) => ({
+							items={jobTriggerKinds.map((value) => ({
 								label: triggerDisplayNamesMap[value],
 								value
 							}))}

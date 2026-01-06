@@ -13,7 +13,6 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
 		enterpriseLicense,
-		tutorialsToDo,
 		userStore,
 		workspaceStore,
 		usedTriggerKinds
@@ -39,6 +38,7 @@
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
@@ -61,11 +61,10 @@
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
-	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
-	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import FlowHistory from './flows/FlowHistory.svelte'
+	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
@@ -165,7 +164,7 @@
 	}
 
 	function hasAIChanges(): boolean {
-		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 	}
 
 	function withAIChangesWarning(callback: () => void) {
@@ -594,6 +593,7 @@
 
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
@@ -621,6 +621,7 @@
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		flowEditorDrawer,
 		moving,
 		history,
 		flowStateStore,
@@ -805,8 +806,6 @@
 
 		if (tutorial) {
 			flowTutorials?.runTutorialById(tutorial)
-		} else if ($tutorialsToDo.includes(0) && !$ignoredTutorials.includes(0)) {
-			flowTutorials?.runTutorialById('action')
 		}
 	}
 
@@ -900,7 +899,7 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
-		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 
@@ -1008,6 +1007,7 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
@@ -1110,13 +1110,7 @@
 							<Dropdown items={moreItems} />
 						{/if}
 					</div>
-					{#if customUi?.topBar?.tutorials != false}
-						<FlowBuilderTutorials
-							on:reload={() => {
-								renderCount += 1
-							}}
-						/>
-					{/if}
+					<FlowEditorTutorial />
 					{#if customUi?.topBar?.diff != false}
 						<Button
 							variant="default"
@@ -1133,8 +1127,7 @@
 								)
 
 								diffDrawer?.openDrawer()
-								const currentFlow =
-									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
+								const currentFlow = flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
@@ -1171,17 +1164,19 @@
 							showJobStatus = true
 						}}
 					/>
-					<Button
-						loading={loadingDraft}
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{ key: 'S' }}
-					>
-						Draft
-					</Button>
+					{#if customUi?.topBar?.draft !== false}
+						<Button
+							loading={loadingDraft}
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Save }}
+							on:click={() => saveDraft()}
+							disabled={(!newFlow && !savedFlow) || loading}
+							shortCut={{ key: 'S' }}
+						>
+							Draft
+						</Button>
+					{/if}
 
 					<DeployButton
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}

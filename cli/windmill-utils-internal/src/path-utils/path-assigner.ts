@@ -40,13 +40,13 @@ export const LANGUAGE_EXTENSIONS: Record<SupportedLanguage, string> = {
 /**
  * Gets the appropriate file extension for a given programming language.
  * Handles special cases for TypeScript variants based on the default runtime.
- * 
+ *
  * @param language - The programming language to get extension for
  * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
  * @returns File extension string (without the dot)
  */
 export function getLanguageExtension(
-  language: SupportedLanguage, 
+  language: SupportedLanguage,
   defaultTs: "bun" | "deno" = "bun"
 ): string {
   if (language === defaultTs || language === "bunnative") {
@@ -55,17 +55,85 @@ export function getLanguageExtension(
   return LANGUAGE_EXTENSIONS[language] || "no_ext";
 }
 
+/**
+ * Reverse mapping from file extensions to languages.
+ * Used when deriving language from file extension.
+ */
+export const EXTENSION_TO_LANGUAGE: Record<string, SupportedLanguage> = {
+  "py": "python3",
+  "bun.ts": "bun",
+  "deno.ts": "deno",
+  "go": "go",
+  "sh": "bash",
+  "ps1": "powershell",
+  "pg.sql": "postgresql",
+  "my.sql": "mysql",
+  "bq.sql": "bigquery",
+  "odb.sql": "oracledb",
+  "sf.sql": "snowflake",
+  "ms.sql": "mssql",
+  "gql": "graphql",
+  "native.ts": "nativets",
+  "frontend.js": "frontend",
+  "php": "php",
+  "rs": "rust",
+  "cs": "csharp",
+  "nu": "nu",
+  "playbook.yml": "ansible",
+  "java": "java",
+  "duckdb.sql": "duckdb",
+  // Plain .ts defaults to bun (will be overridden by defaultTs setting)
+  "ts": "bun",
+};
+
+/**
+ * Gets the language from a file extension.
+ *
+ * @param ext - File extension (e.g., "py", "ts", "bun.ts")
+ * @param defaultTs - Default TypeScript runtime for plain .ts files
+ * @returns The language, or undefined if not recognized
+ */
+export function getLanguageFromExtension(
+  ext: string,
+  defaultTs: "bun" | "deno" = "bun"
+): SupportedLanguage | undefined {
+  // Check for compound extensions first (e.g., "bun.ts", "pg.sql")
+  const lang = EXTENSION_TO_LANGUAGE[ext];
+  if (lang) {
+    // For plain .ts, return the default TypeScript runtime
+    if (ext === "ts") {
+      return defaultTs;
+    }
+    return lang;
+  }
+  return undefined;
+}
+
 export interface PathAssigner {
   assignPath(summary: string | undefined, language: SupportedLanguage): [string, string];
 }
 
+export interface PathAssignerOptions {
+  defaultTs: "bun" | "deno";
+  /** When true, skip the .inline_script. suffix in file names */
+  skipInlineScriptSuffix?: boolean;
+}
+
 /**
  * Creates a new path assigner for inline scripts.
- * 
+ *
  * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @param options - Optional configuration (can pass options object instead of defaultTs)
  * @returns Path assigner function
  */
-export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+export function newPathAssigner(defaultTs: "bun" | "deno" | PathAssignerOptions, options?: { skipInlineScriptSuffix?: boolean }): PathAssigner {
+  // Handle both old signature (defaultTs string) and new signature (options object)
+  const resolvedOptions: PathAssignerOptions = typeof defaultTs === "object"
+    ? defaultTs
+    : { defaultTs, skipInlineScriptSuffix: options?.skipInlineScriptSuffix };
+
+  const { defaultTs: tsRuntime, skipInlineScriptSuffix } = resolvedOptions;
+
   let counter = 0;
   const seen_names = new Set<string>();
   function assignPath(
@@ -89,9 +157,50 @@ export function newPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
     }
     seen_names.add(name);
 
+    const ext = getLanguageExtension(language, tsRuntime);
+
+    // When skipInlineScriptSuffix is true, don't add .inline_script. to the path
+    const suffix = skipInlineScriptSuffix ? "." : ".inline_script.";
+    return [`${name}${suffix}`, ext];
+  }
+  return { assignPath };
+}
+
+/**
+ * Creates a new path assigner for raw app runnables.
+ * Unlike newPathAssigner, this does NOT add ".inline_script." prefix since
+ * everything in raw_app/backend/ is already known to be for inline scripts.
+ *
+ * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ * @returns Path assigner function
+ */
+export function newRawAppPathAssigner(defaultTs: "bun" | "deno"): PathAssigner {
+  let counter = 0;
+  const seen_names = new Set<string>();
+  function assignPath(
+    summary: string | undefined,
+    language: SupportedLanguage
+  ): [string, string] {
+    let name;
+
+    name = summary?.toLowerCase()?.replaceAll(" ", "_") ?? "";
+
+    let original_name = name;
+
+    if (name == "") {
+      original_name = "runnable";
+      name = `runnable_0`;
+    }
+
+    while (seen_names.has(name)) {
+      counter++;
+      name = `${original_name}_${counter}`;
+    }
+    seen_names.add(name);
+
     const ext = getLanguageExtension(language, defaultTs);
 
-    return [`${name}.inline_script.`, ext];
+    return [`${name}.`, ext];
   }
   return { assignPath };
 }

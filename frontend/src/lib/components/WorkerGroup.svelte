@@ -1,17 +1,32 @@
 <script lang="ts">
-	import { AlertTriangle, Copy, Plus, RefreshCcwIcon, Settings, Trash, X } from 'lucide-svelte'
+	import {
+		TriangleAlert,
+		Copy,
+		Plus,
+		RefreshCcwIcon,
+		RotateCcw,
+		Settings,
+		Trash,
+		X,
+		ExternalLink
+	} from 'lucide-svelte'
 	import { Alert, Button, Drawer } from './common'
 	import Badge from './common/badge/Badge.svelte'
-	import Popover from './meltComponents/Popover.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import { ConfigService, WorkspaceService, type WorkerPing, type Workspace } from '$lib/gen'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import { sendUserToast } from '$lib/toast'
-	import { emptyString, pluralize } from '$lib/utils'
+	import {
+		emptyString,
+		pluralize,
+		cleanValueProperties,
+		orderedJsonStringify,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
 	import { enterpriseLicense, superadmin, devopsRole } from '$lib/stores'
-	import Tooltip from './Tooltip.svelte'
+	import Tooltip from './meltComponents/Tooltip.svelte'
 	import Editor from './Editor.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import Section from './Section.svelte'
@@ -24,7 +39,9 @@
 	import Select from './select/Select.svelte'
 	import MultiSelect from './select/MultiSelect.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
-	import Subsection from './Subsection.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import Dropdown from './DropdownV2.svelte'
+	import TagList from './TagList.svelte'
 
 	function computeVCpuAndMemory(workers: [string, WorkerPing[]][]) {
 		let vcpus = 0
@@ -43,7 +60,9 @@
 	}
 
 	function hasWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): boolean {
-		return workers.some(([_, pings]) => pings.some((w) => !w.job_isolation || w.job_isolation === 'none'))
+		return workers.some(([_, pings]) =>
+			pings.some((w) => !w.job_isolation || w.job_isolation === 'none')
+		)
 	}
 
 	function getWorkersWithoutIsolation(workers: [string, WorkerPing[]][]): WorkerPing[] {
@@ -100,6 +119,29 @@
 		customEnvVars.sort((a, b) => (a.key < b.key ? -1 : 1))
 	}
 
+	// Clean up priority_tags when worker_tags changes
+	$effect(() => {
+		// This effect ensures priority_tags only contains tags that exist in worker_tags
+		if (nconfig.worker_tags && nconfig.priority_tags) {
+			const validTags = new Set(nconfig.worker_tags)
+			const currentPriorityKeys = Object.keys(nconfig.priority_tags)
+
+			// Check if any priority tags are no longer valid
+			const hasInvalidTags = currentPriorityKeys.some((tag) => !validTags.has(tag))
+
+			if (hasInvalidTags) {
+				// Filter out invalid tags
+				const filteredPriorityTags: Record<string, number> = {}
+				for (const [tag, priority] of Object.entries(nconfig.priority_tags)) {
+					if (validTags.has(tag)) {
+						filteredPriorityTags[tag] = priority
+					}
+				}
+				nconfig.priority_tags = filteredPriorityTags
+			}
+		}
+	})
+
 	let customEnvVars: {
 		key: string
 		type: 'static' | 'dynamic'
@@ -142,7 +184,13 @@
 		activeWorkers: number
 		customTags: string[] | undefined
 		workers: [string, WorkerPing[]][]
+		isAgent?: boolean
 		defaultTagPerWorkspace?: boolean | undefined
+		width: number
+		shouldAutoOpenDrawer?: boolean
+		onDrawerOpened?: () => void
+		onDeleted?: (deletedGroupName: string) => void
+		selectGroup?: import('svelte').Snippet
 	}
 
 	let {
@@ -151,7 +199,13 @@
 		activeWorkers,
 		customTags,
 		workers,
-		defaultTagPerWorkspace = undefined
+		isAgent = false,
+		defaultTagPerWorkspace = undefined,
+		width = 0,
+		shouldAutoOpenDrawer = false,
+		onDrawerOpened = () => {},
+		onDeleted = () => {},
+		selectGroup = undefined
 	}: Props = $props()
 
 	let workspaces: Workspace[] = $state([])
@@ -159,13 +213,31 @@
 		workspaces = await WorkspaceService.listWorkspacesAsSuperAdmin()
 	}
 
+	// Centralized permission logic
+	let canEditConfig = $derived($enterpriseLicense && ($superadmin || $devopsRole))
+	let hasEnterpriseFeatures = $derived($enterpriseLicense)
+	let isReadOnly = $derived(!canEditConfig)
+
 	const dispatch = createEventDispatcher()
 
 	async function deleteWorkerGroup() {
 		await ConfigService.deleteConfig({ name: 'worker__' + name })
 		dispatch('reload')
+		onDeleted(name)
 	}
-	let dirty = $state(false)
+
+	let hasChanges = $derived.by(() => {
+		if (!config && !nconfig) return false
+		if (!config || !nconfig) return true
+
+		const cleaned1 = cleanValueProperties(config)
+		const cleaned2 = cleanValueProperties(nconfig)
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(cleaned1)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(cleaned2))
+		)
+	})
 	let openDelete = $state(false)
 	let openClean = $state(false)
 
@@ -174,6 +246,15 @@
 	let selected = $derived(nconfig?.dedicated_worker != undefined ? 'dedicated' : 'normal')
 	$effect(() => {
 		;($superadmin || $devopsRole) && listWorkspaces()
+	})
+
+	$effect(() => {
+		if (shouldAutoOpenDrawer) {
+			loadNConfig()
+			drawer?.openDrawer()
+			// Dispatch event to parent to clear the signal
+			onDrawerOpened()
+		}
 	})
 </script>
 
@@ -227,162 +308,163 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
 		on:close={() => drawer?.closeDrawer()}
-		title={$superadmin || $devopsRole ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		title={canEditConfig ? `Edit worker config '${name}'` : `Worker config '${name}'`}
+		eeOnly
 	>
-		{#if !$enterpriseLicense}
-			<Alert type="warning" title="Worker management UI is EE only">
+		{#if !hasEnterpriseFeatures}
+			<Alert type="info" title="Worker management UI is EE only" class="mb-4">
 				Workers can still have their WORKER_TAGS, INIT_SCRIPT and WHITELIST_ENVS passed as env.
 				Dedicated workers are an enterprise only feature.
 			</Alert>
-			<div class="pb-4"></div>
+		{:else if !canEditConfig}
+			<Alert type="info" title="Read-only mode" class="mb-4">
+				Only superadmin or devops role can edit the worker config.
+			</Alert>
 		{/if}
+		<Label label="Workers assignment">
+			<ToggleButtonGroup
+				{selected}
+				disabled={!canEditConfig}
+				on:selected={(e) => {
+					if (nconfig == undefined) {
+						nconfig = {}
+					}
+					if (e.detail == 'dedicated') {
+						nconfig.dedicated_worker = ''
+						nconfig.worker_tags = undefined
+					} else {
+						nconfig.dedicated_worker = undefined
+						nconfig.worker_tags = []
+					}
+				}}
+			>
+				{#snippet children({ item })}
+					<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
+					<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
 
-		<ToggleButtonGroup
-			{selected}
-			disabled={!$superadmin}
-			on:selected={(e) => {
-				dirty = true
-				if (nconfig == undefined) {
-					nconfig = {}
-				}
-				if (e.detail == 'dedicated') {
-					nconfig.dedicated_worker = ''
-					nconfig.worker_tags = undefined
-				} else {
-					nconfig.dedicated_worker = undefined
-					nconfig.worker_tags = []
-				}
-			}}
-			class="mb-4"
-		>
-			{#snippet children({ item })}
-				<ToggleButton value="normal" label="Any jobs within worker tags" {item} />
-				<ToggleButton value="dedicated" label="Dedicated to a script/flow" {item} />
-			{/snippet}
-		</ToggleButtonGroup>
+		<div class="mt-8"></div>
 		{#if selected == 'normal'}
-			<Section label="Tags to listen to">
-				{#if nconfig?.worker_tags != undefined}
-					<TagsToListenTo
-						on:dirty={() => {
-							dirty = true
-						}}
-						on:deletePriorityTag={(e) => {
-							const tag = e.detail
-							if (nconfig.priority_tags) {
-								delete nconfig.priority_tags[tag]
-							}
-						}}
-						bind:worker_tags={nconfig.worker_tags}
-						{customTags}
-					/>
-
-					<div class="flex flex-wrap mt-2 items-center gap-1 pt-2">
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags.concat(nativeTags)
-
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags <Tooltip
-								>{(defaultTagPerWorkspace && workspaceTag
-									? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
-									: defaultTags.concat(nativeTags)
-								).join(', ')}</Tooltip
-							>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
-											: defaultTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to all tags minus native ones <Tooltip
-								>{(defaultTagPerWorkspace
+			<Label label="Tags to listen to">
+				{#snippet action()}
+					{#if nconfig?.worker_tags != undefined}
+						{@const dropdownResetToAllTags = [
+							{
+								label: 'Reset to all tags minus native ones',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = defaultTags.concat(nativeTags)
+									}
+								},
+								disabled: !canEditConfig,
+								tooltip: (defaultTagPerWorkspace
 									? defaultTags.map((nt) => `${nt}-${workspaceTag}`)
 									: defaultTags
-								).join(', ')}</Tooltip
-							>
-						</Button>
-						<Button
-							variant="contained"
-							color="light"
-							size="xs"
-							on:click={() => {
-								if (nconfig != undefined) {
-									nconfig.worker_tags =
-										defaultTagPerWorkspace && workspaceTag
-											? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
-											: nativeTags
-									dirty = true
-								}
-							}}
-						>
-							Reset to native tags <Tooltip
-								>{(defaultTagPerWorkspace && workspaceTag
+								).join(', ')
+							},
+							{
+								label: 'Reset to native tags',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = nativeTags
+									}
+								},
+								disabled: !canEditConfig,
+								tooltip: (defaultTagPerWorkspace && workspaceTag
 									? nativeTags.map((nt) => `${nt}-${workspaceTag}`)
 									: nativeTags
-								).join(', ')}</Tooltip
-							>
-						</Button>
-
-						{#if defaultTagPerWorkspace}
-							<Select
-								bind:value={workspaceTag}
-								items={workspaces.map((w) => ({ value: w.id }))}
-								onCreateItem={(c) => (workspaceTag = c)}
-								placeholder="Workspace ID"
-							/>
-						{/if}
-					</div>
-					<div class="max-w mt-2 items-center gap-1 pt-2">
-						{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
-							<Label label="High-priority tags">
-								{#snippet header()}
-									<Tooltip>
-										Jobs with the following high-priority tags will be picked up in priority by this
-										worker.
-										{#if !enterpriseLicense}
-											This is a feature only available in enterprise edition.
-										{/if}
-									</Tooltip>
-								{/snippet}
-								<MultiSelect
-									disabled={!$enterpriseLicense}
-									bind:value={
-										() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
-										(v) => {
-											nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
-											dirty = true
-										}
+								).join(', ')
+							},
+							{
+								label: 'Clear tags',
+								onClick: () => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags = []
 									}
-									items={safeSelectItems(nconfig?.worker_tags)}
+								},
+								disabled: !canEditConfig
+							}
+						]}
+						<div class="flex flex-wrap items-center gap-1">
+							<Button
+								variant="default"
+								unifiedSize="sm"
+								on:click={() => {
+									if (nconfig != undefined) {
+										nconfig.worker_tags =
+											defaultTagPerWorkspace && workspaceTag
+												? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+												: defaultTags.concat(nativeTags)
+									}
+								}}
+								dropdownItems={dropdownResetToAllTags}
+								dropdownWidth={300}
+								startIcon={{ icon: RotateCcw }}
+								disabled={!canEditConfig}
+							>
+								Reset to all tags <Tooltip>
+									{#snippet text()}
+										{(defaultTagPerWorkspace && workspaceTag
+											? defaultTags.concat(nativeTags).map((nt) => `${nt}-${workspaceTag}`)
+											: defaultTags.concat(nativeTags)
+										).join(', ')}
+									{/snippet}
+								</Tooltip>
+							</Button>
+
+							{#if defaultTagPerWorkspace}
+								<Select
+									bind:value={workspaceTag}
+									items={workspaces.map((w) => ({ value: w.id }))}
+									onCreateItem={(c) => (workspaceTag = c)}
+									placeholder="Workspace ID"
+									disabled={!canEditConfig}
 								/>
-							</Label>
-						{/if}
-					</div>
+							{/if}
+						</div>
+					{/if}
+				{/snippet}
+				{#if nconfig?.worker_tags != undefined}
+					<TagsToListenTo
+						bind:worker_tags={nconfig.worker_tags}
+						{customTags}
+						disabled={!canEditConfig}
+					/>
 				{/if}
-			</Section>
+			</Label>
+
+			{#if nconfig?.worker_tags !== undefined && nconfig?.worker_tags.length > 0}
+				<div class="mt-8"></div>
+				<Label label="High-priority tags">
+					{#snippet header()}
+						<Tooltip>
+							{#snippet text()}
+								Jobs with the following high-priority tags will be picked up in priority by this
+								worker.
+								{#if !enterpriseLicense}
+									This is a feature only available in enterprise edition.
+								{/if}
+							{/snippet}
+						</Tooltip>
+					{/snippet}
+					<MultiSelect
+						disabled={!canEditConfig}
+						bind:value={
+							() => (nconfig.priority_tags ? Object.keys(nconfig.priority_tags) : []),
+							(v) => {
+								nconfig.priority_tags = Object.fromEntries(v.map((k) => [k, 100]))
+							}
+						}
+						items={safeSelectItems(nconfig?.worker_tags)}
+					/>
+				</Label>
+			{/if}
+
 			{#if nconfig !== undefined}
 				<div class="mt-8"></div>
-				<Section label="Alerts" tooltip="Alert is sent to the configured critical error channels">
+				<Label label="Alerts" tooltip="Alert is sent to the configured critical error channels">
 					<Toggle
 						size="sm"
 						options={{
@@ -392,29 +474,23 @@
 						on:change={(ev) => {
 							if (nconfig !== undefined) {
 								nconfig.min_alive_workers_alert_threshold = ev.detail ? 1 : undefined
-								dirty = true
 							}
 						}}
-						disabled={!$enterpriseLicense}
+						disabled={!canEditConfig}
 					/>
 					{#if nconfig.min_alive_workers_alert_threshold !== undefined}
-						<div class="flex flex-row items-center justify-between">
-							<div class="flex flex-row items-center text-sm gap-2">
-								<p>Triggered when number of workers in group is lower than</p>
-								<input
-									type="number"
-									class="!w-14 text-center"
-									disabled={!$enterpriseLicense}
-									min="1"
-									bind:value={nconfig.min_alive_workers_alert_threshold}
-									onchange={(ev) => {
-										dirty = true
-									}}
-								/>
-							</div>
+						<div class="flex flex-row items-center text-xs gap-2">
+							<p>Triggered when number of workers in group is lower than</p>
+							<input
+								type="number"
+								class="!w-14 text-center"
+								disabled={!canEditConfig}
+								min="1"
+								bind:value={nconfig.min_alive_workers_alert_threshold}
+							/>
 						</div>
 					{/if}
-				</Section>
+				</Label>
 			{/if}
 		{:else if selected == 'dedicated'}
 			<div class="flex flex-col gap-2">
@@ -429,17 +505,15 @@
 				{/if}
 				{#if nconfig?.dedicated_worker != undefined}
 					<div
-						><p class="text-xs mb-2"
+						><p class="text-xs text-secondary mb-2"
 							>Workers will get killed upon detecting changes. It is assumed they are in an
 							environment where the supervisor will restart them.</p
 						>
 						<input
-							disabled={!($superadmin || $devopsRole)}
+							disabled={!canEditConfig}
 							placeholder="<workspace>:<script path>"
 							type="text"
-							onchange={() => {
-								dirty = true
-							}}
+							onchange={() => {}}
 							bind:value={nconfig.dedicated_worker}
 						/></div
 					>
@@ -449,52 +523,51 @@
 
 		<div class="mt-8"></div>
 
-		<Section
+		<Label
 			label="Environment variables passed to jobs"
-			collapsable={true}
 			tooltip="Add static and dynamic environment variables that will be passed to jobs handled by this worker group. Dynamic environment variable values will be loaded from the worker host environment variables while static environment variables will be set directly from their values below."
 		>
-			<div class="flex flex-col gap-3 gap-y-2 pb-2 max-w">
+			<div class="flex flex-col gap-y-2 pb-2 max-w">
 				{#each customEnvVars as envvar, i}
 					<div class="flex gap-1 items-center">
 						<input
-							disabled={!($superadmin || $devopsRole)}
+							disabled={isReadOnly}
 							type="text"
 							placeholder="ENV_VAR_NAME"
 							bind:value={envvar.key}
-							onkeypress={(e) => {
-								dirty = true
-							}}
+							onkeypress={(e) => {}}
 						/>
 						<ToggleButtonGroup
-							disabled={!($superadmin || $devopsRole)}
+							disabled={!canEditConfig}
 							class="w-128"
 							bind:selected={envvar.type}
 							on:selected={(e) => {
-								dirty = true
 								if (e.detail === 'dynamic') {
 									envvar.value = undefined
 								}
 							}}
 						>
 							{#snippet children({ item })}
-								<ToggleButton value="dynamic" label="Dynamic" {item} />
-								<ToggleButton value="static" label="Static" {item} />
+								<ToggleButton value="dynamic" label="Dynamic" {item} disabled={!canEditConfig} />
+								<ToggleButton value="static" label="Static" {item} disabled={!canEditConfig} />
 							{/snippet}
 						</ToggleButtonGroup>
-						<input
-							type="text"
-							disabled={!($superadmin || $devopsRole) || envvar.type === 'dynamic'}
-							placeholder={envvar.type === 'dynamic'
-								? 'value read from worker env var'
-								: 'static value'}
+						<TextInput
+							inputProps={{
+								type: 'text',
+								disabled: isReadOnly || envvar.type === 'dynamic',
+								placeholder:
+									envvar.type === 'dynamic' ? 'value read from worker env var' : 'static value'
+							}}
 							bind:value={envvar.value}
 						/>
-						{#if $superadmin || $devopsRole}
-							<button
-								class="rounded-full bg-surface/60 hover:bg-gray-200"
+						{#if canEditConfig}
+							<Button
+								wrapperClasses="ml-2"
+								variant="subtle"
+								unifiedSize="md"
 								aria-label="Clear"
-								onclick={() => {
+								onClick={() => {
 									if (nconfig.env_vars_static?.[envvar.key] !== undefined) {
 										delete nconfig.env_vars_static[envvar.key]
 									}
@@ -505,16 +578,17 @@
 									}
 									customEnvVars.splice(i, 1)
 									customEnvVars = [...customEnvVars]
-									dirty = true
 								}}
-							>
-								<X size={14} />
-							</button>
+								startIcon={{ icon: Trash }}
+								iconOnly
+								destructive
+								disabled={!canEditConfig}
+							/>
 						{/if}
 					</div>
 				{/each}
-				{#if $superadmin || $devopsRole}
-					<div class="flex">
+				{#if canEditConfig}
+					<div class="flex flex-col gap-2">
 						<Button
 							variant="default"
 							unifiedSize="md"
@@ -522,212 +596,196 @@
 							on:click={() => {
 								customEnvVars.push({ key: '', type: 'dynamic', value: undefined })
 								customEnvVars = [...customEnvVars]
-								dirty = true
 							}}
+							disabled={!canEditConfig}
 						>
 							Add environment variable
 						</Button>
+
+						<span class="text-secondary text-xs">
+							Set up env variables for AWS or SSL using our
+							<Dropdown
+								placement="bottom-start"
+								class="inline-block"
+								items={[
+									{
+										displayName: `AWS (${aws_env_vars_preset.join(', ')})`,
+										action: () => {
+											let updated = false
+											aws_env_vars_preset.forEach((envvar) => {
+												if (!customEnvVars.some((e) => e.key === envvar)) {
+													updated = true
+													customEnvVars.push({
+														key: envvar,
+														type: 'dynamic',
+														value: undefined
+													})
+												}
+											})
+											if (updated) {
+												customEnvVars = [...customEnvVars]
+											}
+										}
+									},
+									{
+										displayName: `SSL (${ssl_env_vars_preset.join(', ')})`,
+										action: () => {
+											let updated = false
+											ssl_env_vars_preset.forEach((envvar) => {
+												if (!customEnvVars.some((e) => e.key === envvar)) {
+													updated = true
+													customEnvVars.push({
+														key: envvar,
+														type: 'dynamic',
+														value: undefined
+													})
+												}
+											})
+											if (updated) {
+												customEnvVars = [...customEnvVars]
+											}
+										}
+									}
+								]}
+							>
+								{#snippet buttonReplacement()}
+									<button class="text-accent font-medium"> presets </button>
+								{/snippet}
+							</Dropdown>
+						</span>
 					</div>
 				{/if}
 			</div>
-			{#if !($superadmin || $devopsRole)}
-				<div class="flex flex-wrap items-center gap-1 pt-2">
-					<Button
-						variant="subtle"
-						size="xs"
-						on:click={() => {
-							let updated = false
-							aws_env_vars_preset.forEach((envvar) => {
-								if (!customEnvVars.some((e) => e.key === envvar)) {
-									updated = true
-									customEnvVars.push({
-										key: envvar,
-										type: 'dynamic',
-										value: undefined
-									})
+		</Label>
+		<div class="mt-8"></div>
+
+		<AutoscalingConfigEditor
+			worker_tags={config?.worker_tags}
+			bind:config={nconfig.autoscaling}
+			disabled={!canEditConfig}
+		/>
+
+		<div class="mt-8"></div>
+		<Section label="Python dependencies overrides" collapsable={true} class="flex flex-col gap-y-6">
+			<Label
+				label="Additional Python paths"
+				tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
+				class="mt-2"
+			>
+				{#if nconfig.additional_python_paths}
+					{#each nconfig.additional_python_paths as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								type="text"
+								disabled={!canEditConfig}
+								placeholder="/path/to/python3.X/site-packages"
+								bind:value={nconfig.additional_python_paths![i]}
+							/>
+							{#if canEditConfig}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-surface-hover"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.additional_python_paths === undefined ||
+											nconfig.additional_python_paths.length == 0
+										) {
+											return
+										}
+										nconfig.additional_python_paths.splice(i, 1)
+										nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+				{#if canEditConfig}
+					<div class="flex">
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								if (nconfig.additional_python_paths === undefined) {
+									nconfig.additional_python_paths = []
 								}
-							})
-							if (updated) {
-								customEnvVars = [...customEnvVars]
-								dirty = true
-							}
-						}}
-					>
-						AWS env var preset <Tooltip
-							>{`${aws_env_vars_preset.join(
-								', '
-							)} - see https://docs.aws.amazon.com/fr_fr/cli/latest/userguide/cli-configure-envvars.html for more options`}</Tooltip
+								nconfig.additional_python_paths.push('')
+								nconfig.additional_python_paths = [...nconfig.additional_python_paths]
+							}}
 						>
-					</Button>
-					<Button
-						variant="subtle"
-						size="xs"
-						on:click={() => {
-							let updated = false
-							ssl_env_vars_preset.forEach((envvar) => {
-								if (!customEnvVars.some((e) => e.key === envvar)) {
-									updated = true
-									customEnvVars.push({
-										key: envvar,
-										type: 'dynamic',
-										value: undefined
-									})
+							Add additional Python path
+						</Button>
+					</div>
+				{/if}
+			</Label>
+			<Label
+				label="Local dependencies import names to skip during resolution"
+				tooltip="uv will not try to resolve dependencies for these packages, useful if you have packages pre-installed on the workers at a given path."
+			>
+				{#if nconfig.pip_local_dependencies}
+					{#each nconfig.pip_local_dependencies as _, i}
+						<div class="flex gap-1 items-center">
+							<input
+								disabled={!canEditConfig}
+								type="text"
+								placeholder="httpx"
+								bind:value={nconfig.pip_local_dependencies[i]}
+							/>
+							{#if canEditConfig}
+								<button
+									class="rounded-full bg-surface/60 hover:bg-surface-hover"
+									aria-label="Clear"
+									onclick={() => {
+										if (
+											nconfig.pip_local_dependencies === undefined ||
+											nconfig.pip_local_dependencies.length == 0
+										) {
+											return
+										}
+										nconfig.pip_local_dependencies.splice(i, 1)
+										nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+									}}
+								>
+									<X size={14} />
+								</button>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+				{#if canEditConfig}
+					<div class="flex">
+						<Button
+							variant="default"
+							size="xs"
+							startIcon={{ icon: Plus }}
+							on:click={() => {
+								if (nconfig.pip_local_dependencies === undefined) {
+									nconfig.pip_local_dependencies = []
 								}
-							})
-							if (updated) {
-								customEnvVars = [...customEnvVars]
-								dirty = true
-							}
-						}}
-					>
-						SSL env var preset <Tooltip>{`${ssl_env_vars_preset.join(', ')}`}</Tooltip>
-					</Button>
-				</div>
-			{/if}
+								nconfig.pip_local_dependencies.push('')
+								nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
+							}}
+						>
+							Add PIP local dependency
+						</Button>
+					</div>
+				{/if}
+			</Label>
 		</Section>
-		<div class="mt-8"></div>
-
-		<Section label="Autoscaling" collapsable>
-			{#snippet header()}
-				<div class="ml-4 flex flex-row gap-2 items-center">
-					<Badge>Beta</Badge>
-					{#if nconfig.autoscaling?.enabled}
-						<Badge color="green">Enabled</Badge>
-					{/if}
-				</div>
-			{/snippet}
-			<AutoscalingConfigEditor
-				on:dirty={() => (dirty = true)}
-				worker_tags={config?.worker_tags}
-				bind:config={nconfig.autoscaling}
-			/>
-		</Section>
-
-		<div class="mt-8"></div>
-		<Section label="Python dependencies overrides" collapsable={true}>
-			<div class="flex flex-col gap-3 gap-y-6 pb-2 max-w">
-				<Subsection
-					label="Additional Python Paths"
-					tooltip="Paths to add to the Python path for it to search dependencies, useful if you have packages pre-installed on the workers at a given path."
-				>
-					{#if nconfig.additional_python_paths}
-						{#each nconfig.additional_python_paths as _, i}
-							<div class="flex gap-1 items-center">
-								<input
-									type="text"
-									disabled={!($superadmin || $devopsRole)}
-									placeholder="/path/to/python3.X/site-packages"
-									bind:value={nconfig.additional_python_paths![i]}
-								/>
-								{#if $superadmin || $devopsRole}
-									<button
-										class="rounded-full bg-surface/60 hover:bg-gray-200"
-										aria-label="Clear"
-										onclick={() => {
-											if (
-												nconfig.additional_python_paths === undefined ||
-												nconfig.additional_python_paths.length == 0
-											) {
-												return
-											}
-											nconfig.additional_python_paths.splice(i, 1)
-											nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-											dirty = true
-										}}
-									>
-										<X size={14} />
-									</button>
-								{/if}
-							</div>
-						{/each}
-					{/if}
-					{#if $superadmin || $devopsRole}
-						<div class="flex">
-							<Button
-								variant="accent"
-								size="xs"
-								startIcon={{ icon: Plus }}
-								on:click={() => {
-									if (nconfig.additional_python_paths === undefined) {
-										nconfig.additional_python_paths = []
-									}
-									nconfig.additional_python_paths.push('')
-									nconfig.additional_python_paths = [...nconfig.additional_python_paths]
-									dirty = true
-								}}
-							>
-								Add additional Python path
-							</Button>
-						</div>
-					{/if}
-				</Subsection>
-				<Subsection
-					label="Local dependencies import names to skip during resolution"
-					tooltip="uv will not try to resolve dependencies for these packages, useful if you have packages pre-installed on the workers at a given path."
-				>
-					{#if nconfig.pip_local_dependencies}
-						{#each nconfig.pip_local_dependencies as _, i}
-							<div class="flex gap-1 items-center">
-								<input
-									disabled={!($superadmin || $devopsRole)}
-									type="text"
-									placeholder="httpx"
-									bind:value={nconfig.pip_local_dependencies[i]}
-								/>
-								{#if $superadmin || $devopsRole}
-									<button
-										class="rounded-full bg-surface/60 hover:bg-gray-200"
-										aria-label="Clear"
-										onclick={() => {
-											if (
-												nconfig.pip_local_dependencies === undefined ||
-												nconfig.pip_local_dependencies.length == 0
-											) {
-												return
-											}
-											nconfig.pip_local_dependencies.splice(i, 1)
-											nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-											dirty = true
-										}}
-									>
-										<X size={14} />
-									</button>
-								{/if}
-							</div>
-						{/each}
-					{/if}
-					{#if $superadmin || $devopsRole}
-						<div class="flex">
-							<Button
-								variant="accent"
-								size="xs"
-								startIcon={{ icon: Plus }}
-								on:click={() => {
-									if (nconfig.pip_local_dependencies === undefined) {
-										nconfig.pip_local_dependencies = []
-									}
-									nconfig.pip_local_dependencies.push('')
-									nconfig.pip_local_dependencies = [...nconfig.pip_local_dependencies]
-									dirty = true
-								}}
-							>
-								Add PIP local dependency
-							</Button>
-						</div>
-					{/if}
-				</Subsection>
-			</div></Section
-		>
 
 		<div class="mt-8"></div>
 
 		<Section
 			label="Worker scripts"
 			tooltip="Bash scripts for worker initialization and maintenance. Init scripts run at worker start, periodic scripts run at configurable intervals."
+			collapsable
 		>
-			{#if $superadmin || $devopsRole}
+			{#if canEditConfig}
 				<div class="mb-4">
-					<Alert size="xs" type="info" title="Worker Restart Required">
+					<Alert size="xs" type="info" title="Worker restart required">
 						Workers will get killed upon detecting any changes in this section (scripts or
 						interval). It is assumed they are in an environment where the supervisor will restart
 						them.
@@ -737,13 +795,14 @@
 
 			<div class="space-y-6">
 				<div>
-					<div class="text-sm text-secondary mb-1">
+					<div class="text-xs text-secondary mb-1">
 						Run at start of the workers. More lightweight than requiring custom worker images.
 					</div>
-					<Subsection
+					<Section
+						small
 						label="Init script"
 						collapsable
-						openInitially={nconfig.init_bash !== undefined}
+						initiallyCollapsed={nconfig.init_bash === undefined}
 					>
 						{#snippet header()}
 							<div class="ml-4 flex flex-row gap-2 items-center">
@@ -755,7 +814,7 @@
 						<div class="border w-full h-40">
 							<Editor
 								fixedOverflowWidgets={true}
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
@@ -763,7 +822,6 @@
 								code={config?.init_bash ?? ''}
 								on:change={(e) => {
 									if (config) {
-										dirty = true
 										const code = e.detail
 										if (code != '') {
 											nconfig.init_bash = code?.replace(/\r\n/g, '\n')
@@ -774,17 +832,18 @@
 								}}
 							/>
 						</div>
-					</Subsection>
+					</Section>
 				</div>
 				<div>
-					<div class="text-sm mb-1 text-secondary">
+					<div class="text-xs text-secondary mb-1">
 						Run periodically at configurable intervals. Useful for maintenance tasks like cleaning
 						disk space.
 					</div>
-					<Subsection
+					<Section
+						small
 						label="Periodic script"
 						collapsable
-						openInitially={nconfig.periodic_script_bash !== undefined}
+						initiallyCollapsed={nconfig.periodic_script_bash === undefined}
 					>
 						{#snippet header()}
 							<div class="ml-4 flex flex-row gap-2 items-center">
@@ -795,24 +854,24 @@
 						{/snippet}
 
 						<div class="flex gap-4 items-center mb-4">
-							<Label class="text-sm">Execution interval (seconds):</Label>
-							<input
-								disabled={!($superadmin || $devopsRole)}
-								type="number"
-								min="60"
-								placeholder="3600"
-								class="!w-24 text-center"
-								bind:value={nconfig.periodic_script_interval_seconds}
-								onchange={() => {
-									dirty = true
-								}}
-							/>
-							<span class="text-xs text-gray-500">Minimum: 60 seconds</span>
+							<Label label="Execution interval (seconds)" for="periodic-script-interval-seconds">
+								<TextInput
+									inputProps={{
+										disabled: !canEditConfig,
+										type: 'number',
+										min: '60',
+										placeholder: '3600',
+										class: '!w-24 '
+									}}
+									bind:value={nconfig.periodic_script_interval_seconds}
+								/>
+								<span class="text-2xs text-hint">Minimum: 60 seconds</span>
+							</Label>
 						</div>
 
 						<div class="border w-full h-40">
 							<Editor
-								disabled={!($superadmin || $devopsRole)}
+								disabled={!canEditConfig}
 								class="flex flex-1 grow h-full w-full"
 								automaticLayout
 								scriptLang={'bash'}
@@ -821,7 +880,6 @@
 								code={config?.periodic_script_bash ?? ''}
 								on:change={(e) => {
 									if (config) {
-										dirty = true
 										const code = e.detail
 										if (code != '') {
 											nconfig.periodic_script_bash = code?.replace(/\r\n/g, '\n')
@@ -832,215 +890,282 @@
 								}}
 							/>
 						</div>
-					</Subsection>
+					</Section>
 				</div>
 			</div>
 		</Section>
 		{#snippet actions()}
-			<div class="flex gap-4 items-center mr-10">
+			<div class="flex gap-4 items-center">
 				<div class="flex gap-2 items-center">
-					{#if dirty}
-						<div class="text-red-600 text-xs whitespace-nowrap">Non applied changes</div>
-					{/if}
-					<Button
-						variant="accent"
-						on:click={async () => {
-							if (
-								nconfig?.min_alive_workers_alert_threshold &&
-								nconfig?.min_alive_workers_alert_threshold < 1
-							) {
-								sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
-								return
-							}
-							if (
-								nconfig?.periodic_script_bash &&
-								(!nconfig?.periodic_script_interval_seconds ||
-									nconfig?.periodic_script_interval_seconds < 60)
-							) {
-								sendUserToast('Periodic script interval must be at least 60 seconds', true)
-								return
-							}
-							// Remove duplicate env vars by keeping only the last occurrence of each key
-							const seenKeys = new Set()
-							customEnvVars = customEnvVars
-								.reverse()
-								.filter((envVar) => {
-									if (envVar.key == '') {
-										return false
-									}
-									if (seenKeys.has(envVar.key)) {
-										return false
-									}
-									seenKeys.add(envVar.key)
-									return true
-								})
-								.reverse()
-							nconfig.env_vars_static = new Map()
-							nconfig.env_vars_allowlist = []
-							customEnvVars.forEach((envvar) => {
+					{#if canEditConfig}
+						<Button
+							variant="accent"
+							on:click={async () => {
 								if (
-									nconfig.env_vars_static !== undefined &&
-									nconfig.env_vars_allowlist !== undefined &&
-									!emptyString(envvar.key)
+									nconfig?.min_alive_workers_alert_threshold &&
+									nconfig?.min_alive_workers_alert_threshold < 1
 								) {
-									if (envvar.type === 'dynamic') {
-										nconfig.env_vars_allowlist.push(envvar.key)
-									} else {
-										nconfig.env_vars_static[envvar.key] = envvar.value
-									}
+									sendUserToast('Minimum alive workers alert threshold must be at least 1', true)
+									return
 								}
-							})
+								if (
+									nconfig?.periodic_script_bash &&
+									(!nconfig?.periodic_script_interval_seconds ||
+										nconfig?.periodic_script_interval_seconds < 60)
+								) {
+									sendUserToast('Periodic script interval must be at least 60 seconds', true)
+									return
+								}
+								// Remove duplicate env vars by keeping only the last occurrence of each key
+								const seenKeys = new Set()
+								customEnvVars = customEnvVars
+									.reverse()
+									.filter((envVar) => {
+										if (envVar.key == '') {
+											return false
+										}
+										if (seenKeys.has(envVar.key)) {
+											return false
+										}
+										seenKeys.add(envVar.key)
+										return true
+									})
+									.reverse()
+								nconfig.env_vars_static = new Map()
+								nconfig.env_vars_allowlist = []
+								customEnvVars.forEach((envvar) => {
+									if (
+										nconfig.env_vars_static !== undefined &&
+										nconfig.env_vars_allowlist !== undefined &&
+										!emptyString(envvar.key)
+									) {
+										if (envvar.type === 'dynamic') {
+											nconfig.env_vars_allowlist.push(envvar.key)
+										} else {
+											nconfig.env_vars_static[envvar.key] = envvar.value
+										}
+									}
+								})
 
-							await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
-							sendUserToast('Configuration set')
-							dispatch('reload')
-							dirty = false
-						}}
-						disabled={(!dirty && nconfig?.dedicated_worker == undefined) ||
-							!$enterpriseLicense ||
-							!($superadmin || $devopsRole)}
-					>
-						Apply changes
-					</Button>
+								await ConfigService.updateConfig({ name: 'worker__' + name, requestBody: nconfig })
+								sendUserToast('Configuration set')
+								dispatch('reload')
+							}}
+							disabled={(!hasChanges && nconfig?.dedicated_worker == undefined) || !canEditConfig}
+						>
+							Apply changes
+						</Button>
+					{:else}
+						<span class="text-secondary text-xs">Read only</span>
+					{/if}
 				</div>
 			</div>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
 
-<div class="flex flex-col gap-2">
-	{#if hasWorkersWithoutIsolation(workers)}
-		{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
-		<div class="flex justify-end">
-			<Popover
-				placement="bottom"
-				closeButton
-				containerClasses="border rounded-lg shadow-lg bg-surface"
-			>
-				{#snippet trigger()}
-					<Button
-						nonCaptureEvent
-						startIcon={{ icon: AlertTriangle, classes: 'text-yellow-600' }}
-						unifiedSize="md"
-						variant="subtle"
-						btnClasses="text-3xs"
-					>
-						Workers without isolation
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex flex-col gap-2 text-sm max-w-md p-4">
-						<div class="font-semibold">Workers without job isolation</div>
-						<p class="text-secondary">
-							{unsafeWorkers.length}
-							{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
-							{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
-						</p>
-						<div class="flex flex-wrap gap-1">
-							{#each unsafeWorkers as worker}
-								<Badge color="orange" verySmall={true}>
-									{worker.worker}
-								</Badge>
-							{/each}
-						</div>
-						<a
-							href="https://www.windmill.dev/docs/advanced/security_isolation"
-							target="_blank"
-							class="text-blue-600 hover:underline text-xs"
-						>
-							Learn more about job isolation →
-						</a>
-					</div>
-				{/snippet}
-			</Popover>
-		</div>
-	{/if}
+<div
+	class="flex flex-col gap-6 items-center justify-between mt-2 rounded-md border border-light p-4 bg-surface-tertiary"
+>
+	<div class="flex gap-2 justify-between w-full">
+		<div class="text-xs flex flex-row gap-2 items-center">
+			<div class="flex flex-row gap-1 items-center">
+				{#if selectGroup}
+					{@render selectGroup()}
+					<span class="ml-r"></span>
+				{:else}
+					<span class="text-secondary text-xs">Worker group:</span>
+					<span class="text-emphasis font-semibold text-sm">{name} - </span>
+				{/if}
+				<span class="inline-flex">
+					{`${pluralize(activeWorkers, 'worker')} `}
+					<Tooltip
+						>{#snippet text()}Number of active workers of this group in the last 15 seconds{/snippet}</Tooltip
+					></span
+				>
+			</div>
 
-	<div class="flex items-center justify-between">
-		<div class="text-xs"
-			>{pluralize(activeWorkers, 'worker')}
 			{#if vcpus_memory?.vcpus}
 				- {(vcpus_memory?.vcpus / 100000).toFixed(2)} vCPUs{/if}
 			{#if vcpus_memory?.memory}
-				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}</div
-		>
-		<div class="flex gap-2 items-center justify-end flex-row">
-			{#if $superadmin}
-				<Button
-					variant="subtle"
-					unifiedSize="md"
-					on:click={() => {
-						dirty = false
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-					startIcon={{ icon: config == undefined ? Plus : Settings }}
-				>
-					<div class="flex flex-row gap-1 items-center">
-						{config == undefined ? 'Create' : 'Edit'} config
-					</div>
-				</Button>
-
-				<Button
-					unifiedSize="md"
-					variant="subtle"
-					on:click={() => {
-						navigator.clipboard.writeText(
-							YAML.stringify({
-								name,
-								...config
-							})
-						)
-						sendUserToast('Worker config copied to clipboard as YAML')
-					}}
-					startIcon={{ icon: Copy }}
-				>
-					Copy config
-				</Button>
-
-				{#if config}
-					<Button
-						unifiedSize="md"
-						variant="subtle"
-						on:click={() => {
-							if (!$enterpriseLicense) {
-								sendUserToast('Worker Management UI is an EE feature', true)
-							} else {
-								openDelete = true
-							}
-						}}
-						startIcon={{ icon: Trash }}
-						btnClasses="text-red-400"
+				- {((vcpus_memory?.memory * 1.0) / 1024 / 1024 / 1024).toFixed(2)} GB{/if}
+			{#if hasWorkersWithoutIsolation(workers)}
+				{@const unsafeWorkers = getWorkersWithoutIsolation(workers)}
+				<div class="flex justify-end">
+					<Tooltip
+						placement="bottom"
+						closeButton
+						containerClasses="border rounded-lg shadow-lg bg-surface"
 					>
-						Delete config
-					</Button>
-				{/if}
+						<TriangleAlert size={14} class="text-yellow-600" />
 
-				<Button
-					unifiedSize="md"
-					variant="subtle"
-					on:click={() => {
-						loadNConfig()
-
-						openClean = true
-					}}
-					btnClasses="text-red-400"
-					startIcon={{ icon: RefreshCcwIcon }}
-				>
-					Clean cache
-				</Button>
-			{:else if config}
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					on:click={() => {
-						loadNConfig()
-						drawer?.openDrawer()
-					}}
-				>
-					Config
-				</Button>
+						{#snippet text()}
+							<div class="flex flex-col gap-2 text-xs max-w-md p-4">
+								<div class="font-semibold text-emphasis">Workers without job isolation</div>
+								<p class="text-primary">
+									{unsafeWorkers.length}
+									{unsafeWorkers.length === 1 ? 'worker' : 'workers'} in this group
+									{unsafeWorkers.length === 1 ? 'is' : 'are'} running without job isolation (nsjail/unshare).
+								</p>
+								<div class="flex flex-wrap gap-1">
+									{#each unsafeWorkers as worker}
+										<Badge color="orange" small>
+											{worker.worker}
+										</Badge>
+									{/each}
+								</div>
+								<a href="https://www.windmill.dev/docs/advanced/security_isolation" target="_blank">
+									Learn more about job isolation <ExternalLink size={12} class="inline-block" />
+								</a>
+							</div>
+						{/snippet}
+					</Tooltip>
+				</div>
 			{/if}
 		</div>
+		{#if !isAgent}
+			<div class="flex gap-4 items-center justify-end flex-row">
+				{#if canEditConfig}
+					{#if width > 1000}
+						{#if config}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => {
+									if (!hasEnterpriseFeatures) {
+										sendUserToast('Worker Management UI is an EE feature', true)
+									} else {
+										openDelete = true
+									}
+								}}
+								startIcon={{ icon: Trash }}
+								destructive
+							>
+								Delete config
+							</Button>
+						{/if}
+
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							on:click={() => {
+								loadNConfig()
+								openClean = true
+							}}
+							startIcon={{ icon: RefreshCcwIcon }}
+							destructive
+						>
+							Clean cache
+						</Button>
+
+						{#if config}
+							<Button
+								unifiedSize="sm"
+								variant="subtle"
+								on:click={() => {
+									navigator.clipboard.writeText(
+										YAML.stringify({
+											name,
+											...config
+										})
+									)
+									sendUserToast('Worker config copied to clipboard as YAML')
+								}}
+								startIcon={{ icon: Copy }}
+							>
+								Copy config
+							</Button>
+						{/if}
+					{:else}
+						<Dropdown
+							items={[
+								{
+									displayName: 'Copy config',
+									action: () => {
+										navigator.clipboard.writeText(YAML.stringify({ name, ...config }))
+										sendUserToast('Worker config copied to clipboard as YAML')
+									},
+									disabled: !config
+								},
+								{
+									displayName: 'Clean cache',
+									action: () => {
+										loadNConfig()
+										openClean = true
+									},
+									disabled: !config,
+									type: 'delete'
+								},
+								{
+									displayName: 'Delete config',
+									action: () => {
+										if (!hasEnterpriseFeatures) {
+											sendUserToast('Worker Management UI is an EE feature', true)
+										} else {
+											openDelete = true
+										}
+									},
+									disabled: !config,
+									type: 'delete'
+								}
+							]}
+						/>
+					{/if}
+					<Button
+						variant="accent"
+						unifiedSize="sm"
+						on:click={() => {
+							loadNConfig()
+							drawer?.openDrawer()
+						}}
+						startIcon={{ icon: config == undefined ? Plus : Settings }}
+					>
+						<div class="flex flex-row gap-1 items-center">
+							{config == undefined ? 'Create' : 'Edit'} config
+						</div>
+					</Button>
+				{:else if config}
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						on:click={() => {
+							loadNConfig()
+							drawer?.openDrawer()
+						}}
+					>
+						See config
+					</Button>
+				{/if}
+			</div>
+		{/if}
 	</div>
+
+	{#if config?.worker_tags && config.worker_tags.length > 0}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Tags:</div>
+			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+		</div>
+	{:else if config?.dedicated_worker}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
+			<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
+				{config.dedicated_worker}
+			</div>
+		</div>
+	{/if}
 </div>
+
+{#if isAgent}
+	<div class="mt-4">
+		<Alert type="info" title="Agent Worker Group" size="xs">
+			{#snippet children()}
+				This group is formed with agent workers, there is no associated config. {#if $superadmin || $devopsRole}
+					To modify the tags, generate a new <a
+						href="https://www.windmill.dev/docs/core_concepts/agent_workers#quickstart"
+						target="_blank"
+						class="underline">JWT token <ExternalLink size={12} class="inline-block" /></a
+					>.{/if}
+			{/snippet}
+		</Alert>
+	</div>
+{/if}

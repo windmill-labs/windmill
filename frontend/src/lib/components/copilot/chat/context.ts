@@ -1,14 +1,19 @@
-import { Code, Database, TriangleAlert, Diff } from 'lucide-svelte'
+import { Code, Database, TriangleAlert, Diff, FileCode, Code2, TextSelect, Table2 } from 'lucide-svelte'
 import type { ScriptLang } from '$lib/gen/types.gen'
 import { type DBSchema } from '$lib/stores'
 import { type Change } from 'diff'
+import type { BackendRunnable } from './app/core'
 
 export const ContextIconMap = {
 	code: Code,
 	error: TriangleAlert,
 	db: Database,
 	diff: Diff,
-	code_piece: Code
+	code_piece: Code,
+	app_frontend_file: FileCode,
+	app_backend_runnable: Code2,
+	app_code_selection: TextSelect,
+	app_datatable: Table2
 	// flow_module type is handled with FlowModuleIcon
 }
 
@@ -67,6 +72,62 @@ export interface FlowModuleCodePieceElement extends Omit<CodePieceElement, 'type
 	value: FlowModuleElement['value']
 }
 
+/** App frontend file context element */
+export interface AppFrontendFileElement {
+	type: 'app_frontend_file'
+	/** The file path (e.g., /index.tsx, /styles.css) */
+	path: string
+	/** Title for display (the path) */
+	title: string
+	/** The file content */
+	content: string
+}
+
+/** App backend runnable context element */
+export interface AppBackendRunnableElement {
+	type: 'app_backend_runnable'
+	/** The runnable key */
+	key: string
+	/** Title for display (the key) */
+	title: string
+	/** The runnable configuration */
+	runnable: BackendRunnable
+}
+
+/** App code selection context element (from frontend or backend editor) */
+export interface AppCodeSelectionElement {
+	type: 'app_code_selection'
+	/** Source: frontend file path or backend runnable key */
+	source: string
+	/** Whether this is from frontend or backend */
+	sourceType: 'frontend' | 'backend'
+	/** Title for display */
+	title: string
+	/** The selected code content */
+	content: string
+	/** Line range (1-indexed) */
+	startLine: number
+	endLine: number
+	/** Column range (1-indexed) */
+	startColumn: number
+	endColumn: number
+}
+
+/** App datatable table context element (represents a single table within a datatable) */
+export interface AppDatatableElement {
+	type: 'app_datatable'
+	/** The datatable name (e.g., "main") */
+	datatableName: string
+	/** The schema name (e.g., "public") */
+	schemaName: string
+	/** The table name (e.g., "users") */
+	tableName: string
+	/** Title for display (e.g., "main/public:users" or "main/users") */
+	title: string
+	/** The table columns: column_name -> compact_type */
+	columns: Record<string, string>
+}
+
 export type ContextElement = (
 	| CodeElement
 	| ErrorElement
@@ -75,6 +136,10 @@ export type ContextElement = (
 	| CodePieceElement
 	| FlowModuleElement
 	| FlowModuleCodePieceElement
+	| AppFrontendFileElement
+	| AppBackendRunnableElement
+	| AppCodeSelectionElement
+	| AppDatatableElement
 ) & {
 	deletable?: boolean
 }

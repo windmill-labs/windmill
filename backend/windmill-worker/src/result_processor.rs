@@ -161,6 +161,7 @@ async fn process_jc(
         bench,
     )
     .instrument(span)
+    .warn_after_seconds(10)
     .await;
 
     if let Some(root_job) = root_job {
@@ -291,6 +292,7 @@ pub fn start_background_processor(
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
+                    .warn_after_seconds(10)
                     .await;
 
                     if is_init_script_and_failure {
@@ -345,6 +347,7 @@ pub fn start_background_processor(
                         &Uuid::nil(),
                         &w_id,
                         success,
+                        None,
                         Arc::new(result),
                         None,
                         true,
@@ -544,6 +547,7 @@ pub async fn handle_receive_completed_job(
         #[cfg(feature = "benchmark")]
         bench,
     )
+    .warn_after_seconds(10)
     .await;
 
     match processed_completed_job {
@@ -648,7 +652,7 @@ pub async fn process_completed_job(
             Json(&result),
             result_columns,
             mem_peak.to_owned(),
-            canceled_by,
+            canceled_by.clone(),
             false,
             duration,
             has_stream.unwrap_or(false),
@@ -669,6 +673,7 @@ pub async fn process_completed_job(
                     &job_id,
                     &workspace_id,
                     true,
+                    canceled_by,
                     result,
                     started_at.map(|x| FlowJobDuration { started_at: x, duration_ms: duration }),
                     false,
@@ -698,7 +703,7 @@ pub async fn process_completed_job(
             db,
             &job,
             mem_peak.to_owned(),
-            canceled_by,
+            canceled_by.clone(),
             serde_json::from_str(result.get()).unwrap_or_else(
                 |_| json!({ "message": format!("Non serializable error: {}", result.get()) }),
             ),
@@ -717,6 +722,7 @@ pub async fn process_completed_job(
                     &job.id,
                     &job.workspace_id,
                     false,
+                    canceled_by,
                     Arc::new(serde_json::value::to_raw_value(&result).unwrap()),
                     duration.and_then(|d| {
                         job.started_at.map(|started_at| FlowJobDuration {
@@ -807,6 +813,7 @@ pub async fn handle_job_error(
             err_json.clone(),
             worker_name,
         )
+        .warn_after_seconds(10)
         .await
     };
 
@@ -832,6 +839,7 @@ pub async fn handle_job_error(
             &job_status_to_update,
             &job.workspace_id,
             false,
+            canceled_by.clone(),
             Arc::new(serde_json::value::to_raw_value(&wrapped_error).unwrap()),
             None,
             unrecoverable,
@@ -850,7 +858,9 @@ pub async fn handle_job_error(
         if let Err(err) = updated_flow {
             if let Some(parent_job_id) = job.parent_job {
                 if let Ok(Some(parent_job)) =
-                    get_mini_completed_job(&parent_job_id, &job.workspace_id, db).await
+                    get_mini_completed_job(&parent_job_id, &job.workspace_id, db)
+                        .warn_after_seconds(10)
+                        .await
                 {
                     let e = json!({"message": err.to_string(), "name": "InternalErr"});
                     append_logs(
@@ -864,12 +874,13 @@ pub async fn handle_job_error(
                         db,
                         &parent_job,
                         mem_peak,
-                        canceled_by.clone(),
+                        canceled_by,
                         e,
                         worker_name,
                         false,
                         None,
                     )
+                    .warn_after_seconds(10)
                     .await;
                 }
             }

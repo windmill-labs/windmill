@@ -1,5 +1,6 @@
 <script module lang="ts">
 	export function validateToolName(name: string, type?: string) {
+		if (type === 'websearch') return true
 		if (type === 'mcp') {
 			return name.length > 0
 		}
@@ -13,6 +14,7 @@
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
 	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
+	export const AI_WEBSEARCH_PREFIX = '_wm_ai_websearch'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 50
@@ -86,13 +88,15 @@
 				type?: string
 				stateType?: GraphModuleState['type']
 			}[] = node.data.module.value.tools.map((t, idx) => {
-				// Handle both FlowModule tools and MCP tools
+				// Handle FlowModule, MCP, and Websearch tools
 				const toolType =
 					t.value.tool_type === 'mcp'
 						? 'mcp'
-						: t.value.tool_type === 'flowmodule'
-							? t.value.type
-							: undefined
+						: t.value.tool_type === 'websearch'
+							? 'websearch'
+							: t.value.tool_type === 'flowmodule'
+								? t.value.type
+								: undefined
 				return {
 					id: t.id,
 					name: t.summary ?? '',
@@ -114,6 +118,12 @@
 						return {
 							id,
 							name: a.function_name
+						}
+					} else if (a.type === 'web_search') {
+						return {
+							id: AI_WEBSEARCH_PREFIX + '-' + node.id + '-' + idx,
+							name: 'Web Search',
+							type: 'websearch'
 						}
 					} else {
 						return {
@@ -254,7 +264,7 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
+	import { Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 	import type { Edge, Node } from '@xyflow/svelte'
 
@@ -276,7 +286,7 @@
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
 	let colorClasses = $derived(
 		getNodeColorClasses(
-			!validateToolName(data.tool) ? 'Failure' : flowModuleState?.type,
+			!validateToolName(data.tool, data.type) ? 'Failure' : flowModuleState?.type,
 			selectionManager?.getSelectedId() === data.moduleId
 		)
 	)
@@ -303,6 +313,8 @@
 					<MessageCircle size={16} class="ml-1 shrink-0" />
 				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'websearch'}
+					<Globe size={16} class="ml-1 shrink-0" />
 				{:else if data.type === 'mcp'}
 					<Plug size={16} class="ml-1 shrink-0" />
 				{:else}

@@ -22,7 +22,14 @@ export function formatAsset(asset: Asset): string {
 			return `s3://${asset.path}`
 		case 'ducklake':
 			return `ducklake://${asset.path}`
+		case 'datatable':
+			return `datatable://${asset.path}`
 	}
+	return 'unknown'
+}
+
+export function formatShortAssetPath(asset: Asset): string {
+	return asset.path.split('/').pop() || asset.path
 }
 
 export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
@@ -72,6 +79,8 @@ export function formatAssetKind(asset: {
 			return 'S3 Object'
 		case 'ducklake':
 			return 'Ducklake'
+		case 'datatable':
+			return 'Data table'
 	}
 }
 
@@ -88,8 +97,8 @@ export function formatAssetAccessType(accessType: AssetUsageAccessType | undefin
 }
 
 export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {
-	if (asset.alt_access_type) return asset.alt_access_type
 	if (asset.access_type) return asset.access_type
+	if (asset.alt_access_type) return asset.alt_access_type
 }
 
 export function getFlowModuleAssets(

@@ -1,0 +1,183 @@
+{
+    "summary": "E-commerce Order Processing Pipeline",
+    "value": {
+        "modules": [
+            {
+                "id": "validate_order",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(items: { name: string; price: number; quantity: number }[]) {\n  const invalid = items.filter(item => item.price <= 0 || item.quantity <= 0);\n  return { valid: invalid.length === 0, invalidItems: invalid };\n}",
+                    "input_transforms": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "flow_input.items"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "calculate_total",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(items: { name: string; price: number; quantity: number }[]) {\n  const subtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);\n  const tax = subtotal * 0.08;\n  return { subtotal, tax, total: subtotal + tax };\n}",
+                    "input_transforms": {
+                        "items": {
+                            "type": "javascript",
+                            "expr": "flow_input.items"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "check_inventory",
+                "value": {
+                    "type": "forloopflow",
+                    "iterator": {
+                        "type": "javascript",
+                        "expr": "flow_input.items"
+                    },
+                    "skip_failures": false,
+                    "parallel": true,
+                    "modules": [
+                        {
+                            "id": "check_item_stock",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(item: { name: string; quantity: number }) {\n  // Mock inventory check - items with even quantity are in stock\n  const inStock = item.quantity % 2 === 0 || item.quantity < 5;\n  return { name: item.name, requested: item.quantity, inStock, available: inStock ? item.quantity : 0 };\n}",
+                                "input_transforms": {
+                                    "item": {
+                                        "type": "javascript",
+                                        "expr": "flow_input.iter.value"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "process_inventory_result",
+                "value": {
+                    "type": "branchone",
+                    "branches": [
+                        {
+                            "summary": "All items in stock - create shipment",
+                            "expr": "results.check_inventory.every(item => item.inStock)",
+                            "modules": [
+                                {
+                                    "id": "create_shipment",
+                                    "value": {
+                                        "type": "rawscript",
+                                        "language": "bun",
+                                        "content": "export async function main(shipping_address: string, total: number) {\n  return {\n    shipment_id: `SHIP-${Date.now()}`,\n    status: 'created',\n    address: shipping_address,\n    total,\n    estimated_delivery: '3-5 business days'\n  };\n}",
+                                        "input_transforms": {
+                                            "shipping_address": {
+                                                "type": "javascript",
+                                                "expr": "flow_input.shipping_address"
+                                            },
+                                            "total": {
+                                                "type": "javascript",
+                                                "expr": "results.calculate_total.total"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "default": [
+                        {
+                            "id": "create_backorder",
+                            "value": {
+                                "type": "rawscript",
+                                "language": "bun",
+                                "content": "export async function main(inventory_results: { name: string; inStock: boolean }[]) {\n  const outOfStock = inventory_results.filter(item => !item.inStock);\n  return {\n    backorder_id: `BO-${Date.now()}`,\n    status: 'backorder',\n    unavailable_items: outOfStock.map(item => item.name),\n    message: 'Some items are out of stock. We will notify you when available.'\n  };\n}",
+                                "input_transforms": {
+                                    "inventory_results": {
+                                        "type": "javascript",
+                                        "expr": "results.check_inventory"
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                "id": "send_confirmation",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(customer_email: string, order_result: any) {\n  // Mock email sending\n  return {\n    email_sent: true,\n    to: customer_email,\n    subject: order_result.shipment_id ? 'Order Confirmed' : 'Order Update - Backorder',\n    sent_at: new Date().toISOString()\n  };\n}",
+                    "input_transforms": {
+                        "customer_email": {
+                            "type": "javascript",
+                            "expr": "flow_input.customer_email"
+                        },
+                        "order_result": {
+                            "type": "javascript",
+                            "expr": "results.process_inventory_result"
+                        }
+                    }
+                }
+            },
+            {
+                "id": "return_summary",
+                "value": {
+                    "type": "rawscript",
+                    "language": "bun",
+                    "content": "export async function main(validation: any, totals: any, order_result: any, confirmation: any) {\n  return {\n    order_valid: validation.valid,\n    totals,\n    order_status: order_result.shipment_id ? 'shipped' : 'backorder',\n    order_id: order_result.shipment_id || order_result.backorder_id,\n    confirmation_sent: confirmation.email_sent\n  };\n}",
+                    "input_transforms": {
+                        "validation": {
+                            "type": "javascript",
+                            "expr": "results.validate_order"
+                        },
+                        "totals": {
+                            "type": "javascript",
+                            "expr": "results.calculate_total"
+                        },
+                        "order_result": {
+                            "type": "javascript",
+                            "expr": "results.process_inventory_result"
+                        },
+                        "confirmation": {
+                            "type": "javascript",
+                            "expr": "results.send_confirmation"
+                        }
+                    }
+                }
+            }
+        ]
+    },
+    "schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "description": "Array of order items",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": { "type": "string" },
+                        "price": { "type": "number" },
+                        "quantity": { "type": "integer" }
+                    },
+                    "required": ["name", "price", "quantity"]
+                }
+            },
+            "customer_email": {
+                "type": "string",
+                "description": "Customer email address"
+            },
+            "shipping_address": {
+                "type": "string",
+                "description": "Shipping address"
+            }
+        },
+        "required": ["items", "customer_email", "shipping_address"]
+    }
+}

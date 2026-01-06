@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy'
-
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -28,7 +26,6 @@
 
 	import {
 		Activity,
-		ArrowRight,
 		Calendar,
 		CheckCircle2,
 		Circle,
@@ -60,13 +57,11 @@
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
@@ -95,6 +90,7 @@
 	import { page } from '$app/state'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -103,7 +99,6 @@
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
-	let branchOrIterationN: number = $state(0)
 
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
@@ -151,24 +146,6 @@
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
 		}
-	}
-
-	async function restartFlow(
-		id: string | undefined,
-		stepId: string | undefined,
-		branchOrIterationN: number
-	) {
-		if (id === undefined || stepId === undefined) {
-			return
-		}
-		let run = await JobService.restartFlowAtStep({
-			workspace: $workspaceStore!,
-			id,
-			stepId,
-			branchOrIterationN,
-			requestBody: {}
-		})
-		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
 	// If we get results, focus on that tab. Else, focus on logs
@@ -607,95 +584,16 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
-				{#if selectedJobStepType == 'single'}
-					<Button
-						title={`Re-start this flow from step ${selectedJobStep} (included). ${
-							!$enterpriseLicense ? ' This is a feature only available in enterprise edition.' : ''
-						}`}
-						variant="default"
-						unifiedSize="md"
-						disabled={!$enterpriseLicense}
-						on:click|once={() => {
-							restartFlow(job?.id, selectedJobStep, 0)
-						}}
-						startIcon={{ icon: RefreshCw }}
-					>
-						Re-start from
-						<Badge baseClass="ml-1" color="indigo">
-							{selectedJobStep}
-						</Badge>
-						{#if !$enterpriseLicense}
-							(EE)
-						{/if}
-					</Button>
-				{:else}
-					<Popover
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-						contentClasses="p-4"
-					>
-						{#snippet trigger()}
-							<Button
-								title={`Re-start this flow from step ${selectedJobStep} (included). ${
-									!$enterpriseLicense
-										? ' This is a feature only available in enterprise edition.'
-										: ''
-								}`}
-								variant="default"
-								unifiedSize="md"
-								disabled={!$enterpriseLicense}
-								startIcon={{ icon: RefreshCw }}
-								nonCaptureEvent={true}
-							>
-								Re-start from
-								<Badge baseClass="ml-1" color="indigo">
-									{selectedJobStep}
-								</Badge>
-							</Button>
-						{/snippet}
-						{#snippet content()}
-							<label class="block text-primary">
-								<div class="pb-1 text-xs font-semibold text-emphasis"
-									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
-								>
-								<div class="flex w-full">
-									{#if selectedJobStepType === 'forloop'}
-										<input
-											type="number"
-											min="0"
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											onclick={stopPropagation(() => {})}
-										/>
-									{:else}
-										<select
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											onclick={stopPropagation(() => {})}
-										>
-											{#each restartBranchNames as [branchIdx, branchName]}
-												<option value={branchIdx}>{branchName}</option>
-											{/each}
-										</select>
-									{/if}
-
-									<Button
-										unifiedSize="md"
-										variant="accent"
-										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
-										aria-label="Restart flow"
-										on:click|once={() => {
-											restartFlow(job?.id, selectedJobStep, branchOrIterationN)
-										}}
-									>
-										<ArrowRight size={18} />
-									</Button>
-								</div>
-							</label>
-						{/snippet}
-					</Popover>
-				{/if}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
+				<FlowRestartButton
+					jobId={job.id}
+					{selectedJobStep}
+					{selectedJobStepType}
+					{restartBranchNames}
+					flowPath={job.script_path}
+					disabled={!$enterpriseLicense}
+					enterpriseOnly={!$enterpriseLicense}
+				/>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				<Button

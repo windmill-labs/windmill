@@ -143,24 +143,18 @@ impl ApiServer {
 pub struct RunJob {
     pub payload: JobPayload,
     pub args: serde_json::Map<String, serde_json::Value>,
-    pub debounce_job_id_o: Option<Uuid>,
     pub scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl From<JobPayload> for RunJob {
     fn from(payload: JobPayload) -> Self {
-        Self { payload, args: Default::default(), debounce_job_id_o: None, scheduled_for_o: None }
+        Self { payload, args: Default::default(), scheduled_for_o: None }
     }
 }
 
 impl RunJob {
     pub fn arg<S: Into<String>>(mut self, k: S, v: serde_json::Value) -> Self {
         self.args.insert(k.into(), v);
-        self
-    }
-
-    pub fn push_arg_debounce_job_id_o(mut self, job_id: Option<Uuid>) -> Self {
-        self.debounce_job_id_o = job_id;
         self
     }
 
@@ -173,7 +167,7 @@ impl RunJob {
     }
 
     pub async fn push(self, db: &Pool<Postgres>) -> Uuid {
-        let RunJob { payload, args, debounce_job_id_o, scheduled_for_o } = self;
+        let RunJob { payload, args, scheduled_for_o } = self;
         let mut hm_args = std::collections::HashMap::new();
         for (k, v) in args {
             hm_args.insert(k, windmill_common::worker::to_raw_value(&v));
@@ -207,7 +201,7 @@ impl RunJob {
             None,
             false,
             None,
-            debounce_job_id_o,
+            None,
             None,
         )
         .await
@@ -590,6 +584,7 @@ pub async fn assert_lockfile(
                 hash: ScriptHash(script.hash),
                 dedicated_worker: None,
                 language,
+                debouncing_settings: Default::default(),
             })
             .push(&db2)
             .await;
@@ -684,16 +679,14 @@ pub async fn run_deployed_relative_imports(
             let job = RunJob::from(JobPayload::ScriptHash {
                 path: "f/system/test_import".to_string(),
                 hash: ScriptHash(script.hash),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language,
                 priority: None,
                 apply_preprocessor: false,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             })
             .push(&db2)
             .await;
@@ -739,13 +732,11 @@ pub async fn run_preview_relative_imports(
                 path: Some("f/system/test_import".to_string()),
                 language,
                 lock: None,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
-                custom_debounce_key: None,
-                debounce_delay_s: None,
+                concurrency_settings: windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+                debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
             }))
             .push(&db2)
             .await;

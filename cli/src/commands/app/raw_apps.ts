@@ -7,28 +7,285 @@ import {
   SEP,
   windmillUtils,
   yamlParseFile,
+  yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import { Policy } from "../../../gen/types.gen.ts";
+import path from "node:path";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
 
-import { replaceInlineScripts, repopulateFields } from "./apps.ts";
+import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
-import { mergeConfigWithConfigFile, SyncOptions } from "../../core/conf.ts";
+import { APP_BACKEND_FOLDER } from "./app_metadata.ts";
+import { writeIfChanged } from "../../utils/utils.ts";
+import { yamlOptions } from "../sync/sync.ts";
+import {
+  EXTENSION_TO_LANGUAGE,
+  getLanguageFromExtension,
+} from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 
 export interface AppFile {
-  runnables: any;
-  custom_path: string;
+  runnables?: any;
+  custom_path?: string;
   public?: boolean;
   summary: string;
   policy: Policy;
+  data?: {
+    tables?: string[];
+    datatable?: string;
+    schema?: string;
+  };
+}
+
+/**
+ * Finds the content file for a runnable by looking for files matching the runnableId.
+ * Returns the file extension and content, or undefined if not found.
+ */
+async function findRunnableContentFile(
+  backendPath: string,
+  runnableId: string,
+  allFiles: string[],
+): Promise<{ ext: string; content: string } | undefined> {
+  // Look for files matching pattern: {runnableId}.{ext}
+  // where ext is a known language extension
+  for (const fileName of allFiles) {
+    // Skip yaml and lock files
+    if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) {
+      continue;
+    }
+
+    // Check if file starts with runnableId followed by a dot
+    if (!fileName.startsWith(runnableId + ".")) {
+      continue;
+    }
+
+    // Extract extension (everything after the first dot following runnableId)
+    const ext = fileName.substring(runnableId.length + 1);
+
+    // Check if this is a recognized extension
+    if (EXTENSION_TO_LANGUAGE[ext]) {
+      try {
+        const content = await Deno.readTextFile(
+          path.join(backendPath, fileName),
+        );
+        return { ext, content };
+      } catch {
+        continue;
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extracts the runnable ID from a code file name.
+ * Returns undefined if the file is not a recognized code file.
+ *
+ * Examples:
+ * - "get_user.ts" -> "get_user"
+ * - "fetch_data.bun.ts" -> "fetch_data"
+ * - "query.pg.sql" -> "query"
+ */
+function getRunnableIdFromCodeFile(fileName: string): string | undefined {
+  // Skip yaml and lock files
+  if (fileName.endsWith(".yaml") || fileName.endsWith(".lock")) {
+    return undefined;
+  }
+
+  // Try to find a matching extension
+  for (const ext of Object.keys(EXTENSION_TO_LANGUAGE)) {
+    if (fileName.endsWith("." + ext)) {
+      return fileName.slice(0, -(ext.length + 1));
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Loads all runnables from the backend folder.
+ *
+ * Supports two modes:
+ * 1. Explicit YAML config: `<id>.yaml` with type specification + optional `<id>.<ext>` code file
+ * 2. Code-only (auto-detect): Just `<id>.<ext>` - assumes type: inline with empty fields
+ *
+ * Converts from file format to API format:
+ * - For inline scripts (type: 'inline'): derives inlineScript from sibling files
+ * - For path-based runnables (type: 'script'|'hubscript'|'flow'): converts to API format
+ *   e.g., { type: "script" } -> { type: "path", runType: "script" }
+ *
+ * Returns an empty object if the backend folder doesn't exist.
+ *
+ * @param backendPath - Path to the backend folder
+ * @param defaultTs - Default TypeScript runtime ("bun" or "deno")
+ */
+export async function loadRunnablesFromBackend(
+  backendPath: string,
+  defaultTs: "bun" | "deno" = "bun",
+): Promise<Record<string, any>> {
+  const runnables: Record<string, any> = {};
+
+  try {
+    // First, collect all files in the backend folder
+    const allFiles: string[] = [];
+    for await (const entry of Deno.readDir(backendPath)) {
+      if (entry.isFile) {
+        allFiles.push(entry.name);
+      }
+    }
+
+    // Track which runnable IDs have been processed (from YAML files)
+    const processedIds = new Set<string>();
+
+    // Process YAML files first (explicit configuration)
+    for (const fileName of allFiles) {
+      if (!fileName.endsWith(".yaml")) {
+        continue;
+      }
+
+      const runnableId = fileName.replace(".yaml", "");
+      processedIds.add(runnableId);
+
+      const filePath = path.join(backendPath, fileName);
+      const runnable = (await yamlParseFile(filePath)) as Record<string, any>;
+
+      // If this is an inline script (type: 'inline'), derive inlineScript from files
+      if (runnable?.type === "inline") {
+        const contentFile = await findRunnableContentFile(
+          backendPath,
+          runnableId,
+          allFiles,
+        );
+
+        if (contentFile) {
+          const language = getLanguageFromExtension(contentFile.ext, defaultTs);
+
+          // Try to load lock file
+          let lock: string | undefined;
+          try {
+            lock = await Deno.readTextFile(
+              path.join(backendPath, `${runnableId}.lock`),
+            );
+          } catch {
+            // No lock file, that's fine
+          }
+
+          // Reconstruct inlineScript object
+          runnable.inlineScript = {
+            content: contentFile.content,
+            language,
+            ...(lock ? { lock } : {}),
+          };
+        }
+      } else if (
+        runnable?.type === "script" ||
+        runnable?.type === "hubscript" ||
+        runnable?.type === "flow"
+      ) {
+        // For path-based runnables, convert from file format to API format
+        // { type: "script" } -> { type: "path", runType: "script" }
+        // { type: "hubscript" } -> { type: "path", runType: "hubscript" }
+        // { type: "flow" } -> { type: "path", runType: "flow" }
+        const { type, schema: _schema, ...rest } = runnable;
+        runnable.type = "path";
+        runnable.runType = type;
+        // Remove schema if present
+        delete runnable.schema;
+        Object.assign(runnable, rest);
+      }
+
+      runnables[runnableId] = runnable;
+    }
+
+    // Auto-detect code files without YAML config (assume type: inline)
+    for (const fileName of allFiles) {
+      const runnableId = getRunnableIdFromCodeFile(fileName);
+
+      if (!runnableId) {
+        continue; // Not a recognized code file
+      }
+
+      if (processedIds.has(runnableId)) {
+        continue; // Already processed via YAML file
+      }
+
+      // Found a code file without corresponding YAML - treat as inline runnable
+      processedIds.add(runnableId);
+
+      const contentFile = await findRunnableContentFile(
+        backendPath,
+        runnableId,
+        allFiles,
+      );
+
+      if (contentFile) {
+        const language = getLanguageFromExtension(contentFile.ext, defaultTs);
+
+        // Try to load lock file
+        let lock: string | undefined;
+        try {
+          lock = await Deno.readTextFile(
+            path.join(backendPath, `${runnableId}.lock`),
+          );
+        } catch {
+          // No lock file, that's fine
+        }
+
+        // Create inline runnable with default empty fields
+        runnables[runnableId] = {
+          type: "inline",
+          inlineScript: {
+            content: contentFile.content,
+            language,
+            ...(lock ? { lock } : {}),
+          },
+        };
+      }
+    }
+  } catch (error: any) {
+    if (error.name !== "NotFound") {
+      throw error;
+    }
+  }
+
+  return runnables;
+}
+
+/**
+ * Writes a single runnable to its YAML file in the backend folder.
+ * The file will be named `<runnableId>.yaml`.
+ *
+ * Converts from API format to file format:
+ * - For inline scripts: keeps type: "inline"
+ * - For path-based runnables: converts { type: "path", runType: "script" } to { type: "script" }
+ *   and removes schema field
+ */
+export function writeRunnableToBackend(
+  backendPath: string,
+  runnableId: string,
+  runnable: any,
+): void {
+  let runnableToWrite = { ...runnable };
+
+  // Convert path-based runnables from API format to file format
+  if (runnable.type === "path" && runnable.runType) {
+    // { type: "path", runType: "script" } -> { type: "script" }
+    const { type: _type, runType, schema: _schema, ...rest } = runnable;
+    runnableToWrite = {
+      type: runType,
+      ...rest,
+    };
+  }
+
+  const filePath = path.join(backendPath, `${runnableId}.yaml`);
+  writeIfChanged(filePath, yamlStringify(runnableToWrite, yamlOptions));
 }
 
 const alreadySynced: string[] = [];
 
 async function collectAppFiles(
-  localPath: string
+  localPath: string,
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
 
@@ -38,17 +295,25 @@ async function collectAppFiles(
       const relativePath = basePath + entry.name;
 
       if (entry.isDirectory) {
-        // Skip the runnables and node_modules subfolders
-        if (entry.name === "runnables" || entry.name === "node_modules" || entry.name === "dist") {
+        // Skip the runnables, node_modules, and sql_to_apply subfolders
+        if (
+          entry.name === APP_BACKEND_FOLDER ||
+          entry.name === "node_modules" ||
+          entry.name === "dist" ||
+          entry.name === ".claude" ||
+          entry.name === "sql_to_apply"
+        ) {
           continue;
         }
         await readDirRecursive(fullPath + SEP, relativePath + SEP);
       } else if (entry.isFile) {
-        // Skip raw_app.yaml as it's metadata, not an app file
-        // Skip node_modules and package-lock.json as they are generated
+        // Skip generated/metadata files that shouldn't be part of the app
         if (
-          relativePath === "raw_app.yaml" ||
-          relativePath === "package-lock.json"
+          entry.name === "raw_app.yaml" ||
+          entry.name === "package-lock.json" ||
+          entry.name === "DATATABLES.md" ||
+          entry.name === "AGENTS.md" ||
+          entry.name === "wmill.d.ts"
         ) {
           continue;
         }
@@ -66,7 +331,7 @@ export async function pushRawApp(
   workspace: string,
   remotePath: string,
   localPath: string,
-  message?: string
+  message?: string,
 ): Promise<void> {
   if (alreadySynced.includes(localPath)) {
     return;
@@ -94,17 +359,55 @@ export async function pushRawApp(
   if (!localPath.endsWith(SEP)) {
     localPath += SEP;
   }
-  const path = localPath + "raw_app.yaml";
-  const localApp = (await yamlParseFile(path)) as AppFile;
-  replaceInlineScripts(localApp.runnables, localPath + SEP + "runnables/");
-  repopulateFields(localApp.runnables)
-  await generatingPolicy(localApp, remotePath, localApp?.["public"] ?? false);
+  const appFilePath = localPath + "raw_app.yaml";
+  const localApp = (await yamlParseFile(appFilePath)) as AppFile;
+
+  // Load runnables from separate YAML files in the backend folder
+  // Falls back to reading from raw_app.yaml if no separate files exist (backward compat)
+  const backendPath = path.join(localPath, APP_BACKEND_FOLDER);
+  const runnablesFromBackend = await loadRunnablesFromBackend(backendPath);
+
+  let runnables: Record<string, any>;
+  if (Object.keys(runnablesFromBackend).length > 0) {
+    // Use runnables from separate files (new format)
+    runnables = runnablesFromBackend;
+    log.info(
+      colors.gray(
+        `Loaded ${Object.keys(runnables).length} runnables from backend folder`,
+      ),
+    );
+  } else if (localApp.runnables) {
+    // Fall back to runnables from raw_app.yaml (old format)
+    runnables = localApp.runnables;
+    log.info(
+      colors.gray(
+        `Loaded ${
+          Object.keys(runnables).length
+        } runnables from raw_app.yaml (legacy format)`,
+      ),
+    );
+  } else {
+    runnables = {};
+  }
+
+  replaceInlineScripts(runnables, backendPath + SEP, true);
+  repopulateFields(runnables);
+
+  // Create a temporary app object for policy generation
+  const appForPolicy = { ...localApp, runnables };
+  await generatingPolicy(
+    appForPolicy,
+    remotePath,
+    localApp?.["public"] ?? false,
+  );
+
   const files = await collectAppFiles(localPath);
   async function createBundleRaw() {
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile = (frameworks.svelte || frameworks.vue) ? "index.ts" : "index.tsx";
+    const entryFile =
+      frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
     const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
@@ -112,8 +415,14 @@ export async function pushRawApp(
       minify: true,
     });
   }
+  // Build the value object, including data if present
+  const value: Record<string, any> = { runnables, files };
+  if (localApp.data) {
+    value.data = localApp.data;
+  }
+
   if (app) {
-    if (isSuperset(localApp, app)) {
+    if (isSuperset({ ...localApp, runnables }, app)) {
       log.info(colors.green(`App ${remotePath} is up to date`));
       return;
     }
@@ -124,12 +433,12 @@ export async function pushRawApp(
       path: remotePath,
       formData: {
         app: {
-          value: { runnables: localApp.runnables, files },
+          value,
           path: remotePath,
           summary: localApp.summary,
-          policy: localApp.policy,
+          policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,
@@ -141,40 +450,30 @@ export async function pushRawApp(
       workspace,
       formData: {
         app: {
-          value: { runnables: localApp.runnables, files },
+          value,
           path: remotePath,
           summary: localApp.summary,
-          policy: localApp.policy,
+          policy: appForPolicy.policy,
           deployment_message: message,
-          custom_path: localApp.custom_path,
+          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
         },
         js,
         css,
       },
     });
-    // await wmill.createApp({
-    //   workspace,
-    //   requestBody: {
-    //     path: remotePath,
-    //     deployment_message: message,
-    //     value: { runnables: localApp.runnables, files },
-    //     summary: localApp.summary,
-    //     policy: localApp.policy,
-    //   },
-    // });
   }
 }
 
 export async function generatingPolicy(
   app: any,
   path: string,
-  publicApp: boolean
+  publicApp: boolean,
 ) {
   log.info(colors.gray(`Generating fresh policy for app ${path}...`));
   try {
     app.policy = await windmillUtils.updateRawAppPolicy(
       app.runnables,
-      app.policy
+      app.policy,
     );
     app.policy.execution_mode = publicApp ? "anonymous" : "publisher";
   } catch (e) {
@@ -183,106 +482,10 @@ export async function generatingPolicy(
   }
 }
 
-export async function generateLocksCommand(
-  opts: GlobalOptions & {
-    yes?: boolean;
-    dryRun?: boolean;
-    defaultTs?: "bun" | "deno";
-  } & SyncOptions,
-  appPath: string | undefined
-) {
-  const { generateAppLocksInternal } = await import("./app_metadata.ts");
-  const { elementsToMap, FSFSElement } = await import("../sync/sync.ts");
-  const { ignoreF } = await import("../sync/sync.ts");
-  const { Confirm } = await import("../../../deps.ts");
-
-  if (appPath == "") {
-    appPath = undefined;
-  }
-
-  const workspace = await resolveWorkspace(opts);
-  await requireLogin(opts);
-  opts = await mergeConfigWithConfigFile(opts);
-
-  if (appPath) {
-    // Generate metadata for a specific app
-    await generateAppLocksInternal(
-      appPath,
-      false,
-      workspace,
-      opts,
-      false,
-      false,
-    );
-  } else {
-    // Generate metadata for all apps
-    const ignore = await ignoreF(opts);
-    const elems = await elementsToMap(
-      await FSFSElement(Deno.cwd(), [], true),
-      (p, isD) => {
-        return ignore(p, isD) || (!isD && !p.endsWith(SEP + "raw_app.yaml"));
-      },
-      false,
-      {}
-    );
-
-    const appFolders = Object.keys(elems)
-      .filter((p) => p.endsWith(SEP + "raw_app.yaml"))
-      .map((p) => p.substring(0, p.length - (SEP + "raw_app.yaml").length));
-
-    let hasAny = false;
-    log.info("Checking metadata for all apps:");
-    for (const appFolder of appFolders) {
-      const candidate = await generateAppLocksInternal(
-        appFolder,
-        true,
-        workspace,
-        opts,
-        false,
-        true,
-      );
-      if (candidate) {
-        hasAny = true;
-        log.info(colors.green(`+ ${candidate}`));
-      }
-    }
-
-    if (hasAny) {
-      if (opts.dryRun) {
-        log.info(colors.gray(`Dry run complete.`));
-        return;
-      }
-      if (
-        !opts.yes &&
-        !(await Confirm.prompt({
-          message: "Update the metadata of the above apps?",
-          default: true,
-        }))
-      ) {
-        return;
-      }
-    } else {
-      log.info(colors.green.bold("No metadata to update"));
-      return;
-    }
-
-    for (const appFolder of appFolders) {
-      await generateAppLocksInternal(
-        appFolder,
-        false,
-        workspace,
-        opts,
-        false,
-        true,
-      );
-    }
-  }
-}
-
 async function pushRawAppCommand(
   opts: GlobalOptions,
   filePath: string,
-  remotePath: string
+  remotePath: string,
 ) {
   if (!validatePath(remotePath)) {
     return;

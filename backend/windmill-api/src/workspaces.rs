@@ -29,7 +29,7 @@ use regex::Regex;
 
 use hex;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
@@ -42,8 +42,12 @@ use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
-use windmill_common::workspaces::WorkspaceGitSyncSettings;
+use windmill_common::workspaces::{
+    get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
+    WorkspaceGitSyncSettings,
+};
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
+use windmill_common::PgDatabase;
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::AUTOMATE_USERNAME_CREATION_SETTING,
@@ -129,6 +133,9 @@ pub fn workspaced_service() -> Router {
         )
         .route("/edit_ducklake_config", post(edit_ducklake_config))
         .route("/list_ducklakes", get(list_ducklakes))
+        .route("/list_datatables", get(list_datatables))
+        .route("/list_datatable_schemas", get(list_datatable_schemas))
+        .route("/edit_datatable_config", post(edit_datatable_config))
         .route("/edit_git_sync_config", post(edit_git_sync_config))
         .route("/edit_git_sync_repository", post(edit_git_sync_repository))
         .route(
@@ -168,11 +175,16 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route("/operator_settings", post(update_operator_settings))
         .route(
             "/create_workspace_fork_branch",
             post(create_workspace_fork_branch),
         )
-        .route("/operator_settings", post(update_operator_settings));
+        .route(
+            "/reset_diff_tally/:fork_workspace_id",
+            post(reset_workspace_diffs),
+        )
+        .route("/compare/:target_workspace_id", get(compare_workspaces));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -224,6 +236,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub teams_team_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub teams_team_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_command_script: Option<String>,
@@ -259,6 +273,8 @@ pub struct WorkspaceSettings {
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub datatable: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -330,12 +346,6 @@ struct LargeFileStorageWithSecondary {
     #[serde(default)]
     secondary_storage: HashMap<String, LargeFileStorage>,
 }
-
-#[derive(Deserialize, Serialize, Debug)]
-pub struct DucklakeSettings {
-    pub ducklakes: HashMap<String, Ducklake>,
-}
-
 #[derive(Deserialize, Debug)]
 struct EditLargeFileStorageConfig {
     large_file_storage: Option<LargeFileStorageWithSecondary>,
@@ -344,6 +354,21 @@ struct EditLargeFileStorageConfig {
 #[derive(Deserialize, Debug)]
 struct EditDucklakeConfig {
     settings: DucklakeSettings,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DucklakeSettings {
+    pub ducklakes: HashMap<String, Ducklake>,
+}
+
+#[derive(Deserialize, Debug)]
+struct EditDataTableConfig {
+    settings: DataTableSettings,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTableSettings {
+    pub datatables: HashMap<String, DataTable>,
 }
 
 #[derive(Deserialize)]
@@ -512,6 +537,7 @@ async fn get_settings(
             slack_team_id,
             teams_team_id,
             teams_team_name,
+            teams_team_guid,
             slack_name,
             slack_command_script,
             teams_command_script,
@@ -530,6 +556,7 @@ async fn get_settings(
             error_handler_extra_args,
             error_handler_muted_on_cancel,
             large_file_storage,
+            datatable,
             ducklake,
             git_sync,
             deploy_ui,
@@ -1154,6 +1181,164 @@ async fn list_ducklakes(
     Ok(Json(ducklakes))
 }
 
+async fn list_datatables(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let datatables = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    Ok(Json(datatables))
+}
+
+/// Compact column representation: "type" or "type?" for nullable, with "=default" suffix if has default
+type CompactColumn = String;
+
+/// Columns mapped by name to their compact type
+type ColumnMap = HashMap<String, CompactColumn>;
+
+/// Tables mapped by name to their columns
+type TableMap = HashMap<String, ColumnMap>;
+
+/// Schemas mapped by name to their tables
+type SchemaMap = HashMap<String, TableMap>;
+
+#[derive(Serialize, Debug)]
+struct DataTableSchema {
+    datatable_name: String,
+    /// Hierarchical schema: schema_name -> table_name -> column_name -> "type[?][=default]"
+    schemas: SchemaMap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+async fn list_datatable_schemas(
+    _authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<DataTableSchema>> {
+    // Get all datatable names for this workspace
+    let datatable_names: Vec<String> = sqlx::query_scalar!(
+        r#"
+            SELECT jsonb_object_keys(ws.datatable->'datatables') AS datatable_name
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?
+    .into_iter()
+    .filter_map(|s| s)
+    .collect();
+
+    let mut results = Vec::new();
+
+    for datatable_name in datatable_names {
+        let schema = match get_datatable_schema(&db, &w_id, &datatable_name).await {
+            Ok(schemas) => DataTableSchema { datatable_name, schemas, error: None },
+            Err(e) => DataTableSchema {
+                datatable_name,
+                schemas: HashMap::new(),
+                error: Some(e.to_string()),
+            },
+        };
+        results.push(schema);
+    }
+
+    Ok(Json(results))
+}
+
+async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Result<SchemaMap> {
+    // Get the datatable resource (connection credentials)
+    let db_resource = get_datatable_resource_from_db_unchecked(db, w_id, datatable_name).await?;
+
+    // Parse the resource as PgDatabase
+    let pg_db: PgDatabase = serde_json::from_value(db_resource)
+        .map_err(|e| Error::internal_err(format!("Failed to parse database credentials: {}", e)))?;
+
+    // Connect to the datatable database
+    let (client, connection) = pg_db.connect().await?;
+
+    // Spawn the connection handler
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            tracing::error!("Datatable connection error: {}", e);
+        }
+    });
+
+    // Query the schema information
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                nsp.nspname::text AS table_schema,
+                c.table_name::text,
+                c.column_name::text,
+                c.udt_name::text,
+                c.is_nullable::text,
+                c.column_default::text
+            FROM information_schema.columns c
+            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
+            WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND c.table_name IS NOT NULL
+            ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            "#,
+            &[],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
+
+    // Build hierarchical structure: schema -> table -> column -> compact_type
+    let mut schema_map: SchemaMap = HashMap::new();
+
+    for row in rows {
+        let table_schema: String = row.get(0);
+        let table_name: String = row.get(1);
+        let column_name: String = row.get(2);
+        let udt_name: String = row.get(3);
+        let is_nullable: String = row.get(4);
+        let column_default: Option<String> = row.get(5);
+
+        // Build compact type representation: "type[?][=default]"
+        let mut compact = udt_name;
+        if is_nullable == "YES" {
+            compact.push('?');
+        }
+        if let Some(default) = column_default {
+            // Truncate long defaults for compactness
+            let short_default = if default.len() > 30 {
+                format!("{}...", &default[..27])
+            } else {
+                default
+            };
+            compact.push('=');
+            compact.push_str(&short_default);
+        }
+
+        schema_map
+            .entry(table_schema)
+            .or_default()
+            .entry(table_name)
+            .or_default()
+            .insert(column_name, compact);
+    }
+
+    Ok(schema_map)
+}
+
 async fn edit_ducklake_config(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1178,30 +1363,7 @@ async fn edit_ducklake_config(
     )
     .await?;
 
-    // Check that all ducklake catalog resources exist to prevent
-    // exploiting the shared property to see any resource
-    for dl in new_config.settings.ducklakes.values() {
-        if dl.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            continue;
-        }
-        let catalog_res = sqlx::query_scalar!(
-            "SELECT 1 FROM resource WHERE workspace_id = $1 AND path = $2",
-            &w_id,
-            &dl.catalog.resource_path
-        )
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
-
-        if catalog_res.is_none() {
-            return Err(Error::BadRequest(format!(
-                "Ducklake catalog resource {} not found in workspace {}",
-                dl.catalog.resource_path, &w_id
-            )));
-        }
-    }
-
-    // Check that non-superadmins are not abusing Instance catalogs
+    // Check that non-superadmins are not abusing Instance databases
     if !is_superadmin {
         let old_ducklakes = sqlx::query_scalar!(
             r#"
@@ -1225,7 +1387,7 @@ async fn edit_ducklake_config(
                     || old_dl.unwrap().catalog.resource_path != dl.catalog.resource_path
                 {
                     return Err(Error::BadRequest(
-                        "Only superadmins can create or modify ducklakes with Instance catalogs"
+                        "Only superadmins can create or modify ducklakes with Instance databases"
                             .to_string(),
                     ));
                 }
@@ -1247,6 +1409,78 @@ async fn edit_ducklake_config(
     tx.commit().await?;
 
     Ok(format!("Edit ducklake config for workspace {}", &w_id))
+}
+
+async fn edit_datatable_config(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, email, .. }: ApiAuthed,
+    Json(new_config): Json<EditDataTableConfig>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+    let is_superadmin = require_super_admin(&db, &email).await.is_ok();
+
+    let mut tx = db.begin().await?;
+
+    let args_for_audit = format!("{:?}", new_config.settings);
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_datatable_config",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("datatable", args_for_audit.as_str())].into()),
+    )
+    .await?;
+
+    // Check that non-superadmins are not abusing Instance databases
+    if !is_superadmin {
+        let old_datatables = sqlx::query_scalar!(
+            r#"
+                SELECT ws.datatable->'datatables' AS datatable_name
+                FROM workspace_settings ws
+                WHERE ws.workspace_id = $1
+            "#,
+            &w_id
+        )
+        .fetch_one(&db)
+        .await?
+        .unwrap_or(serde_json::Value::Null);
+        let old_datatables: HashMap<String, DataTable> =
+            serde_json::from_value(old_datatables).unwrap_or_default();
+        for (name, dt) in new_config.settings.datatables.iter() {
+            if dt.database.resource_type == DataTableCatalogResourceType::Instance {
+                let old_dt = old_datatables.get(name);
+                if old_dt.is_none()
+                    || old_dt.unwrap().database.resource_type
+                        != DataTableCatalogResourceType::Instance
+                    || old_dt.unwrap().database.resource_path != dt.database.resource_path
+                {
+                    return Err(Error::BadRequest(
+                        "Only superadmins can create or modify data tables with Instance databases"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+    }
+
+    let config: serde_json::Value = serde_json::to_value(new_config.settings)
+        .map_err(|err| Error::internal_err(err.to_string()))?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET datatable = $1 WHERE workspace_id = $2",
+        config,
+        &w_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(format!("Edit datatable config for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]
@@ -2586,6 +2820,8 @@ async fn update_workspace_settings(
             deploy_to = $1,
             ai_config = source_ws.ai_config,
             large_file_storage = source_ws.large_file_storage,
+            ducklake = source_ws.ducklake,
+            datatable = source_ws.datatable,
             git_app_installations = source_ws.git_app_installations
         FROM workspace_settings source_ws
         WHERE source_ws.workspace_id = $1
@@ -2827,9 +3063,9 @@ async fn clone_flows(
 
     // Then clone flow versions
     let flow_versions = sqlx::query!(
-        "SELECT id, workspace_id, path, value, schema, created_by, created_at 
-         FROM flow_version 
-         WHERE workspace_id = $1 
+        "SELECT id, workspace_id, path, value, schema, created_by, created_at
+         FROM flow_version
+         WHERE workspace_id = $1
          ORDER BY path, created_at",
         source_workspace_id
     )
@@ -2895,8 +3131,8 @@ async fn clone_apps(
 ) -> Result<HashMap<i64, i64>> {
     // Get all apps from source workspace
     let apps = sqlx::query!(
-        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path 
-         FROM app 
+        "SELECT id, workspace_id, path, summary, policy, versions, extra_perms, draft_only, custom_path
+         FROM app
          WHERE workspace_id = $1",
         source_workspace_id
     )
@@ -2930,7 +3166,7 @@ async fn clone_apps(
         // Clone app versions
         let app_versions = sqlx::query!(
             "SELECT app_id, value, created_by, created_at, raw_app
-         FROM app_version 
+         FROM app_version
          WHERE app_id = ANY(SELECT id FROM app WHERE workspace_id = $1)
          ORDER BY app_id, created_at",
             source_workspace_id
@@ -2959,7 +3195,7 @@ async fn clone_apps(
     sqlx::query!(
         "UPDATE app SET versions = (
             SELECT array_agg(av.id ORDER BY av.created_at)
-            FROM app_version av 
+            FROM app_version av
             WHERE av.app_id = app.id
         ) WHERE workspace_id = $1",
         target_workspace_id
@@ -2969,8 +3205,8 @@ async fn clone_apps(
 
     // Clone app scripts with recomputed hashes
     let app_scripts = sqlx::query!(
-        "SELECT app, hash, lock, code, code_sha256 
-         FROM app_script 
+        "SELECT app, hash, lock, code, code_sha256
+         FROM app_script
          WHERE app = ANY(SELECT id FROM app WHERE workspace_id = $1)",
         source_workspace_id
     )
@@ -3013,7 +3249,7 @@ async fn clone_raw_apps(
     sqlx::query!(
         "INSERT INTO raw_app (path, version, workspace_id, summary, edited_at, data, extra_perms)
          SELECT path, version, $2, summary, edited_at, data, extra_perms
-         FROM raw_app 
+         FROM raw_app
          WHERE workspace_id = $1",
         source_workspace_id,
         target_workspace_id,
@@ -3066,7 +3302,7 @@ async fn clone_workspace_dependencies(
     sqlx::query!(
         "INSERT INTO workspace_dependencies (workspace_id, language, name, description, content, archived, created_at)
          SELECT $1, language, name, description, content, archived, created_at
-         FROM workspace_dependencies 
+         FROM workspace_dependencies
          WHERE workspace_id = $2",
         target_workspace_id,
         source_workspace_id
@@ -3233,10 +3469,72 @@ async fn archive_workspace(
     authed: ApiAuthed,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Step 1: Disable all schedules and clear their queued jobs
+    let mut tx = db.begin().await?;
+    let disabled_schedules = sqlx::query_scalar!(
+        "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
+        &w_id
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let schedules_count = disabled_schedules.len();
+    tracing::info!(
+        "Disabled {} schedules in workspace {}",
+        schedules_count,
+        w_id
+    );
+
+    // Clear all schedule-related jobs using the existing clear_schedule function
+    for schedule_path in &disabled_schedules {
+        crate::schedule::clear_schedule(&mut tx, schedule_path, &w_id).await?;
+    }
+
+    tx.commit().await?;
+
+    // Step 2: Get all remaining queued jobs for this workspace (non-schedule jobs)
+    let jobs_to_cancel =
+        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", &w_id)
+            .fetch_all(&db)
+            .await?;
+
+    let jobs_count = jobs_to_cancel.len();
+    tracing::info!(
+        "Found {} remaining jobs to cancel in workspace {}",
+        jobs_count,
+        w_id
+    );
+
+    // Step 3: Cancel all remaining jobs using the existing cancel_jobs function
+    let canceled_count = if !jobs_to_cancel.is_empty() {
+        let axum::Json(canceled_jobs) = crate::jobs::cancel_jobs(
+            jobs_to_cancel,
+            &db,
+            &authed.username,
+            &w_id,
+            false, // force_cancel
+        )
+        .await?;
+
+        let count = canceled_jobs.len();
+        tracing::info!("Canceled {} jobs in workspace {}", count, w_id);
+        count
+    } else {
+        0
+    };
+
+    // Step 4: Archive the workspace
     let mut tx = db.begin().await?;
     sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
         .execute(&mut *tx)
         .await?;
+
+    let mut audit_params = HashMap::new();
+    audit_params.insert("disabled_schedules", schedules_count.to_string());
+    audit_params.insert("canceled_jobs", canceled_count.to_string());
+    let audit_params_refs: HashMap<&str, &str> =
+        audit_params.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
     audit_log(
         &mut *tx,
@@ -3245,12 +3543,15 @@ async fn archive_workspace(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        None,
+        Some(audit_params_refs),
     )
     .await?;
     tx.commit().await?;
 
-    Ok(format!("Archived workspace {}", &w_id))
+    Ok(format!(
+        "Archived workspace {}, disabled {} schedules and canceled {} jobs",
+        &w_id, schedules_count, canceled_count
+    ))
 }
 
 async fn leave_workspace(
@@ -3657,10 +3958,10 @@ async fn get_dependents_amounts(
     let results = sqlx::query_as!(
         DependentsAmount,
         r#"
-        SELECT 
+        SELECT
             imported_path,
             COUNT(DISTINCT importer_path) as "count!"
-        FROM dependency_map 
+        FROM dependency_map
         WHERE workspace_id = $1 AND imported_path = ANY($2)
         GROUP BY imported_path
         "#,
@@ -3952,4 +4253,612 @@ async fn update_operator_settings(
     .await?;
 
     Ok("Operator settings updated successfully".to_string())
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceComparison {
+    pub all_ahead_items_visible: bool,
+    pub all_behind_items_visible: bool,
+    pub skipped_comparison: bool,
+    pub diffs: Vec<WorkspaceDiffRow>,
+    pub summary: CompareSummary,
+}
+
+#[derive(Serialize, Default)]
+pub struct CompareSummary {
+    pub total_diffs: usize,
+    pub total_ahead: usize,
+    pub total_behind: usize,
+    pub scripts_changed: usize,
+    pub flows_changed: usize,
+    pub apps_changed: usize,
+    pub resources_changed: usize,
+    pub variables_changed: usize,
+    pub conflicts: usize, // Items that are both ahead and behind
+}
+
+async fn reset_workspace_diffs(
+    authed: ApiAuthed,
+    Path((w_id, target_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<()> {
+    // Needed to compute the has_changes: Option<bool>. Otherwise it will be None, and the query will not hit the items
+    let _ = compare_workspaces(
+        authed,
+        Path((w_id.clone(), target_workspace_id.clone())),
+        Extension(db.clone()),
+        Extension(user_db),
+    )
+    .await?;
+
+    sqlx::query!(
+        "DELETE FROM workspace_diff WHERE has_changes = false AND (
+            (source_workspace_id = $1 AND fork_workspace_id = $2)
+            OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+        )",
+        target_workspace_id,
+        w_id,
+    )
+    .execute(&db)
+    .await?;
+
+    Ok(Json(()))
+}
+
+#[derive(Serialize, Debug, Clone, Default)]
+pub struct WorkspaceDiffRow {
+    kind: String,
+    path: String,
+    ahead: i32,
+    behind: i32,
+    has_changes: Option<bool>,
+    exists_in_source: Option<bool>,
+    exists_in_fork: Option<bool>,
+}
+
+async fn compare_workspaces(
+    authed: ApiAuthed,
+    Path((source_workspace_id, fork_workspace_id)): Path<(String, String)>,
+    Extension(db): Extension<DB>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<WorkspaceComparison> {
+    // require_admin(authed.is_admin, &authed.username)?;
+
+    let skipped_comparison: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+            SELECT 1 FROM skip_workspace_diff_tally
+            WHERE workspace_id = $1
+        )",
+    )
+    .bind(&fork_workspace_id)
+    .fetch_one(&db)
+    .await?;
+
+    if skipped_comparison {
+        return Ok(Json(WorkspaceComparison {
+            all_ahead_items_visible: true,
+            all_behind_items_visible: true,
+            skipped_comparison,
+            diffs: vec![],
+            summary: Default::default(),
+        }));
+    }
+
+    let diff_items = sqlx::query_as!(
+        WorkspaceDiffRow,
+        "SELECT path, kind, ahead, behind, has_changes, exists_in_source, exists_in_fork FROM workspace_diff
+        WHERE source_workspace_id = $1 AND fork_workspace_id = $2",
+        source_workspace_id,
+        fork_workspace_id,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    let mut confirmed_diffs = vec![];
+    for item in diff_items {
+        if let Some(has_changes) = item.has_changes {
+            if has_changes {
+                confirmed_diffs.push(item);
+            }
+            continue;
+        }
+
+        let item_comparison = match item.kind.as_str() {
+            "script" => Some(
+                compare_two_scripts(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "flow" => Some(
+                compare_two_flows(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "app" => Some(
+                compare_two_apps(&db, &source_workspace_id, &fork_workspace_id, &item.path).await?,
+            ),
+            "resource" => Some(
+                compare_two_resources(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "variable" => Some(
+                compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            k => {
+                tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
+                None
+                // Some(ItemComparison {
+                //     has_changes: true,
+                //     exists_in_source: true,
+                //     exists_in_fork: true,
+                // })
+            }
+        };
+
+        if let Some(item_comparison) = item_comparison {
+            if item_comparison.has_changes {
+                sqlx::query!(
+                    "UPDATE workspace_diff SET has_changes = true, exists_in_source = $5, exists_in_fork = $6
+                    WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    source_workspace_id,
+                    fork_workspace_id,
+                    item.path,
+                    item.kind,
+                    item_comparison.exists_in_source,
+                    item_comparison.exists_in_fork,
+                )
+                .execute(&db)
+                .await?;
+                confirmed_diffs.push(WorkspaceDiffRow {
+                    has_changes: Some(item_comparison.has_changes),
+                    exists_in_source: Some(item_comparison.exists_in_source),
+                    exists_in_fork: Some(item_comparison.exists_in_fork),
+                    ..item
+                });
+            } else {
+                sqlx::query!(
+                    "DELETE FROM workspace_diff WHERE path = $3 AND kind = $4 AND (
+                        (source_workspace_id = $1 AND fork_workspace_id = $2)
+                        OR (source_workspace_id = $2 AND fork_workspace_id =$1)
+                    )",
+                    source_workspace_id,
+                    fork_workspace_id,
+                    item.path,
+                    item.kind,
+                )
+                .execute(&db)
+                .await?;
+            }
+        }
+    }
+
+    let visible_diffs = filter_visible_diffs(
+        &confirmed_diffs,
+        &source_workspace_id,
+        &fork_workspace_id,
+        user_db.begin(&authed).await?,
+    )
+    .await?;
+
+    let summary = CompareSummary {
+        total_diffs: visible_diffs.len(),
+        total_ahead: visible_diffs
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        total_behind: visible_diffs
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0)),
+        scripts_changed: visible_diffs.iter().filter(|s| s.kind == "script").count(),
+        flows_changed: visible_diffs.iter().filter(|s| s.kind == "flow").count(),
+        apps_changed: visible_diffs.iter().filter(|s| s.kind == "app").count(),
+        resources_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "resource")
+            .count(),
+        variables_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "variable")
+            .count(),
+        conflicts: visible_diffs
+            .iter()
+            .filter(|s| s.ahead > 0 && s.behind > 0)
+            .count(),
+    };
+
+    let all_ahead_items_visible = summary.total_ahead
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.ahead)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+    let all_behind_items_visible = summary.total_behind
+        == confirmed_diffs
+            .iter()
+            .map(|s| s.behind)
+            .fold(0, |acc, s| acc + s.try_into().unwrap_or(0));
+
+    return Ok(Json(WorkspaceComparison {
+        all_ahead_items_visible,
+        all_behind_items_visible,
+        skipped_comparison: false,
+        diffs: visible_diffs,
+        summary,
+    }));
+}
+
+async fn filter_visible_diffs(
+    confirmed_diffs: &[WorkspaceDiffRow],
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    mut tx: Transaction<'static, Postgres>,
+) -> Result<Vec<WorkspaceDiffRow>> {
+    // Step 1: Group paths by (workspace, kind)
+    let mut source_items: HashMap<&str, Vec<&str>> = HashMap::new();
+    let mut fork_items: HashMap<&str, Vec<&str>> = HashMap::new();
+
+    for diff in confirmed_diffs {
+        if diff.exists_in_source.unwrap_or(false) {
+            source_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+        if diff.exists_in_fork.unwrap_or(false) {
+            fork_items.entry(&diff.kind).or_default().push(&diff.path);
+        }
+    }
+
+    // Step 2: Batch query for each (workspace, kind) combination
+    let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
+    let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+
+    // Step 3: Filter diffs based on visibility
+    let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs
+        .iter()
+        .filter(|diff| {
+            let v = (diff.kind.to_string(), diff.path.to_string());
+            let source_ok = !diff.exists_in_source.unwrap_or(false) || source_visible.contains(&v);
+            let fork_ok = !diff.exists_in_fork.unwrap_or(false) || fork_visible.contains(&v);
+            source_ok && fork_ok
+        })
+        .cloned()
+        .collect();
+
+    Ok(visible_diffs)
+}
+
+async fn query_visible_items<'c>(
+    tx: &mut Transaction<'c, Postgres>,
+    workspace_id: &str,
+    items_by_kind: &HashMap<&str, Vec<&str>>,
+) -> Result<HashSet<(String, String)>> {
+    let mut visible = HashSet::new();
+
+    for (kind, paths) in items_by_kind {
+        let paths_vec: Vec<String> = paths.iter().map(|s| s.to_string()).collect();
+
+        let results = match *kind {
+            "script" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM script
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "flow" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM flow
+                     WHERE workspace_id = $1 AND path = ANY($2) AND archived = false",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "app" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM app
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "resource" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM resource
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "variable" => {
+                sqlx::query_scalar!(
+                    "SELECT path FROM variable
+                     WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            _ => vec![], // Unknown kind
+        };
+
+        for path in results {
+            visible.insert((kind.to_string(), path));
+        }
+    }
+
+    Ok(visible)
+}
+
+#[derive(Debug)]
+struct ItemComparison {
+    has_changes: bool,
+    exists_in_source: bool,
+    exists_in_fork: bool,
+}
+
+async fn compare_two_scripts(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest script from each workspace
+    let source_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_script = sqlx::query!(
+        "SELECT hash, created_at, content, summary, description, lock, schema
+         FROM script
+         WHERE workspace_id = $1 AND path = $2 AND archived = false
+         ORDER BY created_at DESC
+         LIMIT 1",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_script, &target_script) {
+        if source.content != target.content
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.lock != target.lock
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_script.is_some() || target_script.is_some() {
+        // The script exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_script.is_some(),
+        exists_in_fork: target_script.is_some(),
+    });
+}
+
+async fn compare_two_flows(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get latest flow from each workspace
+    let source_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_flow = sqlx::query!(
+        "SELECT value, summary, description, schema
+         FROM flow
+         WHERE workspace_id = $1 AND path = $2 AND archived = false",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_flow, &target_flow) {
+        if source.value != target.value
+            || source.summary != target.summary
+            || source.description != target.description
+            || source.schema != target.schema
+        {
+            has_changes = true;
+        }
+    } else if source_flow.is_some() || target_flow.is_some() {
+        // The flow exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_flow.is_some(),
+        exists_in_fork: target_flow.is_some(),
+    });
+}
+
+async fn compare_two_apps(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get app with its latest version data from source workspace
+    let source_app = sqlx::query!(
+        "SELECT app.summary, app.policy, app_version.value
+         FROM app
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_app = sqlx::query!(
+        "SELECT app.summary, app.policy, app_version.value
+         FROM app
+         JOIN app_version
+         ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.workspace_id = $1 AND app.path = $2 AND COALESCE(app.draft_only, false) = false",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata and content differences
+    if let (Some(source), Some(target)) = (&source_app, &target_app) {
+        if source.summary != target.summary
+            || source.policy != target.policy
+            || source.value != target.value
+        {
+            has_changes = true;
+        }
+    } else if source_app.is_some() || target_app.is_some() {
+        // The app exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_app.is_some(),
+        exists_in_fork: target_app.is_some(),
+    });
+}
+
+async fn compare_two_resources(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get resource from each workspace
+    let source_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource = sqlx::query!(
+        "SELECT value, description, resource_type
+         FROM resource
+         WHERE workspace_id = $1 AND path = $2",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource, &target_resource) {
+        if source.value != target.value
+            || source.description != target.description
+            || source.resource_type != target.resource_type
+        {
+            has_changes = true;
+        }
+    } else if source_resource.is_some() || target_resource.is_some() {
+        // The resource exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource.is_some(),
+        exists_in_fork: target_resource.is_some(),
+    });
+}
+
+async fn compare_two_variables(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    path: &str,
+) -> Result<ItemComparison> {
+    // Get variable from each workspace
+    let source_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        source_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_variable = sqlx::query!(
+        "SELECT value, is_secret, description
+         FROM variable
+         WHERE workspace_id = $1 AND path = $2",
+        fork_workspace_id,
+        path
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_variable, &target_variable) {
+        if source.is_secret != target.is_secret
+            || source.value != target.value
+            || source.description != target.description
+        {
+            has_changes = true;
+        }
+    } else if source_variable.is_some() || target_variable.is_some() {
+        // The variable exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_variable.is_some(),
+        exists_in_fork: target_variable.is_some(),
+    });
 }

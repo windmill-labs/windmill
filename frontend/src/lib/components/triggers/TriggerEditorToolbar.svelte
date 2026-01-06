@@ -2,14 +2,17 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { Save, RotateCcw } from 'lucide-svelte'
 	import { type Snippet } from 'svelte'
-	import Toggle from '$lib/components/Toggle.svelte'
+
 	import { Tooltip } from '../meltComponents'
 	import DeleteTriggerButton from './DeleteTriggerButton.svelte'
-	import type { Trigger } from './utils'
+	import { type Trigger } from './utils'
+	import TriggerSuspendedJobsModal from './TriggerSuspendedJobsModal.svelte'
+	import type { TriggerMode } from '$lib/gen'
+	import TriggerModeToggle from './TriggerModeToggle.svelte'
 
 	interface Props {
 		saveDisabled: any
-		enabled: boolean | undefined
+		mode: TriggerMode
 		allowDraft: any
 		edit: any
 		isLoading: any
@@ -18,15 +21,17 @@
 		extra?: Snippet
 		onDelete?: () => void
 		onReset?: () => void
-		onToggleEnabled?: (enabled: boolean) => void
+		onToggleMode: (mode: TriggerMode) => void
 		onUpdate?: () => void
 		cloudDisabled?: boolean
 		trigger?: Trigger
+		suspendedJobsModal?: TriggerSuspendedJobsModal | null
+		disableSuspendedMode?: boolean
 	}
 
 	let {
 		saveDisabled,
-		enabled,
+		mode,
 		allowDraft,
 		edit,
 		isLoading,
@@ -35,10 +40,12 @@
 		extra,
 		onDelete,
 		onReset,
-		onToggleEnabled,
+		onToggleMode,
 		onUpdate,
 		cloudDisabled = false,
-		trigger
+		trigger,
+		suspendedJobsModal,
+		disableSuspendedMode = false
 	}: Props = $props()
 
 	const canSave = $derived((permissions === 'write' && edit) || permissions === 'create')
@@ -46,15 +53,13 @@
 
 {#if !allowDraft}
 	{@render extra?.()}
-	{#if edit && enabled !== undefined}
-		<Toggle
-			size="sm"
-			disabled={permissions === 'none'}
-			checked={enabled}
-			options={{ right: 'enable', left: 'disable' }}
-			on:change={({ detail }) => {
-				onToggleEnabled?.(detail)
-			}}
+	{#if edit}
+		<TriggerModeToggle
+			canWrite={canSave}
+			triggerMode={mode}
+			{onToggleMode}
+			{suspendedJobsModal}
+			hideDropdown={disableSuspendedMode}
 		/>
 	{/if}
 	{#if canSave}
@@ -73,15 +78,14 @@
 	{/if}
 {:else}
 	<div class="flex flex-row gap-2 items-center">
-		{#if !trigger?.draftConfig && enabled !== undefined}
+		{#if !trigger?.draftConfig}
 			<div class="center-center">
-				<Toggle
-					disabled={permissions === 'none'}
-					checked={enabled}
-					options={{ right: 'enable', left: 'disable' }}
-					on:change={({ detail }) => {
-						onToggleEnabled?.(detail)
-					}}
+				<TriggerModeToggle
+					canWrite={permissions !== 'none'}
+					triggerMode={mode}
+					{onToggleMode}
+					{suspendedJobsModal}
+					hideDropdown={disableSuspendedMode}
 				/>
 			</div>
 		{/if}

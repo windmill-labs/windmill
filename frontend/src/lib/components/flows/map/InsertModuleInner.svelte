@@ -95,6 +95,13 @@
 							dispatch('close')
 						}}
 					/>
+					<TopLevelNode
+						label="Web Search"
+						onSelect={() => {
+							dispatch('pickWebsearchTool')
+							dispatch('close')
+						}}
+					/>
 				{:else}
 					{#if customUi?.triggers != false && allowTrigger}
 						<TopLevelNode
