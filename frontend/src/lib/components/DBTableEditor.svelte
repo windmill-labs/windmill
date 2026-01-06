@@ -45,7 +45,11 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import {
+		datatypeHasLength,
+		dbSupportsSchemas,
+		type DbFeatures
+	} from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
@@ -72,6 +76,7 @@
 		dbSchema?: DBSchema
 		currentSchema?: string
 		initialValues?: TableEditorValues
+		features?: DbFeatures
 		onConfirm: (params: { values: TableEditorValues }) => void | Promise<void>
 		computePreview: (params: {
 			values: TableEditorValues
@@ -84,6 +89,7 @@
 		dbSchema,
 		currentSchema,
 		initialValues,
+		features,
 		onConfirm,
 		computeBtnProps,
 		computePreview
@@ -120,7 +126,7 @@
 		})
 	}
 	if (!initialValues) {
-		addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
+		addColumn({ name: 'id', primaryKey: features?.primaryKeys })
 	}
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
@@ -159,7 +165,7 @@
 					<tr>
 						<Cell head first>Name</Cell>
 						<Cell head>Type</Cell>
-						<Cell head last>Primary</Cell>
+						<Cell head last>{features?.primaryKeys ? 'Primary' : ''}</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y bg-surface">
@@ -214,7 +220,9 @@
 								{/if}
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
-								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+								{#if features?.primaryKeys}
+									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+								{/if}
 								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
 									{#snippet trigger()}
 										<Settings size={18} />
@@ -276,136 +284,142 @@
 				</tbody>
 			</DataTable>
 		</div>
-		<div class="flex flex-col">
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label>Foreign Keys</label>
-			<DataTable>
-				<Head>
-					<tr>
-						<Cell head first>Table</Cell>
-						<Cell head last>Columns</Cell>
-					</tr>
-				</Head>
-				<tbody class="divide-y bg-surface">
-					{#each values.foreignKeys as foreignKey, foreignKeyIndex}
-						{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
+		{#if features?.foreignKeys}
+			<div class="flex flex-col">
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<label>Foreign Keys</label>
+				<DataTable>
+					<Head>
 						<tr>
-							<Cell first class="flex">
-								<Select
-									inputClass={twMerge('!w-48')}
-									error={fkErrors?.emptyTarget}
-									placeholder=""
-									bind:value={foreignKey.targetTable}
-									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
-										value: o,
-										label:
-											(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
-												? o.split('.')[1]
-												: o
-									}))}
-								/>
-							</Cell>
-							<Cell>
-								<div class="flex flex-col gap-2">
-									{#each foreignKey.columns as column, columnIndex}
-										<div class="flex">
-											<div class="flex items-center gap-1 w-60">
-												<!-- Div wrappers with absolute select are to prevent the Select content
-												 		 from x-overflowing -->
-												<div class="grow h-[2rem] relative">
-													<Select
-														class="!absolute inset-0"
-														error={fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)}
-														placeholder=""
-														bind:value={column.sourceColumn}
-														items={values.columns
-															.filter((c) => c.name.length)
-															.map((c) => ({ value: c.name }))}
-														clearable={false}
-													/>
-												</div>
-												<ArrowRight size={16} class="h-fit shrink-0" />
-												<div class="grow h-[2rem] relative">
-													<Select
-														class="!absolute inset-0"
-														error={fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)}
-														placeholder=""
-														bind:value={column.targetColumn}
-														items={Object.keys(
-															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
-																foreignKey.targetTable?.split('.')[1]
-															] ?? {}
-														).map((value) => ({ value }))}
-														clearable={false}
-													/>
-												</div>
-											</div>
-											<div class="ml-auto flex">
-												{#if columnIndex === 0}
-													<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
-														{#snippet trigger()}
-															<Settings size={18} />
-														{/snippet}
-														{#snippet content()}
-															<span>
-																ON DELETE <select bind:value={foreignKey.onDelete}>
-																	<option value="NO ACTION" selected>NO ACTION</option>
-																	<option value="CASCADE" selected>CASCADE</option>
-																	<option value="SET NULL" selected>SET NULL</option>
-																</select>
-															</span>
-															<span>
-																ON UPDATE <select bind:value={foreignKey.onUpdate}>
-																	<option value="NO ACTION" selected>NO ACTION</option>
-																	<option value="CASCADE" selected>CASCADE</option>
-																	<option value="SET NULL" selected>SET NULL</option>
-																</select>
-															</span>
-														{/snippet}
-													</Popover>
-												{/if}
-												<Button
-													color="light"
-													startIcon={{ icon: X }}
-													wrapperClasses="w-fit ml-2"
-													btnClasses="p-0"
-													on:click={foreignKey.columns.length > 1
-														? () => foreignKey.columns.splice(columnIndex, 1)
-														: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
-												/>
-											</div>
-										</div>
-									{/each}
-									<button
-										class="w-60 border-dashed dark:border-gray-600 border-2 rounded-md flex justify-center items-center py-1 gap-2 text-primary-500 font-normal"
-										onclick={() => foreignKey.columns.push({})}
-									>
-										<Plus class="h-fit" size={12} /> Add
-									</button>
-								</div></Cell
-							>
+							<Cell head first>Table</Cell>
+							<Cell head last>Columns</Cell>
 						</tr>
-					{/each}
-					<tr class="w-full">
-						<td colspan={99} class="p-1">
-							<Button
-								wrapperClasses="mx-auto"
-								startIcon={{ icon: Plus }}
-								color="light"
-								on:click={() =>
-									values.foreignKeys.push({
-										columns: [{}],
-										onDelete: 'NO ACTION',
-										onUpdate: 'NO ACTION'
-									})}
-							>
-								Add
-							</Button>
-						</td>
-					</tr>
-				</tbody>
-			</DataTable>
-		</div>
+					</Head>
+					<tbody class="divide-y bg-surface">
+						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
+							{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
+							<tr>
+								<Cell first class="flex">
+									<Select
+										inputClass={twMerge('!w-48')}
+										error={fkErrors?.emptyTarget}
+										placeholder=""
+										bind:value={foreignKey.targetTable}
+										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
+											value: o,
+											label:
+												(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
+													? o.split('.')[1]
+													: o
+										}))}
+									/>
+								</Cell>
+								<Cell>
+									<div class="flex flex-col gap-2">
+										{#each foreignKey.columns as column, columnIndex}
+											<div class="flex">
+												<div class="flex items-center gap-1 w-60">
+													<!-- Div wrappers with absolute select are to prevent the Select content
+												 		 from x-overflowing -->
+													<div class="grow h-[2rem] relative">
+														<Select
+															class="!absolute inset-0"
+															error={fkErrors?.nonExistingSourceColumns.includes(
+																column.sourceColumn
+															)}
+															placeholder=""
+															bind:value={column.sourceColumn}
+															items={values.columns
+																.filter((c) => c.name.length)
+																.map((c) => ({ value: c.name }))}
+															clearable={false}
+														/>
+													</div>
+													<ArrowRight size={16} class="h-fit shrink-0" />
+													<div class="grow h-[2rem] relative">
+														<Select
+															class="!absolute inset-0"
+															error={fkErrors?.nonExistingTargetColumns.includes(
+																column.targetColumn
+															)}
+															placeholder=""
+															bind:value={column.targetColumn}
+															items={Object.keys(
+																dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
+																	foreignKey.targetTable?.split('.')[1]
+																] ?? {}
+															).map((value) => ({ value }))}
+															clearable={false}
+														/>
+													</div>
+												</div>
+												<div class="ml-auto flex">
+													{#if columnIndex === 0}
+														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
+															{#snippet trigger()}
+																<Settings size={18} />
+															{/snippet}
+															{#snippet content()}
+																<span>
+																	ON DELETE <select bind:value={foreignKey.onDelete}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
+																<span>
+																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
+															{/snippet}
+														</Popover>
+													{/if}
+													<Button
+														color="light"
+														startIcon={{ icon: X }}
+														wrapperClasses="w-fit ml-2"
+														btnClasses="p-0"
+														on:click={foreignKey.columns.length > 1
+															? () => foreignKey.columns.splice(columnIndex, 1)
+															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
+													/>
+												</div>
+											</div>
+										{/each}
+										<button
+											class="w-60 border-dashed dark:border-gray-600 border-2 rounded-md flex justify-center items-center py-1 gap-2 text-primary-500 font-normal"
+											onclick={() => foreignKey.columns.push({})}
+										>
+											<Plus class="h-fit" size={12} /> Add
+										</button>
+									</div></Cell
+								>
+							</tr>
+						{/each}
+						<tr class="w-full">
+							<td colspan={99} class="p-1">
+								<Button
+									wrapperClasses="mx-auto"
+									startIcon={{ icon: Plus }}
+									color="light"
+									on:click={() =>
+										values.foreignKeys.push({
+											columns: [{}],
+											onDelete: 'NO ACTION',
+											onUpdate: 'NO ACTION'
+										})}
+								>
+									Add
+								</Button>
+							</td>
+						</tr>
+					</tbody>
+				</DataTable>
+			</div>
+		{/if}
 	</div>
 	<Button
 		disabled={!!errors || btnProps.current.disabled}

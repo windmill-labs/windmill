@@ -12,7 +12,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef, type DbFeatures } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -56,6 +56,7 @@
 		selectedTables?: SelectedTable[]
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
+		features?: DbFeatures
 	}
 	let {
 		dbType,
@@ -72,7 +73,8 @@
 		dbSelector,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
-		disabledTables = []
+		disabledTables = [],
+		features
 	}: Props = $props()
 
 	// Helper to check if a table is selected in multi-select mode
@@ -543,6 +545,7 @@
 		{#key dbTableEditorState.alterTableKey}
 			{#if !dbTableEditorState.alterTableKey || dbTableEditorAlterTableData.current}
 				<DbTableEditor
+					{features}
 					{dbSchema}
 					currentSchema={selected.schemaKey}
 					initialValues={dbTableEditorAlterTableData.current}

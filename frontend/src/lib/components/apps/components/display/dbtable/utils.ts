@@ -7,7 +7,7 @@ import {
 	type IntrospectionQuery
 } from 'graphql'
 
-import type { DbType } from '$lib/components/dbTypes'
+import type { DbInput, DbType } from '$lib/components/dbTypes'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -422,4 +422,14 @@ export function sqlDataTypeToJsTypeHeuristic(datatype: string): string {
 	} else {
 		return 'any'
 	}
+}
+
+export type DbFeatures = {
+	foreignKeys?: boolean
+	primaryKeys?: boolean
+}
+
+export function getDbFeatures(dbInput: DbInput): DbFeatures {
+	if (dbInput.type == 'ducklake') return { foreignKeys: false, primaryKeys: false }
+	return { foreignKeys: true, primaryKeys: true }
 }

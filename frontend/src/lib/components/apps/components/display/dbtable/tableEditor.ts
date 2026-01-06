@@ -1,3 +1,4 @@
+import { countChars } from '$lib/utils'
 import type { ColumnMetadata, TableMetadata } from './utils'
 
 export type TableEditorValues = {
@@ -74,10 +75,18 @@ export function columnDefToTableEditorValuesColumn(
 		datatype = colDef.datatype?.replace(/\s+/g, ' ').toUpperCase() || 'UNKNOWN'
 	}
 
+	const defaultValue = colDef.defaultvalue
+		? colDef.defaultvalue.startsWith("'") &&
+			colDef.defaultvalue.endsWith("'") &&
+			countChars(colDef.defaultvalue, "'") === 2
+			? colDef.defaultvalue.substring(1, colDef.defaultvalue.length - 1)
+			: `{${colDef.defaultvalue}}`
+		: undefined
+
 	return {
 		name: colDef.field,
 		primaryKey: colDef.isprimarykey,
-		defaultValue: colDef.defaultvalue ? `{${colDef.defaultvalue}}` : undefined,
+		defaultValue,
 		nullable: colDef.isnullable !== 'NO',
 		datatype,
 		datatype_length,
