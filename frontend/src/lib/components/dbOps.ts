@@ -17,7 +17,8 @@ import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
 import {
 	buildTableEditorValues,
-	type TableEditorValues
+	type TableEditorValues,
+	type TableEditorForeignKey
 } from './apps/components/display/dbtable/tableEditor'
 import {
 	makeAlterTableQueries,
@@ -25,6 +26,13 @@ import {
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
 import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
+import {
+	makeForeignKeysQuery,
+	makePrimaryKeyConstraintQuery,
+	transformForeignKeys,
+	type RawForeignKey,
+	type RawPrimaryKeyConstraint
+} from './apps/components/display/dbtable/queries/relationalKeys'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -192,11 +200,65 @@ export function dbSchemaOpsWithPreviewScripts({
 		},
 		onFetchTableEditorDefinition: async ({ table, getColDefs }) => {
 			let colDefs = await getColDefs()
+
+			// Fetch foreign keys
+			let foreignKeys: TableEditorForeignKey[] = []
+			try {
+				let fkQuery = makeForeignKeysQuery(dbType, table, input.type === 'database' ? input.specificSchema : undefined)
+				if (input.type === 'ducklake') fkQuery = wrapDucklakeQuery(fkQuery, input.ducklake)
+
+				const fkResult = await runScriptAndPollResult({
+					workspace,
+					requestBody: { args: dbArg, content: fkQuery, language }
+				})
+
+				let rawForeignKeys = (input.type === 'database' && input.resourceType === 'ms_sql_server'
+					? (fkResult as any)[0]
+					: fkResult) as RawForeignKey[]
+
+				if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+					// Lowercase keys for consistency
+					rawForeignKeys = rawForeignKeys.map(fk => {
+						const lowerFk: any = {}
+						Object.keys(fk).forEach(key => {
+							lowerFk[key.toLowerCase()] = fk[key]
+						})
+						return lowerFk
+					})
+					foreignKeys = transformForeignKeys(rawForeignKeys)
+				}
+			} catch (e) {
+				console.warn('Failed to fetch foreign keys:', e)
+			}
+
+			// Fetch primary key constraint name
+			let pk_constraint_name = ''
+			try {
+				let pkQuery = makePrimaryKeyConstraintQuery(dbType, table, input.type === 'database' ? input.specificSchema : undefined)
+				if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
+
+				const pkResult = await runScriptAndPollResult({
+					workspace,
+					requestBody: { args: dbArg, content: pkQuery, language }
+				})
+
+				let rawPkResult = (input.type === 'database' && input.resourceType === 'ms_sql_server'
+					? (pkResult as any)[0]
+					: pkResult) as RawPrimaryKeyConstraint[]
+
+				if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
+					const pkRecord: any = rawPkResult[0]
+					pk_constraint_name = pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+				}
+			} catch (e) {
+				console.warn('Failed to fetch primary key constraint:', e)
+			}
+
 			return buildTableEditorValues({
 				tableName: table,
 				metadata: colDefs,
-				foreignKeys: [], // TODO
-				pk_constraint_name: '' // TODO
+				foreignKeys,
+				pk_constraint_name
 			})
 		}
 	}
