@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { GitFork, ChevronUp } from 'lucide-svelte'
+	import { GitFork, ChevronUp, ArchiveRestore } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { Button } from '$lib/components/common'
 	import type { UserWorkspace } from '$lib/stores'
@@ -62,7 +62,7 @@
 	<div class="border border-border-light rounded-lg bg-surface-tertiary overflow-hidden">
 		<!-- Main workspace card - clickable to enter workspace -->
 		<div
-			class="px-4 py-3 hover:bg-surface-hover transition-colors cursor-pointer w-full"
+			class="px-4 py-2 hover:bg-surface-hover transition-colors cursor-pointer w-full"
 			class:rounded-lg={children.length === 0}
 			class:rounded-b-none={children.length > 0}
 			role="button"
@@ -113,6 +113,18 @@
 								as <span class="font-mono">{workspace.username}</span>
 								{#if isWorkspaceArchived(workspace)}
 									<span class="text-red-500 ml-1">(archived)</span>
+									{#if $superadmin && onUnarchive}
+										<Button
+											size="xs2"
+											variant="default"
+											btnClasses="ml-1"
+											propagateEvent={false}
+											onClick={handleUnarchive}
+											startIcon={{ icon: ArchiveRestore }}
+										>
+											Unarchive
+										</Button>
+									{/if}
 								{/if}
 								{#if isWorkspaceDisabled(workspace)}
 									<span class="text-red-500 ml-1">(user disabled in this workspace)</span>
@@ -127,7 +139,7 @@
 		<!-- Forks section - clickable to expand -->
 		{#if children.length > 0}
 			<div
-				class="border-t border-border-light px-4 py-2 hover:bg-surface-hover transition-colors cursor-pointer"
+				class="border-t border-border-light px-4 py-1 hover:bg-surface-hover transition-colors cursor-pointer"
 				role="button"
 				tabindex="0"
 				onclick={() => onToggleExpand?.(workspace.id)}
@@ -141,7 +153,7 @@
 				<div class="flex flex-row items-center justify-between">
 					<div class="flex flex-row items-center gap-2 pl-2">
 						<GitFork size={10} class="text-primary" />
-						<span class="text-xs text-primary">
+						<span class="text-2xs text-primary">
 							{pluralize(children.length, 'fork', 'forks')}
 						</span>
 					</div>
@@ -176,11 +188,5 @@
 				/>
 			{/each}
 		</div>
-	{/if}
-
-	{#if $superadmin && isWorkspaceArchived(workspace)}
-		<Button size="xs" btnClasses="w-full mt-1" variant="default" onclick={handleUnarchive}>
-			Unarchive {workspace.id}
-		</Button>
 	{/if}
 </div>
