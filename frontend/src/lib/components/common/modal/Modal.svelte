@@ -81,7 +81,7 @@
 				<div
 					onclick={stopPropagation(bubble('click'))}
 					class={twMerge(
-						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+						'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						c,
 						open
 							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
@@ -96,7 +96,7 @@
 					<div class="flex">
 						<div class="ml-4 text-left flex-1">
 							<div class="flex flex-row items-center justify-between">
-								<h3>{title}</h3>
+								<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
 								{@render settings?.()}
 							</div>
 

@@ -123,7 +123,7 @@ pub struct ImageGenerationTool {
     pub background: Option<String>,
 }
 
-// Input content for image generation - supports both text and images
+// Input content for image generation and user/system messages - supports both text and images
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ImageGenerationContent {
@@ -133,12 +133,25 @@ pub enum ImageGenerationContent {
     InputImage { image_url: String },
 }
 
+/// Output content for assistant messages in Responses API
+/// OpenAI requires assistant content to use "output_text" type, not "input_text"
+#[derive(Serialize, Clone, Debug)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AssistantContent {
+    #[serde(rename = "output_text")]
+    OutputText { text: String },
+}
+
 /// Input items for OpenAI Responses API - supports messages, function calls, and function outputs
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponsesApiInputItem {
-    /// User/assistant/system message
-    Message { role: String, content: Vec<ImageGenerationContent> },
+    /// User/system message with input content
+    #[serde(rename = "message")]
+    InputMessage { role: String, content: Vec<ImageGenerationContent> },
+    /// Assistant message with output content (uses output_text instead of input_text)
+    #[serde(rename = "message")]
+    OutputMessage { role: String, content: Vec<AssistantContent> },
     /// Function call from model (must echo back from previous response)
     FunctionCall { call_id: String, name: String, arguments: String },
     /// Tool result output linked by call_id
@@ -272,6 +285,26 @@ fn extract_text_content_opt(content: &Option<OpenAIContent>) -> String {
     }
 }
 
+/// Convert OpenAIContent to AssistantContent array (uses output_text for assistant messages)
+fn convert_content_to_assistant_format(content: &Option<OpenAIContent>) -> Vec<AssistantContent> {
+    match content {
+        Some(OpenAIContent::Text(text)) => {
+            vec![AssistantContent::OutputText { text: text.clone() }]
+        }
+        Some(OpenAIContent::Parts(parts)) => parts
+            .iter()
+            .filter_map(|part| match part {
+                ContentPart::Text { text } => {
+                    Some(AssistantContent::OutputText { text: text.clone() })
+                }
+                // Images not supported in assistant output
+                _ => None,
+            })
+            .collect(),
+        None => Vec::new(),
+    }
+}
+
 /// Convert OpenAIMessage array to Responses API input items
 /// Following the same pattern as frontend openai-responses.ts:convertMessagesToResponsesInput
 fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<ResponsesApiInputItem> {
@@ -280,18 +313,21 @@ fn convert_messages_to_responses_input(messages: &[OpenAIMessage]) -> Vec<Respon
     for m in messages {
         match m.role.as_str() {
             "system" | "user" => {
-                // Regular message with content
+                // User/system messages use input_text content type
                 let content = convert_content_to_responses_format(&m.content);
                 if !content.is_empty() {
-                    input.push(ResponsesApiInputItem::Message { role: m.role.clone(), content });
+                    input.push(ResponsesApiInputItem::InputMessage {
+                        role: m.role.clone(),
+                        content,
+                    });
                 }
             }
             "assistant" => {
-                // Assistant may have text content
+                // Assistant messages use output_text content type
                 if m.content.is_some() {
-                    let content = convert_content_to_responses_format(&m.content);
+                    let content = convert_content_to_assistant_format(&m.content);
                     if !content.is_empty() {
-                        input.push(ResponsesApiInputItem::Message {
+                        input.push(ResponsesApiInputItem::OutputMessage {
                             role: "assistant".to_string(),
                             content,
                         });
@@ -376,8 +412,8 @@ impl OpenAIQueryBuilder {
             .and_then(|schema| schema.properties.as_ref())
             .filter(|props| !props.is_empty())
             .map(|_| {
-                let schema = args.output_schema.unwrap();
-                let strict_schema = schema.clone().make_strict();
+                let mut strict_schema = args.output_schema.unwrap().clone();
+                strict_schema.make_strict();
                 ResponsesApiTextFormat {
                     format: ResponsesApiTextFormatConfig {
                         r#type: "json_schema".to_string(),
@@ -435,7 +471,7 @@ impl OpenAIQueryBuilder {
 
         let request = ResponsesApiRequest {
             model: args.model,
-            input: vec![ResponsesApiInputItem::Message { role: "user".to_string(), content }],
+            input: vec![ResponsesApiInputItem::InputMessage { role: "user".to_string(), content }],
             instructions: args.system_prompt,
             tools,
             stream: None, // Image generation doesn't use streaming

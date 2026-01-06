@@ -56,7 +56,7 @@ class WindmillClient:
         return httpx.Client(
             base_url=self._url,
             headers=headers,
-            timeout=60.0,  # Go/Rust compilation can take 10+ seconds on first run
+            timeout=10.0,
         )
 
     def _set_license_key(self):
