@@ -53,22 +53,39 @@ export class FlowChatManager {
 	#perPage = 50
 
 	// Options
-	#onRunFlow?: (userMessage: string, conversationId: string) => Promise<string | undefined>
+	#onRunFlow?: (
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	) => Promise<string | undefined>
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
+	// Callback for when a new conversation is created (for localStorage migration)
+	#onConversationCreated?: (conversationId: string) => void
+
 	initialize(
-		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>,
+		onRunFlow: (
+			userMessage: string,
+			conversationId: string,
+			additionalInputs?: Record<string, any>
+		) => Promise<string | undefined>,
 		path: string,
-		useStreaming: boolean = false
+		useStreaming: boolean = false,
+		onConversationCreated?: (conversationId: string) => void
 	) {
 		this.#onRunFlow = onRunFlow
 		this.#path = path
 		this.#useStreaming = useStreaming
+		this.#onConversationCreated = onConversationCreated
 	}
 
 	updateConversationId(conversationId: string | undefined) {
 		this.selectedConversationId = conversationId
+	}
+
+	setOnConversationCreated(callback: (conversationId: string) => void) {
+		this.#onConversationCreated = callback
 	}
 
 	cleanup() {
@@ -375,7 +392,7 @@ export class FlowChatManager {
 	}
 
 	// Message sending
-	async sendMessage() {
+	async sendMessage(additionalInputs?: Record<string, any>) {
 		if (!this.inputMessage.trim() || this.isLoading) return
 
 		const isNewConversation = this.messages.length === 0
@@ -388,6 +405,10 @@ export class FlowChatManager {
 		if (!this.selectedConversationId) {
 			const newConversationId = await this.createConversation({ clearMessages: false })
 			currentConversationId = newConversationId
+			// Notify that a new conversation was created (for localStorage migration)
+			if (this.#onConversationCreated && newConversationId) {
+				this.#onConversationCreated(newConversationId)
+			}
 		}
 
 		if (!currentConversationId) {
@@ -417,9 +438,19 @@ export class FlowChatManager {
 			this.scrollToUserMessage(userMessage.id)
 
 			if (this.#useStreaming && this.#path) {
-				await this.handleStreamingMessage(messageContent, currentConversationId, isNewConversation)
+				await this.handleStreamingMessage(
+					messageContent,
+					currentConversationId,
+					isNewConversation,
+					additionalInputs
+				)
 			} else {
-				await this.handlePollingMessage(messageContent, currentConversationId, isNewConversation)
+				await this.handlePollingMessage(
+					messageContent,
+					currentConversationId,
+					isNewConversation,
+					additionalInputs
+				)
 			}
 		} catch (error) {
 			console.error('Error running flow:', error)
@@ -437,7 +468,8 @@ export class FlowChatManager {
 	private async handleStreamingMessage(
 		messageContent: string,
 		currentConversationId: string,
-		isNewConversation: boolean
+		isNewConversation: boolean,
+		additionalInputs?: Record<string, any>
 	) {
 		// Close any existing EventSource
 		if (this.currentEventSource) {
@@ -450,7 +482,7 @@ export class FlowChatManager {
 		let isCompleted = false
 
 		try {
-			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')
 				return
@@ -574,9 +606,10 @@ export class FlowChatManager {
 	private async handlePollingMessage(
 		messageContent: string,
 		currentConversationId: string,
-		isNewConversation: boolean
+		isNewConversation: boolean,
+		additionalInputs?: Record<string, any>
 	) {
-		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 		if (!jobId) {
 			console.error('No jobId returned from onRunFlow')
 			return

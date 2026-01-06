@@ -6,11 +6,16 @@
 	import { untrack } from 'svelte'
 
 	interface Props {
-		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
+		onRunFlow: (
+			userMessage: string,
+			conversationId: string,
+			additionalInputs?: Record<string, any>
+		) => Promise<string | undefined>
 		useStreaming?: boolean
 		deploymentInProgress?: boolean
 		path: string
 		hideSidebar?: boolean
+		additionalInputsSchema?: Record<string, any>
 	}
 
 	let {
@@ -18,7 +23,8 @@
 		deploymentInProgress = false,
 		useStreaming = false,
 		path,
-		hideSidebar = false
+		hideSidebar = false,
+		additionalInputsSchema = undefined
 	}: Props = $props()
 
 	const manager = createFlowChatManager()
@@ -48,5 +54,5 @@
 	{#if !hideSidebar}
 		<FlowConversationsSidebar {manager} />
 	{/if}
-	<FlowChatInterface {manager} {deploymentInProgress} />
+	<FlowChatInterface {manager} {deploymentInProgress} {additionalInputsSchema} {path} />
 </div>

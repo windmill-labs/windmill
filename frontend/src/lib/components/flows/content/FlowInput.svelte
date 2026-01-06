@@ -23,7 +23,8 @@
 		Code,
 		Save,
 		X,
-		Check
+		Check,
+		Settings2
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -98,6 +99,9 @@
 		)
 	})
 	let showChatModeWarning = $state(false)
+	let showAdditionalInputs = $state(false)
+	let chatInputsEditTab: 'inputEditor' | undefined = $state(undefined)
+	let chatInputsAddPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
@@ -502,9 +506,13 @@
 
 	async function runFlowWithMessage(
 		message: string,
-		conversationId: string
+		conversationId: string,
+		additionalInputs?: Record<string, any>
 	): Promise<string | undefined> {
-		previewArgs.val = { user_message: message }
+		previewArgs.val = {
+			user_message: message,
+			...(additionalInputs ?? {})
+		}
 		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
@@ -533,6 +541,22 @@
 			}
 		}
 	}
+
+	// Derive additional inputs schema (excluding user_message) for chat mode
+	const additionalInputsSchema = $derived.by(() => {
+		const props = flowStore.val.schema?.properties ?? {}
+		const filtered = Object.fromEntries(
+			Object.entries(props).filter(([k]) => k !== 'user_message')
+		)
+		if (Object.keys(filtered).length === 0) return undefined
+		const required = flowStore.val.schema?.required
+		const requiredArray: string[] = Array.isArray(required) ? required : []
+		return {
+			...flowStore.val.schema,
+			properties: filtered,
+			required: requiredArray.filter((k: string) => k !== 'user_message')
+		}
+	})
 
 	function enableChatMode() {
 		// Enable chat input - set in flow.value
@@ -641,29 +665,87 @@
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
 		{#if !disabled}
-			<Toggle
-				size="sm"
-				bind:checked={chatInputEnabled}
-				on:change={() => {
-					handleToggleChatMode()
-				}}
-				options={{
-					right: 'Chat Mode',
-					rightTooltip:
-						'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
-				}}
-			/>
+			<div class="flex items-center gap-2">
+				{#if flowStore.val.value?.chat_input_enabled}
+					<Button
+						iconOnly
+						size="xs"
+						variant="border"
+						color={showAdditionalInputs ? 'blue' : 'light'}
+						startIcon={{ icon: Settings2 }}
+						title="Configure additional inputs"
+						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+					/>
+				{/if}
+				<Toggle
+					size="sm"
+					bind:checked={chatInputEnabled}
+					on:change={() => {
+						handleToggleChatMode()
+					}}
+					options={{
+						right: 'Chat Mode',
+						rightTooltip:
+							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+					}}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">
+					{#if showAdditionalInputs}
+						<div class="border-b">
+							<EditableSchemaForm
+								bind:schema={flowStore.val.schema}
+								hiddenArgs={['user_message']}
+								isFlowInput
+								editTab={chatInputsEditTab}
+								on:delete={(e) => {
+									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
+								}}
+							>
+								{#snippet openEditTab()}
+									<Button
+										size="xs"
+										variant={chatInputsEditTab ? 'contained' : 'border'}
+										color={chatInputsEditTab ? 'blue' : 'light'}
+										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
+										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
+										onclick={() => {
+											chatInputsEditTab = chatInputsEditTab ? undefined : 'inputEditor'
+										}}
+									/>
+								{/snippet}
+								{#snippet addProperty()}
+									<AddPropertyV2
+										bind:this={chatInputsAddPropertyV2}
+										bind:schema={flowStore.val.schema}
+										onAddNew={() => {}}
+									>
+										{#snippet trigger()}
+											<Button
+												size="xs"
+												color="light"
+												startIcon={{ icon: Plus }}
+												title="Add additional input"
+											>
+												Add input
+											</Button>
+										{/snippet}
+									</AddPropertyV2>
+								{/snippet}
+							</EditableSchemaForm>
+						</div>
+					{/if}
 					<FlowChat
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
 						hideSidebar={true}
 						useStreaming={shouldUseStreaming}
+						{additionalInputsSchema}
 					/>
 				</div>
 			{:else}
