@@ -39,7 +39,7 @@
 	let workspaceSearchFilter = ''
 	let workspaceAllExpanded = false
 	let workspaceHasForks = false
-	let workspaceExpandCollapseAll: (() => void) | undefined = undefined
+	let workspaceTreeView: WorkspaceTreeView | undefined = undefined
 
 	let userSettings: UserSettings
 	let superadminSettings: SuperadminSettings
@@ -154,6 +154,10 @@
 		}
 		loading = false
 	}
+
+	function workspaceExpandCollapseAll() {
+		workspaceTreeView?.handleExpandCollapseAll()
+	}
 </script>
 
 {#if $superadmin}
@@ -244,7 +248,7 @@
 				bind:searchFilter={workspaceSearchFilter}
 				bind:allExpanded={workspaceAllExpanded}
 				bind:hasForks={workspaceHasForks}
-				bind:onExpandCollapseAll={workspaceExpandCollapseAll}
+				bind:this={workspaceTreeView}
 			/>
 		{/if}
 	{:else}

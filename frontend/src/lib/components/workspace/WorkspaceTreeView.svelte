@@ -187,7 +187,7 @@
 		hasForks = workspacesWithChildren.length > 0
 	})
 
-	function handleExpandCollapseAll() {
+	export function handleExpandCollapseAll() {
 		const newState = !allExpandedInternal
 		const newExpansionStates: Record<string, boolean> = {}
 		workspacesWithChildren.forEach((id) => {
@@ -196,11 +196,6 @@
 		manualExpansionStates = newExpansionStates
 	}
 
-	// Expose the function via bindable prop
-	$effect(() => {
-		onExpandCollapseAll = handleExpandCollapseAll
-	})
-
 	// Generate flattened navigation order for keyboard navigation
 	const flatNavigationOrder = $derived.by(() => {
 		const result: string[] = []
@@ -208,23 +203,33 @@
 		function addWorkspaceAndChildren(workspace: ExtendedWorkspace) {
 			result.push(workspace.id)
 			if (workspace._children && expansionStates[workspace.id]) {
-				workspace._children.forEach(child => addWorkspaceAndChildren(child))
+				workspace._children.forEach((child) => addWorkspaceAndChildren(child))
 			}
 		}
 
-		rootWorkspaces.forEach(workspace => addWorkspaceAndChildren(workspace))
+		rootWorkspaces.forEach((workspace) => addWorkspaceAndChildren(workspace))
 		return result
 	})
 
 	// Keyboard navigation handlers
 	function handleKeyDown(event: KeyboardEvent) {
 		// Allow navigation keys even when search input has focus
-		const navigationKeys = ['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape']
+		const navigationKeys = [
+			'ArrowDown',
+			'ArrowUp',
+			'Home',
+			'End',
+			'ArrowLeft',
+			'ArrowRight',
+			'Enter',
+			' ',
+			'Escape'
+		]
 		const activeElement = document.activeElement
 
 		// Skip navigation only if user is typing in textarea or non-search inputs
 		if (
-			(activeElement?.tagName === 'TEXTAREA') ||
+			activeElement?.tagName === 'TEXTAREA' ||
 			(activeElement?.tagName === 'INPUT' && !navigationKeys.includes(event.key))
 		) {
 			return
@@ -289,7 +294,7 @@
 			case ' ': {
 				if (selectedWorkspaceId) {
 					event.preventDefault()
-					const workspace = workspaces.find(w => w.id === selectedWorkspaceId)
+					const workspace = workspaces.find((w) => w.id === selectedWorkspaceId)
 					if (workspace && !workspace.disabled) {
 						onEnterWorkspace(selectedWorkspaceId)
 					}
@@ -341,7 +346,9 @@
 		if (!selectedWorkspaceId || !scrollContainer) return
 
 		// Find the workspace card element by data attribute
-		const selectedElement = scrollContainer.querySelector(`[data-workspace-id="${selectedWorkspaceId}"]`)
+		const selectedElement = scrollContainer.querySelector(
+			`[data-workspace-id="${selectedWorkspaceId}"]`
+		)
 		if (selectedElement) {
 			selectedElement.scrollIntoView({
 				behavior: 'smooth',
