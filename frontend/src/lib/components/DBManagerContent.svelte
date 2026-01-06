@@ -97,7 +97,6 @@
 
 		const oldDbSchema = $dbSchemas[dbSchemasPath]
 		if (input.type == 'database') {
-			console.log('Fetching DB schema for', input.resourcePath)
 			await getDbSchemas(
 				input.resourceType,
 				input.resourcePath,
@@ -107,7 +106,6 @@
 					sendUserToast(message, true)
 				}
 			)
-			console.log('Fetched DB schema for', input.resourcePath, $dbSchemas[dbSchemasPath])
 		} else if (input.type == 'ducklake') {
 			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
 				workspace: $workspaceStore!,
