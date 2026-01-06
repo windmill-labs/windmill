@@ -20,6 +20,8 @@
  *   --host HOST           Server host (default: 0.0.0.0)
  *   --nsjail              Enable nsjail wrapping
  *   --nsjail-config PATH  Path to nsjail config file
+ *   --windmill PATH       Path to windmill binary for automatic dependency installation
+ *   --debug               Enable debug logging
  *
  * Environment Variables:
  *   DAP_PORT              Server port
@@ -27,10 +29,13 @@
  *   DAP_NSJAIL_ENABLED    Enable nsjail (true/false)
  *   DAP_NSJAIL_CONFIG     Path to nsjail config file
  *   DAP_NSJAIL_PATH       Path to nsjail binary (default: nsjail)
+ *   DAP_WINDMILL_PATH     Path to windmill binary for dependency auto-installation
+ *   DAP_DEBUG             Enable debug logging (true/false)
  */
 
 import { spawn, type Subprocess } from 'bun'
 import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -54,6 +59,10 @@ interface ServiceConfig {
 	// Paths to debugger binaries (can be overridden for containerized deployments)
 	pythonPath: string
 	bunPath: string
+	// Windmill binary path for prepare-deps CLI (optional, for dependency auto-installation)
+	windmillPath?: string
+	// Enable debug logging
+	debug: boolean
 }
 
 function parseConfig(): ServiceConfig {
@@ -68,7 +77,9 @@ function parseConfig(): ServiceConfig {
 			extraArgs: []
 		},
 		pythonPath: process.env.DAP_PYTHON_PATH || 'python3',
-		bunPath: process.env.DAP_BUN_PATH || 'bun'
+		bunPath: process.env.DAP_BUN_PATH || 'bun',
+		windmillPath: process.env.DAP_WINDMILL_PATH,
+		debug: process.env.DAP_DEBUG === 'true'
 	}
 
 	for (let i = 0; i < args.length; i++) {
@@ -94,6 +105,12 @@ function parseConfig(): ServiceConfig {
 			case '--bun-path':
 				config.bunPath = args[++i]
 				break
+			case '--windmill':
+				config.windmillPath = args[++i]
+				break
+			case '--debug':
+				config.debug = true
+				break
 		}
 	}
 
@@ -101,6 +118,13 @@ function parseConfig(): ServiceConfig {
 }
 
 const config = parseConfig()
+
+// Validate windmill path exists if specified
+if (config.windmillPath && !existsSync(config.windmillPath)) {
+	console.error(`ERROR: Windmill binary not found at: ${config.windmillPath}`)
+	console.error('Please provide a valid path with --windmill /path/to/windmill')
+	process.exit(1)
+}
 
 // ============================================================================
 // Logging
@@ -277,6 +301,14 @@ class PythonDebugSession extends BaseDebugSession {
 	private scopesMap = new Map<number, { variablesReference: number }>()
 	private scriptResult: unknown = undefined
 	private envVars: Record<string, string> = {}
+	private windmillPath?: string
+	private debugMode: boolean
+
+	constructor(ws: { send: (data: string) => void; close: () => void }, windmillPath?: string, debugMode = false) {
+		super(ws)
+		this.windmillPath = windmillPath
+		this.debugMode = debugMode
+	}
 
 	private nextDebugpySeq(): number {
 		return this.debugpySeq++
@@ -400,21 +432,35 @@ class PythonDebugSession extends BaseDebugSession {
 			throw new Error('No script path')
 		}
 
-		const debugpyPort = 5678 + Math.floor(Math.random() * 1000)
+		// Use a wider port range (10000-60000) to avoid collisions with recently used ports
+		const debugpyPort = 10000 + Math.floor(Math.random() * 50000)
 
 		// Get the directory where this script is located to find dap_websocket_server.py
 		const scriptDir = import.meta.dir
 
 		// Spawn the Python WebSocket DAP server
 		// Pass env vars to the server - it will forward them to the debugged script
+		const cmd = [
+			config.pythonPath,
+			'-u',
+			join(scriptDir, 'dap_websocket_server.py'),
+			'--port', String(debugpyPort),
+			'--host', '127.0.0.1'
+		]
+
+		// Pass windmill path for dependency auto-installation if configured
+		if (this.windmillPath) {
+			cmd.push('--windmill', this.windmillPath)
+			logger.info(`Python session: autoinstall enabled with windmill at ${this.windmillPath}`)
+		}
+
+		// Pass debug flag to Python subprocess
+		if (this.debugMode) {
+			cmd.push('--debug')
+		}
+
 		this.process = spawnProcess({
-			cmd: [
-				config.pythonPath,
-				'-u',
-				join(scriptDir, 'dap_websocket_server.py'),
-				'--port', String(debugpyPort),
-				'--host', '127.0.0.1'
-			],
+			cmd,
 			cwd,
 			env: { PYTHONUNBUFFERED: '1', ...this.envVars }
 		})
@@ -453,9 +499,14 @@ class PythonDebugSession extends BaseDebugSession {
 				if (done) break
 
 				const text = decoder.decode(value)
-				// Forward stderr output to the client
+				// Forward stderr output to the client (Python logs go to stderr)
 				if (text.trim()) {
-					logger.debug('Python stderr:', text)
+					// Log Python output at info level so we can see it
+					for (const line of text.split('\n')) {
+						if (line.trim()) {
+							logger.info(`[Python] ${line}`)
+						}
+					}
 				}
 			}
 		} catch (error) {
@@ -463,27 +514,36 @@ class PythonDebugSession extends BaseDebugSession {
 		}
 	}
 
-	private async waitForPythonServer(port: number, maxAttempts = 20): Promise<void> {
+	private async waitForPythonServer(port: number, maxAttempts = 30): Promise<void> {
+		// Wait a bit for Python to start - it takes at least 50-100ms to initialize
+		await new Promise(resolve => setTimeout(resolve, 100))
+
 		for (let i = 0; i < maxAttempts; i++) {
 			try {
 				// Try to connect to see if server is up
 				const testWs = new WebSocket(`ws://127.0.0.1:${port}`)
 				await new Promise<void>((resolve, reject) => {
 					const timeout = setTimeout(() => {
-						testWs.close()
+						try { testWs.close() } catch {}
 						reject(new Error('Connection timeout'))
 					}, 500)
 
 					testWs.onopen = () => {
 						clearTimeout(timeout)
-						testWs.close()
-						resolve()
+						// Wait a moment before closing to ensure the connection is stable
+						setTimeout(() => {
+							try { testWs.close() } catch {}
+							resolve()
+						}, 50)
 					}
 					testWs.onerror = () => {
 						clearTimeout(timeout)
+						try { testWs.close() } catch {}
 						reject(new Error('Connection failed'))
 					}
 				})
+				// Small delay to let the test connection fully close
+				await new Promise(resolve => setTimeout(resolve, 50))
 				logger.info(`Python server ready on port ${port}`)
 				return
 			} catch {
@@ -786,6 +846,14 @@ if (config.nsjail.enabled) {
 		logger.info(`nsjail config: ${config.nsjail.configPath}`)
 	}
 }
+if (config.windmillPath) {
+	logger.info(`Windmill binary: ${config.windmillPath} (autoinstall enabled)`)
+} else {
+	logger.info('Windmill binary: not configured (autoinstall disabled)')
+}
+if (config.debug) {
+	logger.info('Debug logging: enabled')
+}
 
 const server = Bun.serve({
 	hostname: config.host,
@@ -838,18 +906,20 @@ const server = Bun.serve({
 				: undefined
 
 			if (path === '/python') {
-				session = new PythonDebugSession(wsWrapper)
+				session = new PythonDebugSession(wsWrapper, config.windmillPath, config.debug)
 			} else if (path === '/typescript' || path === '/bun' || path === '/') {
 				// Use the working Bun debug session from dap_websocket_server_bun.ts
 				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket, {
 					nsjailConfig,
-					bunPath: config.bunPath
+					bunPath: config.bunPath,
+					windmillPath: config.windmillPath
 				}) as unknown as BaseDebugSession
 			} else {
 				logger.warn(`Unknown path: ${path}, defaulting to TypeScript`)
 				session = new BunDebugSessionWorking(wsWrapper as unknown as WebSocket, {
 					nsjailConfig,
-					bunPath: config.bunPath
+					bunPath: config.bunPath,
+					windmillPath: config.windmillPath
 				}) as unknown as BaseDebugSession
 			}
 

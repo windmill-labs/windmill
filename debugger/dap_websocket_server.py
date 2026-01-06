@@ -31,9 +31,9 @@ from enum import Enum
 from io import StringIO
 from typing import Any
 
-# Configure logging
+# Configure logging - level will be set based on --debug flag in main()
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("dap_server")
@@ -318,6 +318,11 @@ class DebugSession:
         try:
             # Call the windmill CLI with the code
             input_data = json.dumps({"code": code, "language": "python3"})
+            logger.debug(f"prepare-deps input: {input_data[:200]}...")
+
+            import time
+            start_time = time.time()
+
             result = subprocess.run(
                 [self.windmill_path, "prepare-deps"],
                 input=input_data,
@@ -326,9 +331,18 @@ class DebugSession:
                 timeout=120,  # 2 minute timeout for dependency installation
             )
 
+            elapsed = time.time() - start_time
+            logger.info(f"prepare-deps completed in {elapsed:.2f}s (exit code: {result.returncode})")
+
             if result.returncode != 0:
-                logger.error(f"prepare-deps failed: {result.stderr}")
+                logger.error(f"prepare-deps failed (stderr): {result.stderr}")
+                logger.error(f"prepare-deps failed (stdout): {result.stdout}")
                 return None
+
+            # Log raw output for debugging
+            logger.debug(f"prepare-deps stdout: {result.stdout[:500] if result.stdout else '(empty)'}")
+            if result.stderr:
+                logger.debug(f"prepare-deps stderr: {result.stderr[:500]}")
 
             # Parse the response - may have "Running in standalone mode" prefix
             output = result.stdout.strip()
@@ -338,22 +352,33 @@ class DebugSession:
                 logger.error(f"No JSON in prepare-deps output: {output}")
                 return None
 
-            response = json.loads(output[json_start:])
+            json_str = output[json_start:]
+            response = json.loads(json_str)
+            logger.debug(f"prepare-deps response: {response}")
 
             if not response.get("success"):
                 logger.error(f"prepare-deps error: {response.get('error')}")
                 return None
 
             venv_path = response.get("venv_path")
+            cached = response.get("cached", False)
+
             if venv_path:
-                logger.info(f"Dependencies prepared at: {venv_path}")
+                if cached:
+                    logger.info(f"Dependencies loaded from cache: {venv_path}")
+                else:
+                    logger.info(f"Dependencies freshly installed at: {venv_path}")
             else:
-                logger.info("No external dependencies detected")
+                logger.info("No external dependencies detected in code")
 
             return venv_path
 
         except subprocess.TimeoutExpired:
-            logger.error("prepare-deps timed out")
+            logger.error("prepare-deps timed out after 120s")
+            return None
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse prepare-deps JSON output: {e}")
+            logger.error(f"Raw output was: {output[:500] if 'output' in dir() else '(not available)'}")
             return None
         except Exception as e:
             logger.exception(f"Error preparing dependencies: {e}")
@@ -919,7 +944,14 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
     parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
+
+    # Set logging level based on --debug flag
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
 
     try:
         asyncio.run(main(args.host, args.port, args.windmill))

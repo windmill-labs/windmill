@@ -108,6 +108,56 @@ const logger = {
 	error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args)
 }
 
+/**
+ * Remove version specifiers from import statements.
+ * Transforms `import x from "package@1.2.3"` to `import x from "package"`
+ * This matches the behavior of the Windmill backend's remove_pinned_imports function.
+ */
+function removePinnedImports(code: string): string {
+	// Regex to match import specifiers with version pins
+	// Handles both scoped packages (@scope/package@version) and regular packages (package@version)
+	// Group 1: package name (including scope if present)
+	// The @version part is matched but not captured
+	// Group 2: any path suffix after the package (e.g., /subpath)
+	const IMPORTS_VERSION = /^((?:@[^/@]+\/[^/@]+)|(?:[^/@]+))(?:@[^/]+)?(.*)$/
+
+	// Find all string literals that look like imports (in quotes)
+	// This regex finds strings in import/export statements
+	const importRegex = /(?:import|export).*?from\s+['"]([^'"]+)['"]/g
+
+	let result = code
+	let match: RegExpExecArray | null
+
+	// Collect all imports first to avoid issues with overlapping replacements
+	const imports: string[] = []
+	while ((match = importRegex.exec(code)) !== null) {
+		imports.push(match[1])
+	}
+
+	// Sort by length descending to handle longer matches first (avoids partial replacements)
+	imports.sort((a, b) => b.length - a.length)
+
+	// Process each import and remove version specifiers
+	for (const importPath of imports) {
+		const versionMatch = IMPORTS_VERSION.exec(importPath)
+		if (versionMatch) {
+			const packageName = versionMatch[1]
+			const pathSuffix = versionMatch[2] || ''
+			const newImportPath = packageName + pathSuffix
+
+			// Only replace if we actually removed a version
+			if (newImportPath !== importPath) {
+				// Replace all occurrences of this import in the code
+				result = result.split(`"${importPath}"`).join(`"${newImportPath}"`)
+				result = result.split(`'${importPath}'`).join(`'${newImportPath}'`)
+				logger.debug(`Removed version from import: "${importPath}" -> "${newImportPath}"`)
+			}
+		}
+	}
+
+	return result
+}
+
 // Nsjail configuration for sandboxed execution
 export interface NsjailConfig {
 	enabled: boolean
@@ -1023,6 +1073,11 @@ export class DebugSession {
 		// This analyzes imports and installs required npm packages
 		if (code) {
 			this.nodeModulesPath = await this.prepareDependencies(code) || undefined
+
+			// Remove version specifiers from imports (e.g., "lodash@4" -> "lodash")
+			// This must happen AFTER prepareDependencies (which needs the versions)
+			// but BEFORE the code is executed (Bun doesn't understand @version syntax)
+			code = removePinnedImports(code)
 		}
 
 		// Reset state for new launch

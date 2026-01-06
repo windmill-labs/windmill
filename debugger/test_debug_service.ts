@@ -13,12 +13,17 @@
  * To test with nsjail enabled:
  *    bun run dap_debug_service.ts --nsjail --nsjail-config /path/to/config.cfg
  *    bun run test_debug_service.ts --nsjail
+ *
+ * To test automatic dependency installation (autoinstall):
+ *    bun run dap_debug_service.ts --windmill /path/to/windmill
+ *    bun run test_debug_service.ts --test-autoinstall
  */
 
 import { spawn } from 'bun'
 
 const SERVICE_URL = 'ws://localhost:5679'
 const TEST_NSJAIL = process.argv.includes('--nsjail')
+const TEST_AUTOINSTALL = process.argv.includes('--test-autoinstall')
 
 const TS_TEST_CODE = `let counter = 0
 console.log("TS: Starting")
@@ -73,6 +78,38 @@ const TS_VARIABLE_OBJECT_CODE = `export async function main() {
   const myArr = [1, 2, 3]
   console.log("breakpoint here")
   return { myObj, myArr }
+}
+`
+
+// Test code for Bun autoinstall - uses lodash which must be auto-installed
+const TS_AUTOINSTALL_CODE = `import _ from "lodash"
+
+export async function main(items: number[]) {
+  const sum = _.sum(items)
+  const max = _.max(items)
+  console.log("Sum:", sum)
+  console.log("Max:", max)
+  return { sum, max }
+}
+`
+
+// Test code for Python autoinstall - uses requests which must be auto-installed
+const PYTHON_AUTOINSTALL_CODE = `import requests
+
+def main():
+    # Just verify that requests is importable and has expected attributes
+    version = requests.__version__
+    print(f"Requests version: {version}")
+    return {"version": version, "imported": True}
+`
+
+// Test code for Bun versioned imports - uses number-to-words@1 syntax
+const TS_VERSIONED_IMPORT_CODE = `import { toWords } from "number-to-words@1"
+
+export async function main(num: number) {
+  const words = toWords(num)
+  console.log("Number in words:", words)
+  return { num, words }
 }
 `
 
@@ -806,6 +843,214 @@ async function testHealthEndpoint(): Promise<boolean> {
 	}
 }
 
+/**
+ * Test Bun/TypeScript autoinstall via unified service.
+ * Requires the service to be started with --windmill pointing to the windmill binary.
+ */
+async function testBunAutoinstall(): Promise<boolean> {
+	console.log('\n=== Testing Bun Autoinstall (TypeScript Endpoint) ===')
+	console.log('  Note: This test requires the service to be started with:')
+	console.log('    bun run dap_debug_service.ts --windmill /path/to/windmill')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/typescript')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.ts', [])
+		await client.configurationDone()
+
+		// Launch with code that uses lodash (must be auto-installed)
+		await client.launch(TS_AUTOINSTALL_CODE, true, { items: [1, 2, 3, 4, 5] })
+		console.log('  Launched with lodash import')
+
+		await initP
+
+		// Wait for termination with longer timeout (dependency installation can take time)
+		try {
+			await client.waitForEvent('terminated', 60000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 1000))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		const result = client.getResult() as { sum?: number; max?: number } | undefined
+		console.log(`  Result: ${JSON.stringify(result)}`)
+
+		// Verify lodash functions worked correctly
+		const hasSum = output.some(o => o.includes('Sum:') && o.includes('15'))
+		const hasMax = output.some(o => o.includes('Max:') && o.includes('5'))
+
+		if (!hasSum) {
+			console.log('  ❌ FAIL: Missing correct sum output (expected 15)')
+			return false
+		}
+		if (!hasMax) {
+			console.log('  ❌ FAIL: Missing correct max output (expected 5)')
+			return false
+		}
+
+		if (!result || result.sum !== 15 || result.max !== 5) {
+			console.log('  ❌ FAIL: Incorrect result from lodash functions')
+			return false
+		}
+
+		console.log('  ✓ Bun autoinstall test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		console.log('  Make sure the service is started with --windmill flag')
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
+/**
+ * Test versioned imports (e.g., "number-to-words@1") via unified service.
+ * This syntax is supported by bun_executor in the backend but needs explicit handling in the debugger.
+ * Requires the service to be started with --windmill pointing to the windmill binary.
+ */
+async function testVersionedImports(): Promise<boolean> {
+	console.log('\n=== Testing Versioned Imports (TypeScript) ===')
+	console.log('  Note: This test requires the service to be started with:')
+	console.log('    bun run dap_debug_service.ts --windmill /path/to/windmill')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/typescript')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.ts', [])
+		await client.configurationDone()
+
+		// Launch with code that uses number-to-words@1 syntax (version specifier in import)
+		await client.launch(TS_VERSIONED_IMPORT_CODE, true, { num: 42 })
+		console.log('  Launched with versioned import (number-to-words@1)')
+
+		await initP
+
+		// Wait for termination with longer timeout (dependency installation can take time)
+		try {
+			await client.waitForEvent('terminated', 60000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 1000))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		const result = client.getResult() as { num?: number; words?: string } | undefined
+		console.log(`  Result: ${JSON.stringify(result)}`)
+
+		// Verify number-to-words converted 42 correctly
+		const hasWordsOutput = output.some(o => o.includes('Number in words:') && o.includes('forty'))
+
+		if (!hasWordsOutput) {
+			console.log('  ❌ FAIL: Missing correct "forty" output from number-to-words')
+			return false
+		}
+
+		if (!result || result.num !== 42) {
+			console.log('  ❌ FAIL: Incorrect num in result')
+			return false
+		}
+
+		if (!result.words || !result.words.toLowerCase().includes('forty')) {
+			console.log('  ❌ FAIL: Incorrect words in result (expected "forty-two")')
+			return false
+		}
+
+		console.log('  ✓ Versioned imports test passed!')
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		console.log('  Make sure the service is started with --windmill flag')
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
+/**
+ * Test Python autoinstall via unified service.
+ * Requires the service to be started with --windmill pointing to the windmill binary.
+ */
+async function testPythonAutoinstall(): Promise<boolean> {
+	console.log('\n=== Testing Python Autoinstall ===')
+	console.log('  Note: This test requires the service to be started with:')
+	console.log('    bun run dap_debug_service.ts --windmill /path/to/windmill')
+	const client = new TestClient()
+
+	try {
+		await client.connect('/python')
+		console.log('  Connected')
+
+		await client.initialize()
+		console.log('  Initialized')
+
+		const initP = client.waitForEvent('initialized')
+		await client.setBreakpoints('/test.py', [])
+		await client.configurationDone()
+
+		// Launch with code that uses requests (must be auto-installed)
+		await client.launch(PYTHON_AUTOINSTALL_CODE, true, {})
+		console.log('  Launched with requests import')
+
+		await initP
+
+		// Wait for termination with longer timeout (dependency installation can take time)
+		try {
+			await client.waitForEvent('terminated', 120000)
+		} catch {}
+
+		await new Promise(r => setTimeout(r, 1000))
+
+		const output = client.getOutput()
+		console.log(`  Output: ${JSON.stringify(output)}`)
+
+		const result = client.getResult() as { version?: string; imported?: boolean } | undefined
+		console.log(`  Result: ${JSON.stringify(result)}`)
+
+		// Verify requests was imported successfully
+		const hasVersionOutput = output.some(o => o.includes('Requests version:'))
+
+		if (!hasVersionOutput) {
+			console.log('  ❌ FAIL: Missing requests version output')
+			return false
+		}
+
+		if (!result || result.imported !== true) {
+			console.log('  ❌ FAIL: requests module was not imported successfully')
+			return false
+		}
+
+		if (!result.version || typeof result.version !== 'string') {
+			console.log('  ❌ FAIL: requests version not returned correctly')
+			return false
+		}
+
+		console.log(`  ✓ Python autoinstall test passed! (requests ${result.version})`)
+		return true
+	} catch (error) {
+		console.log(`  ❌ FAIL: ${error}`)
+		console.log('  Make sure the service is started with --windmill flag')
+		return false
+	} finally {
+		client.disconnect()
+	}
+}
+
 async function checkNsjailAvailable(): Promise<boolean> {
 	try {
 		const proc = spawn({
@@ -831,6 +1076,9 @@ async function main() {
 			console.log('   Tests will verify nsjail configuration is passed correctly,')
 			console.log('   but actual sandboxed execution cannot be tested.')
 		}
+	} else if (TEST_AUTOINSTALL) {
+		console.log('Mode: AUTOINSTALL TEST')
+		console.log('Make sure the service is started with: --windmill /path/to/windmill')
 	} else {
 		console.log('Mode: Standard (no nsjail)')
 	}
@@ -893,6 +1141,30 @@ async function main() {
 		passed++
 	} else {
 		failed++
+	}
+
+	// Autoinstall tests (only run when --test-autoinstall is passed)
+	if (TEST_AUTOINSTALL) {
+		// Test Bun autoinstall
+		if (await testBunAutoinstall()) {
+			passed++
+		} else {
+			failed++
+		}
+
+		// Test Python autoinstall
+		if (await testPythonAutoinstall()) {
+			passed++
+		} else {
+			failed++
+		}
+
+		// Test versioned imports (e.g., "number-to-words@1")
+		if (await testVersionedImports()) {
+			passed++
+		} else {
+			failed++
+		}
 	}
 
 	// Summary
