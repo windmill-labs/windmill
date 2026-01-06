@@ -221,6 +221,7 @@ def create_ai_agent_flow(
     output_type: str | None = None,
     temperature: float | None = None,
     max_completion_tokens: int | None = None,
+    context_length: int | None = None,
 ) -> dict[str, Any]:
     """
     Create a FlowValue for an AI agent.
@@ -268,6 +269,13 @@ def create_ai_agent_flow(
     # Add max_completion_tokens if provided
     if max_completion_tokens is not None:
         input_transforms["max_completion_tokens"] = {"type": "static", "value": max_completion_tokens}
+
+    # Add context_length if provided
+    if context_length is not None:
+        input_transforms["memory"] = {"type": "static", "value": {
+            "kind": "auto",
+            "context_length": context_length,
+        }}
 
     module_value = {
         "type": "aiagent",
