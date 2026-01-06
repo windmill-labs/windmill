@@ -461,10 +461,5 @@ function normalizeNewFkToOldColNames(
 }
 
 export function dbSupportsTransactionalDdl(dbType: DbType): boolean {
-	return (
-		dbType === 'postgresql' ||
-		dbType === 'ms_sql_server' ||
-		dbType === 'snowflake' ||
-		dbType === 'duckdb'
-	)
+	return dbType === 'postgresql' || dbType === 'ms_sql_server' || dbType === 'duckdb'
 }
