@@ -44,11 +44,14 @@ export function renderForeignKey(
 
 	let sql = ''
 
-	// In postgres we need to name the constraint in case it's dropped later
-	// Convention: use fk_source_target to generate the foreign key name
-	sql += `CONSTRAINT fk_${[options.tableName, ...sourceColumns, targetTable, ...targetColumns]
+	sql += `CONSTRAINT fk_${[
+		options.tableName,
+		...sourceColumns.map((c) => c?.substring(0, 6)),
+		targetTable,
+		...targetColumns.map((c) => c?.substring(0, 6))
+	]
 		.join('_')
-		.replaceAll('.', '_')} `
+		.replaceAll('.', '_')} `.substring(0, 60)
 
 	sql += ` FOREIGN KEY (${sourceColumns.join(
 		', '
