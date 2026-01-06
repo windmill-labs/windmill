@@ -862,6 +862,150 @@ export function isValidHexColor(color: string): boolean {
 	return /^#(([A-F0-9]{2}){3,4}|[A-F0-9]{3})$/i.test(color)
 }
 
+/**
+ * Calculates the relative luminance of a color according to WCAG 2.1
+ * @param r Red component (0-255)
+ * @param g Green component (0-255)
+ * @param b Blue component (0-255)
+ * @returns Relative luminance value (0-1)
+ */
+function getRelativeLuminance(r: number, g: number, b: number): number {
+	const [rs, gs, bs] = [r, g, b].map((val) => {
+		val = val / 255
+		return val <= 0.03928 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4)
+	})
+	return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs
+}
+
+/**
+ * Converts hex color to HSL
+ * @param hex Hex color string (e.g., "#FF0000")
+ * @returns Array of [hue (0-360), saturation (0-100), lightness (0-100)]
+ */
+function hexToHsl(hex: string): [number, number, number] {
+	// Normalize hex color
+	let normalizedHex = hex.replace('#', '')
+	if (normalizedHex.length === 3) {
+		normalizedHex = normalizedHex
+			.split('')
+			.map((char) => char + char)
+			.join('')
+	}
+
+	const r = parseInt(normalizedHex.substring(0, 2), 16) / 255
+	const g = parseInt(normalizedHex.substring(2, 4), 16) / 255
+	const b = parseInt(normalizedHex.substring(4, 6), 16) / 255
+
+	const max = Math.max(r, g, b)
+	const min = Math.min(r, g, b)
+	let h = 0
+	let s = 0
+	const l = (max + min) / 2
+
+	if (max !== min) {
+		const d = max - min
+		s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+
+		switch (max) {
+			case r:
+				h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+				break
+			case g:
+				h = ((b - r) / d + 2) / 6
+				break
+			case b:
+				h = ((r - g) / d + 4) / 6
+				break
+		}
+	}
+
+	return [h * 360, s * 100, l * 100]
+}
+
+/**
+ * Converts HSL to hex color
+ * @param h Hue (0-360)
+ * @param s Saturation (0-100)
+ * @param l Lightness (0-100)
+ * @returns Hex color string
+ */
+function hslToHex(h: number, s: number, l: number): string {
+	h = h / 360
+	s = s / 100
+	l = l / 100
+
+	let r: number, g: number, b: number
+
+	if (s === 0) {
+		r = g = b = l // Achromatic
+	} else {
+		const hue2rgb = (p: number, q: number, t: number) => {
+			if (t < 0) t += 1
+			if (t > 1) t -= 1
+			if (t < 1 / 6) return p + (q - p) * 6 * t
+			if (t < 1 / 2) return q
+			if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+			return p
+		}
+
+		const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+		const p = 2 * l - q
+		r = hue2rgb(p, q, h + 1 / 3)
+		g = hue2rgb(p, q, h)
+		b = hue2rgb(p, q, h - 1 / 3)
+	}
+
+	const toHex = (c: number) => {
+		const hex = Math.round(c * 255).toString(16)
+		return hex.length === 1 ? '0' + hex : hex
+	}
+
+	return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+/**
+ * Generates a text color with the same hue as the background but adjusted lightness for good contrast
+ * @param backgroundColor Hex color string (e.g., "#FF0000" or "#F00")
+ * @returns Hex color string with same hue but good contrast, or undefined if invalid
+ */
+export function getContrastTextColor(
+	backgroundColor: string | null | undefined
+): string | undefined {
+	if (!backgroundColor || !isValidHexColor(backgroundColor)) {
+		return undefined
+	}
+
+	// Normalize hex color
+	let hex = backgroundColor.replace('#', '')
+	if (hex.length === 3) {
+		hex = hex
+			.split('')
+			.map((char) => char + char)
+			.join('')
+	}
+
+	// Parse RGB components and calculate background luminance
+	const r = parseInt(hex.substring(0, 2), 16)
+	const g = parseInt(hex.substring(2, 4), 16)
+	const b = parseInt(hex.substring(4, 6), 16)
+	const bgLuminance = getRelativeLuminance(r, g, b)
+
+	// Convert to HSL to extract hue
+	const [hue] = hexToHsl(backgroundColor)
+
+	// Determine if background is light or dark
+	const isLightBackground = bgLuminance > 0.5
+
+	// Use fixed saturation and lightness based on background lightness
+	// For light backgrounds: use dark text (low lightness, high saturation)
+	// For dark backgrounds: use light text (high lightness, high saturation)
+	const saturation = 70 // Fixed saturation for good readability
+	const lightness = isLightBackground ? 25 : 85 // Dark for light bg, light for dark bg
+
+	// Generate the color with the same hue but adjusted saturation and lightness
+	return hslToHex(hue, saturation, lightness)
+}
+
 export function sortObject<T>(o: T & object): T {
 	return Object.keys(o)
 		.sort()

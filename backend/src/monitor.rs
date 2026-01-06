@@ -1611,7 +1611,20 @@ pub async fn monitor_db(
         if server_mode && !initial_load {
             if let Some(db) = conn.as_sql() {
                 if let Err(e) = cleanup_debounce_keys_for_completed_jobs(&db).await {
-                    tracing::error!("Error cleaning up debounce keys for completed jobs: {:?}", e);
+                    tracing::error!(
+                        "Error cleaning up debounce keys for completed jobs: {:?}",
+                        e
+                    );
+                }
+            }
+        }
+    };
+
+    let cleanup_flow_iterator_data_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                if let Err(e) = cleanup_flow_iterator_data_orphaned_jobs(&db).await {
+                    tracing::error!("Error cleaning up flow_iterator_data: {:?}", e);
                 }
             }
         }
@@ -1738,6 +1751,7 @@ pub async fn monitor_db(
         cleanup_concurrency_counters_empty_keys_f,
         cleanup_debounce_keys_f,
         cleanup_debounce_keys_completed_f,
+        cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
     );
 }
@@ -2351,7 +2365,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
                 memory_peak,
                 None,
                 error::Error::ExecutionErr(error_message),
-                true,
+                matches!(error_kind, ErrorMessage::SameWorker), // unrecoverable if the job is a same worker zombie
                 Some(&same_worker_tx_never_used),
                 "",
                 node_name,
@@ -2806,7 +2820,10 @@ RETURNING key,job_id
 
 async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
     // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
-    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.read().await {
+    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
+        .read()
+        .await
+    {
         let result = sqlx::query!(
             "
 DELETE FROM debounce_key
@@ -2830,6 +2847,26 @@ RETURNING key,job_id
                 );
             }
         }
+    }
+    Ok(())
+}
+
+async fn cleanup_flow_iterator_data_orphaned_jobs(db: &DB) -> error::Result<()> {
+    let result = sqlx::query!(
+        "
+DELETE FROM flow_iterator_data
+WHERE job_id NOT IN (SELECT id FROM v2_job_queue)
+RETURNING job_id
+        ",
+    )
+    .fetch_all(db)
+    .await?;
+
+    if result.len() > 0 {
+        tracing::info!(
+            "Cleaned up {} orphaned flow_iterator_data rows",
+            result.len()
+        );
     }
     Ok(())
 }
