@@ -372,7 +372,12 @@ export function diffTableEditorValues(
 		const stillExists = updatedForeignKeys.some((updFk) =>
 			fkEqual(originalFk, normalizeNewFkToOldColNames(updFk, updated))
 		)
-		const fk_constraint_name = originalFk.fk_constraint_name || 'fk_constraint_name_not_found'
+		const fk_constraint_name = originalFk.fk_constraint_name
+		if (!fk_constraint_name) {
+			throw new Error(
+				'Original foreign key missing constraint name : ' + JSON.stringify(originalFk)
+			)
+		}
 		if (!stillExists) {
 			operations.push({ kind: 'dropForeignKey', fk_constraint_name })
 		}
