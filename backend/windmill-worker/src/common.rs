@@ -642,7 +642,19 @@ pub fn build_command_with_isolation(program: &str, args: &[&str]) -> Command {
                 cmd.arg(flag);
             }
 
-            cmd.arg("--");
+            // If tini is available, use it for proper PID 1 signal handling
+            // (especially OOM exit codes which return 137 instead of sigprocmask errors).
+            // Note: --fork should already be in the flags for proper namespace setup.
+            if let Some(tini_path) = crate::TINI_AVAILABLE.as_ref() {
+                cmd.arg("--");
+                cmd.arg(tini_path);
+                cmd.arg("-s");
+                cmd.arg("--");
+            } else {
+                // Without tini, just run the command directly (--fork is in flags)
+                cmd.arg("--");
+            }
+
             cmd.arg(program);
             cmd.args(args);
             cmd
