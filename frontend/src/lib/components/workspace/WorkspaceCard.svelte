@@ -25,6 +25,10 @@
 		onEnterWorkspace: (workspaceId: string) => Promise<void>
 		onUnarchive?: (workspaceId: string) => Promise<void>
 		onToggleExpand?: (workspaceId: string) => void
+		selectedWorkspaceId?: string | null
+		onMouseEnter?: (workspaceId: string) => void
+		onMouseClick?: () => void
+		onKeyboardNavigation?: () => void
 	}
 
 	let {
@@ -36,10 +40,15 @@
 		expansionStates = {},
 		onEnterWorkspace,
 		onUnarchive,
-		onToggleExpand
+		onToggleExpand,
+		selectedWorkspaceId,
+		onMouseEnter,
+		onMouseClick,
+		onKeyboardNavigation
 	}: Props = $props()
 
 	const paddingLeft = depth * 24
+	const isSelected = $derived(selectedWorkspaceId === workspace.id)
 
 	// Helper functions
 	function isWorkspaceArchived(workspace: UserWorkspace): boolean {
@@ -59,15 +68,27 @@
 </script>
 
 <div class="block pb-2" style:padding-left={`${paddingLeft}px`}>
-	<div class="border border-border-light rounded-md bg-surface-tertiary overflow-hidden">
+	<div
+		class={twMerge(
+			"border border-border-light rounded-md overflow-hidden transition-all duration-150",
+			isSelected
+				? "bg-surface-hover"
+				: "bg-surface-tertiary"
+		)}
+		data-workspace-id={workspace.id}
+	>
 		<!-- Main workspace card - clickable to enter workspace -->
 		<div
 			class="px-4 py-2 hover:bg-surface-hover transition-colors w-full"
 			class:rounded-lg={children.length === 0}
 			class:rounded-b-none={children.length > 0}
+			class:opacity-60={isWorkspaceDisabled(workspace)}
+			class:cursor-not-allowed={isWorkspaceDisabled(workspace)}
+			class:cursor-pointer={!isWorkspaceDisabled(workspace)}
 			role="button"
 			tabindex="0"
 			onclick={async () => {
+				onMouseClick?.()
 				if (!isWorkspaceDisabled(workspace)) {
 					await onEnterWorkspace(workspace.id)
 				}
@@ -75,12 +96,11 @@
 			onkeydown={(e) => {
 				if ((e.key === 'Enter' || e.key === ' ') && !isWorkspaceDisabled(workspace)) {
 					e.preventDefault()
+					onKeyboardNavigation?.()
 					onEnterWorkspace(workspace.id)
 				}
 			}}
-			class:opacity-60={isWorkspaceDisabled(workspace)}
-			class:cursor-not-allowed={isWorkspaceDisabled(workspace)}
-			class:cursor-pointer={!isWorkspaceDisabled(workspace)}
+			onmouseenter={() => onMouseEnter?.(workspace.id)}
 		>
 			<div class="flex flex-row items-center justify-between">
 				<div class="flex flex-row items-center gap-3 flex-1 min-w-0">
@@ -142,13 +162,18 @@
 				class="border-t border-border-light px-4 py-1.5 hover:bg-surface-hover transition-colors cursor-pointer"
 				role="button"
 				tabindex="0"
-				onclick={() => onToggleExpand?.(workspace.id)}
+				onclick={() => {
+					onMouseClick?.()
+					onToggleExpand?.(workspace.id)
+				}}
 				onkeydown={(e) => {
 					if (e.key === 'Enter' || e.key === ' ') {
 						e.preventDefault()
+						onKeyboardNavigation?.()
 						onToggleExpand?.(workspace.id)
 					}
 				}}
+				onmouseenter={() => onMouseEnter?.(workspace.id)}
 			>
 				<div class="flex flex-row items-center justify-between">
 					<div class="flex flex-row items-center gap-2 pl-2">
@@ -185,6 +210,10 @@
 					{onEnterWorkspace}
 					{onUnarchive}
 					{onToggleExpand}
+					{selectedWorkspaceId}
+					{onMouseEnter}
+					{onMouseClick}
+					{onKeyboardNavigation}
 				/>
 			{/each}
 		</div>

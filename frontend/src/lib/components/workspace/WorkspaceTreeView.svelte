@@ -34,6 +34,11 @@
 	let manualExpansionStates = $state<Record<string, boolean>>({})
 	let filteredWorkspaces: (UserWorkspace & { marked?: string })[] | undefined = $state()
 
+	// Keyboard navigation state
+	let selectedWorkspaceId = $state<string | null>(null)
+	let isKeyboardNavigation = $state(false)
+	let scrollContainer: HTMLElement
+
 	// Computed expansion states that include auto-expansion for search results
 	let expansionStates = $derived.by(() => {
 		if (!searchFilter || !filteredWorkspaces || !workspaces) {
@@ -195,7 +200,165 @@
 	$effect(() => {
 		onExpandCollapseAll = handleExpandCollapseAll
 	})
+
+	// Generate flattened navigation order for keyboard navigation
+	const flatNavigationOrder = $derived.by(() => {
+		const result: string[] = []
+
+		function addWorkspaceAndChildren(workspace: ExtendedWorkspace) {
+			result.push(workspace.id)
+			if (workspace._children && expansionStates[workspace.id]) {
+				workspace._children.forEach(child => addWorkspaceAndChildren(child))
+			}
+		}
+
+		rootWorkspaces.forEach(workspace => addWorkspaceAndChildren(workspace))
+		return result
+	})
+
+	// Keyboard navigation handlers
+	function handleKeyDown(event: KeyboardEvent) {
+		// Allow navigation keys even when search input has focus
+		const navigationKeys = ['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight', 'Enter', ' ', 'Escape']
+		const activeElement = document.activeElement
+
+		// Skip navigation only if user is typing in textarea or non-search inputs
+		if (
+			(activeElement?.tagName === 'TEXTAREA') ||
+			(activeElement?.tagName === 'INPUT' && !navigationKeys.includes(event.key))
+		) {
+			return
+		}
+
+		// Enable keyboard navigation on arrow keys
+		if (['ArrowDown', 'ArrowUp', 'Home', 'End', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+			enableKeyboardNavigation()
+		}
+
+		// Only handle navigation if keyboard navigation is active
+		if (!isKeyboardNavigation) {
+			return
+		}
+
+		if (flatNavigationOrder.length === 0) return
+
+		const currentIndex = selectedWorkspaceId ? flatNavigationOrder.indexOf(selectedWorkspaceId) : -1
+
+		switch (event.key) {
+			case 'ArrowDown': {
+				event.preventDefault()
+				const nextIndex = currentIndex < flatNavigationOrder.length - 1 ? currentIndex + 1 : 0
+				selectedWorkspaceId = flatNavigationOrder[nextIndex]
+				break
+			}
+			case 'ArrowUp': {
+				event.preventDefault()
+				const prevIndex = currentIndex > 0 ? currentIndex - 1 : flatNavigationOrder.length - 1
+				selectedWorkspaceId = flatNavigationOrder[prevIndex]
+				break
+			}
+			case 'Home': {
+				event.preventDefault()
+				selectedWorkspaceId = flatNavigationOrder[0]
+				break
+			}
+			case 'End': {
+				event.preventDefault()
+				selectedWorkspaceId = flatNavigationOrder[flatNavigationOrder.length - 1]
+				break
+			}
+			case 'ArrowRight': {
+				if (selectedWorkspaceId && workspacesWithChildren.includes(selectedWorkspaceId)) {
+					event.preventDefault()
+					if (!expansionStates[selectedWorkspaceId]) {
+						handleToggleExpand(selectedWorkspaceId)
+					}
+				}
+				break
+			}
+			case 'ArrowLeft': {
+				if (selectedWorkspaceId && workspacesWithChildren.includes(selectedWorkspaceId)) {
+					event.preventDefault()
+					if (expansionStates[selectedWorkspaceId]) {
+						handleToggleExpand(selectedWorkspaceId)
+					}
+				}
+				break
+			}
+			case 'Enter':
+			case ' ': {
+				if (selectedWorkspaceId) {
+					event.preventDefault()
+					const workspace = workspaces.find(w => w.id === selectedWorkspaceId)
+					if (workspace && !workspace.disabled) {
+						onEnterWorkspace(selectedWorkspaceId)
+					}
+				}
+				break
+			}
+			case 'Escape': {
+				selectedWorkspaceId = null
+				isKeyboardNavigation = false
+				break
+			}
+		}
+	}
+
+	// Reset selection when workspaces change or search filter changes
+	$effect(() => {
+		if (rootWorkspaces.length === 0) {
+			selectedWorkspaceId = null
+		} else if (selectedWorkspaceId && !flatNavigationOrder.includes(selectedWorkspaceId)) {
+			// If currently selected workspace is no longer visible, reset to first visible
+			selectedWorkspaceId = flatNavigationOrder[0] || null
+		}
+	})
+
+	// Enable keyboard navigation when user starts navigating
+	function enableKeyboardNavigation() {
+		if (!isKeyboardNavigation && rootWorkspaces.length > 0) {
+			isKeyboardNavigation = true
+			if (!selectedWorkspaceId) {
+				selectedWorkspaceId = flatNavigationOrder[0] || null
+			}
+		}
+	}
+
+	// Handle mouse interactions - disable keyboard mode when mouse is used
+	function handleMouseEnter(workspaceId: string) {
+		if (isKeyboardNavigation) {
+			selectedWorkspaceId = workspaceId
+		}
+	}
+
+	function handleMouseClick() {
+		isKeyboardNavigation = false
+		selectedWorkspaceId = null
+	}
+
+	// Scroll selected workspace into view
+	function scrollToSelectedWorkspace() {
+		if (!selectedWorkspaceId || !scrollContainer) return
+
+		// Find the workspace card element by data attribute
+		const selectedElement = scrollContainer.querySelector(`[data-workspace-id="${selectedWorkspaceId}"]`)
+		if (selectedElement) {
+			selectedElement.scrollIntoView({
+				behavior: 'smooth',
+				block: 'nearest'
+			})
+		}
+	}
+
+	// Auto-scroll when selection changes
+	$effect(() => {
+		if (selectedWorkspaceId && isKeyboardNavigation) {
+			scrollToSelectedWorkspace()
+		}
+	})
 </script>
+
+<svelte:window onkeydown={handleKeyDown} />
 
 <!-- Search Items Component for fuzzy search with highlighting -->
 <SearchItems
@@ -205,7 +368,7 @@
 	f={(workspace) => workspace.name + ' (' + workspace.id + ')'}
 />
 
-<div class="space-y-4 max-h-[50vh] overflow-auto">
+<div class="space-y-4 max-h-[50vh] overflow-auto" bind:this={scrollContainer}>
 	<!-- Workspace Tree -->
 	<div class="space-y-2">
 		{#each rootWorkspaces as workspace (workspace.id)}
@@ -217,6 +380,10 @@
 				{onEnterWorkspace}
 				{onUnarchive}
 				onToggleExpand={handleToggleExpand}
+				{selectedWorkspaceId}
+				onMouseEnter={handleMouseEnter}
+				onMouseClick={handleMouseClick}
+				onKeyboardNavigation={enableKeyboardNavigation}
 			/>
 		{/each}
 
