@@ -801,7 +801,7 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
-		return `${quantity} ${customPlural}}`
+		return `${quantity} ${customPlural}`
 	} else {
 		return `${quantity} ${word}s`
 	}
