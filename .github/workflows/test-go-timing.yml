@@ -25,7 +25,7 @@ jobs:
           --health-retries 5
 
       windmill:
-        image: ghcr.io/windmill-labs/windmill-ee:dev
+        image: ghcr.io/windmill-labs/windmill:main
         ports:
           - 8000:8000
         env:
@@ -40,7 +40,7 @@ jobs:
           --health-start-period 30s
 
       windmill_worker:
-        image: ghcr.io/windmill-labs/windmill-ee:dev
+        image: ghcr.io/windmill-labs/windmill:main
         env:
           DATABASE_URL: postgres://postgres:changeme@postgres:5432/windmill?sslmode=disable
           MODE: worker
