@@ -1,7 +1,10 @@
 /**
  * Type alias for enum values - can be an array of strings or undefined
  */
-export type EnumType = string[] | { label: string; value: string }[] | undefined;
+export type EnumType =
+  | string[]
+  | { label: string; value: string }[]
+  | undefined;
 
 /**
  * Represents a property in a JSON schema with various validation and display options
@@ -40,6 +43,16 @@ export interface SchemaProperty {
   originalType?: string;
 }
 
+const ITEMS_PRESERVED_FIELDS = [
+  "properties",
+  "required",
+  "additionalProperties",
+  "enum",
+  "resourceType",
+  "contentEncoding",
+  "description",
+] as (keyof SchemaProperty["items"])[];
+
 /**
  * Converts argument signature types to JSON schema properties.
  * This function handles various Windmill-specific types and converts them
@@ -54,22 +67,22 @@ export function argSigToJsonSchemaType(
     | string
     | { resource: string | null }
     | {
-      list:
-      | (string | { name?: string; props?: { key: string; typ: any }[] })
-      | { str: any }
-      | { object: { name?: string; props?: { key: string; typ: any }[] } }
-      | null;
-    }
+        list:
+          | (string | { name?: string; props?: { key: string; typ: any }[] })
+          | { str: any }
+          | { object: { name?: string; props?: { key: string; typ: any }[] } }
+          | null;
+      }
     | { dynselect: string }
     | { dynmultiselect: string }
     | { str: string[] | null }
     | { object: { name?: string; props?: { key: string; typ: any }[] } }
     | {
-      oneof: {
-        label: string;
-        properties: { key: string; typ: any }[];
-      }[];
-    },
+        oneof: {
+          label: string;
+          properties: { key: string; typ: any }[];
+        }[];
+      },
   oldS: SchemaProperty
 ): void {
   const newS: SchemaProperty = { type: "" };
@@ -209,13 +222,10 @@ export function argSigToJsonSchemaType(
         // Preserve ALL user-defined fields when parser cannot infer structure
         newS.items = { type: oldS.items?.type || "object" };
 
-        const preserveItemFields = ['properties', 'required', 'additionalProperties',
-                                     'enum', 'resourceType', 'contentEncoding', 'description'];
-
-        if (oldS.items && typeof oldS.items === 'object') {
-          preserveItemFields.forEach((field) => {
+        if (oldS.items && typeof oldS.items === "object") {
+          ITEMS_PRESERVED_FIELDS.forEach((field) => {
             if (oldS.items && oldS.items[field] !== undefined) {
-              newS.items[field] = oldS.items[field];
+              newS.items![field] = oldS.items[field];
             }
           });
         }
@@ -225,13 +235,10 @@ export function argSigToJsonSchemaType(
       // Preserve ALL user-defined fields for untyped lists (same as record[] branch)
       newS.items = { type: oldS.items?.type || "object" };
 
-      const preserveItemFields = ['properties', 'required', 'additionalProperties',
-                                   'enum', 'resourceType', 'contentEncoding', 'description'];
-
-      if (oldS.items && typeof oldS.items === 'object') {
-        preserveItemFields.forEach((field) => {
+      if (oldS.items && typeof oldS.items === "object") {
+        ITEMS_PRESERVED_FIELDS.forEach((field) => {
           if (oldS.items && oldS.items[field] !== undefined) {
-            newS.items[field] = oldS.items[field];
+            newS.items![field] = oldS.items[field];
           }
         });
       }
