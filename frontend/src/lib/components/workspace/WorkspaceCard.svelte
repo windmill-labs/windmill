@@ -59,10 +59,10 @@
 </script>
 
 <div class="block pb-2" style:padding-left={`${paddingLeft}px`}>
-	<div class="border border-border-light rounded-lg bg-surface-tertiary overflow-hidden">
+	<div class="border border-border-light rounded-md bg-surface-tertiary overflow-hidden">
 		<!-- Main workspace card - clickable to enter workspace -->
 		<div
-			class="px-4 py-2 hover:bg-surface-hover transition-colors cursor-pointer w-full"
+			class="px-4 py-2 hover:bg-surface-hover transition-colors w-full"
 			class:rounded-lg={children.length === 0}
 			class:rounded-b-none={children.length > 0}
 			role="button"

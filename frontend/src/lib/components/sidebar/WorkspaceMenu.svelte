@@ -79,7 +79,7 @@
 	}
 
 	// Group workspaces into parent-child hierarchy using Svelte 5 derived and the new utility
-	const groupedWorkspaces = $derived(() => {
+	const groupedWorkspaces = $derived.by(() => {
 		if (!$userWorkspaces) return []
 		return buildWorkspaceHierarchy($userWorkspaces)
 	})
@@ -87,7 +87,6 @@
 	const itemClass =
 		'text-primary flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 </script>
-
 
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
@@ -123,7 +122,7 @@
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each groupedWorkspaces() as { workspace, depth, isForked, parentName }}
+				{#each groupedWorkspaces as { workspace, depth, isForked, parentName }}
 					{@const isSelected = $workspaceStore === workspace.id}
 					<MenuItem
 						class={twMerge(
@@ -144,11 +143,7 @@
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
 							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
-								<WorkspaceIcon
-									workspaceColor={workspace.color}
-									{isForked}
-									{parentName}
-								/>
+								<WorkspaceIcon workspaceColor={workspace.color} {isForked} {parentName} />
 								<div class="min-w-0 flex-1">
 									<div
 										class={twMerge(

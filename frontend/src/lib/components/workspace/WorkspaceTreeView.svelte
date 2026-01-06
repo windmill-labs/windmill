@@ -1,11 +1,9 @@
 <script lang="ts">
-	import { Building2, Search, ChevronsDownUp, ChevronsUpDown } from 'lucide-svelte'
+	import { Building2 } from 'lucide-svelte'
 	import { SvelteMap } from 'svelte/reactivity'
 	import WorkspaceCard from './WorkspaceCard.svelte'
-	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import type { UserWorkspace } from '$lib/stores'
-	import { Button } from '../common'
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
@@ -17,7 +15,6 @@
 		onEnterWorkspace: (workspaceId: string) => Promise<void>
 		onUnarchive?: (workspaceId: string) => Promise<void>
 		searchFilter?: string
-		showControls?: boolean
 		onExpandCollapseAll?: () => void
 		allExpanded?: boolean
 		hasForks?: boolean
@@ -28,7 +25,6 @@
 		onEnterWorkspace,
 		onUnarchive,
 		searchFilter = $bindable(''),
-		showControls = true,
 		onExpandCollapseAll = $bindable(),
 		allExpanded = $bindable(false),
 		hasForks = $bindable(false)
@@ -48,7 +44,7 @@
 		const autoExpanded: Record<string, boolean> = {}
 
 		// Build children map for descendant checking
-		const childrenMap = new SvelteMap<string, string[]>()
+		const childrenMap = new Map<string, string[]>()
 		workspaces.forEach((workspace) => {
 			if (workspace.parent_workspace_id) {
 				if (!childrenMap.has(workspace.parent_workspace_id)) {
@@ -210,38 +206,6 @@
 />
 
 <div class="space-y-4">
-	<!-- Search Input and Expand/Collapse All (only show if more than one workspace and showControls is true) -->
-	{#if showControls && workspaces.length > 1}
-		<div class="flex gap-2 items-center">
-			<div class="relative text-primary flex-1">
-				<TextInput
-					inputProps={{
-						placeholder: 'Search workspaces...'
-					}}
-					size="md"
-					bind:value={searchFilter}
-					class="!pr-10"
-				/>
-				<Search size={16} class="text-secondary absolute right-2 top-0 mt-2" />
-			</div>
-			{#if workspacesWithChildren.length > 0}
-				<Button
-					onClick={handleExpandCollapseAll}
-					title={allExpandedInternal ? 'Collapse all' : 'Expand all'}
-					startIcon={{ icon: allExpandedInternal ? ChevronsDownUp : ChevronsUpDown }}
-					unifiedSize="md"
-					variant="default"
-				>
-					{#if allExpandedInternal}
-						<span>Collapse</span>
-					{:else}
-						<span>Expand</span>
-					{/if}
-				</Button>
-			{/if}
-		</div>
-	{/if}
-
 	<!-- Workspace Tree -->
 	<div class="space-y-2">
 		{#each rootWorkspaces as workspace (workspace.id)}

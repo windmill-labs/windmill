@@ -241,7 +241,6 @@
 						loadWorkspaces()
 					}
 				}}
-				showControls={false}
 				bind:searchFilter={workspaceSearchFilter}
 				bind:allExpanded={workspaceAllExpanded}
 				bind:hasForks={workspaceHasForks}
