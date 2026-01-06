@@ -322,7 +322,14 @@
 					<div class="flex gap-2">
 						<Popover contentClasses="p-4" enableFlyTransition closeOnOtherPopoverOpen>
 							<svelte:fragment slot="trigger">
-								<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
+								<div class="relative">
+									<Button variant="default" iconOnly size="sm" endIcon={{ icon: SettingsIcon }} />
+									{#if ducklake.extra_args}
+										<div
+											class="absolute -top-0.5 -right-0.5 w-2 h-2 bg-accent rounded-full border border-surface"
+										></div>
+									{/if}
+								</div>
 							</svelte:fragment>
 							<svelte:fragment slot="content">
 								<Label
