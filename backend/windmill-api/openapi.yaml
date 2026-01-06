@@ -20606,6 +20606,8 @@ components:
                     type: string
                 required:
                   - path
+              extra_args:
+                type: string
 
     DataTableSettings:
       type: object
