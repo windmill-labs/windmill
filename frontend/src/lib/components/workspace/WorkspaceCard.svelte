@@ -12,10 +12,11 @@
 
 	interface ExtendedWorkspace extends UserWorkspace {
 		_children?: ExtendedWorkspace[]
+		marked?: string
 	}
 
 	interface Props {
-		workspace: UserWorkspace
+		workspace: UserWorkspace & { marked?: string }
 		isForked?: boolean
 		depth?: number
 		children?: ExtendedWorkspace[]
@@ -96,7 +97,11 @@
 						<div class="min-w-0 flex-1">
 							<div class="flex flex-row items-center gap-2 flex-wrap">
 								<span class="text-xs font-semibold text-primary truncate">
-									{workspace.name}
+									{#if workspace.marked}
+										{@html workspace.marked}
+									{:else}
+										{workspace.name}
+									{/if}
 								</span>
 								<span class="text-secondary text-xs">-</span>
 								<span class="font-mono text-2xs text-secondary truncate">
