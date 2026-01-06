@@ -245,8 +245,6 @@
 		{#each new Array(3) as _, i (i)}
 			<Skeleton layout={[[2], 0.5]} />
 		{/each}
-			<Skeleton layout={[[2], 0.5]} />
-		{/each}
 	{/if}
 
 	{#if createWorkspace}
