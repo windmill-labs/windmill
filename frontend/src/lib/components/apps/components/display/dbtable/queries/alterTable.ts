@@ -237,7 +237,7 @@ function renderAddDefaultValue(
 			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} SET DEFAULT ${defaultValue};`
 		case 'ms_sql_server':
 			// MS SQL uses constraints for defaults
-			return `ALTER TABLE ${tableRef} ADD CONSTRAINT DF_${tableRef}_${columnName} DEFAULT ${defaultValue} FOR ${columnName};`
+			return `ALTER TABLE ${tableRef} ADD CONSTRAINT DF_${tableRef.replace('.', '_')}_${columnName} DEFAULT ${defaultValue} FOR ${columnName};`
 		default:
 			throw new Error(`Unsupported database type: ${dbType}`)
 	}
