@@ -21,7 +21,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { switchWorkspace } from '$lib/storeUtils'
-	import { Crown, GitFork, Settings } from 'lucide-svelte'
+	import { GitFork, Settings, User } from 'lucide-svelte'
 	import { isCloudHosted } from '$lib/cloud'
 	import { emptyString } from '$lib/utils'
 	import { getUserExt } from '$lib/user'
@@ -261,10 +261,11 @@
 	{#if createWorkspace}
 		<div class="flex flex-row-reverse pt-4">
 			<Button
-				size="sm"
+				unifiedSize="sm"
 				btnClasses={noWorkspaces ? 'animate-bounce hover:animate-none' : ''}
 				href="{base}/user/create_workspace{rd ? `?rd=${encodeURIComponent(rd)}` : ''}"
 				variant={noWorkspaces ? 'accent' : 'default'}
+				wrapperClasses="w-full"
 				>+&nbsp;Create a new workspace
 			</Button>
 		</div>
@@ -272,10 +273,18 @@
 
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 
-	<h2 class="mt-6 mb-4 text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
+	<div class="flex flex-row items-center justify-between mt-6 mb-2">
+		<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
+		{#if workspaces}
+			<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
+		{/if}
+	</div>
+
 	{#if nonForkInvites.length == 0}
 		<p class="text-xs text-secondary mt-2"> You don't have new invites at the moment. </p>
 	{/if}
+
+	<div class="mt-6"></div>
 	{#each nonForkInvites as invite}
 		<div
 			class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
@@ -318,17 +327,11 @@
 		</div>
 	{/each}
 
-	{#if workspaces}
-		<div class="flex flex-row pt-6 pb-2">
-			<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
-		</div>
-	{/if}
-
 	{#if showAllForks}
 		{@const allWorkspacesList = workspaces || []}
 		{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
 
-		<h2 class="mb-4 text-sm font-semibold text-emphasis">Forks of the workspaces you're in</h2>
+		<span class="mb-2 text-xs font-normal text-secondary">Forks of the workspaces you're in</span>
 		{#if filteredInvites.length == 0}
 			<p class="text-xs text-secondary mt-2"> There isn't anything here </p>
 		{/if}
@@ -357,18 +360,21 @@
 					{/if}
 				</div>
 				<div class="flex justify-end items-center flex-col sm:flex-row gap-1">
-					<a
-						class="font-semibold text-xs p-1"
+					<Button
+						variant="accent"
+						unifiedSize="xs"
 						href="{base}/user/accept_invite?workspace={encodeURIComponent(invite.workspace_id)}{rd
 							? `&rd=${encodeURIComponent(rd)}`
 							: ''}"
 					>
 						Accept
-					</a>
+					</Button>
 
-					<button
-						class="text-red-700 font-semibold text-xs p-1"
-						on:click={async () => {
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						destructive
+						onClick={async () => {
 							await UserService.declineInvite({
 								requestBody: { workspace_id: invite.workspace_id }
 							})
@@ -377,7 +383,7 @@
 						}}
 					>
 						Decline
-					</button>
+					</Button>
 				</div>
 			</div>
 		{/each}
@@ -387,25 +393,33 @@
 		{#if $superadmin}
 			<Button
 				variant="default"
-				size="sm"
+				unifiedSize="md"
 				on:click={superadminSettings.openDrawer}
-				startIcon={{ icon: Crown }}
+				startIcon={{ icon: Settings }}
+				dropdownItems={[
+					{
+						label: 'User settings',
+						onClick: () => userSettings.openDrawer(),
+						icon: User
+					}
+				]}
 			>
-				Superadmin settings
+				Instance settings
+			</Button>
+		{:else}
+			<Button
+				variant="default"
+				unifiedSize="md"
+				onClick={() => userSettings.openDrawer()}
+				startIcon={{ icon: Settings }}
+			>
+				User settings
 			</Button>
 		{/if}
-		<Button
-			variant="default"
-			size="sm"
-			on:click={() => userSettings.openDrawer()}
-			startIcon={{ icon: Settings }}
-		>
-			User settings
-		</Button>
 
 		<Button
-			variant="default"
-			size="sm"
+			variant="accent"
+			unifiedSize="md"
 			on:click={async () => {
 				logout()
 			}}
