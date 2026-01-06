@@ -122,7 +122,8 @@
 			...(datatypeHasLength(defaultColumnType) && {
 				datatype_length: datatypeDefaultLength(defaultColumnType)
 			}),
-			...(primaryKey && { primaryKey })
+			...(primaryKey && { primaryKey }),
+			...(!features?.defaultToNotNull && { nullable: true })
 		})
 	}
 	if (!initialValues) {
@@ -234,23 +235,25 @@
 												<input type="number" placeholder="0" bind:value={column.datatype_length} />
 											</label>
 										{/if}
-										<label class="text-xs">
-											<span class="flex gap-1 mb-1">
-												Default value
-												<Tooltip>
-													<Info size={14} />
-													{#snippet text()}
-														Surround your expressions with curly brackets:
-														<code>
-															{'{NOW()}'}
-														</code>.
-														<br />
-														By default, it will be parsed as a literal
-													{/snippet}
-												</Tooltip>
-											</span>
-											<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
-										</label>
+										{#if features?.defaultValues}
+											<label class="text-xs">
+												<span class="flex gap-1 mb-1">
+													Default value
+													<Tooltip>
+														<Info size={14} />
+														{#snippet text()}
+															Surround your expressions with curly brackets:
+															<code>
+																{'{NOW()}'}
+															</code>.
+															<br />
+															By default, it will be parsed as a literal
+														{/snippet}
+													</Tooltip>
+												</span>
+												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
+											</label>
+										{/if}
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
 												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
