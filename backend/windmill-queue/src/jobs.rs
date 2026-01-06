@@ -2708,13 +2708,23 @@ impl PulledJobResult {
                     "Accumulated arguments from debounced jobs in batch"
                 );
 
+                let new_value = to_raw_value(&accumulated_arg);
+
+                append_logs(
+                    &j_id,
+                    &j.workspace_id,
+                    format!(
+                        "Substituting `{arg_name_to_accumulate}` with: {}\n\n",
+                        &new_value
+                    ),
+                    &(db.into()),
+                )
+                .await;
+
                 j.args
                     .get_or_insert(Json(Default::default()))
                     .as_mut()
-                    .insert(
-                        arg_name_to_accumulate.to_owned(),
-                        to_raw_value(&accumulated_arg),
-                    );
+                    .insert(arg_name_to_accumulate.to_owned(), new_value);
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
