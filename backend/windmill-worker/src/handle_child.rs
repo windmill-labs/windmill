@@ -328,7 +328,7 @@ pub async fn handle_child(
     let success = wait_result.is_ok()
         && wait_result.as_ref().unwrap().is_ok()
         && wait_result.as_ref().unwrap().as_ref().unwrap().success();
-    tracing::info!(target: VERBOSE_TARGET, %job_id, %success, %mem_peak, %worker, "child process '{child_name}' took {}ms", start.elapsed().as_millis());
+    tracing::info!(%job_id, %success, %mem_peak, %worker, "child process '{child_name}' took {}ms", start.elapsed().as_millis());
 
     match wait_result {
         _ if *too_many_logs.borrow() => Err(Error::ExecutionErr(format!(
@@ -711,7 +711,7 @@ where
                 if i == 1 || i % memory_snapshot_interval == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
-                    tracing::info!(target: VERBOSE_TARGET, "job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
+                    tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
                     let occupancy = occupancy_metrics.as_mut().map(|x| x.update_occupancy_metrics());
                     if job_id != Uuid::nil() {
                         if let Err(err) = update_worker_ping_from_job(&conn, &job_id, w_id, worker_name, memory_usage, wm_memory_usage, occupancy).await {
@@ -726,7 +726,7 @@ where
                 // In quiet mode, emit "still running" logs 10x less frequently
                 let still_running_interval = if *QUIET_MODE { 10 } else { 1 };
                 if i % still_running_interval == 0 {
-                    tracing::info!(target: VERBOSE_TARGET, "job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                    tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
                 }
 
 
