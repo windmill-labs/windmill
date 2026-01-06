@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { GitFork, ChevronUp, ArchiveRestore } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
-	import { Button } from '$lib/components/common'
+	import { Badge, Button } from '$lib/components/common'
 	import type { UserWorkspace } from '$lib/stores'
 	import { superadmin } from '$lib/stores'
 	import { WorkspaceService } from '$lib/gen'
@@ -70,10 +70,8 @@
 <div class="block pb-2" style:padding-left={`${paddingLeft}px`}>
 	<div
 		class={twMerge(
-			"border border-border-light rounded-md overflow-hidden transition-all duration-150",
-			isSelected
-				? "bg-surface-hover"
-				: "bg-surface-tertiary"
+			'border border-border-light rounded-md overflow-hidden transition-all duration-150',
+			isSelected ? 'bg-surface-hover' : 'bg-surface-tertiary'
 		)}
 		data-workspace-id={workspace.id}
 	>
@@ -124,9 +122,13 @@
 									{/if}
 								</span>
 								<span class="text-secondary text-xs">-</span>
-								<span class="font-mono text-2xs text-secondary truncate">
-									{workspace.id}
-								</span>
+								{#if workspace.id === 'admins'}
+									<Badge color="blue">{workspace.id}</Badge>
+								{:else}
+									<span class="font-mono text-2xs text-secondary truncate">
+										{workspace.id}
+									</span>
+								{/if}
 							</div>
 
 							<div class="text-xs text-secondary">
@@ -148,6 +150,9 @@
 								{/if}
 								{#if isWorkspaceDisabled(workspace)}
 									<span class="text-red-500 ml-1">(user disabled in this workspace)</span>
+								{/if}
+								{#if workspace.id === 'admins'}
+									<span class="text-accent ml-1">Used to manage your Windmill instance</span>
 								{/if}
 							</div>
 						</div>

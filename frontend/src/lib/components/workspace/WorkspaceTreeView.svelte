@@ -155,7 +155,13 @@
 
 		return visibleRoots
 			.map((workspace) => buildWorkspaceWithChildren(workspace))
-			.sort((a, b) => a.name.localeCompare(b.name))
+			.sort((a, b) => {
+				// Admin workspace always goes first
+				if (a.id === 'admins') return -1
+				if (b.id === 'admins') return 1
+				// Then sort alphabetically by name
+				return a.name.localeCompare(b.name)
+			})
 	})
 
 	function handleToggleExpand(workspaceId: string) {

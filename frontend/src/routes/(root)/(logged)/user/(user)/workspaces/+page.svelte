@@ -91,13 +91,8 @@
 	}
 	$: list_all_as_super_admin != undefined && $userWorkspaces && handleListWorkspaces()
 
-	$: adminsInstance = workspaces?.find((x) => x.id == 'admins') || $superadmin
-
-	$: nonAdminWorkspaces = (() => {
-		if (!workspaces) return []
-		return workspaces.filter((x) => x.id !== 'admins')
-	})()
-	$: noWorkspaces = $superadmin && nonAdminWorkspaces.length == 0
+	$: allWorkspaces = workspaces || []
+	$: noWorkspaces = $superadmin && allWorkspaces.length == 0
 
 	async function getCreateWorkspaceRequireSuperadmin() {
 		const r = await fetch(base + '/api/workspaces/create_workspace_require_superadmin')
@@ -123,6 +118,20 @@
 
 	async function speakFriendAndEnterWorkspace(workspaceId: string) {
 		loading = true
+
+		// Special handling for admins workspace
+		if (workspaceId === 'admins') {
+			workspaceStore.set('admins')
+			if (rd?.startsWith('http')) {
+				window.location.href = rd
+				return
+			}
+			await goto(rd ?? '/')
+			loading = false
+			return
+		}
+
+		// Regular workspace handling
 		workspaceStore.set(undefined)
 		workspaceStore.set(workspaceId)
 		$userStore = await getUserExt($workspaceStore!)
@@ -170,9 +179,9 @@
 			Workspaces{#if loading}<WindmillIcon spin="fast" />{/if}
 		</h2>
 
-		{#if nonAdminWorkspaces.length > 1}
-			<div class="flex gap-2 items-center flex-1 max-w-xs">
-				<div class="relative text-primary flex-1">
+		{#if allWorkspaces.length > 1}
+			<div class="flex gap-2 items-center">
+				<div class="relative text-primary flex-1 max-w-48">
 					<TextInput
 						inputProps={{
 							placeholder: 'Search workspaces...'
@@ -199,32 +208,13 @@
 	</div>
 
 	{#if $superadmin}
-		<div class="flex justify-start mb-2">
+		<div class="flex justify-end mb-2">
 			<Toggle
 				bind:checked={list_all_as_super_admin}
 				options={{ right: 'List all workspaces as superadmin' }}
 				size="xs"
 			/>
 		</div>
-	{/if}
-
-	{#if adminsInstance}
-		<Button
-			unifiedSize="md"
-			onClick={async () => {
-				workspaceStore.set('admins')
-				loading = true
-				if (rd?.startsWith('http')) {
-					window.location.href = rd
-					return
-				}
-				await goto(rd ?? '/')
-				loading = false
-			}}
-			variant="default"
-			>Manage Windmill on the superadmins workspace
-		</Button>
-		<div class="mt-6"></div>
 	{/if}
 
 	{#if workspaces && $usersWorkspaceStore}
@@ -236,7 +226,7 @@
 			</p>
 		{:else}
 			<WorkspaceTreeView
-				workspaces={nonAdminWorkspaces}
+				workspaces={allWorkspaces}
 				onEnterWorkspace={speakFriendAndEnterWorkspace}
 				onUnarchive={async (_workspaceId) => {
 					if (list_all_as_super_admin) {
@@ -272,18 +262,19 @@
 
 	{@const nonForkInvites = invites.filter((invite) => invite.parent_workspace_id == undefined)}
 
-	<div class="flex flex-row items-center justify-between mt-8 mb-2">
+	<div class="flex flex-row items-center justify-between mt-8">
 		<h2 class="text-sm font-semibold text-emphasis">Invites to join a Workspace</h2>
 		{#if workspaces}
 			<Toggle size="xs" bind:checked={showAllForks} options={{ right: 'Show workspace forks' }} />
 		{/if}
 	</div>
 
+	<div class="mt-4"></div>
+
 	{#if nonForkInvites.length == 0}
-		<p class="text-xs text-secondary mt-2"> You don't have new invites at the moment. </p>
+		<p class="text-xs text-secondary"> You don't have new invites at the moment. </p>
 	{/if}
 
-	<div class="mt-6"></div>
 	{#each nonForkInvites as invite}
 		<div
 			class="w-full mx-auto py-1 px-2 rounded-md border border-border-light
@@ -330,10 +321,15 @@
 		{@const allWorkspacesList = workspaces || []}
 		{@const filteredInvites = invites.filter((invite) => invite.parent_workspace_id)}
 
-		<span class="mb-2 text-xs font-normal text-secondary">Forks of the workspaces you're in</span>
+		<div class="mt-4"></div>
 		{#if filteredInvites.length == 0}
-			<p class="text-xs text-secondary mt-2"> There isn't anything here </p>
+			<p class="text-xs text-secondary"
+				>There are no invites to join the forks of any workspace you're in.</p
+			>
+		{:else}
+			<span class="mb-2 text-xs font-normal text-secondary">Forks of the workspaces you're in</span>
 		{/if}
+
 		{#each filteredInvites as invite}
 			{@const inviteWorkspace = allWorkspacesList.find((w) => w.id === invite.workspace_id)}
 			<div
