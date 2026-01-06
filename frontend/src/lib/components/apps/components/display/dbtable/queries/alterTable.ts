@@ -125,7 +125,10 @@ export function makeAlterTableQueries(
 				break
 
 			case 'addPrimaryKey':
-				queries.push(`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')});`)
+				const notEnforced = dbType === 'bigquery' ? ' NOT ENFORCED' : ''
+				queries.push(
+					`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')})${notEnforced};`
+				)
 				break
 
 			case 'dropPrimaryKey':

@@ -13,7 +13,10 @@ export function makeCreateTableQuery(values: TableEditorValues, dbType: DbType, 
 		let str = `  ${c.name} ${datatype}`
 		if (!c.nullable) str += ' NOT NULL'
 		if (defValue) str += ` DEFAULT ${defValue}`
-		if (pkCount === 1 && c.primaryKey) str += ' PRIMARY KEY'
+		if (pkCount === 1 && c.primaryKey) {
+			if (dbType === 'bigquery') str += ' PRIMARY KEY NOT ENFORCED'
+			else str += ' PRIMARY KEY'
+		}
 		return str
 	}
 
@@ -39,7 +42,9 @@ export function makeCreateTableQuery(values: TableEditorValues, dbType: DbType, 
 	lines.push(...values.foreignKeys.map(transformFk))
 	if (pkCount > 1) {
 		const pks = values.columns.filter((c) => c.primaryKey)
-		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`)
+		let pk = `  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`
+		if (dbType === 'bigquery') pk += ' NOT ENFORCED'
+		lines.push(pk)
 	}
 
 	return `CREATE TABLE ${useSchema && schema ? schema.trim() + '.' : ''}${values.name.trim()} (

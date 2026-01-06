@@ -449,7 +449,7 @@ export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
 	if (dbInput.resourceType == 'bigquery')
 		return {
 			foreignKeys: false,
-			primaryKeys: false,
+			primaryKeys: true,
 			defaultValues: false,
 			defaultToNotNull: false
 		}
