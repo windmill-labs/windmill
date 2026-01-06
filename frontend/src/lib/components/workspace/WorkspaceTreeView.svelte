@@ -205,7 +205,7 @@
 	f={(workspace) => workspace.name + ' (' + workspace.id + ')'}
 />
 
-<div class="space-y-4">
+<div class="space-y-4 max-h-[50vh] overflow-auto">
 	<!-- Workspace Tree -->
 	<div class="space-y-2">
 		{#each rootWorkspaces as workspace (workspace.id)}
