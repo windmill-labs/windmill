@@ -1,6 +1,6 @@
 import type { DbType } from '$lib/components/dbTypes'
 import { deepEqual } from 'fast-equals'
-import { datatypeHasLength, dbSupportsSchemas } from '../utils'
+import { datatypeHasLength, dbSupportsSchemas, renderDbQuotedIdentifier } from '../utils'
 import {
 	type TableEditorForeignKey,
 	type TableEditorValues,
@@ -129,7 +129,7 @@ export function makeAlterTableQueries(
 				break
 
 			case 'dropPrimaryKey':
-				queries.push(renderDropPrimaryKey(tableRef, op.pk_constraint_name))
+				queries.push(renderDropPrimaryKey(tableRef, dbType, op.pk_constraint_name))
 				break
 
 			default:
@@ -288,13 +288,18 @@ function renderDropForeignKey(
 	fk_constraint_name: string,
 	dbType: DbType
 ): string {
-	if (dbType === 'mysql') return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${fk_constraint_name};`
+	if (dbType === 'mysql')
+		return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${renderDbQuotedIdentifier(fk_constraint_name, dbType)};`
 	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${fk_constraint_name};`
 }
 
-function renderDropPrimaryKey(tableRef: string, pk_constraint_name?: string): string {
-	if (!pk_constraint_name) return `ALTER TABLE ${tableRef} DROP PRIMARY KEY;`
-	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${pk_constraint_name};`
+function renderDropPrimaryKey(
+	tableRef: string,
+	dbType: DbType,
+	pk_constraint_name?: string
+): string {
+	if (dbType === 'mysql' || !pk_constraint_name) return `ALTER TABLE ${tableRef} DROP PRIMARY KEY;`
+	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${renderDbQuotedIdentifier(pk_constraint_name, dbType)};`
 }
 
 export function diffTableEditorValues(

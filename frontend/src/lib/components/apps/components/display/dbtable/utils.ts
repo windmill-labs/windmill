@@ -302,24 +302,26 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
 	return columnDefs
 		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
-		.map((column) => {
-			switch (dbType) {
-				case 'postgresql':
-					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
-				case 'ms_sql_server':
-					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
-				case 'mysql':
-					return `\`${column?.field}\`` // MySQL uses backticks
-				case 'snowflake':
-					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
-				case 'bigquery':
-					return `\`${column?.field}\`` // BigQuery uses backticks
-				case 'duckdb':
-					return `"${column?.field}"` // DuckDB uses double quotes for identifiers
-				default:
-					throw new Error('Unsupported database type: ' + dbType)
-			}
-		})
+		.map((column) => renderDbQuotedIdentifier(column?.field, dbType))
+}
+
+export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {
+	switch (dbType) {
+		case 'postgresql':
+			return `"${identifier}"` // PostgreSQL uses double quotes for identifiers
+		case 'ms_sql_server':
+			return `[${identifier}]` // MSSQL uses square brackets for identifiers
+		case 'mysql':
+			return `\`${identifier}\`` // MySQL uses backticks
+		case 'snowflake':
+			return `"${identifier}"` // Snowflake uses double quotes for identifiers
+		case 'bigquery':
+			return `\`${identifier}\`` // BigQuery uses backticks
+		case 'duckdb':
+			return `"${identifier}"` // DuckDB uses double quotes for identifiers
+		default:
+			throw new Error('Unsupported database type: ' + dbType)
+	}
 }
 
 export function getLanguageByResourceType(name: string): ScriptLang {
