@@ -46,9 +46,9 @@ export function renderForeignKey(
 
 	sql += `CONSTRAINT fk_${[
 		options.tableName,
-		...sourceColumns.map((c) => c?.substring(0, 6)),
+		...sourceColumns.map((c) => c?.substring(0, 10)),
 		targetTable,
-		...targetColumns.map((c) => c?.substring(0, 6))
+		...targetColumns.map((c) => c?.substring(0, 10))
 	]
 		.join('_')
 		.replaceAll('.', '_')} `.substring(0, 60)

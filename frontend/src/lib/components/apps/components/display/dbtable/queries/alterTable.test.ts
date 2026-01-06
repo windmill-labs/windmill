@@ -198,7 +198,7 @@ describe('makeAlterTableQueries', () => {
 		)
 
 		expect(normalize(queries[0])).toBe(
-			normalize('ALTER TABLE posts DROP CONSTRAINT fk_posts_user;')
+			normalize('ALTER TABLE posts DROP FOREIGN KEY `fk_posts_user`;')
 		)
 	})
 
