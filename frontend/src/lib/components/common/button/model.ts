@@ -221,7 +221,7 @@ export namespace ButtonType {
 
 	// New unified sizing system
 	export const UnifiedSizingClasses: Record<ButtonType.UnifiedSize, string> = {
-		xs: 'px-1',
+		xs: 'px-2',
 		sm: 'px-2', // Regular horizontal padding
 		md: 'px-4',
 		lg: 'px-6'

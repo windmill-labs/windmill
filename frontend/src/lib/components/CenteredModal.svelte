@@ -33,7 +33,7 @@
 					{title}
 				</h1>
 				{#if subtitle}
-					<p class="text-sm font-semibold text-emphasis text-center mt-2">
+					<p class="text-xs font-normal text-primary text-center mt-2">
 						{subtitle}
 					</p>
 				{/if}
