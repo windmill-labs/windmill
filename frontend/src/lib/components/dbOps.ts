@@ -11,16 +11,14 @@ import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
-import {
-	makeCreateTableQuery,
-	type TableEditorValues
-} from './apps/components/display/dbtable/queries/createTable'
+import { type TableEditorValues } from './apps/components/display/dbtable/tableEditor'
 import {
 	makeAlterTableQueries,
 	makeAlterTableQuery,
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
 import { makeFetchTableEditorDefinitionQuery } from './apps/components/display/dbtable/queries/fetchTableEditorDefinition'
+import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 
 export type IDbTableOps = {
 	dbType: DbType
