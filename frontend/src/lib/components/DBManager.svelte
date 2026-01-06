@@ -208,11 +208,13 @@
 	})
 	let dbTableEditorAlterTableData = resource(
 		() => dbTableEditorState.alterTableKey,
-		async (tableKey) => {
-			if (!tableKey) return
+		async (table) => {
+			if (!table) return
+			let tableKey2 =
+				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
 			return await dbSchemaOps.onFetchTableEditorDefinition({
-				table: tableKey,
-				schema: selected.schemaKey
+				table: table,
+				getColDefs: () => getColDefs(tableKey2)
 			})
 		}
 	)
@@ -472,21 +474,16 @@
 											}
 										})
 								},
-								// Only support "Alter table" for PostgreSQL for now
-								...(dbType == 'postgresql'
-									? [
-											{
-												displayName: 'Alter table',
-												icon: EditIcon,
-												action: () => {
-													dbTableEditorState = {
-														open: true,
-														alterTableKey: tableKey
-													}
-												}
-											}
-										]
-									: [])
+								{
+									displayName: 'Alter table',
+									icon: EditIcon,
+									action: () => {
+										dbTableEditorState = {
+											open: true,
+											alterTableKey: tableKey
+										}
+									}
+								}
 							]}
 							class="w-fit"
 						>

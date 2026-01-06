@@ -1,3 +1,5 @@
+import type { ColumnMetadata, TableMetadata } from './utils'
+
 export type TableEditorValues = {
 	name: string
 	columns: TableEditorValuesColumn[]
@@ -36,5 +38,49 @@ export function datatypeDefaultLength(datatype: string): number {
 		return 255
 	} else {
 		return 10
+	}
+}
+
+export function buildTableEditorValues({
+	metadata,
+	tableName,
+	pk_constraint_name,
+	foreignKeys
+}: {
+	metadata: TableMetadata
+	tableName: string
+	pk_constraint_name: string
+	foreignKeys: TableEditorForeignKey[]
+}): TableEditorValues {
+	return {
+		name: tableName,
+		columns: metadata.map(columnDefToTableEditorValuesColumn),
+		pk_constraint_name,
+		foreignKeys
+	}
+}
+
+export function columnDefToTableEditorValuesColumn(
+	colDef: ColumnMetadata
+): TableEditorValuesColumn {
+	let datatype: string
+	let datatype_length: number | undefined
+
+	const match = colDef.datatype?.match(/^([\w\s]+?)(?:\((\d+)\))?(\[\])?$/)
+	if (match) {
+		datatype = match[1].replace(/\s+/g, ' ').trim().toUpperCase() + (match[3] || '') // Normalize spaces and add '[]' if it's an array type
+		datatype_length = match[2] ? parseInt(match[2], 10) : datatypeDefaultLength(datatype)
+	} else {
+		datatype = colDef.datatype?.replace(/\s+/g, ' ').toUpperCase() || 'UNKNOWN'
+	}
+
+	return {
+		name: colDef.field,
+		primaryKey: colDef.isprimarykey,
+		defaultValue: colDef.defaultvalue ? `{${colDef.defaultvalue}}` : undefined,
+		nullable: colDef.isnullable !== 'NO',
+		datatype,
+		datatype_length,
+		initialName: colDef.field
 	}
 }

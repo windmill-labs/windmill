@@ -374,7 +374,17 @@ export function dbSupportsSchemas(dbType: DbType): boolean {
 
 export function datatypeHasLength(datatype: string): boolean {
 	datatype = datatype.toLowerCase()
-	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
+	const lengthDataTypes = [
+		'varchar',
+		'char',
+		'nvarchar',
+		'nchar',
+		'varbinary',
+		'binary',
+		'bit',
+		'character varying',
+		'character'
+	]
 	return lengthDataTypes.some((type) => datatype === type)
 }
 

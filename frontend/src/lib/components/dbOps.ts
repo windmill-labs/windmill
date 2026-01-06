@@ -1,4 +1,8 @@
-import { getLanguageByResourceType, type ColumnDef } from './apps/components/display/dbtable/utils'
+import {
+	getLanguageByResourceType,
+	type ColumnDef,
+	type TableMetadata
+} from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
 import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
@@ -11,13 +15,15 @@ import { stringifySchema } from './copilot/lib'
 import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
-import { type TableEditorValues } from './apps/components/display/dbtable/tableEditor'
+import {
+	buildTableEditorValues,
+	type TableEditorValues
+} from './apps/components/display/dbtable/tableEditor'
 import {
 	makeAlterTableQueries,
 	makeAlterTableQuery,
 	type AlterTableValues
 } from './apps/components/display/dbtable/queries/alterTable'
-import { makeFetchTableEditorDefinitionQuery } from './apps/components/display/dbtable/queries/fetchTableEditorDefinition'
 import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
 
 export type IDbTableOps = {
@@ -125,7 +131,7 @@ export type IDbSchemaOps = {
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
 		table: string
-		schema?: string
+		getColDefs: () => Promise<TableMetadata>
 	}) => Promise<TableEditorValues>
 }
 
@@ -184,14 +190,14 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
 			})
 		},
-		onFetchTableEditorDefinition: async ({ table, schema }) => {
-			schema ??= 'public'
-			let query = makeFetchTableEditorDefinitionQuery(dbType)
-			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
-			return (await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: { ...dbArg, schema, table }, language, content: query }
-			})) as TableEditorValues
+		onFetchTableEditorDefinition: async ({ table, getColDefs }) => {
+			let colDefs = await getColDefs()
+			return buildTableEditorValues({
+				tableName: table,
+				metadata: colDefs,
+				foreignKeys: [], // TODO
+				pk_constraint_name: '' // TODO
+			})
 		}
 	}
 }

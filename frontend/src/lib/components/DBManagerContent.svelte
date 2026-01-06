@@ -191,7 +191,7 @@
 				{/if}
 			</div>
 			<DbManager
-				dbSupportsSchemas={input.type == 'database' && dbSupportsSchemas(input.resourceType)}
+				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
 				{dbSchema}
 				{getColDefs}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
