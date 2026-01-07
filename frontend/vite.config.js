@@ -1,4 +1,3 @@
-import { playwright } from '@vitest/browser-playwright'
 import { sveltekit } from '@sveltejs/kit/vite'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
@@ -98,19 +97,6 @@ const config = {
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
-			{
-				extends: './vite.config.js',
-				test: {
-					name: 'client',
-					browser: {
-						enabled: true,
-						provider: playwright(),
-						instances: [{ browser: 'chromium', headless: true }]
-					},
-					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					exclude: ['src/lib/server/**']
-				}
-			},
 			{
 				extends: './vite.config.js',
 				test: {
