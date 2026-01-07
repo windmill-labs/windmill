@@ -51,10 +51,10 @@
 		return null
 	}
 	let raise_error_message_stop_after_all_if = $state(
-		flowModule.stop_after_all_iters_if?.error_message !== undefined
+		flowModule.stop_after_all_iters_if?.error_message != undefined
 	)
 	let raise_error_message_stop_after_if = $state(
-		flowModule.stop_after_if?.error_message !== undefined
+		flowModule.stop_after_if?.error_message != undefined
 	)
 	let { isLoop, isParallelLoop } = $derived(
 		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
@@ -166,8 +166,7 @@
 						<PropPickerWrapper
 							noPadding
 							notSelectable
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							pickableProperties={undefined}
+							pickableProperties={stepPropPicker.pickableProperties}
 							result={earlyStopResult}
 							extraResults={isLoop ? { all_iters: result } : undefined}
 							on:select={({ detail }) => {
@@ -180,8 +179,8 @@
 								lang="javascript"
 								bind:code={flowModule.stop_after_if.expr}
 								class="h-full"
-								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
-									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
+								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
+									stepPropPicker.extraLib +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
 							/>
 						</PropPickerWrapper>
@@ -303,8 +302,7 @@
 						<PropPickerWrapper
 							notSelectable
 							noPadding
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							pickableProperties={undefined}
+							pickableProperties={stepPropPicker.pickableProperties}
 							{result}
 							on:select={({ detail }) => {
 								editor?.insertAtCursor(detail)
@@ -316,8 +314,8 @@
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
 								class="h-full"
-								extraLib={`declare const result = ${JSON.stringify(result)};` +
-									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
+								extraLib={`declare const result = ${JSON.stringify(result)};\n` +
+									stepPropPicker.extraLib}
 							/>
 						</PropPickerWrapper>
 					</div>
