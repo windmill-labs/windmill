@@ -11,12 +11,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		workspaceStore,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		encodeState,
@@ -1252,7 +1247,7 @@
 					previewOpen={flowPreviewButtons?.getPreviewOpen()}
 				/>
 			{:else}
-				<CenteredPage>Loading...</CenteredPage>
+				<CenteredPage fullPage={false}>Loading...</CenteredPage>
 			{/if}
 		</div>
 	{:else}

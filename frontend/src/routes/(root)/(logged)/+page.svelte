@@ -100,7 +100,11 @@
 
 	// Provide workspaceTutorials to child components via a reactive wrapper
 	let workspaceTutorialsContext = $derived(workspaceTutorials)
-	setContext('workspaceTutorials', { get value() { return workspaceTutorialsContext } })
+	setContext('workspaceTutorials', {
+		get value() {
+			return workspaceTutorialsContext
+		}
+	})
 
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
@@ -259,105 +263,107 @@
 	</DrawerContent>
 </Drawer>
 
-<ForkWorkspaceBanner />
-<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit">
-	{#if $workspaceStore == 'admins'}
-		<div class="my-4"></div>
+<div class="h-full overflow-auto" style="scrollbar-gutter: stable both-edges;">
+	<ForkWorkspaceBanner />
+	<div class="max-w-7xl mx-auto px-4 sm:px-8 md:px-8 h-fit">
+		{#if $workspaceStore == 'admins'}
+			<div class="my-4"></div>
 
-		<Alert title="Admins workspace">
-			The Admins workspace is for admins only and contains scripts whose purpose is to manage your
-			Windmill instance, such as keeping resource types up to date.
-		</Alert>
-	{/if}
-	<PageHeader
-		title="Home"
-		childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
-	>
-		{#if !$userStore?.operator}
-			<span class="text-xs font-normal text-primary">Create a</span>
-			<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
-			{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
-			{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+			<Alert title="Admins workspace">
+				The Admins workspace is for admins only and contains scripts whose purpose is to manage your
+				Windmill instance, such as keeping resource types up to date.
+			</Alert>
 		{/if}
-	</PageHeader>
+		<PageHeader
+			title="Home"
+			childrenWrapperDivClasses="flex-1 flex flex-row gap-4 flex-wrap justify-end items-center"
+		>
+			{#if !$userStore?.operator}
+				<span class="text-xs font-normal text-primary">Create a</span>
+				<CreateActionsScript aiId="create-script-button" aiDescription="Creates a new script" />
+				{#if HOME_SHOW_CREATE_FLOW}<CreateActionsFlow />{/if}
+				{#if HOME_SHOW_CREATE_APP}<CreateActionsApp />{/if}
+			{/if}
+		</PageHeader>
 
-	<TutorialBanner />
+		<TutorialBanner />
 
-	{#if !$userStore?.operator}
-		<div class="w-full overflow-auto scrollbar-hidden pb-2">
-			<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
-				<Tab value="workspace" label="Workspace" icon={Building} />
-				{#if HOME_SHOW_HUB}
-					<Tab value="hub" label="Hub" icon={Globe2} />
-				{/if}
-			</Tabs>
-		</div>
-	{/if}
-	{#if tab == 'hub'}
-		<div class="flex flex-col gap-y-16">
-			<div class="flex flex-col pb-8">
-				{#snippet toggleKinds()}
-					<ToggleButtonGroup
-						bind:selected={subtab}
-						onSelected={(v) => {
-							setQuery($page.url, 'kind', v, window.location.hash)
-						}}
-						noWFull
-					>
-						{#snippet children({ item })}
-							<ToggleButton value="script" label="Scripts" icon={Code} {item} />
-							<ToggleButton
-								value="flow"
-								label="Flows"
-								icon={FlowIcon}
-								selectedColor="#14b8a6"
-								{item}
-							/>
-							<ToggleButton
-								value="app"
-								label="Apps"
-								icon={LayoutDashboard}
-								selectedColor="#fb923c"
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-					<Button
-						startIcon={{ icon: ExternalLink }}
-						target="_blank"
-						href={$hubBaseUrlStore}
-						variant="default"
-					>
-						Hub
-					</Button>
-				{/snippet}
-
-				{#if subtab == 'script'}
-					<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
-						{#snippet children()}
-							{@render toggleKinds?.()}
-						{/snippet}
-					</PickHubScript>
-				{:else if subtab == 'flow'}
-					<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
-						{#snippet children()}
-							{@render toggleKinds?.()}
-						{/snippet}
-					</PickHubFlow>
-				{:else if subtab == 'app'}
-					<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
-						{#snippet children()}
-							{@render toggleKinds?.()}
-						{/snippet}
-					</PickHubApp>
-				{/if}
+		{#if !$userStore?.operator}
+			<div class="w-full overflow-auto scrollbar-hidden pb-2">
+				<Tabs values={['hub', 'workspace']} hashNavigation bind:selected={tab}>
+					<Tab value="workspace" label="Workspace" icon={Building} />
+					{#if HOME_SHOW_HUB}
+						<Tab value="hub" label="Hub" icon={Globe2} />
+					{/if}
+				</Tabs>
 			</div>
-		</div>
+		{/if}
+		{#if tab == 'hub'}
+			<div class="flex flex-col gap-y-16">
+				<div class="flex flex-col pb-8">
+					{#snippet toggleKinds()}
+						<ToggleButtonGroup
+							bind:selected={subtab}
+							onSelected={(v) => {
+								setQuery($page.url, 'kind', v, window.location.hash)
+							}}
+							noWFull
+						>
+							{#snippet children({ item })}
+								<ToggleButton value="script" label="Scripts" icon={Code} {item} />
+								<ToggleButton
+									value="flow"
+									label="Flows"
+									icon={FlowIcon}
+									selectedColor="#14b8a6"
+									{item}
+								/>
+								<ToggleButton
+									value="app"
+									label="Apps"
+									icon={LayoutDashboard}
+									selectedColor="#fb923c"
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
+						<Button
+							startIcon={{ icon: ExternalLink }}
+							target="_blank"
+							href={$hubBaseUrlStore}
+							variant="default"
+						>
+							Hub
+						</Button>
+					{/snippet}
+
+					{#if subtab == 'script'}
+						<PickHubScript syncQuery bind:filter on:pick={(e) => viewCode(e.detail)}>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubScript>
+					{:else if subtab == 'flow'}
+						<PickHubFlow syncQuery bind:filter on:pick={(e) => viewFlow(e.detail)}>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubFlow>
+					{:else if subtab == 'app'}
+						<PickHubApp syncQuery bind:filter on:pick={(e) => viewApp(e.detail)}>
+							{#snippet children()}
+								{@render toggleKinds?.()}
+							{/snippet}
+						</PickHubApp>
+					{/if}
+				</div>
+			</div>
+		{/if}
+	</div>
+
+	{#if tab == 'workspace'}
+		<ItemsList bind:filter bind:subtab />
 	{/if}
+
+	<WorkspaceTutorials bind:this={workspaceTutorials} />
 </div>
-
-{#if tab == 'workspace'}
-	<ItemsList bind:filter bind:subtab />
-{/if}
-
-<WorkspaceTutorials bind:this={workspaceTutorials} />
