@@ -479,6 +479,17 @@ impl Windmill {
         ret!(self.get_resource_inner(&get_state_path()?));
     }
 
+    /// Retrieves and deserializes the typed state value from a custom resource path.
+    ///
+    /// This is the same as [`Self::get_state`] but allows overriding the underlying state
+    /// resource path. Useful when you want to read/write a different state resource.
+    pub fn get_state_at<'a, T: serde::de::DeserializeOwned>(
+        &'a self,
+        path: &'a str,
+    ) -> MaybeFuture<'a, Result<T, SdkError>> {
+        ret!(self.get_resource_inner(path));
+    }
+
     /// Retrieves the current state value for a script's execution context.
     ///
     /// States persist data between runs of the same script by the same trigger (schedule or user).
@@ -522,6 +533,14 @@ impl Windmill {
         ret!(self.get_resource_any_inner(&get_state_path()?));
     }
 
+    /// Retrieves the untyped state value from a custom resource path.
+    ///
+    /// This is the same as [`Self::get_state_any`] but allows overriding the underlying state
+    /// resource path.
+    pub fn get_state_any_at<'a>(&'a self, path: &'a str) -> MaybeFuture<'a, Result<Value, SdkError>> {
+        ret!(self.get_resource_any_inner(path));
+    }
+
     /// Updates or clears the script's persistent state.
     ///
     /// # Arguments
@@ -547,6 +566,18 @@ impl Windmill {
     /// See also: [`Self::get_state`], [`Self::get_state_any`]
     pub fn set_state<'a>(&'a self, value: Option<Value>) -> MaybeFuture<'a, Result<(), SdkError>> {
         ret!(self.set_resource_inner(value, &get_state_path()?, "state"));
+    }
+
+    /// Updates or clears a state resource at a custom path.
+    ///
+    /// This is the same as [`Self::set_state`] but allows overriding the target state resource
+    /// path.
+    pub fn set_state_at<'a>(
+        &'a self,
+        value: Option<Value>,
+        path: &'a str,
+    ) -> MaybeFuture<'a, Result<(), SdkError>> {
+        ret!(self.set_resource_inner(value, path, "state"));
     }
 
     /// Executes a script synchronously and waits for its completion.
