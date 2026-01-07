@@ -482,7 +482,7 @@ pub enum JobPayload {
     },
     DeploymentCallback {
         path: String,
-        // debouncing_settings: Option<DebouncingSettings>,
+        debouncing_settings: DebouncingSettings,
     },
     Identity,
     Noop,
