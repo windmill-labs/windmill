@@ -24,3 +24,4 @@ src/lib/components/copilot/chat/__tests__/app/results/
 /blob-report/
 /playwright/.cache/
 /playwright/.auth/
+e2e/auth.json

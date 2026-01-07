@@ -12,6 +12,7 @@ import { defineConfig, devices } from '@playwright/test'
  * See https://playwright.dev/docs/test-configuration.
  */
 export default defineConfig({
+	globalSetup: './e2e/global-setup',
 	testDir: './e2e',
 	/* Run tests in files in parallel */
 	fullyParallel: true,
@@ -29,7 +30,9 @@ export default defineConfig({
 		baseURL: process.env.BASE_URL || 'http://localhost:3000',
 
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-		trace: 'on-first-retry'
+		trace: 'on-first-retry',
+
+		storageState: './e2e/auth.json'
 	},
 
 	/* Configure projects for major browsers */

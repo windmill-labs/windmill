@@ -1,7 +1,14 @@
-import { test, expect } from '@playwright/test'
+// global-setup.ts
+import { chromium, FullConfig } from '@playwright/test'
 
-test('log in correctly', async ({ page }) => {
-	await page.goto('/')
+async function globalSetup(config: FullConfig) {
+	const browser = await chromium.launch()
+	const context = await browser.newContext()
+	const page = await context.newPage()
+
+	// Use baseURL from config
+	const baseURL = config.projects[0].use.baseURL || 'http://localhost:3000'
+	await page.goto(baseURL)
 
 	// Wait for and fill the email input
 	const emailInput = page.locator('input#email[type="email"]')
@@ -12,10 +19,6 @@ test('log in correctly', async ({ page }) => {
 	const passwordInput = page.locator('input#password[type="password"]')
 	await passwordInput.waitFor({ state: 'visible' })
 	await passwordInput.fill('changeme')
-
-	// Verify the inputs are filled correctly
-	await expect(emailInput).toHaveValue('admin@windmill.dev')
-	await expect(passwordInput).toHaveValue('changeme')
 
 	// Click the sign-in button
 	const signInButton = page.locator('button:has-text("Sign in")')
@@ -30,17 +33,19 @@ test('log in correctly', async ({ page }) => {
 
 	// Wait for navigation to workspaces page
 	await page.waitForURL('**/user/workspaces')
-	await expect(page).toHaveURL(/\/user\/workspaces$/)
 
 	// Click on the "Admins" workspace
 	const adminsWorkspace = page.locator('text=Admins').first()
 	await adminsWorkspace.waitFor({ state: 'visible' })
 	await adminsWorkspace.click()
 
-	// Verify we're on the root path of the workspace
+	// Wait for workspace to load
 	await page.waitForURL('**/')
-	await expect(page).toHaveURL(/\/$/)
+	await page.locator('text=Home').first().waitFor({ state: 'visible' })
 
-	// Wait for the page to load and verify it contains "Home"
-	await expect(page.locator('text=Home').first()).toBeVisible()
-})
+	// Save the authenticated state
+	await context.storageState({ path: './e2e/auth.json' })
+	await browser.close()
+}
+
+export default globalSetup
