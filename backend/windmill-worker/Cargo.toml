@@ -12,7 +12,7 @@ path = "src/lib.rs"
 default = []
 private = []
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
-enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
+enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util", "dep:prost", "dep:axum"]
 mssql = ["dep:tiberius"]
 bigquery = ["dep:gcp_auth"]
 benchmark = ["windmill-queue/benchmark", "windmill-common/benchmark"]
@@ -138,6 +138,8 @@ libloading = { workspace = true, optional = true }
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }

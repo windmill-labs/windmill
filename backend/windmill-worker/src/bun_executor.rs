@@ -64,6 +64,8 @@ const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
 const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
+const OTEL_BUN_LOADER: &str = include_str!("../otel_bun_loader.js");
+
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
 pub const BUN_LOCK_SPLIT: &str = "\n//bun.lock\n";
@@ -1377,6 +1379,12 @@ try {{
         vec![]
     };
 
+    // Write OTel loader file if auto-instrumentation is enabled
+    let otel_enabled = !otel_envs.is_empty();
+    if otel_enabled {
+        write_file(job_dir, "otel_bun_loader.js", OTEL_BUN_LOADER)?;
+    }
+
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1409,17 +1417,22 @@ try {{
                 "/tmp/nodejs/wrapper.mjs",
             ]
         } else if codebase.is_some() || has_bundle_cache {
-            vec![
+            let mut base_args = vec![
                 "--config",
                 "run.config.proto",
                 "--",
                 &BUN_PATH,
                 "run",
                 "--preserve-symlinks",
-                "/tmp/bun/wrapper.mjs",
-            ]
+            ];
+            // Add OTel loader if enabled
+            if otel_enabled {
+                base_args.extend_from_slice(&["-r", "/tmp/bun/otel_bun_loader.js"]);
+            }
+            base_args.push("/tmp/bun/wrapper.mjs");
+            base_args
         } else {
-            vec![
+            let mut base_args = vec![
                 "--config",
                 "run.config.proto",
                 "--",
@@ -1429,8 +1442,13 @@ try {{
                 "--prefer-offline",
                 "-r",
                 "/tmp/bun/loader.bun.js",
-                "/tmp/bun/wrapper.mjs",
-            ]
+            ];
+            // Add OTel loader if enabled
+            if otel_enabled {
+                base_args.extend_from_slice(&["-r", "/tmp/bun/otel_bun_loader.js"]);
+            }
+            base_args.push("/tmp/bun/wrapper.mjs");
+            base_args
         };
         nsjail_cmd
             .current_dir(job_dir)
@@ -1467,20 +1485,33 @@ try {{
             bun_cmd
         } else {
             let script_path = format!("{job_dir}/wrapper.mjs");
+            let otel_loader_path = format!("{job_dir}/otel_bun_loader.js");
 
-            let args: Vec<&str> = if codebase.is_some() || has_bundle_cache {
-                vec!["run", &script_path]
+            let args: Vec<String> = if codebase.is_some() || has_bundle_cache {
+                let mut base_args = vec!["run".to_string()];
+                // Add OTel loader if enabled
+                if otel_enabled {
+                    base_args.extend_from_slice(&["-r".to_string(), otel_loader_path.clone()]);
+                }
+                base_args.push(script_path);
+                base_args
             } else {
-                vec![
-                    "run",
-                    "-i",
-                    "--prefer-offline",
-                    "-r",
-                    "./loader.bun.js",
-                    &script_path,
-                ]
+                let mut base_args = vec![
+                    "run".to_string(),
+                    "-i".to_string(),
+                    "--prefer-offline".to_string(),
+                    "-r".to_string(),
+                    "./loader.bun.js".to_string(),
+                ];
+                // Add OTel loader if enabled
+                if otel_enabled {
+                    base_args.extend_from_slice(&["-r".to_string(), otel_loader_path.clone()]);
+                }
+                base_args.push(script_path);
+                base_args
             };
-            let mut bun_cmd = build_command_with_isolation(&*BUN_PATH, &args);
+            let args_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+            let mut bun_cmd = build_command_with_isolation(&*BUN_PATH, &args_refs);
             bun_cmd
                 .current_dir(job_dir)
                 .env_clear()

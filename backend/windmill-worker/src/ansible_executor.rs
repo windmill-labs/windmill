@@ -13,12 +13,13 @@ use tokio::process::Command;
 use uuid::Uuid;
 use windmill_common::{
     error,
-    git_sync_oss::prepend_token_to_github_url,
     worker::{
         is_allowed_file_location, split_python_requirements, to_raw_value, write_file,
         write_file_at_user_defined_location, Connection, PyVAlias, WORKER_CONFIG,
     },
 };
+#[cfg(feature = "enterprise")]
+use windmill_common::git_sync_oss::prepend_token_to_github_url;
 use windmill_queue::MiniPulledJob;
 
 use windmill_parser_yaml::{
@@ -948,7 +949,11 @@ pub async fn handle_ansible_job(
                 ));
             };
 
+            #[cfg(feature = "enterprise")]
             let mut secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
+                .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
+            #[cfg(not(feature = "enterprise"))]
+            let secret_url = git_repo_resource.get("url").and_then(|s| s.as_str()).map(|s| s.to_string())
                 .ok_or(anyhow!("Failed to get url from git repo resource, please check that the resource has the correct type (git_repository)"))?;
 
             #[cfg(feature = "enterprise")]
