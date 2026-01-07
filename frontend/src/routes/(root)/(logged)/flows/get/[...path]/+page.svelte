@@ -202,12 +202,12 @@
 		}
 	}
 
-	async function runFlowForChat(userMessage: string, conversationId: string): Promise<string> {
+	async function runFlowForChat(userMessage: string, conversationId: string, additionalInputs?: Record<string, any>): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage },
+			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
 			skipPreprocessor: true
 		})
 		return run
@@ -567,6 +567,7 @@
 							{deploymentInProgress}
 							path={flow?.path ?? ''}
 							useStreaming={shouldUseStreaming}
+							inputSchema={flow?.schema}
 						/>
 					{:else}
 						<!-- Normal Mode: Form Layout -->
