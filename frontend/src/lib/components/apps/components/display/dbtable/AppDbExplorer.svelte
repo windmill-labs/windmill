@@ -289,11 +289,6 @@
 					}
 
 					if (items && Array.isArray(items)) {
-						// MsSql response have an outer array, we need to flatten it
-						if (resolvedConfig.type.selected === 'ms_sql_server') {
-							items = items?.[0]
-						}
-
 						let processedData = items.map((item) => {
 							let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
 							let o = {}
