@@ -144,7 +144,7 @@
 						: 'transparent'}
 					animationDuration="4s"
 				>
-					{#if result != undefined}
+					{#if result != undefined && !pickableProperties}
 						<PropPickerResult
 							{result}
 							{extraResults}
@@ -159,6 +159,8 @@
 						/>
 					{:else if pickableProperties}
 						<PropPicker
+							{result}
+							{extraResults}
 							{displayContext}
 							{error}
 							{flow_env}
