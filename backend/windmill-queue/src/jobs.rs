@@ -4843,7 +4843,7 @@ pub async fn push<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::DeploymentCallback { path } => JobPayloadUntagged {
+        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
             runnable_path: Some(path.clone()),
             job_kind: JobKind::DeploymentCallback,
             concurrency_settings: ConcurrencySettings {
@@ -4851,6 +4851,7 @@ pub async fn push<'c, 'd>(
                 concurrent_limit: Some(1),
                 concurrency_time_window_s: Some(0),
             },
+            debouncing_settings,
             ..Default::default()
         },
         JobPayload::Identity => {
