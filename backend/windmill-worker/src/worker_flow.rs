@@ -283,6 +283,24 @@ fn get_stop_after_if_data(stop_after_if: Option<&StopAfterIf>) -> (bool, Option<
     return (false, None);
 }
 
+async fn get_id_ctx_for_expr(
+    expr: &str,
+    flow: uuid::Uuid,
+    db: &DB,
+    status: &FlowStatus,
+) -> error::Result<Option<IdContext>> {
+    if expr.contains("results.") || expr.contains("results[") || expr.contains("results?.") {
+        let flow_job = get_mini_pulled_job(db, &flow).await?;
+        if let Some(flow_job) = flow_job {
+            Ok(Some(get_transform_context(&flow_job, "", &status)))
+        } else {
+            Ok(None)
+        }
+    } else {
+        Ok(None)
+    }
+}
+
 async fn evaluate_stop_after_all_iters_if(
     db: &DB,
     stop_after_all_iters_if: &StopAfterIf,
@@ -294,6 +312,8 @@ async fn evaluate_stop_after_all_iters_if(
     stop_early_err_msg: &mut Option<String>,
     nresult: &mut Option<Arc<Box<RawValue>>>,
     args: HashMap<String, Box<RawValue>>,
+    flow: uuid::Uuid,
+    status: &FlowStatus,
 ) -> error::Result<()> {
     let iters_result = match &module_status {
         FlowStatusModule::InProgress { flow_jobs: Some(flow_jobs), .. } => {
@@ -308,13 +328,15 @@ async fn evaluate_stop_after_all_iters_if(
 
     *nresult = Some(iters_result.clone()); // as an optimization, we store the result of all jobs as when stop_early_after_all_iters evaluates to false, it would have to be computed (finished loop/branchall)
 
+    let id_ctx = get_id_ctx_for_expr(&stop_after_all_iters_if.expr, flow, db, status).await?;
+
     let stop_early_after_all_iters = compute_bool_from_expr(
         &stop_after_all_iters_if.expr,
         Marc::new(args),
         None,
         iters_result.clone(),
         None,
-        None,
+        id_ctx.as_ref(),
         Some(client),
         None,
         None,
@@ -542,13 +564,15 @@ pub async fn update_flow_status_after_job_completion_internal(
                             };
                         let args = from_result_to_args(args.as_ref().await.get_ref())?;
 
+                        let id_ctx = get_id_ctx_for_expr(expr, flow, db, &old_status).await?;
+
                         compute_bool_from_expr(
                             &expr,
                             Marc::new(args),
                             None,
                             result.clone(),
                             all_iters,
-                            None,
+                            id_ctx.as_ref(),
                             Some(client),
                             None,
                             None,
@@ -816,6 +840,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            flow,
+                            &old_status,
                         )
                         .await?;
                     }
@@ -1023,6 +1049,8 @@ pub async fn update_flow_status_after_job_completion_internal(
                             &mut stop_early_err_msg,
                             &mut nresult,
                             args,
+                            flow,
+                            &old_status,
                         )
                         .await?;
                     }
@@ -2917,9 +2945,7 @@ async fn push_next_flow_job(
     drop(resume_messages);
 
     let is_skipped = if let Some(skip_if) = &module.skip_if {
-        let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status)
-            .warn_after_seconds(3)
-            .await?;
+        let idcontext = get_transform_context(&flow_job, previous_id.as_str(), &status);
         compute_bool_from_expr(
             &skip_if.expr,
             arc_flow_job_args.clone(),
@@ -2999,9 +3025,7 @@ async fn push_next_flow_job(
                 | FlowModuleValue::Flow { input_transforms, .. }
                 | FlowModuleValue::AIAgent { input_transforms, .. },
             ) => {
-                let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                    .warn_after_seconds(3)
-                    .await?;
+                let ctx = get_transform_context(&flow_job, &previous_id, &status);
                 transform_context = Some(ctx);
                 let by_id = transform_context.as_ref().unwrap();
                 // if a failure step, we add flow job id and started_at to the context. This is for error handling of triggers where we wrap scripts into single step flows
@@ -3203,9 +3227,7 @@ async fn push_next_flow_job(
                 args.insert("iter".to_string(), to_raw_value(new_args));
                 if let Some(input_transforms) = simple_input_transforms {
                     //previous id is none because we do not want to use previous id if we are in a for loop
-                    let ctx = get_transform_context(&flow_job, "", &status)
-                        .warn_after_seconds(3)
-                        .await?;
+                    let ctx = get_transform_context(&flow_job, "", &status);
                     let ti = transform_input(
                         Marc::new(args),
                         flow.flow_env.as_ref(),
@@ -3260,9 +3282,7 @@ async fn push_next_flow_job(
                         to_raw_value(&json!({ "index": i as i32, "value": itered[i]})),
                     );
                     if let Some(input_transforms) = simple_input_transforms {
-                        let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                            .warn_after_seconds(3)
-                            .await?;
+                        let ctx = get_transform_context(&flow_job, &previous_id, &status);
                         let ti = transform_input(
                             Marc::new(hm),
                             flow.flow_env.as_ref(),
@@ -3377,9 +3397,7 @@ async fn push_next_flow_job(
         }
 
         let evaluated_timeout = if let Some(timeout_transform) = &module.timeout {
-            let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                .warn_after_seconds(3)
-                .await?;
+            let ctx = get_transform_context(&flow_job, &previous_id, &status);
 
             let timeout_value = evaluate_input_transform::<i32>(
                 timeout_transform,
@@ -3458,9 +3476,7 @@ async fn push_next_flow_job(
             if let Some(parallelism_transform) = &value_with_parallel.parallelism {
                 tracing::debug!(id = %flow_job.id, root_id = %job_root, "evaluating parallelism expression for forloopflow job {uuid}");
 
-                let ctx = get_transform_context(&flow_job, &previous_id, &status)
-                    .warn_after_seconds(3)
-                    .await?;
+                let ctx = get_transform_context(&flow_job, &previous_id, &status);
 
                 let evaluated_parallelism = evaluate_input_transform::<u16>(
                     parallelism_transform,
@@ -4297,7 +4313,7 @@ async fn compute_next_flow_transform(
                 | FlowStatusModule::WaitingForEvents { .. }
                 | FlowStatusModule::WaitingForExecutor { .. } => {
                     let mut branch_chosen = BranchChosen::Default;
-                    let idcontext = get_transform_context(&flow_job, previous_id, &status).await?;
+                    let idcontext = get_transform_context(&flow_job, previous_id, &status);
                     for (i, b) in branches.iter().enumerate() {
                         let pred = compute_bool_from_expr(
                             &b.expr,
@@ -4580,7 +4596,7 @@ async fn next_forloop_status(
             let by_id = if let Some(x) = by_id {
                 x
             } else {
-                get_transform_context(&flow_job, previous_id, &status).await?
+                get_transform_context(&flow_job, previous_id, &status)
             };
             /* Iterator is an InputTransform, evaluate it into an array. */
             let itered_raw = match iterator {
@@ -4654,7 +4670,7 @@ async fn next_forloop_status(
                 let by_id = if let Some(x) = by_id {
                     x
                 } else {
-                    get_transform_context(&flow_job, previous_id, &status).await?
+                    get_transform_context(&flow_job, previous_id, &status)
                 };
                 let itered_raw = match iterator {
                     InputTransform::Static { value } => to_raw_value(value),
@@ -4930,18 +4946,18 @@ pub async fn script_to_payload(
     })
 }
 
-pub async fn get_transform_context(
+pub fn get_transform_context(
     flow_job: &MiniPulledJob,
     previous_id: &str,
     status: &FlowStatus,
-) -> error::Result<IdContext> {
+) -> IdContext {
     let steps_results: HashMap<String, JobResult> = status
         .modules
         .iter()
         .filter_map(|x| x.job_result().map(|y| (x.id(), y)))
         .collect();
 
-    Ok(IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() })
+    IdContext { flow_job: flow_job.id, steps_results, previous_id: previous_id.to_string() }
 }
 
 // trait IntoArray: Sized {

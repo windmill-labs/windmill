@@ -19,6 +19,8 @@
 	export let allowCopy = false
 	export let previousId: string | undefined = undefined
 	export let flow_env: Record<string, any> | undefined = undefined
+	export let result: any | undefined = undefined
+	export let extraResults: any = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
@@ -69,7 +71,9 @@
 					: keepByKey(pickableProperties.priorIds, search)
 
 			flowEnvFiltered =
-				search === EMPTY_STRING ? pickableProperties.flow_env : keepByKey(pickableProperties.flow_env, search)
+				search === EMPTY_STRING
+					? pickableProperties.flow_env
+					: keepByKey(pickableProperties.flow_env, search)
 		}, 50)
 	}
 
@@ -221,7 +225,7 @@
 		await updateCollapsable()
 	}
 
-	$: search, $inputMatches, $propPickerConfig, pickableProperties, updateState()
+	$: (search, $inputMatches, $propPickerConfig, pickableProperties, updateState())
 
 	onDestroy(() => {
 		clearTimeout(timeout)
@@ -249,6 +253,16 @@
 		{#if filteringFlowInputsOrResult}
 			<div class="absolute bottom-0 right-0">
 				<Badge small>filter: {filteringFlowInputsOrResult}</Badge>
+			</div>
+		{/if}
+		{#if result != undefined}
+			<span class={categoryTitleClasses}>Step Result</span>
+			<div class={categoryContentClasses}>
+				<ObjectViewer
+					{allowCopy}
+					json={{ result, ...(extraResults ? extraResults : {}) }}
+					on:select
+				/>
 			</div>
 		{/if}
 		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
