@@ -5,7 +5,7 @@
 
 #[cfg(feature = "enterprise")]
 #[allow(unused)]
-pub use crate::otel_auto_instrumentation_ee::*;
+pub use crate::otel_auto_instrumentation_impl::*;
 
 use serde::{Deserialize, Serialize};
 

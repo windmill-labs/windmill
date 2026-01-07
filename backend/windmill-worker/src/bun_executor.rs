@@ -52,7 +52,7 @@ use windmill_common::s3_helpers::attempt_fetch_bytes;
 use windmill_parser::Typ;
 
 #[cfg(feature = "enterprise")]
-use crate::otel_auto_instrumentation_ee::{
+use crate::otel_auto_instrumentation_impl::{
     get_otel_auto_instrumentation_config, get_otel_typescript_env_vars,
 };
 #[cfg(not(feature = "enterprise"))]
