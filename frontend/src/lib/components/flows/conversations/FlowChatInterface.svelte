@@ -27,8 +27,6 @@
 		return undefined
 	})
 
-	$inspect('hello', dynamicInputHelperScript)
-
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
 
