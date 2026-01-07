@@ -74,7 +74,7 @@
 				variant="accent"
 				unifiedSize="md"
 				on:click={() => inviteUser(email, selected)}
-				disabled={email === undefined}
+				disabled={!email || email.trim() === ''}
 			>
 				Invite
 			</Button>
