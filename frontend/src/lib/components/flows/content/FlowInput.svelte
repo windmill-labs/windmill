@@ -687,6 +687,9 @@
 								hiddenArgs={['user_message']}
 								isFlowInput
 								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
+								showDynOpt
+								bind:dynCode
+								bind:dynLang
 								on:delete={(e) => {
 									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
 								}}

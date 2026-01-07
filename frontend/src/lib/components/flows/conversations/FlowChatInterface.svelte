@@ -6,6 +6,7 @@
 	import { FlowChatManager } from './FlowChatManager.svelte'
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { type DynamicInput } from '$lib/utils'
 
 	interface Props {
 		manager: FlowChatManager
@@ -15,6 +16,18 @@
 	}
 
 	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
+
+	// Derive helperScript for dynamic inputs from schema
+	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
+		const dynCode = additionalInputsSchema?.['x-windmill-dyn-select-code']
+		const dynLang = additionalInputsSchema?.['x-windmill-dyn-select-lang']
+		if (dynCode && dynLang) {
+			return { source: 'inline', code: dynCode, lang: dynLang }
+		}
+		return undefined
+	})
+
+	$inspect('hello', dynamicInputHelperScript)
 
 	// LocalStorage helpers
 	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
@@ -78,7 +91,11 @@
 <!-- Additional Inputs Modal -->
 {#if additionalInputsSchema}
 	<Modal title="Configure inputs" bind:open={showInputsModal}>
-		<SchemaForm schema={additionalInputsSchema} bind:args={additionalInputsValues} />
+		<SchemaForm
+			schema={additionalInputsSchema}
+			bind:args={additionalInputsValues}
+			helperScript={dynamicInputHelperScript}
+		/>
 		{#snippet actions()}
 			<Button onClick={handleModalConfirm} variant="accent">Save</Button>
 		{/snippet}
