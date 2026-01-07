@@ -1,4 +1,8 @@
-import { getLanguageByResourceType, type ColumnDef } from './apps/components/display/dbtable/utils'
+import {
+	getLanguageByResourceType,
+	type ColumnDef,
+	type TableMetadata
+} from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
 import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
@@ -12,9 +16,16 @@ import type { DbInput, DbType } from './dbTypes'
 import { wrapDucklakeQuery } from './ducklake'
 import { assert } from '$lib/utils'
 import {
-	makeCreateTableQuery,
-	type CreateTableValues
-} from './apps/components/display/dbtable/queries/createTable'
+	buildTableEditorValues,
+	type TableEditorValues
+} from './apps/components/display/dbtable/tableEditor'
+import {
+	makeAlterTableQueries,
+	makeAlterTableQuery,
+	type AlterTableValues
+} from './apps/components/display/dbtable/queries/alterTable'
+import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
+import { fetchTableRelationalKeys } from './apps/components/display/dbtable/queries/relationalKeys'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -73,8 +84,6 @@ export function dbTableOpsWithPreviewScripts({
 				workspace,
 				requestBody: { args: { ...dbArg, ...params }, language, content: query }
 			})) as unknown[]
-			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
-				items = items?.[0] as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
@@ -113,10 +122,16 @@ export function dbTableOpsWithPreviewScripts({
 
 export type IDbSchemaOps = {
 	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
-	onCreate: (params: { values: CreateTableValues; schema?: string }) => Promise<void>
-	previewCreateSql: (params: { values: CreateTableValues; schema?: string }) => string
+	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
+	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => string
+	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
 	onCreateSchema: (params: { schema: string }) => Promise<void>
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onFetchTableEditorDefinition: (params: {
+		table: string
+		getColDefs: () => Promise<TableMetadata>
+	}) => Promise<TableEditorValues>
 }
 
 export function dbSchemaOpsWithPreviewScripts({
@@ -147,6 +162,15 @@ export function dbSchemaOpsWithPreviewScripts({
 			})
 		},
 		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		onAlter: async ({ values, schema }) => {
+			let query = makeAlterTableQuery(values, dbType, schema)
+			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewAlterSql: ({ values, schema }) => makeAlterTableQueries(values, dbType, schema),
 		onCreateSchema: async ({ schema }) => {
 			let createSchemaQuery = `CREATE SCHEMA ${schema};`
 			if (input.type === 'ducklake')
@@ -163,6 +187,24 @@ export function dbSchemaOpsWithPreviewScripts({
 			await runScriptAndPollResult({
 				workspace,
 				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
+			})
+		},
+		onFetchTableEditorDefinition: async ({ table, getColDefs }) => {
+			let colDefs = await getColDefs()
+			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
+				input,
+				dbType,
+				table,
+				workspace,
+				dbArg,
+				language
+			)
+
+			return buildTableEditorValues({
+				tableName: table,
+				metadata: colDefs,
+				foreignKeys,
+				pk_constraint_name
 			})
 		}
 	}
