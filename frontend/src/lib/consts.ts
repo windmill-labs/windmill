@@ -103,7 +103,10 @@ export const MYSQL_TYPES = [
 	'enum',
 	'set',
 	'int',
-	'uint',
+	'tinyint',
+	'smallint',
+	'mediumint',
+	'bigint',
 	'integer',
 	'bool',
 	'bit',
@@ -116,7 +119,6 @@ export const MYSQL_TYPES = [
 	'timestamp',
 	'time'
 ]
-
 export const ORACLEDB_TYPES = [
 	'varchar2',
 	'char',

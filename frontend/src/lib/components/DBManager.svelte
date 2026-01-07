@@ -1,10 +1,18 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { ChevronDownIcon, MoreVertical, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import {
+		ChevronDownIcon,
+		EditIcon,
+		Loader2,
+		MoreVertical,
+		Plus,
+		Table2,
+		Trash2Icon
+	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef, type DbFeatures } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -16,6 +24,12 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import type { Snippet } from 'svelte'
+	import {
+		dbSupportsTransactionalDdl,
+		diffTableEditorValues
+	} from './apps/components/display/dbtable/queries/alterTable'
+	import { resource } from 'runed'
+	import { capitalize, pluralize } from '$lib/utils'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -42,6 +56,7 @@
 		selectedTables?: SelectedTable[]
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
+		features?: DbFeatures
 	}
 	let {
 		dbType,
@@ -58,7 +73,8 @@
 		dbSelector,
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
-		disabledTables = []
+		disabledTables = [],
+		features
 	}: Props = $props()
 
 	// Helper to check if a table is selected in multi-select mode
@@ -187,7 +203,24 @@
 		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void })
 		| undefined = $state()
 
-	let dbTableEditorState: { open: boolean } = $state({ open: false })
+	let dbTableEditorState:
+		| { open: boolean; alterTableKey?: undefined }
+		| { open: true; alterTableKey: string } = $state({
+		open: false
+	})
+	let dbTableEditorAlterTableData = resource(
+		() => dbTableEditorState.alterTableKey,
+		async (table) => {
+			if (!table) return
+			let tableKey2 =
+				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
+			return await dbSchemaOps.onFetchTableEditorDefinition({
+				table: table,
+				getColDefs: () => getColDefs(tableKey2)
+			})
+		}
+	)
+
 	let newSchemaDialogOpen = $state(false)
 	let newSchemaName = $state('')
 
@@ -297,7 +330,9 @@
 						<span class="truncate text-ellipsis grow text-left text-tertiary text-xs"
 							>{schemaKey}</span
 						>
-						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">{schemaTables.length}</span>
+						<span class="text-2xs text-tertiary mr-2 group-hover:hidden">
+							{schemaTables.length}
+						</span>
 						<!-- Delete schema button (on hover) -->
 						<button
 							class="hidden group-hover:flex p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded transition-colors mr-1"
@@ -331,7 +366,8 @@
 					{#each schemaTables as tableKey}
 						{@const isDisabled = isTableDisabled(schemaKey, tableKey)}
 						{@const isChecked = isTableSelected(schemaKey, tableKey) || isDisabled}
-						{@const isCurrentPreview = selected.schemaKey === schemaKey && selected.tableKey === tableKey}
+						{@const isCurrentPreview =
+							selected.schemaKey === schemaKey && selected.tableKey === tableKey}
 						<div
 							class={'group w-full text-sm font-normal flex gap-2 items-center h-8 cursor-pointer pl-7 pr-1 ' +
 								(isCurrentPreview ? 'bg-gray-500/25' : 'hover:bg-gray-500/10') +
@@ -439,6 +475,16 @@
 												askingForConfirmation = undefined
 											}
 										})
+								},
+								{
+									displayName: 'Alter table',
+									icon: EditIcon,
+									action: () => {
+										dbTableEditorState = {
+											open: true,
+											alterTableKey: tableKey
+										}
+									}
 								}
 							]}
 							class="w-fit"
@@ -490,18 +536,78 @@
 	open={dbTableEditorState.open}
 	on:close={() => (dbTableEditorState = { open: false })}
 >
-	<DrawerContent on:close={() => (dbTableEditorState = { open: false })} title="Create a new table">
-		<DbTableEditor
-			{dbSchema}
-			currentSchema={selected.schemaKey}
-			onConfirm={async (values) => {
-				await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
-				refresh?.()
-				dbTableEditorState = { open: false }
-			}}
-			{dbType}
-			previewSql={(values) => dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey })}
-		/>
+	<DrawerContent
+		on:close={() => (dbTableEditorState = { open: false })}
+		title={dbTableEditorState.alterTableKey
+			? `Alter ${dbTableEditorState.alterTableKey}`
+			: 'Create a new table'}
+	>
+		{#key dbTableEditorState.alterTableKey}
+			{#if !dbTableEditorState.alterTableKey || dbTableEditorAlterTableData.current}
+				<DbTableEditor
+					{features}
+					{dbSchema}
+					currentSchema={selected.schemaKey}
+					initialValues={dbTableEditorAlterTableData.current}
+					onConfirm={async ({ values }) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
+							await dbSchemaOps.onAlter({ schema: selected.schemaKey, values: diff })
+						} else {
+							await dbSchemaOps.onCreate({ values, schema: selected.schemaKey })
+						}
+						refresh?.()
+						sendUserToast(
+							dbTableEditorState.alterTableKey
+								? dbTableEditorState.alterTableKey + ' updated!'
+								: values.name + ' created!'
+						)
+						dbTableEditorState = { open: false }
+					}}
+					{dbType}
+					computePreview={({ values }) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
+							let queries = dbSchemaOps.previewAlterSql({
+								values: diff,
+								schema: selected.schemaKey
+							})
+							let alert = !dbSupportsTransactionalDdl(dbType)
+								? {
+										title: capitalize(dbType) + ' does not support transactional DDL',
+										body: 'Any of these statements failing may leave your database in an intermediate state.'
+									}
+								: undefined
+							return { sql: queries.join('\n'), ...(alert ? { alert } : {}) }
+						} else {
+							return { sql: dbSchemaOps.previewCreateSql({ values, schema: selected.schemaKey }) }
+						}
+					}}
+					computeBtnProps={({ values }) => {
+						if (dbTableEditorState.alterTableKey && dbTableEditorAlterTableData.current) {
+							let diff = diffTableEditorValues(dbTableEditorAlterTableData.current, values)
+							let queries = dbSchemaOps.previewAlterSql({
+								values: diff,
+								schema: selected.schemaKey
+							})
+							if (!queries.length) {
+								return { text: 'No changes detected', disabled: true }
+							}
+							return {
+								text: `Alter table (${pluralize(queries.length, 'change')} detected)`
+							}
+						} else {
+							return { text: 'Create table' }
+						}
+					}}
+				/>
+			{:else if dbTableEditorAlterTableData.loading}
+				<Loader2 class="animate-spin" size={32} />
+			{:else}
+				<p class="text-sm text-tertiary">Failed to load table definition.</p>
+				<p>{dbTableEditorAlterTableData.error}</p>
+			{/if}
+		{/key}
 	</DrawerContent>
 </Drawer>
 
