@@ -1,14 +1,6 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import {
-		ChevronDownIcon,
-		EditIcon,
-		Loader2,
-		MoreVertical,
-		Plus,
-		Table2,
-		Trash2Icon
-	} from 'lucide-svelte'
+	import { ChevronDownIcon, EditIcon, Loader2, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -29,7 +21,7 @@
 		diffTableEditorValues
 	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
-	import { capitalize, pluralize } from '$lib/utils'
+	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -450,7 +442,10 @@
 						onclick={() => (selected.tableKey = tableKey)}
 					>
 						<Table2 class="text-primary shrink-0" size={16} />
-						<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
+						<p
+							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
+							>{tableKey}</p
+						>
 						<DropdownV2
 							items={() => [
 								{
@@ -461,6 +456,7 @@
 											title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
 											confirmationText: 'Delete permanently',
 											open: true,
+											id: 'db-manager-delete-table-confirmation-modal',
 											onConfirm: async () => {
 												askingForConfirmation && (askingForConfirmation.loading = true)
 												try {
@@ -488,14 +484,8 @@
 								}
 							]}
 							class="w-fit"
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<MoreVertical
-									size={8}
-									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-								/>
-							</svelte:fragment>
-						</DropdownV2>
+							btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+						/>
 					</button>
 				{/each}
 			{/if}
@@ -537,6 +527,7 @@
 	on:close={() => (dbTableEditorState = { open: false })}
 >
 	<DrawerContent
+		id="db-table-editor-drawer"
 		on:close={() => (dbTableEditorState = { open: false })}
 		title={dbTableEditorState.alterTableKey
 			? `Alter ${dbTableEditorState.alterTableKey}`

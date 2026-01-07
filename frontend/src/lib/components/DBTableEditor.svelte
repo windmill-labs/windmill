@@ -158,7 +158,7 @@
 			/>
 		</label>
 
-		<div class="flex flex-col">
+		<div class="flex flex-col" id="columns-section">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label>Columns</label>
 			<DataTable>
@@ -288,7 +288,7 @@
 			</DataTable>
 		</div>
 		{#if features?.foreignKeys}
-			<div class="flex flex-col">
+			<div class="flex flex-col" id="foreign-keys-section">
 				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<label>Foreign Keys</label>
 				<DataTable>
@@ -454,6 +454,7 @@
 
 <Portal>
 	<ConfirmationModal
+		id="db-table-editor-confirmation-modal"
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
 		on:canceled={() => (askingForConfirmation = undefined)}
 		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}

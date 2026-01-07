@@ -108,6 +108,7 @@
 		}}
 		CloseIcon={hasReplResult ? ArrowLeft : undefined}
 		noPadding
+		id="db-manager-drawer"
 	>
 		{#if effectiveInput && $workspaceStore}
 			{#key selectedDatatable}
