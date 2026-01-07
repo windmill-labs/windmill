@@ -373,6 +373,7 @@ pub fn workspace_unauthed_service() -> Router {
             get(get_completed_job_logs_tail),
         )
         .route("/get_args/:id", get(get_args))
+        .route("/get_otel_traces/:id", get(get_job_otel_traces))
         .route("/queue/get_started_at_by_ids", post(get_started_at_by_ids))
         .route("/get_flow_debug_info/:id", get(get_flow_job_debug_info))
         .route("/completed/get/:id", get(get_completed_job))
@@ -1692,6 +1693,86 @@ async fn get_args(
 
         Ok(Json(record.args.map(|x| x.0).unwrap_or_default()))
     }
+}
+
+/// OTel trace span returned from the API
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OtelTraceSpan {
+    pub trace_id: String,
+    pub span_id: String,
+    pub parent_span_id: Option<String>,
+    pub operation_name: String,
+    pub service_name: Option<String>,
+    pub start_time_unix_nano: i64,
+    pub end_time_unix_nano: i64,
+    pub duration_ns: i64,
+    pub status_code: i16,
+    pub status_message: Option<String>,
+    pub attributes: serde_json::Value,
+    pub events: serde_json::Value,
+}
+
+async fn get_job_otel_traces(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> JsonResult<Vec<OtelTraceSpan>> {
+    // Check if user has access to view job (similar to get_args)
+    // Use raw SQL query since this is a simple check
+    let job_record: Option<(String,)> = sqlx::query_as(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+    )
+    .bind(id)
+    .bind(&w_id)
+    .fetch_optional(&db)
+    .await?;
+
+    if let Some(record) = job_record {
+        if opt_authed.is_none() && record.0 != "anonymous" {
+            return Err(Error::BadRequest(
+                "As a non logged in user, you can only see jobs ran by anonymous users".to_string(),
+            ));
+        }
+    } else {
+        return Err(Error::NotFound(format!("Job {} not found", id)));
+    }
+
+    // Fetch OTel traces for this job using raw SQL (table is new, not in sqlx cache)
+    let traces: Vec<(String, String, Option<String>, String, Option<String>, i64, i64, Option<i64>, Option<i16>, Option<String>, Option<serde_json::Value>, Option<serde_json::Value>)> = sqlx::query_as(
+        r#"
+        SELECT
+            trace_id, span_id, parent_span_id, operation_name, service_name,
+            start_time_unix_nano, end_time_unix_nano, duration_ns,
+            status_code, status_message, attributes, events
+        FROM job_otel_traces
+        WHERE job_id = $1 AND workspace_id = $2
+        ORDER BY start_time_unix_nano ASC
+        "#,
+    )
+    .bind(id)
+    .bind(&w_id)
+    .fetch_all(&db)
+    .await?;
+
+    let spans: Vec<OtelTraceSpan> = traces
+        .into_iter()
+        .map(|row| OtelTraceSpan {
+            trace_id: row.0,
+            span_id: row.1,
+            parent_span_id: row.2,
+            operation_name: row.3,
+            service_name: row.4,
+            start_time_unix_nano: row.5,
+            end_time_unix_nano: row.6,
+            duration_ns: row.7.unwrap_or(0),
+            status_code: row.8.unwrap_or(0) as i16,
+            status_message: row.9,
+            attributes: row.10.unwrap_or(serde_json::json!({})),
+            events: row.11.unwrap_or(serde_json::json!([])),
+        })
+        .collect();
+
+    Ok(Json(spans))
 }
 
 async fn get_started_at_by_ids(

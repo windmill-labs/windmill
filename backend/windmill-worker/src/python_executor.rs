@@ -41,6 +41,15 @@ use windmill_common::variables::get_secret_value_as_admin;
 use std::env::var;
 use windmill_queue::{append_logs, CanceledBy, PrecomputedAgentInfo};
 
+#[cfg(feature = "enterprise")]
+use crate::otel_auto_instrumentation_ee::{
+    get_otel_auto_instrumentation_config, get_otel_python_env_vars,
+};
+#[cfg(not(feature = "enterprise"))]
+use crate::otel_auto_instrumentation_oss::{
+    get_otel_auto_instrumentation_config, get_otel_python_env_vars,
+};
+
 use process_wrap::tokio::TokioChildWrapper;
 
 lazy_static::lazy_static! {
@@ -812,6 +821,18 @@ mount {{
         job.id
     );
 
+    // Get OTel auto-instrumentation env vars (EE feature)
+    let otel_envs: Vec<(String, String)> = if let Connection::Sql(db) = conn {
+        let otel_config = get_otel_auto_instrumentation_config(db).await;
+        if otel_config.enabled && otel_config.python_enabled {
+            get_otel_python_env_vars(&job.id, &job.workspace_id, &script_path, &otel_config)
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     let child = if !*DISABLE_NSJAIL {
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -820,6 +841,7 @@ mount {{
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
             .envs(PROXY_ENVS.clone())
+            .envs(otel_envs.clone())
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -845,6 +867,7 @@ mount {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(otel_envs)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

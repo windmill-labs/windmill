@@ -34,6 +34,7 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
+		| 'otel_auto_instrumentation'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -445,7 +446,15 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
+		{
+			label: 'OTel Auto-Instrumentation',
+			description:
+				'Enable automatic OpenTelemetry instrumentation for Python and TypeScript scripts. When enabled, scripts using OTel libraries will automatically send traces to a built-in collector that stores them for viewing in job details.',
+			key: 'otel_auto_instrumentation',
+			fieldType: 'otel_auto_instrumentation',
+			storage: 'setting',
+			ee_only: 'OTel auto-instrumentation is an EE feature'
+		},
 		{
 			label: 'Prometheus',
 			description:

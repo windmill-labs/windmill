@@ -51,6 +51,15 @@ use windmill_common::s3_helpers::attempt_fetch_bytes;
 
 use windmill_parser::Typ;
 
+#[cfg(feature = "enterprise")]
+use crate::otel_auto_instrumentation_ee::{
+    get_otel_auto_instrumentation_config, get_otel_typescript_env_vars,
+};
+#[cfg(not(feature = "enterprise"))]
+use crate::otel_auto_instrumentation_oss::{
+    get_otel_auto_instrumentation_config, get_otel_typescript_env_vars,
+};
+
 const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
 const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
@@ -1356,6 +1365,18 @@ try {{
     }
     append_logs(&job.id, &job.workspace_id, init_logs, conn).await;
 
+    // Get OTel auto-instrumentation env vars (EE feature)
+    let otel_envs: Vec<(String, String)> = if let Connection::Sql(db) = conn {
+        let otel_config = get_otel_auto_instrumentation_config(db).await;
+        if otel_config.enabled && otel_config.typescript_enabled {
+            get_otel_typescript_env_vars(&job.id, &job.workspace_id, job.runnable_path(), &otel_config)
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     //do not cache local dependencies
     let child = if !*DISABLE_NSJAIL {
         let _ = write_file(
@@ -1417,6 +1438,7 @@ try {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(common_bun_proc_envs)
+            .envs(otel_envs.clone())
             .env("PATH", PATH_ENV.as_str())
             .args(args)
             .stdout(Stdio::piped())
@@ -1434,6 +1456,7 @@ try {{
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
+                .envs(otel_envs.clone())
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
@@ -1464,6 +1487,7 @@ try {{
                 .envs(envs)
                 .envs(reserved_variables)
                 .envs(common_bun_proc_envs)
+                .envs(otel_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
