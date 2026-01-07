@@ -9,6 +9,7 @@
 		Loader2,
 		MousePointer2,
 		Plus,
+		Square,
 		TextSelect,
 		X,
 		XIcon
@@ -223,9 +224,10 @@
 		{#if aiChatManager.loading}
 			<div class="absolute -top-10 w-full flex flex-row justify-center">
 				<Button
-					startIcon={{ icon: Loader2, classes: 'animate-spin' }}
+					startIcon={{ icon: Square }}
 					size="xs"
 					variant="default"
+					btnClasses="bg-surface hover:bg-surface-selected"
 					on:click={() => {
 						cancel()
 					}}

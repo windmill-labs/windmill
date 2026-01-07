@@ -23,7 +23,8 @@
 		Code,
 		Save,
 		X,
-		Check
+		Check,
+		Settings2
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -49,6 +50,7 @@
 	import { nextId } from '../flowModuleNextId'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import FlowChat from '../conversations/FlowChat.svelte'
+	import { SPECIAL_MODULE_IDS } from '$lib/components/copilot/chat/shared'
 
 	interface Props {
 		noEditor: boolean
@@ -81,6 +83,14 @@
 	// Use pending schema from diffManager when in diff mode, otherwise use flowStore
 	const effectiveSchema = $derived(diffManager?.currentInputSchema ?? flowStore.val.schema)
 
+	// Detect if we're in "review mode" (AI has made schema changes that are pending)
+	const hasAiSchemaChanges = $derived(
+		Boolean(
+			diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending &&
+				diffManager?.beforeFlow?.schema
+		)
+	)
+
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
 	let shouldUseStreaming = $derived.by(() => {
 		const modules = flowStore.val.value?.modules
@@ -92,6 +102,9 @@
 		)
 	})
 	let showChatModeWarning = $state(false)
+	let showAdditionalInputs = $state(false)
+	let chatInputsEditTab = $state(false)
+	let chatInputsAddPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
@@ -132,6 +145,34 @@
 
 	$effect(() => {
 		chatInputEnabled = Boolean(flowStore.val.value?.chat_input_enabled)
+	})
+
+	// Set up review mode when AI has made schema changes that are pending
+	$effect(() => {
+		hasAiSchemaChanges
+		diffManager?.beforeFlow?.schema
+		flowStore.val.schema
+		untrack(() => {
+			if (hasAiSchemaChanges) {
+				// In review mode, selectedSchema = beforeSchema (what we might revert to)
+				selectedSchema = structuredClone($state.snapshot(diffManager!.beforeFlow!.schema))
+				diff = computeDiff(flowStore.val.schema, selectedSchema)
+				previewSchema = schemaFromDiff(diff, selectedSchema)
+				runDisabled = true
+				if (Object.values(diff).every((d) => d.diff === 'same')) {
+					diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+				}
+			}
+		})
+	})
+
+	$effect(() => {
+		if (!hasAiSchemaChanges) {
+			selectedSchema = undefined
+			previewSchema = undefined
+			diff = {}
+			runDisabled = false
+		}
 	})
 
 	const getDropdownItems = () => {
@@ -282,13 +323,19 @@
 	}
 
 	async function applySchemaAndArgs() {
-		flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
-		if (previewArgs.val) {
-			savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
-		}
-		updatePreviewSchemaAndArgs(undefined)
-		if ($flowInputEditorState) {
-			$flowInputEditorState.selectedTab = undefined
+		if (hasAiSchemaChanges) {
+			// Review mode: Accept all AI changes
+			diffManager?.acceptModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+		} else {
+			// Preview mode: Apply the diff to flowStore
+			flowStore.val.schema = applyDiff(flowStore.val.schema, diff)
+			if (previewArgs.val) {
+				savedPreviewArgs = structuredClone($state.snapshot(previewArgs.val))
+			}
+			updatePreviewSchemaAndArgs(undefined)
+			if ($flowInputEditorState) {
+				$flowInputEditorState.selectedTab = undefined
+			}
 		}
 	}
 
@@ -327,16 +374,28 @@
 	let preventEnter = $state(false)
 
 	async function acceptChange(arg: { label: string; nestedParent: any | undefined }) {
-		handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
-			flowStore.val.schema = newSchema
-		})
+		if (hasAiSchemaChanges) {
+			// Review mode: Accept = finalize the AI change (keep current value)
+			handleChangeInReviewMode(arg, 'accept')
+		} else {
+			// Preview mode: Accept = apply the change to flowStore
+			handleChange(arg, flowStore.val.schema, diff, (newSchema) => {
+				flowStore.val.schema = newSchema
+			})
+		}
 	}
 
 	async function rejectChange(arg: { label: string; nestedParent: any | undefined }) {
-		const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
-		handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
-			selectedSchema = newSchema
-		})
+		if (hasAiSchemaChanges) {
+			// Review mode: Reject = revert flowStore field to beforeSchema value
+			handleChangeInReviewMode(arg, 'reject')
+		} else {
+			// Preview mode: Reject = remove proposal from selectedSchema
+			const revertDiff = computeDiff(flowStore.val.schema, selectedSchema)
+			handleChange(arg, selectedSchema, revertDiff, (newSchema) => {
+				selectedSchema = newSchema
+			})
+		}
 	}
 
 	function handleChange(
@@ -365,6 +424,54 @@
 
 		diff = computeDiff(selectedSchema, flowStore.val.schema)
 		previewSchema = schemaFromDiff(diff, flowStore.val.schema)
+	}
+
+	function handleChangeInReviewMode(
+		arg: { label: string; nestedParent: any | undefined },
+		action: 'accept' | 'reject'
+	) {
+		// Accept: source=flowStore.val.schema (current), target=beforeSchema
+		// Reject: source=beforeSchema, target=flowStore.val.schema (current)
+		const beforeSchema = diffManager?.beforeFlow?.schema
+		const sourceSchema = action === 'accept' ? flowStore.val.schema : beforeSchema
+		const targetSchema = action === 'accept' ? beforeSchema : flowStore.val.schema
+
+		if (!beforeSchema || !sourceSchema || !targetSchema) return
+
+		const path = getFullPath(arg)
+		const parentPath = path.slice(0, -1)
+
+		const getSchemaAtPath = (schema: Record<string, any>) =>
+			parentPath.length === 0 ? schema : getNestedProperty(schema, parentPath, 'properties')
+
+		const getProperties = (schema: Record<string, any>) => getSchemaAtPath(schema)?.properties
+
+		const sourceProperties = getProperties(sourceSchema)
+		const targetProperties = getProperties(targetSchema)
+		const targetSchemaAtPath = getSchemaAtPath(targetSchema)
+		const sourceValue = sourceProperties?.[arg.label]
+
+		if (sourceValue !== undefined) {
+			if (targetProperties) {
+				targetProperties[arg.label] = structuredClone($state.snapshot(sourceValue))
+				if (targetSchemaAtPath?.order && !targetSchemaAtPath.order.includes(arg.label)) {
+					targetSchemaAtPath.order.push(arg.label)
+				}
+			}
+		} else {
+			if (targetProperties && arg.label in targetProperties) {
+				delete targetProperties[arg.label]
+				if (targetSchemaAtPath?.order) {
+					targetSchemaAtPath.order = targetSchemaAtPath.order.filter((x: string) => x !== arg.label)
+				}
+			}
+		}
+
+		if (action === 'accept') {
+			diffManager.beforeFlow.schema = { ...beforeSchema }
+		} else {
+			flowStore.val.schema = { ...flowStore.val.schema }
+		}
 	}
 
 	function resetArgs() {
@@ -398,9 +505,13 @@
 
 	async function runFlowWithMessage(
 		message: string,
-		conversationId: string
+		conversationId: string,
+		additionalInputs?: Record<string, any>
 	): Promise<string | undefined> {
-		previewArgs.val = { user_message: message }
+		previewArgs.val = {
+			user_message: message,
+			...(additionalInputs ?? {})
+		}
 		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
@@ -537,29 +648,91 @@
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
 		{#if !disabled}
-			<Toggle
-				size="sm"
-				bind:checked={chatInputEnabled}
-				on:change={(e) => {
-					handleToggleChatMode()
-				}}
-				options={{
-					right: 'Chat Mode',
-					rightTooltip:
-						'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
-				}}
-			/>
+			<div class="flex items-center gap-2">
+				<Toggle
+					size="sm"
+					bind:checked={chatInputEnabled}
+					on:change={() => {
+						handleToggleChatMode()
+					}}
+					options={{
+						right: 'Chat Mode',
+						rightTooltip:
+							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+					}}
+				/>
+				{#if flowStore.val.value?.chat_input_enabled}
+					<Button
+						size="xs"
+						variant="border"
+						color={showAdditionalInputs ? 'blue' : 'light'}
+						startIcon={{ icon: Settings2 }}
+						title="Manage inputs"
+						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+					>
+						Manage inputs
+					</Button>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">
+					{#if showAdditionalInputs}
+						<div class="border-b p-2">
+							<EditableSchemaForm
+								bind:schema={flowStore.val.schema}
+								hiddenArgs={['user_message']}
+								isFlowInput
+								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
+								showDynOpt
+								bind:dynCode
+								bind:dynLang
+								on:delete={(e) => {
+									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
+								}}
+							>
+								{#snippet openEditTab()}
+									<Button
+										size="xs"
+										variant={chatInputsEditTab ? 'contained' : 'border'}
+										color={chatInputsEditTab ? 'blue' : 'light'}
+										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
+										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
+										onClick={() => {
+											chatInputsEditTab = !chatInputsEditTab
+										}}
+									/>
+								{/snippet}
+								{#snippet addProperty()}
+									<AddPropertyV2
+										bind:this={chatInputsAddPropertyV2}
+										bind:schema={flowStore.val.schema}
+										onAddNew={() => {}}
+									>
+										{#snippet trigger()}
+											<Button
+												size="xs"
+												color="light"
+												startIcon={{ icon: Plus }}
+												title="Add additional input"
+											>
+												Add input
+											</Button>
+										{/snippet}
+									</AddPropertyV2>
+								{/snippet}
+							</EditableSchemaForm>
+						</div>
+					{/if}
 					<FlowChat
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
 						hideSidebar={true}
 						useStreaming={shouldUseStreaming}
+						inputSchema={flowStore.val.schema}
 					/>
 				</div>
 			{:else}
@@ -591,13 +764,19 @@
 						{diff}
 						disableDnd={!!previewSchema}
 						on:rejectChange={(e) => {
+							const isAiChange = hasAiSchemaChanges
 							rejectChange(e.detail).then(() => {
-								updatePreviewSchema(selectedSchema)
+								if (!isAiChange) {
+									updatePreviewSchema(selectedSchema)
+								}
 							})
 						}}
 						on:acceptChange={(e) => {
 							acceptChange(e.detail).then(() => {
-								updatePreviewSchema(selectedSchema)
+								const isAiChange = hasAiSchemaChanges
+								if (!isAiChange) {
+									updatePreviewSchema(selectedSchema)
+								}
 							})
 						}}
 						shouldDispatchChanges={true}
@@ -646,22 +825,32 @@
 										disabled={!previewSchema}
 										shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
 										startIcon={{ icon: Check }}
-										on:click={() => {
+										onClick={() => {
 											applySchemaAndArgs()
 											connectFirstNode()
 										}}
 									>
-										{Object.values(diff).every((el) => el.diff === 'same')
-											? 'Apply args'
-											: 'Update schema'}
+										{#if hasAiSchemaChanges}
+											Accept all changes
+										{:else if Object.values(diff).every((el) => el.diff === 'same')}
+											Apply args
+										{:else}
+											Update schema
+										{/if}
 									</Button>
 									<Button
 										variant="default"
 										size="xs"
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}
-										on:click={() => {
-											resetSelected()
+										onClick={() => {
+											if (hasAiSchemaChanges) {
+												if (diffManager?.beforeFlow?.schema) {
+													diffManager.rejectModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
+												}
+											} else {
+												resetSelected()
+											}
 										}}
 									/>
 								</div>
@@ -808,7 +997,7 @@
 									disabled={runDisabled || !isValid}
 									size="xs"
 									shortCut={{ Icon: CornerDownLeft, hide: false }}
-									on:click={() => {
+									onClick={() => {
 										runPreview()
 									}}
 								>

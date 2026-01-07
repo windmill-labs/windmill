@@ -51,11 +51,7 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-					return testResult.result[0].map(lowercaseKeys)
-				} else {
-					return testResult.result.map(lowercaseKeys)
-				}
+				return testResult.result.map(lowercaseKeys)
 			} else {
 				attempts++
 			}
@@ -85,9 +81,6 @@ export async function loadAllTablesMetaData(
 				args: getDatabaseArg(input)
 			}
 		})) as ({ table_name: string; schema_name?: string } & object)[]
-		if (input.type === 'database' && input.resourceType === 'ms_sql_server') {
-			result = (result as any)[0]
-		}
 		const map: Record<string, TableMetadata> = {}
 
 		for (const _col of result) {
@@ -98,6 +91,9 @@ export async function loadAllTablesMetaData(
 			}
 			map[tableKey].push(col)
 		}
+
+		fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+
 		return map
 	} catch (e) {
 		throw new Error('Error loading all tables metadata: ' + e)
@@ -132,7 +128,7 @@ async function makeLoadTableMetaDataQuery(
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
 			COLUMN_DEFAULT as DefaultValue,
-			CASE WHEN COLUMN_KEY = 'PRI' THEN 'YES' ELSE 'NO' END as IsPrimaryKey,
+			CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END as IsPrimaryKey,
 			CASE WHEN EXTRA like '%auto_increment%' THEN 'YES' ELSE 'NO' END as IsIdentity,
 			CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 			CASE WHEN DATA_TYPE = 'enum' THEN true ELSE false END as IsEnum${
@@ -206,29 +202,48 @@ async function makeLoadTableMetaDataQuery(
 	`
 	} else if (input.resourceType === 'ms_sql_server') {
 		return `
-		SELECT 
-    COLUMN_NAME as field,
-    DATA_TYPE as DataType,
-    COLUMN_DEFAULT as DefaultValue,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
-    CASE WHEN COLUMNPROPERTY(OBJECT_ID(TABLE_NAME), COLUMN_NAME, 'IsIdentity') = 1 THEN 1 ELSE 0 END as IsPrimaryKey, -- This line still needs correction for primary key identification
-    CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
-    CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
+		SELECT
+    c.COLUMN_NAME as field,
+    c.DATA_TYPE as DataType,
+    c.COLUMN_DEFAULT as DefaultValue,
+    CASE WHEN COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'IsIdentity') = 1 THEN 'By Default' ELSE 'No' END as IsIdentity,
+    CASE WHEN pk.COLUMN_NAME IS NOT NULL THEN 1 ELSE 0 END as IsPrimaryKey,
+    CASE WHEN c.IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
+    CASE WHEN c.DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum,
+    dc.name as default_constraint_name${
 			table
 				? ''
 				: `,
-		TABLE_NAME as table_name`
+		c.TABLE_NAME as table_name`
 		}
-FROM    
-    INFORMATION_SCHEMA.COLUMNS${
-			table
-				? `
-WHERE   
-    TABLE_NAME = '${table}'`
-				: ''
-		}
+FROM
+    INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN (
+        SELECT
+            ku.TABLE_SCHEMA,
+            ku.TABLE_NAME,
+            ku.COLUMN_NAME
+        FROM
+            INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+            INNER JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE ku
+                ON tc.CONSTRAINT_TYPE = 'PRIMARY KEY'
+                AND tc.CONSTRAINT_NAME = ku.CONSTRAINT_NAME
+                AND tc.TABLE_SCHEMA = ku.TABLE_SCHEMA
+                AND tc.TABLE_NAME = ku.TABLE_NAME
+    ) pk ON c.TABLE_SCHEMA = pk.TABLE_SCHEMA
+        AND c.TABLE_NAME = pk.TABLE_NAME
+        AND c.COLUMN_NAME = pk.COLUMN_NAME
+    LEFT JOIN sys.default_constraints dc
+        ON dc.parent_object_id = OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME)
+        AND dc.parent_column_id = COLUMNPROPERTY(OBJECT_ID(c.TABLE_SCHEMA + '.' + c.TABLE_NAME), c.COLUMN_NAME, 'ColumnId')${
+					table
+						? `
+WHERE
+    c.TABLE_NAME = '${table}'`
+						: ''
+				}
 ORDER BY
-    ORDINAL_POSITION;
+    c.ORDINAL_POSITION;
 	`
 	} else if (
 		input.resourceType === 'snowflake' ||
@@ -239,7 +254,7 @@ ORDER BY
 		DATA_TYPE as DataType,
 		COLUMN_DEFAULT as DefaultValue,
 		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 'By Default' ELSE 'No' END as IsIdentity,
-		CASE WHEN COLUMN_DEFAULT like 'AUTOINCREMENT%' THEN 1 ELSE 0 END as IsPrimaryKey,
+		0 as IsPrimaryKey, -- a one-query solution is not trivial, we will use SHOW PRIMARY KEYS separately
 		CASE WHEN IS_NULLABLE = 'YES' THEN 'YES' ELSE 'NO' END as IsNullable,
 		CASE WHEN DATA_TYPE = 'enum' THEN 1 ELSE 0 END as IsEnum${
 			table
@@ -282,6 +297,50 @@ order by c.ORDINAL_POSITION;`
 	}
 }
 
+type SnowflakeShowPrimaryKeysResult = {
+	column_name: string
+	database_name: string
+	schema_name: string
+	table_name: string
+}
+
+// We can't get primary keys in a single query for Snowflake, so we fetch them separately
+async function fetchAndAddSnowflakePrimaryKeysInMap(
+	map: Record<string, TableMetadata>,
+	input: DbInput,
+	workspace: string,
+	tableKey?: string
+) {
+	if (input.type == 'database' && input.resourceType === 'snowflake') {
+		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
+		for (const pk of pkResult) {
+			const tableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
+			if (tableKey in map) {
+				for (const col of map[tableKey]) {
+					if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
+						col.isprimarykey = true
+					}
+				}
+			}
+		}
+	}
+}
+
+async function fetchSnowflakePrimaryKeys(
+	workspace: string,
+	dbArg: any,
+	tableKey?: string
+): Promise<SnowflakeShowPrimaryKeysResult[]> {
+	return (await JobService.runScriptPreviewAndWaitResult({
+		workspace,
+		requestBody: {
+			language: 'snowflake',
+			args: dbArg,
+			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS'
+		}
+	})) as SnowflakeShowPrimaryKeysResult[]
+}
+
 function lowercaseKeys(obj: Record<string, any>): any {
 	const newObj = {}
 	Object.keys(obj).forEach((key) => {
@@ -301,8 +360,9 @@ export async function getDbSchemas(
 	} = {}
 ): Promise<void> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
+	let sqlScript = scripts[getLanguageByResourceType(resourceType)]
 
-	if (!scripts[resourceType]) return
+	if (!sqlScript) return
 
 	return new Promise(async (resolve, reject) => {
 		if (!resourceType || !resourcePath || !workspace) {
@@ -313,10 +373,10 @@ export async function getDbSchemas(
 		const job = await JobService.runScriptPreview({
 			workspace: workspace,
 			requestBody: {
-				language: scripts[resourceType].lang as Preview['language'],
-				content: scripts[resourceType].code,
+				language: sqlScript.lang as Preview['language'],
+				content: sqlScript.code,
 				args: {
-					[scripts[resourceType].argName]: resourcePath.startsWith('datatable://')
+					[sqlScript.argName]: resourcePath.startsWith('datatable://')
 						? resourcePath
 						: '$res:' + resourcePath
 				}
@@ -343,7 +403,7 @@ export async function getDbSchemas(
 						}
 						if (resourceType !== undefined) {
 							if (resourceType !== 'graphql') {
-								const { processingFn } = scripts[resourceType]
+								const { processingFn } = sqlScript
 								let schema: any
 								try {
 									schema =

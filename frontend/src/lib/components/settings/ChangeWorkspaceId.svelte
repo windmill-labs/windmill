@@ -80,9 +80,12 @@
 
 <Modal bind:open title="Change workspace ID">
 	<div class="flex flex-col gap-4">
-		<Alert type="warning" title="Warning">
-			Renaming the workspace may take a few minutes to complete. Once finished, please update your
-			webhook calls and adjust your CLI sync configuration accordingly.
+		<Alert type="info" title="Changing the workspace ID may take a few minutes to complete">
+			Once finished, please update your webhook calls and adjust your CLI sync configuration
+			accordingly.
+		</Alert>
+		<Alert type="warning" title="Running jobs and queued flow steps will not be migrated.">
+			Make sure that all your jobs are completed before changing the workspace ID.
 		</Alert>
 		<p class="text-secondary text-xs"
 			>Current ID <br /> <span class="text-emphasis">{$workspaceStore ?? ''}</span></p

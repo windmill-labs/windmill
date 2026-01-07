@@ -50,7 +50,7 @@
 </script>
 
 <Drawer bind:this={drawer} size="900px" on:close={removeHash}>
-	<DrawerContent title="User Settings" on:close={closeDrawer}>
+	<DrawerContent title="User settings" on:close={closeDrawer}>
 		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}
 				<div
