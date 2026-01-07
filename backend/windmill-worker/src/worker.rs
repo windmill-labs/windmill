@@ -77,6 +77,7 @@ use windmill_common::{
     flows::FlowNodeId,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    tracing_init::{QUIET_MODE, VERBOSE_TARGET},
     utils::StripPath,
     worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
@@ -315,16 +316,73 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    pub static ref UNSHARE_TINI_PATH: String = {
+        std::env::var("UNSHARE_TINI_PATH").unwrap_or_else(|_| "tini".to_string())
+    };
+
+    // --fork is required for unshare to work with --pid --mount-proc.
+    // When tini is available, it runs as PID 1 inside the forked namespace for proper signal handling.
     pub static ref UNSHARE_ISOLATION_FLAGS: String = {
         std::env::var("UNSHARE_ISOLATION_FLAGS")
             .unwrap_or_else(|_| "--user --map-root-user --pid --fork --mount-proc".to_string())
     };
 
+    // Check if tini is available for proper PID 1 handling in unshare namespaces.
+    // tini handles OOM signals correctly, returning exit code 137 instead of sigprocmask errors.
+    pub static ref TINI_AVAILABLE: Option<String> = {
+        let tini_path = UNSHARE_TINI_PATH.as_str();
+        let test_result = std::process::Command::new(tini_path)
+            .args(["-s", "--", "true"])
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("tini available at: {}", tini_path);
+                Some(tini_path.to_string())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "tini test failed: {}. Proceeding without tini (OOM exit codes may be incorrect).",
+                    stderr.trim()
+                );
+                None
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        "tini not found at '{}'. Install tini for correct OOM exit codes, or set UNSHARE_TINI_PATH.",
+                        tini_path
+                    );
+                } else {
+                    tracing::warn!(
+                        "Failed to test tini: {}. Proceeding without tini.",
+                        e
+                    );
+                }
+                None
+            }
+        }
+    };
+
     pub static ref UNSHARE_PATH: Option<String> = {
         let flags = UNSHARE_ISOLATION_FLAGS.as_str();
         let mut test_cmd_args: Vec<&str> = flags.split_whitespace().collect();
-        test_cmd_args.push("--");
-        test_cmd_args.push("true");
+
+        // Build the test command based on whether tini is available
+        // Note: --fork should already be in the flags for proper namespace setup
+        if let Some(tini_path) = TINI_AVAILABLE.as_ref() {
+            // Test with tini: unshare <flags> -- tini -s -- true
+            test_cmd_args.push("--");
+            test_cmd_args.push(tini_path.as_str());
+            test_cmd_args.push("-s");
+            test_cmd_args.push("--");
+            test_cmd_args.push("true");
+        } else {
+            // Fallback without tini: unshare <flags> -- true
+            test_cmd_args.push("--");
+            test_cmd_args.push("true");
+        }
 
         let test_result = std::process::Command::new("unshare")
             .args(&test_cmd_args)
@@ -332,7 +390,11 @@ lazy_static::lazy_static! {
 
         match test_result {
             Ok(output) if output.status.success() => {
-                tracing::info!("PID namespace isolation enabled. Flags: {}", flags);
+                if TINI_AVAILABLE.is_some() {
+                    tracing::info!("PID namespace isolation enabled with tini. Flags: {}", flags);
+                } else {
+                    tracing::info!("PID namespace isolation enabled. Flags: {}", flags);
+                }
                 Some("unshare".to_string())
             },
             Ok(output) => {
@@ -1027,7 +1089,7 @@ pub fn start_interactive_worker_shell(
 
                 match pulled_job {
                     Ok(Some(job)) => {
-                        tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+                        tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -1140,12 +1202,6 @@ pub async fn run_worker(
     if *ENABLE_UNSHARE_PID {
         // Access UNSHARE_PATH to trigger lazy_static initialization and test
         let _ = &*UNSHARE_PATH;
-
-        tracing::info!(
-            worker = %worker_name, hostname = %hostname,
-            "PID namespace isolation enabled via unshare with flags: {}",
-            UNSHARE_ISOLATION_FLAGS.as_str()
-        );
     }
 
     let start_time = Instant::now();
@@ -1901,7 +1957,7 @@ pub async fn run_worker(
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+                tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
                 if matches!(
                     job.kind,
@@ -2833,6 +2889,10 @@ pub async fn handle_queued_job(
 
         if *SLOW_LOGS {
             logs.push_str("Logs are 10x less frequent for this worker\n");
+        }
+
+        if *QUIET_MODE {
+            logs.push_str("Quiet mode enabled: verbose service logs are suppressed\n");
         }
 
         #[cfg(not(feature = "enterprise"))]

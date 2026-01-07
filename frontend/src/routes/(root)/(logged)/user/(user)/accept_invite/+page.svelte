@@ -80,16 +80,16 @@
 		</label>
 	{/if}
 	<div class="flex flex-row justify-between pt-4 gap-x-1">
-		<Button variant="default" size="sm" href="{base}/user/workspaces"
+		<Button variant="default" unifiedSize="md" href="{base}/user/workspaces"
 			>&leftarrow; Back to workspaces</Button
 		>
-		<button
+		<Button
 			disabled={checking || (!automateUsernameCreation && (errorUsername != '' || !username))}
-			class="place-items-end bg-blue-500 hover:bg-blue-700 text-white font-bold py-1 px-2 border rounded"
-			type="button"
-			on:click={acceptInvite}
+			variant="accent"
+			unifiedSize="md"
+			onClick={acceptInvite}
 		>
 			Accept invite
-		</button>
+		</Button>
 	</div>
 </CenteredModal>

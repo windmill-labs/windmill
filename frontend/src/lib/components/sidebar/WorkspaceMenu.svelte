@@ -12,6 +12,7 @@
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
+	import WorkspaceIcon from '$lib/components/workspace/WorkspaceIcon.svelte'
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import { page } from '$app/stores'
@@ -23,6 +24,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import { buildWorkspaceHierarchy } from '$lib/utils/workspaceHierarchy'
+	import { getContrastTextColor } from '$lib/utils'
 
 	interface Props {
 		isCollapsed?: boolean
@@ -66,12 +68,6 @@
 		}
 	}
 
-	// Helper function to check if a workspace is forked
-	function isForkedWorkspace(workspaceId: string): boolean {
-		if (!$userWorkspaces) return false
-		return $userWorkspaces.some((w) => w.id === workspaceId && w.parent_workspace_id != null)
-	}
-
 	function getForkedWorkspace(workspaceId: string) {
 		if (!$userWorkspaces) return undefined
 		return $userWorkspaces.find((w) => w.id === workspaceId && w.parent_workspace_id != null)
@@ -83,47 +79,38 @@
 	}
 
 	// Group workspaces into parent-child hierarchy using Svelte 5 derived and the new utility
-	const groupedWorkspaces = $derived(() => {
+	const groupedWorkspaces = $derived.by(() => {
 		if (!$userWorkspaces) return []
 		return buildWorkspaceHierarchy($userWorkspaces)
 	})
+
+	const itemClass =
+		'text-primary flex flex-row gap-2 px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 </script>
 
-{#if isForkedWorkspace($workspaceStore ?? '') && !isCollapsed}
-	{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
-	{@const parentWorkspace = forkedWorkspace
-		? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
-		: null}
-	<Menu {createMenu} usePointerDownOutside>
-		{#snippet triggr({ trigger })}
-			<div class="group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full text-xs">
-				<Building size={12} class="text-primary" />
-				<span class="text-xs text-primary"> {parentWorkspace?.name ?? ''} </span>
-			</div>
-		{/snippet}
-	</Menu>
-{/if}
 <Menu {createMenu} usePointerDownOutside>
 	{#snippet triggr({ trigger })}
 		{@const forkedWorkspace = getForkedWorkspace($workspaceStore ?? '')}
 		{@const parentWorkspace = forkedWorkspace
 			? getParentWorkspace(forkedWorkspace.parent_workspace_id!)
 			: null}
+		{@const iconColor = getContrastTextColor($workspaceColor)}
 		{#if forkedWorkspace && parentWorkspace}
-			<div class={isCollapsed ? '' : 'pl-6'}>
-				<MenuButton
-					class="!text-xs"
-					icon={GitFork}
-					label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
-					{isCollapsed}
-					color={$workspaceColor}
-					{trigger}
-				/>
-			</div>
+			<MenuButton
+				class="!text-xs"
+				icon={GitFork}
+				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
+				label={removePrefix($workspaceStore ?? '', 'wm-fork-')}
+				sublabel={parentWorkspace?.name ? `Fork of ${parentWorkspace.name}` : undefined}
+				{isCollapsed}
+				color={$workspaceColor}
+				{trigger}
+			/>
 		{:else}
 			<MenuButton
 				class="!text-xs"
 				icon={Building}
+				iconProps={iconColor ? { style: `color: ${iconColor}` } : undefined}
 				label={$workspaceStore ?? ''}
 				{isCollapsed}
 				color={$workspaceColor}
@@ -135,13 +122,14 @@
 	{#snippet children({ item })}
 		<div class="divide-y" role="none">
 			<div class="py-1">
-				{#each groupedWorkspaces() as { workspace, depth, isForked, parentName }}
+				{#each groupedWorkspaces as { workspace, depth, isForked, parentName }}
+					{@const isSelected = $workspaceStore === workspace.id}
 					<MenuItem
 						class={twMerge(
-							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-1.5',
+							'text-xs min-w-0 w-full overflow-hidden flex flex-col py-2 px-3',
 							workspace.disabled && 'opacity-50 cursor-not-allowed',
-							$workspaceStore === workspace.id
-								? 'cursor-default bg-surface-selected'
+							isSelected
+								? 'cursor-default bg-surface-accent-selected'
 								: workspace.disabled
 									? ''
 									: 'cursor-pointer hover:bg-surface-hover data-[highlighted]:bg-surface-hover'
@@ -154,73 +142,47 @@
 						{item}
 					>
 						<div class="flex items-center justify-between min-w-0 w-full">
-							<div
-								class={twMerge('flex items-center gap-2 min-w-0', 'pl-4')}
-								style:padding-left={`${4 + depth * 12}px`}
-							>
-								{#if isForked}
-									<GitFork size={12} class="text-primary flex-shrink-0" />
-								{:else}
-									<Building size={12} />
-								{/if}
+							<div class="flex items-center gap-2 min-w-0" style:padding-left={`${depth * 16}px`}>
+								<WorkspaceIcon workspaceColor={workspace.color} {isForked} {parentName} />
 								<div class="min-w-0 flex-1">
 									<div
 										class={twMerge(
-											'truncate text-left text-[1.2em]',
-											isForked ? 'text-secondary' : 'text-primary'
+											'truncate text-left text-xs font-normal',
+											isSelected ? 'text-accent' : 'text-primary'
 										)}
+										title={workspace.name}
 									>
 										{workspace.name}{workspace.disabled ? ' (user disabled)' : ''}
 									</div>
 									<div
 										class={twMerge(
-											'font-mono text-2xs whitespace-nowrap truncate text-left',
-											isForked ? 'text-primary opacity-75' : 'text-primary'
+											'font-mono text-2xs whitespace-nowrap truncate text-left font-normal',
+											isSelected ? 'text-accent/80' : 'text-hint'
 										)}
+										title={workspace.id}
 									>
 										{workspace.id}
 									</div>
-									{#if isForked && parentName}
-										<div class="text-primary text-2xs truncate text-left pl-2 min-h-[1rem]">
-											Fork of {parentName}
-										</div>
-									{/if}
 								</div>
 							</div>
-							{#if workspace.color}
-								<div
-									class="w-5 h-5 mr-2 rounded border border-gray-300 dark:border-gray-600"
-									style="background-color: {workspace.color}"
-								></div>
-							{/if}
 						</div>
 					</MenuItem>
 				{/each}
 			</div>
 			{#if (isCloudHosted() || $superadmin) && !strictWorkspaceSelect}
 				<div class="py-1" role="none">
-					<a
-						href="{base}/user/create_workspace"
-						class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-						role="menuitem"
-						tabindex="-1"
-					>
+					<MenuItem href="{base}/user/create_workspace" class={itemClass} {item}>
 						<Plus size={16} />
 						Workspace
-					</a>
+					</MenuItem>
 				</div>
 			{/if}
 			{#if !strictWorkspaceSelect && !isCloudHosted()}
 				<div class="py-1" role="none">
-					<a
-						href="{base}/user/fork_workspace"
-						class="text-primary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2"
-						role="menuitem"
-						tabindex="-1"
-					>
+					<MenuItem href="{base}/user/fork_workspace" class={itemClass} {item}>
 						<GitFork size={16} />
 						Fork current workspace
-					</a>
+					</MenuItem>
 				</div>
 			{/if}
 			{#if !strictWorkspaceSelect}
@@ -228,10 +190,7 @@
 					<MenuItem
 						href="{base}/user/workspaces"
 						onClick={() => clearWorkspaceFromStorage()}
-						class={twMerge(
-							'text-primary block px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary',
-							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-						)}
+						class={itemClass}
 						{item}
 					>
 						All workspaces
@@ -240,14 +199,7 @@
 			{/if}
 			{#if ($userStore?.is_admin || $superadmin) && !strictWorkspaceSelect}
 				<div class="py-1" role="none">
-					<MenuItem
-						href="{base}/workspace_settings"
-						class={twMerge(
-							'text-secondary px-4 py-2 text-xs hover:bg-surface-hover hover:text-primary flex flex-flow gap-2',
-							'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-						)}
-						{item}
-					>
+					<MenuItem href="{base}/workspace_settings" class={itemClass} {item}>
 						<Settings size={16} />
 						Workspace settings
 					</MenuItem>

@@ -56,6 +56,7 @@ class WindmillClient:
         return httpx.Client(
             base_url=self._url,
             headers=headers,
+            timeout=10.0,
         )
 
     def _set_license_key(self):

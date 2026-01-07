@@ -72,8 +72,8 @@ impl OtherQueryBuilder {
             && args.output_schema.is_some()
             && !should_use_structured_output_tool
         {
-            let schema = args.output_schema.unwrap();
-            let strict_schema = schema.clone().make_strict();
+            let mut strict_schema = args.output_schema.unwrap().clone();
+            strict_schema.make_strict();
             Some(ResponseFormat {
                 r#type: "json_schema".to_string(),
                 json_schema: JsonSchemaFormat {
