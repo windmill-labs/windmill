@@ -5,6 +5,7 @@
 - Follow @rust-best-practices.mdc for detailed guidelines
 - Database schema reference: @summarized_schema.txt
 - The API routes prefixes are all listed in windmill-api/src/lib.rs
+- This repository is the open source side of the project. The enterprise files (\*\_ee.rs) are in the `windmill-ee-private` folder (a sibling directory). Those files are symlinked into their corresponding locations within each crate's `src/` directory.
 
 ## Adding New Features
 
