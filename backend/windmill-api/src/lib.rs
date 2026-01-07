@@ -19,10 +19,8 @@ use crate::oauth2_oss::SlackVerifier;
 use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
-use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server};
 use crate::triggers::start_all_listeners;
-#[cfg(feature = "mcp")]
-use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
@@ -400,14 +398,17 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, mcp_session_manager) = {
+    let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_router, mcp_session_manager) = setup_mcp_server().await?;
+            let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
             let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
-            (mcp_router.layer(mcp_middleware), Some(mcp_session_manager))
+            (
+                mcp_router.layer(mcp_middleware),
+                Some(mcp_cancellation_token),
+            )
         } else {
-            (Router::new(), Option::<Arc<LocalSessionManager>>::None)
+            (Router::new(), None)
         }
 
         #[cfg(not(feature = "mcp"))]
@@ -757,8 +758,8 @@ pub async fn run_server(
         tracing::info!("Graceful shutdown of server");
 
         #[cfg(feature = "mcp")]
-        if let Some(mcp_session_manager) = mcp_session_manager {
-            shutdown_mcp_server(mcp_session_manager).await;
+        if let Some(mcp_cancellation_token) = mcp_cancellation_token {
+            mcp_cancellation_token.cancel();
             tracing::info!("MCP server shutdown");
         }
     });
