@@ -707,13 +707,25 @@ class Windmill:
             params=params if params else None,
         ).json()
     
-    def set_state(self, value: Any):
+    def set_state(self, value: Any, path: str | None = None) -> None:
         """Set the workflow state.
 
         Args:
             value: State value to set
+            path: Optional state resource path override.
         """
-        self.set_resource(value, path=self.state_path, resource_type="state")
+        self.set_resource(value, path=path or self.state_path, resource_type="state")
+
+    def get_state(self, path: str | None = None) -> Any:
+        """Get the workflow state.
+
+        Args:
+            path: Optional state resource path override.
+
+        Returns:
+            State value or None if not set
+        """
+        return self.get_resource(path=path or self.state_path, none_if_undefined=True)
 
     def set_progress(self, value: int, job_id: Optional[str] = None):
         """Set job progress percentage (0-99).
@@ -1725,12 +1737,11 @@ def whoami() -> dict:
 
 
 @init_global_client
-@deprecate("Windmill().state")
-def get_state() -> Any:
+def get_state(path: str | None = None) -> Any:
     """
     Get the state
     """
-    return _client.state
+    return _client.get_state(path=path)
 
 
 @init_global_client
@@ -1781,11 +1792,11 @@ def list_resources(
 
 
 @init_global_client
-def set_state(value: Any) -> None:
+def set_state(value: Any, path: str | None = None) -> None:
     """
     Set the state
     """
-    return _client.set_state(value)
+    return _client.set_state(value, path=path)
 
 
 @init_global_client

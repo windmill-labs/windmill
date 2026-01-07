@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::AsRefStr;
 
 use crate::{
-    error::{to_anyhow, Error, Result},
+    error::{self, to_anyhow, Error, Result},
     get_database_url,
     utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
@@ -61,6 +61,32 @@ pub struct GitRepositorySettings {
     pub group_by_folder: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<GitSyncSettings>,
+}
+
+impl GitRepositorySettings {
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        // example: "hub/28102/sync-script-to-git-repo-windmill"
+        let current = self
+            .script_path
+            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
+            .skip(1) // omit "hub"
+            .next() // get numeric id
+            .ok_or(Error::InternalErr(format!(
+                "cannot get script version id from: {}",
+                &self.script_path
+            )))?
+            .parse()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "cannot get script version id from: {}. e: {e}",
+                    &self.script_path
+                );
+
+                u32::MAX
+            });
+
+        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -213,6 +239,8 @@ pub async fn get_datatable_resource_from_db_unchecked(
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -244,6 +272,8 @@ pub struct DucklakeWithConnData {
     pub catalog: DucklakeCatalog,
     pub catalog_resource: serde_json::Value,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -287,6 +317,7 @@ pub async fn get_ducklake_from_db_unchecked(
         catalog_resource,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
+        extra_args: ducklake.extra_args,
     };
     Ok(ducklake)
 }

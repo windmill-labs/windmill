@@ -2708,13 +2708,23 @@ impl PulledJobResult {
                     "Accumulated arguments from debounced jobs in batch"
                 );
 
+                let new_value = to_raw_value(&accumulated_arg);
+
+                append_logs(
+                    &j_id,
+                    &j.workspace_id,
+                    format!(
+                        "Substituting `{arg_name_to_accumulate}` with: {}\n\n",
+                        &new_value
+                    ),
+                    &(db.into()),
+                )
+                .await;
+
                 j.args
                     .get_or_insert(Json(Default::default()))
                     .as_mut()
-                    .insert(
-                        arg_name_to_accumulate.to_owned(),
-                        to_raw_value(&accumulated_arg),
-                    );
+                    .insert(arg_name_to_accumulate.to_owned(), new_value);
             }
 
             // Handle dependency job debouncing cleanup when a job is pulled for execution
@@ -4833,7 +4843,7 @@ pub async fn push<'c, 'd>(
                 ..Default::default()
             }
         }
-        JobPayload::DeploymentCallback { path } => JobPayloadUntagged {
+        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
             runnable_path: Some(path.clone()),
             job_kind: JobKind::DeploymentCallback,
             concurrency_settings: ConcurrencySettings {
@@ -4841,6 +4851,7 @@ pub async fn push<'c, 'd>(
                 concurrent_limit: Some(1),
                 concurrency_time_window_s: Some(0),
             },
+            debouncing_settings,
             ..Default::default()
         },
         JobPayload::Identity => {
@@ -5357,7 +5368,23 @@ pub async fn insert_concurrency_key<'d, 'c>(
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
-        .map(|x| interpolate_args(x, args, workspace_id))
+        .map(|x| {
+            let interpolated = interpolate_args(x.clone(), args, workspace_id);
+            // In cloud mode, enforce workspace isolation by prefixing with workspace
+            // if the custom key doesn't already specify $workspace
+            #[cfg(feature = "cloud")]
+            {
+                if !x.contains("$workspace") {
+                    format!("{}/{}", workspace_id, interpolated)
+                } else {
+                    interpolated
+                }
+            }
+            #[cfg(not(feature = "cloud"))]
+            {
+                interpolated
+            }
+        })
         .unwrap_or(fullpath_with_workspace(
             workspace_id,
             script_path.as_ref(),

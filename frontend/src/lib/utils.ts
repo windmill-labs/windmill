@@ -801,7 +801,7 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
-		return `${quantity} ${customPlural}}`
+		return `${quantity} ${customPlural}`
 	} else {
 		return `${quantity} ${word}s`
 	}
@@ -1944,5 +1944,15 @@ export function getQueryStmtCountHeuristic(query: string): number {
 		count++
 	}
 
+	return count
+}
+
+export function countChars(str: string, char: string): number {
+	let count = 0
+	for (let i = 0; i < str.length; i++) {
+		if (str[i] === char) {
+			count++
+		}
+	}
 	return count
 }

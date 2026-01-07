@@ -2,7 +2,11 @@
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 	import { sendUserToast, sortArray } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
-	import { dbSupportsSchemas, type TableMetadata } from './apps/components/display/dbtable/utils'
+	import {
+		dbSupportsSchemas,
+		getDbFeatures,
+		type TableMetadata
+	} from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
@@ -191,7 +195,7 @@
 				{/if}
 			</div>
 			<DbManager
-				dbSupportsSchemas={input.type == 'database' && dbSupportsSchemas(input.resourceType)}
+				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
 				{dbSchema}
 				{getColDefs}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
@@ -215,6 +219,7 @@
 				{multiSelectMode}
 				bind:selectedTables
 				{disabledTables}
+				features={getDbFeatures(input)}
 			/>
 		</Pane>
 		{#if showRepl}

@@ -7,7 +7,7 @@ import {
 	type IntrospectionQuery
 } from 'graphql'
 
-import type { DbType } from '$lib/components/dbTypes'
+import type { DbInput, DbType } from '$lib/components/dbTypes'
 
 export enum ColumnIdentity {
 	ByDefault = 'By Default',
@@ -23,6 +23,7 @@ export type ColumnMetadata = {
 	isidentity: ColumnIdentity
 	isnullable: 'YES' | 'NO'
 	isenum: boolean
+	default_constraint_name?: string // MS SQL requires to know this to drop default
 }
 export type TableMetadata = ColumnMetadata[]
 
@@ -233,7 +234,8 @@ return schema
 		code: `select TABLE_SCHEMA, TABLE_NAME, DATA_TYPE, COLUMN_NAME, COLUMN_DEFAULT from information_schema.columns where table_schema != 'sys'`,
 		lang: 'mssql',
 		processingFn: (rows) => {
-			const schemas = rows[0].reduce((acc, a) => {
+			if (!rows || rows.length === 0) return {}
+			const schemas = rows.reduce((acc, a) => {
 				const table_schema = a.TABLE_SCHEMA
 				delete a.TABLE_SCHEMA
 				acc[table_schema] = acc[table_schema] || []
@@ -300,24 +302,26 @@ export function buildVisibleFieldList(columnDefs: ColumnDef[], dbType: DbType) {
 	// Filter out hidden columns to avoid counting the wrong number of rows
 	return columnDefs
 		.filter((columnDef: ColumnDef) => columnDef && columnDef.ignored !== true)
-		.map((column) => {
-			switch (dbType) {
-				case 'postgresql':
-					return `"${column?.field}"` // PostgreSQL uses double quotes for identifiers
-				case 'ms_sql_server':
-					return `[${column?.field}]` // MSSQL uses square brackets for identifiers
-				case 'mysql':
-					return `\`${column?.field}\`` // MySQL uses backticks
-				case 'snowflake':
-					return `"${column?.field}"` // Snowflake uses double quotes for identifiers
-				case 'bigquery':
-					return `\`${column?.field}\`` // BigQuery uses backticks
-				case 'duckdb':
-					return `"${column?.field}"` // DuckDB uses double quotes for identifiers
-				default:
-					throw new Error('Unsupported database type: ' + dbType)
-			}
-		})
+		.map((column) => renderDbQuotedIdentifier(column?.field, dbType))
+}
+
+export function renderDbQuotedIdentifier(identifier: string, dbType: DbType): string {
+	switch (dbType) {
+		case 'postgresql':
+			return `"${identifier}"` // PostgreSQL uses double quotes for identifiers
+		case 'ms_sql_server':
+			return `[${identifier}]` // MSSQL uses square brackets for identifiers
+		case 'mysql':
+			return `\`${identifier}\`` // MySQL uses backticks
+		case 'snowflake':
+			return `"${identifier}"` // Snowflake uses double quotes for identifiers
+		case 'bigquery':
+			return `\`${identifier}\`` // BigQuery uses backticks
+		case 'duckdb':
+			return `"${identifier}"` // DuckDB uses double quotes for identifiers
+		default:
+			throw new Error('Unsupported database type: ' + dbType)
+	}
 }
 
 export function getLanguageByResourceType(name: string): ScriptLang {
@@ -325,6 +329,7 @@ export function getLanguageByResourceType(name: string): ScriptLang {
 		postgresql: 'postgresql',
 		mysql: 'mysql',
 		ms_sql_server: 'mssql',
+		mssql: 'mssql',
 		snowflake: 'snowflake',
 		snowflake_oauth: 'snowflake',
 		bigquery: 'bigquery',
@@ -374,7 +379,17 @@ export function dbSupportsSchemas(dbType: DbType): boolean {
 
 export function datatypeHasLength(datatype: string): boolean {
 	datatype = datatype.toLowerCase()
-	const lengthDataTypes = ['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary', 'bit']
+	const lengthDataTypes = [
+		'varchar',
+		'char',
+		'nvarchar',
+		'nchar',
+		'varbinary',
+		'binary',
+		'bit',
+		'character varying',
+		'character'
+	]
 	return lengthDataTypes.some((type) => datatype === type)
 }
 
@@ -412,4 +427,32 @@ export function sqlDataTypeToJsTypeHeuristic(datatype: string): string {
 	} else {
 		return 'any'
 	}
+}
+
+export type DbFeatures = {
+	foreignKeys?: boolean
+	primaryKeys?: boolean
+	defaultValues?: boolean
+	defaultToNotNull?: boolean
+}
+
+export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
+	const def: Required<DbFeatures> = {
+		foreignKeys: true,
+		primaryKeys: true,
+		defaultValues: true,
+		defaultToNotNull: true
+	}
+
+	if (dbInput.type == 'ducklake') return { ...def, foreignKeys: false, primaryKeys: false }
+
+	if (dbInput.resourceType == 'bigquery')
+		return {
+			foreignKeys: false,
+			primaryKeys: true,
+			defaultValues: false,
+			defaultToNotNull: false
+		}
+
+	return { ...def }
 }

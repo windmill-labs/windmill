@@ -58,6 +58,8 @@ use crate::job_logger_oss::process_streaming_log_lines;
 use crate::worker_utils::{ping_job_status, update_worker_ping_from_job};
 use crate::{MAX_RESULT_SIZE, MAX_WAIT_FOR_SIGINT, MAX_WAIT_FOR_SIGTERM};
 
+use windmill_common::tracing_init::{QUIET_MODE, VERBOSE_TARGET};
+
 lazy_static::lazy_static! {
     pub static ref SLOW_LOGS: bool = std::env::var("SLOW_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
     pub static ref OTEL_JOB_LOGS: bool = std::env::var("OTEL_JOB_LOGS").ok().is_some_and(|x| x == "1" || x == "true");
@@ -702,9 +704,11 @@ where
         tokio::select!(
             _ = rx.recv() => break,
             _ = interval.tick() => {
-                // update the last_ping column every 5 seconds
+                // update the last_ping column every 5 seconds (or 50 seconds in quiet mode)
                 i+=1;
-                if i == 1 || i % 10 == 0 {
+                // In quiet mode, emit memory snapshot logs 10x less frequently
+                let memory_snapshot_interval = if *QUIET_MODE { 100 } else { 10 };
+                if i == 1 || i % memory_snapshot_interval == 0 {
                     let memory_usage = get_worker_memory_usage();
                     let wm_memory_usage = get_windmill_memory_usage();
                     tracing::info!("job {job_id} on {worker_name} in {w_id} worker memory snapshot {}kB/{}kB", memory_usage.unwrap_or_default()/1024, wm_memory_usage.unwrap_or_default()/1024);
@@ -719,7 +723,11 @@ where
                 if current_mem > *mem_peak {
                     *mem_peak = current_mem
                 }
-                tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                // In quiet mode, emit "still running" logs 10x less frequently
+                let still_running_interval = if *QUIET_MODE { 10 } else { 1 };
+                if i % still_running_interval == 0 {
+                    tracing::info!("job {job_id} on {worker_name} in {w_id} still running.  mem: {current_mem}kB, peak mem: {mem_peak}kB");
+                }
 
 
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
@@ -778,7 +786,7 @@ where
             },
         );
     }
-    tracing::info!("job {job_id} finished");
+    tracing::info!(target: VERBOSE_TARGET, "job {job_id} finished");
 
     UpdateJobPollingExit::Done(canceled_by_ref.clone())
 }

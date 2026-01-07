@@ -15,15 +15,30 @@ use windmill_parser::{json_to_typ, Arg, MainArgSignature, ObjectType, Typ};
 
 use rustpython_parser::{
     ast::{
-        Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt, StmtAssign, StmtClassDef, StmtFunctionDef, Suite,
+        Constant, Expr, ExprAttribute, ExprConstant, ExprDict, ExprList, ExprName, Stmt,
+        StmtAssign, StmtClassDef, StmtFunctionDef, Suite,
     },
     Parse,
 };
 
 pub mod asset_parser;
+pub mod pydantic_parser;
+
 pub use asset_parser::parse_assets;
 
 const FUNCTION_CALL: &str = "<function call>";
+
+/// Cheap string-based check to see if code might contain Pydantic models or dataclasses.
+/// Returns true if we should do full AST parsing for type detection, false otherwise.
+/// This avoids expensive parsing for the common case where scripts don't use these features.
+fn should_parse_for_models(code: &str) -> bool {
+    code.contains("BaseModel")
+        || code.contains("from pydantic")
+        || code.contains("import pydantic")
+        || code.contains("@dataclass")
+        || code.contains("from dataclasses")
+        || code.contains("import dataclasses")
+}
 
 fn filter_non_main(code: &str, main_name: &str) -> String {
     let def_main = format!("def {}(", main_name);
@@ -139,9 +154,15 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
 
                     for item in body {
                         if let Stmt::Assign(StmtAssign { targets, value, .. }) = item {
-                            if let Some(Expr::Name(ExprName { id: target_name, .. })) = targets.first() {
+                            if let Some(Expr::Name(ExprName { id: target_name, .. })) =
+                                targets.first()
+                            {
                                 if !target_name.starts_with('_') {
-                                    if let Expr::Constant(ExprConstant { value: Constant::Str(val), .. }) = value.as_ref() {
+                                    if let Expr::Constant(ExprConstant {
+                                        value: Constant::Str(val),
+                                        ..
+                                    }) = value.as_ref()
+                                    {
                                         values.push(val.to_string());
                                         members.insert(target_name.to_string(), val.to_string());
                                     }
@@ -154,16 +175,20 @@ fn extract_code_metadata(code: &str, main_name: &str) -> CodeMetadata {
                         enums.insert(name.to_string(), EnumInfo { values, members });
                     }
                 }
-            },
+            }
             Stmt::FunctionDef(StmtFunctionDef { name: func_name, body, .. }) if has_docstring => {
                 if &func_name == main_name {
                     if let Some(Stmt::Expr(expr_stmt)) = body.first() {
-                        if let Expr::Constant(ExprConstant { value: Constant::Str(docstring), .. }) = expr_stmt.value.as_ref() {
+                        if let Expr::Constant(ExprConstant {
+                            value: Constant::Str(docstring),
+                            ..
+                        }) = expr_stmt.value.as_ref()
+                        {
                             descriptions = parse_docstring_args(docstring);
                         }
                     }
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -231,8 +256,46 @@ pub fn parse_python_signature(
 
     let has_preprocessor = !filter_non_main(code, "preprocessor").is_empty();
 
-    let filtered_code = filter_non_main(code, &main_name);
-    if filtered_code.is_empty() {
+    // Optimization: Parse code only once
+    // - If models detected: parse full code, extract main from it, keep AST for type detection
+    // - If no models: parse only the filtered main function
+    let (params, module) = if should_parse_for_models(code) {
+        // Parse full code once for both Pydantic detection and signature extraction
+        let ast = Suite::parse(code, "main.py")
+            .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+
+        // Extract main function from full AST
+        let params = ast.iter().find_map(|x| match x {
+            Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if name == &main_name => {
+                Some(args.as_ref().clone())
+            }
+            _ => None,
+        });
+
+        // Keep AST for Pydantic/dataclass detection
+        (params, Some(ast))
+    } else {
+        // No models detected - parse only the filtered main function
+        let filtered_code = filter_non_main(code, &main_name);
+        if filtered_code.is_empty() {
+            (None, None)
+        } else {
+            let ast = Suite::parse(&filtered_code, "main.py")
+                .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
+
+            let params = ast.into_iter().find_map(|x| match x {
+                Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => {
+                    Some(*args)
+                }
+                _ => None,
+            });
+
+            (params, None)
+        }
+    };
+
+    // Check if main function was found
+    if params.is_none() {
         return Ok(MainArgSignature {
             star_args: false,
             star_kwargs: false,
@@ -241,13 +304,6 @@ pub fn parse_python_signature(
             has_preprocessor: Some(has_preprocessor),
         });
     }
-    let ast = Suite::parse(&filtered_code, "main.py")
-        .map_err(|e| anyhow::anyhow!("Error parsing code: {}", e.to_string()))?;
-
-    let params = ast.into_iter().find_map(|x| match x {
-        Stmt::FunctionDef(StmtFunctionDef { name, args, .. }) if &name == &main_name => Some(*args),
-        _ => None,
-    });
 
     if !skip_params && params.is_some() {
         let params = params.unwrap();
@@ -259,6 +315,7 @@ pub fn parse_python_signature(
         // This ensures zero overhead for scripts without enums/docstrings
 
         let empty_enums = HashMap::new();
+        let module_ref = module.as_ref().map(|m| m.as_slice());
         let args_first_pass: Vec<_> = params
             .args
             .iter()
@@ -269,7 +326,9 @@ pub fn parse_python_signature(
                     .as_arg()
                     .annotation
                     .as_ref()
-                    .map_or((Typ::Unknown, false), |e| parse_expr(e, &empty_enums));
+                    .map_or((Typ::Unknown, false), |e| {
+                        parse_expr(e, &empty_enums, module_ref)
+                    });
                 (i, arg_name, typ, has_default)
             })
             .collect();
@@ -282,10 +341,7 @@ pub fn parse_python_signature(
         let metadata = if has_potential_enums || code.contains("Args:") {
             extract_code_metadata(code, &main_name)
         } else {
-            CodeMetadata {
-                enums: HashMap::new(),
-                descriptions: HashMap::new(),
-            }
+            CodeMetadata { enums: HashMap::new(), descriptions: HashMap::new() }
         };
 
         // Build final args, re-parsing Resource types as enums if metadata was extracted
@@ -297,7 +353,8 @@ pub fn parse_python_signature(
                 .map(|(i, arg_name, mut typ, mut has_default)| {
                     if matches!(typ, Typ::Resource(_)) && !metadata.enums.is_empty() {
                         if let Some(annotation) = params.args[i].as_arg().annotation.as_ref() {
-                            (typ, has_default) = parse_expr(annotation, &metadata.enums);
+                            (typ, has_default) =
+                                parse_expr(annotation, &metadata.enums, module_ref);
                         }
                     }
 
@@ -357,15 +414,19 @@ pub fn parse_python_signature(
     }
 }
 
-fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
+fn parse_expr(
+    e: &Box<Expr>,
+    enums: &HashMap<String, EnumInfo>,
+    module: Option<&[Stmt]>,
+) -> (Typ, bool) {
     match e.as_ref() {
-        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums), false),
+        Expr::Name(ExprName { id, .. }) => (parse_typ(id.as_ref(), enums, module), false),
         Expr::Attribute(x) => {
             if x.value
                 .as_name_expr()
                 .is_some_and(|x| x.id.as_str() == "wmill")
             {
-                (parse_typ(x.attr.as_str(), enums), false)
+                (parse_typ(x.attr.as_str(), enums, module), false)
             } else {
                 (Typ::Unknown, false)
             }
@@ -375,7 +436,7 @@ fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
                 x.right.as_ref(),
                 Expr::Constant(ExprConstant { value: Constant::None, .. })
             ) {
-                (parse_expr(&x.left, enums).0, true)
+                (parse_expr(&x.left, enums, module).0, true)
             } else {
                 (Typ::Unknown, false)
             }
@@ -404,8 +465,11 @@ fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
                     };
                     (Typ::Str(values), false)
                 }
-                "List" | "list" => (Typ::List(Box::new(parse_expr(&x.slice, enums).0)), false),
-                "Optional" => (parse_expr(&x.slice, enums).0, true),
+                "List" | "list" => (
+                    Typ::List(Box::new(parse_expr(&x.slice, enums, module).0)),
+                    false,
+                ),
+                "Optional" => (parse_expr(&x.slice, enums, module).0, true),
                 _ => (Typ::Unknown, false),
             },
             _ => (Typ::Unknown, false),
@@ -414,7 +478,7 @@ fn parse_expr(e: &Box<Expr>, enums: &HashMap<String, EnumInfo>) -> (Typ, bool) {
     }
 }
 
-fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>) -> Typ {
+fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>, module: Option<&[Stmt]>) -> Typ {
     if let Some(enum_info) = enums.get(id) {
         return Typ::Str(Some(enum_info.values.clone()));
     }
@@ -436,7 +500,17 @@ fn parse_typ(id: &str, enums: &HashMap<String, EnumInfo>) -> Typ {
         x @ _ if x.starts_with("DynMultiselect_") => {
             Typ::DynMultiselect(x.strip_prefix("DynMultiselect_").unwrap().to_string())
         }
-        _ => Typ::Resource(map_resource_name(id)),
+        _ => {
+            // Check if it's a Pydantic model or dataclass
+            if let Some(module) = module {
+                if let Some(object_type) = pydantic_parser::detect_model_type(id, module) {
+                    return Typ::Object(object_type);
+                }
+            }
+
+            // Fallback to Resource if not a model
+            Typ::Resource(map_resource_name(id))
+        }
     }
 }
 
@@ -470,7 +544,10 @@ fn to_value<R>(et: &Expr<R>, enums: &HashMap<String, EnumInfo>) -> Option<serde_
             Some(json!(v))
         }
         Expr::List(ExprList { elts, .. }) => {
-            let v = elts.into_iter().map(|x| to_value(&x, enums)).collect::<Vec<_>>();
+            let v = elts
+                .into_iter()
+                .map(|x| to_value(&x, enums))
+                .collect::<Vec<_>>();
             Some(json!(v))
         }
         Expr::Attribute(ExprAttribute { value, attr, .. }) => {
@@ -987,10 +1064,17 @@ def main(color: Color = Color.RED):
         assert_eq!(result.args[0].name, "color");
         assert_eq!(
             result.args[0].typ,
-            Typ::Str(Some(vec!["red".to_string(), "green".to_string(), "blue".to_string()]))
+            Typ::Str(Some(vec![
+                "red".to_string(),
+                "green".to_string(),
+                "blue".to_string()
+            ]))
         );
         assert_eq!(result.args[0].default, Some(json!("red")));
-        assert_eq!(result.args[0].otyp, Some("Color selection from Color enum".to_string()));
+        assert_eq!(
+            result.args[0].otyp,
+            Some("Color selection from Color enum".to_string())
+        );
         Ok(())
     }
 }
