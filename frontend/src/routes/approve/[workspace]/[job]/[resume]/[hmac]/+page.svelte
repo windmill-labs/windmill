@@ -154,8 +154,6 @@
 			untrack(() => loadUser())
 		}
 	})
-
-	$inspect('dbg schema', schema)
 </script>
 
 <ScheduleEditor bind:this={scheduleEditor} />
