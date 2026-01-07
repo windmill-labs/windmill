@@ -385,12 +385,13 @@
 				<div class="flex flex-row justify-center w-full">
 					<FlowChat
 						useStreaming={shouldUseStreaming}
-						onRunFlow={async (userMessage, conversationId) => {
-							await runPreview({ user_message: userMessage }, undefined, conversationId)
+						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
+							await runPreview({ user_message: userMessage, ...(additionalInputs ?? {}) }, undefined, conversationId)
 							return jobId ?? ''
 						}}
 						hideSidebar={true}
 						path={$pathStore}
+						inputSchema={flowStore.val.schema}
 					/>
 				</div>
 			{:else}

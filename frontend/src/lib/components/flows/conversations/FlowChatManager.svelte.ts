@@ -53,12 +53,20 @@ export class FlowChatManager {
 	#perPage = 50
 
 	// Options
-	#onRunFlow?: (userMessage: string, conversationId: string) => Promise<string | undefined>
+	#onRunFlow?: (
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	) => Promise<string | undefined>
 	#useStreaming = $state(false)
 	#path = $state<string | undefined>(undefined)
 
 	initialize(
-		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>,
+		onRunFlow: (
+			userMessage: string,
+			conversationId: string,
+			additionalInputs?: Record<string, any>
+		) => Promise<string | undefined>,
 		path: string,
 		useStreaming: boolean = false
 	) {
@@ -375,7 +383,7 @@ export class FlowChatManager {
 	}
 
 	// Message sending
-	async sendMessage() {
+	async sendMessage(additionalInputs?: Record<string, any>) {
 		if (!this.inputMessage.trim() || this.isLoading) return
 
 		const isNewConversation = this.messages.length === 0
@@ -417,9 +425,19 @@ export class FlowChatManager {
 			this.scrollToUserMessage(userMessage.id)
 
 			if (this.#useStreaming && this.#path) {
-				await this.handleStreamingMessage(messageContent, currentConversationId, isNewConversation)
+				await this.handleStreamingMessage(
+					messageContent,
+					currentConversationId,
+					isNewConversation,
+					additionalInputs
+				)
 			} else {
-				await this.handlePollingMessage(messageContent, currentConversationId, isNewConversation)
+				await this.handlePollingMessage(
+					messageContent,
+					currentConversationId,
+					isNewConversation,
+					additionalInputs
+				)
 			}
 		} catch (error) {
 			console.error('Error running flow:', error)
@@ -437,7 +455,8 @@ export class FlowChatManager {
 	private async handleStreamingMessage(
 		messageContent: string,
 		currentConversationId: string,
-		isNewConversation: boolean
+		isNewConversation: boolean,
+		additionalInputs?: Record<string, any>
 	) {
 		// Close any existing EventSource
 		if (this.currentEventSource) {
@@ -450,7 +469,7 @@ export class FlowChatManager {
 		let isCompleted = false
 
 		try {
-			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+			const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 			if (!jobId) {
 				console.error('No jobId returned from onRunFlow')
 				return
@@ -574,9 +593,10 @@ export class FlowChatManager {
 	private async handlePollingMessage(
 		messageContent: string,
 		currentConversationId: string,
-		isNewConversation: boolean
+		isNewConversation: boolean,
+		additionalInputs?: Record<string, any>
 	) {
-		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId)
+		const jobId = await this.#onRunFlow?.(messageContent, currentConversationId, additionalInputs)
 		if (!jobId) {
 			console.error('No jobId returned from onRunFlow')
 			return
@@ -592,13 +612,6 @@ export class FlowChatManager {
 		// Start polling for intermediate messages in non-streaming mode too
 		this.startPolling(currentConversationId)
 		this.pollJobResult(jobId)
-	}
-
-	handleKeyDown = (event: KeyboardEvent) => {
-		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
-			event.preventDefault()
-			this.sendMessage()
-		}
 	}
 }
 

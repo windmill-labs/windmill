@@ -23,7 +23,8 @@
 		Code,
 		Save,
 		X,
-		Check
+		Check,
+		Settings2
 	} from 'lucide-svelte'
 	import CaptureIcon from '$lib/components/triggers/CaptureIcon.svelte'
 	import FlowInputEditor from './FlowInputEditor.svelte'
@@ -84,7 +85,10 @@
 
 	// Detect if we're in "review mode" (AI has made schema changes that are pending)
 	const hasAiSchemaChanges = $derived(
-		Boolean(diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending && diffManager?.beforeFlow?.schema)
+		Boolean(
+			diffManager?.moduleActions[SPECIAL_MODULE_IDS.INPUT]?.pending &&
+				diffManager?.beforeFlow?.schema
+		)
 	)
 
 	let chatInputEnabled = $state(Boolean(flowStore.val.value?.chat_input_enabled))
@@ -98,6 +102,9 @@
 		)
 	})
 	let showChatModeWarning = $state(false)
+	let showAdditionalInputs = $state(false)
+	let chatInputsEditTab = $state(false)
+	let chatInputsAddPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 
 	let addPropertyV2: AddPropertyV2 | undefined = $state(undefined)
 	let previewSchema: Record<string, any> | undefined = $state(undefined)
@@ -435,9 +442,7 @@
 		const parentPath = path.slice(0, -1)
 
 		const getSchemaAtPath = (schema: Record<string, any>) =>
-			parentPath.length === 0
-				? schema
-				: getNestedProperty(schema, parentPath, 'properties')
+			parentPath.length === 0 ? schema : getNestedProperty(schema, parentPath, 'properties')
 
 		const getProperties = (schema: Record<string, any>) => getSchemaAtPath(schema)?.properties
 
@@ -457,9 +462,7 @@
 			if (targetProperties && arg.label in targetProperties) {
 				delete targetProperties[arg.label]
 				if (targetSchemaAtPath?.order) {
-					targetSchemaAtPath.order = targetSchemaAtPath.order.filter(
-						(x: string) => x !== arg.label
-					)
+					targetSchemaAtPath.order = targetSchemaAtPath.order.filter((x: string) => x !== arg.label)
 				}
 			}
 		}
@@ -502,9 +505,13 @@
 
 	async function runFlowWithMessage(
 		message: string,
-		conversationId: string
+		conversationId: string,
+		additionalInputs?: Record<string, any>
 	): Promise<string | undefined> {
-		previewArgs.val = { user_message: message }
+		previewArgs.val = {
+			user_message: message,
+			...(additionalInputs ?? {})
+		}
 		const jobId = await onTestFlow?.(conversationId)
 		return jobId
 	}
@@ -641,29 +648,91 @@
 <FlowCard {noEditor} title="Flow Input">
 	{#snippet action()}
 		{#if !disabled}
-			<Toggle
-				size="sm"
-				bind:checked={chatInputEnabled}
-				on:change={() => {
-					handleToggleChatMode()
-				}}
-				options={{
-					right: 'Chat Mode',
-					rightTooltip:
-						'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
-				}}
-			/>
+			<div class="flex items-center gap-2">
+				<Toggle
+					size="sm"
+					bind:checked={chatInputEnabled}
+					on:change={() => {
+						handleToggleChatMode()
+					}}
+					options={{
+						right: 'Chat Mode',
+						rightTooltip:
+							'When enabled, the flow execution page will show a chat interface where each message sent runs the flow with the message as "user_message" input parameter. The flow schema will be automatically set to accept only a user_message string input.'
+					}}
+				/>
+				{#if flowStore.val.value?.chat_input_enabled}
+					<Button
+						size="xs"
+						variant="border"
+						color={showAdditionalInputs ? 'blue' : 'light'}
+						startIcon={{ icon: Settings2 }}
+						title="Manage inputs"
+						on:click={() => (showAdditionalInputs = !showAdditionalInputs)}
+					>
+						Manage inputs
+					</Button>
+				{/if}
+			</div>
 		{/if}
 	{/snippet}
 	{#if !disabled}
 		<div class="flex flex-col h-full">
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-col h-full">
+					{#if showAdditionalInputs}
+						<div class="border-b p-2">
+							<EditableSchemaForm
+								bind:schema={flowStore.val.schema}
+								hiddenArgs={['user_message']}
+								isFlowInput
+								editTab={chatInputsEditTab ? 'inputEditor' : undefined}
+								showDynOpt
+								bind:dynCode
+								bind:dynLang
+								on:delete={(e) => {
+									chatInputsAddPropertyV2?.handleDeleteArgument([e.detail])
+								}}
+							>
+								{#snippet openEditTab()}
+									<Button
+										size="xs"
+										variant={chatInputsEditTab ? 'contained' : 'border'}
+										color={chatInputsEditTab ? 'blue' : 'light'}
+										startIcon={{ icon: chatInputsEditTab ? ChevronRight : Pen }}
+										title={chatInputsEditTab ? 'Close editor' : 'Edit inputs'}
+										onClick={() => {
+											chatInputsEditTab = !chatInputsEditTab
+										}}
+									/>
+								{/snippet}
+								{#snippet addProperty()}
+									<AddPropertyV2
+										bind:this={chatInputsAddPropertyV2}
+										bind:schema={flowStore.val.schema}
+										onAddNew={() => {}}
+									>
+										{#snippet trigger()}
+											<Button
+												size="xs"
+												color="light"
+												startIcon={{ icon: Plus }}
+												title="Add additional input"
+											>
+												Add input
+											</Button>
+										{/snippet}
+									</AddPropertyV2>
+								{/snippet}
+							</EditableSchemaForm>
+						</div>
+					{/if}
 					<FlowChat
 						onRunFlow={runFlowWithMessage}
 						path={$pathStore}
 						hideSidebar={true}
 						useStreaming={shouldUseStreaming}
+						inputSchema={flowStore.val.schema}
 					/>
 				</div>
 			{:else}
@@ -756,7 +825,7 @@
 										disabled={!previewSchema}
 										shortCut={{ Icon: CornerDownLeft, hide: false, withoutModifier: true }}
 										startIcon={{ icon: Check }}
-										on:click={() => {
+										onClick={() => {
 											applySchemaAndArgs()
 											connectFirstNode()
 										}}
@@ -774,7 +843,7 @@
 										size="xs"
 										startIcon={{ icon: X }}
 										shortCut={{ key: 'esc', withoutModifier: true }}
-										on:click={() => {
+										onClick={() => {
 											if (hasAiSchemaChanges) {
 												if (diffManager?.beforeFlow?.schema) {
 													diffManager.rejectModule(SPECIAL_MODULE_IDS.INPUT, flowStore)
@@ -928,7 +997,7 @@
 									disabled={runDisabled || !isValid}
 									size="xs"
 									shortCut={{ Icon: CornerDownLeft, hide: false }}
-									on:click={() => {
+									onClick={() => {
 										runPreview()
 									}}
 								>
