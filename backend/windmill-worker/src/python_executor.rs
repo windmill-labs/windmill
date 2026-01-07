@@ -8,7 +8,7 @@ use std::{
 };
 
 #[cfg(unix)]
-use std::os::unix::process::ExitStatusExt; 
+use std::os::unix::process::ExitStatusExt;
 
 use anyhow::anyhow;
 use itertools::Itertools;
@@ -1960,6 +1960,20 @@ pub async fn handle_python_reqs(
 
             if let Some(pid) = pids.lock().await.get_mut(i) {
                 *pid = uv_install_proccess.id();
+                #[cfg(unix)]
+                if let Err(e) = uv_install_proccess
+                  .id()
+                  .ok_or(Error::InternalErr(format!(
+                    "failed to get PID for python installation process: {}",
+                    &req
+                  )))
+                  .and_then(|pid| write_file(&format!("/proc/{pid}"), "oom_score_adj", "1000"))
+                {
+                  tracing::error!(
+                      req = %req,
+                      "Failed to create oom_score_adj for python dependency installation process: {e}"
+                  );
+                }
             } else {
                 tracing::error!(
                     workspace_id = %w_id,
@@ -2137,7 +2151,8 @@ pub async fn handle_python_reqs(
             append_logs(
                 &job_id,
                 w_id,
-                format!("\n
+                format!(
+                    "\n
     ======================
     ===== IMPORTANT! =====
     ======================
@@ -2146,7 +2161,8 @@ Some of installations have been killed by OOM,
 restarting with reduced concurrency: {parallel_limit} -> {reduced_limit}
 
 This is not normal behavior, please make sure all workers have enough memory.\n
-"),
+"
+                ),
                 conn,
             )
             .await;
