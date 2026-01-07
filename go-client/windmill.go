@@ -145,12 +145,22 @@ func GetStatePath() string {
 	return value
 }
 
-func GetState() (interface{}, error) {
-	return GetResource(GetStatePath())
+func getStatePathFromOpt(pathOpt ...string) string {
+	if len(pathOpt) > 0 {
+		path := pathOpt[0]
+		if len(path) > 0 {
+			return path
+		}
+	}
+	return GetStatePath()
 }
 
-func SetState(state interface{}) error {
-	err := SetResource(GetStatePath(), state)
+func GetState(pathOpt ...string) (interface{}, error) {
+	return GetResource(getStatePathFromOpt(pathOpt...))
+}
+
+func SetState(state interface{}, pathOpt ...string) error {
+	err := SetResource(getStatePathFromOpt(pathOpt...), state)
 	if err != nil {
 		return err
 	}

@@ -508,7 +508,7 @@ pub async fn run_agent(
                 .clone()
                 .unwrap_or_else(|| "unknown".to_string());
 
-            Some(get_transform_context(job, &previous_id, flow_status).await?)
+            Some(get_transform_context(job, &previous_id, flow_status))
         } else {
             None
         }
