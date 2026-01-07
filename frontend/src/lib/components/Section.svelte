@@ -88,7 +88,9 @@
 					{/if}
 				{/if}
 			</h2>
-			{@render action?.()}
+			{#if !(collapsable && collapsed)}
+				{@render action?.()}
+			{/if}
 			{#if collapsable && collapsed}
 				{@render badge?.()}
 			{/if}
