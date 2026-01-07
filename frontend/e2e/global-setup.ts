@@ -43,28 +43,6 @@ async function globalSetup(config: FullConfig) {
 	await page.waitForURL('**/')
 	await page.locator('text=Home').first().waitFor({ state: 'visible' })
 
-	const licenseKey = process.env.LICENSE_KEY
-
-	if (licenseKey) {
-		// Navigate to superadmin settings to configure license key
-		await page.goto(`${baseURL}/#superadmin-settings`)
-
-		// Wait for the license key input
-		const licenseKeyInput = page.locator('input#license_key')
-		await licenseKeyInput.waitFor({ state: 'visible' })
-
-		// Fill in the license key from environment variable
-
-		await licenseKeyInput.fill(licenseKey)
-
-		// Click the Save button
-		const saveButton = page.locator('button:has-text("Save")')
-		await saveButton.click()
-
-		// Wait a moment for the save to complete
-		await page.waitForTimeout(1000)
-	}
-
 	// Save the authenticated state
 	await context.storageState({ path: './e2e/auth.json' })
 	await browser.close()
