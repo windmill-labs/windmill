@@ -57,7 +57,6 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
-rmcp = { version = "0.8.1", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 aws-sdk-bedrockruntime.workspace = true
 aws-config.workspace = true
 aws-credential-types.workspace = true
