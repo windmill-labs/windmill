@@ -51,10 +51,10 @@
 		return null
 	}
 	let raise_error_message_stop_after_all_if = $state(
-		flowModule.stop_after_all_iters_if?.error_message !== undefined
+		flowModule.stop_after_all_iters_if?.error_message != undefined
 	)
 	let raise_error_message_stop_after_if = $state(
-		flowModule.stop_after_if?.error_message !== undefined
+		flowModule.stop_after_if?.error_message != undefined
 	)
 	let { isLoop, isParallelLoop } = $derived(
 		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
