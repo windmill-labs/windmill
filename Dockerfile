@@ -202,8 +202,15 @@ RUN apt-get -y update && apt-get install -y curl procps nodejs awscli && apt-get
     && rm -rf /var/lib/apt/lists/*
 
 # go build is slower the first time it is ran, so we prewarm it in the build
-# export ensures GOCACHE applies to all commands in the chain (not just the first)
-RUN export GOCACHE=/tmp/build_cache/go && mkdir -p /tmp/gobuildwarm && cd /tmp/gobuildwarm && go mod init gobuildwarm && printf "package foo\nimport (\"fmt\")\nfunc main() { fmt.Println(42) }" > warm.go && go mod tidy && go build -x && rm -rf /tmp/gobuildwarm
+# This mirrors Windmill's Go wrapper structure: main.go imports inner package, uses encoding/json, os, fmt
+RUN export GOCACHE=/tmp/build_cache/go && \
+    mkdir -p /tmp/gobuildwarm/inner && \
+    cd /tmp/gobuildwarm && \
+    go mod init mymod && \
+    printf 'package main\nimport (\n\t"encoding/json"\n\t"os"\n\t"fmt"\n\t"mymod/inner"\n)\nfunc main() {\n\tdat, _ := os.ReadFile("args.json")\n\tvar req inner.Req\n\tjson.Unmarshal(dat, &req)\n\tres, _ := inner.Run(req)\n\tres_json, _ := json.Marshal(res)\n\tfmt.Println(string(res_json))\n}' > main.go && \
+    printf 'package inner\ntype Req struct {\n\tX int `json:"x"`\n}\nfunc Run(req Req) (interface{}, error) {\n\treturn main(req.X)\n}\nfunc main(x int) (interface{}, error) {\n\treturn x, nil\n}' > inner/inner.go && \
+    go build -x . && \
+    rm -rf /tmp/gobuildwarm
 
 # Copy build caches to final location, then add write permissions for any UID
 # chmod a+rw adds read+write WITHOUT removing execute bits (755->777, 644->666)
