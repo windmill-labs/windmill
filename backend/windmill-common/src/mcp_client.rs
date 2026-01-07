@@ -5,7 +5,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::str::FromStr;
 
-use rmcp::model::Tool as McpTool;
+pub use rmcp::model::Tool as McpTool;
 use rmcp::{
     model::{
         CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation,

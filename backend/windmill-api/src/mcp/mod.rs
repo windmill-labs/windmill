@@ -8,4 +8,4 @@ pub mod tools;
 pub mod utils;
 
 // Re-export main components
-pub use server::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server, list_tools_service};
+pub use server::{extract_and_store_workspace_id, list_tools_service, setup_mcp_server};

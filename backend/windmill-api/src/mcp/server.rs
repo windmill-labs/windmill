@@ -18,6 +18,7 @@ use rmcp::{
 };
 use serde_json::Value;
 use tokio::try_join;
+use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{utils::StripPath, DB};
@@ -47,7 +48,7 @@ use axum::{
     extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
 };
 use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, SessionManager, StreamableHttpService,
+    session::local::LocalSessionManager, StreamableHttpService,
 };
 use windmill_common::error::JsonResult;
 
@@ -126,6 +127,7 @@ impl Runner {
                 idempotent_hint: Some(false), // Are not guaranteed to be idempotent
                 open_world_hint: Some(true),  // Can interact with external services
             }),
+            meta: None,
         })
     }
 }
@@ -471,7 +473,7 @@ impl ServerHandler for Runner {
             );
         }
 
-        Ok(ListToolsResult { tools, next_cursor: None })
+        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
     }
 
     fn get_info(&self) -> ServerInfo {
@@ -498,7 +500,7 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(ListResourcesResult { resources: vec![], next_cursor: None })
+        Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
     }
 
     async fn list_prompts(
@@ -530,11 +532,13 @@ pub async fn extract_and_store_workspace_id(
 }
 
 /// Setup the MCP server with HTTP transport
-pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
+pub async fn setup_mcp_server() -> anyhow::Result<(Router, CancellationToken)> {
+    let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
     let service_config = StreamableHttpServerConfig {
         sse_keep_alive: Some(Duration::from_secs(15)),
         stateful_mode: false,
+        cancellation_token: cancellation_token.clone(),
     };
     let service = StreamableHttpService::new(
         || Ok(Runner::new()),
@@ -543,34 +547,7 @@ pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManag
     );
 
     let router = axum::Router::new().nest_service("/", service);
-    Ok((router, session_manager))
-}
-
-/// Shutdown the MCP server gracefully by closing all active sessions
-pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
-    let session_ids_to_close = {
-        let sessions_map = session_manager.sessions.read().await;
-        sessions_map.keys().cloned().collect::<Vec<_>>()
-    };
-
-    if !session_ids_to_close.is_empty() {
-        tracing::info!(
-            "Closing {} active MCP session(s)...",
-            session_ids_to_close.len()
-        );
-        let close_futures = session_ids_to_close
-            .iter()
-            .map(|session_id| {
-                let manager_clone = session_manager.clone();
-                async move {
-                    if let Err(_) = manager_clone.close_session(session_id).await {
-                        tracing::warn!("Error closing MCP session");
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        futures::future::join_all(close_futures).await;
-    }
+    Ok((router, cancellation_token))
 }
 
 /// HTTP handler to list MCP tools as JSON

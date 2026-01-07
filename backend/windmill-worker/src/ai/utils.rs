@@ -20,7 +20,7 @@ use windmill_common::{
 };
 use windmill_common::{
     flows::FlowModuleValue,
-    mcp_client::{McpClient, McpResource, McpToolSource},
+    mcp_client::{McpClient, McpResource, McpTool, McpToolSource},
 };
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
@@ -352,7 +352,7 @@ pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
 
 /// Convert raw MCP tools to Windmill Tool format with source tracking
 fn convert_mcp_tools_to_windmill_tools(
-    mcp_tools: &[rmcp::model::Tool],
+    mcp_tools: &[McpTool],
     resource_name: &str,
     resource_path: &str,
 ) -> Result<Vec<Tool>, Error> {
