@@ -32,7 +32,11 @@ export default defineConfig({
 		/* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
 		trace: 'on-first-retry',
 
-		storageState: './e2e/auth.json'
+		storageState: './e2e/auth.json',
+
+		contextOptions: {
+			reducedMotion: 'reduce'
+		}
 	},
 	testMatch: /.*\.spec\.ts/,
 	/* Configure projects for major browsers */

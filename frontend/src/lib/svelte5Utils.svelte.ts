@@ -187,3 +187,22 @@ export class ChangeOnDeepInequality<T> {
 		return this._cached!
 	}
 }
+
+export function useReducedMotion(): { val: boolean } {
+	if (typeof window === 'undefined') return { val: false }
+
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+	let s = $state(query.matches)
+	$effect(() => {
+		const handler = (event: MediaQueryListEvent) => {
+			s = event.matches
+		}
+		query.addEventListener('change', handler)
+		return () => query.removeEventListener('change', handler)
+	})
+	return {
+		get val() {
+			return s
+		}
+	}
+}

@@ -5,6 +5,8 @@
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { PlusIcon } from 'lucide-svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
+	import { watch } from 'runed'
 
 	let {
 		processedItems: _processedItems,
@@ -58,6 +60,7 @@
 	let listEl: HTMLDivElement | undefined = $state()
 	let dropdownPos = $state(computeDropdownPos())
 	let keyArrowPos = $state<number | undefined>()
+	let reducedMotion = useReducedMotion()
 
 	function computeDropdownPos(): {
 		width: number
@@ -100,32 +103,42 @@
 	// Also CSS transitions are smoother because they do not rely on JS / animation frames
 	let uiState = $state({ domExists: open, visible: open, timeout: null as number | null })
 	let initial = true
-	$effect(() => {
-		let isOpen = open && !disabled
-		untrack(() => {
-			if (initial) {
-				initial = false
-				return
-			}
-			if (uiState.timeout) clearTimeout(uiState.timeout)
-			uiState = {
-				domExists: true,
-				visible: !isOpen,
-				timeout: setTimeout(() => {
-					if (isOpen) {
-						uiState.visible = true
-						uiState.timeout = null
-					} else if (!isOpen) {
-						uiState.visible = false
-						uiState.timeout = setTimeout(() => {
-							uiState.domExists = false
-							uiState.timeout = null
-						}, 500) // leave time for transition to finish
+	watch(
+		() => open && !disabled,
+		(isOpen) => {
+			untrack(() => {
+				if (initial) {
+					initial = false
+					return
+				}
+				if (reducedMotion.val) {
+					uiState = {
+						domExists: open && !disabled,
+						visible: open && !disabled,
+						timeout: null
 					}
-				}, 0) // We need the height to be 0 then change immediately for the transition to play
-			}
-		})
-	})
+					return
+				}
+				if (uiState.timeout) clearTimeout(uiState.timeout)
+				uiState = {
+					domExists: true,
+					visible: !isOpen,
+					timeout: setTimeout(() => {
+						if (isOpen) {
+							uiState.visible = true
+							uiState.timeout = null
+						} else if (!isOpen) {
+							uiState.visible = false
+							uiState.timeout = setTimeout(() => {
+								uiState.domExists = false
+								uiState.timeout = null
+							}, 500) // leave time for transition to finish
+						}
+					}, 0) // We need the height to be 0 then change immediately for the transition to play
+				}
+			})
+		}
+	)
 </script>
 
 <svelte:window
@@ -166,7 +179,8 @@
 		>
 			<div
 				class={twMerge(
-					'overflow-clip rounded-md drop-shadow-base transition-height',
+					'overflow-clip rounded-md drop-shadow-base',
+					!reducedMotion.val ? 'transition-height' : '',
 					dropdownPos.isBelow ? '' : 'flex flex-col justify-end'
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
