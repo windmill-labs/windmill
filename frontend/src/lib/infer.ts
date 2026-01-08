@@ -308,6 +308,8 @@ export async function inferArgs(
 			schema.properties[arg.name] = { description: '', type: '' }
 		} else {
 			schema.properties[arg.name] = oldProperties[arg.name]
+			if (schema.properties[arg.name].oneOf && !('oneof' in arg))
+				delete schema.properties[arg.name].oneOf
 		}
 		schema.properties[arg.name] = sortObject(schema.properties[arg.name])
 
