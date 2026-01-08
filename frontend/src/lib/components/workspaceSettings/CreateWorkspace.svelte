@@ -213,7 +213,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
 		if (aiKey != '') {
@@ -327,6 +327,7 @@
 
 	let auto_invite = $state(false)
 	let operatorOnly = $state(false)
+	let autoAdd = $state(false)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
@@ -560,6 +561,17 @@
 							<span class="text-xs text-secondary font-normal"
 								>Whether to invite or add users directly to the workspace.</span
 							>
+							<ToggleButtonGroup
+								selected={autoAdd ? 'add' : 'invite'}
+								on:selected={async (e) => {
+									autoAdd = e.detail === 'add'
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="invite" label="Auto-invite" {item} />
+									<ToggleButton value="add" label="Auto-add" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
 						</label>
 
 						<label class="font-semibold flex flex-col gap-1">
