@@ -4,20 +4,22 @@ import { expect, Locator, Page } from '@playwright/test'
 import type { DbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { ConfirmationModal, Toast } from './utils'
 
-export async function runDbManagerTests(page: Page, dbFeatures: DbFeatures) {
+export async function runDbManagerSimpleCRUDTest(page: Page, dbFeatures: DbFeatures) {
 	let dbManager = new DbManagerPage(page)
 	await dbManager.expectToBeVisible()
 
+	let friendTableName = `friend_${Date.now()}`
+
 	// Create table
 	const tableEditor = await dbManager.openCreateTableDrawer()
-	await tableEditor.setTableName('friend')
+	await tableEditor.setTableName(friendTableName)
 	await tableEditor.addColumn('name', 'TEXT')
 	await tableEditor.createTable()
 
-	await Toast.expectSuccess(page, 'friend created')
+	await Toast.expectSuccess(page, `${friendTableName} created`)
 
 	// Select and work with the table
-	await dbManager.selectTable('friend')
+	await dbManager.selectTable(friendTableName)
 
 	// Insert a row
 	const insertDrawer = await dbManager.openInsertDrawer()
@@ -35,10 +37,10 @@ export async function runDbManagerTests(page: Page, dbFeatures: DbFeatures) {
 	await dataGrid.expectCellValue('Bob')
 
 	// Delete the table
-	const actionsMenu = await dbManager.openActionsMenu('friend')
+	const actionsMenu = await dbManager.openActionsMenu(friendTableName)
 	await actionsMenu.deleteTable()
 
-	await Toast.expectSuccess(page, "Table 'friend' deleted successfully")
+	await Toast.expectSuccess(page, `Table '${friendTableName}' deleted successfully`)
 }
 
 export class DbManagerPage {

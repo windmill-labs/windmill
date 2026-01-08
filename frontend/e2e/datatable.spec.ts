@@ -1,6 +1,12 @@
 import { test, expect, Page } from '@playwright/test'
-import { DbManagerPage, runDbManagerTests } from './DbManagerPage'
+import { runDbManagerSimpleCRUDTest } from './DbManagerPage'
 import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
+import { Toast } from './utils'
+
+test('setup a datatable and ensure db manager works', async ({ page }) => {
+	await setupNewDataTableAndOpenDbManager(page)
+	await runDbManagerSimpleCRUDTest(page, dbFeatures)
+})
 
 async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	// Generate unique ID with timestamp
@@ -57,8 +63,7 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	await confirmBtn.click()
 
 	// Verify success toast appears
-	const successToast = page.locator(`.toast-success:has-text("Setup successful")`)
-	await expect(successToast).toBeVisible({ timeout: 10000 })
+	Toast.expectSuccess(page, 'Setup successful')
 
 	const closeModalBtn = page.locator('button[id="modal-close-button"]')
 	await closeModalBtn.click()
@@ -67,22 +72,20 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	await saveBtn.click()
 
 	// Verify success toast appears
-	const saveSuccessToast = page.locator(`.toast-success:has-text("saved successfully")`)
-	await expect(saveSuccessToast).toBeVisible({ timeout: 10000 })
+	Toast.expectSuccess(page, 'saved successfully')
 
 	return { datatableId }
 }
 
-test('setup a datatable and ensure db manager works', async ({ page }) => {
-	let { datatableId } = await setupNewDataTable(page)
+async function setupNewDataTableAndOpenDbManager(page: Page) {
+	await setupNewDataTable(page)
 	const table = page.locator('table')
 	const lastRow = table.locator('tr').nth(-2)
 	lastRow.locator('button:has-text("Manage")').click()
+}
 
-	const dbFeatures = getDbFeatures({
-		type: 'database',
-		resourceType: 'postgresql',
-		resourcePath: ''
-	})
-	await runDbManagerTests(page, dbFeatures)
+const dbFeatures = getDbFeatures({
+	type: 'database',
+	resourceType: 'postgresql',
+	resourcePath: ''
 })
