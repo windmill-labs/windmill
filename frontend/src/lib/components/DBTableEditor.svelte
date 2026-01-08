@@ -39,7 +39,7 @@
 </script>
 
 <script lang="ts">
-	import { ArrowRight, ClipboardCopy, Info, Plus, Settings, X } from 'lucide-svelte'
+	import { ArrowRight, ClipboardCopy, Plus, Settings, X } from 'lucide-svelte'
 
 	import { Button } from './common'
 	import { Cell } from './table'
@@ -48,7 +48,6 @@
 	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
-	import Tooltip from './meltComponents/Tooltip.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
@@ -226,9 +225,13 @@
 										bind:checked={column.primaryKey}
 									/>
 								{/if}
-								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
+								<Popover
+									class="ml-8"
+									contentClasses="py-3 px-5 flex flex-col gap-6"
+									enableFlyTransition
+								>
 									{#snippet trigger()}
-										<Settings size={18} />
+										<Settings size={18} class="settings-menu-btn" />
 									{/snippet}
 									{#snippet content()}
 										{#if datatypeHasLength(column.datatype)}
@@ -238,27 +241,26 @@
 											</label>
 										{/if}
 										{#if features?.defaultValues}
-											<label class="text-xs">
-												<span class="flex gap-1 mb-1">
-													Default value
-													<Tooltip>
-														<Info size={14} />
-														{#snippet text()}
-															Surround your expressions with curly brackets:
-															<code>
-																{'{NOW()}'}
-															</code>.
-															<br />
-															By default, it will be parsed as a literal
-														{/snippet}
-													</Tooltip>
-												</span>
-												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
-											</label>
+											<Label
+												class="flex gap-1 mb-1"
+												label="Default Value"
+												tooltip="Parsed as literal by default. Use curly brackets for expressions (e.g. {'{NOW()}'} )."
+											>
+												<input
+													class="default-value"
+													type="text"
+													placeholder="NULL"
+													bind:value={column.defaultValue}
+												/>
+											</Label>
 										{/if}
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
-												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
+												<input
+													type="checkbox"
+													class="nullable-checkbox !w-4 !h-4"
+													bind:checked={column.nullable}
+												/>
 												Nullable
 											</label>
 										{/if}
@@ -360,29 +362,32 @@
 												</div>
 												<div class="ml-auto flex">
 													{#if columnIndex === 0}
-														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
+														<Popover
+															contentClasses="py-3 px-5 w-52 flex flex-col gap-4"
+															enableFlyTransition
+														>
 															{#snippet trigger()}
 																<Settings class="fk-settings-btn" size={18} />
 															{/snippet}
 															{#snippet content()}
-																<Label label="ON DELETE">
+																<Label label="On delete">
 																	<select
 																		class="fk-on-delete-select"
 																		bind:value={foreignKey.onDelete}
 																	>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
+																		<option value="NO ACTION" selected>No action</option>
+																		<option value="CASCADE" selected>Cascade</option>
+																		<option value="SET NULL" selected>Set null</option>
 																	</select>
 																</Label>
-																<Label label="ON UPDATE">
+																<Label label="On update">
 																	<select
 																		class="fk-on-update-select"
 																		bind:value={foreignKey.onUpdate}
 																	>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
+																		<option value="NO ACTION" selected>No action</option>
+																		<option value="CASCADE" selected>Cascade</option>
+																		<option value="SET NULL" selected>Set null</option>
 																	</select>
 																</Label>
 															{/snippet}

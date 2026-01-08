@@ -1,10 +1,7 @@
 // Assume the db manager was already opened
 
 import { expect, Locator, Page } from '@playwright/test'
-import {
-	getDbFeatures,
-	type DbFeatures
-} from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
+import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { ConfirmationModal, Toast } from './utils'
 import { DbInput, DbType } from '../src/lib/components/dbTypes'
 
@@ -58,7 +55,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	let friendTableName = `friend_${timestamp}`
 	let tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
-	await new Column(page, tableEditor.columnsSection(), 'id').delete() // default id column
+	await tableEditor.getColumn('id').delete() // default id column
 	let friendIdCol = await tableEditor.addColumn('id', 'INT')
 	if (dbFeatures.primaryKeys) {
 		friendIdCol.setPrimaryKey(true)
@@ -74,16 +71,17 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	let messageTableName = `message_${timestamp}`
 	tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(messageTableName)
-	await new Column(page, tableEditor.columnsSection(), 'id').delete() // default id column
+	await tableEditor.getColumn('id').delete() // default id column
 	let messageIdCol = await tableEditor.addColumn('id', 'INT')
 	if (dbFeatures.primaryKeys) messageIdCol.setPrimaryKey(true)
 	await tableEditor.addColumn('friend_id', 'INT')
-	await tableEditor.addColumn('content', 'TEXT')
+	let contentColumn = await tableEditor.addColumn('content', 'TEXT')
+	await contentColumn.setSettings({ nullable: true })
 	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
 	if (dbFeatures.foreignKeys) {
 		await tableEditor.addForeignKey(friendTableName, 'friend_id', 'id', {
-			onDelete: 'CASCADE',
-			onUpdate: 'CASCADE'
+			onDelete: 'Cascade',
+			onUpdate: 'Cascade'
 		})
 	} else {
 		expect(tableEditor.foreignKeySection()).toBeHidden()
@@ -92,16 +90,51 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await Toast.expectSuccess(page, `${messageTableName} created`)
 
 	// Alter message table
-	let actionsMenu = await dbManager.openActionsMenu(messageTableName)
-	await actionsMenu.alterTable()
-	tableEditor = new TableEditorDrawer(page)
-	await tableEditor.setTableName(`posts_${timestamp}`)
-	await new Column(page, tableEditor.columnsSection(), 'id').delete()
-	await new Column(page, tableEditor.columnsSection(), 'friend_id').setName('person_id')
-	await new Column(page, tableEditor.columnsSection(), 'created_at').setType('INT')
-	await new Column(page, tableEditor.columnsSection(), 'created_at').setName('created_timestamp')
+	await (await dbManager.openActionsMenu(messageTableName)).alterTable()
+	await tableEditor.expectNoChangesDetected()
+	let postsTableName = `posts_${timestamp}`
+	let friendCol = tableEditor.getColumn('friend_id')
+	let createdAtCol = tableEditor.getColumn('created_at')
+	let idCol = tableEditor.getColumn('id')
+
+	// Predicate checks
+	if (dbFeatures.primaryKeys) {
+		await idCol.checkPrimaryKeyIs(true)
+		await createdAtCol.checkPrimaryKeyIs(false)
+		await contentColumn.checkPrimaryKeyIs(false)
+		await friendCol.checkPrimaryKeyIs(false)
+		await friendCol.checkSettingsIs({ nullable: false, defaultValue: '' })
+	}
+
+	// Apply alterations
+	await tableEditor.setTableName(postsTableName)
+	await idCol.delete()
+	await friendCol.setName('person_id')
+	await friendCol.setType('BIGINT')
+	await friendCol.setSettings({ defaultValue: '123', nullable: false }) // Test no type-error
+	await friendCol.setPrimaryKey(true)
+	await createdAtCol.setPrimaryKey(true)
+	await contentColumn.setPrimaryKey(true)
+	if (dbFeatures.foreignKeys) await tableEditor.deleteForeignKey()
 	await tableEditor.alterTable()
-	await Toast.expectSuccess(page, `posts updated successfully`)
+	await Toast.expectSuccess(page, `${messageTableName} updated`) // uses old table name
+
+	// Verify alterations
+	await dbManager.selectTable(postsTableName) // Ensure the view refreshed
+	await (await dbManager.openActionsMenu(postsTableName)).alterTable()
+	await tableEditor.expectNoChangesDetected()
+	tableEditor = new TableEditorDrawer(page)
+	await idCol.checkNotExists()
+	await friendCol.checkNameIs('person_id')
+	await friendCol.checkTypeIs('BIGINT')
+	await friendCol.checkSettingsIs({ defaultValue: /123/ })
+	await createdAtCol.checkTypeIs('TIMESTAMP')
+	await createdAtCol.checkNameIs('created_at')
+	if (dbFeatures.primaryKeys) {
+		await friendCol.checkPrimaryKeyIs(true)
+		await createdAtCol.checkPrimaryKeyIs(true)
+		await contentColumn.checkPrimaryKeyIs(true)
+	}
 }
 
 export class DbManagerPage {
@@ -170,7 +203,7 @@ class TableEditorDrawer {
 		const newColNameInput = newColRow.locator('td').nth(0).locator('input')
 		await newColNameInput.fill(columnName)
 
-		let column = new Column(this.page, columnsSection, columnName)
+		let column = this.getColumn(columnName)
 		await column.setType(columnType)
 		return column
 	}
@@ -183,6 +216,13 @@ class TableEditorDrawer {
 	async alterTable() {
 		await this.tableEditor().locator('button:has-text("Alter table")').click()
 		await ConfirmationModal.confirm(this.page, '#db-table-editor-confirmation-modal', 'Alter')
+	}
+
+	async deleteForeignKey() {
+		// TODO: do not assume a single foreign key
+		const fkSection = this.foreignKeySection()
+		const deleteBtn = fkSection.locator('.fk-delete-btn')
+		await deleteBtn.click()
 	}
 
 	async addForeignKey(
@@ -223,6 +263,15 @@ class TableEditorDrawer {
 			await fkSettings.click()
 		}
 	}
+
+	async expectNoChangesDetected() {
+		const btn = this.tableEditor().locator(`button:has-text("No changes detected")`)
+		return await expect(btn).toBeVisible({ timeout: 10000 })
+	}
+
+	getColumn(columnName: string): Column {
+		return new Column(this.page, this.columnsSection(), columnName)
+	}
 }
 
 class Column {
@@ -236,13 +285,17 @@ class Column {
 		this.columnName = columnName
 	}
 
-	async row(): Promise<Locator> {
+	async rowOrUndefined(): Promise<Locator | undefined> {
 		let rows = await this.columnsSection.locator('tr:has(input)').all()
 		for (const row of rows) {
 			const val = await row.locator('input').first().inputValue()
 			if (val === this.columnName) return row
 		}
-		throw new Error(`Column with name ${this.columnName} not found`)
+	}
+	row = async () => {
+		const row = await this.rowOrUndefined()
+		if (!row) throw new Error(`Column with name ${this.columnName} not found`)
+		return row
 	}
 
 	primaryKeyCheckbox = async () => (await this.row()).locator('input.primary-key-checkbox')
@@ -253,10 +306,20 @@ class Column {
 		this.columnName = columnName
 	}
 
+	async checkNameIs(columnName: string) {
+		const newColNameInput = (await this.row()).locator('td').nth(0).locator('input')
+		await expect(newColNameInput).toHaveValue(columnName)
+	}
+
 	async setType(columnType: string) {
 		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
 		await newColTypeSelect.click()
 		await this.page.locator(`.select-dropdown-open li:has(:text-is("${columnType}"))`).click()
+	}
+
+	async checkTypeIs(columnType: string) {
+		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
+		await expect(newColTypeSelect).toHaveValue(columnType)
 	}
 
 	async delete() {
@@ -270,6 +333,53 @@ class Column {
 		if (isChecked !== isPrimaryKey) {
 			await primaryKeyCheckbox.click()
 		}
+	}
+
+	async checkPrimaryKeyIs(isPrimaryKey: boolean) {
+		let primaryKeyCheckbox = await this.primaryKeyCheckbox()
+		const isChecked = await primaryKeyCheckbox.isChecked()
+		expect(isChecked).toBe(isPrimaryKey)
+	}
+
+	async setSettings(options: { nullable?: boolean; defaultValue?: string }) {
+		const settingsBtn = (await this.row()).locator('.settings-menu-btn')
+		await settingsBtn.click()
+
+		if (options.defaultValue !== undefined) {
+			const defaultValueInput = this.page.locator('input.default-value')
+			await defaultValueInput.fill(options.defaultValue)
+		}
+
+		if (options.nullable !== undefined) {
+			const nullableCheckbox = this.page.locator('input.nullable-checkbox')
+			const isChecked = await nullableCheckbox.isChecked()
+			if (isChecked !== options.nullable) {
+				await nullableCheckbox.click()
+			}
+		}
+		// Close the popover
+		await settingsBtn.click()
+	}
+
+	async checkSettingsIs(options: { nullable?: boolean; defaultValue?: string | RegExp }) {
+		const settingsBtn = (await this.row()).locator('.settings-menu-btn')
+		await settingsBtn.click()
+		if (options.defaultValue !== undefined) {
+			const defaultValueInput = this.page.locator('input.default-value')
+			await expect(defaultValueInput).toHaveValue(options.defaultValue)
+		}
+
+		if (options.nullable !== undefined) {
+			const nullableCheckbox = this.page.locator('input.nullable-checkbox')
+			const isChecked = await nullableCheckbox.isChecked()
+			expect(isChecked).toBe(options.nullable)
+		}
+		// Close the popover
+		await settingsBtn.click()
+	}
+
+	async checkNotExists() {
+		expect(await this.rowOrUndefined()).toBeUndefined()
 	}
 }
 
