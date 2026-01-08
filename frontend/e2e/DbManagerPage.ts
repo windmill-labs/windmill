@@ -1,18 +1,56 @@
-// Assumes the db manager was already opened
+// Assume the db manager was already opened
 
 import { expect, Locator, Page } from '@playwright/test'
 import type { DbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
+import { ConfirmationModal, Toast } from './utils'
+
+export async function runDbManagerTests(page: Page, dbFeatures: DbFeatures) {
+	let dbManager = new DbManagerPage(page)
+	await dbManager.expectToBeVisible()
+
+	// Create table
+	const tableEditor = await dbManager.openCreateTableDrawer()
+	await tableEditor.setTableName('friend')
+	await tableEditor.addColumn('name', 'TEXT')
+	await tableEditor.createTable()
+
+	await Toast.expectSuccess(page, 'friend created')
+
+	// Select and work with the table
+	await dbManager.selectTable('friend')
+
+	// Insert a row
+	const insertDrawer = await dbManager.openInsertDrawer()
+	await insertDrawer.fillField('name', 'Alice')
+	await insertDrawer.insert()
+
+	await Toast.expectSuccess(page, 'Row inserted')
+
+	// Verify and edit the cell
+	const dataGrid = dbManager.dataGrid()
+	await dataGrid.expectCellValue('Alice')
+	await dataGrid.editCell('Alice', 'Bob')
+
+	await Toast.expectSuccess(page, 'Value updated')
+	await dataGrid.expectCellValue('Bob')
+
+	// Delete the table
+	const actionsMenu = await dbManager.openActionsMenu('friend')
+	await actionsMenu.deleteTable()
+
+	await Toast.expectSuccess(page, "Table 'friend' deleted successfully")
+}
 
 export class DbManagerPage {
 	page: Page
-	features: DbFeatures
 
-	constructor(page: Page, features: DbFeatures) {
+	constructor(page: Page) {
 		this.page = page
-		this.features = features
 	}
 
 	dbManager = () => this.page.locator('#db-manager-drawer')
+	expectToBeVisible = () => expect(this.dbManager()).toBeVisible()
+
 	async openCreateTableDrawer(): Promise<TableEditorDrawer> {
 		await this.dbManager().locator('button:has-text("New table")').click()
 		const tableEditor = new TableEditorDrawer(this.page)
@@ -20,64 +58,25 @@ export class DbManagerPage {
 		return tableEditor
 	}
 
-	async runTest() {
-		await expect(this.dbManager()).toBeVisible()
-		const page = this.page
+	async selectTable(tableName: string) {
+		const tableKey = this.page.locator('.db-manager-table-key', { hasText: tableName })
+		await expect(tableKey).toBeVisible({ timeout: 10000 })
+		await tableKey.click()
+	}
 
-		let tableEditor = await this.openCreateTableDrawer()
-		await tableEditor.setTableName('friend')
-		await tableEditor.addColumn('name', 'TEXT')
-
-		await page.locator('button:has-text("Create table")').click()
-
-		await page.locator('#db-table-editor-confirmation-modal button:has-text("Create")').click()
-
-		const saveSuccessToast = page.locator(`.toast-success:has-text("friend created")`)
-		await expect(saveSuccessToast).toBeVisible({ timeout: 10000 })
-
-		const friendTableKey = page.locator('.db-manager-table-key', { hasText: 'friend' })
-		await expect(friendTableKey).toBeVisible({ timeout: 10000 })
-		await friendTableKey.click()
-
-		// Add a new row
+	async openInsertDrawer(): Promise<InsertRowDrawer> {
 		await this.dbManager().locator('button:has-text("Insert")').click()
-		let insertRowDrawer = page.locator('#insert-row-drawer')
-		await expect(insertRowDrawer).toBeVisible({ timeout: 10000 })
-		await insertRowDrawer.locator('textarea').fill('Alice', { force: true }) // Not sure why force is needed here
-		await insertRowDrawer.locator('button:has-text("Insert")').click()
+		return new InsertRowDrawer(this.page)
+	}
 
-		const rowInsertedToast = page.locator(`.toast-success:has-text("Row inserted")`)
-		await expect(rowInsertedToast).toBeVisible({ timeout: 10000 })
+	dataGrid(): DataGrid {
+		return new DataGrid(this.page, this.dbManager())
+	}
 
-		const insertedRow = this.dbManager().locator('.ag-cell-value', { hasText: 'Alice' })
-		await expect(insertedRow).toBeVisible({ timeout: 10000 })
-
-		// Edit the row
-		await insertedRow.dblclick()
-		const cellEditor = this.dbManager().locator('.ag-cell-editor input')
-		await cellEditor.fill('Bob')
-		await cellEditor.press('Enter')
-
-		let rowUpdatedToast = page.locator(`.toast-success:has-text("Value updated")`)
-		await expect(rowUpdatedToast).toBeVisible({ timeout: 10000 })
-
-		const updatedRow = this.dbManager().locator('.ag-cell-value', { hasText: 'Bob' })
-		await expect(updatedRow).toBeVisible({ timeout: 10000 })
-
-		const actionsBtn = this.dbManager().locator('#db-manager-table-actions-friend')
+	async openActionsMenu(tableName: string): Promise<TableActionsMenu> {
+		const actionsBtn = this.dbManager().locator(`#db-manager-table-actions-${tableName}`)
 		await actionsBtn.click()
-
-		await page.locator('button:has-text("Delete table")').click()
-
-		let deletePermanentlyBtn = page.locator(
-			'#db-manager-delete-table-confirmation-modal button:has-text("Delete")'
-		)
-		await deletePermanentlyBtn.click()
-
-		let tableDeletedToast = page.locator(
-			`.toast-success:has-text("Table 'friend' deleted successfully")`
-		)
-		await expect(tableDeletedToast).toBeVisible({ timeout: 10000 })
+		return new TableActionsMenu(this.page)
 	}
 }
 
@@ -109,6 +108,11 @@ class TableEditorDrawer {
 		let column = new Column(this.page, columnsTable, columnName)
 		await column.setType(columnType)
 		return column
+	}
+
+	async createTable() {
+		await this.page.locator('button:has-text("Create table")').click()
+		await ConfirmationModal.confirm(this.page, '#db-table-editor-confirmation-modal', 'Create')
 	}
 }
 
@@ -142,5 +146,66 @@ class Column {
 		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
 		await newColTypeSelect.click()
 		await this.page.locator(`li:has(:text-is("${columnType}"))`).click()
+	}
+}
+
+class InsertRowDrawer {
+	page: Page
+
+	constructor(page: Page) {
+		this.page = page
+	}
+
+	drawer = () => this.page.locator('#insert-row-drawer')
+
+	async fillField(fieldName: string, value: string) {
+		await expect(this.drawer()).toBeVisible({ timeout: 10000 })
+		// For now, assumes single field - could be enhanced to handle multiple fields
+		await this.drawer().locator('textarea').fill(value, { force: true })
+	}
+
+	async insert() {
+		await this.drawer().locator('button:has-text("Insert")').click()
+	}
+}
+
+class DataGrid {
+	page: Page
+	dbManager: Locator
+
+	constructor(page: Page, dbManager: Locator) {
+		this.page = page
+		this.dbManager = dbManager
+	}
+
+	async expectCellValue(value: string) {
+		const cell = this.dbManager.locator('.ag-cell-value', { hasText: value })
+		await expect(cell).toBeVisible({ timeout: 10000 })
+	}
+
+	async editCell(oldValue: string, newValue: string) {
+		const cell = this.dbManager.locator('.ag-cell-value', { hasText: oldValue })
+		await cell.dblclick()
+
+		const cellEditor = this.dbManager.locator('.ag-cell-editor input')
+		await cellEditor.fill(newValue)
+		await cellEditor.press('Enter')
+	}
+}
+
+class TableActionsMenu {
+	page: Page
+
+	constructor(page: Page) {
+		this.page = page
+	}
+
+	async deleteTable() {
+		await this.page.locator('button:has-text("Delete table")').click()
+		await ConfirmationModal.confirm(
+			this.page,
+			'#db-manager-delete-table-confirmation-modal',
+			'Delete'
+		)
 	}
 }

@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test'
-import { DbManagerPage } from './DbManagerPage'
+import { DbManagerPage, runDbManagerTests } from './DbManagerPage'
 import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { DbType } from '../src/lib/components/dbTypes'
 import os from 'os'
@@ -77,11 +77,8 @@ test.describe('DB Manager', () => {
 			const manageButton = resourceRow.locator('button:has-text("Manage")')
 			await manageButton.click()
 
-			let dbManagerPage = new DbManagerPage(
-				page,
-				getDbFeatures({ type: 'database', resourceType: dbType, resourcePath: '' })
-			)
-			await dbManagerPage.runTest()
+			const dbFeatures = getDbFeatures({ type: 'database', resourceType: dbType, resourcePath: '' })
+			await runDbManagerTests(page, dbFeatures)
 		})
 	}
 })

@@ -1,5 +1,5 @@
 import { test, expect, Page } from '@playwright/test'
-import { DbManagerPage } from './DbManagerPage'
+import { DbManagerPage, runDbManagerTests } from './DbManagerPage'
 import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 
 async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
@@ -79,9 +79,10 @@ test('setup a datatable and ensure db manager works', async ({ page }) => {
 	const lastRow = table.locator('tr').nth(-2)
 	lastRow.locator('button:has-text("Manage")').click()
 
-	let dbManagerPage = new DbManagerPage(
-		page,
-		getDbFeatures({ type: 'database', resourceType: 'postgresql', resourcePath: '' })
-	)
-	await dbManagerPage.runTest()
+	const dbFeatures = getDbFeatures({
+		type: 'database',
+		resourceType: 'postgresql',
+		resourcePath: ''
+	})
+	await runDbManagerTests(page, dbFeatures)
 })
