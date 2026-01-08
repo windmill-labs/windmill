@@ -410,6 +410,7 @@ async fn handle_ansible_python_deps(
             worker_dir,
             &mut Some(occupancy_metrics),
             PyVAlias::default().into(),
+            None,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);

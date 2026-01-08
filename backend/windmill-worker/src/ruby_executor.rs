@@ -28,8 +28,7 @@ use crate::{
     },
     handle_child::{self},
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
-    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
-    RUBY_CACHE_DIR, RUBY_REPOS,
+    DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
 };
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
