@@ -703,7 +703,7 @@ async fn setup_custom_instance_pg_database_inner(
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
-    let pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters
@@ -716,7 +716,7 @@ async fn setup_custom_instance_pg_database_inner(
             "Catalog name must be alphanumeric, underscores allowed".to_string(),
         ));
     }
-    if pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
         return Err(error::Error::BadRequest(
             "Database name cannot be the same as the main database".to_string(),
         ));
@@ -730,6 +730,11 @@ async fn setup_custom_instance_pg_database_inner(
     .fetch_one(db)
     .await?
     .unwrap_or(false);
+
+    let pg_creds = PgDatabase {
+        dbname: dbname.to_string(),
+        ..wmill_pg_creds
+    };
 
     logs.created_database = "SKIP".to_string();
     if !db_exists {
