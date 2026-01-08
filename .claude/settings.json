@@ -56,7 +56,10 @@
       "Bash(git checkout:*)",
       "Bash(git merge:*)",
       "Bash(git rebase:*)"
-    ]
+    ],
+    "additionalDirectories": [
+      "../windmill-ee-private/"
+    ]  
   },
   "enableAllProjectMcpServers": true
 }
