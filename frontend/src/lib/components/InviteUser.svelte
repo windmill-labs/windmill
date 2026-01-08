@@ -1,17 +1,16 @@
 <script lang="ts">
-	import { sendUserToast } from '$lib/toast'
-	import { createEventDispatcher } from 'svelte'
-	import { globalEmailInvite, superadmin, workspaceStore } from '$lib/stores'
-	import { UserService, WorkspaceService } from '$lib/gen'
 	import { Button } from './common'
 	import Popover from './meltComponents/Popover.svelte'
-	import { isCloudHosted } from '$lib/cloud'
-	import { goto } from '$lib/navigation'
+
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import { MailPlus } from 'lucide-svelte'
 
-	const dispatch = createEventDispatcher()
+	interface Props {
+		inviteUser: (email: string, selected: 'operator' | 'developer' | 'admin') => Promise<void>
+	}
+
+	const { inviteUser }: Props = $props()
 
 	let email: string = $state('')
 
@@ -19,47 +18,9 @@
 		const key = event.key
 		if (key === 'Enter') {
 			event.preventDefault()
-			inviteUser()
+			inviteUser(email, selected)
+			email = ''
 		}
-	}
-
-	async function inviteUser() {
-		await WorkspaceService.inviteUser({
-			workspace: $workspaceStore!,
-			requestBody: {
-				email,
-				is_admin: selected == 'admin',
-				operator: selected == 'operator'
-			}
-		})
-		sendUserToast(`Invited ${email}`)
-		if (!(await UserService.existsEmail({ email }))) {
-			let isSuperadmin = $superadmin
-			if (!isCloudHosted()) {
-				sendUserToast(
-					`User ${email} is not registered yet on the instance. ${
-						!isSuperadmin
-							? `If not using SSO, ask an administrator to add ${email} to the instance`
-							: ''
-					}`,
-					true,
-					isSuperadmin
-						? [
-								{
-									label: 'Add user to the instance',
-									callback: () => {
-										$globalEmailInvite = email
-										goto('#superadmin-settings')
-									}
-								}
-							]
-						: []
-				)
-			}
-		}
-		dispatch('new')
-
-		email = ''
 	}
 
 	let selected: 'operator' | 'developer' | 'admin' = $state('developer')
@@ -67,7 +28,12 @@
 
 <Popover floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}>
 	{#snippet trigger()}
-		<Button variant="accent" size="xs" nonCaptureEvent={true} startIcon={{ icon: MailPlus }}>
+		<Button
+			variant="default"
+			unifiedSize="md"
+			nonCaptureEvent={true}
+			startIcon={{ icon: MailPlus }}
+		>
 			Invite
 		</Button>
 	{/snippet}
@@ -104,7 +70,12 @@
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-			<Button variant="accent" size="sm" on:click={inviteUser} disabled={email === undefined}>
+			<Button
+				variant="accent"
+				unifiedSize="md"
+				on:click={() => inviteUser(email, selected)}
+				disabled={!email || email.trim() === ''}
+			>
 				Invite
 			</Button>
 		</div>

@@ -91,7 +91,7 @@
 				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
 			{/if}
 
-			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
+			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
 			<ToggleButtonGroup bind:selected class="mb-4">
 				{#snippet children({ item })}
 					<ToggleButton

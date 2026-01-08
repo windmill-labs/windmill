@@ -1,12 +1,11 @@
 <script lang="ts">
 	import AddUser from '$lib/components/AddUser.svelte'
-	import { Badge, Button, Skeleton } from '$lib/components/common'
+	import { Badge, Button, Section, Skeleton } from '$lib/components/common'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import WorkspaceOperatorSettings from '$lib/components/settings/WorkspaceOperatorSettings.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
-	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -14,9 +13,9 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { CancelablePromise, User, UserUsage } from '$lib/gen'
 	import { UserService, WorkspaceService, GroupService, type WorkspaceInvite } from '$lib/gen'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore, superadmin, globalEmailInvite } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { Loader2, Mails, Search, Plus } from 'lucide-svelte'
+	import { Loader2, Mails, Search, Plus, UserMinus, X } from 'lucide-svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import SearchItems from '../SearchItems.svelte'
 	import Cell from '../table/Cell.svelte'
@@ -25,6 +24,7 @@
 	import { isCloudHosted } from '$lib/cloud'
 	import { truncate } from '$lib/utils'
 	import { onDestroy, untrack } from 'svelte'
+	import { goto } from '$lib/navigation'
 
 	let users: User[] | undefined = $state(undefined)
 	let invites: WorkspaceInvite[] = $state([])
@@ -278,10 +278,88 @@
 
 	let nbInviteDisplayed = $state(50)
 
-	let showInvites = $state(false)
-	$effect(() => {
-		showInvites = invites?.length > 0 || (auto_invite_domain != undefined && !autoAdd)
-	})
+	async function inviteUser(email: string, selected: 'operator' | 'developer' | 'admin') {
+		try {
+			await WorkspaceService.inviteUser({
+				workspace: $workspaceStore!,
+				requestBody: {
+					email,
+					is_admin: selected == 'admin',
+					operator: selected == 'operator'
+				}
+			})
+			sendUserToast(`Invited ${email}`)
+		} catch (e) {
+			console.error('Failed to invite user:', e)
+			sendUserToast('Failed to invite user', true)
+		}
+
+		if (!(await UserService.existsEmail({ email }))) {
+			let isSuperadmin = $superadmin
+			if (!isCloudHosted()) {
+				sendUserToast(
+					`User ${email} is not registered yet on the instance. ${
+						!isSuperadmin
+							? `If not using SSO, ask an administrator to add ${email} to the instance`
+							: ''
+					}`,
+					true,
+					isSuperadmin
+						? [
+								{
+									label: 'Add user to the instance',
+									callback: () => {
+										$globalEmailInvite = email
+										goto('#superadmin-settings')
+									}
+								}
+							]
+						: []
+				)
+			}
+		}
+
+		listInvites()
+	}
+
+	async function updateAutoInvite(enable: boolean) {
+		// Cleanup invites if auto add is enabled
+		if (enable && autoAdd) {
+			await removeAllInvitesFromDomain()
+		}
+		const updateType = enable ? (autoInviteOrAddEnabled ? 'update' : 'enable') : 'disable'
+		try {
+			// await removeAllInvitesFromDomain()
+			await WorkspaceService.editAutoInvite({
+				workspace: $workspaceStore ?? '',
+				requestBody: enable
+					? {
+							operator: operatorOnly ?? false,
+							invite_all: !isCloudHosted(),
+							auto_add: autoAdd
+						}
+					: {
+							operator: undefined,
+							auto_add: undefined
+						}
+			})
+			const message =
+				updateType === 'update'
+					? `Auto-${autoAdd ? 'add' : 'invite'} updated`
+					: updateType === 'enable'
+						? `Auto-${autoAdd ? 'add' : 'invite'} enabled`
+						: `Auto-${autoAdd ? 'add' : 'invite'} disabled`
+			sendUserToast(message)
+		} catch (e) {
+			console.error('Failed to update auto invite:', e)
+			sendUserToast('Failed to update auto invite', true)
+		}
+		loadSettings()
+		listInvites()
+		listUsers()
+	}
+
+	const autoInviteOrAddEnabled = $derived(auto_invite_domain != undefined)
 </script>
 
 <SearchItems
@@ -303,70 +381,43 @@
 		</div>
 	</div>
 </div>
-<div class="flex flex-row justify-between items-center pt-2">
-	<PageHeader
-		title="Members {(filteredUsers?.length ?? users?.length) != undefined
-			? `(${filteredUsers?.length ?? users?.length})`
-			: ''}"
-		primary={false}
-		tooltip="Manage users manually or enable SSO authentication."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
-	/>
 
-	<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
-		<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
-		<Search class="absolute left-2" size={14} />
+<Section
+	label="Members {(filteredUsers?.length ?? users?.length) != undefined
+		? `(${filteredUsers?.length ?? users?.length})`
+		: ''}"
+	tooltip="Manage users manually or enable SSO authentication."
+	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
+>
+	{#snippet action()}
+		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
+			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
+			<Search class="absolute left-2" size={14} />
 
-		<Popover
-			floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-			usePointerDownOutside
-		>
-			{#snippet trigger()}
-				<Button
-					color={'accent'}
-					destructive={auto_invite_domain === undefined}
-					variant="default"
-					size="xs"
-					nonCaptureEvent={true}
-					startIcon={{ icon: Mails }}
-					>Auto-{showInvites && !autoAdd ? 'invite' : 'add'}: {auto_invite_domain != undefined
-						? 'ON'
-						: 'OFF'}
-				</Button>
-			{/snippet}
-			{#snippet content()}
-				<div class="flex flex-col items-start p-4">
-					<span class="text-sm leading-6 font-semibold">
-						{isCloudHosted()
-							? `Auto-add anyone from ${
-									auto_invite_domain != undefined ? auto_invite_domain : domain
-								}`
-							: `Auto-add anyone joining the instance`}
-					</span>
-
-					{#if showInvites}
-						<span class="text-xs mb-1 leading-6 pt-2"
+			<Popover
+				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+				usePointerDownOutside
+			>
+				{#snippet trigger()}
+					<Button
+						variant="default"
+						unifiedSize="md"
+						nonCaptureEvent={true}
+						startIcon={{ icon: Mails }}
+						>Auto-{autoAdd ? 'add' : 'invite'}: {autoInviteOrAddEnabled ? 'ON' : 'OFF'}
+					</Button>
+				{/snippet}
+				{#snippet content()}
+					<div class="flex flex-col items-start p-4">
+						<div class="text-xs mb-1 text-primary"
 							>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-						</span>
+						</div>
 						<ToggleButtonGroup
 							selected={autoAdd ? 'add' : 'invite'}
 							on:selected={async (e) => {
-								if (auto_invite_domain != undefined) {
-									await removeAllInvitesFromDomain()
-									await WorkspaceService.editAutoInvite({
-										workspace: $workspaceStore ?? '',
-										requestBody: {
-											operator: operatorOnly ?? false,
-											invite_all: !isCloudHosted(),
-											auto_add: e.detail === 'add'
-										}
-									})
-									loadSettings()
-									listInvites()
-									listUsers()
-									autoAdd = e.detail === 'add'
-								} else {
-									autoAdd = e.detail === 'add'
+								autoAdd = e.detail === 'add'
+								if (autoInviteOrAddEnabled) {
+									await updateAutoInvite(true)
 								}
 							}}
 						>
@@ -375,264 +426,239 @@
 								<ToggleButton value="add" small label="Auto-add" {item} />
 							{/snippet}
 						</ToggleButtonGroup>
-					{/if}
 
-					<span class="text-xs mb-1 leading-6 pt-2"
-						>Role <Tooltip>Role of the auto-added users</Tooltip></span
-					>
-					<ToggleButtonGroup
-						selected={operatorOnly ? 'operator' : 'developer'}
-						on:selected={async (e) => {
-							if (auto_invite_domain != undefined) {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: {
-										operator: e.detail === 'operator',
-										invite_all: !isCloudHosted(),
-										auto_add: showInvites ? (autoAdd ?? false) : true
-									}
-								})
+						<span class="text-xs mb-1 mt-6"
+							>Role <Tooltip>Role of the auto-added users</Tooltip></span
+						>
+						<ToggleButtonGroup
+							selected={operatorOnly ? 'operator' : 'developer'}
+							on:selected={async (e) => {
 								operatorOnly = e.detail === 'operator'
-								loadSettings()
-								listInvites()
-								listUsers()
-							} else {
-								operatorOnly = e.detail === 'operator'
-							}
-						}}
-					>
-						{#snippet children({ item })}
-							<ToggleButton
-								value="operator"
-								label="Operator"
-								tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-								{item}
-							/>
-							<ToggleButton
-								value="developer"
-								label="Developer"
-								tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-								{item}
-							/>
-						{/snippet}
-					</ToggleButtonGroup>
-					<div class="pt-2">
-						<Toggle
-							size="xs"
-							checked={auto_invite_domain != undefined}
-							on:change={async (e) => {
-								await removeAllInvitesFromDomain()
-								await WorkspaceService.editAutoInvite({
-									workspace: $workspaceStore ?? '',
-									requestBody: e.detail
-										? {
-												operator: operatorOnly ?? false,
-												invite_all: !isCloudHosted(),
-												auto_add: showInvites ? (autoAdd ?? false) : true
-											}
-										: {
-												operator: undefined,
-												auto_add: undefined
-											}
-								})
-								loadSettings()
-								listInvites()
-								listUsers()
+								if (auto_invite_domain != undefined) {
+									await updateAutoInvite(true)
+								}
 							}}
-							disabled={isCloudHosted() && !allowedAutoDomain}
-							options={{
-								right: 'Enabled'
-							}}
-						/>
-					</div>
-					{#if isCloudHosted() && !allowedAutoDomain}
-						<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
-					{/if}
-				</div>
-			{/snippet}
-		</Popover>
+						>
+							{#snippet children({ item })}
+								<ToggleButton
+									value="operator"
+									label="Operator"
+									tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+									{item}
+								/>
+								<ToggleButton
+									value="developer"
+									label="Developer"
+									tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+									{item}
+								/>
+							{/snippet}
+						</ToggleButtonGroup>
 
-		{#if instanceGroups.length > 0}
-			<Popover
-				floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
-				usePointerDownOutside
-				floatingClass="!z-20"
-			>
-				{#snippet trigger()}
-					<Button
-						color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
-						variant="border"
-						size="xs"
-						nonCaptureEvent={true}
-						startIcon={{ icon: Mails }}
-						>Instance groups: {autoAddInstanceGroups.length}
-					</Button>
-				{/snippet}
-				{#snippet content()}
-					<div class="flex flex-col p-4 min-w-[500px]">
-						<div class="flex flex-col gap-4">
-							<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
-
-							<!-- Add new instance group form -->
-							{#if availableGroupItems.length > 0}
-								<div class="flex w-full mt-1 gap-2 items-end justify-between">
-									<div class="flex gap-2 items-end">
-										<div class="flex flex-col gap-1">
-											<span class="text-xs text-primary">Instance group</span>
-											<Select
-												items={availableGroupItems}
-												placeholder="Select group"
-												bind:value={selectedNewInstanceGroup}
-												class="max-w-[160px]"
-												disablePortal={true}
-											/>
-										</div>
-
-										<div class="flex flex-col gap-1">
-											<span class="text-xs text-primary">Role</span>
-											<ToggleButtonGroup
-												selected={selectedNewRole}
-												on:selected={(e) => {
-													selectedNewRole = e.detail
-												}}
-											>
-												{#snippet children({ item })}
-													<ToggleButton
-														value="operator"
-														label="Operator"
-														tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-														{item}
-													/>
-													<ToggleButton
-														value="developer"
-														label="Developer"
-														tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-														{item}
-													/>
-													<ToggleButton
-														value="admin"
-														label="Admin"
-														tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-														{item}
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-									</div>
-
-									<Button
-										color="blue"
-										size="xs"
-										startIcon={{ icon: Plus }}
-										disabled={!selectedNewInstanceGroup || !selectedNewRole}
-										onclick={addInstanceGroup}
-									>
-										Add
-									</Button>
-								</div>
-							{/if}
-
-							<!-- Configured groups table -->
-							{#if autoAddInstanceGroups.length > 0}
-								<div class="flex flex-col gap-2">
-									<p class="text-sm font-medium text-secondary">Configured groups:</p>
-									<div class="flex flex-col gap-1">
-										<table class="w-full text-sm">
-											<thead>
-												<tr class="text-left text-xs text-primary">
-													<th class="pb-2 w-1/2">Group</th>
-													<th class="pb-2 w-1/4">Role</th>
-													<th class="pb-2 w-1/4"></th>
-												</tr>
-											</thead>
-											<tbody>
-												{#each autoAddInstanceGroups as groupName (groupName)}
-													{@const group = instanceGroups.find((g) => g.name === groupName)}
-													<tr class="border-t border-gray-200 dark:border-gray-700">
-														<td class="py-2">
-															<div class="font-medium">{groupName}</div>
-															{#if group?.summary}
-																<div class="text-xs text-primary">{group.summary}</div>
-															{/if}
-														</td>
-														<td class="py-2">
-															<div>
-																<ToggleButtonGroup
-																	selected={autoAddInstanceGroupsRoles[groupName] || 'developer'}
-																	on:selected={async (e) => {
-																		autoAddInstanceGroupsRoles[groupName] = e.detail
-																		await updateGroupRole(groupName, e.detail)
-																	}}
-																>
-																	{#snippet children({ item })}
-																		<ToggleButton
-																			value="operator"
-																			label="Operator"
-																			tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
-																			{item}
-																		/>
-																		<ToggleButton
-																			value="developer"
-																			label="Developer"
-																			tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
-																			{item}
-																		/>
-																		<ToggleButton
-																			value="admin"
-																			label="Admin"
-																			tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
-																			{item}
-																		/>
-																	{/snippet}
-																</ToggleButtonGroup>
-															</div>
-														</td>
-														<td class="py-2">
-															<div class="flex justify-end">
-																<Button
-																	color="light"
-																	variant="contained"
-																	btnClasses="text-red-500"
-																	size="xs"
-																	spacingSize="xs2"
-																	onclick={() => {
-																		removeInstanceGroupConfirmedCallback = async () => {
-																			await removeInstanceGroup(groupName)
-																		}
-																	}}
-																>
-																	Remove
-																</Button>
-															</div>
-														</td>
-													</tr>
-												{/each}
-											</tbody>
-										</table>
-									</div>
-								</div>
-							{:else}
-								<div class="text-center text-primary text-sm py-4">
-									No instance groups configured for auto-add
-								</div>
-							{/if}
+						<div class="mt-6">
+							<Toggle
+								checked={autoInviteOrAddEnabled}
+								on:change={async (e) => {
+									await updateAutoInvite(e.detail)
+								}}
+								disabled={isCloudHosted() && !allowedAutoDomain}
+								options={{
+									right: isCloudHosted()
+										? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${
+												autoInviteOrAddEnabled ? auto_invite_domain : domain
+											}`
+										: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`
+								}}
+							/>
 						</div>
+						{#if isCloudHosted() && !allowedAutoDomain}
+							<div class="text-red-400 text-xs">{domain} domain not allowed for auto-add</div>
+						{/if}
 					</div>
 				{/snippet}
 			</Popover>
-		{/if}
 
-		<AddUser
-			on:new={() => {
-				listUsers()
-				listInvites()
-			}}
-		/>
-	</div>
-</div>
+			{#if instanceGroups.length > 0}
+				<Popover
+					floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+					usePointerDownOutside
+					floatingClass="!z-20"
+				>
+					{#snippet trigger()}
+						<Button
+							color={autoAddInstanceGroups.length > 0 ? 'green' : 'gray'}
+							variant="border"
+							size="xs"
+							nonCaptureEvent={true}
+							startIcon={{ icon: Mails }}
+							>Instance groups: {autoAddInstanceGroups.length}
+						</Button>
+					{/snippet}
+					{#snippet content()}
+						<div class="flex flex-col p-4 min-w-[500px]">
+							<div class="flex flex-col gap-4">
+								<span class="text-sm leading-6 font-semibold"> Auto-add instance groups </span>
 
-<div class="">
+								<!-- Add new instance group form -->
+								{#if availableGroupItems.length > 0}
+									<div class="flex w-full mt-1 gap-2 items-end justify-between">
+										<div class="flex gap-2 items-end">
+											<div class="flex flex-col gap-1">
+												<span class="text-xs text-primary">Instance group</span>
+												<Select
+													items={availableGroupItems}
+													placeholder="Select group"
+													bind:value={selectedNewInstanceGroup}
+													class="max-w-[160px]"
+													disablePortal={true}
+												/>
+											</div>
+
+											<div class="flex flex-col gap-1">
+												<span class="text-xs text-primary">Role</span>
+												<ToggleButtonGroup
+													selected={selectedNewRole}
+													on:selected={(e) => {
+														selectedNewRole = e.detail
+													}}
+												>
+													{#snippet children({ item })}
+														<ToggleButton
+															value="operator"
+															label="Operator"
+															tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+															{item}
+														/>
+														<ToggleButton
+															value="developer"
+															label="Developer"
+															tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+															{item}
+														/>
+														<ToggleButton
+															value="admin"
+															label="Admin"
+															tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+															{item}
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+										</div>
+
+										<Button
+											color="blue"
+											size="xs"
+											startIcon={{ icon: Plus }}
+											disabled={!selectedNewInstanceGroup || !selectedNewRole}
+											onclick={addInstanceGroup}
+										>
+											Add
+										</Button>
+									</div>
+								{/if}
+
+								<!-- Configured groups table -->
+								{#if autoAddInstanceGroups.length > 0}
+									<div class="flex flex-col gap-2">
+										<p class="text-sm font-medium text-secondary">Configured groups:</p>
+										<div class="flex flex-col gap-1">
+											<table class="w-full text-sm">
+												<thead>
+													<tr class="text-left text-xs text-primary">
+														<th class="pb-2 w-1/2">Group</th>
+														<th class="pb-2 w-1/4">Role</th>
+														<th class="pb-2 w-1/4"></th>
+													</tr>
+												</thead>
+												<tbody>
+													{#each autoAddInstanceGroups as groupName (groupName)}
+														{@const group = instanceGroups.find((g) => g.name === groupName)}
+														<tr class="border-t border-gray-200 dark:border-gray-700">
+															<td class="py-2">
+																<div class="font-medium">{groupName}</div>
+																{#if group?.summary}
+																	<div class="text-xs text-primary">{group.summary}</div>
+																{/if}
+															</td>
+															<td class="py-2">
+																<div>
+																	<ToggleButtonGroup
+																		selected={autoAddInstanceGroupsRoles[groupName] || 'developer'}
+																		on:selected={async (e) => {
+																			autoAddInstanceGroupsRoles[groupName] = e.detail
+																			await updateGroupRole(groupName, e.detail)
+																		}}
+																	>
+																		{#snippet children({ item })}
+																			<ToggleButton
+																				value="operator"
+																				label="Operator"
+																				tooltip="An operator can only execute and view scripts/flows/apps from your workspace, and only those that he has visibility on."
+																				{item}
+																			/>
+																			<ToggleButton
+																				value="developer"
+																				label="Developer"
+																				tooltip="A Developer can execute and view scripts/flows/apps, but they can also create new ones and edit those they are allowed to by their path (either u/ or Writer or Admin of their folder found at /f)."
+																				{item}
+																			/>
+																			<ToggleButton
+																				value="admin"
+																				label="Admin"
+																				tooltip="An admin has full control over a specific Windmill workspace, including the ability to manage users, edit entities, and control permissions within the workspace."
+																				{item}
+																			/>
+																		{/snippet}
+																	</ToggleButtonGroup>
+																</div>
+															</td>
+															<td class="py-2">
+																<div class="flex justify-end">
+																	<Button
+																		color="light"
+																		variant="contained"
+																		btnClasses="text-red-500"
+																		size="xs"
+																		spacingSize="xs2"
+																		onclick={() => {
+																			removeInstanceGroupConfirmedCallback = async () => {
+																				await removeInstanceGroup(groupName)
+																			}
+																		}}
+																	>
+																		Remove
+																	</Button>
+																</div>
+															</td>
+														</tr>
+													{/each}
+												</tbody>
+											</table>
+										</div>
+									</div>
+								{:else}
+									<div class="text-center text-primary text-sm py-4">
+										No instance groups configured for auto-add
+									</div>
+								{/if}
+							</div>
+						</div>
+					{/snippet}
+				</Popover>
+			{/if}
+
+			<InviteUser {inviteUser} />
+
+			<AddUser
+				on:new={() => {
+					listUsers()
+					listInvites()
+				}}
+			/>
+		</div>
+	{/snippet}
+
 	<DataTable
 		shouldLoadMore={(filteredUsers?.length ?? 0) > 30}
 		loadMore={30}
@@ -661,8 +687,8 @@
 						first one
 					</Tooltip>
 				</Cell>
-				<Cell head>Status</Cell>
 				<Cell head>Role</Cell>
+				<Cell head>Enabled</Cell>
 				<Cell head last>
 					<span class="sr-only">Actions</span>
 				</Cell>
@@ -703,15 +729,6 @@
 									class="animate-spin"
 								/>{/if}</Cell
 						>
-						<Cell>
-							<div class="flex gap-1">
-								{#if disabled}
-									<Badge color="red">Disabled</Badge>
-								{:else}
-									<Badge color="green">Enabled</Badge>
-								{/if}
-							</div>
-						</Cell>
 						<Cell>
 							<div>
 								{#if added_via?.source === 'instance_group'}
@@ -775,13 +792,10 @@
 							</div>
 						</Cell>
 						<Cell>
-							<div class="flex gap-1">
-								<Button
-									color="light"
-									variant="contained"
-									size="xs"
-									spacingSize="xs2"
-									on:click={async () => {
+							<Toggle
+								checked={!disabled}
+								on:change={async (e) => {
+									try {
 										await UserService.updateUser({
 											workspace: $workspaceStore ?? '',
 											username,
@@ -789,24 +803,43 @@
 												disabled: !disabled
 											}
 										})
+										sendUserToast(`User ${username} ${disabled ? 'enabled' : 'disabled'}`)
 										listUsers()
-									}}
-								>
-									{disabled ? 'Enable' : 'Disable'}
-								</Button>
+									} catch (e) {
+										console.error('Failed to update user status:', e)
+										sendUserToast('Failed to update user status', true)
+									}
+								}}
+								size="xs"
+							/>
+						</Cell>
+						<Cell>
+							<div class="flex gap-1">
+								{#snippet removeUserButton(disabled: boolean)}
+									<Button
+										unifiedSize="sm"
+										variant="subtle"
+										destructive
+										{disabled}
+										onClick={() => {
+											deleteConfirmedCallback = async () => {
+												await UserService.deleteUser({
+													workspace: $workspaceStore ?? '',
+													username
+												})
+												sendUserToast('User removed')
+												listUsers()
+											}
+										}}
+										startIcon={{ icon: UserMinus }}
+									>
+										Remove
+									</Button>
+								{/snippet}
 
 								{#if added_via?.source === 'instance_group'}
 									<div class="flex items-center gap-1">
-										<Button
-											color="light"
-											variant="contained"
-											btnClasses="text-gray-400"
-											size="xs"
-											spacingSize="xs2"
-											disabled={true}
-										>
-											Remove
-										</Button>
+										{@render removeUserButton(true)}
 										<Tooltip
 											>Cannot remove users synced from instance groups. Either disable the user or
 											remove them from the SCIM group.</Tooltip
@@ -814,11 +847,8 @@
 									</div>
 								{:else if canConvertToGroup(user)}
 									<Button
-										color="light"
-										variant="contained"
-										btnClasses="text-blue-500"
-										size="xs"
-										spacingSize="xs2"
+										variant="accent"
+										unifiedSize="sm"
 										on:click={() => {
 											convertConfirmedCallback = async () => {
 												await convertUserToGroup(username)
@@ -827,45 +857,8 @@
 									>
 										Convert
 									</Button>
-									<Button
-										color="light"
-										variant="contained"
-										btnClasses="text-red-500"
-										size="xs"
-										spacingSize="xs2"
-										on:click={() => {
-											deleteConfirmedCallback = async () => {
-												await UserService.deleteUser({
-													workspace: $workspaceStore ?? '',
-													username
-												})
-												sendUserToast('User removed')
-												listUsers()
-											}
-										}}
-									>
-										Remove
-									</Button>
 								{:else}
-									<Button
-										color="light"
-										variant="contained"
-										btnClasses="text-red-500"
-										size="xs"
-										spacingSize="xs2"
-										on:click={() => {
-											deleteConfirmedCallback = async () => {
-												await UserService.deleteUser({
-													workspace: $workspaceStore ?? '',
-													username
-												})
-												sendUserToast('User removed')
-												listUsers()
-											}
-										}}
-									>
-										Remove
-									</Button>
+									{@render removeUserButton(false)}
 								{/if}
 							</div>
 						</Cell>
@@ -882,23 +875,25 @@
 			{/if}
 		</tbody>
 	</DataTable>
-</div>
+</Section>
+
+<div class="pt-12"></div>
 
 <WorkspaceOperatorSettings />
 
-{#if showInvites}
-	<PageHeader
-		title="Invites ({invites.length ?? ''})"
-		primary={false}
+<div class="pt-12"></div>
+
+{#if invites?.length > 0}
+	<Section
+		label="Invites ({invites.length ?? ''})"
 		tooltip="Manage invites on your workspace."
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 	>
-		<div class="flex gap-2 items-center">
-			<InviteUser on:new={listInvites} />
-		</div>
-	</PageHeader>
-
-	<div>
+		{#snippet action()}
+			<div class="flex gap-2 items-center">
+				<InviteUser {inviteUser} />
+			</div>
+		{/snippet}
 		<DataTable>
 			<Head>
 				<tr>
@@ -959,9 +954,13 @@
 								</div>
 							</Cell>
 							<Cell last>
-								<button
-									class="ml-2 text-red-500"
-									onclick={async () => {
+								<Button
+									variant="default"
+									destructive
+									unifiedSize="sm"
+									startIcon={{ icon: X }}
+									btnClasses="w-fit"
+									onClick={async () => {
 										await WorkspaceService.deleteInvite({
 											workspace: $workspaceStore ?? '',
 											requestBody: {
@@ -973,8 +972,8 @@
 										listInvites()
 									}}
 								>
-									Cancel
-								</button>
+									Cancel invite
+								</Button>
 							</Cell>
 						</Row>
 					{/each}
@@ -993,9 +992,8 @@
 				<button class="ml-4" onclick={() => (nbInviteDisplayed += 50)}>load 50 more</button></span
 			>
 		{/if}
-	</div>
+	</Section>
 {/if}
-
 <ConfirmationModal
 	open={Boolean(deleteConfirmedCallback)}
 	title="Remove user"
