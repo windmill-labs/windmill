@@ -88,7 +88,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 			onUpdate: 'Cascade'
 		})
 	} else {
-		expect(tableEditor.foreignKeySection()).toBeHidden()
+		await expect(tableEditor.foreignKeySection()).toBeHidden()
 	}
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${messageTableName} created`)
@@ -107,7 +107,10 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 		await createdAtCol.checkPrimaryKeyIs(false)
 		await contentColumn.checkPrimaryKeyIs(false)
 		await friendCol.checkPrimaryKeyIs(false)
-		await friendCol.checkSettingsIs({ nullable: false, defaultValue: '' })
+		await friendCol.checkSettingsIs({
+			nullable: false,
+			defaultValue: dbFeatures.defaultValues ? '' : undefined
+		})
 	}
 
 	// Apply alterations
@@ -115,10 +118,15 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await idCol.delete()
 	await friendCol.setName('person_id')
 	await friendCol.setType('BIGINT')
-	await friendCol.setSettings({ defaultValue: '123', nullable: false }) // Test no type-error
-	await friendCol.setPrimaryKey(true)
-	await createdAtCol.setPrimaryKey(true)
-	await contentColumn.setPrimaryKey(true)
+	await friendCol.setSettings({
+		defaultValue: dbFeatures.defaultValues ? '123' : undefined,
+		nullable: false
+	})
+	if (dbFeatures.primaryKeys) {
+		await friendCol.setPrimaryKey(true)
+		await createdAtCol.setPrimaryKey(true)
+		await contentColumn.setPrimaryKey(true)
+	}
 	if (dbFeatures.foreignKeys) await tableEditor.deleteForeignKey()
 	await tableEditor.alterTable()
 	await Toast.expectSuccess(page, `${messageTableName} updated`) // uses old table name
@@ -131,7 +139,9 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await idCol.checkNotExists()
 	await friendCol.checkNameIs('person_id')
 	await friendCol.checkTypeIs('BIGINT')
-	await friendCol.checkSettingsIs({ defaultValue: /123/ })
+	if (dbFeatures.defaultValues) {
+		await friendCol.checkSettingsIs({ defaultValue: /123/ })
+	}
 	await createdAtCol.checkTypeIs('TIMESTAMP')
 	await createdAtCol.checkNameIs('created_at')
 	if (dbFeatures.primaryKeys) {
@@ -153,8 +163,8 @@ export class DbManagerPage {
 		await schemaSelect.click()
 		await schemaSelect.fill(schemaName)
 		const option = this.page
-			.locator(`.select-dropdown-open li:has(:text-has("${schemaName}"))`)
-			.or(this.page.locator('.select-dropdown-open li:has(:text-has("Add new"))'))
+			.locator(`.select-dropdown-open li:has(:text-is("${schemaName}"))`)
+			.or(this.page.locator('.select-dropdown-open li:has-text("Add new")'))
 		await option.click()
 		if (options?.create) {
 			await ConfirmationModal.confirm(this.page, '#db-create-schema-confirmation-modal', 'Create')
