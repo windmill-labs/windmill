@@ -520,7 +520,7 @@
 										{#each jobs ?? [] as job}
 											{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
 											<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
-												<JobPreview id={job.id}>
+												<JobPreview id={job.id} class="p-4">
 													<div>
 														<div
 															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
