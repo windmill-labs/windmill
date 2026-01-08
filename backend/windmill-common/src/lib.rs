@@ -64,6 +64,7 @@ pub mod git_sync_ee;
 pub mod git_sync_oss;
 pub mod jobs;
 pub mod jwt;
+pub mod mailbox;
 pub mod mcp_client;
 pub mod more_serde;
 pub mod oauth2;

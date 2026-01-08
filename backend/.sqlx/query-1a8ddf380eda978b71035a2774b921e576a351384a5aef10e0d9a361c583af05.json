@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                DELETE FROM mailbox \n                WHERE type = $1 AND mailbox_id IS NOT DISTINCT FROM $2 AND workspace_id = $3\n                RETURNING payload, created_at, message_id as id;\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 2,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        {
+          "Custom": {
+            "name": "mailbox_type",
+            "kind": {
+              "Enum": [
+                "trigger",
+                "debouncing_stale_data"
+              ]
+            }
+          }
+        },
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1a8ddf380eda978b71035a2774b921e576a351384a5aef10e0d9a361c583af05"
+}

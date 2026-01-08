@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mailbox(mailbox_id, type, payload, workspace_id) VALUES ($1, $2, $3, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        {
+          "Custom": {
+            "name": "mailbox_type",
+            "kind": {
+              "Enum": [
+                "trigger",
+                "debouncing_stale_data"
+              ]
+            }
+          }
+        },
+        "Jsonb",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93a2722f125830ef0b5cee7698983737a987f2003a1ecb2a9b647eb652502c76"
+}
