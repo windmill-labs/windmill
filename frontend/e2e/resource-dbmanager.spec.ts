@@ -4,7 +4,7 @@ import { getDbFeatures } from '../src/lib/components/apps/components/display/dbt
 import { DbType } from '../src/lib/components/dbTypes'
 import os from 'os'
 
-const resourceByDbType: Record<DbType, object> = {
+const resourceByDbType = {
 	postgresql: {
 		host: 'localhost',
 		port: 5432,
@@ -15,11 +15,10 @@ const resourceByDbType: Record<DbType, object> = {
 		root_certificate_pem: ''
 	},
 	mysql: {}, // TODO
-	duckdb: {}, // TODO
 	bigquery: {}, // TODO
 	ms_sql_server: {}, // TODO
 	snowflake: {} // TODO
-}
+} as const
 
 async function setupNewResource(
 	page: Page,
@@ -67,18 +66,22 @@ async function setupNewResource(
 	return { resourceName }
 }
 
-test('setup a postgresql resource and ensure db manager works', async ({ page }) => {
-	let { resourceName } = await setupNewResource(page, 'postgresql')
+test.describe('DB Manager', () => {
+	for (const dbType of ['postgresql', 'mysql', 'bigquery', 'ms_sql_server', 'snowflake'] as const) {
+		test(`setup a ${dbType} resource and ensure db manager works`, async ({ page }) => {
+			let { resourceName } = await setupNewResource(page, dbType)
 
-	const resourceRow = page.locator(`table tr:has-text("${resourceName}")`)
-	await expect(resourceRow).toBeVisible()
+			const resourceRow = page.locator(`table tr:has-text("${resourceName}")`)
+			await expect(resourceRow).toBeVisible()
 
-	const manageButton = resourceRow.locator('button:has-text("Manage")')
-	await manageButton.click()
+			const manageButton = resourceRow.locator('button:has-text("Manage")')
+			await manageButton.click()
 
-	let dbManagerPage = new DbManagerPage(
-		page,
-		getDbFeatures({ type: 'database', resourceType: 'postgresql', resourcePath: '' })
-	)
-	await dbManagerPage.runTest()
+			let dbManagerPage = new DbManagerPage(
+				page,
+				getDbFeatures({ type: 'database', resourceType: dbType, resourcePath: '' })
+			)
+			await dbManagerPage.runTest()
+		})
+	}
 })
