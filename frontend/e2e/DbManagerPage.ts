@@ -47,9 +47,13 @@ export async function runDbManagerSimpleCRUDTest(page: Page, db: _DbType) {
 export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	let dbFeatures = getDbFeatures(getDbInput(dbType))
 	let dbManager = new DbManagerPage(page)
+	let timestamp = Date.now()
 	await dbManager.expectToBeVisible()
 
-	let timestamp = Date.now()
+	if (dbFeatures.schemas) {
+		const schemaName = `schema_${timestamp}`
+		await dbManager.setCurrentSchema(schemaName, { create: true })
+	}
 
 	// Create friend table
 	let friendTableName = `friend_${timestamp}`
@@ -142,6 +146,19 @@ export class DbManagerPage {
 
 	constructor(page: Page) {
 		this.page = page
+	}
+
+	async setCurrentSchema(schemaName: string, options?: { create?: boolean }) {
+		const schemaSelect = this.dbManager().locator('input[id="db-schema-select"]')
+		await schemaSelect.click()
+		await schemaSelect.fill(schemaName)
+		const option = this.page
+			.locator(`.select-dropdown-open li:has(:text-has("${schemaName}"))`)
+			.or(this.page.locator('.select-dropdown-open li:has(:text-has("Add new"))'))
+		await option.click()
+		if (options?.create) {
+			await ConfirmationModal.confirm(this.page, '#db-create-schema-confirmation-modal', 'Create')
+		}
 	}
 
 	dbManager = () => this.page.locator('#db-manager-drawer')

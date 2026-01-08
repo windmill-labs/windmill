@@ -45,7 +45,7 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -315,7 +315,7 @@
 										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 											value: o,
 											label:
-												(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
+												(currentSchema && o.startsWith(currentSchema)) || !features?.schemas
 													? o.split('.')[1]
 													: o
 										}))}

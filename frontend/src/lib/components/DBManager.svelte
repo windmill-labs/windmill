@@ -239,6 +239,7 @@
 				<Select
 					bind:value={selected.schemaKey}
 					items={safeSelectItems(schemaKeys)}
+					id="db-schema-select"
 					transformInputSelectedText={(s) => `Schema: ${s}`}
 					RightIcon={ChevronDownIcon}
 					placeholder="Search or create schema..."
@@ -253,6 +254,7 @@
 							type: 'reload',
 							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
 							open: true,
+							id: 'db-create-schema-confirmation-modal',
 							onConfirm: async () => {
 								askingForConfirmation && (askingForConfirmation.loading = true)
 								try {
@@ -634,6 +636,7 @@
 								type: 'reload',
 								title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
 								open: true,
+								id: 'db-create-schema-confirmation-modal',
 								onConfirm: async () => {
 									askingForConfirmation && (askingForConfirmation.loading = true)
 									try {
@@ -671,6 +674,7 @@
 						type: 'reload',
 						title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
 						open: true,
+						id: 'db-create-schema-confirmation-modal',
 						onConfirm: async () => {
 							askingForConfirmation && (askingForConfirmation.loading = true)
 							try {
