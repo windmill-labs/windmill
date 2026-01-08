@@ -3,7 +3,9 @@ import { chromium, FullConfig } from '@playwright/test'
 
 async function globalSetup(config: FullConfig) {
 	const browser = await chromium.launch()
-	const context = await browser.newContext()
+	const context = await browser.newContext({
+		permissions: ['clipboard-read', 'clipboard-write']
+	})
 	const page = await context.newPage()
 
 	// Use baseURL from config

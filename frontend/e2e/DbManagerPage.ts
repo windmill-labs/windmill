@@ -40,8 +40,7 @@ export class DbManagerPage {
 
 		await page.locator('#db-table-editor-confirmation-modal button:has-text("Create")').click()
 
-		// Verify success toast appears
-		const saveSuccessToast = page.locator('text=friend created!')
+		const saveSuccessToast = page.locator(`.toast-success:has-text("friend created")`)
 		await expect(saveSuccessToast).toBeVisible({ timeout: 10000 })
 
 		const friendTableKey = page.locator('.db-manager-table-key', { hasText: 'friend' })
@@ -55,7 +54,7 @@ export class DbManagerPage {
 		await insertRowDrawer.locator('textarea').fill('Alice', { force: true }) // Not sure why force is needed here
 		await insertRowDrawer.locator('button:has-text("Insert")').click()
 
-		const rowInsertedToast = page.locator('text=Row inserted')
+		const rowInsertedToast = page.locator(`.toast-success:has-text("Row inserted")`)
 		await expect(rowInsertedToast).toBeVisible({ timeout: 10000 })
 
 		const insertedRow = dbManager.locator('.ag-cell-value', { hasText: 'Alice' })
@@ -67,8 +66,9 @@ export class DbManagerPage {
 		await cellEditor.fill('Bob')
 		await cellEditor.press('Enter')
 
-		const rowUpdatedToast = page.locator('text=Value updated')
+		let rowUpdatedToast = page.locator(`.toast-success:has-text("Value updated")`)
 		await expect(rowUpdatedToast).toBeVisible({ timeout: 10000 })
+
 		const updatedRow = dbManager.locator('.ag-cell-value', { hasText: 'Bob' })
 		await expect(updatedRow).toBeVisible({ timeout: 10000 })
 
@@ -82,8 +82,9 @@ export class DbManagerPage {
 		)
 		await deletePermanentlyBtn.click()
 
-		await expect(page.locator("text=Table 'friend' deleted successfully")).toBeVisible({
-			timeout: 10000
-		})
+		let tableDeletedToast = page.locator(
+			`.toast-success:has-text("Table 'friend' deleted successfully")`
+		)
+		await expect(tableDeletedToast).toBeVisible({ timeout: 10000 })
 	}
 }

@@ -57,7 +57,7 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	await confirmBtn.click()
 
 	// Verify success toast appears
-	const successToast = page.locator('text=Setup successful')
+	const successToast = page.locator(`.toast-success:has-text("Setup successful")`)
 	await expect(successToast).toBeVisible({ timeout: 10000 })
 
 	const closeModalBtn = page.locator('button[id="modal-close-button"]')
@@ -67,13 +67,13 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	await saveBtn.click()
 
 	// Verify success toast appears
-	const saveSuccessToast = page.locator('text=saved successfully')
+	const saveSuccessToast = page.locator(`.toast-success:has-text("saved successfully")`)
 	await expect(saveSuccessToast).toBeVisible({ timeout: 10000 })
 
 	return { datatableId }
 }
 
-test('create new data table, add a new table, CRUD rows and delete the table', async ({ page }) => {
+test('setup a datatable and ensure db manager works', async ({ page }) => {
 	let { datatableId } = await setupNewDataTable(page)
 	const table = page.locator('table')
 	const lastRow = table.locator('tr').nth(-2)
