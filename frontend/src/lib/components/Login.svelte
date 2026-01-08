@@ -84,6 +84,7 @@
 	let showPassword = $state(false)
 	let logins: OAuthLogin[] | undefined = $state(undefined)
 	let saml: string | undefined = $state(undefined)
+	let smtpConfigured: boolean | undefined = $state(undefined)
 
 	type OAuthLogin = {
 		type: string
@@ -193,6 +194,16 @@
 	}
 
 	loadLogins()
+
+	async function checkSmtpConfigured() {
+		try {
+			smtpConfigured = await UserService.isSmtpConfigured()
+		} catch {
+			smtpConfigured = false
+		}
+	}
+
+	checkSmtpConfigured()
 
 	function handleKeyUp(event: KeyboardEvent) {
 		const key = event.key
@@ -372,6 +383,16 @@
 							autocomplete="current-password"
 						/>
 					</div>
+					{#if smtpConfigured && !isCloudHosted()}
+						<div class="text-right pt-1">
+							<a
+								href="{base}/user/forgot-password"
+								class="text-2xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300"
+							>
+								Forgot password?
+							</a>
+						</div>
+					{/if}
 				</div>
 
 				<div class="pt-2">
