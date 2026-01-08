@@ -399,6 +399,7 @@ export async function fetchTableRelationalKeys(
 	input: DbInput,
 	dbType: DbType,
 	table: string,
+	schema: string | undefined,
 	workspace: string,
 	dbArg: Record<string, any>,
 	language: ScriptLang
@@ -407,11 +408,7 @@ export async function fetchTableRelationalKeys(
 	let pk_constraint_name: string | undefined = undefined
 	try {
 		if (dbType !== 'bigquery') {
-			let fkQuery = makeForeignKeysQuery(
-				dbType,
-				table,
-				input.type === 'database' ? input.specificSchema : undefined
-			)
+			let fkQuery = makeForeignKeysQuery(dbType, table, schema)
 			if (input.type === 'ducklake') fkQuery = wrapDucklakeQuery(fkQuery, input.ducklake)
 
 			const fkResult = await runScriptAndPollResult({
@@ -439,11 +436,7 @@ export async function fetchTableRelationalKeys(
 
 	try {
 		if (dbType !== 'bigquery' && dbType !== 'mysql') {
-			let pkQuery = makePrimaryKeyConstraintQuery(
-				dbType,
-				table,
-				input.type === 'database' ? input.specificSchema : undefined
-			)
+			let pkQuery = makePrimaryKeyConstraintQuery(dbType, table, schema)
 			if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
 
 			const pkResult = await runScriptAndPollResult({
