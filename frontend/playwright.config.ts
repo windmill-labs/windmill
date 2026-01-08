@@ -34,6 +34,8 @@ export default defineConfig({
 
 		storageState: './e2e/auth.json',
 
+		screenshot: 'only-on-failure',
+
 		contextOptions: {
 			reducedMotion: 'reduce'
 		}

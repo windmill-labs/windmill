@@ -59,8 +59,8 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	let friendTableName = `friend_${timestamp}`
 	let tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
-	await tableEditor.getColumn('id').delete() // default id column
-	let friendIdCol = await tableEditor.addColumn('id', 'INT')
+	let friendIdCol = await tableEditor.getColumn('id') // deafult id column
+	await friendIdCol.setType('INT')
 	if (dbFeatures.primaryKeys) {
 		friendIdCol.setPrimaryKey(true)
 	} else {
@@ -70,13 +70,14 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${friendTableName} created`)
+	await page.waitForTimeout(100)
 
 	// Create message table
 	let messageTableName = `message_${timestamp}`
 	tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(messageTableName)
-	await tableEditor.getColumn('id').delete() // default id column
-	let messageIdCol = await tableEditor.addColumn('id', 'INT')
+	let messageIdCol = await tableEditor.getColumn('id') // deafult id column
+	await messageIdCol.setType('INT')
 	if (dbFeatures.primaryKeys) messageIdCol.setPrimaryKey(true)
 	await tableEditor.addColumn('friend_id', 'INT')
 	let contentColumn = await tableEditor.addColumn('content', 'TEXT')
@@ -92,6 +93,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	}
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${messageTableName} created`)
+	await page.waitForTimeout(100)
 
 	// Alter message table
 	await (await dbManager.openActionsMenu(messageTableName)).alterTable()
@@ -130,6 +132,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	if (dbFeatures.foreignKeys) await tableEditor.deleteForeignKey()
 	await tableEditor.alterTable()
 	await Toast.expectSuccess(page, `${messageTableName} updated`) // uses old table name
+	await page.waitForTimeout(100)
 
 	// Verify alterations
 	await dbManager.selectTable(postsTableName) // Ensure the view refreshed
@@ -313,14 +316,18 @@ class Column {
 	}
 
 	async rowOrUndefined(): Promise<Locator | undefined> {
-		let rows = await this.columnsSection.locator('tr:has(input)').all()
+		const rows = await this.columnsSection.locator('tr:has(input)').all()
 		for (const row of rows) {
 			const val = await row.locator('input').first().inputValue()
 			if (val === this.columnName) return row
 		}
 	}
 	row = async () => {
-		const row = await this.rowOrUndefined()
+		let row = await this.rowOrUndefined()
+		if (!row) {
+			await this.page.waitForTimeout(500)
+			row = await this.rowOrUndefined()
+		}
 		if (!row) throw new Error(`Column with name ${this.columnName} not found`)
 		return row
 	}
