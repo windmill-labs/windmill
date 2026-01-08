@@ -34,7 +34,7 @@
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
-	import { onDestroy } from 'svelte'
+	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
 	let darkMode: boolean = $state(false)
 
 	interface Props {
@@ -78,7 +78,13 @@
 		)
 	)
 
-	let secondMenuLinks = $derived(
+	type SecondMenuLink = { label: string; id: string; href: string }
+	function filterLink(link: SecondMenuLink) {
+		if (!$userWorkspaces || !$workspaceStore) return false
+		let userWorkspace = $userWorkspaces.find((_) => _.id === $workspaceStore)
+		return userWorkspace?.operator_settings?.[link.id] === true
+	}
+	let secondMenuLinks: SecondMenuLink[] = $derived(
 		[
 			{
 				label: 'Resources',
@@ -95,6 +101,25 @@
 				id: 'assets',
 				href: `${base}/assets`
 			},
+			{
+				label: 'Groups',
+				id: 'groups',
+				href: `${base}/groups`
+			},
+			{
+				label: 'Folders',
+				id: 'folders',
+				href: `${base}/folders`
+			},
+			{
+				label: 'Workers',
+				id: 'workers',
+				href: `${base}/workers`
+			}
+		].filter(filterLink)
+	)
+	let secondMenuTriggerLinks = $derived(
+		[
 			{
 				label: 'Custom HTTP routes',
 				id: 'triggers',
@@ -144,47 +169,10 @@
 				label: 'Audit logs',
 				id: 'audit_logs',
 				href: `${base}/audit_logs`
-			},
-			{
-				label: 'Groups',
-				id: 'groups',
-				href: `${base}/groups`
-			},
-			{
-				label: 'Folders',
-				id: 'folders',
-				href: `${base}/folders`
-			},
-			{
-				label: 'Workers',
-				id: 'workers',
-				href: `${base}/workers`
 			}
-		].filter((link) => {
-			if (!$userWorkspaces || !$workspaceStore) return false
-			return (
-				$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.[link.id] === true
-			)
-		})
+		].filter(filterLink)
 	)
-
-	let moreOpen = $state(false)
-	let moreOpenTimeout: number | undefined = $state()
-
-	function debouncedSetMoreOpen(value: boolean) {
-		if (moreOpenTimeout) {
-			clearTimeout(moreOpenTimeout)
-		}
-		moreOpenTimeout = setTimeout(() => {
-			moreOpen = value
-		}, 150) // 150ms debounce
-	}
-
-	onDestroy(() => {
-		if (moreOpenTimeout) {
-			clearTimeout(moreOpenTimeout)
-		}
-	})
+	let showMore = $state(false)
 </script>
 
 <Menubar>
@@ -305,8 +293,8 @@
 							onClick={() => logout()}
 							class={twMerge(
 								'flex flex-row gap-3.5  items-center px-2 py-2 w-full',
-								'text-secondary text-xs',
-								'hover:bg-surface-hover hover:text-primary cursor-pointer',
+								'text-primary text-xs',
+								'hover:bg-surface-hover cursor-pointer',
 								'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
 							)}
 							{item}
@@ -315,57 +303,42 @@
 							Sign out
 						</MenuItem>
 					</div>
-					<div
-						onmouseenter={() => debouncedSetMoreOpen(true)}
-						onmouseleave={() => debouncedSetMoreOpen(false)}
-						role="none"
-					>
-						<MenuItem
-							onFocusIn={() => debouncedSetMoreOpen(true)}
-							onFocusOut={() => debouncedSetMoreOpen(false)}
-							{item}
-						>
-							{#if !moreOpen || secondMenuLinks.length === 0}
-								<div class="px-2 py-2 text-primary text-2xs">More...</div>
-							{/if}
-						</MenuItem>
-						{#if moreOpen && secondMenuLinks.length > 0}
-							{#each secondMenuLinks as menuLink (menuLink.href ?? menuLink.label)}
-								<div>
-									<MenuItem
-										href={menuLink.href}
-										class={twMerge(
-											'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
-											'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
-										)}
-										{item}
-										onFocusIn={() => debouncedSetMoreOpen(true)}
-										onFocusOut={() => debouncedSetMoreOpen(false)}
-									>
-										{menuLink.label}
-									</MenuItem>
-								</div>
-							{/each}
+					<div onmouseleave={() => (showMore = false)} role="none">
+						{#if secondMenuLinks.length}
+							<ResizeTransitionWrapper vertical innerClass="w-full">
+								{#if !showMore}
+									<div onmouseenter={() => (showMore = true)} role="none">
+										<MenuItem {item}>
+											<div class="px-2 py-2 text-primary text-2xs">More...</div>
+										</MenuItem>
+									</div>
+								{:else}
+									{#snippet renderSecondMenuLinks(menuLinks: SecondMenuLink[])}
+										{#each menuLinks as menuLink (menuLink.href ?? menuLink.label)}
+											<MenuItem
+												href={menuLink.href}
+												class={twMerge(
+													'flex flex-row gap-3.5 items-center px-2 py-2 text-secondary text-2xs hover:bg-surface-hover hover:text-primary cursor-pointer',
+													'data-[highlighted]:bg-surface-hover data-[highlighted]:text-primary'
+												)}
+												{item}
+											>
+												{menuLink.label}
+											</MenuItem>
+										{/each}
+									{/snippet}
+									<div class="divide-y">
+										<div>{@render renderSecondMenuLinks(secondMenuLinks)}</div>
+										<div>{@render renderSecondMenuLinks(secondMenuTriggerLinks)}</div>
+									</div>
+								{/if}
+							</ResizeTransitionWrapper>
+						{/if}
+						{#if $enterpriseLicense}
+							<MultiplayerMenu />
 						{/if}
 					</div>
 				</div>
-				{#if $enterpriseLicense}
-					<div
-						onmouseenter={() => {
-							if (moreOpenTimeout) {
-								setTimeout(() => {
-									clearTimeout(moreOpenTimeout)
-								}, 15)
-							}
-						}}
-						onmouseleave={() => {
-							debouncedSetMoreOpen(false)
-						}}
-						role="none"
-					>
-						<MultiplayerMenu />
-					</div>
-				{/if}
 			{/snippet}
 		</Menu>
 	{/snippet}
