@@ -24,7 +24,7 @@ const resourceByDbType: Record<DbType, object> = {
 async function setupNewResource(
 	page: Page,
 	resourceType: DbType
-): Promise<{ resourcePath: string }> {
+): Promise<{ resourceName: string }> {
 	// Generate unique ID with timestamp
 	const timestamp = Date.now()
 	const resourceName = `${resourceType}_${timestamp}`
@@ -64,9 +64,21 @@ async function setupNewResource(
 	const successToast = page.locator(`.toast-success:has-text("Saved resource")`)
 	await expect(successToast).toBeVisible({ timeout: 10000 })
 
-	return { resourcePath: `u/admin/${resourceName}` }
+	return { resourceName }
 }
 
-test('setup a postgres resource and ensure db manager works', async ({ page }) => {
-	let { resourcePath } = await setupNewResource(page, 'postgresql')
+test('setup a postgresql resource and ensure db manager works', async ({ page }) => {
+	let { resourceName } = await setupNewResource(page, 'postgresql')
+
+	const resourceRow = page.locator(`table tr:has-text("${resourceName}")`)
+	await expect(resourceRow).toBeVisible()
+
+	const manageButton = resourceRow.locator('button:has-text("Manage")')
+	await manageButton.click()
+
+	let dbManagerPage = new DbManagerPage(
+		page,
+		getDbFeatures({ type: 'database', resourceType: 'postgresql', resourcePath: '' })
+	)
+	await dbManagerPage.runTest()
 })
