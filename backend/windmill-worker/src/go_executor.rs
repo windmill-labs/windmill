@@ -244,6 +244,7 @@ func Run(req Req) (interface{{}}, error){{
                 }
             })
             .env("HOME", HOME_ENV.as_str())
+            .env("GOCACHE", GO_CACHE_DIR)
             .envs(PROXY_ENVS.clone())
             .args(vec!["build", "main.go"])
             .stdout(Stdio::piped())
