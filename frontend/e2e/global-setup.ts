@@ -2,6 +2,8 @@
 import { chromium, FullConfig } from '@playwright/test'
 
 async function globalSetup(config: FullConfig) {
+	process.env.TEST_UNIQUE_ID = Date.now().toString()
+
 	const browser = await chromium.launch()
 	const context = await browser.newContext({
 		permissions: ['clipboard-read', 'clipboard-write']
@@ -51,3 +53,5 @@ async function globalSetup(config: FullConfig) {
 }
 
 export default globalSetup
+
+declare const process: any // ignore TS errors
