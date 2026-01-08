@@ -1,11 +1,14 @@
 // Assumes the db manager was already opened
 
 import { expect, Page } from '@playwright/test'
+import type { DbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 
 export class DbManagerPage {
 	page: Page
-	constructor(page: Page) {
+	features: DbFeatures
+	constructor(page: Page, features: DbFeatures) {
 		this.page = page
+		this.features = features
 	}
 
 	async runTest() {

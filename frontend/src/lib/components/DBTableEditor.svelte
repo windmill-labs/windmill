@@ -45,11 +45,7 @@
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import {
-		datatypeHasLength,
-		dbSupportsSchemas,
-		type DbFeatures
-	} from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength, dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
@@ -70,6 +66,7 @@
 		datatypeDefaultLength
 	} from './apps/components/display/dbtable/tableEditor'
 	import Alert from './common/alert/Alert.svelte'
+	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 
 	type Props = {
 		dbType: DbType

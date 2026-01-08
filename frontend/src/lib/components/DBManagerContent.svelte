@@ -2,11 +2,7 @@
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 	import { sendUserToast, sortArray } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
-	import {
-		dbSupportsSchemas,
-		getDbFeatures,
-		type TableMetadata
-	} from './apps/components/display/dbtable/utils'
+	import { dbSupportsSchemas, type TableMetadata } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
@@ -26,6 +22,7 @@
 	} from './apps/components/display/dbtable/metadata'
 
 	import type { SelectedTable } from './DBManager.svelte'
+	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
 
 	interface Props {
 		input?: DbInput

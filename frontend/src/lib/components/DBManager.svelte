@@ -4,7 +4,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef, type DbFeatures } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -22,6 +22,7 @@
 	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
+	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {

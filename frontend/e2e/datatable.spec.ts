@@ -1,5 +1,6 @@
 import { test, expect, Page } from '@playwright/test'
 import { DbManagerPage } from './DbManagerPage'
+import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 
 async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	// Generate unique ID with timestamp
@@ -78,6 +79,9 @@ test('create new data table, add a new table, CRUD rows and delete the table', a
 	const lastRow = table.locator('tr').nth(-2)
 	lastRow.locator('button:has-text("Manage")').click()
 
-	let dbManagerPage = new DbManagerPage(page)
+	let dbManagerPage = new DbManagerPage(
+		page,
+		getDbFeatures({ type: 'database', resourceType: 'postgresql', resourcePath: '' })
+	)
 	await dbManagerPage.runTest()
 })
