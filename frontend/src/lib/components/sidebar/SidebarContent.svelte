@@ -649,7 +649,12 @@
 							{/snippet}
 							{#snippet children({ item })}
 								{#each menuLink.subItems as subItem (subItem.href ?? subItem.label)}
-									<MenuItem href={subItem.href} class={itemClass} target={subItem.external !== false ? "_blank" : undefined} {item}>
+									<MenuItem
+										href={subItem.href}
+										class={itemClass}
+										target={subItem.external !== false ? '_blank' : undefined}
+										{item}
+									>
 										<div class="flex flex-row items-center gap-2">
 											{#if subItem.icon}
 												<subItem.icon size={16} />
@@ -682,7 +687,7 @@
 <ConfirmationModal
 	open={leaveWorkspaceModal}
 	title="Leave workspace"
-	confirmationText="Remove"
+	confirmationText="Leave workspace"
 	on:canceled={() => {
 		leaveWorkspaceModal = false
 	}}

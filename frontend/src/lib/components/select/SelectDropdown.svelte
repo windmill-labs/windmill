@@ -167,8 +167,8 @@
 		<div
 			class={twMerge(
 				open ? 'select-dropdown-open' : 'select-dropdown-closed',
-				disablePortal ? 'absolute' : 'fixed',
-				'z-[5002] text-primary text-sm select-none',
+				disablePortal ? 'absolute z-[5002]' : 'fixed z-[10000]',
+				'text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
 				uiState.visible ? '' : 'pointer-events-none',
 				className

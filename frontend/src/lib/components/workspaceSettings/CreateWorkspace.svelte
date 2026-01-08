@@ -213,7 +213,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
 		if (aiKey != '') {
@@ -327,6 +327,7 @@
 
 	let auto_invite = $state(false)
 	let operatorOnly = $state(false)
+	let autoAdd = $state(false)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
@@ -343,7 +344,7 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace">
+<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
 	<div class="flex flex-col gap-8">
 		{#if isFork}
 			<div class="flex flex-block gap-2">
@@ -560,6 +561,17 @@
 							<span class="text-xs text-secondary font-normal"
 								>Whether to invite or add users directly to the workspace.</span
 							>
+							<ToggleButtonGroup
+								selected={autoAdd ? 'add' : 'invite'}
+								on:selected={async (e) => {
+									autoAdd = e.detail === 'add'
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="invite" label="Auto-invite" {item} />
+									<ToggleButton value="add" label="Auto-add" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
 						</label>
 
 						<label class="font-semibold flex flex-col gap-1">
@@ -581,7 +593,7 @@
 				{/if}
 			</div>
 		{/if}
-		<div class="flex flex-wrap flex-row justify-between pt-12 gap-4">
+		<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
 			<Button
 				disabled={forkCreationLoading}
 				variant="default"

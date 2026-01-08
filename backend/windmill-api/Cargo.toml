@@ -40,7 +40,7 @@ mcp = ["dep:rmcp"]
 python = []
 
 [dependencies]
-rmcp = { version = "0.8.1", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
+rmcp = { version = "0.12.0", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
