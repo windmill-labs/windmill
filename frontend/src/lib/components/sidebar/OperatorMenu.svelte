@@ -177,7 +177,7 @@
 
 <Menubar>
 	{#snippet children({ createMenu })}
-		<Menu {createMenu} usePointerDownOutside>
+		<Menu {createMenu} usePointerDownOutside on:close={() => (showMore = false)}>
 			{#snippet triggr({ trigger })}
 				<MenuButton
 					class="!text-xs"
