@@ -10954,6 +10954,7 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
+ "oauth2",
  "pastey",
  "pin-project-lite",
  "rand 0.9.0",
@@ -10969,6 +10970,7 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -15330,6 +15332,7 @@ dependencies = [
  "mime_guess",
  "native-tls",
  "nkeys",
+ "oauth2",
  "object_store",
  "openidconnect",
  "openssl",

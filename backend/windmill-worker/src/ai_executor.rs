@@ -300,7 +300,7 @@ pub async fn handle_ai_agent_job(
     // Load MCP tools if configured
     let mut tools = tools;
     let mcp_clients = if !mcp_configs.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
         tools.extend(mcp_tools);
         clients
     } else {

@@ -447,12 +447,90 @@ fn apply_tool_filters(
     tools
 }
 
+/// Check if a token variable is expired and refresh it if needed via API call
+async fn refresh_token_if_expired(
+    db: &DB,
+    workspace_id: &str,
+    token_path: &str,
+    auth_token: &str,
+) -> Result<(), Error> {
+    // Query variable with account join to check expiration
+    let token_info = sqlx::query!(
+        r#"
+        SELECT
+            variable.path,
+            variable.account as account_id,
+            (now() > account.expires_at) as "is_expired: bool"
+        FROM variable
+        LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+        WHERE variable.path = $1 AND variable.workspace_id = $2
+        "#,
+        token_path,
+        workspace_id
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let Some(token_info) = token_info else {
+        tracing::debug!("Token variable {} not found, skipping refresh check", token_path);
+        return Ok(());
+    };
+
+    let Some(account_id) = token_info.account_id else {
+        tracing::debug!("Token variable {} is not linked to an OAuth account", token_path);
+        return Ok(());
+    };
+
+    if !token_info.is_expired.unwrap_or(false) {
+        tracing::debug!("Token variable {} is not expired", token_path);
+        return Ok(());
+    }
+
+    tracing::info!(
+        "Token variable {} is expired, triggering refresh for account {}",
+        token_path,
+        account_id
+    );
+
+    // Call the API refresh endpoint
+    let base_url = windmill_common::BASE_URL.read().await.clone();
+    let refresh_url = format!(
+        "{}/api/w/{}/oauth/refresh_token/{}",
+        base_url, workspace_id, account_id
+    );
+
+    #[derive(serde::Serialize)]
+    struct RefreshRequest {
+        path: String,
+    }
+
+    let response = windmill_common::utils::HTTP_CLIENT
+        .post(&refresh_url)
+        .header("Authorization", format!("Bearer {}", auth_token))
+        .json(&RefreshRequest { path: token_path.to_string() })
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to call token refresh endpoint: {}", e)))?;
+
+    if !response.status().is_success() {
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(Error::internal_err(format!(
+            "Token refresh failed: {}",
+            error_text
+        )));
+    }
+
+    tracing::info!("Successfully refreshed token for variable {}", token_path);
+    Ok(())
+}
+
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
 pub async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
     mcp_configs: Vec<McpResourceConfig>,
+    auth_token: &str,
 ) -> Result<(HashMap<String, Arc<McpClient>>, Vec<Tool>), Error> {
     let mut all_mcp_tools = Vec::new();
     let mut mcp_clients = HashMap::new();
@@ -478,6 +556,17 @@ pub async fn load_mcp_tools(
         };
 
         let resource_name = mcp_resource.name.clone();
+
+        // Check if token needs refresh before creating MCP client
+        if let Some(ref token_path) = mcp_resource.token {
+            let token_var_path = token_path.trim_start_matches("$var:");
+            if let Err(e) = refresh_token_if_expired(db, workspace_id, token_var_path, auth_token).await {
+                tracing::warn!(
+                    "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
+                    resource_name, e
+                );
+            }
+        }
 
         // Create new MCP client for this execution
         tracing::debug!("Creating fresh MCP client for {}", resource_name);

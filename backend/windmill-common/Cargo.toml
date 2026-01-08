@@ -108,7 +108,7 @@ tempfile.workspace = true
 systemstat.workspace = true
 size.workspace = true
 globset.workspace = true
-rmcp = { version = "0.12.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rmcp = { version = "0.12.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "auth"] }
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }

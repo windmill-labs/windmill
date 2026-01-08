@@ -29,6 +29,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
+	import { base } from '$lib/base'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
@@ -483,6 +484,7 @@
 				? 'u/username and f/*'
 				: undefined
 	)
+
 </script>
 
 <ConfirmationModal
