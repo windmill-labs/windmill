@@ -67,6 +67,7 @@
 	} from './apps/components/display/dbtable/tableEditor'
 	import Alert from './common/alert/Alert.svelte'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
+	import Label from './Label.svelte'
 
 	type Props = {
 		dbType: DbType
@@ -219,7 +220,11 @@
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
 								{#if features?.primaryKeys}
-									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+									<input
+										type="checkbox"
+										class="!w-4 !h-4 primary-key-checkbox"
+										bind:checked={column.primaryKey}
+									/>
 								{/if}
 								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
 									{#snippet trigger()}
@@ -263,7 +268,7 @@
 									color="light"
 									startIcon={{ icon: X }}
 									wrapperClasses="w-fit ml-2"
-									btnClasses="p-0"
+									btnClasses="delete-column-btn p-0"
 									on:click={() => values.columns.splice(i, 1)}
 								/>
 							</Cell>
@@ -301,7 +306,7 @@
 							<tr>
 								<Cell first class="flex">
 									<Select
-										inputClass={twMerge('!w-48')}
+										inputClass={twMerge('fk-table-select !w-48')}
 										error={fkErrors?.emptyTarget}
 										placeholder=""
 										bind:value={foreignKey.targetTable}
@@ -323,7 +328,7 @@
 												 		 from x-overflowing -->
 													<div class="grow h-[2rem] relative">
 														<Select
-															class="!absolute inset-0"
+															class="fk-source-col-select !absolute inset-0"
 															error={fkErrors?.nonExistingSourceColumns.includes(
 																column.sourceColumn
 															)}
@@ -338,7 +343,7 @@
 													<ArrowRight size={16} class="h-fit shrink-0" />
 													<div class="grow h-[2rem] relative">
 														<Select
-															class="!absolute inset-0"
+															class="fk-target-col-select !absolute inset-0"
 															error={fkErrors?.nonExistingTargetColumns.includes(
 																column.targetColumn
 															)}
@@ -357,23 +362,29 @@
 													{#if columnIndex === 0}
 														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
 															{#snippet trigger()}
-																<Settings size={18} />
+																<Settings class="fk-settings-btn" size={18} />
 															{/snippet}
 															{#snippet content()}
-																<span>
-																	ON DELETE <select bind:value={foreignKey.onDelete}>
+																<Label label="ON DELETE">
+																	<select
+																		class="fk-on-delete-select"
+																		bind:value={foreignKey.onDelete}
+																	>
 																		<option value="NO ACTION" selected>NO ACTION</option>
 																		<option value="CASCADE" selected>CASCADE</option>
 																		<option value="SET NULL" selected>SET NULL</option>
 																	</select>
-																</span>
-																<span>
-																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
+																</Label>
+																<Label label="ON UPDATE">
+																	<select
+																		class="fk-on-update-select"
+																		bind:value={foreignKey.onUpdate}
+																	>
 																		<option value="NO ACTION" selected>NO ACTION</option>
 																		<option value="CASCADE" selected>CASCADE</option>
 																		<option value="SET NULL" selected>SET NULL</option>
 																	</select>
-																</span>
+																</Label>
 															{/snippet}
 														</Popover>
 													{/if}
@@ -381,7 +392,7 @@
 														color="light"
 														startIcon={{ icon: X }}
 														wrapperClasses="w-fit ml-2"
-														btnClasses="p-0"
+														btnClasses="fk-delete-btn p-0"
 														on:click={foreignKey.columns.length > 1
 															? () => foreignKey.columns.splice(columnIndex, 1)
 															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}

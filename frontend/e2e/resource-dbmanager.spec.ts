@@ -1,15 +1,13 @@
 import { test, expect, Page } from '@playwright/test'
 import { runDbManagerSimpleCRUDTest } from './DbManagerPage'
-import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { DbType } from '../src/lib/components/dbTypes'
 import { Toast } from './utils'
 
 test.describe('DB Manager', () => {
 	for (const dbType of ['postgresql', 'mysql', 'bigquery', 'ms_sql_server', 'snowflake'] as const) {
-		const dbFeatures = getDbFeatures({ type: 'database', resourceType: dbType, resourcePath: '' })
-		test(`setup a ${dbType} resource and ensure db manager works`, async ({ page }) => {
+		test(`setup a ${dbType} resource and test simple CRUD with DB Manager`, async ({ page }) => {
 			await setupNewResourceAndOpenDbManager(page, dbType)
-			await runDbManagerSimpleCRUDTest(page, dbFeatures)
+			await runDbManagerSimpleCRUDTest(page, dbType)
 		})
 	}
 })

@@ -153,6 +153,7 @@
 	{#if uiState.domExists}
 		<div
 			class={twMerge(
+				open ? 'select-dropdown-open' : 'select-dropdown-closed',
 				disablePortal ? 'absolute' : 'fixed',
 				'z-[5002] text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',

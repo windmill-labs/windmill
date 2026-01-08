@@ -1,10 +1,14 @@
 // Assume the db manager was already opened
 
 import { expect, Locator, Page } from '@playwright/test'
-import type { DbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
+import {
+	getDbFeatures,
+	type DbFeatures
+} from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { ConfirmationModal, Toast } from './utils'
+import { DbInput, DbType } from '../src/lib/components/dbTypes'
 
-export async function runDbManagerSimpleCRUDTest(page: Page, dbFeatures: DbFeatures) {
+export async function runDbManagerSimpleCRUDTest(page: Page, db: _DbType) {
 	let dbManager = new DbManagerPage(page)
 	await dbManager.expectToBeVisible()
 
@@ -43,6 +47,63 @@ export async function runDbManagerSimpleCRUDTest(page: Page, dbFeatures: DbFeatu
 	await Toast.expectSuccess(page, `Table '${friendTableName}' deleted successfully`)
 }
 
+export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
+	let dbFeatures = getDbFeatures(getDbInput(dbType))
+	let dbManager = new DbManagerPage(page)
+	await dbManager.expectToBeVisible()
+
+	let timestamp = Date.now()
+
+	// Create friend table
+	let friendTableName = `friend_${timestamp}`
+	let tableEditor = await dbManager.openCreateTableDrawer()
+	await tableEditor.setTableName(friendTableName)
+	await new Column(page, tableEditor.columnsSection(), 'id').delete() // default id column
+	let friendIdCol = await tableEditor.addColumn('id', 'INT')
+	if (dbFeatures.primaryKeys) {
+		friendIdCol.setPrimaryKey(true)
+	} else {
+		await expect(await friendIdCol.primaryKeyCheckbox()).toBeHidden()
+	}
+	await tableEditor.addColumn('name', 'TEXT')
+	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
+	await tableEditor.createTable()
+	await Toast.expectSuccess(page, `${friendTableName} created`)
+
+	// Create message table
+	let messageTableName = `message_${timestamp}`
+	tableEditor = await dbManager.openCreateTableDrawer()
+	await tableEditor.setTableName(messageTableName)
+	await new Column(page, tableEditor.columnsSection(), 'id').delete() // default id column
+	let messageIdCol = await tableEditor.addColumn('id', 'INT')
+	if (dbFeatures.primaryKeys) messageIdCol.setPrimaryKey(true)
+	await tableEditor.addColumn('friend_id', 'INT')
+	await tableEditor.addColumn('content', 'TEXT')
+	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
+	if (dbFeatures.foreignKeys) {
+		await tableEditor.addForeignKey(friendTableName, 'friend_id', 'id', {
+			onDelete: 'CASCADE',
+			onUpdate: 'CASCADE'
+		})
+	} else {
+		expect(tableEditor.foreignKeySection()).toBeHidden()
+	}
+	await tableEditor.createTable()
+	await Toast.expectSuccess(page, `${messageTableName} created`)
+
+	// Alter message table
+	let actionsMenu = await dbManager.openActionsMenu(messageTableName)
+	await actionsMenu.alterTable()
+	tableEditor = new TableEditorDrawer(page)
+	await tableEditor.setTableName(`posts_${timestamp}`)
+	await new Column(page, tableEditor.columnsSection(), 'id').delete()
+	await new Column(page, tableEditor.columnsSection(), 'friend_id').setName('person_id')
+	await new Column(page, tableEditor.columnsSection(), 'created_at').setType('INT')
+	await new Column(page, tableEditor.columnsSection(), 'created_at').setName('created_timestamp')
+	await tableEditor.alterTable()
+	await Toast.expectSuccess(page, `posts updated successfully`)
+}
+
 export class DbManagerPage {
 	page: Page
 
@@ -77,6 +138,7 @@ export class DbManagerPage {
 
 	async openActionsMenu(tableName: string): Promise<TableActionsMenu> {
 		const actionsBtn = this.dbManager().locator(`#db-manager-table-actions-${tableName}`)
+		await expect(actionsBtn).toBeVisible({ timeout: 10000 })
 		await actionsBtn.click()
 		return new TableActionsMenu(this.page)
 	}
@@ -90,7 +152,8 @@ class TableEditorDrawer {
 	}
 
 	tableEditor = () => this.page.locator('#db-table-editor-drawer')
-	columnsTable = () => this.page.locator('#columns-section table')
+	columnsSection = () => this.tableEditor().locator('#columns-section')
+	foreignKeySection = () => this.page.locator('#foreign-keys-section')
 
 	async setTableName(name: string) {
 		const nameInput = this.tableEditor().locator('label:has-text("Name")').locator('input')
@@ -98,45 +161,91 @@ class TableEditorDrawer {
 	}
 
 	async addColumn(columnName: string, columnType: string) {
-		const columnsTable = this.columnsTable()
-		const addColumnButton = columnsTable.locator('button:has-text("Add")')
+		const columnsSection = this.columnsSection()
+		const addColumnButton = columnsSection.locator('button:has-text("Add")')
 		await addColumnButton.click()
 
 		// Set name before creating Column because it's identified by name
-		const newColRow = columnsTable.locator('tr').nth(-2)
+		const newColRow = columnsSection.locator('tr').nth(-2)
 		const newColNameInput = newColRow.locator('td').nth(0).locator('input')
 		await newColNameInput.fill(columnName)
 
-		let column = new Column(this.page, columnsTable, columnName)
+		let column = new Column(this.page, columnsSection, columnName)
 		await column.setType(columnType)
 		return column
 	}
 
 	async createTable() {
-		await this.page.locator('button:has-text("Create table")').click()
+		await this.tableEditor().locator('button:has-text("Create table")').click()
 		await ConfirmationModal.confirm(this.page, '#db-table-editor-confirmation-modal', 'Create')
+	}
+
+	async alterTable() {
+		await this.tableEditor().locator('button:has-text("Alter table")').click()
+		await ConfirmationModal.confirm(this.page, '#db-table-editor-confirmation-modal', 'Alter')
+	}
+
+	async addForeignKey(
+		referencedTable: string,
+		fromCol: string,
+		toCol: string,
+		options?: { onDelete?: string; onUpdate?: string }
+	) {
+		const fkSection = this.foreignKeySection()
+		const addFkButton = fkSection.locator('button:has-text("Add")')
+		await addFkButton.click()
+		const lastFkRow = fkSection.locator('tr').nth(-2)
+
+		const tableSelect = lastFkRow.locator('input.fk-table-select')
+		await tableSelect.click()
+		await this.page.locator(`.select-dropdown-open li:has(:text-is("${referencedTable}"))`).click()
+
+		const fromColSelect = lastFkRow.locator('.fk-source-col-select')
+		await fromColSelect.click()
+		await this.page.locator(`.select-dropdown-open li:has(:text-is("${fromCol}"))`).click()
+
+		const toColSelect = lastFkRow.locator('.fk-target-col-select')
+		await toColSelect.click()
+		await this.page.locator(`.select-dropdown-open li:has(:text-is("${toCol}"))`).click()
+
+		const fkSettings = lastFkRow.locator('.fk-settings-btn')
+		if (options?.onDelete || options?.onUpdate) {
+			await fkSettings.click()
+			if (options?.onDelete) {
+				const onDeleteSelect = this.page.locator('select.fk-on-delete-select')
+				await onDeleteSelect.selectOption({ label: options.onDelete })
+			}
+			if (options?.onUpdate) {
+				const onUpdateSelect = this.page.locator('select.fk-on-update-select')
+				await onUpdateSelect.selectOption({ label: options.onUpdate })
+			}
+			// Close the popover
+			await fkSettings.click()
+		}
 	}
 }
 
 class Column {
-	columnsTable: Locator
+	columnsSection: Locator
 	page: Page
 	columnName: string
 
-	constructor(page: Page, columnsTable: Locator, columnName: string) {
+	constructor(page: Page, columnsSection: Locator, columnName: string) {
 		this.page = page
-		this.columnsTable = columnsTable
+		this.columnsSection = columnsSection
 		this.columnName = columnName
 	}
 
 	async row(): Promise<Locator> {
-		let rows = await this.columnsTable.locator('tr:has(input)').all()
+		let rows = await this.columnsSection.locator('tr:has(input)').all()
 		for (const row of rows) {
 			const val = await row.locator('input').first().inputValue()
-			if (val === 'name') return row
+			if (val === this.columnName) return row
 		}
 		throw new Error(`Column with name ${this.columnName} not found`)
 	}
+
+	primaryKeyCheckbox = async () => (await this.row()).locator('input.primary-key-checkbox')
 
 	async setName(columnName: string) {
 		const newColNameInput = (await this.row()).locator('td').nth(0).locator('input')
@@ -147,7 +256,20 @@ class Column {
 	async setType(columnType: string) {
 		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
 		await newColTypeSelect.click()
-		await this.page.locator(`li:has(:text-is("${columnType}"))`).click()
+		await this.page.locator(`.select-dropdown-open li:has(:text-is("${columnType}"))`).click()
+	}
+
+	async delete() {
+		const deleteBtn = (await this.row()).locator('button.delete-column-btn')
+		await deleteBtn.click()
+	}
+
+	async setPrimaryKey(isPrimaryKey: boolean) {
+		let primaryKeyCheckbox = await this.primaryKeyCheckbox()
+		const isChecked = await primaryKeyCheckbox.isChecked()
+		if (isChecked !== isPrimaryKey) {
+			await primaryKeyCheckbox.click()
+		}
 	}
 }
 
@@ -209,5 +331,18 @@ class TableActionsMenu {
 			'#db-manager-delete-table-confirmation-modal',
 			'Delete'
 		)
+	}
+
+	async alterTable() {
+		await this.page.locator('button:has-text("Alter table")').click()
+	}
+}
+
+type _DbType = Exclude<DbType, 'duckdb'> | 'ducklake'
+function getDbInput(dbType: _DbType): DbInput {
+	if (dbType === 'ducklake') {
+		return { type: 'ducklake', ducklake: '' }
+	} else {
+		return { type: 'database', resourceType: dbType, resourcePath: '' }
 	}
 }

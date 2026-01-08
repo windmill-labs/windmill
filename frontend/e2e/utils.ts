@@ -17,4 +17,9 @@ export class ConfirmationModal {
 		const confirmBtn = page.locator(`${modalSelector} button:has-text("${buttonText}")`)
 		await confirmBtn.click()
 	}
+
+	static async expectText(page: Page, modalSelector: string, text: string) {
+		const modal = page.locator(modalSelector)
+		await expect(modal).toHaveText(text)
+	}
 }

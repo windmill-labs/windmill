@@ -1,11 +1,14 @@
 import { test, expect, Page } from '@playwright/test'
-import { runDbManagerSimpleCRUDTest } from './DbManagerPage'
-import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
+import { runDbManagerAlterTableTest, runDbManagerSimpleCRUDTest } from './DbManagerPage'
 import { Toast } from './utils'
 
-test('setup a datatable and ensure db manager works', async ({ page }) => {
+test('setup a datatable and test simple CRUD with DB Manager', async ({ page }) => {
 	await setupNewDataTableAndOpenDbManager(page)
-	await runDbManagerSimpleCRUDTest(page, dbFeatures)
+	await runDbManagerSimpleCRUDTest(page, 'postgresql')
+})
+test('setup a datatable and test Alter table with DB Manager', async ({ page }) => {
+	await setupNewDataTableAndOpenDbManager(page)
+	await runDbManagerAlterTableTest(page, 'postgresql')
 })
 
 async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
@@ -63,7 +66,7 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	await confirmBtn.click()
 
 	// Verify success toast appears
-	Toast.expectSuccess(page, 'Setup successful')
+	await Toast.expectSuccess(page, 'Setup successful')
 
 	const closeModalBtn = page.locator('button[id="modal-close-button"]')
 	await closeModalBtn.click()
@@ -71,8 +74,12 @@ async function setupNewDataTable(page: Page): Promise<{ datatableId: string }> {
 	const saveBtn = page.locator('button:has-text("Save")')
 	await saveBtn.click()
 
+	if (await page.locator('text=Some databases are not setup').isVisible()) {
+		await page.locator('button:has-text("Save anyway")').click()
+	}
+
 	// Verify success toast appears
-	Toast.expectSuccess(page, 'saved successfully')
+	await Toast.expectSuccess(page, 'saved successfully')
 
 	return { datatableId }
 }
@@ -83,9 +90,3 @@ async function setupNewDataTableAndOpenDbManager(page: Page) {
 	const lastRow = table.locator('tr').nth(-2)
 	lastRow.locator('button:has-text("Manage")').click()
 }
-
-const dbFeatures = getDbFeatures({
-	type: 'database',
-	resourceType: 'postgresql',
-	resourcePath: ''
-})
