@@ -822,7 +822,7 @@ pub async fn get_logs_from_store(
 }
 
 lazy_static::lazy_static! {
-    static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+    pub static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
         |v| v.parse().unwrap()
     ).unwrap_or(false);
 }
