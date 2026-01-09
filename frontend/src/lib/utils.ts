@@ -1960,3 +1960,28 @@ export function countChars(str: string, char: string): number {
 export function onlyAlphaNumAndUnderscore(str: string): string {
 	return str.replace(/[^a-zA-Z0-9_]/g, '')
 }
+
+export function buildReactiveObj<T extends object>(fields: {
+	[name in keyof T]: [() => T[name], (v: T[name]) => void]
+}): T {
+	const obj = {} as T
+	for (const key in fields) {
+		Object.defineProperty(obj, key, {
+			get: fields[key][0],
+			set: fields[key][1],
+			enumerable: true,
+			configurable: true
+		})
+	}
+	return obj
+}
+
+export function pick<T extends object, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
+	const result = {} as Pick<T, K>
+	for (const key of keys) {
+		if (key in obj) {
+			result[key] = obj[key]
+		}
+	}
+	return result
+}
