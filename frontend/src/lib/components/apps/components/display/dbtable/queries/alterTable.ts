@@ -476,5 +476,9 @@ function normalizeNewFkToOldColNames(
 }
 
 export function dbSupportsTransactionalDdl(dbType: DbType): boolean {
-	return dbType === 'postgresql' || dbType === 'ms_sql_server' || dbType === 'duckdb'
+	return dbType === 'postgresql' || dbType === 'ms_sql_server'
+	// Commented out temporarily because Ducklake transactional DDL sometimes put the
+	// ducklake in an unusable state.
+	// See : https://github.com/duckdb/ducklake/issues/683
+	// || dbType === 'duckdb'
 }
