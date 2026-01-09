@@ -342,6 +342,7 @@ fn print_help() {
 	println!("  SERVER_BIND_ADDR = {}                  IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
 	println!("  NUM_WORKERS = {}                       Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
 	println!("  WORKER_GROUP = default                 Worker group this worker belongs to",);
+	println!("  QUIT_AFTER_FIRST_PING = false          Exit worker after first successful ping (useful for testing)");
 	println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
 	println!("  METRICS_ADDR = None                    (EE only) Prometheus metrics addr at /metrics; set \"true\" to use :8001");
 	println!("  SUPERADMIN_SECRET = None               Virtual superadmin token (server)");

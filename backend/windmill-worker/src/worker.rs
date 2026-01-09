@@ -316,6 +316,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(false);
 
+    pub static ref QUIT_AFTER_FIRST_PING: bool = std::env::var("QUIT_AFTER_FIRST_PING")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
     pub static ref UNSHARE_TINI_PATH: String = {
         std::env::var("UNSHARE_TINI_PATH").unwrap_or_else(|_| "tini".to_string())
     };
@@ -1264,6 +1269,14 @@ pub async fn run_worker(
     insert_ping(hostname, &worker_name, ip, conn)
         .await
         .expect("initial ping could be sent");
+
+    if *QUIT_AFTER_FIRST_PING {
+        tracing::info!(
+            worker = %worker_name, hostname = %hostname,
+            "QUIT_AFTER_FIRST_PING is set, exiting after successful initial ping"
+        );
+        return;
+    }
 
     #[cfg(feature = "prometheus")]
     let uptime_metric = if METRICS_ENABLED.load(Ordering::Relaxed) {
