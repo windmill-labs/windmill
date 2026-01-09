@@ -75,7 +75,10 @@
 			clearTimeout(timeout)
 		}
 		if (open) {
-			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({ tags: tags.join(',') })
+			tagsToWorkerExists = await WorkerService.existsWorkersWithTags({
+				tags: tags.join(','),
+				workspace: $workspaceStore
+			})
 			lastCheck = Date.now()
 			if (visible) {
 				timeout = setTimeout(() => {

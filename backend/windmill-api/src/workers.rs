@@ -18,6 +18,7 @@ use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
+    jobs::TAGS_ARE_SENSITIVE,
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     DB,
@@ -112,28 +113,64 @@ async fn list_worker_pings(
     .fetch_all(&mut *tx)
     .await?;
     tx.commit().await?;
+
+    let rows = if *TAGS_ARE_SENSITIVE && !is_super_admin {
+        rows.into_iter()
+            .map(|mut w| {
+                w.custom_tags = None;
+                w
+            })
+            .collect()
+    } else {
+        rows
+    };
+
     Ok(Json(rows))
 }
 
 #[derive(Serialize, Deserialize)]
 struct TagsQuery {
     tags: String,
+    workspace: Option<String>,
 }
 
 async fn exists_workers_with_tags(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Query(tags_query): Query<TagsQuery>,
 ) -> JsonResult<std::collections::HashMap<String, bool>> {
+    // Create a list of requested tags
+    let mut tags: Vec<String> = tags_query
+        .tags
+        .split(',')
+        .map(|s| s.to_string())
+        .collect();
+
+    // When TAGS_ARE_SENSITIVE is enabled, filter tags based on workspace visibility
+    if *TAGS_ARE_SENSITIVE {
+        let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
+        if !is_super_admin {
+            if let Some(ref workspace) = tags_query.workspace {
+                // Filter to only tags visible in this workspace
+                let custom_tags = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+                let allowed_tags = custom_tags.to_string_vec(Some(workspace.clone()));
+                tags.retain(|t| allowed_tags.contains(t));
+            } else {
+                // No workspace provided and not superadmin - return empty
+                return Ok(Json(std::collections::HashMap::new()));
+            }
+        }
+    }
+
+    if tags.is_empty() {
+        return Ok(Json(std::collections::HashMap::new()));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
     let mut result = std::collections::HashMap::new();
 
     // Create a query that checks all tags at once using unnest
-    let tags = tags_query
-        .tags
-        .split(',')
-        .map(|s| s.to_string())
-        .collect::<Vec<String>>();
     let rows = sqlx::query!(
         "SELECT tag::text, EXISTS(SELECT 1 FROM worker_ping WHERE custom_tags @> ARRAY[tag] AND ping_at > now() - interval '1 minute') as exists
          FROM unnest($1::text[]) as tag",
@@ -155,7 +192,11 @@ struct CustomTagQuery {
     workspace: Option<String>,
     show_workspace_restriction: Option<bool>,
 }
-async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<String>> {
+async fn get_custom_tags(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Query(query): Query<CustomTagQuery>,
+) -> JsonResult<Vec<String>> {
     if query.show_workspace_restriction.is_some_and(|x| x) && query.workspace.is_some() {
         return Err(windmill_common::error::Error::BadRequest(
             "Cannot use both workspace and show_workspace_restriction".to_string(),
@@ -169,6 +210,12 @@ async fn get_custom_tags(Query(query): Query<CustomTagQuery>) -> JsonResult<Vec<
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
         let all_tags = tags_o.to_string_vec(None);
         return Ok(Json(all_tags));
+    }
+    if *TAGS_ARE_SENSITIVE {
+        let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
+        if !is_super_admin {
+            return Ok(Json(vec![]));
+        }
     }
     Ok(Json(ALL_TAGS.read().await.clone().into()))
 }

@@ -13532,6 +13532,12 @@ paths:
           description: comma separated list of tags
           schema:
             type: string
+        - name: workspace
+          in: query
+          required: false
+          description: workspace to filter tags visibility (required when TAGS_ARE_SENSITIVE is enabled for non-superadmins)
+          schema:
+            type: string
       responses:
         "200":
           description: map of tags to whether at least one worker with the tag exists
