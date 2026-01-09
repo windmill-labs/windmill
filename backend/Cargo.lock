@@ -15258,7 +15258,6 @@ dependencies = [
  "argon2",
  "astral-tokio-tar",
  "async-nats",
- "async-oauth2",
  "async-recursion",
  "async-stream",
  "async-trait",
@@ -15364,6 +15363,7 @@ dependencies = [
  "windmill-git-sync",
  "windmill-indexer",
  "windmill-mcp",
+ "windmill-oauth",
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-py-imports",
@@ -15573,6 +15573,30 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "tracing",
+ "windmill-common",
+]
+
+[[package]]
+name = "windmill-oauth"
+version = "1.602.0"
+dependencies = [
+ "anyhow",
+ "async-oauth2",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
+ "hex",
+ "hmac",
+ "itertools 0.14.0",
+ "lazy_static",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sqlx",
+ "tokio",
+ "tower-cookies",
  "tracing",
  "windmill-common",
 ]
