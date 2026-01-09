@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Client for Windmill API
+#[derive(Clone)]
 pub struct Client {
     pub baseurl: String,
     pub client: reqwest::Client,
@@ -733,12 +734,8 @@ pub mod types {
     #[derive(Clone, Debug, Deserialize)]
     pub struct Flow {
         pub path: String,
-        pub summary: String,
-        #[serde(default)]
-        pub description: Option<String>,
-        pub value: serde_json::Value,
-        #[serde(default)]
-        pub schema: Option<serde_json::Value>,
+        #[serde(flatten)]
+        pub open_flow: OpenFlow,
         #[serde(flatten)]
         pub extra: HashMap<String, serde_json::Value>,
     }
