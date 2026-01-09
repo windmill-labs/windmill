@@ -188,7 +188,13 @@
 									<svelte:fragment slot="trigger">
 										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
 									</svelte:fragment>
-									<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+									<svelte:fragment slot="content">
+										{#if emptyString(tableRow[1].resourcePath)}
+											Please select a storage resource
+										{:else if isDirty(tableRow[0])}
+											Please save your changes
+										{/if}
+									</svelte:fragment>
 								</Popover>
 							{:else}
 								<ExploreAssetButton
