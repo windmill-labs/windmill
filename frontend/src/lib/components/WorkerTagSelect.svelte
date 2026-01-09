@@ -129,7 +129,7 @@
 {/snippet}
 <div class="flex gap-1 items-center relative">
 	{#if !noLabel}
-		<div class="text-tertiary text-2xs">{placeholder ?? 'tag'}</div>
+		<div class="text-primary text-xs">{placeholder ?? 'tag'}</div>
 	{/if}
 	<Select
 		clearable
@@ -141,20 +141,21 @@
 		items={safeSelectItems(items)}
 		bind:value={() => tag, (value) => ((tag = value), dispatch('change', value))}
 		{startSnippet}
+		bottomSnippet={refreshAll}
 	/>
-	{#if open}
-		<div class="absolute top-0 -right-12">
-			<Button
-				iconOnly
-				variant="border"
-				color="dark"
-				size="xs"
-				startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
-				on:click={async () => {
-					loadWorkerGroups(true)
-					open = true
-				}}
-			></Button>
-		</div>
-	{/if}
 </div>
+
+{#snippet refreshAll()}
+	<Button
+		iconOnly
+		variant="subtle"
+		unifiedSize="sm"
+		startIcon={{ icon: RotateCw, classes: loading ? 'animate-spin' : '' }}
+		on:click={async () => {
+			loadWorkerGroups(true)
+			open = true
+		}}
+		btnClasses="rounded-none"
+		title="Refresh worker groups"
+	></Button>
+{/snippet}

@@ -58,7 +58,7 @@
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div
 					class={twMerge(
-						'text-lg min-w-24 font-bold truncate',
+						'text-lg min-w-24 font-semibold text-emphasis truncate',
 						$userStore?.operator ? 'pl-10' : ''
 					)}
 				>
@@ -88,7 +88,7 @@
 				{/if}
 				{@render trigger_badges?.()}
 			</div>
-			<div class="flex gap-1 md:gap-2 items-center">
+			<div class="flex gap-1 items-center">
 				{#if menuItems.length > 0}
 					{#key menuItems}
 						<DropdownV2
@@ -99,6 +99,7 @@
 								type: item.color === 'red' ? 'delete' : 'action'
 							}))}
 							placement="bottom-end"
+							size="md"
 						/>
 					{/key}
 				{/if}
@@ -111,7 +112,7 @@
 					<Button
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
-						btnClasses="hidden md:flex items-center gap-1"
+						btnClasses="hidden md:flex items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>
@@ -119,7 +120,7 @@
 						{...btn.buttonProps}
 						startIcon={{ icon: btn.buttonProps.startIcon }}
 						iconOnly
-						btnClasses="flex md:hidden items-center gap-1"
+						btnClasses="flex md:hidden items-center gap-1 whitespace-nowrap"
 					>
 						{btn.label}
 					</Button>

@@ -68,7 +68,7 @@
 			<tbody class="divide-y bg-surface">
 				{#if assets.status == 'ok' && filteredAssets.length === 0}
 					<tr class="h-14">
-						<Cell colspan="4" class="text-center text-tertiary">No assets found</Cell>
+						<Cell colspan="4">No assets found</Cell>
 					</tr>
 				{/if}
 				{#each filteredAssets as asset}
@@ -76,18 +76,13 @@
 					<tr class="h-14">
 						<Cell first class="w-16">
 							<Tooltip>
-								<AssetGenericIcon
-									assetKind={asset.kind}
-									size="24px"
-									fill=""
-									class="!fill-secondary !stroke-secondary"
-								/>
+								<AssetGenericIcon assetKind={asset.kind} size="16px" class="!text-secondary" />
 								<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
 							</Tooltip>
 						</Cell>
 						<Cell class="w-[75%] flex flex-col">
 							<span>{truncate(asset.path, 92)}</span>
-							<span class="text-2xs text-tertiary">{formatAssetKind(asset)}</span>
+							<span class="text-2xs text-secondary">{formatAssetKind(asset)}</span>
 						</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => assetsUsageDropdown?.open(asset)}>

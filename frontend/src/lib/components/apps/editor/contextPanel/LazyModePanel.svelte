@@ -52,13 +52,13 @@
 	</ToggleButtonGroup>
 	{#if selectedRendering == 'eager'}
 		<Section label="Eager mode">
-			<span class="text-tertiary"
+			<span class="text-primary"
 				>In eager mode, all components will be fully initialized, even when they are not visible.</span
 			>
 		</Section>
 	{:else if selectedRendering == 'semi-lazy'}
 		<Section label="Semi-Lazy mode">
-			<span class="text-tertiary"
+			<span class="text-primary"
 				>In semi-lazy mode, components will be semi-initialized when hidden. That is the default
 				mode.</span
 			>
@@ -66,7 +66,7 @@
 	{:else if selectedRendering == 'lazy'}
 		<Section label="Component ids to wait the initialization of before the initial refresh">
 			<JsonEditor bind:value={$app.lazyInitRequire} {code} />
-			<span class="text-tertiary text-xs">
+			<span class="text-primary text-xs">
 				{'e.g: ["a", "b"]'}, no need to put background runnables ids
 			</span>
 		</Section>

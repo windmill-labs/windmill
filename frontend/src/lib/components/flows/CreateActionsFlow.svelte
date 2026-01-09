@@ -25,14 +25,14 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		id="create-flow-button"
 		aiId="flows-create-actions-flow"
 		aiDescription="Create a new flow"
-		size="sm"
-		spacingSize="xl"
+		unifiedSize="lg"
 		startIcon={{ icon: Plus }}
 		endIcon={{ icon: BarsStaggered }}
 		href="{base}/flows/add?nodraft=true"
-		color="marine"
+		variant="accent"
 		dropdownItems={[
 			{
 				label: 'Import from YAML',

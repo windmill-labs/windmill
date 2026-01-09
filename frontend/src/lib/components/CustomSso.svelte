@@ -28,7 +28,7 @@
 </script>
 
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm">Auth URL</span>
+	<span class="text-primary font-semibold text-xs">Auth URL</span>
 	<input
 		type="text"
 		placeholder="https://github.com/login/oauth/authorize"
@@ -36,7 +36,7 @@
 	/>
 </label>
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm">Token URL</span>
+	<span class="text-primary font-semibold text-xs">Token URL</span>
 	<input
 		type="text"
 		placeholder="https://github.com/login/oauth/access_token"
@@ -44,7 +44,7 @@
 	/>
 </label>
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm">Userinfo URL</span>
+	<span class="text-primary font-semibold text-xs">Userinfo URL</span>
 	<input
 		type="text"
 		placeholder="https://github.com/login/oauth/userinfo"
@@ -53,12 +53,12 @@
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm">Scopes</span>
+	<span class="text-primary font-semibold text-xs">Scopes</span>
 	<OauthScopes bind:scopes={login_config.scopes} />
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm"
+	<span class="text-primary font-semibold text-xs"
 		>Extra Query Args for Authorize Request&nbsp;<Tooltip
 			>Not needed in most cases. Examples of uses: google apis require the 2 extra args
 			"access_type=offline&prompt=consent"</Tooltip
@@ -68,14 +68,14 @@
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm"
+	<span class="text-primary font-semibold text-xs"
 		>Extra Query Args for Token request <Tooltip>Not needed in most cases</Tooltip></span
 	>
 	<OauthExtraParams bind:extra_params={login_config.extra_params_callback} />
 </label>
 <!-- svelte-ignore a11y-label-has-associated-control -->
 <label class="block pb-2">
-	<span class="text-primary font-semibold text-sm"
+	<span class="text-primary font-semibold text-xs"
 		>Payload <Tooltip
 			>Auth is passed in query most commonly. LinkedIn is an example of OAuth using
 			x-www-form-urlencoded

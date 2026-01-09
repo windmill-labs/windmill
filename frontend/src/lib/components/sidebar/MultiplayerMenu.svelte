@@ -84,7 +84,7 @@
 
 {#if connected}
 	<div class="divide-gray-100 border-t" role="none">
-		<div class="px-2.5 text-xs font-semibold mt-1">Live activity</div>
+		<div class="px-2 text-xs text-secondary font-normal mt-1">Live activity</div>
 		<div class="py-1 flex flex-col gap-y-1 max-h-48 overflow-auto" transition:slide>
 			{#each Object.entries($awarenessStore ?? {}) as [user, url]}
 				<div class="inline-flex gap-2 px-2 items-center">
@@ -97,8 +97,8 @@
 						>
 					</span>
 					<div class="flex flex-col">
-						<span class="text-sm text-primary truncate">{user}</span>
-						<span class="text-xs text-tertiary truncate">{showActivity(url)}</span>
+						<span class="text-xs text-primary truncate">{user}</span>
+						<span class="text-2xs text-secondary truncate">{showActivity(url)}</span>
 					</div>
 				</div>
 			{/each}

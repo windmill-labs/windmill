@@ -10,7 +10,7 @@
 	} from '$lib/consts'
 	import bash from 'svelte-highlight/languages/bash'
 	import { Tabs, Tab, TabContent, Button } from '$lib/components/common'
-	import { ArrowDownRight, ArrowUpRight, Clipboard } from 'lucide-svelte'
+	import { ArrowDownRight, ArrowUpRight, Copy } from 'lucide-svelte'
 	import { Highlight } from 'svelte-highlight'
 	import { typescript } from 'svelte-highlight/languages'
 	import ClipboardPanel from '../../details/ClipboardPanel.svelte'
@@ -21,11 +21,12 @@
 	import { workspaceStore, userStore } from '$lib/stores'
 	import UserSettings from '../../UserSettings.svelte'
 	import { generateRandomString } from '$lib/utils'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	interface Props {
 		isFlow?: boolean
 		path?: string
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		token?: string
 		runnableArgs: any
 		triggerTokens?: TriggerTokens | undefined
@@ -35,46 +36,38 @@
 	let {
 		isFlow = false,
 		path = '',
-		hash = undefined,
+		runnableVersion = undefined,
 		token = $bindable(''),
 		runnableArgs,
 		triggerTokens = $bindable(undefined),
 		scopes = []
 	}: Props = $props()
 
-	let webhooks: {
-		async: {
-			get: {}
-			post: {
-				hash?: string
-				path: string
-			}
+	const WEBHOOK_BASE_URL = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
+
+	let baseWebhookUrl = $derived.by(() => {
+		let webhookUrlPath: string
+
+		if (isFlow) {
+			webhookUrlPath = runnableId == 'path' ? `f/${path}` : `fv/${runnableVersion}`
+		} else {
+			webhookUrlPath = runnableId == 'path' ? `p/${path}` : `h/${runnableVersion}`
 		}
-		sync: {
-			get: {
-				path: string
-			}
-			post: {
-				hash?: string
-				path: string
-			}
+
+		if (requestType == 'async') {
+			return `${WEBHOOK_BASE_URL}/run/${webhookUrlPath}`
+		} else if (requestType == 'sync') {
+			return `${WEBHOOK_BASE_URL}/run_wait_result/${webhookUrlPath}`
+		} else {
+			return `${WEBHOOK_BASE_URL}/run_and_stream/${webhookUrlPath}`
 		}
-		sync_sse: {
-			get: {
-				hash?: string
-				path: string
-			}
-			post: {
-				hash?: string
-				path: string
-			}
-		}
-	} = $derived(isFlow ? computeFlowWebhooks(path) : computeScriptWebhooks(hash, path))
+	})
+
 	let selectedTab: string = $state('rest')
 	let userSettings: UserSettings | undefined = $state()
 	let requestType = $state(DEFAULT_WEBHOOK_TYPE) as 'async' | 'sync' | 'sync_sse'
 	let callMethod = $state('post') as 'get' | 'post'
-	let runnableId = $state('path') as 'hash' | 'path'
+	let runnableId = $state('path') as 'runnableVersion' | 'path'
 	let tokenType = $state('headers') as 'query' | 'headers'
 
 	$effect(() => {
@@ -90,7 +83,7 @@
 			: runnableArgs
 	})
 	let url: string = $derived(
-		webhooks[requestType][callMethod][runnableId] +
+		baseWebhookUrl +
 			(tokenType === 'query'
 				? `?token=${token}${
 						callMethod === 'get' || requestType === 'sync_sse'
@@ -103,70 +96,6 @@
 							: ''
 					}`)
 	)
-
-	function computeScriptWebhooks(hash: string | undefined, path: string) {
-		let webhookBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-		return {
-			async: {
-				get: {},
-				post: {
-					hash: `${webhookBase}/run/h/${hash}`,
-					path: `${webhookBase}/run/p/${path}`
-				}
-			},
-			sync: {
-				get: {
-					path: `${webhookBase}/run_wait_result/p/${path}`
-				},
-				post: {
-					hash: `${webhookBase}/run_wait_result/h/${hash}`,
-					path: `${webhookBase}/run_wait_result/p/${path}`
-				}
-			},
-			sync_sse: {
-				get: {
-					path: `${webhookBase}/run_and_stream/p/${path}`,
-					hash: `${webhookBase}/run_and_stream/h/${hash}`
-				},
-				post: {
-					hash: `${webhookBase}/run_and_stream/h/${hash}`,
-					path: `${webhookBase}/run_and_stream/p/${path}`
-				}
-			}
-		}
-	}
-
-	function computeFlowWebhooks(path: string) {
-		let webhooksBase = `${location.origin}${base}/api/w/${$workspaceStore}/jobs`
-
-		let urlAsync = `${webhooksBase}/run/f/${path}`
-		let urlSync = `${webhooksBase}/run_wait_result/f/${path}`
-		let urlStream = `${webhooksBase}/run_and_stream/f/${path}`
-		return {
-			async: {
-				get: {},
-				post: {
-					path: urlAsync
-				}
-			},
-			sync: {
-				get: {
-					path: urlSync
-				},
-				post: {
-					path: urlSync
-				}
-			},
-			sync_sse: {
-				get: {
-					path: urlStream
-				},
-				post: {
-					path: urlStream
-				}
-			}
-		}
-	}
 
 	function headers() {
 		const headers = {}
@@ -182,7 +111,8 @@
 
 	function fetchCode() {
 		if (requestType === 'sync_sse') {
-			return `
+			return `import { EventSource } from "eventsource";
+
 export async function main() {
   const response = await fetch(\`${url}\`, {
     method: '${callMethod === 'get' ? 'GET' : 'POST'}',
@@ -235,8 +165,7 @@ export async function main() {
 }`
 		}
 		if (requestType === 'sync') {
-			return `
-export async function main() {
+			return `export async function main() {
   const jobTriggerResponse = await triggerJob();
   const data = await jobTriggerResponse.json();
   return data;
@@ -263,8 +192,7 @@ async function triggerJob() {
 }`
 		} else {
 			// Main function
-			let mainFunction = `
-export async function main() {
+			let mainFunction = `export async function main() {
   const jobTriggerResponse = await triggerJob();
   const UUID = await jobTriggerResponse.text();
   const jobCompletionData = await waitForJobCompletion(UUID);
@@ -367,18 +295,13 @@ done`
 <div class="flex flex-col gap-8">
 	{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 		<Label label="Token">
-			<div class="flex flex-row justify-between gap-2">
-				<input
+			<div class="flex flex-row justify-between gap-2 whitespace-nowrap">
+				<TextInput
 					bind:value={token}
-					placeholder="paste your token here once created to alter examples below"
+					inputProps={{ placeholder: 'Paste your token here once created to alter examples below' }}
 					class="!text-xs !font-normal"
 				/>
-				<Button
-					size="xs"
-					color="light"
-					variant="border"
-					on:click={() => userSettings?.openDrawer()}
-				>
+				<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
 					Create a Webhook-specific Token
 					<Tooltip light>
 						The token will have a scope such that it can only be used to trigger this script. It is
@@ -389,10 +312,9 @@ done`
 		</Label>
 	{/if}
 
-	<div class="flex flex-col gap-2">
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center">Request type</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+	<div class="flex flex-col gap-6">
+		<Label label="Request type">
+			<ToggleButtonGroup bind:selected={requestType}>
 				{#snippet children({ item })}
 					<ToggleButton
 						label="Async"
@@ -417,10 +339,9 @@ done`
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center">Call method</div>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={callMethod}>
+		</Label>
+		<Label label="Call method">
+			<ToggleButtonGroup bind:selected={callMethod}>
 				{#snippet children({ item })}
 					<ToggleButton
 						label="POST"
@@ -439,47 +360,44 @@ done`
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
-		{#if !isFlow}
-			<div class="flex flex-row justify-between">
-				<div class="text-sm font-normal text-secondary flex flex-row items-center">
-					Reference type
-				</div>
-				<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={runnableId}>
-					{#snippet children({ item })}
-						<ToggleButton label="Path" value="path" {item} />
-						<ToggleButton label="Hash" value="hash" disabled={!hash} {item} />
-					{/snippet}
-				</ToggleButtonGroup>
-			</div>
-		{/if}
-		<div class="flex flex-row justify-between">
-			<div class="text-sm font-normal text-secondary flex flex-row items-center"
-				>Token configuration</div
-			>
-			<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={tokenType}>
+		</Label>
+		<Label label="Reference type">
+			<ToggleButtonGroup bind:selected={runnableId}>
+				{#snippet children({ item })}
+					<ToggleButton label="Path" value="path" {item} />
+					<ToggleButton
+						label={isFlow ? 'Flow version' : 'Hash'}
+						value="runnableVersion"
+						disabled={!runnableVersion}
+						{item}
+					/>
+				{/snippet}
+			</ToggleButtonGroup>
+		</Label>
+		<Label label="Token configuration">
+			<ToggleButtonGroup bind:selected={tokenType}>
 				{#snippet children({ item })}
 					<ToggleButton label="Token in Headers" value="headers" {item} />
 					<ToggleButton label="Token in Query" value="query" {item} />
 				{/snippet}
 			</ToggleButtonGroup>
-		</div>
+		</Label>
 	</div>
 
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div>
 		<Tabs bind:selected={selectedTab}>
-			<Tab value="rest" size="xs">REST</Tab>
+			<Tab value="rest" label="REST" />
 			{#if SCRIPT_VIEW_SHOW_EXAMPLE_CURL}
-				<Tab value="curl" size="xs">Curl</Tab>
+				<Tab value="curl" label="Curl" />
 			{/if}
-			<Tab value="fetch" size="xs">Fetch</Tab>
+			<Tab value="fetch" label="Fetch" />
 
 			{#snippet content()}
 				{#key token}
-					<TabContent value="rest" class="flex flex-col flex-1 h-full ">
-						<div class="flex flex-col gap-2">
+					<TabContent value="rest" class="flex flex-col flex-1 h-full mt-2">
+						<div class="flex flex-col gap-6">
 							<Label label="Url">
 								<ClipboardPanel content={url} />
 							</Label>
@@ -498,7 +416,7 @@ done`
 							{/key}
 						</div>
 					</TabContent>
-					<TabContent value="curl" class="flex flex-col flex-1 h-full">
+					<TabContent value="curl" class="flex flex-col flex-1 h-full mt-2">
 						<div class="relative">
 							{#key runnableArgs}
 								{#key callMethod}
@@ -512,7 +430,7 @@ done`
 												}}
 											>
 												<Highlight language={bash} code={curlCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}
 									{/key}
@@ -520,7 +438,7 @@ done`
 							{/key}
 						</div>
 					</TabContent>
-					<TabContent value="fetch">
+					<TabContent value="fetch" class="mt-2">
 						{#key runnableArgs}
 							{#key callMethod}
 								{#key requestType}
@@ -534,7 +452,7 @@ done`
 												}}
 											>
 												<Highlight language={typescript} code={fetchCode()} />
-												<Clipboard size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
+												<Copy size={14} class="w-8 top-2 right-2 absolute cursor-pointer" />
 											</div>
 										{/key}{/key}{/key}{/key}
 						{/key}

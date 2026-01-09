@@ -1,43 +1,26 @@
-import { dbSupportsSchemas, type DbType } from '../utils'
+import { dbSupportsSchemas } from '../utils'
+import type { DbType } from '$lib/components/dbTypes'
+import { formatDefaultValue } from './dbQueriesUtils'
+import type { TableEditorValues, TableEditorValuesColumn } from '../tableEditor'
 
-export type CreateTableValues = {
-	name: string
-	columns: CreateTableValuesColumn[]
-	foreignKeys: {
-		targetTable?: string
-		columns: {
-			sourceColumn?: string
-			targetColumn?: string
-		}[]
-		onDelete: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-		onUpdate: 'CASCADE' | 'SET NULL' | 'NO ACTION'
-	}[]
-}
-
-type CreateTableValuesColumn = {
-	name: string
-	datatype: string
-	primaryKey?: boolean
-	defaultValue?: string
-	nullable?: boolean
-	datatype_length?: number // e.g varchar(255)
-}
-
-export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, schema?: string) {
+export function makeCreateTableQuery(values: TableEditorValues, dbType: DbType, schema?: string) {
 	const pkCount = values.columns.reduce((p, c) => p + (c.primaryKey ? 1 : 0), 0)
 
-	function transformColumn(c: CreateTableValuesColumn): string {
+	function transformColumn(c: TableEditorValuesColumn): string {
 		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
 		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)
 
 		let str = `  ${c.name} ${datatype}`
 		if (!c.nullable) str += ' NOT NULL'
 		if (defValue) str += ` DEFAULT ${defValue}`
-		if (pkCount === 1 && c.primaryKey) str += ' PRIMARY KEY'
+		if (pkCount === 1 && c.primaryKey) {
+			if (dbType === 'bigquery') str += ' PRIMARY KEY NOT ENFORCED'
+			else str += ' PRIMARY KEY'
+		}
 		return str
 	}
 
-	function transformFk(fk: CreateTableValues['foreignKeys'][number]): string {
+	function transformFk(fk: TableEditorValues['foreignKeys'][number]): string {
 		const sourceColumns = fk.columns.map((c) => c.sourceColumn).filter(Boolean)
 		const targetColumns = fk.columns.map((c) => c.targetColumn).filter(Boolean)
 		const targetTable =
@@ -59,31 +42,12 @@ export function makeCreateTableQuery(values: CreateTableValues, dbType: DbType, 
 	lines.push(...values.foreignKeys.map(transformFk))
 	if (pkCount > 1) {
 		const pks = values.columns.filter((c) => c.primaryKey)
-		lines.push(`  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`)
+		let pk = `  PRIMARY KEY (${pks.map((c) => c.name).join(', ')})`
+		if (dbType === 'bigquery') pk += ' NOT ENFORCED'
+		lines.push(pk)
 	}
 
 	return `CREATE TABLE ${useSchema && schema ? schema.trim() + '.' : ''}${values.name.trim()} (
 ${lines.join(',\n')}
 );`
-}
-
-function formatDefaultValue(str: string, datatype: string, resourceType: DbType): string {
-	if (!str) return ''
-	if (str.startsWith('{') && str.endsWith('}')) {
-		return str.slice(1, str.length - 1)
-	}
-	if (resourceType === 'postgresql') {
-		return `CAST('${str}' AS ${datatype})`
-	}
-	return `'${str}'`
-}
-
-export function datatypeDefaultLength(datatype: string): number {
-	datatype = datatype.toLowerCase()
-	if (datatype == 'bit') return 1
-	if (['varchar', 'char', 'nvarchar', 'nchar', 'varbinary', 'binary'].includes(datatype)) {
-		return 255
-	} else {
-		return 10
-	}
 }

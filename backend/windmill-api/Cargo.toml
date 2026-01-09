@@ -27,7 +27,7 @@ websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
-oauth2 = ["dep:async-oauth2"]
+oauth2 = ["dep:windmill-oauth"]
 http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
@@ -38,11 +38,11 @@ sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
-mcp = ["dep:rmcp"]
+mcp = ["dep:windmill-mcp", "windmill-mcp/server"]
 python = []
 
 [dependencies]
-rmcp = { version = "0.6.4", features=["transport-streamable-http-server", "transport-streamable-http-server-session", "transport-worker"], optional = true }
+windmill-mcp = { workspace = true, optional = true }
 windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
@@ -69,7 +69,7 @@ itertools.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sqlx.workspace = true
-async-oauth2 = { workspace = true, optional = true }
+windmill-oauth = { workspace = true, optional = true }
 tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true
@@ -94,8 +94,9 @@ mail-parser = { workspace = true, features = ["serde_support"], optional = true 
 magic-crypt.workspace = true
 tempfile.workspace = true
 tokio-util.workspace = true
-tokio-tar.workspace = true
+astral-tokio-tar.workspace = true
 tokio-postgres.workspace = true
+postgres-native-tls.workspace = true
 hmac.workspace = true
 cookie.workspace = true
 sha2.workspace = true
@@ -150,6 +151,7 @@ rustls = { workspace = true }
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 aws-config = { workspace = true, optional = true }
+aws-credential-types.workspace = true
 async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }

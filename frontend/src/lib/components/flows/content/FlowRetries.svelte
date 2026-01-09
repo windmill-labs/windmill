@@ -4,7 +4,6 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle } from 'lucide-svelte'
 	import { untrack, getContext } from 'svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
@@ -14,6 +13,8 @@
 	import type { FlowEditorContext } from '../types'
 	import { getStepPropPicker } from '../previousResults'
 	import { NEVER_TESTED_THIS_FAR } from '../models'
+	import { validateRetryConfig } from '$lib/utils'
+	import EEOnly from '$lib/components/EEOnly.svelte'
 
 	interface Props {
 		flowModuleRetry: Retry | undefined
@@ -58,6 +59,10 @@
 			? (flowStateStore.val[flowModule.id]?.previewResult ?? NEVER_TESTED_THIS_FAR)
 			: NEVER_TESTED_THIS_FAR
 	)
+
+	let validationError = $derived.by(() => {
+		return validateRetryConfig(flowModuleRetry)
+	})
 
 	function setConstantRetries() {
 		flowModuleRetry = {
@@ -108,7 +113,7 @@
 <div class="h-full flex flex-col gap-4">
 	<ToggleButtonGroup
 		bind:selected={delayType}
-		class={`h-10 ${disabled ? 'disabled' : ''}`}
+		class={`${disabled ? 'disabled' : ''}`}
 		on:selected={(e) => {
 			flowModuleRetry = undefined
 			if (e.detail === 'constant') {
@@ -121,9 +126,9 @@
 		}}
 	>
 		{#snippet children({ item })}
-			<ToggleButton light value="disabled" label="Disabled" {item} />
-			<ToggleButton light value="constant" label="Constant" {item} />
-			<ToggleButton light value="exponential" label="Exponential" {item} />
+			<ToggleButton value="disabled" label="Disabled" {item} />
+			<ToggleButton value="constant" label="Constant" {item} />
+			<ToggleButton value="exponential" label="Exponential" {item} />
 		{/snippet}
 	</ToggleButtonGroup>
 
@@ -160,18 +165,19 @@
 			/>
 
 			<div
-				class="w-full border p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
+				class="w-full border rounded-md p-2 mt-2 flex flex-col {flowModuleRetry?.retry_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
 				{#if flowModuleRetry?.retry_if}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
-					<div class="border w-full">
+					<div class="border rounded-md overflow-auto w-full">
 						{#if stepPropPicker}
 							<PropPickerWrapper
+								noPadding
 								notSelectable
 								pickableProperties={stepPropPicker.pickableProperties}
 								{result}
@@ -184,7 +190,7 @@
 									bind:this={editor}
 									lang="javascript"
 									bind:code={flowModuleRetry.retry_if.expr}
-									class="few-lines-editor"
+									class="h-full"
 									extraLib={`declare const result = ${JSON.stringify(result)};` +
 										`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input || {})};`}
 								/>
@@ -201,7 +207,7 @@
 					</div>
 				{:else}
 					<span class="mt-2 text-xs font-bold">Retry condition expression</span>
-					<span class="text-xs text-tertiary mb-2"
+					<span class="text-xs text-primary mb-2"
 						>Expression should return true to retry, false to skip retry</span
 					>
 					<textarea disabled rows="3" class="min-h-[80px]"></textarea>
@@ -244,17 +250,28 @@
 						>
 					</div>
 					<div class="text-xs font-bold !mt-2">Multiplier</div>
-					<span class="text-xs text-tertiary">delay = multiplier * base ^ (number of attempt)</span>
+					<span class="text-xs text-primary">delay = multiplier * base ^ (number of attempt)</span>
 					<input bind:value={flowModuleRetry.exponential.multiplier} type="number" />
 					<div class="text-xs font-bold !mt-2">Base (in seconds)</div>
-					<input bind:value={flowModuleRetry.exponential.seconds} type="number" step="1" />
+					<input
+						bind:value={flowModuleRetry.exponential.seconds}
+						type="number"
+						step="1"
+						min="0"
+						class={validationError ? 'border-red-500' : ''}
+					/>
+					{#if validationError}
+						<span class="text-xs text-red-500">{validationError}</span>
+					{:else}
+						<span class="text-xs text-tertiary"
+							>Must be ≥ 1. A base of 0 would cause immediate retries.</span
+						>
+					{/if}
 					<div class="text-xs font-bold !mt-2">Randomization factor (percentage)</div>
 					<div class="flex w-full gap-4">
 						{#if !$enterpriseLicense}
-							<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap">
-								<AlertTriangle size={16} />
-								EE only
-							</div>{/if}
+							<EEOnly />
+						{/if}
 						<input
 							disabled={!$enterpriseLicense}
 							type="range"

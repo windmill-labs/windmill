@@ -94,7 +94,7 @@
 						/>
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary border-y border-l p-1">No components</div>
+					<div class="text-xs text-primary border-y border-l p-1">No components</div>
 				{/if}
 			</div>
 		{/if}

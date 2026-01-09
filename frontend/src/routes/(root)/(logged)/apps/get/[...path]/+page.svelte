@@ -80,7 +80,7 @@
 					<Button
 						size="sm"
 						startIcon={{ icon: Pen }}
-						variant="border"
+						variant="subtle"
 						href="{base}/apps/edit/{app.path}?nodraft=true">Edit</Button
 					>
 				</div>

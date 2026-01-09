@@ -174,10 +174,10 @@
 	<div class="mt-2">
 		<Button
 			endIcon={{ icon: ExternalLink }}
-			color="dark"
+			variant="accent"
 			href="{base}/api/w/{$workspaceStore}/workspaces/billing_portal">Customer Portal</Button
 		>
-		<p class="text-xs text-tertiary mt-1">
+		<p class="text-xs text-primary mt-1">
 			See invoices, change billing information or subscription details.
 		</p>
 	</div>
@@ -468,7 +468,7 @@
 	<div class="flex flex-col gap-4">
 		<div>
 			<div class="text-sm mb-1 text-secondary font-medium"> What is an execution? </div>
-			<div class="text-xs max-w-xl border-b pb-4 text-tertiary">
+			<div class="text-xs max-w-xl border-b pb-4 text-primary">
 				The single credit-unit is called an "execution". An execution corresponds to a single job
 				whose duration is less than 1s. For any additional seconds of computation, an additional
 				execution is accounted for. Jobs are executed on one powerful virtual CPU with 2Gb of
@@ -479,7 +479,7 @@
 			<div class="text-sm mb-1 text-secondary font-medium">
 				What is the difference between a developer and an operator?
 			</div>
-			<div class="text-xs max-w-xl text-tertiary">
+			<div class="text-xs max-w-xl text-primary">
 				A developer can write scripts/flows/apps/variables/resources. An operator can only run/view
 				them.
 			</div>

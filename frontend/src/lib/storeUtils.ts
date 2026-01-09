@@ -1,5 +1,12 @@
 import { resourceTypesStore } from './components/resourceTypesStore'
-import { workspaceStore, userStore, usersWorkspaceStore, superadmin, devopsRole } from './stores'
+import {
+	workspaceStore,
+	userStore,
+	usersWorkspaceStore,
+	superadmin,
+	devopsRole,
+	clearWorkspaceFromStorage
+} from './stores'
 
 export function switchWorkspace(workspace: string | undefined) {
 	try {
@@ -16,7 +23,7 @@ export function clearStores(): void {
 	try {
 		localStorage.removeItem('flow')
 		localStorage.removeItem('app')
-		localStorage.removeItem('workspace')
+		clearWorkspaceFromStorage()
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}

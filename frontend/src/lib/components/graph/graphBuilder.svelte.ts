@@ -7,6 +7,7 @@ import type { GraphModuleState } from './model'
 import { getFlowModuleAssets, type AssetWithAltAccessType } from '../assets/lib'
 import { assetDisplaysAsOutputInFlowGraph } from './renderers/nodes/AssetNode.svelte'
 import type { ModulesTestStates, ModuleTestState } from '../modulesTest.svelte'
+import type { ModuleActionInfo } from '$lib/components/flows/flowDiff'
 
 export type InsertKind =
 	| 'script'
@@ -19,6 +20,8 @@ export type InsertKind =
 	| 'approval'
 	| 'end'
 	| 'aiagent'
+	| 'mcpTool'
+	| 'websearchTool'
 
 export type InlineScript = {
 	language: RawScript['language']
@@ -86,6 +89,7 @@ export type NodeLayout = {
 	data: {
 		offset?: number
 	}
+	selectable?: boolean
 } & FlowNode
 
 export type FlowNode =
@@ -125,6 +129,7 @@ export type InputN = {
 		showJobStatus: boolean
 		flowHasChanged: boolean
 		chatInputEnabled: boolean
+		moduleAction?: ModuleActionInfo
 		assets?: AssetWithAltAccessType[] | undefined
 	}
 }
@@ -145,6 +150,7 @@ export type ModuleN = {
 		flowJob: Job | undefined
 		isOwner: boolean
 		assets: AssetWithAltAccessType[] | undefined
+		moduleAction: ModuleActionInfo | undefined
 	}
 }
 
@@ -305,6 +311,7 @@ export type AiToolN = {
 	type: 'aiTool'
 	data: {
 		tool: string
+		type?: string
 		eventHandlers: GraphEventHandlers
 		moduleId: string
 		insertable: boolean
@@ -362,6 +369,7 @@ export function graphBuilder(
 		insertable: boolean
 		flowModuleStates: Record<string, GraphModuleState> | undefined
 		testModuleStates: ModulesTestStates | undefined
+		moduleActions?: Record<string, ModuleActionInfo>
 		selectedId: string | undefined
 		path: string | undefined
 		newFlow: boolean
@@ -433,9 +441,11 @@ export function graphBuilder(
 					editMode: extra.editMode,
 					isOwner: extra.isOwner,
 					flowJob: extra.flowJob,
-					assets: getFlowModuleAssets(module, extra.additionalAssetsMap)
+					assets: getFlowModuleAssets(module, extra.additionalAssetsMap),
+					moduleAction: extra.moduleActions?.[module.id]
 				},
-				type: 'module'
+				type: 'module',
+				selectable: true
 			})
 
 			return module.id
@@ -528,7 +538,8 @@ export function graphBuilder(
 					...extra,
 					insertable: extra.insertable && !options?.disableInsert && prefix == undefined,
 					shouldOffsetInsertBtnDueToAssetNode: nodeIdsWithOutputAssets.has(sourceId)
-				}
+				},
+				selectable: false
 			})
 		}
 
@@ -551,6 +562,7 @@ export function graphBuilder(
 				showJobStatus: extra.showJobStatus,
 				flowHasChanged: extra.flowHasChanged,
 				chatInputEnabled: extra.chatInputEnabled,
+				moduleAction: extra.moduleActions?.['Input'],
 				...(inputAssets ? { assets: inputAssets } : {})
 			}
 		}
@@ -582,7 +594,7 @@ export function graphBuilder(
 		}
 
 		const resultNode: NodeLayout = {
-			id: 'result',
+			id: 'Result',
 			data: {
 				eventHandlers: eventHandlers,
 				success: success,
@@ -1071,14 +1083,14 @@ export function graphBuilder(
 						let pid = x[0]
 
 						if (input?.startsWith('flow_input.iter')) {
-							const parent = dfsByModule(selectedId!, modules ?? [])?.pop()
+							const parent = dfsByModule(selectedId, modules ?? [])?.pop()
 
 							if (parent?.id) {
 								pid = parent.id
 							}
 						}
 
-						addEdge(pid, selectedId!, undefined, undefined, {
+						addEdge(pid, selectedId, undefined, undefined, {
 							customId: `dep-${pid}-${selectedId}-${input}-${index}`,
 							type: 'dataflowedge'
 						})
@@ -1088,7 +1100,7 @@ export function graphBuilder(
 				Object.entries(deps.dependents).forEach((x, i) => {
 					let pid = x[0]
 
-					addEdge(selectedId!, pid, undefined, undefined, {
+					addEdge(selectedId, pid, undefined, undefined, {
 						customId: `dep-${selectedId}-${pid}-${i}`,
 						type: 'dataflowedge'
 					})

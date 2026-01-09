@@ -25,7 +25,7 @@
 		value = $bindable(undefined),
 		error = $bindable(),
 		editor = $bindable(undefined),
-		small = false,
+		small = true,
 		loadAsync = false,
 		class: clazz = undefined,
 		disabled = false,
@@ -43,10 +43,9 @@
 		try {
 			if (code == '') {
 				value = undefined
-				error = ''
-				return
+			} else {
+				value = JSON.parse(code ?? '')
 			}
-			value = JSON.parse(code ?? '')
 			dispatchIfMounted('changeValue', value)
 			error = ''
 		} catch (e) {
@@ -61,7 +60,7 @@
 {#if tooBig && !loadTooBigAnyway}
 	<div class="flex-1 text-sm">
 		JSON is too big
-		<Button size="xs2" variant="border" on:click={() => (loadTooBigAnyway = true)}>
+		<Button size="xs2" variant="default" on:click={() => (loadTooBigAnyway = true)}>
 			Load anyway
 		</Button>
 	</div>
@@ -69,7 +68,7 @@
 	<div class="flex flex-col w-full">
 		<div
 			class={twMerge(
-				'w-full rounded-md bg-surface-secondary',
+				'w-full rounded-md overflow-auto',
 				inputBorderClass({ error: !!error, forceFocus: focused })
 			)}
 		>
@@ -87,7 +86,6 @@
 				{disabled}
 				{fixedOverflowWidgets}
 				renderLineHighlight="none"
-				yPadding={8}
 			/>
 		</div>
 		{#if error != ''}

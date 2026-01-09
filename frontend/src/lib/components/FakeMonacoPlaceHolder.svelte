@@ -2,6 +2,7 @@
 
 <script lang="ts">
 	import { getOS } from '$lib/utils'
+	import { MONACO_Y_PADDING } from './vscode'
 
 	type Props = {
 		code?: string
@@ -16,12 +17,14 @@
 	let {
 		code,
 		autoheight = false,
-		lineNumbersWidth = 51,
+		lineNumbersWidth = 0,
 		lineNumbersOffset = 0,
 		class: className = '',
 		showNumbers = true,
 		fontSize = 14
 	}: Props = $props()
+
+	let yPadding = MONACO_Y_PADDING
 
 	// https://github.com/microsoft/vscode/blob/baa2dad3cdacd97ac02eff0604984faf1167ff1e/src/vs/editor/common/config/editorOptions.ts#L5421
 	const DEFAULT_WINDOWS_FONT_FAMILY = "Consolas, 'Courier New', monospace"
@@ -51,7 +54,9 @@
 
 	let [editorWidth, editorHeight] = $derived([
 		clientWidth,
-		autoheight ? lines.length * lineHeight + (showHorizontalScrollbar ? 12 : 0) : clientHeight
+		autoheight
+			? lines.length * lineHeight + (showHorizontalScrollbar ? 12 : 0) + yPadding * 2
+			: clientHeight
 	])
 </script>
 
@@ -60,7 +65,7 @@
 <div
 	bind:clientWidth
 	bind:clientHeight
-	class="h-full w-full relative editor {className}"
+	class="h-full w-full relative editor bg-surface-input rounded-md {className}"
 	style="--vscode-editorCodeLens-lineHeight: 18px; --vscode-editorCodeLens-fontSize: 12px; --vscode-editorCodeLens-fontFeatureSettings: 'liga' off, 'calt' off; --code-editorInlayHintsFontFamily: {fontFamily};"
 >
 	<div
@@ -83,7 +88,7 @@
 						: 'block'};"
 				>
 					{#each lines as _, i}
-						<div style="top:{lineHeight * i}px;height:{lineHeight}px;">
+						<div style="top:{lineHeight * i + yPadding}px;height:{lineHeight}px;">
 							<div class="line-numbers" style="left:{lineNumbersOffset}px;width:25px;">{i + 1}</div>
 						</div>
 					{/each}
@@ -98,12 +103,12 @@
 					style="position: absolute; overflow: hidden; width: 1.67772e+07px; height: 1.67772e+07px; transform: translate3d(0px, 0px, 0px); contain: strict; top: 0px; left: 0px;"
 				>
 					<div
-						class="view-lines monaco-mouse-cursor-text text-tertiary/60"
-						style="line-height: {lineHeight}px; position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
+						class="view-lines monaco-mouse-cursor-text text-primary/60"
+						style="padding-top: {yPadding}px; line-height: {lineHeight}px; position: absolute; font-family: {fontFamily}; font-weight: normal; font-size: {fontSize}px; font-feature-settings: 'liga' 0, 'calt' 0; font-variation-settings: normal; line-height: {lineHeight}px; letter-spacing: 0px; width: 1143px; height: 789px;"
 					>
 						{#each lines as line, i}
 							<div
-								style="height: {lineHeight}px; top: {i * lineHeight}px;"
+								style="height: {lineHeight}px; top: {lineHeight * i}px;"
 								class="text-nowrap whitespace-pre"
 							>
 								{line}

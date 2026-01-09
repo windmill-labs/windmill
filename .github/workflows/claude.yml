@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write
       issues: read
       id-token: write
     steps:
@@ -95,8 +95,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          allowed_bots: "windmill-internal-app[bot]"
-          trigger_phrase: "/ai"
+          allowed_bots: 'windmill-internal-app[bot]'
+          trigger_phrase: '/ai'
           settings: |
             {
               "env": {
@@ -104,7 +104,8 @@ jobs:
               }
             }
           claude_args: |
-            --allowedTools "Bash"
+            --allowedTools "Bash,WebFetch,WebSearch"
+            --model opus
             --system-prompt "## IMPORTANT INSTRUCTIONS
             - Your branch name should be a short description of the requested changes.
             - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.

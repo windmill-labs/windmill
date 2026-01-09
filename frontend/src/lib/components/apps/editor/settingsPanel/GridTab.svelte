@@ -182,7 +182,7 @@
 
 <PanelSection title={`${word}s ${tabs && tabs.length > 0 ? `(${tabs.length})` : ''}`}>
 	{#if !tabs || tabs.length == 0}
-		<span class="text-xs text-tertiary">No Tabs</span>
+		<span class="text-xs text-primary">No Tabs</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col mt-2">
 		<section
@@ -229,13 +229,6 @@
 				</div>
 			{/each}
 		</section>
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addTab}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addTab} iconOnly />
 	</div>
 </PanelSection>

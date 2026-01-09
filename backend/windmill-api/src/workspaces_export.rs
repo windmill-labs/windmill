@@ -44,6 +44,9 @@ use axum::{
 use http::HeaderName;
 use itertools::Itertools;
 
+use windmill_common::runnable_settings::{ConcurrencySettings, DebouncingSettings};
+use windmill_common::scripts::ScriptRunnableSettingsHandle;
+use windmill_common::utils::require_admin;
 use windmill_common::variables::decrypt;
 use windmill_common::{
     db::UserDB,
@@ -52,6 +55,7 @@ use windmill_common::{
     schedule::Schedule,
     scripts::{Schema, Script, ScriptLang},
     variables::{build_crypt, ExportableListableVariable},
+    workspace_dependencies::WorkspaceDependencies,
 };
 
 use hyper::header;
@@ -70,10 +74,6 @@ struct ScriptMetadata {
     kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     envs: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    concurrency_time_window_s: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -97,11 +97,13 @@ struct ScriptMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codebase: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub has_preprocessor: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_behalf_of_email: Option<String>,
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettings,
+    #[serde(flatten)]
+    pub debouncing_settings: DebouncingSettings,
 }
 
 pub fn is_none_or_false(val: &Option<bool>) -> bool {
@@ -173,6 +175,7 @@ pub(crate) struct ArchiveQueryParams {
     include_groups: Option<bool>,
     include_settings: Option<bool>,
     include_key: Option<bool>,
+    include_workspace_dependencies: Option<bool>,
     default_ts: Option<String>,
 }
 
@@ -207,6 +210,7 @@ where
                     "error",
                     "last_server_ping",
                     "server_id",
+                    "raw_app",
                 ],
                 ignore_keys.unwrap_or(vec![]),
             ]
@@ -305,10 +309,19 @@ pub(crate) async fn tarball_workspace(
         include_groups,
         include_settings,
         include_key,
+        include_workspace_dependencies,
         default_ts,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     // require_admin(authed.is_admin, &authed.username)?;
+
+    tracing::info!(
+        "tarball_workspace called for workspace {}: include_workspace_dependencies={:?}, skip_variables={:?}, skip_resources={:?}",
+        w_id,
+        include_workspace_dependencies,
+        skip_variables,
+        skip_resources
+    );
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -351,7 +364,7 @@ pub(crate) async fn tarball_workspace(
     }
 
     {
-        let scripts = sqlx::query_as::<_, Script>(
+        let scripts = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
             "SELECT * FROM script as o WHERE workspace_id = $1 AND archived = false
              AND (draft_only IS NULL OR draft_only = false)
              AND created_at = (select max(created_at) from script where path = o.path AND \
@@ -362,6 +375,7 @@ pub(crate) async fn tarball_workspace(
         .await?;
 
         for script in scripts {
+            let script = script.prefetch_cached(&db).await?;
             let ext = match script.language {
                 ScriptLang::Python3 => "py",
                 ScriptLang::Deno => {
@@ -410,8 +424,8 @@ pub(crate) async fn tarball_workspace(
                 kind: script.kind.to_string(),
                 lock: script.lock,
                 envs: script.envs,
-                concurrent_limit: script.concurrent_limit,
-                concurrency_time_window_s: script.concurrency_time_window_s,
+                concurrency_settings: script.runnable_settings.concurrency_settings,
+                debouncing_settings: script.runnable_settings.debouncing_settings,
                 cache_ttl: script.cache_ttl,
                 dedicated_worker: script.dedicated_worker,
                 ws_error_handler_muted: script.ws_error_handler_muted,
@@ -423,7 +437,6 @@ pub(crate) async fn tarball_workspace(
                 visible_to_runner_only: script.visible_to_runner_only,
                 no_main_func: script.no_main_func,
                 codebase: script.codebase,
-                concurrency_key: script.concurrency_key,
                 has_preprocessor: script.has_preprocessor,
                 on_behalf_of_email: script.on_behalf_of_email,
             };
@@ -509,10 +522,7 @@ pub(crate) async fn tarball_workspace(
                 && var.is_secret
             {
                 var.value = Some(decrypt(&mc, var.value.unwrap()).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        var.path, e
-                    ))
+                    Error::internal_err(format!("Error decrypting variable {}: {}", var.path, e))
                 })?);
             }
             let var_str = &to_string_without_metadata(&var, false, None).unwrap();
@@ -526,8 +536,8 @@ pub(crate) async fn tarball_workspace(
         let apps = sqlx::query_as::<_, AppWithLastVersion>(
              "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
              app.extra_perms, app_version.value,
-             app_version.created_at, app_version.created_by from app, app_version
-             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)] AND app_version.raw_app IS false
+             app_version.created_at, app_version.created_by, app_version.raw_app from app, app_version
+             WHERE app.workspace_id = $1 AND app_version.id = app.versions[array_upper(app.versions, 1)]
              AND (app.draft_only IS NULL OR app.draft_only = false)",
          )
          .bind(&w_id)
@@ -536,10 +546,38 @@ pub(crate) async fn tarball_workspace(
 
         for app in apps {
             let app_str = &to_string_without_metadata(&app, false, None).unwrap();
+            let kind = if app.raw_app { "raw_app" } else { "app" };
             archive
-                .write_to_archive(&app_str, &format!("{}.app.json", app.path))
+                .write_to_archive(&app_str, &format!("{}.{}.json", app.path, kind))
                 .await?;
         }
+    }
+
+    if include_workspace_dependencies.unwrap_or(false)
+        && require_admin(authed.is_admin, &authed.username).is_ok()
+    {
+        tracing::info!("Including workspace dependencies in tarball export");
+        let workspace_dependencies = WorkspaceDependencies::list(&w_id, &db).await?;
+        tracing::info!(
+            "Found {} workspace dependencies",
+            workspace_dependencies.len()
+        );
+        for dep in workspace_dependencies {
+            // let dep_str = &to_string_without_metadata(&dep, false, None).unwrap();
+            let filename = WorkspaceDependencies::to_path(&dep.name, dep.language)?;
+            tracing::info!(
+                "Adding workspace dependency: name={:?}, language={:?}, filename={}",
+                dep.name,
+                dep.language,
+                filename
+            );
+            archive.write_to_archive(&dep.content, &filename).await?;
+        }
+    } else {
+        tracing::info!(
+            "Skipping workspace dependencies: include_workspace_dependencies={:?}",
+            include_workspace_dependencies
+        );
     }
 
     if include_schedules.unwrap_or(false) {

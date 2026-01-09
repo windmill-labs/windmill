@@ -110,7 +110,7 @@
 	<div class="flex items-center justify-center border grow min-w-0 rounded-md">
 		<div
 			class={twMerge(
-				'grow min-w-0 text-xs p-1 font-normal text-tertiary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
+				'grow min-w-0 text-xs p-1 font-normal text-primary text-left  whitespace-nowrap overflow-hidden text-ellipsis',
 				hovering && 'border-surface'
 			)}
 		>
@@ -144,7 +144,7 @@
 			{#snippet content()}
 				<div class="relative p-2 max-w-[400px]">
 					{#if payloadData === 'WINDMILL_TOO_BIG'}
-						<div class="text-center text-tertiary text-xs">
+						<div class="text-center text-primary text-xs">
 							{#if limitPayloadSize}
 								Payload too big to be used
 							{:else}
@@ -165,7 +165,7 @@
 							{#if !objectViewerLoaded && isTooBig}
 								<div class="flex justify-center items-center p-4">
 									<Loader2 size={20} class="animate-spin text-primary" />
-									<span class="ml-2 text-xs text-tertiary">Loading data...</span>
+									<span class="ml-2 text-xs text-primary">Loading data...</span>
 								</div>
 							{/if}
 

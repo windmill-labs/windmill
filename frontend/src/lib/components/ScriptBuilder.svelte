@@ -15,7 +15,12 @@
 		WorkerService
 	} from '$lib/gen'
 	import { inferArgs } from '$lib/infer'
-	import { initialCode } from '$lib/script_helpers'
+	import {
+		initialCode,
+		canHavePreprocessor,
+		getPreprocessorFullCode,
+		getMainFunctionPattern
+	} from '$lib/script_helpers'
 	import AIFormSettings from './copilot/AIFormSettings.svelte'
 	import {
 		defaultScripts,
@@ -40,7 +45,7 @@
 	import ScriptEditor from './ScriptEditor.svelte'
 	import { Alert, Badge, Button, Drawer, SecondsInput, Tab, TabContent, Tabs } from './common'
 	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
-	import type { SupportedLanguage } from '$lib/common'
+	import type { SupportedLanguage, Schema } from '$lib/common'
 	import Tooltip from './Tooltip.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -80,12 +85,6 @@
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 	import TriggersEditor from './triggers/TriggersEditor.svelte'
 	import type { ScheduleTrigger, TriggerContext } from './triggers'
-	import {
-		TS_PREPROCESSOR_MODULE_CODE,
-		TS_PREPROCESSOR_SCRIPT_INTRO,
-		PYTHON_PREPROCESSOR_MODULE_CODE,
-		PYTHON_PREPROCESSOR_SCRIPT_INTRO
-	} from '$lib/script_helpers'
 	import CaptureTable from './triggers/CaptureTable.svelte'
 	import type { SavedAndModifiedValue } from './common/confirmationModal/unsavedTypes'
 	import DeployButton from './DeployButton.svelte'
@@ -101,6 +100,9 @@
 	import type { ScriptBuilderProps } from './script_builder'
 	import type { DiffDrawerI } from './diff_drawer'
 	import WorkerTagSelect from './WorkerTagSelect.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
+	import type { ButtonType } from './common/button/model'
+	import DebounceLimit from './flows/DebounceLimit.svelte'
 
 	let {
 		script = $bindable(),
@@ -310,7 +312,7 @@
 		{
 			value: 'preprocessor',
 			title: 'Preprocessor',
-			desc: 'Transform incoming requests before they are passed to the flow.',
+			desc: 'Transform incoming requests before they are passed to the main entrypoint.',
 			documentationLink: 'https://www.windmill.dev/docs/core_concepts/preprocessors',
 			Icon: Shuffle
 		}
@@ -377,7 +379,7 @@
 		if (templateScript) {
 			script.content += '\r\n' + templateScript
 		}
-		scriptEditor?.inferSchema(script.content, language, true)
+		scriptEditor?.inferSchema(script.content, { nlang: language, resetArgs: true })
 		if (script.content != editor?.getCode()) {
 			setCode(script.content)
 		}
@@ -518,7 +520,16 @@
 					dedicated_worker: script.dedicated_worker,
 					concurrent_limit: script.concurrent_limit,
 					concurrency_time_window_s: script.concurrency_time_window_s,
+					debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+					debounce_delay_s: script.debounce_delay_s,
+					debounce_args_to_accumulate:
+						script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+							? script.debounce_args_to_accumulate
+							: undefined,
+					max_total_debouncing_time: script.max_total_debouncing_time,
+					max_total_debounces_amount: script.max_total_debounces_amount,
 					cache_ttl: script.cache_ttl,
+					cache_ignore_s3_path: script.cache_ignore_s3_path,
 					ws_error_handler_muted: script.ws_error_handler_muted,
 					priority: script.priority,
 					restart_unless_cancelled: script.restart_unless_cancelled,
@@ -563,7 +574,7 @@
 			if (!disableHistoryChange) {
 				history.replaceState(history.state, '', `/scripts/edit/${script.path}`)
 			}
-			if (stay || script.kind !== 'script' || script.no_main_func) {
+			if (stay || (script.no_main_func && script.kind !== 'preprocessor')) {
 				script.parent_hash = newHash
 				sendUserToast('Deployed')
 			} else {
@@ -659,7 +670,16 @@
 						envs: script.envs,
 						concurrent_limit: script.concurrent_limit,
 						concurrency_time_window_s: script.concurrency_time_window_s,
+						debounce_key: emptyString(script.debounce_key) ? undefined : script.debounce_key,
+						debounce_delay_s: script.debounce_delay_s,
+						debounce_args_to_accumulate:
+							script.debounce_args_to_accumulate && script.debounce_args_to_accumulate.length > 0
+								? script.debounce_args_to_accumulate
+								: undefined,
+						max_total_debouncing_time: script.max_total_debouncing_time,
+						max_total_debounces_amount: script.max_total_debounces_amount,
 						cache_ttl: script.cache_ttl,
+						cache_ignore_s3_path: script.cache_ignore_s3_path,
 						ws_error_handler_muted: script.ws_error_handler_muted,
 						priority: script.priority,
 						restart_unless_cancelled: script.restart_unless_cancelled,
@@ -843,16 +863,13 @@
 		captureOn.set(true)
 	}
 
-	function addPreprocessor() {
+	function addPreprocessor(e?: { detail?: { args: Record<string, any> } }) {
 		const code = editor?.getCode()
 		if (code) {
-			const preprocessorCode =
-				script.language === 'python3'
-					? PYTHON_PREPROCESSOR_SCRIPT_INTRO + PYTHON_PREPROCESSOR_MODULE_CODE
-					: TS_PREPROCESSOR_SCRIPT_INTRO + TS_PREPROCESSOR_MODULE_CODE
-			const mainIndex = code.indexOf(
-				script.language === 'python3' ? 'def main' : 'export async function main'
-			)
+			const preprocessorCode = getPreprocessorFullCode(script.language, false)
+			const mainPattern = getMainFunctionPattern(script.language)
+			const mainIndex = code.indexOf(mainPattern)
+
 			if (mainIndex === -1) {
 				editor?.setCode(code + preprocessorCode)
 			} else {
@@ -862,6 +879,11 @@
 			}
 		}
 		selectedInputTab = 'preprocessor'
+
+		// Apply provided args to the preprocessor
+		if (e?.detail?.args && Object.keys(e.detail.args).length > 0) {
+			args = { ...args, ...e.detail.args }
+		}
 	}
 
 	function handleDeployTrigger(trigger: Trigger) {
@@ -988,39 +1010,57 @@
 			<div class="flex flex-col h-full">
 				<Tabs bind:selected={selectedTab} wrapperClass="flex-none w-full">
 					{#if customUi?.settingsPanel?.disableMetadata !== true}
-						<Tab value="metadata" aiId="script-builder-metadata" aiDescription="Metadata settings">
-							Metadata
-						</Tab>
+						<Tab
+							value="metadata"
+							aiId="script-builder-metadata"
+							aiDescription="Metadata settings"
+							label="Metadata"
+						/>
 					{/if}
 					{#if customUi?.settingsPanel?.disableRuntime !== true}
-						<Tab value="runtime" aiId="script-builder-runtime" aiDescription="Runtime settings">
-							Runtime
-						</Tab>
+						<Tab
+							value="runtime"
+							aiId="script-builder-runtime"
+							aiDescription="Runtime settings"
+							label="Runtime"
+						/>
 					{/if}
 					{#if customUi?.settingsPanel?.disableGeneratedUi !== true}
-						<Tab value="ui" aiId="script-builder-ui" aiDescription="Generated UI settings">
-							Generated UI
-							<Tooltip
-								documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
-							>
-								The arguments are synced with the main signature but you may refine the parts that
-								cannot be inferred from the type directly.
-							</Tooltip>
+						<Tab
+							value="ui"
+							aiId="script-builder-ui"
+							aiDescription="Generated UI settings"
+							label="Generated UI"
+						>
+							{#snippet extra()}
+								<Tooltip
+									documentationLink="https://www.windmill.dev/docs/core_concepts/json_schema_and_parsing"
+								>
+									The arguments are synced with the main signature but you may refine the parts that
+									cannot be inferred from the type directly.
+								</Tooltip>
+							{/snippet}
 						</Tab>
 					{/if}
 					{#if customUi?.settingsPanel?.disableTriggers !== true}
-						<Tab value="triggers" aiId="script-builder-triggers" aiDescription="Triggers settings">
-							Triggers
-							<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
-								Configure how this script will be triggered.
-							</Tooltip>
+						<Tab
+							value="triggers"
+							aiId="script-builder-triggers"
+							aiDescription="Triggers settings"
+							label="Triggers"
+						>
+							{#snippet extra()}
+								<Tooltip documentationLink="https://www.windmill.dev/docs/getting_started/triggers">
+									Configure how this script will be triggered.
+								</Tooltip>
+							{/snippet}
 						</Tab>
 					{/if}
 
 					{#snippet content()}
 						<div class="min-h-0 grow overflow-y-auto">
 							<TabContent value="metadata">
-								<div class="flex flex-col gap-8 px-4 py-2">
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Metadata">
 										{#snippet action()}
 											{#if customUi?.settingsPanel?.metadata?.disableMute !== true}
@@ -1034,18 +1074,16 @@
 												</div>
 											{/if}
 										{/snippet}
-										<div class="flex flex-col gap-4">
+										<div class="flex flex-col gap-6">
 											<Label label="Summary">
 												<MetadataGen
 													aiId="create-script-summary-input"
 													aiDescription="Summary / Title of the new script"
-													label="Summary"
 													bind:content={script.summary}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="summary"
 													generateOnAppear
-													on:change={() => onSummaryChange(script.summary)}
+													onChange={() => onSummaryChange(script.summary)}
 													elementProps={{
 														type: 'text',
 														placeholder: 'Short summary to be displayed when listed'
@@ -1075,7 +1113,6 @@
 											<Label label="Description">
 												<MetadataGen
 													bind:content={script.description}
-													lang={script.language}
 													code={script.content}
 													promptConfigName="description"
 													elementType="textarea"
@@ -1084,14 +1121,6 @@
 													}}
 												/>
 											</Label>
-											{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
-												<div class="mt-3">
-													<AIFormSettings
-														bind:prompt={script.schema.prompt_for_ai as string | undefined}
-														type="script"
-													/>
-												</div>
-											{/if}
 										</div>
 									</Section>
 									{#if !customUi?.settingsPanel?.metadata?.languages || customUi?.settingsPanel?.metadata?.languages?.length > 1}
@@ -1100,7 +1129,7 @@
 												<DefaultScripts />
 											{/snippet}
 											{#if lockedLanguage}
-												<div class="text-sm text-tertiary italic mb-2">
+												<div class="text-sm text-primary italic mb-2">
 													As a forked script, the language '{script.language}' cannot be modified.
 												</div>
 											{/if}
@@ -1116,20 +1145,22 @@
 														<Button
 															aiId={`create-script-language-button-${lang}`}
 															aiDescription={`Choose ${lang} as the language of the script`}
-															size="sm"
-															variant="border"
-															color={isPicked ? 'blue' : 'light'}
-															btnClasses={isPicked
-																? '!border-2 !bg-blue-50/75 dark:!bg-frost-900/75'
-																: 'm-[1px]'}
+															unifiedSize="lg"
+															variant="default"
+															selected={isPicked}
+															btnClasses={isPicked ? '' : 'm-[1px]'}
 															on:click={() => onScriptLanguageTrigger(lang)}
 															disabled={lockedLanguage ||
-																(enterpriseLangs.includes(lang) && !$enterpriseLicense)}
+																(enterpriseLangs.includes(lang) && !$enterpriseLicense) ||
+																(script.kind == 'preprocessor' && !canHavePreprocessor(lang))}
+															startIcon={{
+																icon: LanguageIcon,
+																props: { lang }
+															} as ButtonType.Icon}
 														>
-															<LanguageIcon {lang} />
-															<span class="ml-2 py-2 truncate">{label}</span>
+															<span class="truncate">{label}</span>
 															{#if lang === 'ruby'}
-																<span class="text-tertiary !text-xs"> BETA </span>
+																<span class="text-primary !text-xs"> BETA </span>
 															{/if}
 														</Button>
 														{#snippet text()}
@@ -1151,7 +1182,6 @@
 												</Tooltip>
 											{/snippet}
 											<ToggleButtonGroup
-												class="h-10"
 												selected={script.kind}
 												on:selected={({ detail }) => {
 													template = 'script'
@@ -1183,64 +1213,19 @@
 											/>
 										</Section>
 									{/if}
+
+									{#if script.schema && !disableAi && !customUi?.settingsPanel?.metadata?.disableAiFilling}
+										<div class="mt-3">
+											<AIFormSettings
+												bind:prompt={script.schema.prompt_for_ai as string | undefined}
+												type="script"
+											/>
+										</div>
+									{/if}
 								</div>
 							</TabContent>
 							<TabContent value="runtime">
-								<div class="flex flex-col gap-8 px-4 py-2">
-									<Section label="Concurrency limits" eeOnly>
-										{#snippet header()}
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
-											>
-												Allowed concurrency within a given timeframe
-											</Tooltip>
-										{/snippet}
-										<div class="flex flex-col gap-4">
-											<Label label="Max number of executions within the time window">
-												<div class="flex flex-row gap-2 max-w-sm">
-													<input
-														disabled={!$enterpriseLicense}
-														bind:value={script.concurrent_limit}
-														type="number"
-													/>
-													<Button
-														size="sm"
-														color="light"
-														on:click={() => {
-															script.concurrent_limit = undefined
-															script.concurrency_time_window_s = undefined
-															script.concurrency_key = undefined
-														}}
-														variant="border">Remove Limits</Button
-													>
-												</div>
-											</Label>
-											<Label label="Time window in seconds">
-												<SecondsInput
-													disabled={!$enterpriseLicense}
-													bind:seconds={script.concurrency_time_window_s}
-												/>
-											</Label>
-											<Label label="Custom concurrency key (optional)">
-												{#snippet header()}
-													<Tooltip
-														documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
-													>
-														Concurrency keys are global, you can have them be workspace specific
-														using the variable `$workspace`. You can also use an argument's value
-														using `$args[name_of_arg]`</Tooltip
-													>
-												{/snippet}
-												<input
-													disabled={!$enterpriseLicense}
-													type="text"
-													autofocus
-													bind:value={script.concurrency_key}
-													placeholder={`$workspace/script/${script.path}-$args[foo]`}
-												/>
-											</Label>
-										</div>
-									</Section>
+								<div class="flex flex-col gap-8 px-4 py-2 pb-12">
 									<Section label="Worker group tag (queue)">
 										{#snippet header()}
 											<Tooltip
@@ -1255,6 +1240,71 @@
 											placeholder={customUi?.tagSelectPlaceholder}
 										/>
 									</Section>
+
+									<Section label="Concurrency limits" eeOnly>
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits"
+											>
+												Allowed concurrency within a given timeframe
+											</Tooltip>
+										{/snippet}
+										<Toggle
+											size="sm"
+											checked={Boolean(script.concurrent_limit)}
+											on:change={() => {
+												if (script.concurrent_limit && script.concurrent_limit != undefined) {
+													script.concurrent_limit = undefined
+													script.concurrency_time_window_s = undefined
+													script.concurrency_key = undefined
+												} else {
+													script.concurrent_limit = 1
+												}
+											}}
+											options={{
+												right: 'Concurrency limits'
+											}}
+										/>
+										{#if Boolean(script.concurrent_limit)}
+											<div class="flex flex-col gap-4 mt-2">
+												<Label label="Max number of executions within the time window">
+													<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
+														<input
+															disabled={!$enterpriseLicense}
+															bind:value={script.concurrent_limit}
+															type="number"
+														/>
+													</div>
+												</Label>
+												{#if Boolean(script.concurrent_limit)}
+													<Label label="Time window in seconds">
+														<SecondsInput
+															disabled={!$enterpriseLicense}
+															bind:seconds={script.concurrency_time_window_s}
+														/>
+													</Label>
+													<Label label="Custom concurrency key (optional)">
+														{#snippet header()}
+															<Tooltip
+																documentationLink="https://www.windmill.dev/docs/core_concepts/concurrency_limits#custom-concurrency-key"
+															>
+																Concurrency keys are global, you can have them be workspace specific
+																using the variable `$workspace`. You can also use an argument's
+																value using `$args[name_of_arg]`</Tooltip
+															>
+														{/snippet}
+														<input
+															disabled={!$enterpriseLicense}
+															type="text"
+															autofocus
+															bind:value={script.concurrency_key}
+															placeholder={`$workspace/script/${script.path}-$args[foo]`}
+														/>
+													</Label>
+												{/if}
+											</div>
+										{/if}
+									</Section>
 									<Section label="Cache">
 										{#snippet header()}
 											<Tooltip
@@ -1266,25 +1316,28 @@
 										<div class="flex gap-2 shrink flex-col">
 											<Toggle
 												size="sm"
-												checked={Boolean(script.cache_ttl)}
-												on:change={() => {
-													if (script.cache_ttl && script.cache_ttl != undefined) {
-														script.cache_ttl = undefined
-													} else {
-														script.cache_ttl = 300
-													}
-												}}
-												options={{
-													right: 'Cache the results for each possible inputs'
-												}}
+												bind:checked={
+													() => !!script.cache_ttl, (v) => (script.cache_ttl = v ? 300 : undefined)
+												}
+												options={{ right: 'Cache the results for each possible inputs' }}
 											/>
-											<span class="text-secondary text-sm leading-none">
-												How long to the keep cache valid
-											</span>
 											{#if script.cache_ttl}
-												<SecondsInput bind:seconds={script.cache_ttl} />
-											{:else}
-												<SecondsInput disabled />
+												<div class="text-2xs text-secondary">How long to keep the cache valid</div>
+												<div class="-mt-5">
+													<SecondsInput bind:seconds={script.cache_ttl} />
+												</div>
+												<Toggle
+													size="2xs"
+													bind:checked={
+														() => script.cache_ignore_s3_path,
+														(v) => (script.cache_ignore_s3_path = v || undefined)
+													}
+													options={{
+														right: 'Ignore S3 Object paths for caching purposes',
+														rightTooltip:
+															'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+													}}
+												/>
 											{/if}
 										</div>
 									</Section>
@@ -1311,14 +1364,39 @@
 													right: 'Add a custom timeout for this script'
 												}}
 											/>
-											<span class="text-secondary text-sm leading-none"> Timeout duration </span>
-											{#if script.timeout}
-												<SecondsInput bind:seconds={script.timeout} />
-											{:else}
-												<SecondsInput disabled />
+											{#if Boolean(script.timeout)}
+												<span class="text-xs font-semibold text-emphasis leading-none mt-2">
+													Timeout duration
+												</span>
+												{#if script.timeout}
+													<SecondsInput bind:seconds={script.timeout} />
+												{:else}
+													<SecondsInput disabled />
+												{/if}
 											{/if}
 										</div>
 									</Section>
+									<Section label="Debouncing">
+										<DebounceLimit
+											size="sm"
+											bind:debounce_delay_s={script.debounce_delay_s}
+											bind:debounce_key={script.debounce_key}
+											bind:debounce_args_to_accumulate={script.debounce_args_to_accumulate}
+											bind:max_total_debouncing_time={script.max_total_debouncing_time}
+											bind:max_total_debounces_amount={script.max_total_debounces_amount}
+											schema={script.schema as Schema}
+											placeholder={`$workspace/script/${script.path}-$args[foo]`}
+										/>
+
+										{#snippet header()}
+											<Tooltip
+												documentationLink="https://www.windmill.dev/docs/core_concepts/job_debouncing"
+											>
+												Debounce Jobs
+											</Tooltip>
+										{/snippet}
+									</Section>
+
 									<Section label="Perpetual script">
 										{#snippet header()}
 											<Tooltip
@@ -1539,8 +1617,7 @@
 												</Alert>
 											{/if}
 											<div class="w-full mt-2">
-												<span class="text-tertiary text-xs pb-2"
-													>Format is: `{'<KEY>=<VALUE>'}`</span
+												<span class="text-primary text-xs pb-2">Format is: `{'<KEY>=<VALUE>'}`</span
 												>
 												{#if Array.isArray(script.envs ?? [])}
 													{#each script.envs ?? [] as _v, i}
@@ -1569,8 +1646,7 @@
 											</div>
 											<div class="flex mt-2">
 												<Button
-													variant="border"
-													color="light"
+													variant="default"
 													size="xs"
 													on:click={() => {
 														if (script.envs == undefined || !Array.isArray(script.envs)) {
@@ -1609,13 +1685,11 @@
 									newItem={initialPath == ''}
 									isFlow={false}
 									{hasPreprocessor}
-									canHavePreprocessor={script.language === 'bun' ||
-										script.language === 'deno' ||
-										script.language === 'python3'}
+									canHavePreprocessor={canHavePreprocessor(script.language)}
 									args={hasPreprocessor && selectedInputTab !== 'preprocessor' ? {} : args}
 									isDeployed={savedScript && !savedScript?.draft_only}
 									schema={script.schema}
-									hash={script.parent_hash}
+									runnableVersion={script.parent_hash}
 									onDeployTrigger={handleDeployTrigger}
 								/>
 
@@ -1630,7 +1704,7 @@
 
 	<div class="flex flex-col h-screen">
 		<div class="flex h-12 items-center px-4">
-			<div class="justify-between flex gap-2 lg:gap-8 w-full items-center">
+			<div class="flex gap-2 lg:gap-2 w-full items-center">
 				<div class="flex flex-row gap-2 grow max-w-md">
 					<div class="center-center">
 						<button
@@ -1639,7 +1713,7 @@
 								metadataOpen = true
 							}}
 						>
-							<LanguageIcon lang={script.language} height={20} />
+							<LanguageIcon lang={script.language} size={24} />
 						</button>
 					</div>
 					<Summary
@@ -1648,7 +1722,10 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex">
+				<!-- Separator -->
+				<div class="flex-1"></div>
+
+				<div class="gap-4 flex whitespace-nowrap">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const schedule = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
@@ -1671,29 +1748,27 @@
 						</Button>
 					{/if}
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full border rounded-md overflow-hidden">
-							<div>
-								{#if customUi?.topBar?.editablePath != false}
-									<button
-										onclick={async () => {
-											metadataOpen = true
-										}}
+						<div class="flex justify-start w-full items-center">
+							{#if customUi?.topBar?.editablePath != false}
+								<button
+									onclick={async () => {
+										metadataOpen = true
+									}}
+								>
+									<Badge
+										color="gray"
+										class="center-center !bg-surface-secondary !text-primary {inputSizeClasses.md}  !w-[70px] rounded-r-none hover:!bg-surface-hover transition-all border border-r-0"
 									>
-										<Badge
-											color="gray"
-											class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all"
-										>
-											<Pen size={12} class="mr-2" /> Path
-										</Badge>
-									</button>
-								{/if}
-							</div>
+										<Pen size={12} class="mr-2 shrink-0" /> Path
+									</Badge>
+								</button>
+							{/if}
 							<input
 								type="text"
 								readonly
 								value={script.path}
 								size={script.path?.length || 50}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none !border-0 !shadow-none"
+								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full {inputSizeClasses.md} !my-0 !py-0 !rounded-l-none border border-l-0 !shadow-none"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1706,57 +1781,53 @@
 					<Awareness />
 				{/if}
 
-				<div class="flex flex-row gap-x-1 lg:gap-x-2">
-					{#if customUi?.topBar?.tagEdit != false}
-						{#if $workerTags}
-							{#if $workerTags?.length ?? 0 > 0}
-								<div class="max-w-[200px] pr-8">
-									<WorkerTagSelect
-										inputClass="text-sm text-secondary !h-8 !placeholder-secondary"
-										nullTag={script.language}
-										placeholder={customUi?.tagSelectPlaceholder}
-										bind:tag={script.tag}
-									/>
-								</div>
-							{/if}
+				<!-- Separator -->
+				<div class="flex-1"></div>
+
+				{#if customUi?.topBar?.tagEdit != false}
+					{#if $workerTags}
+						{#if $workerTags?.length ?? 0 > 0}
+							<div class="max-w-[200px]">
+								<WorkerTagSelect
+									nullTag={script.language}
+									placeholder={customUi?.tagSelectPlaceholder}
+									bind:tag={script.tag}
+								/>
+							</div>
 						{/if}
 					{/if}
-					{#if customUi?.topBar?.settings != false}
-						<Button
-							aiId="script-builder-settings"
-							aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
-							color="light"
-							variant="border"
-							size="xs"
-							on:click={() => {
-								metadataOpen = true
-							}}
-							startIcon={{ icon: Settings }}
-						>
-							<span class="hidden lg:flex"> Settings </span>
-						</Button>
-					{/if}
+				{/if}
+				{#if customUi?.topBar?.settings != false}
 					<Button
-						loading={loadingDraft}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={initialPath != '' && !savedScript}
-						shortCut={{
-							key: 'S'
-						}}
+						aiId="script-builder-settings"
+						aiDescription="Script builder settings to configure metadata, runtime, triggers, and generated UI."
+						variant="default"
+						unifiedSize="md"
+						on:click={() => (metadataOpen = true)}
+						startIcon={{ icon: Settings }}
 					>
-						<span class="hidden lg:flex"> Draft </span>
+						<span class="hidden lg:flex"> Settings </span>
 					</Button>
+				{/if}
+				<Button
+					loading={loadingDraft}
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Save }}
+					on:click={() => saveDraft()}
+					disabled={initialPath != '' && !savedScript}
+					shortCut={{ key: 'S' }}
+				>
+					<span class="hidden lg:flex"> Draft </span>
+				</Button>
 
-					<DeployButton
-						loading={!fullyLoaded}
-						{loadingSave}
-						newFlow={false}
-						dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
-						on:save={({ detail }) => handleEditScript(false, detail)}
-					/>
-				</div>
+				<DeployButton
+					loading={!fullyLoaded}
+					{loadingSave}
+					newFlow={false}
+					dropdownItems={computeDropdownItems(initialPath, savedScript, diffDrawer)}
+					on:save={({ detail }) => handleEditScript(false, detail)}
+				/>
 			</div>
 		</div>
 

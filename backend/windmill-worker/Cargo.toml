@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 private = []
+mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
 mssql = ["dep:tiberius"]
@@ -40,6 +41,7 @@ duckdb = ["dep:libloading"]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-mcp = { workspace = true, optional = true }
 windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
@@ -57,6 +59,10 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
+aws-sdk-bedrockruntime.workspace = true
+aws-config.workspace = true
+aws-credential-types.workspace = true
+aws-smithy-types.workspace = true
 flume.workspace = true
 sqlx.workspace = true
 uuid.workspace = true
@@ -114,6 +120,7 @@ nix.workspace = true
 bytes.workspace = true
 reqwest.workspace = true
 reqwest-middleware.workspace = true
+eventsource-stream.workspace = true
 mime_guess.workspace = true
 hex.workspace = true
 tiberius = { workspace = true, optional = true }

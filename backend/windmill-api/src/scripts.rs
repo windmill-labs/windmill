@@ -38,15 +38,18 @@ use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_worker::process_relative_imports;
+use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
     assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
-    error::to_anyhow,
+    error::{self, to_anyhow},
+    runnable_settings::{
+        min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
+    },
     s3_helpers::upload_artifact_to_store,
-    scripts::hash_script,
-    utils::WarnAfterExt,
-    worker::CLOUD_HOSTED,
+    scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
+    utils::{paginate_without_limits, WarnAfterExt},
+    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
 };
 
 use windmill_common::{
@@ -60,20 +63,20 @@ use windmill_common::{
         ScriptHistory, ScriptHistoryUpdate, ScriptKind, ScriptLang, ScriptWithStarred,
     },
     users::username_to_permissioned_as,
-    utils::{
-        not_found_if_none, paginate, query_elems_from_hub, require_admin, Pagination, StripPath,
-    },
+    utils::{not_found_if_none, query_elems_from_hub, require_admin, Pagination, StripPath},
     worker::to_raw_value,
     HUB_BASE_URL,
 };
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 use windmill_parser_ts::remove_pinned_imports;
-use windmill_queue::{schedule::push_scheduled_job, PushIsolationLevel};
+use windmill_queue::{
+    schedule::push_scheduled_job, PushIsolationLevel, WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT,
+};
 
 const MAX_HASH_HISTORY_LENGTH_STORED: usize = 20;
 
 #[derive(Serialize, sqlx::FromRow)]
-pub struct ScriptWDraft {
+pub struct ScriptWDraft<SR> {
     pub hash: ScriptHash,
     pub path: String,
     pub summary: String,
@@ -90,11 +93,9 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub envs: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrent_limit: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_time_window_s: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dedicated_worker: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -108,8 +109,6 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub visible_to_runner_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_main_func: Option<bool>,
@@ -120,6 +119,64 @@ pub struct ScriptWDraft {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[sqlx(json(nullable))]
     pub assets: Option<Vec<AssetWithAltAccessType>>,
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub runnable_settings: SR,
+}
+
+impl ScriptWDraft<ScriptRunnableSettingsHandle> {
+    pub async fn prefetch_cached<'a>(
+        self,
+        db: &DB,
+    ) -> error::Result<ScriptWDraft<ScriptRunnableSettingsInline>> {
+        let (debouncing_settings, concurrency_settings) =
+            RunnableSettings::from_runnable_settings_handle(
+                self.runnable_settings.runnable_settings_handle,
+                db,
+            )
+            .await?
+            .prefetch_cached(db)
+            .await?;
+
+        Ok(ScriptWDraft {
+            runnable_settings: ScriptRunnableSettingsInline {
+                concurrency_settings: concurrency_settings.maybe_fallback(
+                    self.runnable_settings.concurrency_key,
+                    self.runnable_settings.concurrent_limit,
+                    self.runnable_settings.concurrency_time_window_s,
+                ),
+                debouncing_settings: debouncing_settings.maybe_fallback(
+                    self.runnable_settings.debounce_key,
+                    self.runnable_settings.debounce_delay_s,
+                ),
+            },
+            hash: self.hash,
+            path: self.path,
+            summary: self.summary,
+            description: self.description,
+            content: self.content,
+            language: self.language,
+            kind: self.kind,
+            tag: self.tag,
+            draft: self.draft,
+            schema: self.schema,
+            draft_only: self.draft_only,
+            envs: self.envs,
+            cache_ttl: self.cache_ttl,
+            cache_ignore_s3_path: self.cache_ignore_s3_path,
+            dedicated_worker: self.dedicated_worker,
+            ws_error_handler_muted: self.ws_error_handler_muted,
+            priority: self.priority,
+            restart_unless_cancelled: self.restart_unless_cancelled,
+            delete_after_use: self.delete_after_use,
+            timeout: self.timeout,
+            visible_to_runner_only: self.visible_to_runner_only,
+            no_main_func: self.no_main_func,
+            has_preprocessor: self.has_preprocessor,
+            on_behalf_of_email: self.on_behalf_of_email,
+            assets: self.assets,
+        })
+    }
 }
 
 pub fn global_service() -> Router {
@@ -127,6 +184,7 @@ pub fn global_service() -> Router {
         .route("/hub/top", get(get_top_hub_scripts))
         .route("/hub/get/*path", get(get_hub_script_by_path))
         .route("/hub/get_full/*path", get(get_full_hub_script_by_path))
+        .route("/hub/pick/*path", get(pick_hub_script_by_path))
 }
 
 pub fn global_unauthed_service() -> Router {
@@ -188,7 +246,7 @@ async fn list_search_scripts(
 ) -> JsonResult<Vec<SearchScript>> {
     let mut tx = user_db.begin(&authed).await?;
     #[cfg(feature = "enterprise")]
-    let n = 1000;
+    let n = 10000;
 
     #[cfg(not(feature = "enterprise"))]
     let n = 10;
@@ -214,7 +272,7 @@ async fn list_scripts(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListScriptQuery>,
 ) -> JsonResult<Vec<ListableScript>> {
-    let (per_page, offset) = paginate(pagination);
+    let (per_page, offset) = paginate_without_limits(pagination);
     let mut sqlb = SqlBuilder::select_from("script as o")
         .fields(&[
             "hash",
@@ -223,6 +281,11 @@ async fn list_scripts(
             "COALESCE(draft.created_at, o.created_at) as created_at",
             "archived",
             "extra_perms",
+            if !lq.without_description.unwrap_or(false) {
+                "description"
+            } else {
+                "NULL as description"
+            },
             "CASE WHEN lock_error_logs IS NOT NULL THEN true ELSE false END as has_deploy_errors",
             "language",
             "favorite.path IS NOT NULL as starred",
@@ -388,6 +451,7 @@ async fn create_snapshot_script(
     Path(w_id): Path<String>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
+    // TODO: Check for debouncing here as well.
     let mut script_hash = None;
     let mut tx = None;
     let mut uploaded = false;
@@ -398,7 +462,7 @@ async fn create_snapshot_script(
         if name == "script" {
             let ns: NewScript = Some(serde_json::from_slice(&data).map_err(to_anyhow)?).unwrap();
             let is_tar = ns.codebase.as_ref().is_some_and(|x| x.ends_with(".tar"));
-
+            let use_esm = ns.codebase.as_ref().is_some_and(|x| x.contains(".esm"));
             let (new_hash, ntx, hdm) = create_script_internal(
                 ns,
                 w_id.clone(),
@@ -408,8 +472,14 @@ async fn create_snapshot_script(
                 webhook.clone(),
             )
             .await?;
-            let nh = new_hash.to_string();
-            script_hash = Some(if is_tar { format!("{nh}.tar") } else { nh });
+            let mut nh = new_hash.to_string();
+            if use_esm {
+                nh = format!("{nh}.esm");
+            }
+            if is_tar {
+                nh = format!("{nh}.tar");
+            }
+            script_hash = Some(nh);
             tx = Some(ntx);
             handle_deployment_metadata = hdm;
         }
@@ -520,6 +590,8 @@ async fn create_script_internal<'c>(
 )> {
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
+    guard_script_from_debounce_data(&ns).await?;
+
     let codebase = ns.codebase.as_ref();
     #[cfg(not(feature = "enterprise"))]
     if ns.ws_error_handler_muted.is_some_and(|val| val) {
@@ -570,7 +642,7 @@ async fn create_script_internal<'c>(
                 .to_owned(),
         ));
     };
-    let clashing_script = sqlx::query_as::<_, Script>(
+    let clashing_script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "SELECT * FROM script WHERE path = $1 AND archived = false AND workspace_id = $2",
     )
     .bind(&ns.path)
@@ -599,8 +671,10 @@ async fn create_script_internal<'c>(
             Ok(None)
         }
         (Some(p_hash), o) => {
+            // Lock the parent row to prevent concurrent updates with the same parent_hash
+            // This ensures linear lineage - only one script can have a given parent at a time
             if sqlx::query_scalar!(
-                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2",
+                "SELECT 1 FROM script WHERE hash = $1 AND workspace_id = $2 FOR UPDATE",
                 p_hash.0,
                 &w_id
             )
@@ -769,21 +843,38 @@ async fn create_script_internal<'c>(
         }
     };
 
-    // Row lock debounce key for path. We need this to make all updates of runnables sequential and predictable.
-    tokio::time::timeout(
-        core::time::Duration::from_secs(60),
-        windmill_common::jobs::lock_debounce_key(&w_id, &ns.path, &mut tx),
-    )
-    .warn_after_seconds(10)
-    .await??;
+    let runnable_settings_handle = RunnableSettings {
+        debouncing_settings: ns.debouncing_settings.insert_cached(&db).await?,
+        concurrency_settings: ns.concurrency_settings.insert_cached(&db).await?,
+    }
+    .insert_cached(&db)
+    .await?;
+
+    let (
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
+        guarded_concurrency_key,
+        guarded_debounce_key,
+        guarded_debounce_delay_s,
+    ) = if min_version_supports_runnable_settings_v0().await {
+        Default::default()
+    } else {
+        (
+            ns.concurrency_settings.concurrent_limit.clone(),
+            ns.concurrency_settings.concurrency_time_window_s.clone(),
+            ns.concurrency_settings.concurrency_key.clone(),
+            ns.debouncing_settings.debounce_key.clone(),
+            ns.debouncing_settings.debounce_delay_s.clone(),
+        )
+    };
 
     sqlx::query!(
         "INSERT INTO script (workspace_id, hash, path, parent_hashes, summary, description, \
          content, created_by, schema, is_template, extra_perms, lock, language, kind, tag, \
          draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, \
          dedicated_worker, ws_error_handler_muted, priority, restart_unless_cancelled, \
-         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34)",
+         delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, codebase, has_preprocessor, on_behalf_of_email, schema_validation, assets, debounce_key, debounce_delay_s, cache_ignore_s3_path, runnable_settings_handle) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::json, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38)",
         &w_id,
         &hash.0,
         ns.path,
@@ -801,8 +892,8 @@ async fn create_script_internal<'c>(
         ns.tag,
         ns.draft_only,
         envs,
-        ns.concurrent_limit,
-        ns.concurrency_time_window_s,
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
         ns.cache_ttl,
         ns.dedicated_worker,
         ns.ws_error_handler_muted.unwrap_or(false),
@@ -810,7 +901,7 @@ async fn create_script_internal<'c>(
         ns.restart_unless_cancelled,
         ns.delete_after_use,
         ns.timeout,
-        ns.concurrency_key,
+        guarded_concurrency_key,
         ns.visible_to_runner_only,
         no_main_func.filter(|x| *x), // should be Some(true) or None
         codebase,
@@ -821,7 +912,11 @@ async fn create_script_internal<'c>(
             None
         },
         validate_schema,
-        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok())
+        ns.assets.as_ref().and_then(|a| serde_json::to_value(a).ok()),
+        guarded_debounce_key,
+        guarded_debounce_delay_s,
+        ns.cache_ignore_s3_path,
+        runnable_settings_handle
     )
     .execute(&mut *tx)
     .await?;
@@ -977,15 +1072,16 @@ async fn create_script_internal<'c>(
         }
 
         let tx = PushIsolationLevel::Transaction(tx);
-        let (_, new_tx) = windmill_queue::push(
+        let (job_id, mut new_tx) = windmill_queue::push(
             &db,
             tx,
             &w_id,
             JobPayload::Dependencies {
                 hash,
                 language: ns.language,
-                path: ns.path,
+                path: ns.path.clone(),
                 dedicated_worker: ns.dedicated_worker,
+                debouncing_settings: Default::default(),
             },
             windmill_queue::PushArgs::from(&args),
             &authed.username,
@@ -1010,8 +1106,24 @@ async fn create_script_internal<'c>(
             false,
             None,
             None,
+            None,
         )
         .await?;
+
+        // Store the job_id in deployment_metadata for this script deployment
+        sqlx::query!(
+            "INSERT INTO deployment_metadata (workspace_id, path, script_hash, job_id)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (workspace_id, script_hash) WHERE script_hash IS NOT NULL
+             DO UPDATE SET job_id = EXCLUDED.job_id",
+            w_id,
+            ns.path,
+            hash.0,
+            job_id
+        )
+        .execute(&mut *new_tx)
+        .await?;
+
         Ok((hash, new_tx, None))
     } else {
         if codebase.is_none() {
@@ -1021,14 +1133,10 @@ async fn create_script_internal<'c>(
             let permissioned_as2 = permissioned_as.clone();
             let script_path2 = script_path.clone();
             let parent_path = p_path_opt.clone();
-            let lock = ns.lock.clone();
             let deployment_message = ns.deployment_message.clone();
             let content = ns.content.clone();
             let language = ns.language.clone();
             tokio::spawn(async move {
-                // TODO: I don't think we want this. We might want to send dependency job. But skip any calculations if lock is already present.
-                // It will allow us to make code more consistent and predictable.
-
                 // wait for 10 seconds to make sure the script is deployed and that the CLI sync that pushed it (f one) is complete
                 tokio::time::sleep(std::time::Duration::from_secs(10)).await;
                 if let Err(e) = process_relative_imports(
@@ -1044,7 +1152,6 @@ async fn create_script_internal<'c>(
                     &authed2.email,
                     &authed2.username,
                     &permissioned_as2,
-                    lock,
                 )
                 .await
                 {
@@ -1103,18 +1210,54 @@ pub async fn get_full_hub_script_by_path(
     ))
 }
 
+pub async fn pick_hub_script_by_path(
+    Path(path): Path<StripPath>,
+    Extension(db): Extension<DB>,
+) -> impl IntoResponse {
+    let path_str = path.to_path();
+
+    // Extract version_id from path (format: {hub}/{version_id}/{summary})
+    let version_id = path_str.split('/').nth(1).unwrap_or("");
+
+    let hub_base_url = HUB_BASE_URL.read().await.clone();
+
+    // Determine which hub to use based on version_id
+    // If version_id < PRIVATE_HUB_MIN_VERSION, use default hub
+    let target_hub_url = if version_id
+        .parse::<i32>()
+        .is_ok_and(|v| v < windmill_common::PRIVATE_HUB_MIN_VERSION)
+    {
+        windmill_common::DEFAULT_HUB_BASE_URL
+    } else {
+        &hub_base_url
+    };
+
+    // Call the hub's pick endpoint: /scripts/{version_id}/pick
+    let (status_code, headers, response) = query_elems_from_hub(
+        &HTTP_CLIENT,
+        &format!("{}/scripts/{}/pick", target_hub_url, version_id),
+        None,
+        &db,
+    )
+    .await?;
+
+    Ok::<_, Error>((status_code, headers, response))
+}
+
+#[axum::debug_handler]
 async fn get_script_by_path(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<WithStarredInfoQuery>,
-) -> JsonResult<ScriptWithStarred> {
+) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
     let script_o = if query.with_starred_info.unwrap_or(false) {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
             LEFT JOIN favorite
@@ -1132,7 +1275,7 @@ async fn get_script_by_path(
         .fetch_optional(&mut *tx)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT *, NULL as starred FROM script WHERE path = $1 AND workspace_id = $2 ORDER BY created_at DESC LIMIT 1",
         )
         .bind(path)
@@ -1142,7 +1285,10 @@ async fn get_script_by_path(
     };
     tx.commit().await?;
 
-    let script = not_found_if_none(script_o, "Script", path)?;
+    let script = not_found_if_none(script_o, "Script", path)?
+        .prefetch_cached(&db)
+        .await?;
+
     Ok(Json(script))
 }
 
@@ -1164,15 +1310,16 @@ async fn get_triggers_count(
 
 async fn get_script_by_path_w_draft(
     authed: ApiAuthed,
+    Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((w_id, path)): Path<(String, StripPath)>,
-) -> JsonResult<ScriptWDraft> {
+) -> JsonResult<ScriptWDraft<ScriptRunnableSettingsInline>> {
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:read:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
 
-    let script_o = sqlx::query_as::<_, ScriptWDraft>(
-        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, concurrent_limit, concurrency_time_window_s, cache_ttl, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets FROM script LEFT JOIN draft ON 
+    let script_o = sqlx::query_as::<_, ScriptWDraft<ScriptRunnableSettingsHandle>>(
+        "SELECT hash, script.path, summary, description, content, language, kind, tag, schema, draft_only, envs, runnable_settings_handle, concurrent_limit, concurrency_time_window_s, cache_ttl, cache_ignore_s3_path, ws_error_handler_muted, draft.value as draft, dedicated_worker, priority, restart_unless_cancelled, delete_after_use, timeout, concurrency_key, visible_to_runner_only, no_main_func, has_preprocessor, on_behalf_of_email, assets, debounce_key, debounce_delay_s FROM script LEFT JOIN draft ON 
          script.path = draft.path AND script.workspace_id = draft.workspace_id AND draft.typ = 'script'
          WHERE script.path = $1 AND script.workspace_id = $2
          ORDER BY script.created_at DESC LIMIT 1",
@@ -1184,7 +1331,7 @@ async fn get_script_by_path_w_draft(
     tx.commit().await?;
 
     let script = not_found_if_none(script_o, "Script", path)?;
-    Ok(Json(script))
+    Ok(Json(script.prefetch_cached(&db).await?))
 }
 
 async fn get_script_history(
@@ -1616,9 +1763,9 @@ async fn get_script_by_hash_internal<'c>(
     workspace_id: &str,
     hash: &ScriptHash,
     with_starred_info_for_username: Option<&str>,
-) -> Result<ScriptWithStarred> {
+) -> Result<ScriptWithStarred<ScriptRunnableSettingsHandle>> {
     let script_o = if let Some(username) = with_starred_info_for_username {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT s.*, favorite.path IS NOT NULL as starred
             FROM script s
             LEFT JOIN favorite 
@@ -1634,7 +1781,7 @@ async fn get_script_by_hash_internal<'c>(
         .fetch_optional(&mut **db)
         .await?
     } else {
-        sqlx::query_as::<_, ScriptWithStarred>(
+        sqlx::query_as::<_, ScriptWithStarred<ScriptRunnableSettingsHandle>>(
             "SELECT *, NULL as starred FROM script WHERE hash = $1 AND workspace_id = $2",
         )
         .bind(hash)
@@ -1658,7 +1805,7 @@ async fn get_script_by_hash(
     Query(query): Query<WithStarredInfoQuery>,
     Query(query_auth): Query<GetScriptByHashQuery>,
     Extension(authed): Extension<ApiAuthed>,
-) -> JsonResult<ScriptWithStarred> {
+) -> JsonResult<ScriptWithStarred<ScriptRunnableSettingsInline>> {
     let mut tx = if query_auth.authed.is_some_and(|x| x) {
         user_db.begin(&authed).await?
     } else {
@@ -1682,7 +1829,7 @@ async fn get_script_by_hash(
 
     tx.commit().await?;
 
-    Ok(Json(r))
+    Ok(Json(r.prefetch_cached(&db).await?))
 }
 
 async fn raw_script_by_hash(
@@ -1699,19 +1846,22 @@ async fn raw_script_by_hash(
     Ok(r.script.content)
 }
 
-#[derive(FromRow, Serialize)]
+#[derive(Serialize)]
 struct DeploymentStatus {
     lock: Option<String>,
     lock_error_logs: Option<String>,
+    job_id: Option<sqlx::types::Uuid>,
 }
 async fn get_deployment_status(
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<DeploymentStatus> {
     let mut tx = db.begin().await?;
-    let status_o: Option<DeploymentStatus> = sqlx::query_as!(
-        DeploymentStatus,
-        "SELECT lock, lock_error_logs FROM script WHERE hash = $1 AND workspace_id = $2",
+    let status_o = sqlx::query!(
+        "SELECT s.lock, s.lock_error_logs, dm.job_id
+         FROM script s
+         LEFT JOIN deployment_metadata dm ON s.hash = dm.script_hash AND s.workspace_id = dm.workspace_id
+         WHERE s.hash = $1 AND s.workspace_id = $2",
         hash.0,
         w_id,
     )
@@ -1720,8 +1870,14 @@ async fn get_deployment_status(
 
     let status = not_found_if_none(status_o, "DeploymentStatus", hash.to_string())?;
 
+    let deployment_status = DeploymentStatus {
+        lock: status.lock,
+        lock_error_logs: status.lock_error_logs,
+        job_id: status.job_id,
+    };
+
     tx.commit().await?;
-    Ok(Json(status))
+    Ok(Json(deployment_status))
 }
 
 pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
@@ -1776,7 +1932,11 @@ async fn archive_script_by_path(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     handle_deployment_metadata(
         &authed.email,
@@ -1804,12 +1964,13 @@ async fn archive_script_by_path(
 async fn archive_script_by_hash(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
+    Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     let mut tx = user_db.begin(&authed).await?;
 
-    let script = sqlx::query_as::<_, Script>(
+    let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET archived = true WHERE hash = $1 AND workspace_id = $2 RETURNING *",
     )
     .bind(&hash.0)
@@ -1837,14 +1998,18 @@ async fn archive_script_by_hash(
         Some([("workspace", w_id.as_str())].into()),
     )
     .await?;
-    tx.commit().await?;
+
+    ScopedDependencyMap::clear_map_for_item(&script.path, &w_id, "script", tx, &None)
+        .await
+        .commit()
+        .await?;
 
     webhook.send_message(
         w_id.clone(),
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script))
+    Ok(Json(script.prefetch_cached(&db).await?))
 }
 
 async fn delete_script_by_hash(
@@ -1853,11 +2018,11 @@ async fn delete_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
-) -> JsonResult<Script> {
+) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
     let mut tx = user_db.begin(&authed).await?;
 
     require_admin(authed.is_admin, &authed.username)?;
-    let script = sqlx::query_as::<_, Script>(
+    let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
         "UPDATE script SET content = '', archived = true, deleted = true, lock = '', schema = null WHERE hash = $1 AND \
          workspace_id = $2 RETURNING *",
     )
@@ -1893,7 +2058,7 @@ async fn delete_script_by_hash(
         WebhookMessage::DeleteScript { workspace: w_id, hash: hash.to_string() },
     );
 
-    Ok(Json(script))
+    Ok(Json(script.prefetch_cached(&db).await?))
 }
 
 #[derive(Deserialize)]
@@ -2130,4 +2295,28 @@ async fn delete_scripts_bulk(
     }
 
     Ok(Json(deleted_paths))
+}
+
+/// Validates that script debouncing configuration is supported by all workers
+/// Returns an error if debouncing is configured but workers are behind required version
+async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
+    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && !ns.debouncing_settings.is_default() {
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
+    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        && !ns.debouncing_settings.is_legacy_compatible()
+        && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+    {
+        tracing::warn!(
+            "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
+        );
+        Err(Error::WorkersAreBehind {
+            feature: "V2 Debouncing".into(),
+            min_version: "1.597.0".into(),
+        })
+    } else {
+        Ok(())
+    }
 }

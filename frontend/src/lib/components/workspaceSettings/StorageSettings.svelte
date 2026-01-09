@@ -53,7 +53,7 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-primary text-lg font-semibold"
+		<div class="text-sm font-semibold text-emphasis"
 			>Workspace Object Storage (S3/Azure Blob/GCS)</div
 		>
 		<Description
@@ -77,7 +77,7 @@
 		storage using S3Object and use the wmill sdk to read and write large files backed by an object
 		storage. Large-scale log management and distributed dependency caching is under <a
 			href="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#instance-object-storage"
-			class="text-blue-500">Instance object storage</a
+			>Instance object storage</a
 		>, set by the superadmins in the instance settings UI.
 	</Alert>
 {/if}
@@ -87,14 +87,14 @@
 			<!-- this can be removed once parent moves to runes -->
 			<!-- svelte-ignore binding_property_non_reactive -->
 			<Tabs bind:selected={s3ResourceSettings.resourceType}>
-				<Tab exact size="xs" value="s3">S3</Tab>
-				<Tab size="xs" value="azure_blob">Azure Blob</Tab>
-				<Tab exact size="xs" value="s3_aws_oidc">AWS OIDC</Tab>
-				<Tab size="xs" value="azure_workload_identity">Azure Workload Identity</Tab>
-				<Tab exact size="xs" value="gcloud_storage">Google Cloud Storage</Tab>
+				<Tab exact label="S3" value="s3" />
+				<Tab value="azure_blob" label="Azure Blob" />
+				<Tab exact value="s3_aws_oidc" label="AWS OIDC" />
+				<Tab value="azure_workload_identity" label="Azure Workload Identity" />
+				<Tab exact value="gcloud_storage" label="Google Cloud Storage" />
 			</Tabs>
 		</div>
-		<div class="w-full flex gap-1 mt-4">
+		<div class="w-full flex gap-1 mt-4 whitespace-nowrap">
 			<!-- this can be removed once parent moves to runes -->
 			<!-- svelte-ignore binding_property_non_reactive -->
 			<ResourcePicker
@@ -104,8 +104,7 @@
 			{@render permissionBtn(s3ResourceSettings)}
 			<Button
 				size="sm"
-				variant="contained"
-				color="dark"
+				variant="accent"
 				disabled={emptyString(s3ResourceSettings.resourcePath)}
 				on:click={async () => {
 					if ($workspaceStore) {
@@ -119,7 +118,7 @@
 	<div class="mt-6">
 		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
 			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
-				<div class="flex gap-1 relative">
+				<div class="flex gap-1 relative whitespace-nowrap">
 					<TextInput
 						class="max-w-[200px]"
 						inputProps={{ type: 'text', placeholder: 'Storage name' }}
@@ -166,8 +165,7 @@
 					{@render permissionBtn(s3ResourceSettings.secondaryStorage![idx][1])}
 					<Button
 						size="sm"
-						variant="contained"
-						color="dark"
+						variant="accent"
 						disabled={emptyString(s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath)}
 						on:click={async () => {
 							if ($workspaceStore) {
@@ -193,7 +191,7 @@
 			<div class="flex gap-1">
 				<Button
 					size="xs"
-					variant="border"
+					variant="default"
 					on:click={() => {
 						if (s3ResourceSettings.secondaryStorage === undefined) {
 							s3ResourceSettings.secondaryStorage = []
@@ -220,6 +218,8 @@
 	</div>
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
+			variant="accent"
+			size="xl"
 			on:click={() => {
 				editWindmillLFSSettings()
 				console.log('Saving S3 settings', s3ResourceSettings)
@@ -231,7 +231,7 @@
 {#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
 	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
-			<Button variant="border" wrapperClasses="h-full" btnClasses="px-2.5" color="dark" size="sm">
+			<Button variant="default" wrapperClasses="h-full" btnClasses="px-2.5" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>
@@ -349,7 +349,7 @@
 			<CloseButton onClick={() => rules?.splice(idx, 1)} />
 		</div>
 	{/each}
-	<Button size="xs" variant="border" on:click={() => rules?.push({ pattern: '', allow: [] })}>
+	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
 		<Plus size={14} />
 		Add permission rule
 	</Button>

@@ -1,18 +1,21 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
-
 	import MapItem from '$lib/components/flows/map/MapItem.svelte'
-	import { GitBranchPlus, Maximize2 } from 'lucide-svelte'
+	import { GitBranchPlus } from 'lucide-svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { ModuleN } from '../../graphBuilder.svelte'
 	import { jobToGraphModuleState } from '$lib/components/modulesTest.svelte'
+	import { getNoteEditorContext } from '../../noteEditor.svelte'
+	import type { ContextMenuItem } from '../../../common/contextmenu/ContextMenu.svelte'
+	import { addGroupNoteContextMenuItem } from '../../noteUtils.svelte'
 
 	interface Props {
 		data: ModuleN['data']
 	}
 
 	let { data }: Props = $props()
+
+	// Get NoteEditor context for group note creation
+	const noteEditorContext = getNoteEditorContext()
 
 	let state = $derived.by(() => {
 		return data.testModuleState
@@ -38,30 +41,21 @@
 		}
 		return typ
 	})
+
+	// Define context menu items
+	const contextMenuItems: ContextMenuItem[] = $derived(
+		data.editMode ? [addGroupNoteContextMenuItem(data.id, noteEditorContext)] : []
+	)
 </script>
 
-<NodeWrapper offset={data.offset}>
+<NodeWrapper offset={data.offset} {contextMenuItems}>
 	{#snippet children({ darkMode })}
-		{#if data.module.value.type == 'flow'}
-			<button
-				title="Expand subflow"
-				class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
-				onclick={stopPropagation(
-					preventDefault(() => {
-						if (data.module.value.type == 'flow') {
-							data.eventHandlers.expandSubflow(data.id, data.module.value.path)
-						}
-					})
-				)}
-			>
-				<Maximize2 size={12} />
-			</button>
-		{/if}
 		<MapItem
 			moduleId={data.id}
 			mod={data.module}
 			insertable={data.insertable}
 			editMode={data.editMode}
+			moduleAction={data.moduleAction}
 			annotation={flowJobs &&
 			(data.module.value.type === 'forloopflow' || data.module.value.type === 'whileloopflow')
 				? 'Iteration: ' +
@@ -71,13 +65,7 @@
 					'/' +
 					(state?.iteration_total ?? '?')
 				: ''}
-			bgColor={getStateColor(data.editMode ? undefined : type, darkMode, true, state?.skipped)}
-			bgHoverColor={getStateHoverColor(
-				data.editMode ? undefined : type,
-				darkMode,
-				true,
-				state?.skipped
-			)}
+			nodeState={state?.skipped ? '_Skipped' : type}
 			moving={data.moving}
 			duration_ms={state?.duration_ms}
 			retries={state?.retries}
@@ -107,9 +95,11 @@
 			onEditInput={data.eventHandlers.editInput}
 			flowJob={data.flowJob}
 			isOwner={data.isOwner}
-			{type}
-			{darkMode}
-			skipped={state?.skipped}
+			maximizeSubflow={data.module.value.type == 'flow' && 'path' in data.module.value
+				? () => {
+						data.eventHandlers.expandSubflow(data.id, data.module.value['path'])
+					}
+				: undefined}
 		/>
 
 		<div class="absolute -bottom-10 left-1/2 transform -translate-x-1/2 z-10">

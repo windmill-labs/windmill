@@ -51,12 +51,23 @@ use std::sync::atomic::Ordering;
 use crate::worker::CLOUD_HOSTED;
 
 lazy_static::lazy_static! {
+    pub static ref FORCE_IPV4: bool = std::env::var("FORCE_IPV4")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
-        .user_agent("windmill/beta")
-        .timeout(std::time::Duration::from_secs(20))
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build().unwrap();
+    pub static ref HTTP_CLIENT: Client = {
+        let mut builder = reqwest::ClientBuilder::new()
+            .user_agent("windmill/beta")
+            .timeout(std::time::Duration::from_secs(20))
+            .connect_timeout(std::time::Duration::from_secs(10));
+
+        if *FORCE_IPV4 {
+            tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
+            builder = builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)));
+        }
+
+        builder.build().unwrap()
+    };
     pub static ref GIT_SEM_VERSION: Version = Version::parse(
         if GIT_VERSION.starts_with('v') {
             &GIT_VERSION[1..]
@@ -174,6 +185,18 @@ pub fn require_admin(is_admin: bool, username: &str) -> Result<()> {
         Err(Error::RequireAdmin(username.to_string()))
     } else {
         Ok(())
+    }
+}
+
+/// Configure reqwest::ClientBuilder with environment-based settings
+/// When FORCE_IPV4=true environment variable is set, this configures the client
+/// to only use IPv4 addresses by binding to 0.0.0.0
+pub fn configure_client(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    if *FORCE_IPV4 {
+        tracing::info!("FORCE_IPV4 is enabled - HTTP client will only use IPv4");
+        builder.local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))
+    } else {
+        builder
     }
 }
 
@@ -315,7 +338,7 @@ pub async fn http_get_from_hub(
     db: Option<&Pool<Postgres>>,
 ) -> Result<reqwest::Response> {
     let uid = match db {
-        Some(db) => match get_uid(db).await {
+        Some(db) => match get_license_id_or_uid(db).await {
             Ok(uid) => Some(uid),
             Err(err) => {
                 tracing::info!("No valid uid found: {}", err);
@@ -370,21 +393,41 @@ pub fn calculate_hash(s: &str) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-pub async fn get_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
-    let mut uid = LICENSE_KEY_ID.read().await.clone();
+pub async fn get_license_id_or_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+) -> Result<String> {
+    let license_id = LICENSE_KEY_ID.read().await.clone();
 
-    if uid == "" {
-        let uid_value = sqlx::query_scalar!(
-            "SELECT value FROM global_settings WHERE name = $1",
-            UNIQUE_ID_SETTING
-        )
-        .fetch_one(db)
-        .await?;
-
-        uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
+    if license_id.is_empty() {
+        get_instance_uid(db).await
+    } else {
+        Ok(license_id)
     }
+}
+
+async fn get_instance_uid<'c, E: sqlx::Executor<'c, Database = Postgres>>(db: E) -> Result<String> {
+    let uid_value = sqlx::query_scalar!(
+        "SELECT value FROM global_settings WHERE name = $1",
+        UNIQUE_ID_SETTING
+    )
+    .fetch_one(db)
+    .await?;
+
+    let uid = serde_json::from_value::<String>(uid_value).map_err(to_anyhow)?;
 
     Ok(uid)
+}
+
+pub async fn get_telemetry_ids<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+) -> Result<(String, String)> {
+    let license_id = LICENSE_KEY_ID.read().await.clone();
+    let instance_uid = get_instance_uid(db).await?;
+    if license_id.is_empty() {
+        Ok((instance_uid.clone(), instance_uid))
+    } else {
+        Ok((license_id, instance_uid))
+    }
 }
 
 pub fn map_string_to_number(s: &str, max_number: u64) -> u64 {
@@ -900,6 +943,108 @@ impl Display for RunnableKind {
     }
 }
 
+#[derive(Clone)]
+pub struct ExpiringCacheEntry<T> {
+    pub value: T,
+    pub expiry: std::time::Instant,
+}
+
+impl<T> ExpiringCacheEntry<T> {
+    pub fn is_expired(&self) -> bool {
+        self.expiry < std::time::Instant::now()
+    }
+}
+
+pub async fn get_custom_pg_instance_password(db: &DB) -> Result<String> {
+    sqlx::query_scalar!(
+        "SELECT value->>'user_pwd' FROM global_settings WHERE name = 'custom_instance_pg_databases';"
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten().ok_or_else(||
+        Error::BadRequest(format!(
+            "Custom instance db password not found, did you run migrations ?"
+        ))
+    )
+}
+
+// Avoid JSON parsing for merging raw JSON values into an object
+pub fn merge_raw_values_to_object(
+    pairs: &[(String, Box<serde_json::value::RawValue>)],
+) -> Box<serde_json::value::RawValue> {
+    let mut result = String::from("{");
+
+    for (i, (key, value)) in pairs.iter().enumerate() {
+        if i > 0 {
+            result.push(',');
+        }
+        // Serialize the key (handles escaping)
+        result.push_str(&serde_json::to_string(&key).unwrap());
+        result.push(':');
+        result.push_str(value.get());
+    }
+
+    result.push('}');
+
+    serde_json::value::RawValue::from_string(result).unwrap()
+}
+
+// Avoid JSON parsing for merging raw JSON values into an array
+pub fn merge_raw_values_to_array(
+    values: &[Box<serde_json::value::RawValue>],
+) -> Box<serde_json::value::RawValue> {
+    let mut result = String::from("[");
+
+    for (i, value) in values.iter().enumerate() {
+        if i > 0 {
+            result.push(',');
+        }
+        result.push_str(value.get());
+    }
+
+    result.push(']');
+
+    serde_json::value::RawValue::from_string(result).unwrap()
+}
+
+// Optimisation to avoid allocating intermediate strings when merging nested raw JSON values into an array
+pub fn merge_nested_raw_values_to_array<
+    'a,
+    It1: Iterator<Item = It2>,
+    It2: Iterator<Item = &'a Box<serde_json::value::RawValue>>,
+>(
+    nested_values: It1,
+) -> Box<serde_json::value::RawValue> {
+    let mut result = String::from("[");
+    let mut outer_first = true;
+
+    for inner_iter in nested_values {
+        if !outer_first {
+            result.push(',');
+        } else {
+            outer_first = false;
+        }
+
+        result.push('[');
+        let mut inner_first = true;
+
+        for value in inner_iter {
+            if !inner_first {
+                result.push(',');
+            } else {
+                inner_first = false;
+            }
+            result.push_str(value.get());
+        }
+
+        result.push(']');
+    }
+
+    result.push(']');
+
+    serde_json::value::RawValue::from_string(result).unwrap()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -918,10 +1063,184 @@ mod tests {
         );
         assert_eq!(r, "host=localhost port=5432 user=postgres dbname=test_db");
     }
-}
 
-#[derive(Clone)]
-pub struct ExpiringCacheEntry<T> {
-    pub value: T,
-    pub expiry: std::time::Instant,
+    #[test]
+    fn test_merge_raw_values_to_object() {
+        let key1 = "name".to_string();
+        let val1 = serde_json::value::RawValue::from_string("\"John\"".to_string()).unwrap();
+        let key2 = "age".to_string();
+        let val2 = serde_json::value::RawValue::from_string("30".to_string()).unwrap();
+
+        let pairs = vec![(key1, val1), (key2, val2)];
+        let result = merge_raw_values_to_object(&pairs);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed["name"], "John");
+        assert_eq!(parsed["age"], 30);
+    }
+
+    #[test]
+    fn test_merge_raw_values_to_object_empty() {
+        let pairs: Vec<(String, Box<serde_json::value::RawValue>)> = vec![];
+        let result = merge_raw_values_to_object(&pairs);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!({}));
+    }
+
+    #[test]
+    fn test_merge_raw_values_to_object_special_chars() {
+        let key1 = "key with spaces".to_string();
+        let val1 = serde_json::value::RawValue::from_string("\"value\"".to_string()).unwrap();
+        let key2 = "key\"with\"quotes".to_string();
+        let val2 = serde_json::value::RawValue::from_string("42".to_string()).unwrap();
+
+        let pairs = vec![(key1, val1), (key2, val2)];
+        let result = merge_raw_values_to_object(&pairs);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed["key with spaces"], "value");
+        assert_eq!(parsed["key\"with\"quotes"], 42);
+    }
+
+    #[test]
+    fn test_merge_raw_values_to_array() {
+        let val1 = serde_json::value::RawValue::from_string("1".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("\"text\"".to_string()).unwrap();
+        let val3 = serde_json::value::RawValue::from_string("true".to_string()).unwrap();
+
+        let values = vec![val1, val2, val3];
+        let result = merge_raw_values_to_array(&values);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([1, "text", true]));
+    }
+
+    #[test]
+    fn test_merge_raw_values_to_array_empty() {
+        let values: Vec<Box<serde_json::value::RawValue>> = vec![];
+        let result = merge_raw_values_to_array(&values);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_merge_raw_values_to_array_nested_objects() {
+        let val1 = serde_json::value::RawValue::from_string("{\"a\":1}".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("{\"b\":2}".to_string()).unwrap();
+
+        let values = vec![val1, val2];
+        let result = merge_raw_values_to_array(&values);
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([{"a": 1}, {"b": 2}]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array() {
+        let val1 = serde_json::value::RawValue::from_string("1".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("2".to_string()).unwrap();
+        let val3 = serde_json::value::RawValue::from_string("3".to_string()).unwrap();
+        let val4 = serde_json::value::RawValue::from_string("4".to_string()).unwrap();
+
+        let inner1 = vec![val1, val2];
+        let inner2 = vec![val3, val4];
+        let nested = vec![inner1.iter(), inner2.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([[1, 2], [3, 4]]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_empty_outer() {
+        let nested: Vec<std::slice::Iter<Box<serde_json::value::RawValue>>> = vec![];
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_empty_inner() {
+        let inner1: Vec<Box<serde_json::value::RawValue>> = vec![];
+        let val1 = serde_json::value::RawValue::from_string("1".to_string()).unwrap();
+        let inner2 = vec![val1];
+        let nested = vec![inner1.iter(), inner2.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([[], [1]]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_all_empty_inner() {
+        let inner1: Vec<Box<serde_json::value::RawValue>> = vec![];
+        let inner2: Vec<Box<serde_json::value::RawValue>> = vec![];
+        let nested = vec![inner1.iter(), inner2.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([[], []]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_complex_types() {
+        let val1 = serde_json::value::RawValue::from_string("{\"name\":\"Alice\"}".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("[1,2,3]".to_string()).unwrap();
+        let val3 = serde_json::value::RawValue::from_string("\"text\"".to_string()).unwrap();
+        let val4 = serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+        let inner1 = vec![val1, val2];
+        let inner2 = vec![val3, val4];
+        let nested = vec![inner1.iter(), inner2.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(
+            parsed,
+            serde_json::json!([[{"name": "Alice"}, [1, 2, 3]], ["text", null]])
+        );
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_single_inner() {
+        let val1 = serde_json::value::RawValue::from_string("1".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("2".to_string()).unwrap();
+        let val3 = serde_json::value::RawValue::from_string("3".to_string()).unwrap();
+
+        let inner1 = vec![val1, val2, val3];
+        let nested = vec![inner1.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([[1, 2, 3]]));
+    }
+
+    #[test]
+    fn test_merge_nested_raw_values_to_array_many_inner() {
+        let val1 = serde_json::value::RawValue::from_string("1".to_string()).unwrap();
+        let val2 = serde_json::value::RawValue::from_string("2".to_string()).unwrap();
+        let val3 = serde_json::value::RawValue::from_string("3".to_string()).unwrap();
+        let val4 = serde_json::value::RawValue::from_string("4".to_string()).unwrap();
+        let val5 = serde_json::value::RawValue::from_string("5".to_string()).unwrap();
+
+        let inner1 = vec![val1];
+        let inner2 = vec![val2];
+        let inner3 = vec![val3];
+        let inner4 = vec![val4];
+        let inner5 = vec![val5];
+        let nested = vec![inner1.iter(), inner2.iter(), inner3.iter(), inner4.iter(), inner5.iter()];
+
+        let result = merge_nested_raw_values_to_array(nested.into_iter());
+
+        let parsed: serde_json::Value = serde_json::from_str(result.get()).unwrap();
+        assert_eq!(parsed, serde_json::json!([[1], [2], [3], [4], [5]]));
+    }
 }

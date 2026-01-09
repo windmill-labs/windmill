@@ -30,7 +30,7 @@
 		Token will be posted to {host == 'localhost' ? 'your local machine' : host} to port {port}
 	</p>
 	<div class="flex flex-row justify-around pt-4 gap-x-1">
-		<Button variant="border" color="dark" size="sm" href={base}>Decline</Button>
-		<Button variant="contained" color="blue" size="sm" on:click={authorizeToken}>Authorize</Button>
+		<Button variant="default" destructive size="lg" href={base}>Decline</Button>
+		<Button variant="accent" size="lg" on:click={authorizeToken}>Authorize</Button>
 	</div>
 </CenteredModal>

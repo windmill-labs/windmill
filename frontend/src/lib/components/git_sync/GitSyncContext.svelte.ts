@@ -29,6 +29,7 @@ export type GitSyncRepository = BackendGitRepositorySettings & {
 export type GitSyncTestJob = {
 	jobId: string
 	status: 'running' | 'success' | 'failure' | undefined
+	error?: string
 }
 
 export type GitSyncSettings = {
@@ -547,14 +548,25 @@ export function createGitSyncContext(workspace: string) {
 					onProgress: (status) => {
 						gitSyncTestJobs[idx].status = status.status === 'success' ? 'success' :
 							status.status === 'failure' ? 'failure' : 'running'
+						if (status.status === 'failure') {
+							gitSyncTestJobs[idx].error = status.error
+						}
 					}
 				}
 			)
-
-			// If we get here, the job completed successfully
-			gitSyncTestJobs[idx].status = 'success'
-		} catch (error) {
-			gitSyncTestJobs[idx].status = 'failure'
+		} catch (error: any) {
+			// Initialize the job entry if it doesn't exist (e.g., job creation failed)
+			const errorMessage = (typeof error?.body === 'string' ? error.body : error?.body?.message) || error?.message || error?.toString() || 'Failed to run test job'
+			if (!gitSyncTestJobs[idx]) {
+				gitSyncTestJobs[idx] = {
+					jobId: '',
+					status: 'failure',
+					error: errorMessage
+				}
+			} else {
+				gitSyncTestJobs[idx].status = 'failure'
+				gitSyncTestJobs[idx].error = errorMessage
+			}
 		}
 	}
 
@@ -583,7 +595,7 @@ export function createGitSyncContext(workspace: string) {
 		return result
 	}
 
-	function getLegacyPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
+	function getSecondaryPromotionRepositories(): { repo: GitSyncRepository, idx: number }[] {
 		const result: { repo: GitSyncRepository, idx: number }[] = []
 		let foundFirst = false
 		repositories.forEach((repo, idx) => {
@@ -652,12 +664,13 @@ export function createGitSyncContext(workspace: string) {
 	}
 
 	// Helper to get target branch from git resource
-	async function getTargetBranch(repo: GitSyncRepository): Promise<string> {
+	async function getTargetBranch(repo: GitSyncRepository): Promise<string | undefined> {
 		if (!repo.git_repo_resource_path) {
-			return 'main'
+			return undefined
 		}
 
 		if (repo._targetBranch) {
+			if (repo._targetBranch === '') return undefined
 			return repo._targetBranch
 		}
 
@@ -669,14 +682,15 @@ export function createGitSyncContext(workspace: string) {
 
 			// Extract branch from git resource value
 			const resourceValue = resource.value as any
-			const targetBranch = resourceValue?.branch || 'main'
+			const targetBranch = resourceValue?.branch
 
 			// Cache the result
 			repo._targetBranch = targetBranch
+			if (targetBranch === '') return undefined
 			return targetBranch
 		} catch (error) {
 			console.warn('Failed to fetch git resource for branch info:', error)
-			return 'main'
+			return undefined
 		}
 	}
 
@@ -724,7 +738,7 @@ export function createGitSyncContext(workspace: string) {
 		getPrimarySyncRepository,
 		getPrimaryPromotionRepository,
 		getSecondarySyncRepositories,
-		getLegacyPromotionRepositories,
+		getSecondaryPromotionRepositories,
 
 		// Helper methods
 		getTargetBranch,

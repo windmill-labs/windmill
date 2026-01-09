@@ -13,13 +13,14 @@
 	import GroupEditor from './GroupEditor.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Section from './Section.svelte'
-	import { Eye, Plus } from 'lucide-svelte'
+	import { Eye, Plus, Trash } from 'lucide-svelte'
 	import Label from './Label.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { createEventDispatcher, untrack } from 'svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -90,6 +91,7 @@
 					role: getRole(x)
 				}
 			})
+			reloadHistory++
 		} catch (e) {
 			folderNotFound = true
 		}
@@ -144,6 +146,8 @@
 			})
 		}
 	})
+
+	let reloadHistory = $state(0)
 </script>
 
 <Drawer bind:this={newGroup}>
@@ -173,212 +177,220 @@
 	</DrawerContent>
 </Drawer>
 
-<Section label="Metadata" class="mb-4">
+<div class="flex flex-col gap-6">
 	<Label label="Summary">
 		<div class="flex flex-row gap-2">
-			<input placeholder="Short summary to be displayed when listed" bind:value={summary} />
-			<Button size="sm" on:click={updateFolder} disabled={!can_write}>Save</Button>
+			<TextInput
+				inputProps={{ placeholder: 'Short summary to be displayed when listed' }}
+				bind:value={summary}
+				size="md"
+			/>
+			<Button variant="accent" unifiedSize="md" on:click={updateFolder} disabled={!can_write}
+				>Save</Button
+			>
 		</div>
 	</Label>
-</Section>
 
-<Section label={`Permissions (${perms?.length ?? 0})`}>
-	<div class="flex flex-col gap-6">
-		{#if can_write}
-			<Alert type="info" title="New permissions may take up to 60s to apply">
-				<span class="text-xs text-tertiary">Due to permissions cache invalidation </span>
-			</Alert>
-			<div class="flex items-center gap-1">
-				<div>
-					<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
-						{#snippet children({ item })}
-							<ToggleButton value="user" label="User" {item} />
-							<ToggleButton value="group" label="Group" {item} />
-						{/snippet}
-					</ToggleButtonGroup>
+	<Label label={`Permissions (${perms?.length ?? 0})`}>
+		<div class="flex flex-col gap-2">
+			{#if can_write}
+				<Alert type="info" title="New permissions may take up to 60s to apply">
+					Due to permissions cache invalidation
+				</Alert>
+				<div class="flex items-center gap-1">
+					<div>
+						<ToggleButtonGroup bind:selected={ownerKind} on:selected={() => (ownerItem = '')}>
+							{#snippet children({ item })}
+								<ToggleButton value="user" label="User" {item} />
+								<ToggleButton value="group" label="Group" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					</div>
+
+					{#key ownerKind}
+						{@const items =
+							ownerKind === 'user'
+								? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
+								: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
+						<Select items={safeSelectItems(items)} bind:value={ownerItem} class="grow min-w-24" />
+						{#if ownerKind == 'group'}
+							<Button
+								title="View Group"
+								variant="default"
+								unifiedSize="md"
+								disabled={!ownerItem || ownerItem == ''}
+								on:click={viewGroup.openDrawer}
+								startIcon={{ icon: Eye }}
+								iconOnly
+							/>
+							<Button
+								title="New Group"
+								variant="default"
+								on:click={newGroup.openDrawer}
+								unifiedSize="md"
+								startIcon={{ icon: Plus }}
+								iconOnly
+							/>
+						{/if}
+					{/key}
+					<Button
+						disabled={ownerItem == ''}
+						variant="accent"
+						unifiedSize="md"
+						on:click={addToFolder}
+					>
+						Grant
+					</Button>
 				</div>
+			{/if}
 
-				{#key ownerKind}
-					{@const items =
-						ownerKind === 'user'
-							? usernames.filter((x) => !perms?.map((y) => y.owner_name).includes('u/' + x))
-							: groups.filter((x) => !perms?.map((y) => y.owner_name).includes('g/' + x))}
-					<Select items={safeSelectItems(items)} bind:value={ownerItem} />
-					{#if ownerKind == 'group'}
-						<Button
-							title="View Group"
-							btnClasses="!p-1.5"
-							variant="border"
-							size="xs"
-							disabled={!ownerItem || ownerItem == ''}
-							on:click={viewGroup.openDrawer}
-							startIcon={{ icon: Eye }}
-							iconOnly
-						/>
-						<Button
-							title="New Group"
-							btnClasses="!p-1.5"
-							variant="border"
-							on:click={newGroup.openDrawer}
-							size="xs"
-							startIcon={{ icon: Plus }}
-							iconOnly
-						/>
-					{/if}
-				{/key}
+			{#if folderNotFound}
+				<Alert type="warning" title="Folder not found" size="xs">
+					The folder "{name}" does not exist in the workspace. You can create it by clicking the
+					button below. An item can seemingly be in a folder given its path without the folder
+					existing. A windmill folder has settable permissions that its children inherit. If an item
+					is within a non-existing folders, only admins will see it.
+				</Alert>
 				<Button
-					disabled={ownerItem == ''}
-					variant="contained"
-					color="blue"
-					size="sm"
-					on:click={addToFolder}
+					variant="default"
+					wrapperClasses="w-min"
+					startIcon={{ icon: Plus }}
+					size="xs"
+					on:click={() => {
+						FolderService.createFolder({
+							workspace: $workspaceStore ?? '',
+							requestBody: { name }
+						}).then(() => {
+							loadFolder()
+						})
+					}}
 				>
-					Grant
+					Create folder "{name}"
 				</Button>
-			</div>
-		{/if}
+			{/if}
+			{#if perms}
+				<TableCustom>
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+					<tr slot="header-row">
+						<th>user/group</th>
+						<th></th>
+						<th></th>
+					</tr>
+					{#snippet body()}
+						<tbody>
+							{#each perms ?? [] as { owner_name, role }}<tr>
+									<td>{owner_name}</td>
+									<td>
+										{#if can_write}
+											<div>
+												<ToggleButtonGroup
+													disabled={owner_name == 'u/' + $userStore?.username &&
+														!($userStore?.is_admin || $userStore?.is_super_admin)}
+													selected={role}
+													on:selected={async (e) => {
+														const role = e.detail
+														// const wasInFolder = (folder?.owners ?? []).includes(folder)
+														// const inAcl = (
+														// 	folder?.extra_perms ? Object.keys(folder?.extra_perms) : []
+														// ).includes(folder)
+														if (role == 'admin') {
+															await FolderService.addOwnerToFolder({
+																workspace: $workspaceStore ?? '',
+																name,
+																requestBody: {
+																	owner: owner_name
+																}
+															})
+														} else if (role == 'writer') {
+															await FolderService.removeOwnerToFolder({
+																workspace: $workspaceStore ?? '',
+																name,
+																requestBody: {
+																	owner: owner_name,
+																	write: true
+																}
+															})
+														} else if (role == 'viewer') {
+															await FolderService.removeOwnerToFolder({
+																workspace: $workspaceStore ?? '',
+																name,
+																requestBody: {
+																	owner: owner_name,
+																	write: false
+																}
+															})
+														}
+														loadFolder()
+													}}
+												>
+													{#snippet children({ item })}
+														<ToggleButton
+															value="viewer"
+															label="Viewer"
+															tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+															{item}
+															size="sm"
+														/>
 
-		{#if folderNotFound}
-			<Alert type="warning" title="Folder not found" size="xs">
-				The folder "{name}" does not exist in the workspace. You can create it by clicking the
-				button below. An item can seemingly be in a folder given its path without the folder
-				existing. A windmill folder has settable permissions that its children inherit. If an item
-				is within a non-existing folders, only admins will see it.
-			</Alert>
-			<Button
-				color="light"
-				variant="border"
-				wrapperClasses="w-min"
-				startIcon={{ icon: Plus }}
-				size="xs"
-				on:click={() => {
-					FolderService.createFolder({
-						workspace: $workspaceStore ?? '',
-						requestBody: { name }
-					}).then(() => {
-						loadFolder()
-					})
-				}}
-			>
-				Create folder "{name}"
-			</Button>
-		{/if}
-		{#if perms}
-			<TableCustom>
-				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-				<tr slot="header-row">
-					<th>user/group</th>
-					<th></th>
-					<th></th>
-				</tr>
-				{#snippet body()}
-					<tbody>
-						{#each perms ?? [] as { owner_name, role }}<tr>
-								<td>{owner_name}</td>
-								<td>
-									{#if can_write}
-										<div>
-											<ToggleButtonGroup
-												disabled={owner_name == 'u/' + $userStore?.username &&
-													!($userStore?.is_admin || $userStore?.is_super_admin)}
-												selected={role}
-												on:selected={async (e) => {
-													const role = e.detail
-													// const wasInFolder = (folder?.owners ?? []).includes(folder)
-													// const inAcl = (
-													// 	folder?.extra_perms ? Object.keys(folder?.extra_perms) : []
-													// ).includes(folder)
-													if (role == 'admin') {
-														await FolderService.addOwnerToFolder({
+														<ToggleButton
+															value="writer"
+															label="Writer"
+															tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
+															{item}
+															size="sm"
+														/>
+
+														<ToggleButton
+															value="admin"
+															label="Admin"
+															tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
+															{item}
+															size="sm"
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+										{:else}
+											{role}
+										{/if}</td
+									>
+									<td class="flex items-center justify-end">
+										{#if (can_write && owner_name != 'u/' + $userStore?.username) || $userStore?.is_admin}
+											<Button
+												variant="subtle"
+												destructive
+												unifiedSize="md"
+												startIcon={{ icon: Trash }}
+												iconOnly
+												onclick={async () => {
+													await Promise.all([
+														FolderService.removeOwnerToFolder({
 															workspace: $workspaceStore ?? '',
 															name,
+															requestBody: { owner: owner_name }
+														}),
+														GranularAclService.removeGranularAcls({
+															workspace: $workspaceStore ?? '',
+															path: name,
+															kind: 'folder',
 															requestBody: {
 																owner: owner_name
 															}
 														})
-													} else if (role == 'writer') {
-														await FolderService.removeOwnerToFolder({
-															workspace: $workspaceStore ?? '',
-															name,
-															requestBody: {
-																owner: owner_name,
-																write: true
-															}
-														})
-													} else if (role == 'viewer') {
-														await FolderService.removeOwnerToFolder({
-															workspace: $workspaceStore ?? '',
-															name,
-															requestBody: {
-																owner: owner_name,
-																write: false
-															}
-														})
-													}
+													])
+
 													loadFolder()
 												}}
-											>
-												{#snippet children({ item })}
-													<ToggleButton
-														value="viewer"
-														label="Viewer"
-														tooltip="A viewer of a folder has read-only access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
-														{item}
-													/>
-
-													<ToggleButton
-														value="writer"
-														label="Writer"
-														tooltip="A writer of a folder has read AND write access to all the elements (scripts/flows/apps/schedules/resources/variables) inside the folder"
-														{item}
-													/>
-
-													<ToggleButton
-														value="admin"
-														label="Admin"
-														tooltip="An admin of a folder has read AND write access to all the elements inside the folders and can manage the permissions as well as add new admins"
-														{item}
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-									{:else}
-										{role}
-									{/if}</td
-								>
-								<td>
-									{#if can_write && (owner_name != 'u/' + $userStore?.username || $userStore?.is_admin)}
-										<button
-											class="ml-2 text-red-500"
-											onclick={async () => {
-												await Promise.all([
-													FolderService.removeOwnerToFolder({
-														workspace: $workspaceStore ?? '',
-														name,
-														requestBody: { owner: owner_name }
-													}),
-													GranularAclService.removeGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'folder',
-														requestBody: {
-															owner: owner_name
-														}
-													})
-												])
-
-												loadFolder()
-											}}>remove</button
-										>
-									{:else}
-										<span class="text-tertiary text-xs">cannot remove yourself</span>
-									{/if}</td
-								>
-							</tr>{/each}
-					</tbody>
-				{/snippet}
-			</TableCustom>
-			<!-- <h2 class="mt-10"
+											/>
+										{:else if can_write && owner_name == 'u/' + $userStore?.username}
+											<span class="text-primary text-xs">cannot remove yourself</span>
+										{/if}</td
+									>
+								</tr>{/each}
+						</tbody>
+					{/snippet}
+				</TableCustom>
+				<!-- <h2 class="mt-10"
 				>Folders managing this folder <Tooltip
 					>Any owner of those folders can manage this folder</Tooltip
 				></h2
@@ -386,19 +398,13 @@
 			{#if can_write}
 				<div class="flex items-start">
 					<AutoComplete items={folders} bind:selectedItem={new_managing_folder} />
-					<Button
-						variant="contained"
-						color="blue"
-						size="sm"
-						btnClasses="!ml-4"
-						on:click={addToManagingFolder}
-					>
+					<Button variant="accent" size="sm" btnClasses="!ml-4" on:click={addToManagingFolder}>
 						Add folder managing this folder
 					</Button>
 				</div>
 			{/if} -->
-			<!-- {#if managing_folders.length == 0}
-				<p class="text-tertiary text-sm">No folder is managing this folder</p>
+				<!-- {#if managing_folders.length == 0}
+				<p class="text-primary text-sm">No folder is managing this folder</p>
 			{:else}
 				<TableCustom>
 					<tr slot="header-row">
@@ -430,12 +436,29 @@
 					</tbody>
 				</TableCustom>
 			{/if} -->
-		{:else if folderNotFound === undefined}
-			<div class="flex flex-col">
-				{#each new Array(6) as _}
-					<Skeleton layout={[[2], 0.7]} />
-				{/each}
-			</div>
-		{/if}
-	</div>
-</Section>
+			{:else if folderNotFound === undefined}
+				<div class="flex flex-col">
+					{#each new Array(6) as _}
+						<Skeleton layout={[[2], 0.7]} />
+					{/each}
+				</div>
+			{/if}
+		</div>
+	</Label>
+
+	{#if reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, folderName, page, perPage) => {
+					return await FolderService.getFolderPermissionHistory({
+						workspace,
+						name: folderName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
+	{/if}
+</div>

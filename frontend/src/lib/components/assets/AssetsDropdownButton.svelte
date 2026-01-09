@@ -14,7 +14,7 @@
 	} from './lib'
 	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
-	import { ResourceService } from '$lib/gen'
+	import { ResourceService, WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
@@ -23,6 +23,7 @@
 	import AssetButtons from './AssetButtons.svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
+	import { resource } from 'runed'
 
 	let {
 		assets,
@@ -61,6 +62,13 @@
 		}
 	})
 
+	let datatables = resource([], () =>
+		WorkspaceService.listDataTables({ workspace: $workspaceStore ?? '' })
+	)
+	let ducklakes = resource([], () =>
+		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
+	)
+
 	$effect(() => {
 		assets
 		untrack(() => {
@@ -76,10 +84,14 @@
 			}
 
 			for (const asset of assets) {
-				if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
-				ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-					.then((resource) => (resourceDataCache[asset.path] = resource.resource_type))
-					.catch((err) => (resourceDataCache[asset.path] = undefined))
+				if (asset.kind == 'resource') {
+					let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+					if (truncatedPath in resourceDataCache) continue
+					resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+					ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+						.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
+						.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+				}
 			}
 		})
 	})
@@ -97,9 +109,9 @@
 			class={twMerge(
 				size === '3xs' ? 'h-[1.6rem]' : 'py-1.5',
 				'text-xs flex items-center gap-1.5 px-2 rounded-md relative',
-				'border border-tertiary/30',
+				'border',
 				'bg-surface hover:bg-surface-hover active:bg-surface',
-				'transition-all hover:text-primary cursor-pointer'
+				'transition-all hover:text-primary backdrop-blur-md cursor-pointer'
 			)}
 		>
 			<div
@@ -117,8 +129,16 @@
 	<svelte:fragment slot="content">
 		<ul class="divide-y rounded-md">
 			{#each assets as asset}
+				{@const ducklakeNotFound =
+					asset.kind === 'ducklake' &&
+					ducklakes.current &&
+					!ducklakes.current.find((name) => name === asset.path.split('/')[0])}
+				{@const datatableNotFound =
+					asset.kind === 'datatable' &&
+					datatables.current &&
+					!datatables.current.find((name) => name === asset.path.split('/')[0])}
 				<li
-					class="text-sm px-3 h-12 flex gap-3 items-center hover:bg-surface-hover/25"
+					class="text-sm px-3 h-12 flex gap-3 items-center"
 					onmouseenter={() => onHoverLi?.(asset, 'enter')}
 					onmouseleave={() => onHoverLi?.(asset, 'leave')}
 				>
@@ -129,10 +149,8 @@
 						<svelte:fragment slot="trigger">
 							<div
 								class={twMerge(
-									'text-xs font-normal border text-tertiary w-10 p-1 text-center rounded-md',
-									!asset.access_type && !asset.alt_access_type
-										? 'text-orange-500 !border-orange-500'
-										: '',
+									'text-xs font-normal border text-primary w-10 p-1 text-center rounded-md',
+									!asset.access_type ? 'text-orange-600 !border-orange-600' : '',
 									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
 								)}
 							>
@@ -141,12 +159,16 @@
 						</svelte:fragment>
 						<svelte:fragment slot="content">
 							{#if !asset.access_type}
-								<span class="text-sm text-tertiary leading-4">
+								<span class="text-sm text-primary leading-4">
 									Could not infer automatically <br />
 									<span class="text-xs">Please select manually </span>
 								</span>
 								<div class="flex items-center gap-2">
-									<ToggleButtonGroup bind:selected={asset.alt_access_type} class="max-w-fit">
+									<ToggleButtonGroup
+										allowEmpty
+										bind:selected={asset.alt_access_type}
+										class="max-w-fit"
+									>
 										{#snippet children({ item })}
 											<ToggleButton value="r" label="Read" {item} />
 											<ToggleButton value="w" label="Write" {item} />
@@ -169,7 +191,7 @@
 								{asset.path}
 							</svelte:fragment>
 						</Tooltip>
-						<span class="text-xs text-tertiary select-none">
+						<span class="text-xs text-primary select-none">
 							{liSubtitle?.(asset) ??
 								formatAssetKind({
 									...asset,
@@ -187,6 +209,8 @@
 						{dbManagerDrawer}
 						{resourceEditorDrawer}
 						{s3FilePicker}
+						{ducklakeNotFound}
+						{datatableNotFound}
 					/>
 				</li>
 			{/each}

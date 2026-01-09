@@ -1,24 +1,17 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
-	import type { Writable } from 'svelte/store'
-	import { getContext } from 'svelte'
 	import type { ResultN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: ResultN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
-
-	const type = $derived(
-		data.success == undefined ? undefined : data.success ? 'Success' : 'Failure'
-	)
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper enableSourceHandle={false}>
@@ -27,19 +20,15 @@
 			id={'Result'}
 			label={'Result'}
 			selectable={true}
-			selected={$selectedId === 'Result'}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			hideId={true}
-			bgColor={getStateColor(type, darkMode)}
-			bgHoverColor={getStateHoverColor(type, darkMode)}
 			on:select={(e) => {
 				setTimeout(() => data?.eventHandlers?.select(e.detail))
 			}}
 			nodeKind="result"
 			editMode={data.editMode}
 			job={data.job}
-			{type}
 			showJobStatus={data.showJobStatus}
-			{darkMode}
 		/>
 	{/snippet}
 </NodeWrapper>

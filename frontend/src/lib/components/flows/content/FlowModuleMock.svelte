@@ -41,7 +41,7 @@
 		}
 	}
 	run(() => {
-		flowModule.mock, untrack(() => updateMock(flowModule.mock))
+		;(flowModule.mock, untrack(() => updateMock(flowModule.mock)))
 	})
 
 	function updateMockValue({ detail }: any) {

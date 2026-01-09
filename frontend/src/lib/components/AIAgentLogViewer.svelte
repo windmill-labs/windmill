@@ -11,6 +11,7 @@
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import { z } from 'zod'
 	import { onMount } from 'svelte'
+	import type { AgentTool } from './flows/agentToolUtils'
 
 	type AgentActionWithContent = NonNullable<FlowStatusModule['agent_actions']>[number] & {
 		content?: unknown
@@ -30,7 +31,17 @@
 							function_name: z.string()
 						}),
 						z.object({
+							type: z.literal('mcp_tool_call'),
+							call_id: z.string(),
+							function_name: z.string(),
+							resource_path: z.string(),
+							arguments: z.record(z.any(), z.any()).optional()
+						}),
+						z.object({
 							type: z.literal('message')
+						}),
+						z.object({
+							type: z.literal('web_search')
 						})
 					])
 					.optional()
@@ -39,7 +50,7 @@
 	})
 
 	interface Props {
-		tools: FlowModule[]
+		tools: AgentTool[]
 		agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
 		workspaceId?: string | undefined
 		storedToolCallJobs?: Record<number, Job>
@@ -69,6 +80,20 @@
 					job_id: toolCall.job_id
 				}
 				onToolJobLoaded?.(job, idx)
+			} else if (toolCall.type === 'mcp_tool_call') {
+				fakeModuleStates[idx.toString()] = {
+					type: 'Success',
+					args: toolCall.arguments ?? {},
+					logs: '',
+					result: toolCall.content
+				}
+			} else if (toolCall.type === 'web_search') {
+				fakeModuleStates[idx.toString()] = {
+					type: 'Success',
+					args: {},
+					logs: '',
+					result: toolCall.content
+				}
 			} else {
 				fakeModuleStates[idx.toString()] = {
 					type: 'Success',
@@ -104,7 +129,20 @@
 									module_id: m.agent_action.module_id,
 									function_name: m.agent_action.function_name
 								}
-							: undefined) as AgentActionWithContent | undefined
+							: m.agent_action?.type === 'mcp_tool_call'
+								? {
+										type: 'mcp_tool_call',
+										content: m.content,
+										call_id: m.agent_action.call_id,
+										function_name: m.agent_action.function_name,
+										arguments: m.agent_action.arguments
+									}
+								: m.agent_action?.type === 'web_search'
+									? {
+											type: 'web_search',
+											content: m.content
+										}
+									: undefined) as AgentActionWithContent | undefined
 			)
 			.filter((m) => m !== undefined)
 
@@ -122,13 +160,30 @@
 									type: 'identity' as const
 								}
 							}
+						} else if (toolCall.type === 'mcp_tool_call') {
+							return {
+								id: idx.toString(),
+								value: {
+									type: 'identity' as const
+								},
+								summary: toolCall.function_name,
+								arguments: toolCall.arguments
+							}
+						} else if (toolCall.type === 'web_search') {
+							return {
+								id: idx.toString(),
+								value: {
+									type: 'identity' as const
+								},
+								summary: 'Web Search'
+							}
 						} else {
 							const module = tools.find((m) => m.summary === toolCall.function_name)
 							return module
-								? {
+								? ({
 										...module,
 										id: idx.toString()
-									}
+									} as FlowModule)
 								: undefined
 						}
 					})

@@ -2,14 +2,13 @@
 	import { workspaceStore, enterpriseLicense, userStore } from '$lib/stores'
 	import Popover from './meltComponents/Popover.svelte'
 	import Button from './common/button/Button.svelte'
-	import { Loader2, Github, RotateCw, Plus, Minus, Download } from 'lucide-svelte'
+	import { Loader2, Github, RotateCw, Plus, Minus, Download, AlertTriangle } from 'lucide-svelte'
 	import { onDestroy } from 'svelte'
 	import {
 		createGitHubAppState,
 		loadGithubInstallations,
 		startInstallationCheck,
 		stopInstallationCheck,
-		getRepositories,
 		addInstallationToWorkspace,
 		deleteInstallation,
 		exportInstallation,
@@ -18,6 +17,7 @@
 		handleInstallClick,
 		type GitHubAppState
 	} from '$lib/githubApp'
+	import RepositorySelector from './RepositorySelector.svelte'
 
 	interface Props {
 		resourceType: string
@@ -166,8 +166,7 @@
 {#if showGitHubApp}
 	{#if !githubState.loadingGithubInstallations}
 		<Button
-			color="light"
-			variant="contained"
+			variant="default"
 			size="xs"
 			on:click={handleRefreshInstallations}
 			disabled={!$enterpriseLicense}
@@ -180,15 +179,12 @@
 		<Popover
 			documentationLink="https://www.windmill.dev/docs/integrations/git_repository#github-app"
 			bind:this={githubAppPopover}
-			floatingConfig={{
-				placement: 'bottom'
-			}}
 			disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
+			contentClasses="overflow-auto"
 		>
 			{#snippet trigger()}
 				<Button
-					color="none"
-					variant="border"
+					variant="default"
 					size="xs"
 					disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 					startIcon={{
@@ -212,27 +208,33 @@
 										<select bind:value={githubState.selectedGHAppAccountId}>
 											<option value="" disabled>Select GitHub Account ID</option>
 											{#each githubState.workspaceGithubInstallations as installation (`select-${installation.installation_id}-${installation.workspace_id}`)}
-												<option value={installation.account_id}>{installation.account_id}</option>
+												<option value={installation.account_id} disabled={!!installation.error}>
+													{installation.account_id}{installation.error ? ' (token error)' : ''}
+												</option>
 											{/each}
 										</select>
 									</div>
 									{#if githubState.selectedGHAppAccountId}
-										<div class="flex flex-col gap-1 flex-1">
-											<p class="text-sm font-semibold text-secondary">Repository</p>
-											<div class="flex flex-row gap-2">
-												<select bind:value={githubState.selectedGHAppRepository}>
-													<option value="" disabled selected>Select Repository</option>
-													{#each getRepositories(githubState, githubState.selectedGHAppAccountId) as repository (repository.url)}
-														<option value={repository.url}>{repository.name}</option>
-													{/each}
-												</select>
+										{@const selectedInstallation = githubState.workspaceGithubInstallations.find(
+											(inst) => inst.account_id === githubState.selectedGHAppAccountId
+										)}
+										{#if selectedInstallation}
+											<div class="flex flex-col gap-1 flex-1">
+												<p class="text-sm font-semibold text-secondary">Repository</p>
+												<RepositorySelector
+													bind:selectedRepository={githubState.selectedGHAppRepository}
+													accountId={githubState.selectedGHAppAccountId}
+													initialRepositories={selectedInstallation.repositories}
+													totalCount={selectedInstallation.total_count}
+													perPage={selectedInstallation.per_page}
+												/>
 											</div>
-										</div>
+										{/if}
 									{/if}
 									<div class="pt-[26px]">
 										<Button
 											size="xs"
-											color="blue"
+											variant="accent"
 											buttonType="button"
 											disabled={!githubState.selectedGHAppRepository}
 											on:click={() => handleApplyRepositoryURL(close)}
@@ -254,8 +256,7 @@
 							<div class="flex flex-col gap-4">
 								<div class="flex">
 									<Button
-										color="none"
-										variant="border"
+										variant="default"
 										size="xs"
 										href={githubState.githubInstallationUrl}
 										startIcon={{
@@ -283,7 +284,7 @@
 										<div class="flex flex-col gap-1">
 											<table class="w-full text-sm">
 												<thead>
-													<tr class="text-left text-xs text-tertiary">
+													<tr class="text-left text-xs text-primary">
 														<th class="pb-2 w-1/3">Org</th>
 														<th class="pb-2 w-1/6">Workspace</th>
 														<th class="pb-2 w-1/6">Repos</th>
@@ -293,20 +294,32 @@
 												<tbody>
 													{#each githubState.workspaceGithubInstallations as installation (`current-${installation.installation_id}-${installation.workspace_id}`)}
 														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
 															<td class="py-2">
-																<span class="text-xs text-tertiary"
-																	>{installation.workspace_id}</span
+																<div class="flex items-center gap-1">
+																	{#if installation.error}
+																		<span title={installation.error}>
+																			<AlertTriangle class="w-4 h-4 text-yellow-500" />
+																		</span>
+																	{/if}
+																	{installation.account_id}
+																</div>
+															</td>
+															<td class="py-2">
+																<span class="text-xs text-primary">{installation.workspace_id}</span
 																>
 															</td>
-															<td class="py-2 text-tertiary">
-																{installation.repositories.length} repos
+															<td class="py-2 text-primary">
+																{#if installation.error}
+																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																{:else}
+																	{installation.repositories.length} repos
+																{/if}
 															</td>
 															<td class="py-2 text-right">
 																<div class="flex justify-end gap-1">
 																	<Button
 																		size="xs2"
-																		color="blue"
+																		variant="accent"
 																		title="Export installation to other instance"
 																		startIcon={{ icon: Download }}
 																		on:click={() =>
@@ -316,7 +329,8 @@
 																	</Button>
 																	<Button
 																		size="xs2"
-																		color="red"
+																		variant="default"
+																		destructive
 																		title="Remove installation from workspace"
 																		startIcon={{ icon: Minus }}
 																		on:click={() =>
@@ -341,7 +355,7 @@
 										<div class="flex flex-col gap-1">
 											<table class="w-full text-sm">
 												<thead>
-													<tr class="text-left text-xs text-tertiary">
+													<tr class="text-left text-xs text-primary">
 														<th class="pb-2 w-1/3">Org</th>
 														<th class="pb-2 w-1/6">Workspace</th>
 														<th class="pb-2 w-1/6">Repos</th>
@@ -351,19 +365,31 @@
 												<tbody>
 													{#each githubInstallationsNotInWorkspace as installation (`other-${installation.installation_id}-${installation.workspace_id}`)}
 														<tr class="border-t border-gray-200 dark:border-gray-700">
-															<td class="py-2">{installation.account_id}</td>
 															<td class="py-2">
-																<span class="text-xs text-tertiary"
-																	>{installation.workspace_id}</span
+																<div class="flex items-center gap-1">
+																	{#if installation.error}
+																		<span title={installation.error}>
+																			<AlertTriangle class="w-4 h-4 text-yellow-500" />
+																		</span>
+																	{/if}
+																	{installation.account_id}
+																</div>
+															</td>
+															<td class="py-2">
+																<span class="text-xs text-primary">{installation.workspace_id}</span
 																>
 															</td>
-															<td class="py-2 text-tertiary">
-																{installation.repositories.length} repos
+															<td class="py-2 text-primary">
+																{#if installation.error}
+																	<span class="text-yellow-600 dark:text-yellow-400 text-xs" title={installation.error}>Token error</span>
+																{:else}
+																	{installation.repositories.length} repos
+																{/if}
 															</td>
 															<td class="pl-8 py-2 text-right">
 																<Button
 																	size="xs2"
-																	color="blue"
+																	variant="accent"
 																	title="Add installation to workspace"
 																	startIcon={{ icon: Plus }}
 																	on:click={() => {
@@ -400,7 +426,7 @@
 									class="flex-1"
 								/>
 								<Button
-									color="blue"
+									variant="accent"
 									on:click={handleImportInstallation}
 									disabled={!githubState.importJwt}
 								>
@@ -414,8 +440,7 @@
 		</Popover>
 	{:else}
 		<Button
-			color="none"
-			variant="border"
+			variant="default"
 			size="xs"
 			disabled={!$enterpriseLicense || githubState.loadingGithubInstallations}
 			startIcon={{

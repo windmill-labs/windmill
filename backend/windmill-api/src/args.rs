@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use axum::{
-    extract::{FromRequest, FromRequestParts, Multipart, Query, Request},
-    http::{HeaderMap, Uri},
+    extract::{FromRequest, Multipart, Query, Request},
+    http::HeaderMap,
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use http::{header::CONTENT_TYPE, request::Parts, StatusCode};
+use http::{header::CONTENT_TYPE, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::JsonRawValue;
@@ -44,11 +44,13 @@ pub enum Body {
 #[derive(Debug, Clone, Default)]
 pub struct WebhookArgsMetadata {
     pub raw_string: Option<String>,
-    pub headers: HashMap<String, Box<RawValue>>,
+    pub headers: HeaderMap,
+    pub query: Option<String>,
     pub method: http::Method,
-    pub query: HashMap<String, Box<RawValue>>,
     pub query_wrap_body: bool,
     pub query_use_raw: bool,
+    pub query_include_header: Option<String>,
+    pub query_include_query: Option<String>,
 }
 
 pub struct RawWebhookArgs {
@@ -92,7 +94,7 @@ impl RawWebhookArgs {
         use object_store::{Attribute, Attributes};
         use windmill_common::s3_helpers::build_object_store_client;
 
-        let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, "", w_id, None).await?;
+        let (_, s3_resource) = get_workspace_s3_resource(authed, db, None, w_id, None).await?;
 
         if let Some(s3_resource) = s3_resource {
             let s3_client = build_object_store_client(&s3_resource).await?;
@@ -262,6 +264,18 @@ impl WebhookArgs {
         self,
         runnable_format: RunnableFormat,
     ) -> Result<PushArgsOwned, Error> {
+        let headers = build_headers(
+            &self.metadata.headers,
+            self.metadata.query_include_header,
+            runnable_format.has_preprocessor,
+        );
+
+        let query = build_query(
+            self.metadata.query.as_deref(),
+            self.metadata.query_include_query,
+            runnable_format.has_preprocessor,
+        );
+
         match runnable_format {
             RunnableFormat { has_preprocessor: true, version: RunnableFormatVersion::V2 } => {
                 let mut args = HashMap::new();
@@ -272,8 +286,8 @@ impl WebhookArgs {
                         kind: "webhook".to_string(),
                         body: to_raw_value(&self.body),
                         raw_string: self.metadata.raw_string,
-                        headers: self.metadata.headers,
-                        query: self.metadata.query,
+                        headers,
+                        query,
                     }),
                 );
 
@@ -282,8 +296,7 @@ impl WebhookArgs {
             RunnableFormat { has_preprocessor, .. } => {
                 let mut extra = HashMap::new();
 
-                let WebhookArgsMetadata { query, query_wrap_body, headers, raw_string, .. } =
-                    self.metadata;
+                let WebhookArgsMetadata { query_wrap_body, raw_string, .. } = self.metadata;
 
                 for (k, v) in headers {
                     extra.insert(k, v);
@@ -332,6 +345,7 @@ pub struct RequestQuery {
     pub raw: Option<bool>,
     pub wrap_body: Option<bool>,
     pub include_header: Option<String>,
+    pub include_query: Option<String>,
 }
 
 async fn req_to_string<S: Send + Sync>(
@@ -359,23 +373,21 @@ where
         let content_type = content_type_header.and_then(|value| value.to_str().ok());
         let uri = request.uri();
         let request_query = Query::<RequestQuery>::try_from_uri(uri).unwrap().0;
-        let headers = build_headers(&headers_map, request_query.include_header, is_http_trigger);
-        let query_decode = DecodeQueries::from_uri(uri, is_http_trigger);
-        let mut query = HashMap::new();
-        if let Some(DecodeQueries(queries)) = query_decode {
-            query.extend(queries);
-        }
+
+        let query = uri.query().map(|s| s.to_owned());
         let raw = !is_http_trigger && request_query.raw.unwrap_or(false);
         let wrap_body = !is_http_trigger && request_query.wrap_body.unwrap_or(false);
         (
             content_type,
             WebhookArgsMetadata {
-                headers,
+                headers: headers_map.clone(),
                 query,
                 method: request.method().clone(),
                 raw_string: None,
                 query_wrap_body: wrap_body,
                 query_use_raw: raw,
+                query_include_header: request_query.include_header,
+                query_include_query: request_query.include_query,
             },
         )
     };
@@ -460,11 +472,11 @@ lazy_static::lazy_static! {
 pub fn build_headers(
     headers: &HeaderMap,
     include_header: Option<String>,
-    is_http_trigger: bool,
+    include_all_headers: bool,
 ) -> HashMap<String, Box<RawValue>> {
     let mut selected_headers = HashMap::new();
 
-    if is_http_trigger {
+    if include_all_headers {
         for (k, v) in headers.iter() {
             selected_headers.insert(
                 k.to_string(),
@@ -490,72 +502,39 @@ pub fn build_headers(
     selected_headers
 }
 
-#[derive(Deserialize)]
-pub struct IncludeQuery {
-    pub include_query: Option<String>,
-}
+pub fn build_query(
+    query: Option<&str>,
+    include_query: Option<String>,
+    include_all_query: bool,
+) -> HashMap<String, Box<RawValue>> {
+    let Some(query) = query else {
+        return HashMap::new();
+    };
 
-pub struct DecodeQueries(pub HashMap<String, Box<RawValue>>);
-
-#[axum::async_trait]
-impl<S> FromRequestParts<S> for DecodeQueries
-where
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        Ok(DecodeQueries::from_uri(&parts.uri, false)
-            .unwrap_or_else(|| DecodeQueries(HashMap::new())))
-    }
-}
-
-impl DecodeQueries {
-    pub fn from_uri(uri: &Uri, is_http_trigger: bool) -> Option<Self> {
-        let query = uri.query();
-        if query.is_none() {
-            return None;
-        }
-        let query = query.unwrap();
-        if is_http_trigger {
+    if include_all_query {
+        let queries =
+            serde_urlencoded::from_str::<HashMap<String, String>>(&query).unwrap_or_default();
+        queries
+            .into_iter()
+            .map(|(k, v)| (k, to_raw_value(&v)))
+            .collect()
+    } else {
+        let parse_query_args = include_query
+            .map(|s| s.split(",").map(|p| p.to_string()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        let mut args = HashMap::new();
+        if !parse_query_args.is_empty() {
             let queries =
-                serde_urlencoded::from_str::<HashMap<String, String>>(query).unwrap_or_default();
-            Some(DecodeQueries(
-                queries
-                    .into_iter()
-                    .map(|(k, v)| (k, to_raw_value(&v)))
-                    .collect(),
-            ))
-        } else {
-            let include_query = serde_urlencoded::from_str::<IncludeQuery>(query)
-                .map(|x| x.include_query)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let parse_query_args = include_query
-                .split(",")
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>();
-            let mut args = HashMap::new();
-            if !parse_query_args.is_empty() {
-                let queries = serde_urlencoded::from_str::<HashMap<String, String>>(query)
-                    .unwrap_or_default();
-                parse_query_args.iter().for_each(|h| {
-                    if let Some(v) = queries.get(h) {
-                        args.insert(h.to_string(), to_raw_value(v));
-                    }
-                });
-            }
-            Some(DecodeQueries(args))
+                serde_urlencoded::from_str::<HashMap<String, String>>(&query).unwrap_or_default();
+            parse_query_args.iter().for_each(|h| {
+                if let Some(v) = queries.get(h) {
+                    args.insert(h.to_string(), to_raw_value(v));
+                }
+            });
         }
+        args
     }
 }
-
-// impl<'c> PushArgs<'c> {
-//     pub fn insert<K: Into<String>, V: Into<Box<RawValue>>>(&mut self, k: K, v: V) {
-//         self.extra.insert(k.into(), v.into());
-//     }
-// }
 
 fn restructure_cloudevents_metadata(
     mut p: HashMap<String, Box<RawValue>>,

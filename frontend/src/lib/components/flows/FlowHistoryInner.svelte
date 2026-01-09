@@ -29,8 +29,7 @@
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
-			version,
-			path
+			version
 		})
 	}
 
@@ -54,7 +53,6 @@
 		await FlowService.updateFlowHistory({
 			workspace: $workspaceStore!,
 			version,
-			path,
 			requestBody: {
 				deployment_msg: deploymentMsgUpdate!
 			}
@@ -111,7 +109,7 @@
 						{/each}
 					</div>
 				{:else}
-					<div class="text-sm text-tertiary">No items</div>
+					<div class="text-sm text-primary">No items</div>
 				{/if}
 			{:else}
 				<Skeleton layout={[[40], [40], [40], [40], [40]]} />
@@ -124,7 +122,7 @@
 				{#if selected}
 					<div class="px-2 flex flex-col gap-2">
 						<div class="flex justify-between">
-							<span class="flex flex-row text-sm p-1 text-tertiary">
+							<span class="flex flex-row text-sm p-1 text-primary">
 								{#if deploymentMsgUpdateMode}
 									<div class="flex w-full">
 										<input
@@ -188,7 +186,7 @@
 									<div class="flex">
 										<Button
 											size="sm"
-											color="dark"
+											variant="accent"
 											on:click={() =>
 												window.open(
 													`/flows/add?template_id=${selectedVersion?.id}&template=${path}`,
@@ -201,7 +199,7 @@
 								{/if}
 
 								<div class="flex">
-									<Button size="sm" color="dark" on:click={() => restoreVersion(selected)}
+									<Button size="sm" variant="accent" on:click={() => restoreVersion(selected)}
 										>Redeploy with that version
 									</Button>
 								</div>
@@ -217,7 +215,7 @@
 					<Skeleton layout={[[40]]} />
 				{/if}
 			{:else}
-				<div class="text-sm p-2 text-tertiary">Select a deployment version to see its details</div>
+				<div class="text-sm p-2 text-primary">Select a deployment version to see its details</div>
 			{/if}
 		</div>
 	</Pane>

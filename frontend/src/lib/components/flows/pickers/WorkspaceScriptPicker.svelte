@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { ScriptService } from '$lib/gen'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import { Badge, Skeleton } from '$lib/components/common'
@@ -9,10 +9,7 @@
 	import { emptyString, truncateHash } from '$lib/utils'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
-
-	export let kind: 'script' | 'trigger' | 'approval' | 'failure' = 'script'
-	export let isTemplate: boolean | undefined = undefined
-	export let displayLock = false
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	type Item = {
 		path: string
@@ -21,33 +18,54 @@
 		hash?: string
 	}
 
-	let items: Item[] | undefined = undefined
+	let items = $state(undefined) as Item[] | undefined
 
-	let filteredItems: (Item & { marked?: string })[] | undefined = undefined
-	export let filter = ''
+	let filteredItems = $state(undefined) as (Item & { marked?: string })[] | undefined
+	interface Props {
+		kind?: 'script' | 'trigger' | 'approval' | 'failure'
+		isTemplate?: boolean | undefined
+		displayLock?: boolean
+		filter?: string
+		children?: import('svelte').Snippet
+	}
 
-	$: $workspaceStore && kind && loadItems()
+	let {
+		kind = 'script',
+		isTemplate = undefined,
+		displayLock = false,
+		filter = $bindable(''),
+		children
+	}: Props = $props()
 
 	async function loadItems(): Promise<void> {
 		items = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
 			kinds: kind,
-			isTemplate
+			isTemplate,
+			withoutDescription: true
 		})
 	}
 
-	let ownerFilter: string | undefined = undefined
-	$: if ($workspaceStore) {
-		ownerFilter = undefined
-	}
-	$: prefilteredItems = ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
-
-	$: owners = Array.from(
-		new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
-	).sort()
+	let ownerFilter: string | undefined = $state(undefined)
 
 	const dispatch = createEventDispatcher()
-	let lockHash = false
+	let lockHash = $state(false)
+	$effect(() => {
+		$workspaceStore && kind && untrack(() => loadItems())
+	})
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
+	let prefilteredItems = $derived(
+		ownerFilter ? items?.filter((x) => x.path.startsWith(ownerFilter!)) : items
+	)
+	let owners = $derived(
+		Array.from(
+			new Set(filteredItems?.map((x) => x.path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
 </script>
 
 <SearchItems
@@ -57,15 +75,17 @@
 	f={(x) => (emptyString(x.summary) ? x.path : x.summary + ' (' + x.path + ')')}
 />
 <div class="flex flex-col min-h-0">
-	<div class="w-full flex mt-1 items-center gap-2 mb-3">
-		<slot />
+	<div class="w-full flex items-center gap-2 mb-3">
+		{@render children?.()}
 
-		<input
-			type="text"
-			on:keydown|stopPropagation
-			placeholder="Search Workspace Scripts"
+		<TextInput
+			inputProps={{
+				type: 'text',
+				onkeydown: (e) => e.stopPropagation(),
+				placeholder: 'Search Workspace Scripts'
+			}}
 			bind:value={filter}
-			class="text-2xl grow"
+			class="grow"
 		/>
 	</div>
 
@@ -76,7 +96,8 @@
 					<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
 						<Badge
 							class="cursor-pointer hover:bg-gray-200"
-							on:click={() => {
+							clickable
+							onclick={() => {
 								ownerFilter = ownerFilter == owner ? undefined : owner
 							}}
 							color={owner === ownerFilter ? 'blue' : 'gray'}
@@ -105,7 +126,7 @@
 				<li class="flex flex-row w-full">
 					<button
 						class="p-4 gap-1 flex flex-row grow hover:bg-surface-hover bg-surface transition-all text-primary"
-						on:click={() => {
+						onclick={() => {
 							dispatch('pick', { path, hash: lockHash ? hash : undefined })
 						}}
 					>

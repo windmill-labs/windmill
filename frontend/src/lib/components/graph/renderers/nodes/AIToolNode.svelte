@@ -1,5 +1,9 @@
 <script module lang="ts">
-	export function validateToolName(name: string) {
+	export function validateToolName(name: string, type?: string) {
+		if (type === 'websearch') return true
+		if (type === 'mcp') {
+			return name.length > 0
+		}
 		return /^[a-zA-Z0-9_]+$/.test(name)
 	}
 
@@ -8,7 +12,9 @@
 	export const BELOW_ADDITIONAL_OFFSET = 19
 
 	export const AI_TOOL_CALL_PREFIX = '_wm_ai_agent_tool_call'
+	export const AI_MCP_TOOL_CALL_PREFIX = '_wm_ai_mcp_tool_call'
 	export const AI_TOOL_MESSAGE_PREFIX = '_wm_ai_agent_message'
+	export const AI_WEBSEARCH_PREFIX = '_wm_ai_websearch'
 
 	const ROW_WIDTH = 275
 	const NEW_TOOL_NODE_WIDTH = 50
@@ -79,11 +85,24 @@
 			let tools: {
 				id: string
 				name: string
+				type?: string
 				stateType?: GraphModuleState['type']
-			}[] = node.data.module.value.tools.map((t) => ({
-				id: t.id,
-				name: t.summary ?? ''
-			}))
+			}[] = node.data.module.value.tools.map((t, idx) => {
+				// Handle FlowModule, MCP, and Websearch tools
+				const toolType =
+					t.value.tool_type === 'mcp'
+						? 'mcp'
+						: t.value.tool_type === 'websearch'
+							? 'websearch'
+							: t.value.tool_type === 'flowmodule'
+								? t.value.type
+								: undefined
+				return {
+					id: t.id,
+					name: t.summary ?? '',
+					type: toolType
+				}
+			})
 
 			const agentActions = !insertable && flowModuleStates?.[node.id]?.agent_actions
 			if (agentActions) {
@@ -91,11 +110,20 @@
 				baseOffset = BELOW_ADDITIONAL_OFFSET + AI_TOOL_BASE_OFFSET
 				rowOffset = AI_TOOL_ROW_OFFSET
 				tools = agentActions.map((a, idx) => {
-					if (a.type === 'tool_call') {
-						const id = getToolCallId(idx, node.id, a.module_id)
+					if (a.type === 'tool_call' || a.type === 'mcp_tool_call') {
+						const id =
+							a.type === 'tool_call'
+								? getToolCallId(idx, node.id, a.module_id)
+								: AI_MCP_TOOL_CALL_PREFIX + '-' + node.id + '-' + idx
 						return {
 							id,
 							name: a.function_name
+						}
+					} else if (a.type === 'web_search') {
+						return {
+							id: AI_WEBSEARCH_PREFIX + '-' + node.id + '-' + idx,
+							name: 'Web Search',
+							type: 'websearch'
 						}
 					} else {
 						return {
@@ -131,6 +159,7 @@
 					parentId: node.id,
 					data: {
 						tool: tool.name,
+						type: tool.type,
 						eventHandlers,
 						moduleId: tool.id,
 						insertable,
@@ -153,7 +182,8 @@
 								(agentActions
 									? Math.floor(i / MAX_TOOLS_PER_ROW) + 1
 									: totalRows - Math.floor(i / MAX_TOOLS_PER_ROW))
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -162,7 +192,8 @@
 				source: agentActions ? (n.parentId ?? '') : (n.id ?? ''),
 				target: agentActions ? (n.id ?? '') : (n.parentId ?? ''),
 				type: 'empty',
-				data: { class: '!opacity-35 dark:!opacity-20' }
+				data: { class: '!opacity-35 dark:!opacity-20' },
+				selectable: false
 			}))
 
 			allToolEdges.push(...(toolEdges ?? []))
@@ -178,7 +209,8 @@
 					position: {
 						x: (ROW_WIDTH - NEW_TOOL_NODE_WIDTH) / 2 + node.data.offset,
 						y: baseOffset + rowOffset
-					}
+					},
+					selectable: false
 				} satisfies Node & NewAiToolN)
 			}
 		}
@@ -232,15 +264,14 @@
 		NewAiToolN,
 		NodeLayout
 	} from '../../graphBuilder.svelte'
-	import { MessageCircle, Play, Wrench, X } from 'lucide-svelte'
+	import { Globe, MessageCircle, Play, Plug, Wrench, X } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { getContext } from 'svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
-	import type { Writable } from 'svelte/store'
 	import type { GraphModuleState } from '../../model'
-	import { getStateColor, getStateHoverColor } from '../../util'
+	import { getNodeColorClasses } from '../../util'
 	import { deepEqual } from 'fast-equals'
+	import { getGraphContext } from '../../graphContext'
 
 	let hover = $state(false)
 
@@ -250,32 +281,42 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager } = getGraphContext()
 
 	const flowModuleState = $derived(data.flowModuleStates?.[data.moduleId])
+	let colorClasses = $derived(
+		getNodeColorClasses(
+			!validateToolName(data.tool, data.type) ? 'Failure' : flowModuleState?.type,
+			selectionManager?.getSelectedId() === data.moduleId
+		)
+	)
 </script>
 
 <NodeWrapper>
 	{#snippet children({ darkMode })}
-		{@const bgColor = getStateColor(flowModuleState?.type, darkMode, true, false)}
-		{@const bgHoverColor = getStateHoverColor(flowModuleState?.type, darkMode, true, false)}
-
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<div class="relative" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+		<div
+			class="relative bg-surface-secondary rounded-md"
+			onmouseenter={() => (hover = true)}
+			onmouseleave={() => (hover = false)}
+		>
 			<button
 				class={twMerge(
-					'text-left bg-surface h-6 flex items-center gap-1.5 rounded-sm text-secondary overflow-clip w-full outline-offset-0 outline-slate-500 dark:outline-gray-400',
-					$selectedId === data.moduleId ? 'outline outline-1' : 'active:outline active:outline-1'
+					'text-left h-6 flex items-center gap-1.5 rounded-md overflow-clip w-full outline-offset-0 drop-shadow-base',
+					colorClasses.outline,
+					colorClasses.text,
+					colorClasses.bg
 				)}
-				style={`background-color: ${hover ? bgHoverColor : bgColor};`}
 				onclick={() => data.eventHandlers.select(data.moduleId)}
 			>
 				{#if data.moduleId.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 					<MessageCircle size={16} class="ml-1 shrink-0" />
-				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX)}
+				{:else if data.moduleId.startsWith(AI_TOOL_CALL_PREFIX) || data.moduleId.startsWith(AI_MCP_TOOL_CALL_PREFIX)}
 					<Play size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'websearch'}
+					<Globe size={16} class="ml-1 shrink-0" />
+				{:else if data.type === 'mcp'}
+					<Plug size={16} class="ml-1 shrink-0" />
 				{:else}
 					<Wrench size={16} class="ml-1 shrink-0" />
 				{/if}
@@ -283,17 +324,17 @@
 				<span
 					class={twMerge(
 						'text-3xs truncate flex-1',
-						!validateToolName(data.tool) && 'text-red-400'
+						!validateToolName(data.tool, data.type) && 'text-red-400'
 					)}
 				>
-					{data.tool || 'No tool name'}
+					{data.tool || 'Missing name'}
 				</span>
 			</button>
 			{#if data.insertable}
 				<button
 					class={twMerge(
 						'absolute -top-[8px] -right-[8px] rounded-full h-[16px] w-[16px] center-center text-secondary outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-red-400 hover:text-white !hidden',
-						$selectedId === data.moduleId || hover ? '!flex' : ''
+						selectionManager?.getSelectedId() === data.moduleId || hover ? '!flex' : ''
 					)}
 					title="Delete"
 					onclick={() => data.eventHandlers.delete({ id: data.moduleId }, '')}

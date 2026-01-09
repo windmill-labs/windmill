@@ -5,11 +5,11 @@
 	import { Tab, Tabs, Button } from './common'
 	import { copyToClipboard } from '../utils'
 
-	import { ArrowDown, Clipboard } from 'lucide-svelte'
+	import { ArrowDown, Copy } from 'lucide-svelte'
 	import YAML from 'yaml'
 	import { yaml } from 'svelte-highlight/languages'
 	import HighlightTheme from './HighlightTheme.svelte'
-	import { filteredContentForExport } from './flows/utils'
+	import { filteredContentForExport } from './flows/utils.svelte'
 
 	interface Props {
 		flow: {
@@ -66,8 +66,8 @@
 			maxLines = 100
 		}}
 	>
-		<Tab value="yaml">YAML</Tab>
-		<Tab value="json">JSON</Tab>
+		<Tab value="yaml" label="YAML" />
+		<Tab value="json" label="JSON" />
 		{#snippet content()}
 			<div class="relative pt-2">
 				<Button
@@ -80,7 +80,7 @@
 					color="light"
 					variant="border"
 					size="xs"
-					startIcon={{ icon: Clipboard }}
+					startIcon={{ icon: Copy }}
 					btnClasses="absolute top-2 right-2 w-min z-20"
 					iconOnly
 				/>

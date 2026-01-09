@@ -3,12 +3,25 @@
 	import { Button } from '../common'
 	import { createEventDispatcher } from 'svelte'
 
-	export let minTs: string | undefined
-	export let maxTs: string | undefined
-	export let loading: boolean = false
-	export let selectedManualDate = 0
-	export let loadText: string | undefined = undefined
-	export let serviceLogsChoices: boolean = false
+	interface Props {
+		minTs: string | undefined
+		maxTs: string | undefined
+		loading?: boolean
+		selectedManualDate?: number
+		loadText?: string | undefined
+		serviceLogsChoices?: boolean
+		numberOfLastJobsToFetch?: number
+	}
+
+	let {
+		minTs = $bindable(),
+		maxTs = $bindable(),
+		loading = false,
+		selectedManualDate = $bindable(0),
+		loadText = undefined,
+		serviceLogsChoices = false,
+		numberOfLastJobsToFetch = 1000
+	}: Props = $props()
 
 	export function computeMinMax(): { minTs: string; maxTs: string | undefined } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
@@ -38,7 +51,7 @@
 						label: 'Within last minute',
 						computeMinMax: () => computeMinMaxInc(60 * 1000)
 					}
-			  ]
+				]
 			: []),
 		{
 			label: 'Within last 5 minutes',
@@ -62,24 +75,22 @@
 		}
 	]
 
-	$: manualDates = [
+	let manualDates = $derived([
 		{
-			label: loadText ?? 'Last 1000 runs',
+			label: loadText ?? `Last ${numberOfLastJobsToFetch} runs`,
 			computeMinMax: () => {
 				return undefined
 			}
 		},
 		...fixedManualDates
-
-	]
+	])
 
 	const dispatch = createEventDispatcher()
 </script>
 
 <Button
-	color="light"
-	size="xs"
-	variant="border"
+	unifiedSize="md"
+	variant="default"
 	on:click={() => {
 		const ts = computeMinMax()
 		if (ts) {

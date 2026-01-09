@@ -22,6 +22,13 @@ try {
     }
 
     removeMapping(schema);
+
+    // Remove discriminator entirely from ToolValue as it doesn't work with allOf in FlowModuleTool
+    if (schema.components?.schemas?.ToolValue?.discriminator) {
+        delete schema.components.schemas.ToolValue.discriminator;
+        console.log('Removed discriminator from ToolValue schema');
+    }
+
     fs.writeFileSync(filePath, JSON.stringify(schema, null, 2));
     console.log('Removed discriminator mappings from openflow.json');
 } catch (e) {

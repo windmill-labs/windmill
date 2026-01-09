@@ -84,6 +84,14 @@ pub enum Error {
     ArgumentErr(String),
     #[error("{1}")]
     Generic(StatusCode, String),
+    #[error("{feature} is unavailable due to some workers being behind. Do not use the feature or make sure all workers run at least {min_version}")]
+    WorkersAreBehind { feature: String, min_version: String },
+    #[error(
+        "Breaking change was introduced in v{version} ({feature}). Follow this migration guide: {guide_url}"
+    )]
+    MigrationNeeded { version: String, feature: String, guide_url: url::Url },
+    #[error("{0} is unavailable. It is possible for this worker to be behind.")]
+    FeatureUnavailable(String),
 }
 
 impl Error {
@@ -191,6 +199,12 @@ impl From<url::ParseError> for Error {
 impl From<tokio::time::error::Elapsed> for Error {
     fn from(value: tokio::time::error::Elapsed) -> Self {
         Self::InternalErr(value.to_string())
+    }
+}
+
+impl From<semver::Error> for Error {
+    fn from(e: semver::Error) -> Self {
+        Self::ArgumentErr(format!("Cannot parse provided semver: {e}"))
     }
 }
 

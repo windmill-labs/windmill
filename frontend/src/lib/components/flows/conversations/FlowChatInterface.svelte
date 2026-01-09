@@ -1,141 +1,182 @@
 <script lang="ts">
-	import { Button, Alert } from '$lib/components/common'
-	import { MessageCircle, Loader2, ArrowUp } from 'lucide-svelte'
-	import { workspaceStore } from '$lib/stores'
-	import autosize from '$lib/autosize'
-	import FlowChatMessage from './FlowChatMessage.svelte'
-	import { createFlowChatManager } from './FlowChatManager.svelte'
+	import { Alert, Button } from '$lib/components/common'
+	import { MessageCircle, Loader2, Settings2 } from 'lucide-svelte'
+	import ChatMessage from '$lib/components/chat/ChatMessage.svelte'
+	import ChatInput from '$lib/components/chat/ChatInput.svelte'
+	import { FlowChatManager } from './FlowChatManager.svelte'
+	import Modal from '$lib/components/common/modal/Modal.svelte'
+	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import { type DynamicInput } from '$lib/utils'
 
 	interface Props {
-		onRunFlow: (userMessage: string, conversationId: string) => Promise<string | undefined>
-		useStreaming?: boolean
-		refreshConversations?: () => Promise<void>
-		conversationId?: string
+		manager: FlowChatManager
 		deploymentInProgress?: boolean
-		createConversation: (options: { clearMessages?: boolean }) => Promise<string>
-		path?: string
+		additionalInputsSchema?: Record<string, any>
+		path: string
 	}
 
-	let {
-		onRunFlow,
-		conversationId,
-		refreshConversations,
-		deploymentInProgress = false,
-		createConversation,
-		useStreaming = false,
-		path
-	}: Props = $props()
+	let { manager, deploymentInProgress = false, additionalInputsSchema, path }: Props = $props()
 
-	const manager = createFlowChatManager()
-
-	// Initialize manager when component mounts
-	$effect(() => {
-		if ($workspaceStore) {
-			manager.initialize(
-				{
-					onRunFlow,
-					createConversation,
-					refreshConversations,
-					conversationId,
-					useStreaming,
-					path
-				},
-				$workspaceStore
-			)
+	// Derive helperScript for dynamic inputs from schema
+	const dynamicInputHelperScript = $derived.by((): DynamicInput.HelperScript | undefined => {
+		const dynCode = additionalInputsSchema?.['x-windmill-dyn-select-code']
+		const dynLang = additionalInputsSchema?.['x-windmill-dyn-select-lang']
+		if (dynCode && dynLang) {
+			return { source: 'inline', code: dynCode, lang: dynLang }
 		}
-
-		return () => {
-			manager.cleanup()
-		}
+		return undefined
 	})
 
-	// Update conversation ID when it changes
-	$effect(() => {
-		manager.updateConversationId(conversationId)
+	// LocalStorage helpers
+	const STORAGE_KEY_PREFIX = 'windmill_flow_chat_inputs_'
+
+	// State for additional inputs modal
+	let showInputsModal = $state(false)
+	let additionalInputsValues = $state<Record<string, any> | undefined>(
+		loadInputsFromStorage() ?? undefined
+	)
+
+	function getStorageKey(): string {
+		return `${STORAGE_KEY_PREFIX}${path}`
+	}
+
+	function loadInputsFromStorage(): Record<string, any> | null {
+		try {
+			const stored = localStorage.getItem(getStorageKey())
+			return stored ? JSON.parse(stored) : null
+		} catch (e) {
+			console.error('Failed to load inputs from localStorage:', e)
+			return null
+		}
+	}
+
+	function saveInputsToStorage(values: Record<string, any>) {
+		try {
+			localStorage.setItem(getStorageKey(), JSON.stringify(values))
+		} catch (e) {
+			console.error('Failed to save inputs to localStorage:', e)
+		}
+	}
+
+	function handleModalConfirm() {
+		saveInputsToStorage(additionalInputsValues ?? {})
+		showInputsModal = false
+	}
+
+	function handleSendMessage() {
+		const inputs = additionalInputsSchema
+			? (loadInputsFromStorage() ?? additionalInputsValues)
+			: undefined
+		manager.sendMessage(inputs)
+	}
+
+	function openInputsModal() {
+		const stored = loadInputsFromStorage()
+		if (stored) additionalInputsValues = stored
+		showInputsModal = true
+	}
+
+	const hasMissingRequired = $derived.by(() => {
+		if (!additionalInputsSchema?.required?.length) return false
+		const values = additionalInputsValues ?? {}
+		return additionalInputsSchema.required.some(
+			(field: string) =>
+				values[field] === undefined || values[field] === '' || values[field] === null
+		)
 	})
-
-	// Public API for parent components
-	export function fillInputMessage(message: string) {
-		manager.fillInputMessage(message)
-	}
-
-	export function focusInput() {
-		manager.focusInput()
-	}
-
-	export function clearMessages() {
-		manager.clearMessages()
-	}
-
-	export async function loadConversationMessages(conversationId?: string) {
-		await manager.loadConversationMessages(conversationId)
-	}
 </script>
 
-<div class="flex flex-col h-full w-full">
-	<div class="flex-1 flex flex-col min-h-0 w-full">
-		<!-- Messages Container -->
-		<div
-			bind:this={manager.messagesContainer}
-			class="flex-1 overflow-y-auto p-4 bg-background"
-			onscroll={manager.handleScroll}
-		>
-			{#if deploymentInProgress}
-				<Alert type="warning" title="Deployment in progress" size="xs" />
-			{/if}
-			{#if manager.isLoadingMessages}
-				<div class="flex items-center justify-center h-full">
-					<Loader2 size={32} class="animate-spin" />
-				</div>
-			{:else if manager.messages.length === 0}
-				<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
-					<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
-					<p class="text-lg font-medium">Start a conversation</p>
-					<p class="text-sm">Send a message to run the flow and see the results</p>
-				</div>
-			{:else}
-				<div class="max-w-7xl mx-auto space-y-4">
-					{#each manager.messages as message (message.id)}
-						<FlowChatMessage {message} />
-					{/each}
-					{#if manager.isWaitingForResponse}
-						<div class="flex items-center gap-2 text-tertiary">
-							<Loader2 size={16} class="animate-spin" />
-							<span class="text-sm">Processing...</span>
-						</div>
+<!-- Additional Inputs Modal -->
+{#if additionalInputsSchema}
+	<Modal title="Configure inputs" bind:open={showInputsModal}>
+		<SchemaForm
+			schema={additionalInputsSchema}
+			bind:args={additionalInputsValues}
+			helperScript={dynamicInputHelperScript}
+		/>
+		{#snippet actions()}
+			<Button onClick={handleModalConfirm} variant="accent">Save</Button>
+		{/snippet}
+	</Modal>
+{/if}
+
+<div class="flex flex-col h-full flex-1 min-w-0">
+	<!-- Messages Container -->
+	<div
+		bind:this={manager.messagesContainer}
+		class="flex-1 min-h-0 overflow-y-auto p-4 bg-background"
+		onscroll={manager.handleScroll}
+	>
+		{#if deploymentInProgress}
+			<Alert type="warning" title="Deployment in progress" size="xs" />
+		{/if}
+		{#if manager.isLoadingMessages}
+			<div class="flex items-center justify-center h-full">
+				<Loader2 size={32} class="animate-spin" />
+			</div>
+		{:else if manager.messages.length === 0}
+			<div class="text-center text-tertiary flex items-center justify-center flex-col h-full">
+				<MessageCircle size={48} class="mx-auto mb-4 opacity-50" />
+				<p class="text-lg font-medium">Start a conversation</p>
+				<p class="text-sm">Send a message to run the flow and see the results</p>
+			</div>
+		{:else}
+			<div class="w-full space-y-4 xl:max-w-7xl mx-auto">
+				{#each manager.messages as message (message.id)}
+					<ChatMessage
+						role={message.message_type}
+						content={message.content}
+						loading={message.loading}
+						success={message.success}
+						stepName={message.step_name}
+					/>
+				{/each}
+				{#if manager.isWaitingForResponse}
+					<div class="flex items-center gap-2 text-tertiary">
+						<Loader2 size={16} class="animate-spin" />
+						<span class="text-sm">Processing...</span>
+					</div>
+				{/if}
+			</div>
+		{/if}
+	</div>
+
+	<!-- Chat Input -->
+	<div class="flex flex-col items-center p-2 xl:max-w-7xl mx-auto w-full gap-2">
+		{#if additionalInputsSchema}
+			<div class="flex items-center justify-end w-full">
+				<div class="relative">
+					<Button
+						size="xs"
+						variant="default"
+						startIcon={{ icon: Settings2 }}
+						title="Inputs"
+						onClick={openInputsModal}
+					>
+						Inputs
+					</Button>
+					{#if hasMissingRequired}
+						<span class="absolute -top-1 -right-1 w-2 h-2 bg-yellow-500 rounded-full"></span>
 					{/if}
 				</div>
-			{/if}
-		</div>
-
-		<!-- Chat Input -->
-		<div class="p-2 bg-surface">
-			<div
-				class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-surface"
-				class:opacity-50={deploymentInProgress}
-			>
-				<textarea
-					bind:this={manager.inputElement}
-					bind:value={manager.inputMessage}
-					use:autosize
-					onkeydown={manager.handleKeyDown}
-					placeholder="Type your message here..."
-					class="flex-1 min-h-[24px] max-h-32 resize-none !border-0 !bg-transparent text-sm placeholder-gray-400 !outline-none !ring-0 p-0 !shadow-none focus:!border-0 focus:!outline-none focus:!ring-0 focus:!shadow-none"
-					rows={3}
-				></textarea>
-				<div class="flex-shrink-0 pr-2">
-					<Button
-						color="blue"
-						size="xs2"
-						btnClasses="!rounded-full !p-1.5"
-						startIcon={{ icon: ArrowUp }}
-						disabled={!manager.inputMessage?.trim() || manager.isLoading || deploymentInProgress}
-						on:click={() => manager.sendMessage()}
-						iconOnly
-						title={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
-					/>
-				</div>
 			</div>
+		{/if}
+		<div class="w-full" class:opacity-50={deploymentInProgress}>
+			<ChatInput
+				bind:value={manager.inputMessage}
+				bind:bindTextarea={manager.inputElement}
+				disabled={manager.isLoading || deploymentInProgress}
+				onSend={handleSendMessage}
+				onKeydown={(e) => {
+					if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+						e.preventDefault()
+						handleSendMessage()
+					}
+				}}
+				showCancelButton={manager.isWaitingForResponse || manager.isLoading}
+				onCancel={() => manager.cancelCurrentJob()}
+				sendTitle={deploymentInProgress ? 'Deployment in progress' : 'Send message (Enter)'}
+			/>
 		</div>
 	</div>
 </div>

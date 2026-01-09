@@ -35,7 +35,7 @@
 	)
 
 	let abortController = new AbortController()
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	async function generateIteratorExpr() {
 		if (generatedContent.length > 0 || loading) {
@@ -45,7 +45,7 @@
 		loading = true
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -60,7 +60,7 @@
 				flow_input: pickableProperties?.flow_input
 			}
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId} and represents a for-loop. You can find the details of all the steps below:
+The current step is ${selectionManager.getSelectedId()} and represents a for-loop. You can find the details of all the steps below:
 ${flowDetails}
 Determine the iterator expression to pass either from the previous results or the flow inputs. Here's a summary of the available data:
 <available>
@@ -152,7 +152,7 @@ Only output the expression, do not explain or discuss.`
 			size="xs"
 			color="light"
 			btnClasses={twMerge(
-				'text-violet-800 dark:text-violet-400 bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
+				'text-ai bg-violet-100 dark:bg-gray-700 dark:hover:bg-surface-hover',
 				!loading && generatedContent.length > 0
 					? 'bg-green-100 text-green-800 hover:bg-green-100 dark:text-green-400 dark:bg-green-700 dark:hover:bg-green-700'
 					: ''
@@ -193,7 +193,7 @@ Only output the expression, do not explain or discuss.`
 			{/if}
 		</Button>
 		{#snippet content()}
-			<div class="text-sm text-tertiary">
+			<div class="text-sm text-primary">
 				{generatedContent}
 			</div>
 		{/snippet}

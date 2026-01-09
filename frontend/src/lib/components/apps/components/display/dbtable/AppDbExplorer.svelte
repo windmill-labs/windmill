@@ -8,16 +8,8 @@
 	} from '../../../types'
 	import { components, type TableAction } from '$lib/components/apps/editor/component'
 	import ResolveConfig from '../../helpers/ResolveConfig.svelte'
-	import { findGridItem, initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
-	import {
-		getDbSchemas,
-		loadTableMetaData,
-		type TableMetadata,
-		getPrimaryKeys,
-		type ColumnDef,
-		type DbType,
-		getTablesByResource
-	} from './utils'
+	import { initConfig, initOutput } from '$lib/components/apps/editor/appUtils'
+	import { type TableMetadata, getPrimaryKeys, type ColumnDef } from './utils'
 	import { getContext, tick, untrack } from 'svelte'
 	import UpdateCell from './UpdateCell.svelte'
 	import { workspaceStore, type DBSchemas } from '$lib/stores'
@@ -38,7 +30,10 @@
 	import RefreshButton from '$lib/components/apps/components/helpers/RefreshButton.svelte'
 	import RunnableWrapper from '../../helpers/RunnableWrapper.svelte'
 	import InsertRowDrawerButton from '../InsertRowDrawerButton.svelte'
-	import { getDucklakeSchema, type DbInput } from '$lib/components/dbOps'
+	import { getDucklakeSchema } from '$lib/components/dbOps'
+	import { findGridItem } from '$lib/components/apps/editor/appUtilsCore'
+	import type { DbInput, DbType } from '$lib/components/dbTypes'
+	import { getDbSchemas, getTablesByResource, loadTableMetaData } from './metadata'
 
 	interface Props {
 		id: string
@@ -243,7 +238,8 @@
 					dbPath.split('$res:')[1],
 					$workspaceStore,
 					dbSchemas,
-					() => {}
+					() => {},
+					{ useLegacyScripts: true }
 				)
 			}
 
@@ -293,11 +289,6 @@
 					}
 
 					if (items && Array.isArray(items)) {
-						// MsSql response have an outer array, we need to flatten it
-						if (resolvedConfig.type.selected === 'ms_sql_server') {
-							items = items?.[0]
-						}
-
 						let processedData = items.map((item) => {
 							let primaryKeys = getPrimaryKeys(resolvedConfig.columnDefs)
 							let o = {}

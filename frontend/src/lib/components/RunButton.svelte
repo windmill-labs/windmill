@@ -12,7 +12,7 @@
 	<Button
 		loading={isLoading}
 		size="sm"
-		color="dark"
+		variant="accent"
 		btnClasses="!px-2 !py-1"
 		on:click={() => onRun()}
 		shortCut={{ Icon: CornerDownLeft, hide: hideShortcut }}
@@ -22,8 +22,8 @@
 {:else}
 	<Button
 		size="sm"
-		color="red"
-		variant="border"
+		variant="accent"
+		destructive
 		btnClasses="!px-2 !py-1"
 		on:click={() => onCancel()}
 	>

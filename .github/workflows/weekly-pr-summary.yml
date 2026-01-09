@@ -3,7 +3,7 @@ name: Weekly PR Summary
 on:
   schedule:
     # Every Friday at 8:00 AM UTC
-    - cron: "0 8 * * 5"
+    - cron: '0 8 * * 5'
   workflow_dispatch:
     # Allow manual triggering for testing
 
@@ -29,7 +29,7 @@ jobs:
           prompt: |
             REPO: ${{ github.repository }}
 
-            Generate a minimalistic weekly summary of ONLY MERGED Pull Requests from the past 7 days.
+            Generate a categorized weekly summary of ONLY MERGED Pull Requests from the past 7 days.
 
             ## Your Task:
 
@@ -44,50 +44,60 @@ jobs:
                - The --search flag filters by merge date using GitHub's search syntax
                - **FILTER OUT** any PRs with titles starting with "chore: release" or "chore(release)"
 
-            3. **Gather Details**: For each merged PR, include:
-               - PR title (NO links)
+            3. **Categorize PRs**: Group PRs into three categories by analyzing titles and labels:
+               - **Features**: PRs with titles starting with "feat:", "feature:", or containing "add", "implement", "new"
+               - **Bug Fixes**: PRs with titles starting with "fix:", "bug:", or containing "fix", "resolve", "patch"
+               - **Other**: All remaining PRs (improvements, refactors, docs, chores, etc.)
+
+            4. **Gather Details**: For each feature and bug fix merged PR, include:
+               - Full PR title (NO truncation, NO links)
                - Author (extract login from author.login in JSON)
                - Brief summary: Use `gh pr view <number> --json body` to get PR description, then extract first paragraph or key points (1-2 sentences max)
 
-            4. **Character Limit Enforcement**:
-               - The final summary MUST be under 6000 characters
-               - Sort PRs by importance (breaking changes > features > bugfixes > other)
-               - If the summary exceeds 6000 characters, include only the most important PRs and add at the end: "and X more PRs" where X is the count of omitted PRs
+            5. **Character Limit Enforcement**:
+               - The final summary MUST be under 5000 characters
+               - If the summary exceeds 5000 characters, truncate PR descriptions (NOT titles) and add at the end: "_and X more PRs_" where X is the count of omitted PRs
 
-            5. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
+            6. **Save Summary to Markdown File**: Write the summary to a file for webhook delivery:
                - Save the complete formatted markdown to: `summary.md`
                - Do not commit the file to the repository
 
             ## Output Format:
 
             ```markdown
-            📊 Week of [Start Date] to [End Date]
+            ### 📈 Weekly overview
+            - **Total merged**: X
+            - **Features**: Y
+            - **Bug Fixes**: Z
+            - **Other**: W
 
-            **Total PRs Merged**: X
+            ### ✨ Features (Y)
+            - **[Full PR Title]** by @username - [brief impact description]
+            - **[Full PR Title]** by @username - [brief impact description]
 
-            **[PR Title]**
-            Author: @username
-            [1-2 sentence description from PR body]
+            ### 🐛 Bug Fixes (Z)
+            - **[Full PR Title]** by @username - [brief impact description]
+            - **[Full PR Title]** by @username - [brief impact description]
 
-            [Repeat for each merged PR, sorted by importance]
-
-            and X more PRs
+            _and X more PRs_
             ```
 
             ## Important Notes:
             - **CRITICAL**: ONLY include PRs with state "merged" from the last 7 days
             - **CRITICAL**: EXCLUDE all PRs with titles starting with "chore: release" or "chore(release)"
-            - **CRITICAL**: Total character count MUST be under 6000 characters
-            - Use minimal spacing - single line breaks between PRs
-            - NO markdown headers (###, ##) - only bold text for titles
+            - **CRITICAL**: Total character count MUST be under 5000 characters
+            - Count the number of "Other" PRs but do not include a section for them in the output
+            - Only use ### markdown headers for major sections and emoji indicators
             - NO links to PRs
             - NO merged date in output
+            - NEVER truncate PR titles - show full titles
             - Use GitHub CLI (`gh`) for all operations
-            - Sort PRs by importance: breaking changes > features > bugfixes > other
+            - Sort PRs within each category by merge date (most recent first)
             - If a PR has no description, write "(No description provided)"
             - Extract meaningful summary from PR body - look for the first paragraph or key bullet points
             - Parse JSON responses carefully using `jq` or similar tools
-            - If summary exceeds 6000 chars, truncate less important PRs and add "and X more PRs" at the end
+            - If summary exceeds 5000 chars, shorten PR descriptions and add "_and X more PRs_" at the end
+            - Count PRs in each category and display in both overview and section headers
 
             ## Saving the Markdown Output:
             After generating the markdown summary, save it to a file, BUT DO NOT COMMIT IT TO THE REPOSITORY.
@@ -102,6 +112,7 @@ jobs:
             - Verify the file was created by running: `ls -lh summary.md`
           claude_args: |
             --allowedTools "Edit,MultiEdit,Write,Read,Glob,Grep,LS,Bash"
+            --model haiku
 
       - name: Send Summary to Windmill
         if: hashFiles('summary.md') != ''

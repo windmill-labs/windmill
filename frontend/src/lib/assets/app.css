@@ -3,6 +3,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@media (min-width: 1760px) {
+  :root {
+    font-size: 18px;
+  }
+}
+
 @layer base {
 
 	/* Light mode: default border color */
@@ -10,7 +16,7 @@
 	.border-x, .border-y, 
 	.divide-x > :not([hidden]) ~ :not([hidden]), 
 	.divide-y > :not([hidden]) ~ :not([hidden]) {
-		border-color: #e5e7eb; /* gray-200 */
+		border-color: rgb(var(--color-border-light));
 	}
 
 	/* Dark mode: change border color */
@@ -18,7 +24,7 @@
 	.dark .border-x, .dark .border-y, 
 	.dark .divide-x > :not([hidden]) ~ :not([hidden]), 
 	.dark .divide-y > :not([hidden]) ~ :not([hidden]) {
-		border-color: #4b5563; /* gray-700 */
+		border-color: rgb(var(--color-border-light));
 	}
 
 	/* Chrome, Edge, and Safari */
@@ -55,6 +61,9 @@
 		margin-top: 1.5rem;
 		list-style-type: '- ';
 		padding-left: 3rem;
+	}
+	.prose a {
+		@apply text-accent no-underline;
 	}
 
 	.autocomplete-list-item-create {
@@ -193,3 +202,14 @@ svelte-virtual-list-contents > * + * {
 	);
 }
 
+/* Prevent clock icon in input[type="time"] making the input taller */
+
+/* Chrome, Safari, Edge, Opera */
+input[type="time"]::-webkit-calendar-picker-indicator {
+	margin: 0;
+  padding: 0;
+}
+
+.svelte-flow__edges {
+	z-index: -10;
+}

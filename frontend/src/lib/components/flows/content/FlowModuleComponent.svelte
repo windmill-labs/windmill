@@ -6,7 +6,7 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Editor from '$lib/components/Editor.svelte'
-	import EditorBar from '$lib/components/EditorBar.svelte'
+	import EditorBar, { EDITOR_BAR_WIDTH_THRESHOLD } from '$lib/components/EditorBar.svelte'
 	import ModulePreview from '$lib/components/ModulePreview.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { createScriptFromInlineScript, fork } from '$lib/components/flows/flowStateUtils.svelte'
@@ -17,7 +17,7 @@
 	import { getLatestHashForScript, scriptLangToEditorLang } from '$lib/scripts'
 	import PropPickerWrapper from '../propPicker/PropPickerWrapper.svelte'
 	import { getContext, onDestroy, tick, untrack } from 'svelte'
-	import type { FlowEditorContext } from '../types'
+	import type { FlowEditorContext, FlowGraphAssetContext } from '../types'
 	import FlowModuleScript from './FlowModuleScript.svelte'
 	import FlowModuleEarlyStop from './FlowModuleEarlyStop.svelte'
 	import FlowModuleSuspend from './FlowModuleSuspend.svelte'
@@ -49,7 +49,7 @@
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import { type Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { checkIfParentLoop } from '../utils'
+	import { checkIfParentLoop } from '../utils.svelte'
 	import ModulePreviewResultViewer from '$lib/components/ModulePreviewResultViewer.svelte'
 	import { refreshStateStore } from '$lib/svelte5Utils.svelte'
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
@@ -57,9 +57,10 @@
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
 	import { editor as meditor } from 'monaco-editor'
 	import { DynamicInput } from '$lib/utils'
+	import { usePreparedAssetSqlQueries } from '$lib/infer.svelte'
 
 	const {
-		selectedId,
+		selectionManager,
 		currentEditor,
 		previewArgs,
 		flowStateStore,
@@ -69,6 +70,8 @@
 		customUi,
 		executionCount
 	} = getContext<FlowEditorContext>('FlowEditorContext')
+
+	const selectedId = $derived(selectionManager.getSelectedId())
 
 	interface Props {
 		flowModule: FlowModule
@@ -126,7 +129,7 @@
 		shellcheck: false
 	})
 
-	let selected = $state(preprocessorModule || isAgentTool ? 'test' : 'inputs')
+	let selected = $state(preprocessorModule ? 'test' : 'inputs')
 	let advancedSelected = $state('retries')
 	let advancedRuntimeSelected = $state('concurrency')
 	let s3Kind = $state('s3_client')
@@ -137,6 +140,7 @@
 	let scriptProgress = $state(undefined)
 
 	let assets = $derived((flowModule.value.type === 'rawscript' && flowModule.value.assets) || [])
+	const flowGraphAssetsCtx = getContext<FlowGraphAssetContext | undefined>('FlowGraphAssetContext')
 
 	// UI Intent handling for AI tool control
 	useUiIntent(`flow-${flowModule.id}`, {
@@ -215,7 +219,7 @@
 	let stepHistoryLoader = getStepHistoryLoaderContext()
 
 	function onSelectedIdChange() {
-		if (!flowStateStore?.val?.[$selectedId]?.schema && flowModule) {
+		if (!flowStateStore?.val?.[selectedId]?.schema && flowModule) {
 			reload(flowModule)
 		}
 	}
@@ -223,10 +227,11 @@
 	let leftPanelSize = $state(0)
 
 	function showDiffMode() {
+		const model = editor?.getModel()
+		if (model == undefined) return
 		diffMode = true
-		diffEditor?.setOriginal((savedModule?.value as RawScript).content ?? '')
-		diffEditor?.setModifiedModel(editor?.getModel() as meditor.ITextModel)
-		diffEditor?.show()
+
+		diffEditor?.showWithModelAndOriginal((savedModule?.value as RawScript).content ?? '', model)
 		editor?.hide()
 	}
 
@@ -252,7 +257,7 @@
 	)
 
 	$effect.pre(() => {
-		$selectedId && untrack(() => onSelectedIdChange())
+		selectedId && untrack(() => onSelectedIdChange())
 	})
 	let parentLoop = $derived(
 		flowStore.val && flowModule ? checkIfParentLoop(flowStore.val, flowModule.id) : undefined
@@ -342,12 +347,17 @@
 	function onJobDone() {
 		modulePreviewResultViewer?.getOutputPickerInner()?.setJobPreview()
 	}
+
+	let preparedSqlQueries = usePreparedAssetSqlQueries(
+		() => flowGraphAssetsCtx?.val.sqlQueries[selectedId],
+		() => $workspaceStore
+	)
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
 
 {#if flowModule.value}
-	<div class="h-full" bind:clientWidth={width}>
+	<div class="h-full bg-surface" bind:clientWidth={width}>
 		<FlowCard
 			flowModuleValue={flowModule?.value}
 			on:reload={() => {
@@ -404,7 +414,7 @@
 					on:createScriptFromInlineScript={async () => {
 						const [module, state] = await createScriptFromInlineScript(
 							flowModule,
-							$selectedId,
+							selectedId,
 							flowStateStore.val[flowModule.id].schema,
 							$pathStore
 						)
@@ -424,10 +434,9 @@
 							customUi={customUi?.editorBar}
 							{validCode}
 							{editor}
-							{diffEditor}
 							lang={flowModule.value['language'] ?? 'deno'}
 							{websocketAlive}
-							iconOnly={width < 950}
+							iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
 							kind={scriptKind}
 							template={scriptTemplate}
 							args={Object.entries(flowModule.value.input_transforms).reduce((acc, [key, obj]) => {
@@ -456,50 +465,53 @@
 													<AssetsDropdownButton {assets} />
 												{/if}
 											</div>
-											<Editor
-												loadAsync
-												folding
-												path={$pathStore + '/' + flowModule.id}
-												bind:websocketAlive
-												bind:this={editor}
-												class="h-full relative"
-												code={flowModule.value.content}
-												scriptLang={flowModule?.value?.language}
-												automaticLayout={true}
-												cmdEnterAction={async () => {
-													selected = 'test'
-													if ($selectedId == flowModule.id) {
-														if (flowModule.value.type === 'rawscript' && editor) {
-															flowModule.value.content = editor.getCode()
+											<div id="flow-editor-code-section" class="h-full relative">
+												<Editor
+													loadAsync
+													folding
+													path={$pathStore + '/' + flowModule.id}
+													bind:websocketAlive
+													bind:this={editor}
+													class="h-full relative"
+													code={flowModule.value.content}
+													scriptLang={flowModule?.value?.language}
+													automaticLayout={true}
+													cmdEnterAction={async () => {
+														selected = 'test'
+														if (selectedId == flowModule.id) {
+															if (flowModule.value.type === 'rawscript' && editor) {
+																flowModule.value.content = editor.getCode()
+															}
+															await reload(flowModule)
+															modulePreview?.runTestWithStepArgs()
 														}
-														await reload(flowModule)
-														modulePreview?.runTestWithStepArgs()
-													}
-												}}
-												on:change={async (event) => {
-													const content = event.detail
-													if (flowModule.value.type === 'rawscript') {
-														if (flowModule.value.content !== content) {
-															flowModule.value.content = content
+													}}
+													on:change={async (event) => {
+														const content = event.detail
+														if (flowModule.value.type === 'rawscript') {
+															if (flowModule.value.content !== content) {
+																flowModule.value.content = content
+															}
+															await reload(flowModule)
 														}
-														await reload(flowModule)
-													}
-												}}
-												formatAction={() => {
-													reload(flowModule)
-													saveDraft()
-												}}
-												fixedOverflowWidgets={true}
-												args={Object.entries(flowModule.value.input_transforms).reduce(
-													(acc, [key, obj]) => {
-														acc[key] = obj.type === 'static' ? obj.value : undefined
-														return acc
-													},
-													{}
-												)}
-												key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
-												moduleId={flowModule.id}
-											/>
+													}}
+													formatAction={() => {
+														reload(flowModule)
+														saveDraft()
+													}}
+													fixedOverflowWidgets={true}
+													args={Object.entries(flowModule.value.input_transforms).reduce(
+														(acc, [key, obj]) => {
+															acc[key] = obj.type === 'static' ? obj.value : undefined
+															return acc
+														},
+														{}
+													)}
+													key={`flow-inline-${$workspaceStore}-${$pathStore}-${flowModule.id}`}
+													moduleId={flowModule.id}
+													preparedAssetsSqlQueries={preparedSqlQueries.current}
+												/>
+											</div>
 											<DiffEditor
 												open={false}
 												bind:this={diffEditor}
@@ -551,22 +563,18 @@
 						>
 							<Splitpanes>
 								<Pane minSize={36} bind:size={leftPanelSize}>
-									<Tabs bind:selected>
-										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="inputs">Step Input</Tab>
-										{/if}
-										<Tab value="test">Test this step</Tab>
-										{#if !preprocessorModule && !isAgentTool}
-											<Tab value="advanced">Advanced</Tab>
-										{/if}
-									</Tabs>
-									<div
-										class={advancedSelected === 'runtime'
-											? 'h-[calc(100%-68px)]'
-											: 'h-[calc(100%-34px)]'}
-									>
+									<div class="flex flex-col relative h-[99.99%]">
+										<Tabs bind:selected wrapperClass="shrink-0">
+											{#if !preprocessorModule}
+												<Tab value="inputs" label="Step Input" />
+											{/if}
+											<Tab value="test" label="Test this step" />
+											{#if !preprocessorModule && !isAgentTool}
+												<Tab value="advanced" label="Advanced" />
+											{/if}
+										</Tabs>
 										{#if selected === 'inputs' && (flowModule.value.type == 'rawscript' || flowModule.value.type == 'script' || flowModule.value.type == 'flow' || flowModule.value.type == 'aiagent')}
-											<div class="h-full overflow-auto bg-surface" id="flow-editor-step-input">
+											<div class="flex-1 overflow-auto" id="flow-editor-step-input">
 												<PropPickerWrapper
 													pickableProperties={stepPropPicker.pickableProperties}
 													error={failureModule}
@@ -582,7 +590,7 @@
 														class="px-2 xl:px-4"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
-														schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+														schema={flowStateStore.val[selectedId]?.schema ?? {}}
 														previousModuleId={previousModule?.id}
 														bind:args={
 															() => {
@@ -601,17 +609,20 @@
 														}
 														extraLib={stepPropPicker.extraLib}
 														{enableAi}
+														{isAgentTool}
 														helperScript={retrieveDynCodeAndLang(flowModule.value)}
+														chatInputEnabled={flowStore.val.value?.chat_input_enabled ?? false}
 													/>
 												</PropPickerWrapper>
 											</div>
 										{:else if selected === 'test'}
 											<ModulePreview
+												class="flex-1"
 												pickableProperties={stepPropPicker.pickableProperties}
 												bind:this={modulePreview}
 												mod={flowModule}
 												{noEditor}
-												schema={flowStateStore.val[$selectedId]?.schema ?? {}}
+												schema={flowStateStore.val[selectedId]?.schema ?? {}}
 												bind:testJob
 												bind:testIsLoading
 												bind:scriptProgress
@@ -619,38 +630,49 @@
 												{onJobDone}
 											/>
 										{:else if selected === 'advanced'}
-											<Tabs bind:selected={advancedSelected}>
-												<Tab value="retries" active={flowModule.retry !== undefined}>Retries</Tab>
-												{#if !$selectedId.includes('failure')}
-													<Tab value="runtime">Runtime</Tab>
-													<Tab value="cache" active={Boolean(flowModule.cache_ttl)}>Cache</Tab>
+											<Tabs bind:selected={advancedSelected} wrapperClass="shrink-0">
+												<Tab
+													value="retries"
+													active={flowModule.retry !== undefined}
+													label="Retries"
+												/>
+												{#if !selectedId.includes('failure')}
+													<Tab value="runtime" label="Runtime" />
+													<Tab value="cache" active={Boolean(flowModule.cache_ttl)} label="Cache" />
 													<Tab
 														value="early-stop"
 														active={Boolean(
 															flowModule.stop_after_if || flowModule.stop_after_all_iters_if
 														)}
-													>
-														Early Stop
-													</Tab>
-													<Tab value="skip" active={Boolean(flowModule.skip_if)}>Skip</Tab>
-													<Tab value="suspend" active={Boolean(flowModule.suspend)}>Suspend</Tab>
-													<Tab value="sleep" active={Boolean(flowModule.sleep)}>Sleep</Tab>
-													<Tab value="mock" active={Boolean(flowModule.mock?.enabled)}>Mock</Tab>
-													<Tab value="same_worker">Shared Directory</Tab>
+														label="Early Stop"
+													/>
+													<Tab value="skip" active={Boolean(flowModule.skip_if)} label="Skip" />
+													<Tab
+														value="suspend"
+														active={Boolean(flowModule.suspend)}
+														label="Suspend"
+													/>
+													<Tab value="sleep" active={Boolean(flowModule.sleep)} label="Sleep" />
+													<Tab
+														value="mock"
+														active={Boolean(flowModule.mock?.enabled)}
+														label="Mock"
+													/>
+													<Tab value="same_worker" label="Shared Directory" />
 													{#if flowModule.value['language'] === 'python3' || flowModule.value['language'] === 'deno'}
-														<Tab value="s3">S3</Tab>
+														<Tab value="s3" label="S3" />
 													{/if}
 												{/if}
 											</Tabs>
 											{#if advancedSelected === 'runtime'}
-												<Tabs bind:selected={advancedRuntimeSelected}>
-													<Tab value="concurrency">Concurrency</Tab>
-													<Tab value="timeout">Timeout</Tab>
-													<Tab value="priority">Priority</Tab>
-													<Tab value="lifetime">Lifetime</Tab>
+												<Tabs bind:selected={advancedRuntimeSelected} wrapperClass="shrink-0">
+													<Tab value="concurrency" label="Concurrency" />
+													<Tab value="timeout" label="Timeout" />
+													<Tab value="priority" label="Priority" />
+													<Tab value="lifetime" label="Lifetime" />
 												</Tabs>
 											{/if}
-											<div class="h-[calc(100%-32px)] overflow-auto p-4">
+											<div class="flex-1 overflow-auto p-4">
 												{#if advancedSelected === 'retries'}
 													<Section label="Retries">
 														{#snippet header()}
@@ -661,24 +683,18 @@
 																maximum number of attempts as defined below.
 															</Tooltip>
 														{/snippet}
-														<span class="text-2xs"
-															>After all retries attempts have been exhausted:</span
-														>
-														<div class="flex gap-2 mb-4">
+														<Label label="After all retries attempts have been exhausted:">
 															<Toggle
 																size="xs"
 																bind:checked={flowModule.continue_on_error}
 																options={{
 																	left: 'Stop on error and propagate error up',
-																	right: "Continue on error with error as step's return"
+																	right: "Continue on error with error as step's return",
+																	rightTooltip:
+																		'When enabled, the flow will continue to the next step after going through all the retries (if any) even if this step fails. This enables to process the error in a branch one for instance.'
 																}}
 															/>
-															<Tooltip>
-																When enabled, the flow will continue to the next step after going
-																through all the retries (if any) even if this step fails. This
-																enables to process the error in a branch one for instance.
-															</Tooltip>
-														</div>
+														</Label>
 														<div class="my-8"></div>
 														<FlowRetries bind:flowModuleRetry={flowModule.retry} bind:flowModule />
 													</Section>
@@ -689,7 +705,7 @@
 														{/snippet}
 														{#if flowModule.value.type == 'rawscript'}
 															<Label label="Max number of executions within the time window">
-																<div class="flex flex-row gap-2 max-w-sm">
+																<div class="flex flex-row gap-2 max-w-sm whitespace-nowrap">
 																	<input
 																		disabled={!$enterpriseLicense}
 																		bind:value={flowModule.value.concurrent_limit}
@@ -697,8 +713,7 @@
 																	/>
 																	<Button
 																		size="xs"
-																		color="light"
-																		variant="border"
+																		variant="default"
 																		on:click={() => {
 																			if (flowModule.value.type == 'rawscript') {
 																				flowModule.value.concurrent_limit = undefined
@@ -836,7 +851,7 @@
 														<Button
 															btnClasses="mt-4"
 															on:click={() => {
-																$selectedId = 'settings-same-worker'
+																selectionManager.selectId('settings-same-worker')
 															}}
 														>
 															Set shared directory in the flow settings

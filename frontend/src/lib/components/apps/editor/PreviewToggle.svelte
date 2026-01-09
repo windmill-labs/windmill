@@ -16,7 +16,6 @@
 </script>
 
 <ToggleButtonGroup
-	class="h-[30px]"
 	bind:selected={$mode}
 	on:selected={(e) => {
 		jobsById.set({})

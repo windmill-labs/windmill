@@ -14,7 +14,7 @@ use sqlx::{
 };
 
 use tokio::task::JoinHandle;
-use windmill_audit::audit_oss::{AuditAuthor, AuditAuthorable};
+use windmill_audit::audit_oss::AuditAuthorable;
 pub use windmill_common::db::DB;
 use windmill_common::{
     db::{Authable, Authed, AuthedRef},
@@ -53,6 +53,9 @@ lazy_static::lazy_static! {
                     ).to_string()),
                     (20221105003256, "DELETE FROM workspace_invite WHERE workspace_id = 'demo' AND email = 'ruben@windmill.dev';".to_string()),
                     (20221123151919, "".to_string()),
+                    (20251105100125, include_str!(
+                        "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
+                    ).replace("✅", "")),
                     ].into_iter().collect();
 }
 
@@ -166,6 +169,7 @@ impl Migrate for CustomMigrator {
 
             if let Some(migration_sql) = OVERRIDDEN_MIGRATIONS.get(&migration.version) {
                 tracing::info!("Using custom migration for version {}", migration.version);
+                // tracing::info!("Migration SQL: {}", migration_sql);
 
                 self.inner
                     .execute(&**migration_sql)
@@ -301,17 +305,6 @@ impl From<Authed> for ApiAuthed {
             scopes: value.scopes,
             username_override: None, // Authed doesn't have this field, so default to None
             token_prefix: value.token_prefix,
-        }
-    }
-}
-
-impl From<&ApiAuthed> for AuditAuthor {
-    fn from(value: &ApiAuthed) -> Self {
-        Self {
-            email: value.email.clone(),
-            username: value.username.clone(),
-            username_override: value.username_override.clone(),
-            token_prefix: value.token_prefix.clone(),
         }
     }
 }

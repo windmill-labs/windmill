@@ -15,7 +15,7 @@
 		createAiAgent
 	} from '$lib/components/flows/flowStateUtils.svelte'
 	import type { FlowModule, Job, ScriptLang } from '$lib/gen'
-	import { emptyFlowModuleState } from '../utils'
+	import { emptyFlowModuleState } from '../utils.svelte'
 
 	import { dfs } from '../dfs'
 	import { push } from '$lib/history.svelte'
@@ -23,11 +23,9 @@
 	import Portal from '$lib/components/Portal.svelte'
 
 	import { getDependentComponents } from '../flowExplorer'
-	import { tutorialsToDo, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import { copilotInfo } from '$lib/aiStore'
 	import FlowTutorials from '$lib/components/FlowTutorials.svelte'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
-	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import FlowGraphV2 from '$lib/components/graph/FlowGraphV2.svelte'
 	import { replaceId } from '../flowStore.svelte'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
@@ -41,6 +39,13 @@
 	import { getStepHistoryLoaderContext } from '$lib/components/stepHistoryLoader.svelte'
 	import { ModulesTestStates } from '$lib/components/modulesTest.svelte'
 	import type { StateStore } from '$lib/utils'
+	import {
+		type AgentTool,
+		flowModuleToAgentTool,
+		createMcpTool,
+		createWebsearchTool
+	} from '../agentToolUtils'
+	import { getNoteEditorContext } from '$lib/components/graph/noteEditor.svelte'
 
 	interface Props {
 		sidebarSize?: number | undefined
@@ -102,22 +107,24 @@
 		flowHasChanged
 	}: Props = $props()
 
-	let flowTutorials: FlowTutorials | undefined = $state(undefined)
-
-	const { customUi, selectedId, moving, history, flowStateStore, flowStore, pathStore } =
+	const { customUi, selectionManager, moving, history, flowStateStore, flowStore, pathStore } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 
+	// Get NoteEditor context for note position updates
+	const noteEditorContext = getNoteEditorContext()
+
 	export async function insertNewModuleAtIndex(
-		modules: FlowModule[],
+		modules: FlowModule[] | AgentTool[],
 		index: number,
 		kind: InsertKind,
 		wsScript?: { path: string; summary: string; hash: string | undefined },
 		wsFlow?: { path: string; summary: string },
-		inlineScript?: InlineScript
-	): Promise<FlowModule[]> {
+		inlineScript?: InlineScript,
+		toolKind?: 'mcpTool' | 'flowmoduleTool' | 'websearchTool'
+	): Promise<FlowModule[] | AgentTool[]> {
 		push(history, flowStore.val)
 		let module = emptyModule(flowStateStore.val, flowStore.val, kind == 'flow')
 		let state = emptyFlowModuleState()
@@ -167,8 +174,40 @@
 		}
 
 		if (!modules) return [module]
-		modules.splice(index, 0, module)
-		return modules
+
+		if (toolKind === 'mcpTool') {
+			// Create MCP AgentTool
+			const mcpTool = createMcpTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, mcpTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'websearchTool') {
+			// Create Websearch AgentTool
+			const websearchTool = createWebsearchTool(module.id)
+			;(modules as AgentTool[]).splice(index, 0, websearchTool)
+			return modules as AgentTool[]
+		} else if (toolKind === 'flowmoduleTool') {
+			// Create AgentTool from FlowModule
+			const agentTool = flowModuleToAgentTool(module)
+			;(modules as AgentTool[]).splice(index, 0, agentTool)
+			return modules as AgentTool[]
+		} else {
+			// Standard FlowModule insertion (existing behavior)
+			modules.splice(index, 0, module)
+			return modules
+		}
+	}
+
+	/**
+	 * Helper function to remove an AgentTool by id from the tools array
+	 * Tools are always leaf nodes, so we just need to delete their state directly
+	 */
+	function removeAgentToolById(tools: AgentTool[], id: string): AgentTool[] {
+		const index = tools.findIndex((tool) => tool.id == id)
+		if (index != -1) {
+			const [removed] = tools.splice(index, 1)
+			deleteFlowStateById(removed.id, flowStateStore)
+		}
+		return tools
 	}
 
 	export function removeAtId(modules: FlowModule[], id: string): FlowModule[] {
@@ -194,7 +233,7 @@
 				})
 				mod.value.default = removeAtId(mod.value.default, id)
 			} else if (mod.value.type == 'aiagent') {
-				mod.value.tools = removeAtId(mod.value.tools, id)
+				mod.value.tools = removeAgentToolById(mod.value.tools, id)
 			}
 			return mod
 		})
@@ -209,9 +248,9 @@
 			let allIds = dfs(flowStore.val.value.modules, (mod) => mod.id)
 			if (allIds.length > 1) {
 				const idx = allIds.indexOf(id)
-				$selectedId = idx == 0 ? allIds[0] : allIds[idx - 1]
+				selectionManager.selectId(idx == 0 ? allIds[0] : allIds[idx - 1])
 			} else {
-				$selectedId = 'settings-metadata'
+				selectionManager.selectId('settings-metadata')
 			}
 		}
 	}
@@ -261,18 +300,24 @@
 	let dependents: Record<string, string[]> = $state({})
 
 	let graph: FlowGraphV2 | undefined = $state(undefined)
+	let noteMode = $state(false)
+	let diffManager = $derived(getDiffManager())
 	export function isNodeVisible(nodeId: string): boolean {
 		return graph?.isNodeVisible(nodeId) ?? false
 	}
 
-	function shouldRunTutorial(tutorialName: string, name: string, index: number) {
-		return (
-			$tutorialsToDo.includes(index) &&
-			name == tutorialName &&
-			!$ignoredTutorials.includes(index) &&
-			!tutorialInProgress()
-		)
+	export function getDiffManager() {
+		return graph?.getDiffManager()
 	}
+
+	export function enableNotes(): void {
+		graph?.enableNotes?.()
+	}
+
+	function toggleNoteMode() {
+		noteMode = !noteMode
+	}
+
 
 	const dispatch = createEventDispatcher<{
 		generateStep: { moduleId: string; instructions: string; lang: ScriptLang }
@@ -298,7 +343,7 @@
 				loadingJobs: true
 			}
 		}
-		const previousJobId = await JobService.listJobs({
+		const previousJobId = await JobService.listCompletedJobs({
 			workspace: $workspaceStore!,
 			scriptPathExact: path,
 			jobKinds: ['preview', 'script', 'flowpreview', 'flow'].join(','),
@@ -371,6 +416,9 @@
 			on:generateStep
 			{aiChatOpen}
 			{toggleAiChat}
+			{noteMode}
+			{toggleNoteMode}
+			{diffManager}
 		/>
 	</div>
 
@@ -389,8 +437,12 @@
 			moving={$moving?.id}
 			maxHeight={minHeight}
 			modules={flowStore.val.value.modules}
+			{noteMode}
+			notes={flowStore.val.value.notes}
 			preprocessorModule={flowStore.val.value?.preprocessor_module}
-			{selectedId}
+			failureModule={flowStore.val.value?.failure_module}
+			currentInputSchema={flowStore.val.schema}
+			{selectionManager}
 			{workspace}
 			editMode
 			{onTestUpTo}
@@ -409,7 +461,7 @@
 				const cb = () => {
 					push(history, flowStore.val)
 					if (id === 'preprocessor') {
-						$selectedId = 'Input'
+						selectionManager.selectId('Input')
 						flowStore.val.value.preprocessor_module = undefined
 					} else {
 						selectNextId(id)
@@ -427,18 +479,12 @@
 				}
 			}}
 			onInsert={async (detail) => {
-				if (shouldRunTutorial('forloop', detail.detail, 1)) {
-					flowTutorials?.runTutorialById('forloop', detail.index)
-				} else if (shouldRunTutorial('branchone', detail.detail, 2)) {
-					flowTutorials?.runTutorialById('branchone')
-				} else if (shouldRunTutorial('branchall', detail.detail, 3)) {
-					flowTutorials?.runTutorialById('branchall')
-				} else {
+				{
 					let originalModules
 					let targetModules
 					if (
 						detail.sourceId == 'Input' ||
-						detail.targetId == 'result' ||
+						detail.targetId == 'Result' ||
 						detail.kind == 'trigger'
 					) {
 						targetModules = flowStore.val.value.modules
@@ -468,7 +514,7 @@
 
 							let [removedModule] = originalModules.splice(indexToRemove, 1)
 							targetModules.splice(detail.index, 0, removedModule)
-							$selectedId = removedModule.id
+							selectionManager.selectId(removedModule.id)
 							$moving = undefined
 						} else {
 							if (detail.isPreprocessor) {
@@ -478,7 +524,7 @@
 									detail.inlineScript,
 									detail.script
 								)
-								$selectedId = 'preprocessor'
+								selectionManager.selectId('preprocessor')
 
 								if (detail.inlineScript?.instructions) {
 									dispatch('generateStep', {
@@ -489,6 +535,13 @@
 								}
 							} else {
 								const index = (detail.agentId ? targetModules?.length : detail.index) ?? 0
+								const toolKind = detail.agentId
+									? detail.kind === 'mcpTool'
+										? 'mcpTool'
+										: detail.kind === 'websearchTool'
+											? 'websearchTool'
+										: 'flowmoduleTool'
+									: undefined
 
 								await insertNewModuleAtIndex(
 									targetModules,
@@ -496,10 +549,11 @@
 									detail.kind,
 									detail.script,
 									detail.flow,
-									detail.inlineScript
+									detail.inlineScript,
+									toolKind
 								)
 								const id = targetModules[index].id
-								$selectedId = id
+								selectionManager.selectId(id)
 
 								if (detail.inlineScript?.instructions) {
 									dispatch('generateStep', {
@@ -584,13 +638,13 @@
 				flowStateStore.val[newId] = flowStateStore.val[id]
 				delete flowStateStore.val[id]
 				refreshStateStore(flowStore)
-				$selectedId = newId
+				selectionManager.selectId(newId)
 			}}
 			onDeleteBranch={async ({ id, index }) => {
 				if (id) {
 					await removeBranch(id, index)
 					refreshStateStore(flowStore)
-					$selectedId = id
+					selectionManager.selectId(id)
 				}
 			}}
 			onMove={(id) => {
@@ -610,10 +664,18 @@
 			{onCancelTestFlow}
 			{onOpenPreview}
 			{onHideJobStatus}
+			exitNoteMode={() => (noteMode = false)}
+			onNotePositionUpdate={(noteId, position) => {
+				// Update note position via NoteEditor context in edit mode
+				if (noteEditorContext?.noteEditor) {
+					noteEditorContext.noteEditor.updatePosition(noteId, position)
+				}
+			}}
+			multiSelectEnabled
 		/>
 	</div>
 </div>
 
 {#if !disableTutorials}
-	<FlowTutorials bind:this={flowTutorials} on:reload />
+	<FlowTutorials on:reload />
 {/if}

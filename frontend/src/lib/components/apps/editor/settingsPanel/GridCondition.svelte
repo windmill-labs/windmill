@@ -136,7 +136,7 @@
 		subgrid.
 	</Alert>
 	{#if items.length == 0}
-		<span class="text-xs text-tertiary">No Tabs</span>
+		<span class="text-xs text-primary">No Tabs</span>
 	{/if}
 	<div class="w-full flex flex-col mt-2">
 		<section
@@ -198,8 +198,7 @@
 		</div>
 		<Button
 			size="xs"
-			color="light"
-			variant="border"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			on:click={addCondition}
 			iconOnly

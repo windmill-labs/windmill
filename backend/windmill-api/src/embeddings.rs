@@ -441,7 +441,7 @@ impl EmbeddingsDb {
             &query_embedding,
             limit.unwrap_or(10) as usize,
             Some(&filter),
-            Some(0.75),
+            Some(0.8),
         );
 
         let results: Result<Vec<_>> = results
@@ -480,7 +480,17 @@ impl EmbeddingsDb {
             })
             .collect();
 
-        results
+        let mut results = results?;
+
+        if results.len() > 1 {
+            let top_score = results[0].score;
+            results = results
+                .into_iter()
+                .take_while(|r| (top_score - r.score) / top_score <= 0.05)
+                .collect();
+        }
+
+        Ok(results)
     }
 
     pub async fn query_resource_types(

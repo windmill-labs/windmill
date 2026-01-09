@@ -16,7 +16,7 @@
 <div class="flex flex-col gap-2">
 	<div class="flex flex-row items-center justify-between">
 		<a
-			class="text-sm text-blue-500 truncate hover:underline"
+			class="text-accent truncate text-xs"
 			{href}
 			onclick={() => {
 				dispatch('close')

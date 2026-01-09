@@ -1,5 +1,5 @@
 <script lang="ts" module>
-	function validate(values: CreateTableValues, dbSchema?: DBSchema) {
+	function validate(values: TableEditorValues, dbSchema?: DBSchema) {
 		const columnNamesErrs = values.columns.flatMap((column) => {
 			const isUnique = values.columns.filter((c) => c.name === column.name).length === 1
 			return !column.name.length || !isUnique ? [column.name] : []
@@ -36,14 +36,6 @@
 		if (Object.values(errs).every((v) => !v)) return undefined
 		return errs
 	}
-
-	export type DBTableEditorProps = {
-		onConfirm: (values: CreateTableValues) => void | Promise<void>
-		previewSql?: (values: CreateTableValues) => string
-		dbType: DbType
-		dbSchema?: DBSchema
-		currentSchema?: string
-	}
 </script>
 
 <script lang="ts">
@@ -56,15 +48,11 @@
 	import {
 		datatypeHasLength,
 		dbSupportsSchemas,
-		type DbType
+		type DbFeatures
 	} from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
 	import Tooltip from './meltComponents/Tooltip.svelte'
-	import {
-		datatypeDefaultLength,
-		type CreateTableValues
-	} from './apps/components/display/dbtable/queries/createTable'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
@@ -74,8 +62,38 @@
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
 	import TextInput from './text_input/TextInput.svelte'
+	import type { DbType } from './dbTypes'
+	import Portal from './Portal.svelte'
+	import { Debounced } from 'runed'
+	import {
+		type TableEditorValues,
+		datatypeDefaultLength
+	} from './apps/components/display/dbtable/tableEditor'
+	import Alert from './common/alert/Alert.svelte'
 
-	const { onConfirm, dbType, previewSql, dbSchema, currentSchema }: DBTableEditorProps = $props()
+	type Props = {
+		dbType: DbType
+		dbSchema?: DBSchema
+		currentSchema?: string
+		initialValues?: TableEditorValues
+		features?: DbFeatures
+		onConfirm: (params: { values: TableEditorValues }) => void | Promise<void>
+		computePreview: (params: {
+			values: TableEditorValues
+		}) => { sql: string; alert?: { title: string; body?: string } }
+		computeBtnProps: (params: { values: TableEditorValues }) => { text: string; disabled?: boolean }
+	}
+
+	const {
+		dbType,
+		dbSchema,
+		currentSchema,
+		initialValues,
+		features,
+		onConfirm,
+		computeBtnProps,
+		computePreview
+	}: Props = $props()
 
 	const columnTypes = DB_TYPES[dbType]
 	const defaultColumnType = (
@@ -89,11 +107,13 @@
 		} satisfies Record<DbType, string>
 	)[dbType]
 
-	const values: CreateTableValues = $state({
-		name: '',
-		columns: [],
-		foreignKeys: []
-	})
+	const values: TableEditorValues = $state(
+		$state.snapshot(initialValues) ?? {
+			name: '',
+			columns: [],
+			foreignKeys: []
+		}
+	)
 
 	function addColumn({ name, primaryKey }: { name: string; primaryKey?: boolean }) {
 		values.columns.push({
@@ -102,18 +122,27 @@
 			...(datatypeHasLength(defaultColumnType) && {
 				datatype_length: datatypeDefaultLength(defaultColumnType)
 			}),
-			...(primaryKey && { primaryKey })
+			...(primaryKey && { primaryKey }),
+			...(!features?.defaultToNotNull && { nullable: true })
 		})
 	}
-	addColumn({ name: 'id', primaryKey: dbType !== 'duckdb' })
+	if (!initialValues) {
+		addColumn({ name: 'id', primaryKey: features?.primaryKeys })
+	}
 
 	const errors: ReturnType<typeof validate> = $derived(validate(values, dbSchema))
 
 	let askingForConfirmation:
-		| (ConfirmationModal['$$prop_def'] & { onConfirm: () => void; codeContent?: string })
+		| (ConfirmationModal['$$prop_def'] & {
+				onConfirm: () => void
+				codeContent?: string
+				alert?: { title: string; body?: string }
+		  })
 		| undefined = $state()
 
 	let darkMode = $state(false)
+
+	let btnProps = new Debounced(() => computeBtnProps({ values }), 500)
 </script>
 
 <DarkModeObserver bind:darkMode />
@@ -124,7 +153,7 @@
 			Name
 			<TextInput
 				inputProps={{ type: 'text', placeholder: 'my_table' }}
-				class={errors?.name ? 'border !border-red-600/60' : ''}
+				error={errors?.name}
 				bind:value={values.name}
 			/>
 		</label>
@@ -137,18 +166,39 @@
 					<tr>
 						<Cell head first>Name</Cell>
 						<Cell head>Type</Cell>
-						<Cell head last>Primary</Cell>
+						<Cell head last>{features?.primaryKeys ? 'Primary' : ''}</Cell>
 					</tr>
 				</Head>
 				<tbody class="divide-y bg-surface">
 					{#each values.columns as column, i}
 						<tr>
 							<Cell first>
-								<TextInput
-									error={errors?.columns?.includes(column.name)}
-									inputProps={{ type: 'text', placeholder: 'column_name' }}
-									bind:value={column.name}
-								/>
+								<div class="flex flex-col">
+									<TextInput
+										error={errors?.columns?.includes(column.name)}
+										inputProps={{ type: 'text', placeholder: 'column_name' }}
+										bind:value={
+											() => column.name,
+											(newName) => {
+												const oldName = column.name
+												column.name = newName
+												// Update all foreign keys that reference this column
+												if (oldName && oldName !== newName) {
+													values.foreignKeys.forEach((fk) => {
+														fk.columns.forEach((fkCol) => {
+															if (fkCol.sourceColumn === oldName) {
+																fkCol.sourceColumn = newName
+															}
+														})
+													})
+												}
+											}
+										}
+									/>
+									{#if column.initialName && column.name !== column.initialName}
+										<span class="text-xs text-hint">Old name: {column.initialName}</span>
+									{/if}
+								</div>
 							</Cell>
 							<Cell>
 								<Select
@@ -166,9 +216,14 @@
 									items={safeSelectItems(columnTypes)}
 									class="w-48"
 								/>
+								{#if column.initialName && column.name !== column.initialName}
+									<span class="text-xs">&nbsp;</span>
+								{/if}
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
-								<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+								{#if features?.primaryKeys}
+									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+								{/if}
 								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
 									{#snippet trigger()}
 										<Settings size={18} />
@@ -180,23 +235,25 @@
 												<input type="number" placeholder="0" bind:value={column.datatype_length} />
 											</label>
 										{/if}
-										<label class="text-xs">
-											<span class="flex gap-1 mb-1">
-												Default value
-												<Tooltip>
-													<Info size={14} />
-													{#snippet text()}
-														Surround your expressions with curly brackets:
-														<code>
-															{'{NOW()}'}
-														</code>.
-														<br />
-														By default, it will be parsed as a literal
-													{/snippet}
-												</Tooltip>
-											</span>
-											<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
-										</label>
+										{#if features?.defaultValues}
+											<label class="text-xs">
+												<span class="flex gap-1 mb-1">
+													Default value
+													<Tooltip>
+														<Info size={14} />
+														{#snippet text()}
+															Surround your expressions with curly brackets:
+															<code>
+																{'{NOW()}'}
+															</code>.
+															<br />
+															By default, it will be parsed as a literal
+														{/snippet}
+													</Tooltip>
+												</span>
+												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
+											</label>
+										{/if}
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
 												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
@@ -230,156 +287,153 @@
 				</tbody>
 			</DataTable>
 		</div>
-		<div class="flex flex-col">
-			<!-- svelte-ignore a11y_label_has_associated_control -->
-			<label>Foreign Keys</label>
-			<DataTable>
-				<Head>
-					<tr>
-						<Cell head first>Table</Cell>
-						<Cell head last>Columns</Cell>
-					</tr>
-				</Head>
-				<tbody class="divide-y bg-surface">
-					{#each values.foreignKeys as foreignKey, foreignKeyIndex}
-						{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
+		{#if features?.foreignKeys}
+			<div class="flex flex-col">
+				<!-- svelte-ignore a11y_label_has_associated_control -->
+				<label>Foreign Keys</label>
+				<DataTable>
+					<Head>
 						<tr>
-							<Cell first class="flex">
-								<Select
-									inputClass={twMerge(
-										'!w-48',
-										fkErrors?.emptyTarget ? 'border !border-red-600/60' : ''
-									)}
-									placeholder=""
-									bind:value={foreignKey.targetTable}
-									items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
-										value: o,
-										label:
-											(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
-												? o.split('.')[1]
-												: o
-									}))}
-								/>
-							</Cell>
-							<Cell>
-								<div class="flex flex-col gap-2">
-									{#each foreignKey.columns as column, columnIndex}
-										<div class="flex">
-											<div class="flex items-center gap-1 w-60">
-												<!-- Div wrappers with absolute select are to prevent the Select content
-												 		 from x-overflowing -->
-												<div class="grow h-[2rem] relative">
-													<Select
-														class="!absolute inset-0"
-														inputClass={twMerge(
-															fkErrors?.nonExistingSourceColumns.includes(column.sourceColumn)
-																? 'border !border-red-600/60'
-																: ''
-														)}
-														placeholder=""
-														bind:value={column.sourceColumn}
-														items={values.columns
-															.filter((c) => c.name.length)
-															.map((c) => ({ value: c.name }))}
-														clearable={false}
-													/>
-												</div>
-												<ArrowRight size={16} class="h-fit shrink-0" />
-												<div class="grow h-[2rem] relative">
-													<Select
-														class="!absolute inset-0"
-														inputClass={twMerge(
-															fkErrors?.nonExistingTargetColumns.includes(column.targetColumn)
-																? 'border !border-red-600/60'
-																: ''
-														)}
-														placeholder=""
-														bind:value={column.targetColumn}
-														items={Object.keys(
-															dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
-																foreignKey.targetTable?.split('.')[1]
-															] ?? {}
-														).map((value) => ({ value }))}
-														clearable={false}
-													/>
-												</div>
-											</div>
-											<div class="ml-auto flex">
-												{#if columnIndex === 0}
-													<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
-														{#snippet trigger()}
-															<Settings size={18} />
-														{/snippet}
-														{#snippet content()}
-															<span>
-																ON DELETE <select bind:value={foreignKey.onDelete}>
-																	<option value="NO ACTION" selected>NO ACTION</option>
-																	<option value="CASCADE" selected>CASCADE</option>
-																	<option value="SET NULL" selected>SET NULL</option>
-																</select>
-															</span>
-															<span>
-																ON UPDATE <select bind:value={foreignKey.onUpdate}>
-																	<option value="NO ACTION" selected>NO ACTION</option>
-																	<option value="CASCADE" selected>CASCADE</option>
-																	<option value="SET NULL" selected>SET NULL</option>
-																</select>
-															</span>
-														{/snippet}
-													</Popover>
-												{/if}
-												<Button
-													color="light"
-													startIcon={{ icon: X }}
-													wrapperClasses="w-fit ml-2"
-													btnClasses="p-0"
-													on:click={foreignKey.columns.length > 1
-														? () => foreignKey.columns.splice(columnIndex, 1)
-														: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
-												/>
-											</div>
-										</div>
-									{/each}
-									<button
-										class="w-60 border-dashed dark:border-gray-600 border-2 rounded-md flex justify-center items-center py-1 gap-2 text-primary-500 font-normal"
-										onclick={() => foreignKey.columns.push({})}
-									>
-										<Plus class="h-fit" size={12} /> Add
-									</button>
-								</div></Cell
-							>
+							<Cell head first>Table</Cell>
+							<Cell head last>Columns</Cell>
 						</tr>
-					{/each}
-					<tr class="w-full">
-						<td colspan={99} class="p-1">
-							<Button
-								wrapperClasses="mx-auto"
-								startIcon={{ icon: Plus }}
-								color="light"
-								on:click={() =>
-									values.foreignKeys.push({
-										columns: [{}],
-										onDelete: 'NO ACTION',
-										onUpdate: 'NO ACTION'
-									})}
-							>
-								Add
-							</Button>
-						</td>
-					</tr>
-				</tbody>
-			</DataTable>
-		</div>
+					</Head>
+					<tbody class="divide-y bg-surface">
+						{#each values.foreignKeys as foreignKey, foreignKeyIndex}
+							{@const fkErrors = errors?.foreignKeys?.[foreignKeyIndex]}
+							<tr>
+								<Cell first class="flex">
+									<Select
+										inputClass={twMerge('!w-48')}
+										error={fkErrors?.emptyTarget}
+										placeholder=""
+										bind:value={foreignKey.targetTable}
+										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
+											value: o,
+											label:
+												(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
+													? o.split('.')[1]
+													: o
+										}))}
+									/>
+								</Cell>
+								<Cell>
+									<div class="flex flex-col gap-2">
+										{#each foreignKey.columns as column, columnIndex}
+											<div class="flex">
+												<div class="flex items-center gap-1 w-60">
+													<!-- Div wrappers with absolute select are to prevent the Select content
+												 		 from x-overflowing -->
+													<div class="grow h-[2rem] relative">
+														<Select
+															class="!absolute inset-0"
+															error={fkErrors?.nonExistingSourceColumns.includes(
+																column.sourceColumn
+															)}
+															placeholder=""
+															bind:value={column.sourceColumn}
+															items={values.columns
+																.filter((c) => c.name.length)
+																.map((c) => ({ value: c.name }))}
+															clearable={false}
+														/>
+													</div>
+													<ArrowRight size={16} class="h-fit shrink-0" />
+													<div class="grow h-[2rem] relative">
+														<Select
+															class="!absolute inset-0"
+															error={fkErrors?.nonExistingTargetColumns.includes(
+																column.targetColumn
+															)}
+															placeholder=""
+															bind:value={column.targetColumn}
+															items={Object.keys(
+																dbSchema?.schema?.[foreignKey.targetTable?.split('.')?.[0] ?? '']?.[
+																	foreignKey.targetTable?.split('.')[1]
+																] ?? {}
+															).map((value) => ({ value }))}
+															clearable={false}
+														/>
+													</div>
+												</div>
+												<div class="ml-auto flex">
+													{#if columnIndex === 0}
+														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
+															{#snippet trigger()}
+																<Settings size={18} />
+															{/snippet}
+															{#snippet content()}
+																<span>
+																	ON DELETE <select bind:value={foreignKey.onDelete}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
+																<span>
+																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
+																		<option value="NO ACTION" selected>NO ACTION</option>
+																		<option value="CASCADE" selected>CASCADE</option>
+																		<option value="SET NULL" selected>SET NULL</option>
+																	</select>
+																</span>
+															{/snippet}
+														</Popover>
+													{/if}
+													<Button
+														color="light"
+														startIcon={{ icon: X }}
+														wrapperClasses="w-fit ml-2"
+														btnClasses="p-0"
+														on:click={foreignKey.columns.length > 1
+															? () => foreignKey.columns.splice(columnIndex, 1)
+															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
+													/>
+												</div>
+											</div>
+										{/each}
+										<button
+											class="w-60 border-dashed dark:border-gray-600 border-2 rounded-md flex justify-center items-center py-1 gap-2 text-primary-500 font-normal"
+											onclick={() => foreignKey.columns.push({})}
+										>
+											<Plus class="h-fit" size={12} /> Add
+										</button>
+									</div></Cell
+								>
+							</tr>
+						{/each}
+						<tr class="w-full">
+							<td colspan={99} class="p-1">
+								<Button
+									wrapperClasses="mx-auto"
+									startIcon={{ icon: Plus }}
+									color="light"
+									on:click={() =>
+										values.foreignKeys.push({
+											columns: [{}],
+											onDelete: 'NO ACTION',
+											onUpdate: 'NO ACTION'
+										})}
+								>
+									Add
+								</Button>
+							</td>
+						</tr>
+					</tbody>
+				</DataTable>
+			</div>
+		{/if}
 	</div>
 	<Button
-		disabled={!!errors}
-		on:click={() =>
-			(askingForConfirmation = {
+		disabled={!!errors || btnProps.current.disabled}
+		loading={btnProps.pending}
+		on:click={() => {
+			let preview = computePreview?.({ values })
+			askingForConfirmation = {
 				onConfirm: async () => {
 					try {
 						askingForConfirmation && (askingForConfirmation.loading = true)
-						await onConfirm(values)
-						sendUserToast(values.name + ' created!')
+						await onConfirm({ values })
 					} catch (e) {
 						let msg: string | undefined = (e as Error)?.message
 						if (typeof msg !== 'string') msg = e ? JSON.stringify(e) : 'An error occurred'
@@ -388,30 +442,40 @@
 					askingForConfirmation = undefined
 				},
 				title: 'Confirm running the following:',
-				confirmationText: 'Create ' + values.name,
+				confirmationText: btnProps.current.text,
 				open: true,
-				...(previewSql && { codeContent: previewSql(values) })
-			})}>Create table</Button
+				...(preview && { codeContent: preview.sql, alert: preview.alert })
+			}
+		}}
 	>
+		{btnProps.current.text}
+	</Button>
 </div>
 
-<ConfirmationModal
-	{...askingForConfirmation ?? { confirmationText: '', title: '' }}
-	on:canceled={() => (askingForConfirmation = undefined)}
-	on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
->
-	{#if askingForConfirmation?.codeContent}
-		<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
-			<code class="whitespace-pre-wrap">
-				{askingForConfirmation.codeContent}
-			</code>
-			<Button
-				on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
-				size="xs"
-				startIcon={{ icon: ClipboardCopy }}
-				color="none"
-				wrapperClasses="absolute z-10 top-0 right-0"
-			></Button>
-		</div>
-	{/if}
-</ConfirmationModal>
+<Portal>
+	<ConfirmationModal
+		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
+		on:canceled={() => (askingForConfirmation = undefined)}
+		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}
+	>
+		{#if askingForConfirmation?.alert}
+			<Alert title={askingForConfirmation.alert.title} type="error" class="mb-2">
+				{askingForConfirmation.alert.body}
+			</Alert>
+		{/if}
+		{#if askingForConfirmation?.codeContent}
+			<div class="bg-surface-secondary border border-surface-selected rounded-md p-2 relative">
+				<code class="whitespace-pre-wrap">
+					{askingForConfirmation.codeContent}
+				</code>
+				<Button
+					on:click={() => copyToClipboard(askingForConfirmation?.codeContent)}
+					size="xs"
+					startIcon={{ icon: ClipboardCopy }}
+					color="none"
+					wrapperClasses="absolute z-10 top-0 right-0"
+				></Button>
+			</div>
+		{/if}
+	</ConfirmationModal>
+</Portal>

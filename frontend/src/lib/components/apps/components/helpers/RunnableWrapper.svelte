@@ -76,7 +76,12 @@
 		runnableClass?: string
 		runnableStyle?: string
 		doOnSuccess?: SideEffectAction
+		doOnSubmit?: SideEffectAction
 		doOnError?: SideEffectAction
+		clearFormInputs?: {
+			selected: 'never' | 'onSuccess' | 'onSubmit' | 'onError'
+			onClear: () => void
+		}
 		render: boolean
 		recomputeIds?: string[]
 		outputs: {
@@ -112,7 +117,9 @@
 		runnableClass = '',
 		runnableStyle = '',
 		doOnSuccess = undefined,
+		doOnSubmit = undefined,
 		doOnError = undefined,
+		clearFormInputs,
 		render,
 		recomputeIds = [],
 		outputs,
@@ -191,7 +198,23 @@
 		)
 	}
 
+	async function handleSubmitSideEffect() {
+		if (clearFormInputs) {
+			if (clearFormInputs.selected === 'onSubmit') clearFormInputs.onClear()
+		}
+
+		if (!doOnSubmit) return
+
+		if (doOnSubmit.selected == 'none') return
+
+		await executeSideEffect(doOnSubmit, true)
+	}
+
 	export async function handleSideEffect(success: boolean, errorMessage?: string) {
+		if (clearFormInputs) {
+			if (!success && clearFormInputs.selected === 'onError') clearFormInputs.onClear()
+			if (success && clearFormInputs.selected === 'onSuccess') clearFormInputs.onClear()
+		}
 		const sideEffect = success ? doOnSuccess : doOnError
 
 		if (recomputeIds && success) {
@@ -200,6 +223,16 @@
 		if (!sideEffect) return
 
 		if (sideEffect.selected == 'none') return
+
+		await executeSideEffect(sideEffect, success, errorMessage)
+	}
+
+	async function executeSideEffect(
+		sideEffect: SideEffectAction,
+		success: boolean = true,
+		errorMessage?: string
+	) {
+		if (!sideEffect) return
 
 		switch (sideEffect.selected) {
 			case 'setTab':
@@ -336,12 +369,15 @@
 		wrapperClass={runnableClass}
 		wrapperStyle={runnableStyle}
 		{render}
-		on:started
+		on:started={(e) => {
+			handleSubmitSideEffect()
+		}}
 		on:done
 		on:doneError
 		on:cancel
 		on:recompute
 		on:argsChanged
+		on:streamupdate
 		on:resultSet={(e) => {
 			const res = e.detail
 			if ($initialized?.runnableInitialized?.[fullId] === undefined) {

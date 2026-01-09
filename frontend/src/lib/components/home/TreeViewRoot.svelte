@@ -33,10 +33,10 @@
 	</div>
 {:else if groupedItems.length === 0}
 	<div class="flex flex-row items-center justify-center">
-		<div class="text-gray-500 dark:text-gray-400">No items</div>
+		<div class="text-xs font-normal text-hint">No items</div>
 	</div>
 {:else}
-	<div class="border rounded-md">
+	<div class="border rounded-md bg-surface-tertiary">
 		{#each groupedItems.slice(0, nbDisplayed) as item (item['folderName'] ?? 'user__' + item['username'])}
 			{#if item}
 				<TreeView
@@ -54,9 +54,9 @@
 		{/each}
 	</div>
 	{#if groupedItems.length > 15 && nbDisplayed < groupedItems.length}
-		<span class="text-xs"
+		<span class="text-xs font-normal text-secondary"
 			>{nbDisplayed} root nodes out of {groupedItems.length}
-			<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+			<button class="ml-4 text-xs font-normal text-primary hover:text-emphasis" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
 		>
 	{/if}
 {/if}

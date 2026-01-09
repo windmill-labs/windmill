@@ -271,7 +271,8 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/scheduling"
 		>
 			<Button
-				size="md"
+				size="lg"
+				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => scheduleEditor?.openNew(false)}
 				aiId="schedules-add-schedule"
@@ -283,19 +284,19 @@
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
 				<input type="text" placeholder="Search schedule" bind:value={filter} class="search-item" />
-				<div class="flex flex-row items-center gap-2 mt-6">
-					<div class="text-sm shrink-0"> Filter by path of </div>
+				<div class="flex flex-row items-center gap-2 mt-2">
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
-							<ToggleButton small value="schedule" label="Schedule" icon={Calendar} {item} />
-							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+							<ToggleButton value="schedule" label="Schedule" icon={Calendar} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
 				<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
 
 				<div class="flex flex-row items-center justify-end gap-4">
-					<ToggleButtonGroup class="h-6 w-auto" bind:selected={filterEnabledDisabled}>
+					<ToggleButtonGroup class="w-auto" bind:selected={filterEnabledDisabled}>
 						{#snippet children({ item })}
 							<ToggleButton small value="all" label="All" {item} />
 							<ToggleButton small value="enabled" label="Enabled" {item} />
@@ -318,7 +319,7 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !schedules?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No schedules </div>
+				<div class="text-center text-xs font-semibold text-emphasis mt-2"> No schedules </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
 					{#each items.slice(0, nbDisplayed) as { path, error, summary, edited_by, edited_at, schedule, timezone, enabled, script_path, is_flow, extra_perms, canWrite, marked, jobs, paused_until } (path)}
@@ -328,10 +329,10 @@
 							: undefined}
 
 						<div
-							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 						>
-							<div class="w-full flex gap-5 items-center">
+							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 								<a
@@ -339,7 +340,9 @@
 									onclick={() => scheduleEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -348,7 +351,7 @@
 											{summary || script_path}
 										{/if}
 									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
+									<div class="text-secondary text-xs truncate text-left">
 										schedule: {path}
 									</div>
 								</a>
@@ -403,10 +406,9 @@
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										href={`${base}/runs/?schedule_path=${path}&show_schedules=true&show_future_jobs=true`}
-										size="xs"
+										unifiedSize="md"
 										startIcon={{ icon: List }}
-										color="light"
-										variant="border"
+										variant="subtle"
 									>
 										Runs
 									</Button>
@@ -414,11 +416,12 @@
 										on:click={() => scheduleEditor?.openEdit(path, is_flow)}
 										size="xs"
 										startIcon={{ icon: canWrite ? Pen : Eye }}
-										color="dark"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
@@ -503,27 +506,27 @@
 							</div>
 							<div class="w-full flex justify-between items-baseline">
 								{#if loadingSchedulesWithJobStats}
-									<div class="flex gap-1 ml-0.5 text-[0.7em] text-tertiary items-center">
+									<div class="flex gap-1 ml-0.5 text-xs text-secondary items-center">
 										<Loader2 size={14} class="animate-spin" />
 										<span>Job stats loading...</span>
 									</div>
 								{:else}
 									<div class="flex gap-1.5 ml-0.5 items-baseline flex-row-reverse">
 										{#if avg_s}
-											<div class="pl-2 text-tertiary text-2xs"
+											<div class="pl-2 text-secondary text-xs"
 												>Avg: {(avg_s / 1000).toFixed(2)}s</div
 											>
 										{/if}
 										{#each jobs ?? [] as job}
 											{@const h = (avg_s ? job.duration_ms / avg_s : 1) * 7 + 3}
 											<a href="{base}/run/{job.id}?workspace={$workspaceStore}">
-												<JobPreview id={job.id}>
+												<JobPreview id={job.id} class="p-4">
 													<div>
 														<div
 															class="{job.success ? 'bg-green-300' : 'bg-red-300'} mx-auto w-1.5"
 															style="height: {h}px"
 														></div>
-														<!-- <div class="text-[0.6em] mt-0.5 text-center text-tertiary"
+														<!-- <div class="text-[0.6em] mt-0.5 text-center text-primary"
 														>{(job.duration_ms / 1000).toFixed(2)}s</div
 													> -->
 													</div>
@@ -533,7 +536,7 @@
 									</div>
 								{/if}
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+									class="flex flex-wrap text-xs text-secondary gap-1 items-center justify-end truncate pr-2"
 									><div class="truncate">edited by {edited_by}</div><div class="truncate"
 										>the {displayDate(edited_at)}</div
 									></div
@@ -547,10 +550,12 @@
 			{/if}
 		</div>
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
-			<span class="text-xs"
-				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
-			>
+			<div class="flex items-center gap-4 text-xs font-semibold text-emphasis">
+				<span>{nbDisplayed} items out of {items.length}</span>
+				<Button size="xs" variant="subtle" on:click={() => (nbDisplayed += 30)}>
+					Load 30 more
+				</Button>
+			</div>
 		{/if}
 	</CenteredPage>
 {/if}

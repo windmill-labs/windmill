@@ -118,14 +118,10 @@
 	$effect(() => {
 		if (!delivery_type) {
 			delivery_type = 'pull'
-		}
-	})
-	$effect(() => {
-		if (!delivery_config) {
+		} else if (delivery_type === 'push' && !delivery_config) {
 			delivery_config = DEFAULT_PUSH_CONFIG
 		}
 	})
-
 	function getBaseUrl() {
 		return `${window.location.origin}${base}/api/gcp/w/${$workspaceStore!}`
 	}
@@ -191,8 +187,7 @@
 							/>
 							<Button
 								disabled={!can_write}
-								variant="border"
-								color="light"
+								variant="default"
 								wrapperClasses="self-stretch"
 								on:click={loadAllPubSubTopicsFromProject}
 								startIcon={{ icon: RefreshCw }}
@@ -284,7 +279,7 @@
 											<Url url={`${base_endpoint}/${path}`} label="Production URL" />
 										</div>
 										<Subsection label="Authenticate">
-											<p class="text-xs mb-2 text-tertiary">
+											<p class="text-xs mb-2 text-primary">
 												Enable Google Cloud authentication for push delivery using a verified token.<Required
 													required={true}
 												/>
@@ -327,8 +322,7 @@
 									/>
 									<Button
 										disabled={!can_write}
-										variant="border"
-										color="light"
+										variant="default"
 										wrapperClasses="self-stretch"
 										on:click={loadAllSubscriptionFromGooglePubSubTopic}
 										startIcon={{ icon: RefreshCw }}

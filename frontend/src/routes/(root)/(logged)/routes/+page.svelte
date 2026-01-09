@@ -5,6 +5,7 @@
 		HttpTriggerService,
 		WorkspaceService,
 		type HttpTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -31,7 +32,18 @@
 		enterpriseLicense,
 		usedTriggerKinds
 	} from '$lib/stores'
-	import { Route, Code, Eye, Pen, Plus, Share, Trash, FileUp, ClipboardCopy } from 'lucide-svelte'
+	import {
+		Route,
+		Code,
+		Eye,
+		Pen,
+		Plus,
+		Share,
+		Trash,
+		FileUp,
+		ClipboardCopy,
+		Pause
+	} from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -48,6 +60,7 @@
 	import { getHttpRoute } from '$lib/components/triggers/http/utils'
 	import RoutesGenerator from '$lib/components/triggers/http/RoutesGenerator.svelte'
 	import OpenApiSpecGenerator from '$lib/components/triggers/http/OpenAPISpecGenerator.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = HttpTrigger & { canWrite: boolean }
 
@@ -196,6 +209,25 @@
 		}
 	}
 
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
+		try {
+			await HttpTriggerService.setHttpTriggerMode({
+				path,
+				workspace: $workspaceStore!,
+				requestBody: { mode }
+			})
+		} catch (err) {
+			sendUserToast(
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` http trigger: ${err.body}`,
+				true
+			)
+		} finally {
+			loadTriggers()
+		}
+	}
+
 	onMount(() => {
 		loadQueryFilters()
 	})
@@ -233,7 +265,8 @@
 			{#if $userStore?.is_admin || $userStore?.is_super_admin}
 				<div class="flex flex-row gap-2">
 					<Button
-						size="md"
+						unifiedSize="md"
+						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
 							routesGenerator?.openDrawer()
@@ -242,7 +275,8 @@
 						From OpenAPI spec
 					</Button>
 					<Button
-						size="md"
+						unifiedSize="md"
+						variant="default"
 						startIcon={{ icon: Plus }}
 						on:click={() => {
 							openAPISpecGenerator?.openDrawer()
@@ -250,7 +284,12 @@
 					>
 						To OpenAPI spec
 					</Button>
-					<Button size="md" startIcon={{ icon: Plus }} on:click={() => routeEditor?.openNew(false)}>
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Plus }}
+						on:click={() => routeEditor?.openNew(false)}
+					>
 						New&nbsp;route
 					</Button>
 				</div>
@@ -259,12 +298,12 @@
 		<div class="w-full h-full flex flex-col">
 			<div class="w-full pb-4 pt-6">
 				<input type="text" placeholder="Search routes" bind:value={filter} class="search-item" />
-				<div class="flex flex-row items-center gap-2 mt-6">
-					<div class="text-sm shrink-0"> Filter by path of </div>
+				<div class="flex flex-row items-center gap-2 mt-2">
+					<div class="text-xs font-semibold text-emphasis shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
-							<ToggleButton small value="trigger" label="Route" icon={Route} {item} />
-							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+							<ToggleButton value="trigger" label="Route" icon={Route} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -287,17 +326,17 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No routes </div>
+				<div class="text-center text-sm font-semibold text-emphasis mt-2"> No routes </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { workspace_id, workspaced_route, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config } (path)}
+					{#each items.slice(0, nbDisplayed) as { summary, workspace_id, workspaced_route, mode, path, edited_by, edited_at, script_path, route_path, is_flow, extra_perms, canWrite, marked, http_method, static_asset_config, retry, error_handler_path, error_handler_args } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 
 						<div
-							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
+							class="bg-surface-tertiary hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
 				first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 						>
-							<div class="w-full flex gap-5 items-center">
+							<div class="w-full flex gap-4 items-center">
 								<RowIcon kind={is_flow ? 'flow' : 'script'} />
 
 								<a
@@ -305,22 +344,26 @@
 									onclick={() => routeEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis font-semibold flex-wrap text-left text-xs mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
 											</span>
+										{:else if summary}
+											{summary}
 										{:else}
 											{http_method.toUpperCase()}
-											{isCloudHosted() || workspaced_route
+											/{isCloudHosted() || workspaced_route
 												? workspace_id + '/' + route_path
 												: route_path}
 										{/if}
 									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
+									<div class="text-secondary text-xs truncate text-left font-normal">
 										{path}
 									</div>
-									<div class="text-secondary text-xs truncate text-left font-light">
+									<div class="text-secondary text-xs truncate text-left font-normal">
 										{#if static_asset_config}
 											file: {static_asset_config.s3}
 										{:else}
@@ -333,31 +376,51 @@
 									<SharedBadge {canWrite} extraPerms={extra_perms} />
 								</div>
 
+								<TriggerModeToggle
+									onToggleMode={(mode) => onToggleMode(path, mode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'http',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
+									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
+								/>
+
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() =>
 											copyToClipboard(
 												getHttpRoute('r', route_path, workspaced_route ?? false, workspace_id)
 											)}
-										color="dark"
-										size="xs"
+										variant="subtle"
+										unifiedSize="md"
 										startIcon={{ icon: ClipboardCopy }}
 									>
 										Copy URL
 									</Button>
 									<Button
 										on:click={() => routeEditor?.openEdit(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
@@ -366,25 +429,17 @@
 													goto(href)
 												}
 											},
-											{
-												displayName: 'Delete',
-												type: 'delete',
-												icon: Trash,
-												disabled:
-													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
-												action: async () => {
-													try {
-														await HttpTriggerService.deleteHttpTrigger({
-															workspace: $workspaceStore ?? '',
-															path
-														})
-														sendUserToast(`Successfully deleted HTTP route: ${path}`)
-														loadTriggers()
-													} catch (error) {
-														sendUserToast(error.body || error.message, true)
-													}
-												}
-											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
 											{
 												displayName: canWrite ? 'Edit' : 'View',
 												icon: canWrite ? Pen : Eye,
@@ -418,14 +473,33 @@
 												action: () => {
 													shareModal?.openDrawer(path, 'http_trigger')
 												}
+											},
+											{
+												displayName: 'Delete',
+												type: 'delete',
+												icon: Trash,
+												disabled:
+													!canWrite || !($userStore?.is_admin || $userStore?.is_super_admin),
+												action: async () => {
+													try {
+														await HttpTriggerService.deleteHttpTrigger({
+															workspace: $workspaceStore ?? '',
+															path
+														})
+														sendUserToast(`Successfully deleted HTTP route: ${path}`)
+														loadTriggers()
+													} catch (error) {
+														sendUserToast(error.body || error.message, true)
+													}
+												}
 											}
 										]}
 									/>
 								</div>
 							</div>
-							<div class="w-full flex justify-between items-baseline">
+							<div class="w-full flex justify-end items-baseline">
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
 								>
 									<div class="truncate">edited by {edited_by}</div>
 									<div class="truncate">at {displayDate(edited_at)}</div>
@@ -439,9 +513,11 @@
 			{/if}
 		</div>
 		{#if items && items?.length > 15 && nbDisplayed < items.length}
-			<span class="text-xs"
+			<span class="text-xs font-normal text-primary"
 				>{nbDisplayed} items out of {items.length}
-				<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+				<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}
+					>load 30 more</button
+				></span
 			>
 		{/if}
 	</CenteredPage>

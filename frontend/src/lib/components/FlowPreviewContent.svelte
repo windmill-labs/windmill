@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy'
-
 	import {
 		type Job,
 		JobService,
@@ -10,23 +8,14 @@
 	} from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Badge, Button } from './common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { runFlowPreview } from './flows/utils'
+	import { runFlowPreview } from './flows/utils.svelte'
 	import SchemaForm from './SchemaForm.svelte'
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
-	import {
-		AlertTriangle,
-		ArrowRight,
-		CornerDownLeft,
-		Loader2,
-		Play,
-		RefreshCw,
-		X
-	} from 'lucide-svelte'
+	import { AlertTriangle, CornerDownLeft, Loader2, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
 	import { sliceModules } from './flows/flowStateUtils.svelte'
@@ -36,9 +25,9 @@
 	import FlowHistoryJobPicker from './FlowHistoryJobPicker.svelte'
 	import type { DurationStatus, GraphModuleState } from './graph'
 	import { getStepHistoryLoaderContext } from './stepHistoryLoader.svelte'
-	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
+	import FlowChat from './flows/conversations/FlowChat.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
-	import FlowChatInterface from './flows/conversations/FlowChatInterface.svelte'
+	import FlowRestartButton from './FlowRestartButton.svelte'
 
 	interface Props {
 		previewMode: 'upTo' | 'whole'
@@ -94,13 +83,13 @@
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
-	export async function test(): Promise<string | undefined> {
+	export async function test(conversationId?: string): Promise<string | undefined> {
 		renderCount++
-		return await runPreview(previewArgs.val, undefined)
+		return await runPreview(previewArgs.val, undefined, conversationId)
 	}
 
 	const {
-		selectedId,
+		selectionManager,
 		previewArgs,
 		flowStateStore,
 		flowStore,
@@ -119,14 +108,23 @@
 	let flowProgressBar: FlowProgressBar | undefined = $state(undefined)
 	let loadingHistory = $state(false)
 
+	let shouldUseStreaming = $derived.by(() => {
+		const modules = flowStore.val.value?.modules
+		const lastModule = modules && modules.length > 0 ? modules[modules.length - 1] : undefined
+		return (
+			lastModule?.value?.type === 'aiagent' &&
+			lastModule?.value?.input_transforms?.streaming?.type === 'static' &&
+			lastModule?.value?.input_transforms?.streaming?.value === true
+		)
+	})
+
 	function extractFlow(previewMode: 'upTo' | 'whole'): OpenFlow {
-		const previewFlow = aiChatManager.flowAiChatHelpers?.getPreviewFlow()
 		if (previewMode === 'whole') {
-			return previewFlow ?? flowStore.val
+			return flowStore.val
 		} else {
-			const flow = previewFlow ?? stateSnapshot(flowStore).val
+			const flow = stateSnapshot(flowStore).val as OpenFlow
 			const idOrders = dfs(flow.value.modules, (x) => x.id)
-			let upToIndex = idOrders.indexOf(upToId ?? $selectedId)
+			let upToIndex = idOrders.indexOf(upToId ?? selectionManager.getSelectedId() ?? '')
 
 			if (upToIndex != -1) {
 				flow.value.modules = sliceModules(flow.value.modules, upToIndex, idOrders)
@@ -138,7 +136,8 @@
 	let lastPreviewFlow: undefined | string = $state(undefined)
 	export async function runPreview(
 		args: Record<string, any>,
-		restartedFrom: RestartedFrom | undefined
+		restartedFrom: RestartedFrom | undefined,
+		conversationId?: string | undefined
 	) {
 		let newJobId: string | undefined = undefined
 		if (stepHistoryLoader?.flowJobInitial !== false) {
@@ -148,7 +147,7 @@
 			lastPreviewFlow = JSON.stringify(flowStore.val)
 			flowProgressBar?.reset()
 			const newFlow = extractFlow(previewMode)
-			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom)
+			newJobId = await runFlowPreview(args, newFlow, $pathStore, restartedFrom, conversationId)
 			jobId = newJobId
 			isRunning = true
 			if (inputSelected) {
@@ -299,8 +298,8 @@
 					on:click={() => dispatch('close')}
 					startIcon={{ icon: X }}
 					iconOnly
-					size="sm"
-					color="light"
+					unifiedSize="md"
+					variant="default"
 					btnClasses="hover:bg-surface-hover  bg-surface-secondaryw-8 h-8 rounded-full p-0"
 				/>
 			</div>
@@ -308,11 +307,12 @@
 			{#if isRunning}
 				<div class="mx-auto">
 					<Button
-						color="red"
+						variant="accent"
+						destructive
 						on:click={async () => {
 							cancelTest()
 						}}
-						size="sm"
+						unifiedSize="md"
 						btnClasses="w-full max-w-lg"
 						loading={true}
 						clickableWhileLoading
@@ -321,108 +321,26 @@
 					</Button>
 				</div>
 			{:else}
-				<div class="grow justify-center flex flex-row gap-4">
-					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel && aiChatManager.flowAiChatHelpers?.getModuleAction(selectedJobStep) !== 'removed'}
-						{#if selectedJobStepType == 'single'}
-							<Button
-								size="xs"
-								color="light"
-								variant="border"
-								title={`Re-start this flow from step ${selectedJobStep} (included).`}
-								on:click={() => {
-									runPreview(previewArgs.val, {
-										flow_job_id: jobId,
-										step_id: selectedJobStep,
-										branch_or_iteration_n: 0
-									})
-								}}
-								startIcon={{ icon: Play }}
-							>
-								Re-start from
-								<Badge baseClass="ml-1" color="indigo">
-									{selectedJobStep}
-								</Badge>
-							</Button>
-						{:else}
-							<Popover
-								floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-								contentClasses="p-4"
-							>
-								{#snippet button()}
-									<Button
-										title={`Re-start this flow from step ${selectedJobStep} (included).`}
-										variant="border"
-										color="blue"
-										startIcon={{ icon: RefreshCw }}
-										on:click={() => {
-											runPreview(previewArgs.val, {
-												flow_job_id: jobId,
-												step_id: selectedJobStep,
-												branch_or_iteration_n: 0
-											})
-										}}
-										nonCaptureEvent={true}
-									>
-										Re-start from
-										<Badge baseClass="ml-1" color="indigo">
-											{selectedJobStep}
-										</Badge>
-									</Button>
-								{/snippet}
-								{#snippet content()}
-									<label class="block text-primary p-4">
-										<div class="pb-1 text-sm text-secondary"
-											>{selectedJobStepType == 'forloop'
-												? 'From iteration #:'
-												: 'From branch:'}</div
-										>
-										<div class="flex w-full">
-											{#if selectedJobStepType === 'forloop'}
-												<input
-													type="number"
-													min="0"
-													bind:value={branchOrIterationN}
-													class="!w-32 grow"
-													onclick={stopPropagation(() => {})}
-												/>
-											{:else}
-												<select
-													bind:value={branchOrIterationN}
-													class="!w-32 grow"
-													onclick={stopPropagation(() => {})}
-												>
-													{#each restartBranchNames as [branchIdx, branchName]}
-														<option value={branchIdx}>{branchName}</option>
-													{/each}
-												</select>
-											{/if}
-											<Button
-												size="xs"
-												color="blue"
-												buttonType="button"
-												btnClasses="!p-1 !w-[34px] !ml-1"
-												aria-label="Restart flow"
-												on:click|once={() => {
-													runPreview(previewArgs.val, {
-														flow_job_id: jobId,
-														step_id: selectedJobStep,
-														branch_or_iteration_n: branchOrIterationN
-													})
-												}}
-											>
-												<ArrowRight size={18} />
-											</Button>
-										</div>
-									</label>
-								{/snippet}
-							</Popover>
-						{/if}
+				<div class="grow justify-center flex flex-row gap-2">
+					{#if jobId !== undefined && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
+						<FlowRestartButton
+							{jobId}
+							{selectedJobStep}
+							{selectedJobStepType}
+							{restartBranchNames}
+							onRestart={(stepId, branchOrIterationN) => {
+								runPreview(previewArgs.val, {
+									flow_job_id: jobId,
+									step_id: stepId,
+									branch_or_iteration_n: branchOrIterationN
+								})
+							}}
+						/>
 					{/if}
 					{#if !flowStore.val.value?.chat_input_enabled}
 						<Button
-							variant="contained"
+							variant="accent"
 							startIcon={{ icon: isRunning ? RefreshCw : Play }}
-							color="dark"
 							size="sm"
 							btnClasses="w-full max-w-lg"
 							on:click={() => runPreview(previewArgs.val, undefined)}
@@ -432,7 +350,7 @@
 							{#if previewMode == 'upTo'}
 								Test up to
 								<Badge baseClass="ml-1" color="indigo">
-									{$selectedId}
+									{selectionManager.getSelectedId()}
 								</Badge>
 							{:else}
 								Test flow
@@ -465,15 +383,15 @@
 		{#if render}
 			{#if flowStore.val.value?.chat_input_enabled}
 				<div class="flex flex-row justify-center w-full">
-					<FlowChatInterface
-						onRunFlow={async (userMessage, _conversationId) => {
-							await runPreview({ user_message: userMessage }, undefined)
+					<FlowChat
+						useStreaming={shouldUseStreaming}
+						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
+							await runPreview({ user_message: userMessage, ...(additionalInputs ?? {}) }, undefined, conversationId)
 							return jobId ?? ''
 						}}
-						createConversation={async () => {
-							const newConversationId = crypto.randomUUID()
-							return newConversationId
-						}}
+						hideSidebar={true}
+						path={$pathStore}
+						inputSchema={flowStore.val.schema}
 					/>
 				</div>
 			{:else}
@@ -499,7 +417,6 @@
 							<div class="flex flex-row gap-2">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON',
@@ -618,11 +535,11 @@
 					{customUi}
 				/>
 			{:else if loadingHistory}
-				<div class="italic text-tertiary h-full grow mx-auto flex flex-row items-center gap-2">
+				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
 				</div>
 			{:else}
-				<div class="italic text-tertiary h-full grow"> Flow status will be displayed here </div>
+				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

@@ -21,3 +21,14 @@ pub async fn handle_deployment_metadata<'c>(
     // Git sync is an enterprise feature and not part of the open-source version
     return Ok(());
 }
+
+#[cfg(not(feature = "private"))]
+pub async fn handle_fork_branch_creation<'c>(
+    _email: &str,
+    _created_by: &str,
+    _db: &DB,
+    _w_id: &str,
+    _fork_workspace_id: &str,
+) -> Result<Vec<uuid::Uuid>> {
+    return Ok(vec![]);
+}

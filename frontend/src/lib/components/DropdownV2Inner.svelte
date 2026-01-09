@@ -4,6 +4,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import type { MenubarMenuElements } from '@melt-ui/svelte'
 	import type { Item } from '$lib/utils'
+	import { Tooltip } from './meltComponents'
 
 	interface Props {
 		aiId?: string
@@ -34,13 +35,13 @@
 				target={item?.hrefTarget}
 				disabled={item?.disabled}
 				class={twMerge(
-					'px-4 py-2 text-primary font-semibold hover:bg-surface-hover cursor-pointer text-xs transition-all w-full',
+					'px-4 py-2 text-primary font-normal hover:bg-surface-hover cursor-pointer text-xs transition-colors w-full',
 					'data-[highlighted]:bg-surface-hover',
-					'flex flex-row gap-2 items-center',
-					item?.disabled && 'text-gray-400 cursor-not-allowed',
+					'flex flex-row gap-2 items-center rounded-sm',
+					item?.disabled && 'text-disabled cursor-not-allowed',
 					item?.type === 'delete' &&
 						!item?.disabled &&
-						'text-red-500 hover:bg-red-100 hover:text-red-500 data-[highlighted]:text-red-500 data-[highlighted]:bg-red-100'
+						'text-red-600 dark:text-red-400 data-[highlighted]:bg-red-500/10 dark:data-[highlighted]:bg-red-900/80 dark:data-[highlighted]:text-red-300 '
 				)}
 				item={meltItem}
 				aiId={`${aiId ? `${aiId}-${item.displayName}` : undefined}`}
@@ -53,6 +54,13 @@
 					{item.displayName}
 				</p>
 				{@render item.extra?.()}
+				{#if item.tooltip}
+					<Tooltip>
+						{#snippet text()}
+							{item.tooltip}
+						{/snippet}
+					</Tooltip>
+				{/if}
 			</MenuItem>
 		{/each}
 	</div>

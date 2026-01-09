@@ -6,9 +6,10 @@
 	import Drawer from './common/drawer/Drawer.svelte'
 	import DrawerContent from './common/drawer/DrawerContent.svelte'
 	import { sendUserToast } from '$lib/toast'
-	import Section from './Section.svelte'
 	import { Save } from 'lucide-svelte'
 	import autosize from '$lib/autosize'
+	import Label from './Label.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	const dispatch = createEventDispatcher()
 
@@ -61,21 +62,25 @@
 	>
 		<div class="flex flex-col gap-8">
 			{#if !edit}
-				<Section label="Name">
-					<input type="text" bind:value={name} placeholder="Variable name" />
-				</Section>
+				<Label for="name" label="Name">
+					<TextInput
+						inputProps={{ type: 'text', placeholder: 'Variable name', id: 'name' }}
+						bind:value={name}
+					/>
+				</Label>
 			{/if}
-			<Section label="Value">
-				<textarea rows="4" use:autosize bind:value placeholder="Variable value"></textarea>
-			</Section>
+			<Label for="value" label="Value">
+				<textarea rows="4" use:autosize bind:value placeholder="Variable value" id="value"
+				></textarea>
+			</Label>
 		</div>
 		{#snippet actions()}
 			<Button
 				on:click={() => updateVariable()}
 				disabled={value === '' || name === ''}
 				startIcon={{ icon: Save }}
-				color="dark"
-				size="sm"
+				variant="accent"
+				unifiedSize="md"
 			>
 				{edit ? 'Update' : 'Save'}
 			</Button>

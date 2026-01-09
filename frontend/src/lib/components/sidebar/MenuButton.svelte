@@ -1,3 +1,13 @@
+<script module lang="ts">
+	export const sidebarClasses = {
+		text: 'text-primary-inverse dark:text-primary data-[light-mode=true]:text-primary text-xs font-normal',
+		selectedText: 'text-emphasis-inverse dark:text-emphasis text-xs font-normal',
+		sublabelText: 'text-secondary-inverse dark:text-secondary text-2xs font-normal',
+		hoverBg:
+			'transition-colors hover:bg-surface-hover-inverse dark:hover:bg-surface-hover data-[light-mode=true]:hover:bg-surface-hover'
+	}
+</script>
+
 <script lang="ts">
 	import { twMerge } from 'tailwind-merge'
 	import Popover from '../Popover.svelte'
@@ -11,6 +21,7 @@
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		label?: string | undefined
+		sublabel?: string | undefined
 		icon?: any | undefined
 		iconClasses?: string | null
 		iconProps?: any | null
@@ -30,6 +41,7 @@
 		aiId = undefined,
 		aiDescription = undefined,
 		label = undefined,
+		sublabel = undefined,
 		icon = undefined,
 		iconClasses = null,
 		iconProps = null,
@@ -80,51 +92,64 @@
 						dispatch('click')
 					}}
 			{href}
+			data-light-mode={lightMode}
 			class={twMerge(
-				'group flex items-center px-2 py-2 font-light rounded-md h-8 gap-3 w-full',
-				lightMode
-					? 'text-primary data-[highlighted]:bg-surface-hover hover:bg-surface-hover'
-					: 'data-[highlighted]:bg-[#2A3648] hover:bg-[#2A3648] text-primary-inverse dark:text-primary',
-				color ? 'border-4' : '',
+				'group flex items-center px-2 py-2 font-light rounded-md gap-2 w-full',
+				sidebarClasses.hoverBg,
 				'transition-all relative',
+				sublabel ? 'h-10' : 'h-8',
 				classNames
 			)}
-			style={color ? `border-color: ${color}; padding: 0 calc(0.5rem - 4px);` : ''}
 			use:conditionalMelt={trigger}
 			title={isCollapsed ? undefined : label}
 			{...$trigger}
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<SvelteComponent
-					size={16}
-					class={twMerge(
-						'flex-shrink-0',
-						lightMode
-							? 'text-primary group-hover:text-secondary'
-							: 'text-primary-inverse group-hover:text-secondary-inverse dark:group-hover:text-secondary dark:text-primary',
-						'transition-all',
-						iconClasses
-					)}
-					{...iconProps}
-				/>
+				<div
+					style="background-color: {color}"
+					class={twMerge('rounded-full center-center', color ? 'p-1 -ml-1' : '')}
+				>
+					<SvelteComponent
+						size={16}
+						class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
+						{...iconProps}
+					/>
+				</div>
 			{/if}
 
-			{#if !isCollapsed && label}
-				<span
-					class={twMerge(
-						'whitespace-pre truncate',
-						lightMode ? 'text-primary' : 'text-primary-inverse dark:text-primary',
-						'transition-all',
-						classNames
-					)}
-				>
-					{label}
-					<span class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold">
-						{shortcut}
-					</span>
-				</span>
-			{/if}
+			<div class="flex flex-col text-left grow min-w-0">
+				{#if !isCollapsed && label}
+					<div
+						class={twMerge(
+							'whitespace-pre truncate w-full',
+							sidebarClasses.text,
+							'transition-all',
+							classNames
+						)}
+						title={label}
+					>
+						{label}
+						<span
+							class="pl-2 text-xs dark:text-secondary light:text-secondary-inverse font-semibold"
+						>
+							{shortcut}
+						</span>
+					</div>
+				{/if}
+
+				{#if sublabel}
+					<div
+						class={twMerge(
+							'whitespace-pre truncate w-full',
+							sidebarClasses.sublabelText,
+							'transition-all',
+							classNames
+						)}
+						title={sublabel}>{sublabel}</div
+					>
+				{/if}
+			</div>
 
 			{#if isCollapsed && notificationsCount > 0}
 				<div class="absolute translate-x-1/2 translate-y-1/2 -top-2 right-1 flex h-fit w-fit">

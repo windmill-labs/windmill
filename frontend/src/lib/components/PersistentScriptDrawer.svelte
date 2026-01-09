@@ -119,13 +119,7 @@
 			<h2>
 				Queued jobs for {script.path}
 			</h2>
-			<Button
-				color="light"
-				size="md"
-				btnClasses="w-full h-8"
-				variant="border"
-				on:click={loadQueuedJobsOnce}
-			>
+			<Button size="md" btnClasses="w-full h-8" variant="default" on:click={loadQueuedJobsOnce}>
 				<RefreshCw class={queuedJobsLoading ? 'animate-spin' : ''} size={14} />
 			</Button>
 		</div>

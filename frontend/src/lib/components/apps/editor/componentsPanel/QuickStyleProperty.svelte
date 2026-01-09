@@ -55,7 +55,7 @@
 
 <div class={inline && type !== StylePropertyType.color ? '' : 'w-full'}>
 	{#if prop.value['title']}
-		<div class="font-medium text-xs text-tertiary">
+		<div class="font-medium text-xs text-primary">
 			{prop.value['title']}
 		</div>
 	{/if}
@@ -65,9 +65,8 @@
 			{#each $styleStore.topColors as color}
 				<Popover placement="bottom" notClickable disappearTimeout={0} class="flex">
 					<Button
-						color="light"
 						size="xs"
-						variant="border"
+						variant="default"
 						btnClasses="!p-0 !w-[34px] !h-[34px]"
 						aria-label="Set {key} to {color}"
 						style={`background-color: ${color};`}

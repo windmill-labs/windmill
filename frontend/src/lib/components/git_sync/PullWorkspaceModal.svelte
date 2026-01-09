@@ -1,7 +1,16 @@
 <script lang="ts">
 	import Modal from '$lib/components/common/modal/Modal.svelte'
 	import { Button, Alert, Badge } from '$lib/components/common'
-	import { Loader2, CheckCircle2, XCircle, Terminal, ChevronDown, ChevronUp, Save, Edit3 } from 'lucide-svelte'
+	import {
+		Loader2,
+		CheckCircle2,
+		XCircle,
+		Terminal,
+		ChevronDown,
+		ChevronUp,
+		Save,
+		Edit3
+	} from 'lucide-svelte'
 	import GitDiffPreview from '../GitDiffPreview.svelte'
 	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
@@ -145,7 +154,8 @@
 				pull: true,
 				only_wmill_yaml: settingsOnly,
 				settings_json: JSON.stringify(uiState),
-				use_promotion_overrides: currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
+				use_promotion_overrides:
+					currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch === true
 			}
 
 			const jobId = await JobService.runScriptByPath({
@@ -164,30 +174,27 @@
 			}
 
 			// Use JobManager instead of tryEvery
-			const result = await jobManager.runWithProgress(
-				() => Promise.resolve(jobId),
-				{
-					workspace,
-					timeout: 60000,
-					timeoutMessage: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s`,
-					onProgress: (status) => {
-						if (isPreview) {
-							previewJobStatus = status.status
-						} else {
-							applyJobStatus = status.status
-						}
+			const result = await jobManager.runWithProgress(() => Promise.resolve(jobId), {
+				workspace,
+				timeout: 60000,
+				timeoutMessage: `${isPreview ? 'Preview' : 'Apply'} job timed out after 60s`,
+				onProgress: (status) => {
+					if (isPreview) {
+						previewJobStatus = status.status
+					} else {
+						applyJobStatus = status.status
+					}
 
-						// Handle failure status
-						if (status.status === 'failure') {
-							if (isPreview) {
-								previewError = status.error || 'Preview failed'
-							} else {
-								applyError = status.error || 'Pull failed'
-							}
+					// Handle failure status
+					if (status.status === 'failure') {
+						if (isPreview) {
+							previewError = status.error || 'Preview failed'
+						} else {
+							applyError = status.error || 'Pull failed'
 						}
 					}
 				}
-			)
+			})
 
 			// Handle successful result
 			if (isPreview) {
@@ -223,7 +230,6 @@
 		}
 	}
 
-
 	// Apply settings only (no job needed - we have the data from preview)
 	async function applySettingsOnly() {
 		isApplying = true
@@ -257,7 +263,6 @@
 				settingsApplied = true
 				sendUserToast('Settings applied successfully. You can now review workspace changes.')
 			}
-
 		} catch (error: any) {
 			console.error('Failed to apply settings:', error)
 			sendUserToast('Failed to apply settings: ' + error.message, true)
@@ -265,27 +270,31 @@
 			isApplying = false
 		}
 	}
-
-
 </script>
 
-
-<Modal bind:open title={settingsOnly ? "Pull Settings from Git Repository" : "Pull Workspace from Git Repository"} class="sm:max-w-4xl" cancelText={settingsOnly && !getSettingsChanges(previewResult).hasChanges ? "Close" : "Cancel"}>
+<Modal
+	bind:open
+	title={settingsOnly ? 'Pull Settings from Git Repository' : 'Pull Workspace from Git Repository'}
+	class="sm:max-w-4xl"
+	cancelText={settingsOnly && !getSettingsChanges(previewResult).hasChanges ? 'Close' : 'Cancel'}
+>
 	<div class="flex flex-col gap-4">
 		<!-- Description -->
 		<p class="text-sm text-secondary">
 			{#if settingsOnly}
-				Pull and apply settings changes from the Git repository to your workspace. This will update your sync filter settings only.
+				Pull and apply settings changes from the Git repository to your workspace. This will update
+				your sync filter settings only.
 			{:else}
-				Pull and apply changes from the Git repository to your workspace. If settings changes are detected, you can choose to pull just the settings or everything.
+				Pull and apply changes from the Git repository to your workspace. If settings changes are
+				detected, you can choose to pull just the settings or everything.
 			{/if}
 		</p>
 
 		<!-- Warning about overwrites - only show for full pulls, not settings-only -->
 		{#if !settingsOnly}
 			<Alert type="warning" title="This will overwrite local changes">
-				Pulling from the repository will overwrite any local changes to files that exist in the repository.
-				Make sure to preview the changes before applying.
+				Pulling from the repository will overwrite any local changes to files that exist in the
+				repository. Make sure to preview the changes before applying.
 			</Alert>
 		{/if}
 
@@ -294,7 +303,7 @@
 			<div class="flex justify-start pt-4">
 				<Button
 					size="md"
-					color="dark"
+					variant="accent"
 					onclick={() => {
 						previewAttempted = false // Allow manual retry
 						executeJob(true, settingsOnly)
@@ -312,7 +321,7 @@
 
 		<!-- Job status for preview -->
 		{#if previewJobId}
-			<div class="flex items-center gap-2 text-xs text-tertiary">
+			<div class="flex items-center gap-2 text-xs text-primary">
 				{#if previewJobStatus === 'running'}
 					<Loader2 class="animate-spin" size={14} />
 				{:else if previewJobStatus === 'success'}
@@ -354,23 +363,31 @@
 						<div class="bg-surface-secondary rounded-lg p-4 space-y-1">
 							{#if settingsChanges.diff?.diff}
 								{#each Object.entries(settingsChanges.diff.diff) as [field, change]}
-									{@const fieldName = field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())}
-									{@const typedChange = change as {from: any, to: any}}
+									{@const fieldName = field
+										.replace(/([A-Z])/g, ' $1')
+										.replace(/^./, (str) => str.toUpperCase())}
+									{@const typedChange = change as { from: any; to: any }}
 									<div class="flex items-center gap-2 text-xs">
-										<span class="text-tertiary min-w-0 flex-shrink-0">{fieldName}:</span>
+										<span class="text-primary min-w-0 flex-shrink-0">{fieldName}:</span>
 										{#if Array.isArray(typedChange.from) && Array.isArray(typedChange.to)}
-											<span class="text-red-600">{typedChange.from.length === 0 ? 'None' : typedChange.from.join(', ')}</span>
-											<span class="text-tertiary">→</span>
-											<span class="text-green-600">{typedChange.to.length === 0 ? 'None' : typedChange.to.join(', ')}</span>
+											<span class="text-red-600"
+												>{typedChange.from.length === 0
+													? 'None'
+													: typedChange.from.join(', ')}</span
+											>
+											<span class="text-primary">→</span>
+											<span class="text-green-600"
+												>{typedChange.to.length === 0 ? 'None' : typedChange.to.join(', ')}</span
+											>
 										{:else}
 											<span class="text-red-600">{typedChange.from}</span>
-											<span class="text-tertiary">→</span>
+											<span class="text-primary">→</span>
 											<span class="text-green-600">{typedChange.to}</span>
 										{/if}
 									</div>
 								{/each}
 							{:else}
-								<div class="text-xs text-tertiary">
+								<div class="text-xs text-primary">
 									Settings changes detected but no detailed diff available.
 								</div>
 							{/if}
@@ -381,15 +398,15 @@
 				<!-- No settings changes detected (settings-only mode) -->
 				{#if settingsOnly && !settingsChanges.hasChanges}
 					<div class="bg-surface-secondary rounded-lg p-3">
-						<div class="text-sm text-tertiary">
-							No settings changes detected. Your local sync filter settings are already up to date with the repository.
-							See the CLI instructions below on how to edit wmill.yaml
+						<div class="text-sm text-primary">
+							No settings changes detected. Your local sync filter settings are already up to date
+							with the repository. See the CLI instructions below on how to edit wmill.yaml
 						</div>
 					</div>
 					<div class="flex justify-start">
 						<Button
 							size="sm"
-							color="dark"
+							variant="accent"
 							onclick={() => {
 								previewAttempted = false
 								previewResult = null
@@ -415,7 +432,7 @@
 							<GitDiffPreview previewResult={previewResult as SyncResponse} />
 						{:else}
 							<div class="bg-surface-secondary rounded-lg p-3">
-								<div class="text-sm text-tertiary">No changes to pull from the repository.</div>
+								<div class="text-sm text-primary">No changes to pull from the repository.</div>
 							</div>
 						{/if}
 					</div>
@@ -433,8 +450,12 @@
 					{#if settingsChanges.hasChanges && workspaceChanges.hasChanges && !settingsApplied}
 						<!-- Step 1: Settings changes first when both are present -->
 						<div class="flex flex-col gap-3">
-							<div class="text-sm font-medium text-primary">Step 1 of 2: Apply settings changes</div>
-							<div class="text-xs text-tertiary">Settings changes detected. Apply these first to ensure workspace content is pulled with the correct configuration.</div>
+							<div class="text-sm font-medium text-primary">Step 1 of 2: Apply settings changes</div
+							>
+							<div class="text-xs text-primary"
+								>Settings changes detected. Apply these first to ensure workspace content is pulled
+								with the correct configuration.</div
+							>
 							<div class="flex gap-2">
 								<Button
 									size="md"
@@ -468,8 +489,12 @@
 						<!-- Step 2: Workspace changes (either no settings changes, or settings already applied) -->
 						<div class="flex flex-col gap-3">
 							{#if settingsApplied}
-								<div class="text-sm font-medium text-primary">Step 2 of 2: Pull Workspace Changes</div>
-								<div class="text-xs text-green-600">✓ Settings applied successfully. Now you can pull the workspace changes.</div>
+								<div class="text-sm font-medium text-primary"
+									>Step 2 of 2: Pull Workspace Changes</div
+								>
+								<div class="text-xs text-green-600"
+									>✓ Settings applied successfully. Now you can pull the workspace changes.</div
+								>
 							{/if}
 							<div class="flex gap-2">
 								<Button
@@ -488,10 +513,10 @@
 					{:else}
 						<!-- No changes to pull -->
 						<div class="bg-surface-secondary rounded-lg p-3">
-							<div class="text-sm text-tertiary mb-3">No changes to pull from the repository.</div>
+							<div class="text-sm text-primary mb-3">No changes to pull from the repository.</div>
 							<Button
 								size="sm"
-								color="dark"
+								variant="accent"
 								onclick={() => {
 									previewAttempted = false
 									previewResult = null
@@ -513,7 +538,7 @@
 
 		<!-- Job status for apply -->
 		{#if applyJobId}
-			<div class="flex items-center gap-2 text-xs text-tertiary">
+			<div class="flex items-center gap-2 text-xs text-primary">
 				{#if applyJobStatus === 'running'}
 					<Loader2 class="animate-spin" size={14} />
 				{:else if applyJobStatus === 'success'}
@@ -543,15 +568,15 @@
 		<div class="border-t pt-4 mt-4">
 			<button
 				class="flex items-center gap-2 text-sm text-secondary hover:text-primary transition-colors"
-				onclick={() => showCliInstructions = !showCliInstructions}
+				onclick={() => (showCliInstructions = !showCliInstructions)}
 			>
 				<Terminal size={16} />
 				{#if settingsOnly}
-				<span>Update settings with CLI</span>
+					<span>Update settings with CLI</span>
 				{:else}
-				<span>Update workspace with CLI</span>
+					<span>Update workspace with CLI</span>
 				{/if}
-				<Edit3 size={14} class="text-tertiary" />
+				<Edit3 size={14} class="text-primary" />
 				{#if showCliInstructions}
 					<ChevronUp size={16} />
 				{:else}
@@ -561,11 +586,19 @@
 
 			{#if showCliInstructions}
 				<div class="mt-3 bg-surface-secondary rounded-lg p-3">
-				    {#if settingsOnly}
-					<div class="text-xs text-tertiary mb-2">
-						Filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file in your git repository.
-						To modify them, edit the file in your repository, commit the changes, and sync using the commands below. Learn more about <a href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml" target="_blank" rel="noopener noreferrer">the wmill.yaml format</a>.
-					</div>
+					{#if settingsOnly}
+						<div class="text-xs text-primary mb-2">
+							Filter settings are sourced from the <code class="bg-surface px-1 py-0.5 rounded"
+								>wmill.yaml</code
+							>
+							file in your git repository. To modify them, edit the file in your repository, commit the
+							changes, and sync using the commands below. Learn more about
+							<a
+								href="https://www.windmill.dev/docs/advanced/cli/sync#wmillyaml"
+								target="_blank"
+								rel="noopener noreferrer">the wmill.yaml format</a
+							>.
+						</div>
 					{/if}
 					<pre class="text-xs bg-surface p-3 rounded overflow-x-auto whitespace-pre-wrap break-all">
 # Make sure your repo is up to date
@@ -573,25 +606,30 @@ git pull
 
 {#if !settingsOnly}# Push from git repository to workspace
 wmill sync push --workspace {$workspaceStore} --repository {gitRepoResourcePath}
-
-{:else}
-# Edit wmill.yaml file
+{:else}# Edit wmill.yaml file
 vim wmill.yaml
 git add wmill.yaml
+
 {/if}# Commit changes
 git commit
 git push
 {#if settingsOnly}
 # Push settings only from git repository or click the pull settings button above{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch}
 wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath} --promotion main{:else}
-wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre>
+wmill gitsync-settings push --workspace {$workspaceStore} --repository {gitRepoResourcePath}{/if}{/if}</pre
+					>
 					{#if currentGitSyncSettings?.repositories?.[repoIndex!]?.use_individual_branch && settingsOnly}
-						<div class="text-xs text-tertiary mt-3">
+						<div class="text-xs text-primary mt-3">
 							<div class="font-medium mb-1">Promotion Mode Configuration:</div>
 							<div class="flex items-center gap-2">
-								<span>You can add promotion-specific overrides in your <code class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code> file:</span>
+								<span
+									>You can add promotion-specific overrides in your <code
+										class="bg-surface px-1 py-0.5 rounded">wmill.yaml</code
+									> file:</span
+								>
 							</div>
-							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto">git_branches:
+							<pre class="text-xs bg-surface p-2 rounded mt-2 overflow-x-auto"
+								>gitBranches:
   main:
     promotionOverrides:
       # Add your promotion-specific settings here

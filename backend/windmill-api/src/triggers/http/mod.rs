@@ -12,7 +12,7 @@ use windmill_common::{
     DB,
 };
 
-use crate::{db::ApiAuthed, utils::ExpiringCacheEntry};
+use crate::{db::ApiAuthed, triggers::TriggerMode, utils::ExpiringCacheEntry};
 
 pub mod handler;
 pub mod http_trigger_args;
@@ -48,6 +48,7 @@ pub struct TriggerRoute {
     error_handler_path: Option<String>,
     error_handler_args: Option<sqlx::types::Json<HashMap<String, serde_json::Value>>>,
     retry: Option<sqlx::types::Json<Retry>>,
+    mode: TriggerMode,
 }
 
 pub struct RoutersCache {
@@ -192,8 +193,9 @@ impl<'de> Deserialize<'de> for HttpConfigRequest {
 
 // Regex patterns for route validation
 lazy_static::lazy_static! {
-    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"/?:[-\w]+").unwrap();
-    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^:?[-\w]+(/:?[-\w]+)*$").unwrap();
+    // Matches named params like :id or wildcards like :* or *
+    static ref ROUTE_PATH_KEY_RE: regex::Regex = regex::Regex::new(r"(/)?(:|\*)[-\w]+").unwrap();
+    static ref VALID_ROUTE_PATH_RE: regex::Regex = regex::Regex::new(r"^(\*[-\w]+$|:?[-\w]+)(/(\*[-\w]+$|:?[-\w]+))*$").unwrap();
 }
 
 #[derive(Deserialize)]
@@ -256,11 +258,13 @@ pub async fn refresh_routers(db: &DB) -> Result<(bool, RwLockReadGuard<'_, Route
                         is_static_website,
                         error_handler_path,
                         error_handler_args as "error_handler_args: _",
-                        retry as "retry: _"
+                        retry as "retry: _",
+                        mode as "mode: _"
                     FROM
                         http_trigger
                     WHERE
-                        http_method = $1
+                        http_method = $1 AND
+                        (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE)
                     "#,
                 &http_method as &HttpMethod
             )

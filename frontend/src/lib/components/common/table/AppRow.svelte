@@ -23,7 +23,7 @@
 		Pen,
 		Share,
 		Trash,
-		Clipboard
+		Copy
 	} from 'lucide-svelte'
 	import { goto as gotoUrl } from '$app/navigation'
 	import { page } from '$app/stores'
@@ -88,20 +88,10 @@
 >
 	{#snippet badges()}
 		{#if app.execution_mode == 'anonymous'}
-			<Badge small>
-				<div class="flex gap-1 items-center">
-					<Eye size={14} />
-					Public
-				</div></Badge
-			>
+			<Badge small icon={{ icon: Eye }}>Public</Badge>
 		{/if}
 		{#if app.raw_app}
-			<Badge small>
-				<div class="flex gap-1 items-center">
-					<FileJson size={14} />
-					Raw
-				</div></Badge
-			>
+			<Badge small icon={{ icon: FileJson }}>Raw</Badge>
 		{/if}
 		<SharedBadge canWrite={app.canWrite} extraPerms={app.extra_perms} />
 		<DraftBadge has_draft={app.has_draft} draft_only={app.draft_only} />
@@ -115,9 +105,8 @@
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Edits the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
 							startIcon={{ icon: Pen }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/edit/{app.path}?nodraft=true"
 						>
@@ -129,9 +118,9 @@
 						<Button
 							aiId={`fork-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}
 							aiDescription={`Fork the app ${app.summary?.length > 0 ? app.summary : app.path}`}
-							color="light"
-							size="xs"
-							variant="border"
+							variant="subtle"
+							wrapperClasses="w-20"
+							unifiedSize="md"
 							startIcon={{ icon: GitFork }}
 							href="{base}/apps{app.raw_app ? '_raw' : ''}/add?template={app.path}"
 						>
@@ -229,7 +218,7 @@
 					},
 					{
 						displayName: 'Copy path',
-						icon: Clipboard,
+						icon: Copy,
 						action: () => {
 							copyToClipboard(path)
 						}

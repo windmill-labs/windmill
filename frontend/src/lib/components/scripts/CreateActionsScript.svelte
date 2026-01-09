@@ -9,14 +9,15 @@
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
+		id="create-script-button"
 		{aiId}
 		{aiDescription}
-		size="sm"
-		spacingSize="xl"
-		color="marine"
+		unifiedSize="lg"
+		variant="accent"
 		startIcon={{ icon: Plus }}
 		href="{base}/scripts/add"
+		endIcon={{ icon: Code2 }}
 	>
-		Script <Code2 class="ml-1.5" size={18} />
+		Script
 	</Button>
 </div>

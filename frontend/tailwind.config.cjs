@@ -4,67 +4,23 @@ const {
 } = require('./src/lib/components/apps/editor/componentsPanel/tailwindUtils')
 const { zIndexes } = require('./src/lib/zIndexes')
 
-const lightTheme = {
-	surface: '#ffffff',
-	surfaceSecondary: '#f3f4f6',
-	surfaceHover: '#e5e7eb',
-	surfaceDisabled: '#f9fafb',
-	surfaceSelected: '#d1d5db',
+const figmaTokens = makeRgb(require('./src/lib/assets/tokens/tokens.json'))
+const { darkModeName, lightModeName } = require('./src/lib/assets/tokens/colorTokensConfig')
 
-	textPrimary: '#2d3748',
-	textSecondary: '#4a5568',
-	textTertiary: '#505c70',
-	textHint: '#757E8F',
-	textDisabled: '#a0aec0',
+const tokens = { dark: figmaTokens.tokens[darkModeName], light: figmaTokens.tokens[lightModeName] }
+const primitives = figmaTokens.primitives.light
 
-	border: '#dddddd',
-	borderHover: '#cccccc'
-}
-
-const lightThemeRgb = makeRgb(lightTheme)
-
-const darkTheme = {
-	surface: '#2e3440',
-	surfaceSecondary: '#3b4252',
-	surfaceHover: '#454F64',
-	surfaceDisabled: '#212732',
-	surfaceSelected: '#434c5e',
-
-	textPrimary: '#EEEEEE',
-	textSecondary: '#C2C9D1',
-	textTertiary: '#A8AEB7',
-	textHint: '#989DA5',
-	textDisabled: '#989DA5',
-
-	border: '#3e4c60',
-	borderHover: '#3e4c60'
-}
-
-const darkThemeRgb = makeRgb(darkTheme)
-
-function makeRgb(theme) {
-	return Object.fromEntries(
-		Object.entries(theme).map(([key, value]) => {
-			if (typeof value === 'string' && value.startsWith('#')) {
-				return [key, hexToRgb(value)]
-			}
-
-			return [key, value]
-		})
-	)
-}
-
-function hexToRgb(hex) {
-	// Remove '#' symbol from the beginning of the hex value
-	hex = hex.replace('#', '')
-
-	// Convert the hex value to decimal
-	const r = parseInt(hex.substring(0, 2), 16)
-	const g = parseInt(hex.substring(2, 4), 16)
-	const b = parseInt(hex.substring(4, 6), 16)
-
-	// Return the RGB string format
-	return `${r} ${g} ${b}`
+// Helper function to create color definition based on whether the value contains alpha
+function createColorDefinition(colorName) {
+	// Check a sample value to see if it contains alpha (using light theme as reference)
+	const sampleValue = tokens.light[colorName]
+	if (sampleValue && sampleValue.includes('/')) {
+		// Alpha is already included, use as-is without allowing override
+		return `rgb(var(--color-${colorName}))`
+	} else {
+		// No alpha, allow Tailwind's alpha-value placeholder
+		return `rgb(var(--color-${colorName}) / <alpha-value>)`
+	}
 }
 
 /** @type {import('tailwindcss').Config} */
@@ -96,6 +52,179 @@ const config = {
 			transparent: 'transparent',
 			white: '#ffffff',
 			black: '#000000',
+
+			// Surface colors (semantic)
+			surface: createColorDefinition('surface-primary'),
+			'surface-secondary': createColorDefinition('surface-secondary'),
+			'surface-sunken': createColorDefinition('surface-sunken'),
+			'surface-tertiary': createColorDefinition('surface-tertiary'),
+			'surface-hover': createColorDefinition('surface-hover'),
+			'surface-disabled': createColorDefinition('surface-disabled'),
+			'surface-selected': createColorDefinition('surface-selected'),
+			'surface-accent-primary': createColorDefinition('surface-accent-primary'),
+			'surface-accent-hover': createColorDefinition('surface-accent-hover'),
+			'surface-accent-clicked': createColorDefinition('surface-accent-clicked'),
+			'surface-accent-secondary': createColorDefinition('surface-accent-secondary'),
+			'surface-accent-secondary-hover': createColorDefinition('surface-accent-secondary-hover'),
+			'surface-accent-secondary-clicked': createColorDefinition('surface-accent-secondary-clicked'),
+			'surface-accent-selected': createColorDefinition('surface-accent-selected'),
+			'surface-input': createColorDefinition('surface-input'),
+
+			// Text colors (semantic)
+			primary: createColorDefinition('text-primary'),
+			secondary: createColorDefinition('text-secondary'),
+			tertiary: createColorDefinition('text-tertiary'),
+			hint: createColorDefinition('text-hint'),
+			disabled: createColorDefinition('text-disabled'),
+			emphasis: createColorDefinition('text-emphasis'),
+			accent: createColorDefinition('text-accent'),
+
+			// Inverse colors (computed from opposite theme)
+			'primary-inverse': createColorDefinition('text-primary-inverse'),
+			'secondary-inverse': createColorDefinition('text-secondary-inverse'),
+			'tertiary-inverse': createColorDefinition('text-tertiary-inverse'),
+			'emphasis-inverse': createColorDefinition('text-emphasis-inverse'),
+			'hint-inverse': createColorDefinition('text-hint-inverse'),
+			'disabled-inverse': createColorDefinition('text-disabled-inverse'),
+
+			// Border colors (semantic)
+			'border-light': createColorDefinition('border-light'),
+			'border-normal': createColorDefinition('border-normal'),
+			'border-accent': createColorDefinition('border-accent'),
+			'border-selected': createColorDefinition('border-selected'),
+
+			// Reserved colors (semantic)
+			ai: createColorDefinition('reserved-ai'),
+			'ai-inverse': createColorDefinition('reserved-ai-inverse'),
+
+			// Surface inverse colors (computed from opposite theme)
+			'surface-inverse': createColorDefinition('surface-primary-inverse'),
+			'surface-secondary-inverse': createColorDefinition('surface-secondary-inverse'),
+			'surface-hover-inverse': createColorDefinition('surface-hover-inverse'),
+			'surface-disabled-inverse': createColorDefinition('surface-disabled-inverse'),
+			'surface-selected-inverse': createColorDefinition('surface-selected-inverse'),
+
+			// Component colors
+			'component-virtual-node': createColorDefinition('component-virtual-node'),
+
+			// Design token colors
+			'light-blue': `rgb(${primitives['light-blue']})`,
+			'deep-blue': {
+				50: `rgb(${primitives['deep-blue-50']})`,
+				100: `rgb(${primitives['deep-blue-100']})`,
+				200: `rgb(${primitives['deep-blue-200']})`,
+				300: `rgb(${primitives['deep-blue-300']})`,
+				400: `rgb(${primitives['deep-blue-400']})`,
+				500: `rgb(${primitives['deep-blue-500']})`,
+				600: `rgb(${primitives['deep-blue-600']})`,
+				700: `rgb(${primitives['deep-blue-700']})`,
+				800: `rgb(${primitives['deep-blue-800']})`,
+				900: `rgb(${primitives['deep-blue-900']})`
+			},
+			red: {
+				50: `rgb(${primitives['red-50']})`,
+				100: `rgb(${primitives['red-100']})`,
+				200: `rgb(${primitives['red-200']})`,
+				300: `rgb(${primitives['red-300']})`,
+				400: `rgb(${primitives['red-400']})`,
+				500: `rgb(${primitives['red-500']})`,
+				600: `rgb(${primitives['red-600']})`,
+				700: `rgb(${primitives['red-700']})`,
+				800: `rgb(${primitives['red-800']})`,
+				900: `rgb(${primitives['red-900']})`,
+				950: `rgb(${primitives['red-950']})`
+			},
+			blue: {
+				50: `rgb(${primitives['blue-50']})`,
+				100: `rgb(${primitives['blue-100']})`,
+				200: `rgb(${primitives['blue-200']})`,
+				300: `rgb(${primitives['blue-300']})`,
+				400: `rgb(${primitives['blue-400']})`,
+				500: `rgb(${primitives['blue-500']})`,
+				600: `rgb(${primitives['blue-600']})`,
+				700: `rgb(${primitives['blue-700']})`,
+				800: `rgb(${primitives['blue-800']})`,
+				900: `rgb(${primitives['blue-900']})`,
+				950: `rgb(${primitives['blue-950']})`
+			},
+			green: {
+				50: `rgb(${primitives['green-50']})`,
+				100: `rgb(${primitives['green-100']})`,
+				200: `rgb(${primitives['green-200']})`,
+				300: `rgb(${primitives['green-300']})`,
+				400: `rgb(${primitives['green-400']})`,
+				500: `rgb(${primitives['green-500']})`,
+				600: `rgb(${primitives['green-600']})`,
+				700: `rgb(${primitives['green-700']})`,
+				800: `rgb(${primitives['green-800']})`,
+				900: `rgb(${primitives['green-900']})`,
+				950: `rgb(${primitives['green-950']})`
+			},
+			orange: {
+				50: `rgb(${primitives['orange-50']})`,
+				100: `rgb(${primitives['orange-100']})`,
+				200: `rgb(${primitives['orange-200']})`,
+				300: `rgb(${primitives['orange-300']})`,
+				400: `rgb(${primitives['orange-400']})`,
+				500: `rgb(${primitives['orange-500']})`,
+				600: `rgb(${primitives['orange-600']})`,
+				700: `rgb(${primitives['orange-700']})`,
+				800: `rgb(${primitives['orange-800']})`,
+				900: `rgb(${primitives['orange-900']})`,
+				950: `rgb(${primitives['orange-950']})`
+			},
+			purple: {
+				50: `rgb(${primitives['purple-50']})`,
+				100: `rgb(${primitives['purple-100']})`,
+				200: `rgb(${primitives['purple-200']})`,
+				300: `rgb(${primitives['purple-300']})`,
+				400: `rgb(${primitives['purple-400']})`,
+				500: `rgb(${primitives['purple-500']})`,
+				600: `rgb(${primitives['purple-600']})`,
+				700: `rgb(${primitives['purple-700']})`,
+				800: `rgb(${primitives['purple-800']})`,
+				900: `rgb(${primitives['purple-900']})`,
+				950: `rgb(${primitives['purple-950']})`
+			},
+			pink: {
+				50: `rgb(${primitives['pink-50']})`,
+				100: `rgb(${primitives['pink-100']})`,
+				200: `rgb(${primitives['pink-200']})`,
+				300: `rgb(${primitives['pink-300']})`,
+				400: `rgb(${primitives['pink-400']})`,
+				500: `rgb(${primitives['pink-500']})`,
+				600: `rgb(${primitives['pink-600']})`,
+				700: `rgb(${primitives['pink-700']})`,
+				800: `rgb(${primitives['pink-800']})`,
+				900: `rgb(${primitives['pink-900']})`,
+				950: `rgb(${primitives['pink-950']})`
+			},
+			lime: {
+				50: `rgb(${primitives['lime-50']})`,
+				100: `rgb(${primitives['lime-100']})`,
+				200: `rgb(${primitives['lime-200']})`,
+				300: `rgb(${primitives['lime-300']})`,
+				400: `rgb(${primitives['lime-400']})`,
+				500: `rgb(${primitives['lime-500']})`,
+				600: `rgb(${primitives['lime-600']})`,
+				700: `rgb(${primitives['lime-700']})`,
+				800: `rgb(${primitives['lime-800']})`,
+				900: `rgb(${primitives['lime-900']})`,
+				950: `rgb(${primitives['lime-950']})`
+			},
+			yellow: {
+				50: `rgb(${primitives['yellow-50']})`,
+				100: `rgb(${primitives['yellow-100']})`,
+				200: `rgb(${primitives['yellow-200']})`,
+				300: `rgb(${primitives['yellow-300']})`,
+				400: `rgb(${primitives['yellow-400']})`,
+				500: `rgb(${primitives['yellow-500']})`,
+				600: `rgb(${primitives['yellow-600']})`,
+				700: `rgb(${primitives['yellow-700']})`,
+				800: `rgb(${primitives['yellow-800']})`,
+				900: `rgb(${primitives['yellow-900']})`,
+				950: `rgb(${primitives['yellow-950']})`
+			},
 			slate: {
 				50: '#f8fafc',
 				100: '#f1f5f9',
@@ -144,18 +273,6 @@ const config = {
 				800: '#292524',
 				900: '#1c1917'
 			},
-			orange: {
-				50: '#fff7ed',
-				100: '#ffedd5',
-				200: '#fed7aa',
-				300: '#fdba74',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#9a3412',
-				900: '#7c2d12'
-			},
 			amber: {
 				50: '#fffbeb',
 				100: '#fef3c7',
@@ -167,18 +284,6 @@ const config = {
 				700: '#b45309',
 				800: '#92400e',
 				900: '#78350f'
-			},
-			lime: {
-				50: '#f7fee7',
-				100: '#ecfccb',
-				200: '#d9f99d',
-				300: '#bef264',
-				400: '#a3e635',
-				500: '#84cc16',
-				600: '#65a30d',
-				700: '#4d7c0f',
-				800: '#3f6212',
-				900: '#365314'
 			},
 			emerald: {
 				50: '#ecfdf5',
@@ -240,18 +345,6 @@ const config = {
 				800: '#5b21b6',
 				900: '#4c1d95'
 			},
-			purple: {
-				50: '#faf5ff',
-				100: '#f3e8ff',
-				200: '#e9d5ff',
-				300: '#d8b4fe',
-				400: '#c084fc',
-				500: '#a855f7',
-				600: '#9333ea',
-				700: '#7e22ce',
-				800: '#6b21a8',
-				900: '#581c87'
-			},
 			fuchsia: {
 				50: '#fdf4ff',
 				100: '#fae8ff',
@@ -263,18 +356,6 @@ const config = {
 				700: '#a21caf',
 				800: '#86198f',
 				900: '#701a75'
-			},
-			pink: {
-				50: '#fdf2f8',
-				100: '#fce7f3',
-				200: '#fbcfe8',
-				300: '#f9a8d4',
-				400: '#f472b6',
-				500: '#ec4899',
-				600: '#db2777',
-				700: '#be185d',
-				800: '#9d174d',
-				900: '#831843'
 			},
 			rose: {
 				50: '#fff1f2',
@@ -300,65 +381,6 @@ const config = {
 				800: '#1f2937',
 				900: '#111827'
 			},
-			red: {
-				50: '#fef2f2',
-				100: '#fee2e2',
-				200: '#fecaca',
-				300: '#fca5a5',
-				400: '#f87171',
-				500: '#ef4444',
-				600: '#dc2626',
-				700: '#b91c1c',
-				800: '#991b1b',
-				900: '#7f1d1d'
-			},
-			orange: {
-				100: '#ffedd5',
-				200: '#ffedd5',
-				300: '#FDC089',
-				400: '#fb923c',
-				500: '#f97316',
-				600: '#ea580c',
-				700: '#c2410c',
-				800: '#c2410c'
-			},
-			yellow: {
-				50: '#fefce8',
-				100: '#fef9c3',
-				200: '#fef08a',
-				300: '#fde047',
-				400: '#facc15',
-				500: '#eab308',
-				600: '#ca8a04',
-				700: '#a16207',
-				800: '#854d0e',
-				900: '#713f12'
-			},
-			green: {
-				50: '#f0fdf4',
-				100: '#dcfce7',
-				200: '#bbf7d0',
-				300: '#86efac',
-				400: '#4ade80',
-				500: '#22c55e',
-				600: '#16a34a',
-				700: '#15803d',
-				800: '#166534',
-				900: '#14532d'
-			},
-			blue: {
-				50: '#eff6ff',
-				100: '#dbeafe',
-				200: '#bfdbfe',
-				300: '#93c5fd',
-				400: '#60a5fa',
-				500: '#3b82f6',
-				600: '#2563eb',
-				700: '#1d4ed8',
-				800: '#1e40af',
-				900: '#1e3a8a'
-			},
-
 			indigo: {
 				50: '#eef2ff',
 				100: '#e0e7ff',
@@ -404,31 +426,7 @@ const config = {
 				800: '#88C0D0',
 				900: '#81A1C1',
 				950: '#5E81AC'
-			},
-
-			surface: 'rgb(var(--color-surface) / <alpha-value>)',
-			'surface-secondary': 'rgb(var(--color-surface-secondary) / <alpha-value>)',
-			'surface-hover': 'rgb(var(--color-surface-hover) / <alpha-value>)',
-			'surface-disabled': 'rgb(var(--color-surface-disabled) / <alpha-value>)',
-			'surface-selected': 'rgb(var(--color-surface-selected) / <alpha-value>)',
-
-			primary: 'rgb(var(--color-text-primary) / <alpha-value>)',
-			secondary: 'rgb(var(--color-text-secondary) / <alpha-value>)',
-			tertiary: 'rgb(var(--color-text-tertiary) / <alpha-value>)',
-			hint: 'rgb(var(--color-text-hint) / <alpha-value>)',
-			disabled: 'rgb(var(--color-text-disabled) / <alpha-value>)',
-
-			'surface-inverse': 'rgb(var(--color-surface-inverse) / <alpha-value>)',
-			'surface-secondary-inverse': 'rgb(var(--color-surface-secondary-inverse) / <alpha-value>)',
-			'surface-hover-inverse': 'rgb(var(--color-surface-hover-inverse) / <alpha-value>)',
-			'surface-disabled-inverse': 'rgb(var(--color-surface-disabled-inverse) / <alpha-value>)',
-			'surface-selected-inverse': 'rgb(var(--color-surface-selected-inverse) / <alpha-value>)',
-
-			'primary-inverse': 'rgb(var(--color-text-primary-inverse) / <alpha-value>)',
-			'secondary-inverse': 'rgb(var(--color-text-secondary-inverse) / <alpha-value>)',
-			'tertiary-inverse': 'rgb(var(--color-text-tertiary-inverse) / <alpha-value>)',
-			'hint-inverse': 'rgb(var(--color-text-hint-inverse) / <alpha-value>)',
-			'disabled-inverse': 'rgb(var(--color-text-disabled-inverse) / <alpha-value>)'
+			}
 		},
 		fontFamily: {
 			// add double quotes if there is space in font name
@@ -481,6 +479,9 @@ const config = {
 				qhd: '2500px',
 				'4k': '3800px'
 			},
+			dropShadow: {
+				base: ['0 2px 1px rgba(0, 0, 0, 0.06)', '0 2px 2px rgba(0, 0, 0, 0.1)']
+			},
 			animation: {
 				'spin-counter-clockwise': 'spin-counter-clockwise 1s linear infinite',
 				'zoom-in': 'zoom-in 0.25s ease-in-out',
@@ -506,40 +507,24 @@ const config = {
 		require('@tailwindcss/forms'),
 		require('@tailwindcss/typography'),
 		plugin(({ addBase, addComponents, addUtilities, theme }) => {
+			let lightColorVariables = Object.fromEntries([
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}-inverse`, value])
+			])
+			let darkColorVariables = Object.fromEntries([
+				...Object.entries(tokens.dark).map(([key, value]) => [`--color-${key}`, value]),
+				...Object.entries(tokens.light).map(([key, value]) => [`--color-${key}-inverse`, value])
+			])
+
 			addBase({
 				html: {
 					fontFamily: theme('fontFamily.main'),
 					fontSize: theme('fontSize.base'),
 					fontWeight: theme('fontWeight.normal'),
 
-					backgroundColor: 'rgb(var(--color-surface))',
-					color: lightTheme.textPrimary,
-					'--color-surface': lightThemeRgb.surface,
-					'--color-surface-secondary': lightThemeRgb.surfaceSecondary,
-					'--color-surface-hover': lightThemeRgb.surfaceHover,
-					'--color-surface-disabled': lightThemeRgb.surfaceDisabled,
-					'--color-surface-selected': lightThemeRgb.surfaceSelected,
-
-					'--color-text-primary': lightThemeRgb.textPrimary,
-					'--color-text-secondary': lightThemeRgb.textSecondary,
-					'--color-text-tertiary': lightThemeRgb.textTertiary,
-					'--color-text-hint': lightThemeRgb.textHint,
-					'--color-text-disabled': lightThemeRgb.textDisabled,
-
-					'--color-surface-inverse': darkThemeRgb.surface,
-					'--color-surface-secondary-inverse': darkThemeRgb.surfaceSecondary,
-					'--color-surface-hover-inverse': darkThemeRgb.surfaceHover,
-					'--color-surface-disabled-inverse': darkThemeRgb.surfaceDisabled,
-					'--color-surface-selected-inverse': darkThemeRgb.surfaceSelected,
-
-					'--color-text-primary-inverse': darkThemeRgb.textPrimary,
-					'--color-text-secondary-inverse': darkThemeRgb.textSecondary,
-					'--color-text-tertiary-inverse': darkThemeRgb.textTertiary,
-					'--color-text-hint-inverse': darkThemeRgb.textHint,
-					'--color-text-disabled-inverse': darkThemeRgb.textDisabled,
-
-					'--color-border': lightThemeRgb.border,
-					'--color-border-hover': lightThemeRgb.borderHover,
+					...lightColorVariables,
+					backgroundColor: 'rgb(var(--color-surface-primary))',
+					color: 'rgb(var(--color-text-primary))',
 
 					'--vscode-editorSuggestWidget-background': '#f3f3f3',
 					'--vscode-editorHoverWidget-foreground': '#616161',
@@ -554,35 +539,10 @@ const config = {
 					},
 
 					'&.dark': {
-						backgroundColor: darkTheme.surface,
-						color: darkTheme.textPrimary,
+						backgroundColor: `rgb(${tokens.dark['surface-primary']})`,
+						color: `rgb(${tokens.dark['text-primary']})`,
 
-						'--color-surface': darkThemeRgb.surface,
-						'--color-surface-secondary': darkThemeRgb.surfaceSecondary,
-						'--color-surface-hover': darkThemeRgb.surfaceHover,
-						'--color-surface-disabled': darkThemeRgb.surfaceDisabled,
-						'--color-surface-selected': darkThemeRgb.surfaceSelected,
-
-						'--color-text-primary': darkThemeRgb.textPrimary,
-						'--color-text-secondary': darkThemeRgb.textSecondary,
-						'--color-text-tertiary': darkThemeRgb.textTertiary,
-						'--color-text-hint': darkThemeRgb.textHint,
-						'--color-text-disabled': darkThemeRgb.textDisabled,
-
-						'--color-surface-inverse': lightThemeRgb.surface,
-						'--color-surface-secondary-inverse': lightThemeRgb.surfaceSecondary,
-						'--color-surface-hover-inverse': lightThemeRgb.surfaceHover,
-						'--color-surface-disabled-inverse': lightThemeRgb.surfaceDisabled,
-						'--color-surface-selected-inverse': lightThemeRgb.surfaceSelected,
-
-						'--color-text-primary-inverse': lightThemeRgb.textPrimary,
-						'--color-text-secondary-inverse': lightThemeRgb.textSecondary,
-						'--color-text-tertiary-inverse': lightThemeRgb.textTertiary,
-						'--color-text-hint-inverse': lightThemeRgb.textHint,
-						'--color-text-disabled-inverse': lightThemeRgb.textDisabled,
-
-						'--color-border': darkThemeRgb.border,
-						'--color-border-hover': darkThemeRgb.borderHover,
+						...darkColorVariables,
 
 						'--vscode-editorSuggestWidget-background': '#252526',
 						'--vscode-editorHoverWidget-foreground': '#cccccc',
@@ -658,7 +618,7 @@ const config = {
 					fontWeight: theme('fontWeight.semibold')
 				},
 				a: {
-					color: theme('colors.blue.500')
+					color: 'rgb(var(--color-text-accent))'
 				},
 				'.dark input::placeholder': {
 					color: theme('colors.gray.400')
@@ -672,35 +632,22 @@ const config = {
 				'input:not(.windmillapp):not(.no-default-style),input[type="text"]:not(.windmillapp):not(.no-default-style),input[type="email"]:not(.windmillapp):not(.no-default-style),input[type="url"]:not(.windmillapp):not(.no-default-style),input[type="password"]:not(.windmillapp):not(.no-default-style),input[type="number"]:not(.windmillapp):not(.no-default-style),input[type="date"]:not(.windmillapp):not(.no-default-style),input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),input[type="month"]:not(.windmillapp):not(.no-default-style),input[type="search"]:not(.windmillapp):not(.no-default-style),input[type="tel"]:not(.windmillapp):not(.no-default-style),input[type="time"]:not(.windmillapp):not(.no-default-style),input[type="week"]:not(.windmillapp):not(.no-default-style),textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),select:not(.windmillapp):not(.no-default-style)':
 					{
 						display: 'block',
-						fontSize: theme('fontSize.sm'),
-						boxShadow: theme('boxShadow.sm'),
+						fontSize: theme('fontSize.xs'),
 						width: '100%',
 						padding: `${theme('spacing.1')} ${theme('spacing.2')}`,
-						border: `1px solid ${theme('colors.gray.300')}`,
+						backgroundColor: 'rgb(var(--color-surface-input))' + ' !important',
+						border: '1px solid rgb(var(--color-border-light))',
 						borderRadius: theme('borderRadius.md'),
+						'&:hover': {
+							borderColor: 'rgb(var(--color-border-selected) / 0.5)'
+						},
 						'&:focus': {
-							'--tw-ring-color': theme('colors.frost.100'),
-							'--tw-ring-offset-shadow':
-								'var(--tw-ring-inset) 0 0 0 var(--tw-ring-offset-width) var(--tw-ring-offset-color)',
-							'--tw-ring-shadow':
-								'var(--tw-ring-inset) 0 0 0 calc(3px + var(--tw-ring-offset-width)) var(--tw-ring-color)',
-							boxShadow:
-								'var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000)'
+							borderColor: 'rgb(var(--color-border-selected))',
+							outline: 'none',
+							boxShadow: 'none'
 						},
 						'&:disabled,[disabled]': {
-							backgroundColor: theme('colors.gray.100') + ' !important',
-							'.dark &': {
-								backgroundColor: theme('colors.gray.700') + ' !important'
-							}
-						}
-					},
-				'.dark input:not(.windmillapp):not(.no-default-style),.dark input[type="text"]:not(.windmillapp):not(.no-default-style),.dark input[type="email"]:not(.windmillapp):not(.no-default-style),.dark input[type="url"]:not(.windmillapp):not(.no-default-style),.dark input[type="password"]:not(.windmillapp):not(.no-default-style),.dark input[type="number"]:not(.windmillapp):not(.no-default-style),.dark input[type="date"]:not(.windmillapp):not(.no-default-style),.dark input[type="datetime-local"]:not(.windmillapp):not(.no-default-style),.dark input[type="month"]:not(.windmillapp):not(.no-default-style),.dark input[type="search"]:not(.windmillapp):not(.no-default-style),.dark input[type="tel"]:not(.windmillapp):not(.no-default-style),.dark input[type="time"]:not(.windmillapp):not(.no-default-style),.dark input[type="week"]:not(.windmillapp):not(.no-default-style),.dark textarea:not(.windmillapp):not(.no-default-style):not(.monaco-mouse-cursor-text),.dark select:not(.windmillapp):not(.no-default-style)':
-					{
-						backgroundColor: theme('colors.gray.700'),
-						color: theme('colors.gray.200'),
-						borderColor: theme('colors.gray.600'),
-						'&:focus': {
-							'--tw-ring-color': theme('colors.frost.700')
+							backgroundColor: 'rgba(var(--color-surface-disabled) / 0.2)' + ' !important'
 						}
 					},
 
@@ -765,41 +712,41 @@ const config = {
 			addComponents({
 				'.table-custom': {
 					'& th': {
-						paddingTop: theme('spacing.3'),
+						paddingTop: theme('spacing.2'),
 						paddingRight: theme('spacing.1'),
 						paddingLeft: theme('spacing.1'),
-						paddingBottom: theme('spacing.3'),
-						fontSize: theme('fontSize.sm'),
+						paddingBottom: theme('spacing.2'),
+						fontSize: theme('fontSize.2xs'),
 						textAlign: 'left',
-						fontWeight: theme('fontWeight.semibold'),
-						color: theme('colors.gray.900'),
-						textTransform: 'capitalize'
+						fontWeight: theme('fontWeight.normal'),
+						color: 'rgb(var(--color-text-secondary))',
+						textTransform: 'none'
 					},
 					'.dark & th': {
-						color: theme('colors.gray.200')
+						color: 'rgb(var(--color-text-secondary))'
 					},
 					'& td': {
 						paddingLeft: theme('spacing.1'),
 						paddingRight: theme('spacing.1'),
 						paddingTop: theme('spacing.2'),
 						paddingBottom: theme('spacing.2'),
-						fontSize: theme('fontSize.sm'),
-						color: theme('colors.gray.700')
+						fontSize: theme('fontSize.xs'),
+						color: 'rgb(var(--color-text-primary))'
 					},
 					'.dark & td ': {
-						color: theme('colors.gray.200')
+						color: 'rgb(var(--color-text-primary))'
 					},
 					'& tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.200')}`
+						borderTop: `1px solid rgb(var(--color-border-light))`
 					},
 					'.dark & tbody > :not([hidden]) ~ :not([hidden])': {
-						borderTop: `1px solid ${theme('colors.gray.700')}`
+						borderTop: `1px solid rgb(var(--color-border-light))`
 					},
 					'& tbody > tr:hover': {
-						backgroundColor: theme('colors.gray.50')
+						backgroundColor: 'rgb(var(--color-surface-hover))'
 					},
 					'.dark & tbody > tr:hover': {
-						backgroundColor: theme('colors.gray.800')
+						backgroundColor: 'rgb(var(--color-surface-hover))'
 					}
 				},
 				'.commit-hash': {
@@ -830,19 +777,19 @@ const config = {
 					)})`
 				},
 				'.splitpanes__pane': {
-					backgroundColor: lightTheme.surface + ' !important',
+					backgroundColor: `rgb(${tokens.light['surface-primary']})` + ' !important',
 					overflow: 'auto !important'
 				},
 				'.dark .splitpanes__pane': {
-					backgroundColor: darkTheme.surface + ' !important',
+					backgroundColor: `rgb(${tokens.dark['surface-primary']})` + ' !important',
 					overflow: 'auto !important'
 				},
 				'.splitpanes__splitter': {
-					backgroundColor: lightTheme.border + ' !important',
+					backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
 					margin: '0 !important',
 					border: 'none !important',
 					'&::after': {
-						backgroundColor: lightTheme.border + ' !important',
+						backgroundColor: `rgb(${tokens.light['border-light']})` + ' !important',
 						margin: '0 !important',
 						transform: 'none !important',
 						transition: 'opacity 200ms !important',
@@ -856,9 +803,9 @@ const config = {
 					}
 				},
 				'.dark .splitpanes__splitter': {
-					backgroundColor: darkTheme.border + ' !important',
+					backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important',
 					'&::after': {
-						backgroundColor: darkTheme.border + ' !important'
+						backgroundColor: `rgb(${tokens.dark['border-light']})` + ' !important'
 					}
 				},
 				'.splitpanes--vertical>.splitpanes__splitter': {
@@ -892,22 +839,22 @@ const config = {
 				// Windmill Tab classes
 
 				'.wm-tab-active': {
-					borderColor: darkTheme.border,
-					color: lightTheme.textPrimary
+					borderColor: `rgb(${tokens.dark['border-light']})`,
+					color: `rgb(${tokens.light['text-primary']})`
 				},
 
 				'.dark .wm-tab-active': {
-					borderColor: lightTheme.border,
-					color: darkTheme.textPrimary
+					borderColor: `rgb(${tokens.dark['border-light']})`,
+					color: `rgb(${tokens.dark['text-primary']})`
 				}
 			})
 
 			addUtilities({
 				'.separator': {
-					backgroundColor: `${lightTheme.border} !important`
+					backgroundColor: `${`rgb(${tokens.dark['border-light']})`} !important`
 				},
 				'.dark .separator': {
-					backgroundColor: `${darkTheme.border} !important`
+					backgroundColor: `${`rgb(${tokens.dark['border-light']})`} !important`
 				},
 				'.center-center': {
 					display: 'flex',
@@ -915,10 +862,10 @@ const config = {
 					alignItems: 'center'
 				},
 				'.inner-border': {
-					boxShadow: `inset 0 0 0 1px ${lightTheme.border}`
+					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.dark['border-light']})`}`
 				},
 				'.dark .inner-border': {
-					boxShadow: `inset 0 0 0 1px ${darkTheme.border}`
+					boxShadow: `inset 0 0 0 1px ${`rgb(${tokens.dark['border-light']})`}`
 				},
 				'.z5000': {
 					zIndex: '5000 !important'
@@ -957,3 +904,42 @@ const config = {
 }
 
 module.exports = config
+
+/**
+ * @template T
+ * @param {T} obj
+ * @returns {T}
+ */
+function makeRgb(obj) {
+	const result = {}
+	for (const [key, value] of Object.entries(obj)) {
+		if (typeof value === 'object' && value !== null) {
+			result[key] = makeRgb(value)
+		} else if (typeof value === 'string' && value.startsWith('#')) {
+			result[key] = hexToRgb(value)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
+}
+
+function hexToRgb(hex) {
+	// Remove '#' symbol from the beginning of the hex value
+	hex = hex.replace('#', '')
+
+	// Convert the hex value to decimal
+	const r = parseInt(hex.substring(0, 2), 16)
+	const g = parseInt(hex.substring(2, 4), 16)
+	const b = parseInt(hex.substring(4, 6), 16)
+
+	// Check if hex has alpha channel (8 characters)
+	if (hex.length === 8) {
+		const a = parseInt(hex.substring(6, 8), 16) / 255
+		// Return RGB with alpha as decimal value for CSS
+		return `${r} ${g} ${b} / ${a.toFixed(3)}`
+	}
+
+	// Return the RGB string format without alpha
+	return `${r} ${g} ${b}`
+}

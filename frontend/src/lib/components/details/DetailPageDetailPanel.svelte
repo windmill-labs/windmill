@@ -29,17 +29,17 @@
 
 <div class="flex flex-col h-full">
 	<Tabs bind:selected wrapperClass="flex-none w-full">
-		<Tab value="saved_inputs">Inputs library</Tab>
+		<Tab value="saved_inputs" label="Inputs library" />
 		{#if !isOperator}
-			<Tab value="triggers">Triggers</Tab>
+			<Tab value="triggers" label="Triggers" />
 		{/if}
 		{#if flow_json}
-			<Tab value="raw">Export</Tab>
+			<Tab value="raw" label="Export" />
 		{:else}
-			<Tab value="script">Script</Tab>
+			<Tab value="script" label="Script" />
 		{/if}
 		{#if selected == 'flow_step'}
-			<Tab value="flow_step">Step</Tab>
+			<Tab value="flow_step" label="Step" />
 		{/if}
 
 		{#snippet content()}

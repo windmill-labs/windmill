@@ -4,15 +4,14 @@ import {
   colors,
   Command,
   Confirm,
-  Select,
   ensureDir,
-  minimatch,
   JSZip,
-  path,
   log,
-  yamlStringify,
-  yamlParseContent,
+  minimatch,
+  path,
   SEP,
+  yamlParseContent,
+  yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
@@ -29,51 +28,77 @@ import { downloadZip } from "./pull.ts";
 import {
   exts,
   findContentFile,
-  findGlobalDeps,
   findResourceFile,
   handleScriptMetadata,
   removeExtensionToPath,
 } from "../script/script.ts";
 
 import { handleFile } from "../script/script.ts";
-import { deepEqual, isFileResource } from "../../utils/utils.ts";
 import {
-  SyncOptions,
-  readConfigFile,
+  deepEqual,
+  fetchRemoteVersion,
+  isFileResource,
+  isRawAppFile,
+  isWorkspaceDependencies,
+} from "../../utils/utils.ts";
+import {
   getEffectiveSettings,
-  validateBranchConfiguration,
   mergeConfigWithConfigFile,
+  SyncOptions,
+  validateBranchConfiguration,
 } from "../../core/conf.ts";
 import {
-  SpecificItemsConfig,
-  getSpecificItemsForCurrentBranch,
-  isSpecificItem,
-  getBranchSpecificPath,
   fromBranchSpecificPath,
-  isCurrentBranchFile,
-  toBranchSpecificPath,
+  getBranchSpecificPath,
+  getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
+  isCurrentBranchFile,
+  isSpecificItem,
+  SpecificItemsConfig,
 } from "../../core/specific_items.ts";
 import { getCurrentGitBranch } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
-import { SyncCodebase, listSyncCodebases } from "../../utils/codebase.ts";
+import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
 import {
-  generateFlowLockInternal,
   generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
   readLockfile,
+  workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
+  newRawAppPathAssigner,
   PathAssigner,
 } from "../../../windmill-utils-internal/src/path-utils/path-assigner.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
+import { generateFlowLockInternal } from "../flow/flow_metadata.ts";
+import { isExecutionModeAnonymous } from "../app/app.ts";
+import {
+  APP_BACKEND_FOLDER,
+  generateAppLocksInternal,
+} from "../app/app_metadata.ts";
+import {
+  isFlowPath,
+  isAppPath,
+  isRawAppPath,
+  extractFolderPath,
+  isFlowMetadataFile,
+  isAppMetadataFile,
+  isRawAppMetadataFile,
+  isRawAppFolderMetadataFile,
+  getDeleteSuffix,
+  transformJsonPathToDir,
+  getFolderSuffix,
+  getFolderSuffixWithSep,
+  getNonDottedPaths,
+} from "../../utils/resource_folders.ts";
 
 // Merge CLI options with effective settings, preserving CLI flags as overrides
 function mergeCliWithEffectiveOptions<
-  T extends GlobalOptions & SyncOptions & { repository?: string }
+  T extends GlobalOptions & SyncOptions & { repository?: string },
 >(cliOpts: T, effectiveOpts: SyncOptions): T {
   // overlay CLI options on top (undefined cliOpts won't override effectiveOpts)
   return Object.assign({}, effectiveOpts, cliOpts) as T;
@@ -83,7 +108,7 @@ function mergeCliWithEffectiveOptions<
 async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
-  promotion?: string
+  promotion?: string,
 ): Promise<SyncOptions> {
   return await getEffectiveSettings(localConfig, promotion);
 }
@@ -91,6 +116,7 @@ async function resolveEffectiveSyncOptions(
 type DynFSElement = {
   isDirectory: boolean;
   path: string;
+  whitelistedExt?: boolean;
   // getContentBytes(): Promise<Uint8Array>;
   getContentText(): Promise<string>;
   getChildren(): AsyncIterable<DynFSElement>;
@@ -98,7 +124,7 @@ type DynFSElement = {
 
 export function findCodebase(
   path: string,
-  codebases: SyncCodebase[]
+  codebases: SyncCodebase[],
 ): SyncCodebase | undefined {
   if (!path.endsWith(".ts")) {
     return;
@@ -138,7 +164,7 @@ async function addCodebaseDigestIfRelevant(
   path: string,
   content: string,
   codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): Promise<string> {
   const isScript = path.endsWith(".script.yaml");
   if (!isScript) {
@@ -162,7 +188,7 @@ async function addCodebaseDigestIfRelevant(
         parsed = yamlParseContent(path, content);
       } catch (error) {
         log.error(
-          `Failed to parse YAML content for codebase digest at path: ${path}`
+          `Failed to parse YAML content for codebase digest at path: ${path}`,
         );
         throw error;
       }
@@ -176,7 +202,7 @@ async function addCodebaseDigestIfRelevant(
         return yamlStringify(parsed, yamlOptions);
       } else {
         throw Error(
-          `Expected local yaml ${path} to be an object, found: ${content} instead`
+          `Expected local yaml ${path} to be an object, found: ${content} instead`,
         );
       }
     }
@@ -187,12 +213,12 @@ async function addCodebaseDigestIfRelevant(
 export async function FSFSElement(
   p: string,
   codebases: SyncCodebase[],
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): Promise<DynFSElement> {
   function _internal_element(
     localP: string,
     isDir: boolean,
-    codebases: SyncCodebase[]
+    codebases: SyncCodebase[],
   ): DynFSElement {
     return {
       isDirectory: isDir,
@@ -204,7 +230,7 @@ export async function FSFSElement(
             yield _internal_element(
               path.join(localP, e.name),
               e.isDirectory,
-              codebases
+              codebases,
             );
           }
         } catch (e) {
@@ -221,7 +247,7 @@ export async function FSFSElement(
           itemPath,
           content,
           codebases,
-          ignoreCodebaseChanges
+          ignoreCodebaseChanges,
         );
         return r;
       },
@@ -263,9 +289,371 @@ export interface InlineScript {
   content: string;
 }
 
+function extractFields(fields: Record<string, any>) {
+  Object.entries(fields).forEach(([k, v]) => {
+    if (typeof v == "object") {
+      if (v.type == "static") {
+        fields[k] = { value: v.value };
+      } else if (v.type == "javascript") {
+        fields[k] = { expr: v.expr, allowUserResources: v.allowUserResources };
+      } else if (v.type == "user") {
+        fields[k] = undefined;
+      }
+    }
+  });
+}
+
+export function extractFieldsForRawApps(runnables: Record<string, any>) {
+  Object.values(runnables).forEach((v) => {
+    if (typeof v == "object") {
+      if (v.fields !== undefined) {
+        extractFields(v.fields);
+      }
+    }
+  });
+}
+
+/**
+ * Generates AGENTS.md - the main documentation file for AI agents working with raw apps.
+ * This includes app structure, backend runnables, datatables usage, and all critical rules.
+ */
+export function generateAgentsDocumentation(data: {
+  tables?: string[];
+  datatable?: string;
+  schema?: string;
+} | undefined): string {
+  const tables = data?.tables ?? [];
+  const defaultDatatable = data?.datatable;
+  const defaultSchema = data?.schema;
+
+  return `# AI Agent Instructions
+
+This file contains instructions for AI agents (Claude, GPT, etc.) working with this Windmill raw app.
+**Read this file first** before making any changes to the app.
+
+## App Structure
+
+\`\`\`
+my_app.raw_app/
+├── AGENTS.md              # This file - read first!
+├── DATATABLES.md          # Database schemas (run 'wmill app generate-agents' to refresh)
+├── raw_app.yaml           # App configuration (summary, path, data settings)
+├── index.tsx              # Frontend entry point
+├── App.tsx                # Main React/Svelte/Vue component
+├── index.css              # Styles
+├── package.json           # Frontend dependencies
+├── wmill.ts               # Auto-generated - backend type definitions (DO NOT EDIT)
+├── backend/               # Backend runnables (server-side scripts)
+│   ├── <id>.<ext>         # Code file (e.g., get_user.ts) - auto-detected as inline
+│   ├── <id>.yaml          # Optional: config for fields, or to reference existing scripts
+│   └── <id>.lock          # Lock file (run 'wmill app generate-locks' to create)
+└── sql_to_apply/          # SQL migrations (dev only, not synced)
+    └── *.sql              # SQL files to apply via dev server
+\`\`\`
+
+## Backend Runnables
+
+Backend runnables are server-side scripts that your frontend can call. They live in the \`backend/\` folder.
+
+### Creating a Backend Runnable
+
+The simplest way to create a runnable is to add a code file:
+
+\`\`\`
+backend/<id>.<ext>
+\`\`\`
+
+The runnable ID is the filename without extension. For example, \`get_user.ts\` creates a runnable with ID \`get_user\`.
+
+**Optional:** Add a \`<id>.yaml\` file for additional configuration (fields, static values, etc.).
+
+### Supported Languages and Extensions
+
+| Language    | Extension      | Example            |
+|-------------|----------------|--------------------|
+| TypeScript  | \`.ts\`        | \`myFunc.ts\`      |
+| TypeScript (Bun) | \`.bun.ts\` | \`myFunc.bun.ts\` |
+| TypeScript (Deno) | \`.deno.ts\` | \`myFunc.deno.ts\` |
+| Python      | \`.py\`        | \`myFunc.py\`      |
+| Go          | \`.go\`        | \`myFunc.go\`      |
+| Bash        | \`.sh\`        | \`myFunc.sh\`      |
+| PowerShell  | \`.ps1\`       | \`myFunc.ps1\`     |
+| PostgreSQL  | \`.pg.sql\`    | \`myFunc.pg.sql\`  |
+| MySQL       | \`.my.sql\`    | \`myFunc.my.sql\`  |
+| BigQuery    | \`.bq.sql\`    | \`myFunc.bq.sql\`  |
+| Snowflake   | \`.sf.sql\`    | \`myFunc.sf.sql\`  |
+| MS SQL      | \`.ms.sql\`    | \`myFunc.ms.sql\`  |
+| GraphQL     | \`.gql\`       | \`myFunc.gql\`     |
+| PHP         | \`.php\`       | \`myFunc.php\`     |
+| Rust        | \`.rs\`        | \`myFunc.rs\`      |
+| C#          | \`.cs\`        | \`myFunc.cs\`      |
+| Java        | \`.java\`      | \`myFunc.java\`    |
+
+### Example: Creating a Runnable
+
+**backend/get_user.ts:**
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  return user;
+}
+\`\`\`
+
+That's it! The runnable is automatically detected and ready to use.
+
+**Generate lock files** for dependency management:
+\`\`\`bash
+wmill app generate-locks
+\`\`\`
+
+### Optional: YAML Configuration
+
+Add a \`<id>.yaml\` file to configure fields, static values, or other settings:
+
+**backend/get_user.yaml:**
+\`\`\`yaml
+type: inline
+fields:
+  user_id:
+    type: static
+    value: "default_user"
+\`\`\`
+
+### Referencing Existing Scripts
+
+To reference an existing Windmill script instead of inline code, use a different type:
+
+**backend/existing_script.yaml:**
+\`\`\`yaml
+type: script
+path: f/my_folder/existing_script
+\`\`\`
+
+For flows:
+\`\`\`yaml
+type: flow
+path: f/my_folder/my_flow
+\`\`\`
+
+### Calling Backend Runnables from Frontend
+
+Import from the auto-generated \`wmill.ts\`:
+
+\`\`\`typescript
+import { backend } from './wmill';
+
+// Call a backend runnable
+const user = await backend.get_user({ user_id: '123' });
+\`\`\`
+
+The \`wmill.ts\` file is auto-generated and provides type-safe access to all backend runnables.
+
+---
+
+## ⚠️ CRITICAL RULES FOR DATA TABLES
+
+**These rules are mandatory - violating them will cause runtime errors:**
+
+1. **ONLY USE WHITELISTED TABLES**: You can ONLY query tables listed in \`raw_app.yaml\` → \`data.tables\`.
+   Tables not in this list are NOT accessible to the app.
+
+2. **ADD TABLES BEFORE USING**: To use a new table, you MUST first add it to \`data.tables\` in \`raw_app.yaml\`.
+
+3. **USE CONFIGURED DATATABLE/SCHEMA**: When looking for tables:
+   - First, check the whitelisted tables below
+   - If creating new tables, use the default datatable${defaultSchema ? ` and schema` : ''} configured for this app
+   - See \`DATATABLES.md\` for full schema information
+
+### Current Data Configuration
+
+${defaultDatatable
+  ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
+  : '**No default datatable configured.** Set \`data.datatable\` in \`raw_app.yaml\` to enable database access.'}
+
+### Whitelisted Tables
+
+${tables.length > 0
+  ? `These tables are accessible to this app:\n\n${tables.map(t => `- \`${t}\``).join('\n')}`
+  : `**No tables whitelisted.** Add tables to \`data.tables\` in \`raw_app.yaml\`.`}
+
+### Adding a Table to the Whitelist
+
+Edit \`raw_app.yaml\`:
+
+\`\`\`yaml
+data:
+  datatable: ${defaultDatatable || 'main'}
+  ${defaultSchema ? `schema: ${defaultSchema}\n  ` : ''}tables:
+${tables.length > 0 ? tables.map(t => `    - ${t}`).join('\n') : '    # Add tables here'}
+    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}new_table  # ← Add like this
+\`\`\`
+
+**Table reference formats:**
+- \`<datatable>\` - All tables in the datatable
+- \`<datatable>/<table>\` - Specific table in public schema
+- \`<datatable>/<schema>:<table>\` - Table in specific schema
+
+---
+
+## Querying Data Tables
+
+### TypeScript (Bun/Deno)
+
+\`\`\`typescript
+import * as wmill from 'windmill-client';
+
+export async function main(user_id: string) {
+  const sql = wmill.datatable();  // Or: wmill.datatable('other_datatable')
+
+  // Parameterized queries (safe from SQL injection)
+  const user = await sql\`SELECT * FROM users WHERE id = \${user_id}\`.fetchOne();
+  const users = await sql\`SELECT * FROM users WHERE active = \${true}\`.fetch();
+
+  // Insert/Update
+  await sql\`INSERT INTO users (name, email) VALUES (\${name}, \${email})\`;
+  await sql\`UPDATE users SET name = \${newName} WHERE id = \${user_id}\`;
+
+  return user;
+}
+\`\`\`
+
+### Python
+
+\`\`\`python
+import wmill
+
+def main(user_id: str):
+    db = wmill.datatable()  # Or: wmill.datatable('other_datatable')
+
+    # Use $1, $2, etc. for parameters
+    user = db.query('SELECT * FROM users WHERE id = $1', user_id).fetch_one()
+    users = db.query('SELECT * FROM users WHERE active = $1', True).fetch()
+
+    # Insert/Update
+    db.query('INSERT INTO users (name, email) VALUES ($1, $2)', name, email)
+    db.query('UPDATE users SET name = $1 WHERE id = $2', new_name, user_id)
+
+    return user
+\`\`\`
+
+---
+
+## SQL Migrations (sql_to_apply/)
+
+The \`sql_to_apply/\` folder is for creating/modifying database tables during development.
+
+### How It Works
+
+1. Create \`.sql\` files in \`sql_to_apply/\`
+2. Run \`wmill app dev\` - the dev server watches this folder
+3. When SQL files change, a modal appears in the browser to confirm execution
+4. After creating tables, **add them to \`data.tables\`** in \`raw_app.yaml\`
+
+### Example Migration
+
+**sql_to_apply/001_create_users.sql:**
+\`\`\`sql
+CREATE TABLE IF NOT EXISTS ${defaultSchema ? defaultSchema + '.' : ''}users (
+    id SERIAL PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+\`\`\`
+
+After applying, add to \`raw_app.yaml\`:
+\`\`\`yaml
+data:
+  tables:
+    - ${defaultDatatable || 'main'}/${defaultSchema ? defaultSchema + ':' : ''}users
+\`\`\`
+
+### Important Notes
+
+- **This folder is NOT synced** - it's local development only
+- **Use idempotent SQL**: \`CREATE TABLE IF NOT EXISTS\`, etc.
+- **Number your files**: \`001_\`, \`002_\` for ordering
+- **Always whitelist tables after creation**
+
+---
+
+## Commands Reference
+
+| Command | Description |
+|---------|-------------|
+| \`wmill app dev\` | Start dev server with live reload |
+| \`wmill app generate-agents\` | Refresh AGENTS.md and DATATABLES.md |
+| \`wmill app generate-locks\` | Generate lock files for backend runnables |
+| \`wmill sync push\` | Deploy app to Windmill |
+| \`wmill sync pull\` | Pull latest from Windmill |
+
+---
+
+## Best Practices
+
+1. **Check DATATABLES.md** for existing tables before creating new ones
+2. **Use parameterized queries** - never concatenate user input into SQL
+3. **Keep runnables focused** - one function per file
+4. **Use descriptive IDs** - \`get_user.ts\` not \`a.ts\`
+5. **Always whitelist tables** - add to \`data.tables\` before querying
+
+---
+*This file is auto-generated. Run \`wmill app new\` or \`wmill sync pull\` to regenerate.*
+`;
+}
+
+/**
+ * Generates a simple DATATABLES.md with just the current configuration summary.
+ * The detailed schema information is generated by generate_datatables.ts command.
+ */
+export function generateDatatablesDocumentation(data: {
+  tables?: string[];
+  datatable?: string;
+  schema?: string;
+} | undefined): string {
+  const tables = data?.tables ?? [];
+  const defaultDatatable = data?.datatable;
+  const defaultSchema = data?.schema;
+
+  return `# Data Tables
+
+This file contains the database schema information for this app.
+Run \`wmill app generate-agents\` to refresh with current workspace schemas.
+
+**For full instructions, see \`AGENTS.md\`.**
+
+## Current Configuration
+
+${defaultDatatable
+  ? `**Default Datatable:** \`${defaultDatatable}\`${defaultSchema ? ` | **Default Schema:** \`${defaultSchema}\`` : ''}`
+  : '**No default datatable configured.**'}
+
+## Whitelisted Tables
+
+${tables.length > 0
+  ? `${tables.map(t => `- \`${t}\``).join('\n')}`
+  : `*No tables whitelisted. Add tables to \`data.tables\` in \`raw_app.yaml\`.*`}
+
+---
+
+## Schema Information
+
+Run \`wmill app generate-agents\` to populate this section with detailed schema information
+from the workspace datatables.
+
+---
+*Auto-generated. Run \`wmill app generate-agents\` to refresh schemas.*
+`;
+}
 export function extractInlineScriptsForApps(
+  key: string | undefined,
   rec: any,
-  pathAssigner: PathAssigner
+  pathAssigner: PathAssigner,
+  toId: (key: string, val: any) => string,
+  removeSchema: boolean,
 ): InlineScript[] {
   if (!rec) {
     return [];
@@ -273,9 +661,11 @@ export function extractInlineScriptsForApps(
   if (typeof rec == "object") {
     return Object.entries(rec).flatMap(([k, v]) => {
       if (k == "inlineScript" && typeof v == "object") {
+        rec["type"] = undefined;
         const o: Record<string, any> = v as any;
-        const name = rec["name"];
-        const [basePath, ext] = pathAssigner.assignPath(name, o["language"]);
+        const name = toId(key ?? "", rec);
+        const [basePathO, ext] = pathAssigner.assignPath(name, o["language"]);
+        const basePath = basePathO.replaceAll(SEP, "/");
         const r = [];
         if (o["content"]) {
           const content = o["content"];
@@ -293,9 +683,18 @@ export function extractInlineScriptsForApps(
             content: lock,
           });
         }
+        if (removeSchema) {
+          o.schema = undefined;
+        }
         return r;
       } else {
-        return extractInlineScriptsForApps(v, pathAssigner);
+        return extractInlineScriptsForApps(
+          k,
+          v,
+          pathAssigner,
+          toId,
+          removeSchema,
+        );
       }
     });
   }
@@ -307,40 +706,54 @@ function ZipFSElement(
   useYaml: boolean,
   defaultTs: "bun" | "deno",
   resourceTypeToFormatExtension: Record<string, string>,
-  ignoreCodebaseChanges: boolean
+  ignoreCodebaseChanges: boolean,
 ): DynFSElement {
   async function _internal_file(
     p: string,
-    f: JSZip.JSZipObject
+    f: JSZip.JSZipObject,
   ): Promise<DynFSElement[]> {
-    const kind: "flow" | "app" | "script" | "resource" | "other" = p.endsWith(
-      "flow.json"
-    )
+    const kind:
+      | "flow"
+      | "app"
+      | "script"
+      | "resource"
+      | "other"
+      | "raw_app"
+      | "dependencies" = isFlowMetadataFile(p)
       ? "flow"
-      : p.endsWith("app.json")
-      ? "app"
-      : p.endsWith("script.json")
-      ? "script"
-      : p.endsWith("resource.json")
-      ? "resource"
-      : "other";
+      : isAppMetadataFile(p)
+        ? "app"
+        : isRawAppMetadataFile(p)
+          ? "raw_app"
+          : p.endsWith(".script.json")
+            ? "script"
+            : p.endsWith(".resource.json")
+              ? "resource"
+              : p.startsWith("dependencies/")
+                ? "dependencies"
+                : "other";
 
     const isJson = p.endsWith(".json");
 
     function transformPath() {
       if (kind == "flow") {
-        return p.replace("flow.json", "flow");
+        return transformJsonPathToDir(p, "flow");
       } else if (kind == "app") {
-        return p.replace("app.json", "app");
+        return transformJsonPathToDir(p, "app");
+      } else if (kind == "raw_app") {
+        return transformJsonPathToDir(p, "raw_app");
+      } else if (kind == "dependencies") {
+        return p;
       } else {
         return useYaml && isJson ? p.replaceAll(".json", ".yaml") : p;
       }
     }
 
     const finalPath = transformPath();
+
     const r = [
       {
-        isDirectory: kind == "flow" || kind == "app",
+        isDirectory: kind == "flow" || kind == "app" || kind == "raw_app",
         path: finalPath,
         async *getChildren(): AsyncIterable<DynFSElement> {
           if (kind == "flow") {
@@ -357,11 +770,13 @@ function ZipFSElement(
                 flow.value.modules,
                 {},
                 SEP,
-                defaultTs
+                defaultTs,
+                undefined, // pathAssigner - let it create one
+                { skipInlineScriptSuffix: getNonDottedPaths() },
               );
             } catch (error) {
               log.error(
-                `Failed to extract inline scripts for flow at path: ${p}`
+                `Failed to extract inline scripts for flow at path: ${p}`,
               );
               throw error;
             }
@@ -397,15 +812,19 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForApps(
+                undefined,
                 app?.["value"],
-                newPathAssigner(defaultTs)
+                newPathAssigner(defaultTs, { skipInlineScriptSuffix: getNonDottedPaths() }),
+                (_, val) => val["name"],
+                false,
               );
             } catch (error) {
               log.error(
-                `Failed to extract inline scripts for app at path: ${p}`
+                `Failed to extract inline scripts for app at path: ${p}`,
               );
               throw error;
             }
+
             for (const s of inlineScripts) {
               yield {
                 isDirectory: false,
@@ -418,6 +837,10 @@ function ZipFSElement(
               };
             }
 
+            if (isExecutionModeAnonymous(app)) {
+              app.public = true;
+            }
+            app.policy = undefined;
             yield {
               isDirectory: false,
               path: path.join(finalPath, "app.yaml"),
@@ -425,6 +848,169 @@ function ZipFSElement(
               // deno-lint-ignore require-await
               async getContentText() {
                 return yamlStringify(app, yamlOptions);
+              },
+            };
+          } else if (kind == "raw_app") {
+            let rawApp;
+            try {
+              rawApp = JSON.parse(await f.async("text"));
+            } catch (error) {
+              log.error(`Failed to parse app.yaml at path: ${p}`);
+              throw error;
+            }
+            if (rawApp?.["policy"]?.["execution_mode"] == "anonymous") {
+              rawApp.public = true;
+            }
+            // console.log("rawApp", rawApp);
+            rawApp.policy = undefined;
+            // custom_path is derived from the file path, don't store it
+            delete rawApp?.["custom_path"];
+            let inlineScripts;
+            const value = rawApp?.["value"];
+            const runnables = value?.["runnables"] ?? {};
+            // console.log("FOOB", value?.["runnables"])
+            extractFieldsForRawApps(runnables);
+            try {
+              inlineScripts = extractInlineScriptsForApps(
+                undefined,
+                value,
+                newRawAppPathAssigner(defaultTs),
+                (key, val_) => key,
+                true,
+              );
+            } catch (error) {
+              log.error(
+                `Failed to extract inline scripts for raw app at path: ${p}`,
+              );
+              throw error;
+            }
+
+            try {
+              for (const [filePath, content] of Object.entries(
+                value?.["files"] ?? [],
+              )) {
+                // Skip generated/dev-only files and folders
+                if (
+                  filePath.startsWith("/sql_to_apply/") ||
+                  filePath === "/wmill.d.ts" ||
+                  filePath === "/AGENTS.md" ||
+                  filePath === "/DATATABLES.md"
+                ) {
+                  continue;
+                }
+                yield {
+                  isDirectory: false,
+                  path: path.join(finalPath, filePath.substring(1)),
+                  async *getChildren() {},
+                  // deno-lint-ignore require-await
+                  async getContentText() {
+                    if (typeof content !== "string") {
+                      throw new Error(
+                        `Content of raw app file ${filePath} is not a string`,
+                      );
+                    }
+                    return content as string;
+                  },
+                };
+              }
+            } catch (error) {
+              log.error(`Failed to extract files for raw app at path: ${p}`);
+              throw error;
+            }
+
+            // Yield inline script content and lock files
+            for (const s of inlineScripts) {
+              yield {
+                isDirectory: false,
+                path: path.join(finalPath, APP_BACKEND_FOLDER, s.path),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return s.content;
+                },
+              };
+            }
+
+            // Yield each runnable as a separate YAML file in the backend folder
+            // For inline scripts, simplify the YAML - inlineScript is not needed since
+            // content/lock/language can be derived from sibling files
+            for (const [runnableId, runnable] of Object.entries(runnables)) {
+              const runnableObj = runnable as Record<string, any>;
+              let simplifiedRunnable: Record<string, any>;
+
+              if (runnableObj.inlineScript) {
+                // For inline scripts, remove inlineScript and just keep type: 'inline'
+                // plus any other metadata (name, fields, etc.)
+                simplifiedRunnable = { type: "inline" };
+
+                // Copy over any other fields that aren't inlineScript or type
+                for (const [key, value] of Object.entries(runnableObj)) {
+                  if (key !== "inlineScript" && key !== "type") {
+                    simplifiedRunnable[key] = value;
+                  }
+                }
+              } else if (runnableObj.type === "path" && runnableObj.runType) {
+                // For path-based runnables, convert from API format to file format
+                // { type: "path", runType: "script" } -> { type: "script" }
+                // Also remove schema field
+                const {
+                  type: _type,
+                  runType,
+                  schema: _schema,
+                  ...rest
+                } = runnableObj;
+                simplifiedRunnable = {
+                  type: runType,
+                  ...rest,
+                };
+              } else {
+                // For other runnables, keep as-is
+                simplifiedRunnable = runnableObj;
+              }
+
+              yield {
+                isDirectory: false,
+                path: path.join(
+                  finalPath,
+                  APP_BACKEND_FOLDER,
+                  `${runnableId}.yaml`,
+                ),
+                async *getChildren() {},
+                // deno-lint-ignore require-await
+                async getContentText() {
+                  return yamlStringify(simplifiedRunnable, yamlOptions);
+                },
+              };
+            }
+
+            // Extract data field from value before deleting it
+            const data = value?.["data"];
+            if (data) {
+              rawApp.data = data;
+            }
+
+            // Remove runnables and value from raw_app.yaml - they are now in separate files
+            delete rawApp?.["value"];
+            // Don't include runnables in raw_app.yaml anymore
+
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "raw_app.yaml"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return yamlStringify(rawApp, yamlOptions);
+              },
+            };
+
+            // Yield DATATABLES.md documentation file for AI agents
+            yield {
+              isDirectory: false,
+              path: path.join(finalPath, "DATATABLES.md"),
+              async *getChildren() {},
+              // deno-lint-ignore require-await
+              async getContentText() {
+                return generateDatatablesDocumentation(data);
               },
             };
           }
@@ -487,7 +1073,7 @@ function ZipFSElement(
               : JSON.stringify(parsed, null, 2);
           }
 
-          return useYaml && isJson
+          return useYaml && isJson && kind != "dependencies"
             ? (() => {
                 try {
                   return yamlStringify(JSON.parse(content), yamlOptions);
@@ -588,7 +1174,7 @@ function ZipFSElement(
 
 export async function* readDirRecursiveWithIgnore(
   ignore: (path: string, isDirectory: boolean) => boolean,
-  root: DynFSElement
+  root: DynFSElement,
 ): AsyncGenerator<{
   path: string;
   ignored: boolean;
@@ -620,16 +1206,18 @@ export async function* readDirRecursiveWithIgnore(
 
   while (stack.length > 0) {
     const e = stack.pop()!;
-    // console.log(e.path);
     yield e;
     for await (const e2 of e.c()) {
       if (e2.isDirectory) {
         const dirName = e2.path.split(SEP).pop();
-        if (dirName == "node_modules" || dirName?.startsWith(".")) {
+        if (
+          dirName == "node_modules" ||
+          dirName == ".claude" ||
+          dirName?.startsWith(".")
+        ) {
           continue;
         }
       }
-      // console.log(e2.path);
       stack.push({
         path: e2.path,
         ignored: e.ignored || ignore(e2.path, e2.isDirectory),
@@ -659,40 +1247,65 @@ export async function elementsToMap(
   ignore: (path: string, isDirectory: boolean) => boolean,
   json: boolean,
   skips: Skips,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
-
-  // First pass: collect all file paths to identify branch-specific files
-  const allPaths: string[] = [];
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (!entry.isDirectory && !entry.ignored) {
-      allPaths.push(entry.path);
+    // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
+    if (entry.isDirectory || entry.ignored) {
+      continue;
     }
-  }
+    const path = entry.path;
+    if (
+      !isFileResource(path) &&
+      !isRawAppFile(path) &&
+      !isWorkspaceDependencies(path)
+    ) {
+      if (json && path.endsWith(".yaml")) continue;
+      if (!json && path.endsWith(".json")) continue;
 
-  const branchSpecificExists = new Set<string>();
-
-  if (specificItems) {
-    const currentBranch = getCurrentGitBranch();
-    if (currentBranch) {
-      for (const path of allPaths) {
-        if (isCurrentBranchFile(path)) {
-          const basePath = fromBranchSpecificPath(path, currentBranch);
-          if (isSpecificItem(basePath, specificItems)) {
-            branchSpecificExists.add(basePath);
-          }
-        }
+      if (
+        ![
+          "json",
+          "yaml",
+          "go",
+          "sh",
+          "ts",
+          "py",
+          "sql",
+          "gql",
+          "ps1",
+          "php",
+          "js",
+          "lock",
+          "rs",
+          "cs",
+          "yml",
+          "nu",
+          "java",
+          "rb",
+          // for related places search: ADD_NEW_LANG
+        ].includes(path.split(".").pop() ?? "")
+      ) {
+        continue;
       }
     }
-  }
 
-  for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
-    if (entry.isDirectory || entry.ignored) continue;
-    const path = entry.path;
-    if (json && path.endsWith(".yaml") && !isFileResource(path)) continue;
-    if (!json && path.endsWith(".json") && !isFileResource(path)) continue;
+    if (isRawAppFile(path)) {
+      const suffix = path.split(getFolderSuffix("raw_app") + SEP).pop();
+      if (
+        suffix?.startsWith("dist/") ||
+        suffix == "wmill.d.ts" ||
+        suffix == "package-lock.json" ||
+        suffix == "DATATABLES.md"
+      ) {
+        continue;
+      }
+    }
+
+    if (skips.skipResources && isFileResource(path)) continue;
+
     const ext = json ? ".json" : ".yaml";
     if (!skips.includeSchedules && path.endsWith(".schedule" + ext)) continue;
     if (
@@ -706,15 +1319,17 @@ export async function elementsToMap(
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
         path.endsWith(".email_trigger" + ext))
-    )
+    ) {
       continue;
+    }
     if (!skips.includeUsers && path.endsWith(".user" + ext)) continue;
     if (!skips.includeGroups && path.endsWith(".group" + ext)) continue;
     if (!skips.includeSettings && path === "settings" + ext) continue;
     if (!skips.includeKey && path === "encryption_key") continue;
     if (skips.skipResources && path.endsWith(".resource" + ext)) continue;
-    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext))
+    if (skips.skipResourceTypes && path.endsWith(".resource-type" + ext)) {
       continue;
+    }
 
     // Use getTypeStrFromPath for consistent type detection
     try {
@@ -724,37 +1339,14 @@ export async function elementsToMap(
       if (skips.skipFlows && fileType === "flow") continue;
       if (skips.skipApps && fileType === "app") continue;
       if (skips.skipFolders && fileType === "folder") continue;
+      if (
+        skips.skipWorkspaceDependencies &&
+        fileType === "workspace_dependencies"
+      )
+        continue;
     } catch {
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
-
-    if (skips.skipResources && isFileResource(path)) continue;
-
-    if (
-      ![
-        "json",
-        "yaml",
-        "go",
-        "sh",
-        "ts",
-        "py",
-        "sql",
-        "gql",
-        "ps1",
-        "php",
-        "js",
-        "lock",
-        "rs",
-        "cs",
-        "yml",
-        "nu",
-        "java",
-        "rb",
-        // for related places search: ADD_NEW_LANG
-      ].includes(path.split(".").pop() ?? "") &&
-      !isFileResource(path)
-    )
-      continue;
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
@@ -832,6 +1424,7 @@ export interface Skips {
   skipFlows?: boolean | undefined;
   skipApps?: boolean | undefined;
   skipFolders?: boolean | undefined;
+  skipWorkspaceDependencies?: boolean | undefined;
   skipScriptsMetadata?: boolean | undefined;
   includeSchedules?: boolean | undefined;
   includeTriggers?: boolean | undefined;
@@ -850,7 +1443,7 @@ async function compareDynFSElement(
   ignoreMetadataDeletion: boolean,
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
-  specificItems?: SpecificItemsConfig
+  specificItems?: SpecificItemsConfig,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
@@ -879,25 +1472,6 @@ async function compareDynFSElement(
         }
       }
       return o;
-    } else if (k.endsWith(".app.yaml")) {
-      let o: any;
-      try {
-        o = yamlParseContent(k, v);
-      } catch (error) {
-        log.error(`Failed to parse app YAML content at path: ${k}`);
-        throw error;
-      }
-      const o2 = o["policy"];
-
-      if (typeof o2 == "object") {
-        if (o2["on_behalf_of"] != undefined) {
-          delete o2["on_behalf_of"];
-        }
-        if (o2["on_behalf_of_email"] != undefined) {
-          delete o2["on_behalf_of_email"];
-        }
-      }
-      return o;
     } else {
       try {
         return yamlParseContent(k, v);
@@ -919,17 +1493,20 @@ async function compareDynFSElement(
       if (skipMetadata) {
         continue;
       }
+      if (k.startsWith("dependencies/")) {
+        log.info(`Adding workspace dependencies file: ${k}`);
+      }
       changes.push({ name: "added", path: k, content: v });
     } else {
       if (m2[k] == v) {
         continue;
-      } else if (k.endsWith(".json")) {
+      } else if (k.endsWith(".json") && !isWorkspaceDependencies(k)) {
         let parsedV, parsedM2;
         try {
           parsedV = JSON.parse(v);
         } catch (error) {
           log.error(
-            `Failed to parse new JSON content for comparison at path: ${k}`
+            `Failed to parse new JSON content for comparison at path: ${k}`,
           );
           throw error;
         }
@@ -937,7 +1514,7 @@ async function compareDynFSElement(
           parsedM2 = JSON.parse(m2[k]);
         } catch (error) {
           log.error(
-            `Failed to parse existing JSON content for comparison at path: ${k}`
+            `Failed to parse existing JSON content for comparison at path: ${k}`,
           );
           throw error;
         }
@@ -986,7 +1563,7 @@ async function compareDynFSElement(
       ) {
         changes.push({ name: "deleted", path: k });
       } else if (k?.endsWith(".script.yaml")) {
-        let o = parseYaml(k, m2[k]);
+        const o = parseYaml(k, m2[k]);
         if (o.codebase != undefined) {
           remoteCodebase[k] = o.codebase;
         }
@@ -999,7 +1576,8 @@ async function compareDynFSElement(
       const tsFile = k.replace(".script.yaml", ".ts");
       if (
         changes.find(
-          (c) => c.path == tsFile && (c.name == "edited" || c.name == "deleted")
+          (c) =>
+            c.path == tsFile && (c.name == "edited" || c.name == "deleted"),
         )
       ) {
         continue;
@@ -1032,7 +1610,7 @@ async function compareDynFSElement(
   changes.sort((a, b) =>
     getOrderFromPath(a.path) == getOrderFromPath(b.path)
       ? a.path.localeCompare(b.path)
-      : getOrderFromPath(a.path) - getOrderFromPath(b.path)
+      : getOrderFromPath(a.path) - getOrderFromPath(b.path),
   );
 
   return changes;
@@ -1040,22 +1618,35 @@ async function compareDynFSElement(
 
 function getOrderFromPath(p: string) {
   const typ = getTypeStrFromPath(p);
+  // Order by dependencies: items that others depend on should be pushed first
   if (typ == "settings") {
     return 0;
-  } else if (typ == "folder") {
+  } else if (typ == "encryption_key") {
     return 1;
-  } else if (typ == "resource-type") {
+  } else if (typ == "user") {
     return 2;
-  } else if (typ == "resource") {
+  } else if (typ == "group") {
     return 3;
-  } else if (typ == "script") {
+  } else if (typ == "folder") {
     return 4;
-  } else if (typ == "flow") {
+  } else if (typ == "resource-type") {
     return 5;
-  } else if (typ == "app") {
+  } else if (typ == "variable") {
     return 6;
-  } else if (typ == "schedule") {
+  } else if (typ == "resource") {
     return 7;
+  } else if (typ == "workspace_dependencies") {
+    return 8;
+  } else if (typ == "script") {
+    return 9;
+  } else if (typ == "flow") {
+    return 10;
+  } else if (typ == "raw_app") {
+    return 11;
+  } else if (typ == "app") {
+    return 12;
+  } else if (typ == "schedule") {
+    return 13;
   } else if (
     typ == "http_trigger" ||
     typ == "websocket_trigger" ||
@@ -1067,17 +1658,9 @@ function getOrderFromPath(p: string) {
     typ == "gcp_trigger" ||
     typ == "email_trigger"
   ) {
-    return 8;
-  } else if (typ == "variable") {
-    return 9;
-  } else if (typ == "user") {
-    return 10;
-  } else if (typ == "group") {
-    return 11;
-  } else if (typ == "encryption_key") {
-    return 12;
+    return 14;
   } else {
-    return 13;
+    return 15;
   }
 }
 
@@ -1091,7 +1674,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
       !p.startsWith("f" + SEP) &&
       !p.startsWith("g" + SEP) &&
       !p.startsWith("users" + SEP) &&
-      !p.startsWith("groups" + SEP)
+      !p.startsWith("groups" + SEP) &&
+      !p.startsWith("dependencies" + SEP)
     );
   }
 
@@ -1109,7 +1693,8 @@ const isNotWmillFile = (p: string, isDirectory: boolean) => {
         !p.startsWith("f" + SEP) &&
         !p.startsWith("g" + SEP) &&
         !p.startsWith("users" + SEP) &&
-        !p.startsWith("groups" + SEP)
+        !p.startsWith("groups" + SEP) &&
+        !p.startsWith("dependencies" + SEP)
       );
     }
   } catch {
@@ -1125,7 +1710,8 @@ export const isWhitelisted = (p: string) => {
     p == "f" ||
     p == "g" ||
     p == "users" ||
-    p == "groups"
+    p == "groups" ||
+    p == "dependencies"
   );
 };
 
@@ -1134,6 +1720,7 @@ export async function ignoreF(wmillconf: {
   excludes?: string[];
   extraIncludes?: string[];
   skipResourceTypes?: boolean;
+  skipWorkspaceDependencies?: boolean;
   json?: boolean;
   includeUsers?: boolean;
   includeGroups?: boolean;
@@ -1192,6 +1779,12 @@ export async function ignoreF(wmillconf: {
         if (wmillconf.includeKey && fileType === "encryption_key") {
           return false; // Don't ignore, always include
         }
+        if (
+          !wmillconf.skipWorkspaceDependencies &&
+          fileType === "workspace_dependencies"
+        ) {
+          return false; // Don't ignore workspace dependencies (they are always included unless explicitly skipped)
+        }
       } catch {
         // If getTypeStrFromPath can't determine the type, fall through to normal logic
       }
@@ -1209,21 +1802,27 @@ interface ChangeTracker {
   scripts: string[];
   flows: string[];
   apps: string[];
+  rawApps: string[];
 }
 
 // deno-lint-ignore no-inner-declarations
 async function addToChangedIfNotExists(p: string, tracker: ChangeTracker) {
   const isScript = exts.some((e) => p.endsWith(e));
   if (isScript) {
-    if (p.includes(".flow" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".flow" + SEP)) + ".flow" + SEP;
+    if (isFlowPath(p)) {
+      const folder = extractFolderPath(p, "flow")!;
       if (!tracker.flows.includes(folder)) {
         tracker.flows.push(folder);
       }
-    } else if (p.includes(".app" + SEP)) {
-      const folder = p.substring(0, p.indexOf(".app" + SEP)) + ".app" + SEP;
+    } else if (isAppPath(p)) {
+      const folder = extractFolderPath(p, "app")!;
       if (!tracker.apps.includes(folder)) {
         tracker.apps.push(folder);
+      }
+    } else if (isRawAppPath(p)) {
+      const folder = extractFolderPath(p, "raw_app")!;
+      if (!tracker.rawApps.includes(folder)) {
+        tracker.rawApps.push(folder);
       }
     } else {
       if (!tracker.scripts.includes(p)) {
@@ -1247,6 +1846,7 @@ async function buildTracker(changes: Change[]) {
     scripts: [],
     flows: [],
     apps: [],
+    rawApps: [],
   };
   for (const change of changes) {
     if (change.name == "added" || change.name == "edited") {
@@ -1258,7 +1858,7 @@ async function buildTracker(changes: Change[]) {
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string }
+    SyncOptions & { repository?: string; promotion?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
@@ -1285,7 +1885,7 @@ export async function pull(
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
-    opts.promotion
+    opts.promotion,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
@@ -1298,8 +1898,8 @@ export async function pull(
 
   log.info(
     colors.gray(
-      "Computing the files to update locally to match remote (taking wmill.yaml into account)"
-    )
+      "Computing the files to update locally to match remote (taking wmill.yaml into account)",
+    ),
   );
 
   let resourceTypeToFormatExtension: Record<string, string> = {};
@@ -1310,26 +1910,29 @@ export async function pull(
   } catch {
     // ignore
   }
+  const zipFile = await downloadZip(
+    workspace,
+    opts.plainSecrets,
+    opts.skipVariables,
+    opts.skipResources,
+    opts.skipResourceTypes,
+    opts.skipSecrets,
+    opts.includeSchedules,
+    opts.includeTriggers,
+    opts.includeUsers,
+    opts.includeGroups,
+    opts.includeSettings,
+    opts.includeKey,
+    opts.skipWorkspaceDependencies,
+    opts.defaultTs,
+  );
+
   const remote = ZipFSElement(
-    (await downloadZip(
-      workspace,
-      opts.plainSecrets,
-      opts.skipVariables,
-      opts.skipResources,
-      opts.skipResourceTypes,
-      opts.skipSecrets,
-      opts.includeSchedules,
-      opts.includeTriggers,
-      opts.includeUsers,
-      opts.includeGroups,
-      opts.includeSettings,
-      opts.includeKey,
-      opts.defaultTs
-    ))!,
+    zipFile!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
-    true
+    true,
   );
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
@@ -1343,11 +1946,11 @@ export async function pull(
     false,
     codebases,
     true,
-    specificItems
+    specificItems,
   );
 
   log.info(
-    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) -> local: ${changes.length} changes to apply`,
   );
 
   // Handle JSON output for dry-run
@@ -1365,7 +1968,7 @@ export async function pull(
               branch_specific: true,
               branch_specific_path: getBranchSpecificPath(
                 change.path,
-                specificItems
+                specificItems,
               ),
             }
           : {}),
@@ -1403,7 +2006,7 @@ export async function pull(
       if (specificItems && isSpecificItem(change.path, specificItems)) {
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
-          specificItems
+          specificItems,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -1422,8 +2025,8 @@ export async function pull(
             ) {
               log.info(
                 colors.red(
-                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`
-                )
+                  `Conflict detected on ${change.path}\nBoth local and remote have been modified.`,
+                ),
               );
               if (opts.failConflicts) {
                 conflicts.push({
@@ -1435,14 +2038,14 @@ export async function pull(
               } else if (opts.yes) {
                 log.info(
                   colors.red(
-                    `Override local version with remote since --yes was passed and no --fail-conflicts.`
-                  )
+                    `Override local version with remote since --yes was passed and no --fail-conflicts.`,
+                  ),
                 );
               } else {
                 showConflict(change.path, currentLocal, change.after);
                 if (
                   await Confirm.prompt(
-                    "Preserve local (push to change remote and avoid seeing this again)?"
+                    "Preserve local (push to change remote and avoid seeing this again)?",
                   )
                 ) {
                   continue;
@@ -1459,7 +2062,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         } else if (
           change.path.endsWith(".yaml") ||
@@ -1470,7 +2073,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         }
         await Deno.writeTextFile(target, change.after);
@@ -1488,7 +2091,7 @@ export async function pull(
               targetPath !== change.path
                 ? colors.gray(` (branch-specific override for ${change.path})`)
                 : ""
-            }`
+            }`,
           );
         }
         await Deno.writeTextFile(target, change.content);
@@ -1497,7 +2100,7 @@ export async function pull(
             targetPath !== change.path
               ? colors.gray(` (branch-specific override for ${change.path})`)
               : ""
-          }`
+          }`,
         );
         if (opts.stateful) {
           await Deno.copyFile(target, stateTarget);
@@ -1505,7 +2108,7 @@ export async function pull(
       } else if (change.name === "deleted") {
         try {
           log.info(
-            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`
+            `Deleting ${getTypeStrFromPath(change.path)} ${change.path}`,
           );
           await Deno.remove(target);
           if (opts.stateful) {
@@ -1529,16 +2132,17 @@ export async function pull(
           colors.red(`Please resolve these conflicts manually by either:
   - reverting the content back to its remote (\`wmill pull\` and refuse to preserve local when prompted)
   - pushing the changes with \`wmill push --skip-pull\` to override wmill with all your local changes
-`)
+`),
         );
         Deno.exit(1);
       }
     }
     log.info("All local changes pulled, now updating wmill-lock.yaml");
     await readLockfile(); // ensure wmill-lock.yaml exists
-    const globalDeps = await findGlobalDeps();
 
     const tracker: ChangeTracker = await buildTracker(changes);
+    const rawWorkspaceDependencies: Record<string, string> =
+      await getRawWorkspaceDependencies();
 
     for (const change of tracker.scripts) {
       await generateScriptMetadataInternal(
@@ -1547,20 +2151,53 @@ export async function pull(
         opts,
         false,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
-        true
+        true,
       );
     }
     for (const change of tracker.flows) {
       log.info(`Updating lock for flow ${change}`);
-      await generateFlowLockInternal(change, false, workspace, opts, true);
+      await generateFlowLockInternal(
+        change,
+        false,
+        workspace,
+        opts,
+        true,
+        false,
+      );
     }
     if (tracker.apps.length > 0) {
       log.info(
-        `Apps ${tracker.apps.join(
-          ", "
-        )} scripts were changed but ignoring for now`
+        colors.gray(
+          `Apps ${tracker.apps.join(
+            ", ",
+          )} inline scripts were changed but ignoring metadata regeneration for now`,
+        ),
+      );
+    }
+    for (const change of tracker.rawApps) {
+      log.info(`Updating lock metadata for raw app ${change}`);
+      await generateAppLocksInternal(
+        change,
+        false,
+        true,
+        workspace,
+        opts,
+        true,
+        true,
+      );
+    }
+    for (const change of tracker.apps) {
+      log.info(`Updating lock metadata for app ${change}`);
+      await generateAppLocksInternal(
+        change,
+        false,
+        false,
+        workspace,
+        opts,
+        true,
+        true,
       );
     }
     if (opts.jsonOutput) {
@@ -1578,7 +2215,7 @@ export async function pull(
                 branch_specific: true,
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 ),
               }
             : {}),
@@ -1589,8 +2226,8 @@ export async function pull(
     } else {
       log.info(
         colors.bold.green.underline(
-          `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`
-        )
+          `\nDone! All ${changes.length} changes applied locally and wmill-lock.yaml updated.`,
+        ),
       );
     }
   } else if (opts.jsonOutput) {
@@ -1598,8 +2235,8 @@ export async function pull(
       JSON.stringify(
         { success: true, message: "No changes to apply", total: 0 },
         null,
-        2
-      )
+        2,
+      ),
     );
   }
 }
@@ -1613,7 +2250,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
     if (specificItems && isSpecificItem(change.path, specificItems)) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
-        specificItems
+        specificItems,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -1626,16 +2263,16 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
         colors.green(
           `+ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote)
-        )
+            colors.gray(branchNote),
+        ),
       );
     } else if (change.name === "deleted") {
       log.info(
         colors.red(
           `- ${getTypeStrFromPath(change.path)} ` +
             displayPath +
-            colors.gray(branchNote)
-        )
+            colors.gray(branchNote),
+        ),
       );
     } else if (change.name === "edited") {
       log.info(
@@ -1643,11 +2280,28 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
           `~ ${getTypeStrFromPath(change.path)} ` +
             displayPath +
             colors.gray(branchNote) +
-            (change.codebase ? ` (codebase changed)` : "")
-        )
+            (change.codebase ? ` (codebase changed)` : ""),
+        ),
       );
       if (change.before != change.after) {
-        showDiff(change.before, change.after);
+        if (change.path.endsWith(".yaml")) {
+          try {
+            showDiff(
+              yamlStringify(
+                yamlParseContent(change.path, change.before),
+                yamlOptions,
+              ),
+              yamlStringify(
+                yamlParseContent(change.path, change.after),
+                yamlOptions,
+              ),
+            );
+          } catch {
+            showDiff(change.before, change.after);
+          }
+        } else {
+          showDiff(change.before, change.after);
+        }
       }
     }
   }
@@ -1680,7 +2334,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string }
+  opts: GlobalOptions & SyncOptions & { repository?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -1706,7 +2360,7 @@ export async function push(
   const effectiveOpts = await resolveEffectiveSyncOptions(
     workspace,
     opts,
-    opts.promotion
+    opts.promotion,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
@@ -1722,7 +2376,7 @@ export async function push(
   if (opts.stateful) {
     if (!opts.skipPull) {
       log.info(
-        colors.gray("You need to be up-to-date before pushing, pulling first.")
+        colors.gray("You need to be up-to-date before pushing, pulling first."),
       );
       await pull(opts);
       log.info(colors.green("Pull done, now pushing."));
@@ -1732,8 +2386,8 @@ export async function push(
 
   log.info(
     colors.gray(
-      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)"
-    )
+      "Computing the files to update on the remote to match local (taking wmill.yaml includes/excludes into account)",
+    ),
   );
   let resourceTypeToFormatExtension: Record<string, string> = {};
   try {
@@ -1743,6 +2397,7 @@ export async function push(
   } catch {
     // ignore
   }
+
   const remote = ZipFSElement(
     (await downloadZip(
       workspace,
@@ -1757,12 +2412,13 @@ export async function push(
       opts.includeGroups,
       opts.includeSettings,
       opts.includeKey,
-      opts.defaultTs
+      opts.skipWorkspaceDependencies,
+      opts.defaultTs,
     ))!,
     !opts.json,
     opts.defaultTs ?? "bun",
     resourceTypeToFormatExtension,
-    false
+    false,
   );
 
   const local = await FSFSElement(path.join(Deno.cwd(), ""), codebases, false);
@@ -1775,15 +2431,17 @@ export async function push(
     true,
     codebases,
     false,
-    specificItems
+    specificItems,
   );
 
-  const globalDeps = await findGlobalDeps();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
 
   const tracker: ChangeTracker = await buildTracker(changes);
 
   const staleScripts: string[] = [];
   const staleFlows: string[] = [];
+  const staleApps: string[] = [];
+
   for (const change of tracker.scripts) {
     const stale = await generateScriptMetadataInternal(
       change,
@@ -1791,9 +2449,9 @@ export async function push(
       opts,
       true,
       true,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases,
-      false
+      false,
     );
     if (stale) {
       staleScripts.push(stale);
@@ -1803,7 +2461,7 @@ export async function push(
   if (staleScripts.length > 0) {
     log.info("");
     log.warn(
-      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:"
+      "Stale scripts metadata found, you may want to update them using 'wmill script generate-metadata' before pushing:",
     );
     for (const stale of staleScripts) {
       log.warn(stale);
@@ -1819,7 +2477,7 @@ export async function push(
       workspace,
       opts,
       false,
-      true
+      true,
     );
     if (stale) {
       staleFlows.push(stale);
@@ -1828,7 +2486,7 @@ export async function push(
 
   if (staleFlows.length > 0) {
     log.warn(
-      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:"
+      "Stale flows locks found, you may want to update them using 'wmill flow generate-locks' before pushing:",
     );
     for (const stale of staleFlows) {
       log.warn(stale);
@@ -1836,14 +2494,51 @@ export async function push(
     log.info("");
   }
 
-  const version = await fetchVersion(workspace.remote);
+  for (const change of tracker.apps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      false,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
 
-  log.info(colors.gray("Remote version: " + version));
+  for (const change of tracker.rawApps) {
+    const stale = await generateAppLocksInternal(
+      change,
+      true,
+      true,
+      workspace,
+      opts,
+      true,
+      true,
+    );
+    if (stale) {
+      staleApps.push(stale);
+    }
+  }
+
+  if (staleApps.length > 0) {
+    log.warn(
+      "Stale apps locks found, you may want to update them using 'wmill app generate-locks' before pushing:",
+    );
+    for (const stale of staleApps) {
+      log.warn(stale);
+    }
+    log.info("");
+  }
+
+  await fetchRemoteVersion(workspace);
 
   log.info(
-    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`
+    `remote (${workspace.name}) <- local: ${changes.length} changes to apply`,
   );
-
   // Handle JSON output for dry-run
   if (opts.dryRun && opts.jsonOutput) {
     const result = {
@@ -1859,7 +2554,7 @@ export async function push(
               branch_specific: true,
               branch_specific_path: getBranchSpecificPath(
                 change.path,
-                specificItems
+                specificItems,
               ),
             }
           : {}),
@@ -1920,8 +2615,8 @@ export async function push(
         groupedChangesArray.length
       } items with a total of ${groupedChangesArray.reduce(
         (acc, [_, changes]) => acc + changes.length,
-        0
-      )} files to process`
+        0,
+      )} files to process`,
     );
     if (parallelizationFactor > 1) {
       log.info(`Parallelizing ${parallelizationFactor} changes at a time`);
@@ -1934,9 +2629,22 @@ export async function push(
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
       while (pool.size < parallelizationFactor && queue.length > 0) {
-        const [_basePath, changes] = queue.shift()!;
+        let [_basePath, changes] = queue.shift()!;
         const promise = (async () => {
           const alreadySynced: string[] = [];
+          const isRawApp = isRawAppFile(changes[0].path);
+          if (isRawApp) {
+            const deleteRawApp = changes.find(
+              (change) =>
+                change.name === "deleted" &&
+                isRawAppFolderMetadataFile(change.path),
+            );
+            if (deleteRawApp) {
+              changes = [deleteRawApp];
+            } else {
+              changes.splice(1, changes.length - 1);
+            }
+          }
 
           for await (const change of changes) {
             let stateTarget = undefined;
@@ -1956,9 +2664,9 @@ export async function push(
                   workspace,
                   alreadySynced,
                   opts.message,
-                  globalDeps,
+                  rawWorkspaceDependencies,
                   codebases,
-                  opts
+                  opts,
                 )
               ) {
                 if (stateTarget) {
@@ -1972,8 +2680,8 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
-                  codebases
+                  rawWorkspaceDependencies,
+                  codebases,
                 )
               ) {
                 if (stateTarget) {
@@ -1984,7 +2692,7 @@ export async function push(
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
                 log.info(
-                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`
+                  `Editing ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
               }
 
@@ -1995,7 +2703,7 @@ export async function push(
 
                   const newObj = parseFromPath(
                     resourceFilePath,
-                    await Deno.readTextFile(resourceFilePath)
+                    await Deno.readTextFile(resourceFilePath),
                   );
 
                   // For branch-specific resources, push to the base path on the workspace server
@@ -2006,7 +2714,7 @@ export async function push(
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
                       resourceFilePath,
-                      currentBranch
+                      currentBranch,
                     );
                   }
 
@@ -2015,7 +2723,7 @@ export async function push(
                     serverPath,
                     undefined,
                     newObj,
-                    resourceFilePath
+                    resourceFilePath,
                   );
                   if (stateTarget) {
                     await Deno.writeTextFile(stateTarget, change.after);
@@ -2031,7 +2739,7 @@ export async function push(
               if (specificItems && isSpecificItem(change.path, specificItems)) {
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 );
               }
 
@@ -2043,7 +2751,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 alreadySynced,
                 opts.message,
-                originalBranchSpecificPath
+                originalBranchSpecificPath,
               );
 
               if (stateTarget) {
@@ -2064,8 +2772,8 @@ export async function push(
                   alreadySynced,
                   opts.message,
                   opts,
-                  globalDeps,
-                  codebases
+                  rawWorkspaceDependencies,
+                  codebases,
                 )
               ) {
                 continue;
@@ -2073,7 +2781,7 @@ export async function push(
               if (stateTarget) {
                 await ensureDir(path.dirname(stateTarget));
                 log.info(
-                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`
+                  `Adding ${getTypeStrFromPath(change.path)} ${change.path}`,
                 );
               }
               const obj = parseFromPath(change.path, change.content);
@@ -2084,7 +2792,7 @@ export async function push(
               if (specificItems && isSpecificItem(change.path, specificItems)) {
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -2099,7 +2807,7 @@ export async function push(
                 opts.plainSecrets ?? false,
                 [],
                 opts.message,
-                localFilePath // Pass the actual local file path
+                localFilePath, // Pass the actual local file path
               );
 
               if (stateTarget) {
@@ -2120,13 +2828,9 @@ export async function push(
               const target = change.path.replaceAll(SEP, "/");
               switch (typ) {
                 case "script": {
-                  const script = await wmill.getScriptByPath({
+                  await wmill.archiveScriptByPath({
                     workspace: workspaceId,
                     path: removeExtensionToPath(target),
-                  });
-                  await wmill.archiveScriptByHash({
-                    workspace: workspaceId,
-                    hash: script.hash,
                   });
                   break;
                 }
@@ -2151,14 +2855,22 @@ export async function push(
                 case "flow":
                   await wmill.deleteFlowByPath({
                     workspace: workspaceId,
-                    path: removeSuffix(target, ".flow/flow.json"),
+                    path: removeSuffix(target, getDeleteSuffix("flow", "json")),
                   });
                   break;
                 case "app":
                   await wmill.deleteApp({
                     workspace: workspaceId,
-                    path: removeSuffix(target, ".app/app.json"),
+                    path: removeSuffix(target, getDeleteSuffix("app", "json")),
                   });
+                  break;
+                case "raw_app":
+                  if (isRawAppFolderMetadataFile(target)) {
+                    await wmill.deleteApp({
+                      workspace: workspaceId,
+                      path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
+                    });
+                  }
                   break;
                 case "schedule":
                   await wmill.deleteSchedule({
@@ -2233,7 +2945,7 @@ export async function push(
 
                   const email = removeSuffix(
                     removePathPrefix(change.path, "users"),
-                    ".user.json"
+                    ".user.json",
                   );
                   const user = users.find((u) => u.email === email);
                   if (!user) {
@@ -2250,9 +2962,32 @@ export async function push(
                     workspace: workspaceId,
                     name: removeSuffix(
                       removePathPrefix(change.path, "groups"),
-                      ".group.json"
+                      ".group.json",
                     ),
                   });
+                  break;
+                case "workspace_dependencies":
+                  const relativePath = removePathPrefix(
+                    change.path,
+                    "dependencies",
+                  );
+
+                  const res = workspaceDependenciesPathToLanguageAndFilename(
+                    change.path,
+                  );
+                  if (!res) {
+                    throw new Error(
+                      `Unknown workspace dependencies file format: ${change.path}`,
+                    );
+                  }
+                  const { name, language } = res;
+
+                  await wmill.deleteWorkspaceDependencies({
+                    workspace: workspaceId,
+                    language,
+                    name,
+                  });
+
                   break;
                 default:
                   break;
@@ -2293,7 +3028,7 @@ export async function push(
                 branch_specific: true,
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
-                  specificItems
+                  specificItems,
                 ),
               }
             : {}),
@@ -2310,9 +3045,9 @@ export async function push(
           } changes pushed to the remote workspace ${
             workspace.workspaceId
           } named ${workspace.name} (${(performance.now() - start).toFixed(
-            0
-          )}ms)`
-        )
+            0,
+          )}ms)`,
+        ),
       );
     }
   } else if (opts.jsonOutput) {
@@ -2320,26 +3055,25 @@ export async function push(
       JSON.stringify(
         { success: true, message: "No changes to push", total: 0 },
         null,
-        2
-      )
+        2,
+      ),
     );
   }
 }
 
 const command = new Command()
   .description(
-    "sync local with a remote workspaces or the opposite (push or pull)"
+    "sync local with a remote workspaces or the opposite (push or pull)",
   )
-
   .action(() =>
-    log.info("2 actions available, pull and push. Use -h to display help.")
+    log.info("2 actions available, pull and push. Use -h to display help."),
   )
   .command("pull")
   .description("Pull any remote changes and apply them locally.")
   .option("--yes", "Pull without needing confirmation")
   .option(
     "--dry-run",
-    "Show changes that would be pulled without actually pushing"
+    "Show changes that would be pulled without actually pushing",
   )
   .option("--plain-secrets", "Pull secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
@@ -2351,6 +3085,10 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option(
+    "--skip-workspace-dependencies",
+    "Skip syncing workspace dependencies",
+  )
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing  schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2362,23 +3100,23 @@ const command = new Command()
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes",
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes"
+    "Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes",
   )
   .option(
     "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
   )
   .option(
     "--repository <repo:string>",
-    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   .option(
     "--promotion <branch:string>",
-    "Use promotionOverrides from the specified branch instead of regular overrides"
+    "Use promotionOverrides from the specified branch instead of regular overrides",
   )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
@@ -2387,7 +3125,7 @@ const command = new Command()
   .option("--yes", "Push without needing confirmation")
   .option(
     "--dry-run",
-    "Show changes that would be pushed without actually pushing"
+    "Show changes that would be pushed without actually pushing",
   )
   .option("--plain-secrets", "Push secrets as plain text")
   .option("--json", "Use JSON instead of YAML")
@@ -2399,6 +3137,10 @@ const command = new Command()
   .option("--skip-flows", "Skip syncing flows")
   .option("--skip-apps", "Skip syncing apps")
   .option("--skip-folders", "Skip syncing folders")
+  .option(
+    "--skip-workspace-dependencies",
+    "Skip syncing workspace dependencies",
+  )
   // .option("--skip-scripts-metadata", "Skip syncing scripts metadata, focus solely on logic")
   .option("--include-schedules", "Include syncing schedules")
   .option("--include-triggers", "Include syncing triggers")
@@ -2410,24 +3152,24 @@ const command = new Command()
   .option("--json-output", "Output results in JSON format")
   .option(
     "-i --includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)",
   )
   .option(
     "-e --excludes <patterns:file[]>",
-    "Comma separated patterns to specify which file to NOT take into account."
+    "Comma separated patterns to specify which file to NOT take into account.",
   )
   .option(
     "--extra-includes <patterns:file[]>",
-    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy"
+    "Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy",
   )
   .option(
     "--message <message:string>",
-    "Include a message that will be added to all scripts/flows/apps updated during this push"
+    "Include a message that will be added to all scripts/flows/apps updated during this push",
   )
   .option("--parallel <number>", "Number of changes to process in parallel")
   .option(
     "--repository <repo:string>",
-    "Specify repository path (e.g., u/user/repo) when multiple repositories exist"
+    "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

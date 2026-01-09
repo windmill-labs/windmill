@@ -2,8 +2,10 @@
 	import { Loader2 } from 'lucide-svelte'
 	import DisplayResult from './DisplayResult.svelte'
 	import LogViewer from './LogViewer.svelte'
-	import type { CompletedJob, FlowModule, Job } from '$lib/gen'
+	import type { CompletedJob, Job } from '$lib/gen'
 	import AiAgentLogViewer from './AIAgentLogViewer.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import type { AgentTool } from './flows/agentToolUtils'
 
 	interface Props {
 		waitingForExecutor?: boolean
@@ -21,7 +23,7 @@
 		downloadLogs?: boolean
 		tagLabel?: string | undefined
 		aiAgentStatus?: {
-			tools: FlowModule[]
+			tools: AgentTool[]
 			agentJob: Partial<CompletedJob> & Pick<CompletedJob, 'id'> & { type: 'CompletedJob' }
 			storedToolCallJobs?: Record<number, Job>
 			onToolJobLoaded?: (job: Job, idx: number) => void
@@ -48,18 +50,19 @@
 
 <div
 	class:border={!noBorder}
-	class="{!col
-		? 'grid grid-cols-2'
-		: 'flex flex-col max-h-screen gap-4'} shadow border border-tertiary-inverse grow overflow-hidden"
+	class={twMerge(
+		'rounded-md grow bg-surface-tertiary overflow-hidden text-xs',
+		!col ? 'grid grid-cols-2' : 'flex flex-col max-h-screen gap-2 overflow-hidden'
+	)}
 >
-	<div class="bg-surface {col ? 'max-h-1/2 grow' : 'max-h-80'} p-1 overflow-auto relative">
-		<span class="text-tertiary">Result</span>
+	<div class="{col ? 'max-h-1/2 grow' : 'max-h-80'} p-2 overflow-auto relative">
+		<span class="text-primary text-xs font-normal">Result</span>
 		{#if result !== undefined || result_stream !== undefined}
 			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
 		{:else if loading}
 			<Loader2 class="animate-spin" />
 		{:else}
-			<div class="text-gray-400">No result (result is undefined)</div>
+			<div class="text-secondary">No result (result is undefined)</div>
 		{/if}
 	</div>
 	<div class="overflow-auto {col ? 'grow' : 'max-h-80'} relative">

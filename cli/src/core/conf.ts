@@ -7,6 +7,7 @@ import {
 import { join, dirname, resolve, relative } from "node:path";
 import { existsSync } from "node:fs";
 import { execSync } from "node:child_process";
+import { setNonDottedPaths } from "../utils/resource_folders.ts";
 
 export let showDiffs = false;
 export function setShowDiffs(value: boolean) {
@@ -26,6 +27,7 @@ export interface SyncOptions {
   skipResources?: boolean;
   skipResourceTypes?: boolean;
   skipSecrets?: boolean;
+  skipWorkspaceDependencies?: boolean;
   skipScripts?: boolean;
   skipFlows?: boolean;
   skipApps?: boolean;
@@ -45,6 +47,7 @@ export interface SyncOptions {
   codebases?: Codebase[];
   parallel?: number;
   jsonOutput?: boolean;
+  nonDottedPaths?: boolean;
   gitBranches?: {
     commonSpecificItems?: {
       variables?: string[];
@@ -99,7 +102,11 @@ export interface Codebase {
   external?: string[];
   define?: { [key: string]: string };
   inject?: string[];
+  loader?: any;
   format?: "cjs" | "esm";
+  banner?: {
+    [type: string]: string;
+};
 }
 
 function getGitRepoRoot(): string | null {
@@ -114,6 +121,7 @@ function getGitRepoRoot(): string | null {
   }
 }
 
+export const GLOBAL_CONFIG_OPT = { noCdToRoot: false };
 function findWmillYaml(): string | null {
   const startDir = resolve(Deno.cwd());
   const isInGitRepo = isGitRepository();
@@ -152,7 +160,11 @@ function findWmillYaml(): string | null {
   }
 
   // If wmill.yaml was found in a parent directory, warn the user and change working directory
-  if (foundPath && resolve(dirname(foundPath)) !== resolve(startDir)) {
+  if (
+    !GLOBAL_CONFIG_OPT.noCdToRoot &&
+    foundPath &&
+    resolve(dirname(foundPath)) !== resolve(startDir)
+  ) {
     const configDir = dirname(foundPath);
     const relativePath = relative(startDir, foundPath);
     log.warn(`⚠️  wmill.yaml found in parent directory: ${relativePath}`);
@@ -267,6 +279,10 @@ export async function readConfigFile(): Promise<SyncOptions> {
         "No defaultTs defined in your wmill.yaml. Using 'bun' as default."
       );
     }
+
+    // Initialize global nonDottedPaths setting from config
+    setNonDottedPaths(conf?.nonDottedPaths ?? false);
+
     return typeof conf == "object" ? conf : ({} as SyncOptions);
   } catch (e) {
     if (
@@ -316,6 +332,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "skipSecrets"
       | "includeSchedules"
       | "includeTriggers"
+      | "skipWorkspaceDependencies"
       | "skipScripts"
       | "skipFlows"
       | "skipApps"
@@ -324,6 +341,7 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
       | "includeGroups"
       | "includeSettings"
       | "includeKey"
+      | "nonDottedPaths"
     >
   >
 > = {
@@ -345,6 +363,8 @@ export const DEFAULT_SYNC_OPTIONS: Readonly<
   includeGroups: false,
   includeSettings: false,
   includeKey: false,
+  skipWorkspaceDependencies: false,
+  nonDottedPaths: false,
 } as const;
 
 export async function mergeConfigWithConfigFile<T>(

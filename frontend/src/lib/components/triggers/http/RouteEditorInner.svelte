@@ -12,10 +12,17 @@
 		type ErrorHandler,
 		type HttpTrigger,
 		type NewHttpTrigger,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		canWrite,
+		capitalize,
+		emptyString,
+		generateRandomString,
+		sendUserToast
+	} from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2, Pipette, Plus } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -45,6 +52,11 @@
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import UserSettings from '$lib/components/UserSettings.svelte'
+	import Tooltip from '$lib/components/Tooltip.svelte'
 
 	let {
 		useDrawer = true,
@@ -83,6 +95,7 @@
 	let static_asset_config = $state<{ s3: string; storage?: string; filename?: string } | undefined>(
 		undefined
 	)
+	let mode = $state<TriggerMode>('enabled')
 	let is_static_website = $state(false)
 	let s3FileUploadRawMode = $state(false)
 	let workspaced_route = $state(false)
@@ -110,6 +123,14 @@
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'request_options' | 'error_handler' | 'retries' = $state('request_options')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<NewHttpTrigger | undefined>(undefined)
+	let userSettings = $state<UserSettings | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getRouteConfig(), originalConfig ?? {}))
+	let scopes = $derived(['http_triggers:read:' + path])
+
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
 	const routeConfig = $derived.by(getRouteConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
@@ -118,7 +139,8 @@
 			!can_write ||
 			pathError != '' ||
 			!isValid ||
-			(!static_asset_config && emptyString(script_path))
+			(!static_asset_config && emptyString(script_path)) ||
+			!hasChanged
 	)
 
 	$effect(() => {
@@ -193,6 +215,7 @@
 			dirtyPath = false
 			dirtyRoutePath = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getRouteConfig()))
 		} catch (err) {
 			sendUserToast(`Could not load route: ${err}`, true)
 		} finally {
@@ -235,6 +258,7 @@
 			s3FileUploadRawMode = defaultValues?.s3FileUploadRawMode ?? false
 			path = defaultValues?.path ?? ''
 			initialPath = ''
+			mode = defaultValues?.mode ?? 'enabled'
 			dirtyPath = false
 			is_static_website = defaultValues?.is_static_website ?? false
 			workspaced_route = defaultValues?.workspaced_route ?? false
@@ -249,6 +273,7 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -268,6 +293,7 @@
 		wrap_body = cfg?.wrap_body ?? false
 		raw_string = cfg?.raw_string ?? false
 		summary = cfg?.summary ?? ''
+		mode = cfg?.mode ?? 'enabled'
 		routeDescription = cfg?.description ?? ''
 		authentication_resource_path = cfg?.authentication_resource_path ?? ''
 		if (cfg?.authentication_method === 'custom_script') {
@@ -321,7 +347,12 @@
 			)
 			if (isSaved) {
 				onUpdate(saveCfg.path)
-				drawer?.closeDrawer()
+				originalConfig = structuredClone($state.snapshot(getRouteConfig()))
+				initialPath = saveCfg.path
+				initialScriptPath = saveCfg.script_path
+				if (mode !== 'suspended') {
+					drawer?.closeDrawer()
+				}
 			}
 			deploymentLoading = false
 		}
@@ -344,6 +375,7 @@
 			http_method,
 			request_type,
 			workspaced_route,
+			mode,
 			wrap_body,
 			raw_string,
 			authentication_resource_path,
@@ -359,6 +391,23 @@
 		}
 
 		return nCfg
+	}
+
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
+		if (!trigger?.draftConfig) {
+			await HttpTriggerService.setHttpTriggerMode({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { mode: newMode }
+			})
+			sendUserToast(`${capitalize(newMode)} HTTP trigger ${initialPath}`)
+
+			onUpdate(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
+		}
 	}
 
 	// Update config for captures
@@ -391,11 +440,37 @@
 		bind:this={s3FilePicker}
 		folderOnly={is_static_website}
 		bind:selectedFileKey={static_asset_config}
-		on:close={() => {
+		onClose={() => {
 			s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
 			s3FileUploadRawMode = true
 		}}
 		readOnlyMode={false}
+	/>
+{/if}
+
+{#if authentication_method === 'windmill'}
+	<UserSettings
+		bind:this={userSettings}
+		newTokenWorkspace={$workspaceStore}
+		newTokenLabel={`http-${$userStore?.username ?? 'superadmin'}-${generateRandomString(4)}`}
+		{scopes}
+	/>
+{/if}
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="http"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
 	/>
 {/if}
 
@@ -405,10 +480,13 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		<div class="flex flex-col gap-12">
+		<div class="flex flex-col gap-8">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<Section label="Metadata">
-				<div class="flex flex-col gap-2">
-					<Label label="Summary">
+				<div class="flex flex-col gap-6">
+					<Label label="Summary" for="summary">
 						<!-- svelte-ignore a11y_autofocus -->
 						<input
 							autofocus
@@ -417,10 +495,11 @@
 							class="text-sm w-full"
 							bind:value={summary}
 							disabled={!can_write}
+							id="summary"
 						/>
 					</Label>
 
-					<Label label="Path">
+					<Label label="Path" for="path">
 						<Path
 							bind:dirty={dirtyPath}
 							bind:error={pathError}
@@ -434,13 +513,14 @@
 						/>
 					</Label>
 
-					<Label label="Description">
+					<Label label="Description" for="description">
 						<textarea
 							rows="4"
 							use:autosize
 							bind:value={routeDescription}
 							placeholder="Describe the route"
 							disabled={!can_write}
+							id="description"
 						></textarea>
 					</Label>
 				</div>
@@ -448,141 +528,155 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					{#if !isCloudHosted()}
-						<ToggleButtonGroup
-							disabled={fixedScriptPath != '' || !can_write}
-							selected={static_asset_config
-								? is_static_website
-									? 'static_website'
-									: 'static_asset'
-								: 'runnable'}
-							on:selected={(ev) => {
-								if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
-									static_asset_config = { s3: '' }
-									s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
-									script_path = ''
-									initialScriptPath = ''
-									is_flow = false
-									http_method = 'get'
-									request_type = 'sync'
-									is_static_website = ev.detail === 'static_website'
-									if (is_static_website) {
-										authentication_method = 'none'
+					<div class="flex flex-col gap-6">
+						{#if !isCloudHosted()}
+							<ToggleButtonGroup
+								disabled={fixedScriptPath != '' || !can_write}
+								selected={static_asset_config
+									? is_static_website
+										? 'static_website'
+										: 'static_asset'
+									: 'runnable'}
+								on:selected={(ev) => {
+									if (ev.detail === 'static_asset' || ev.detail === 'static_website') {
+										static_asset_config = { s3: '' }
+										s3Editor?.setCode(JSON.stringify(static_asset_config, null, 2))
+										script_path = ''
+										initialScriptPath = ''
+										is_flow = false
+										http_method = 'get'
+										request_type = 'sync'
+										is_static_website = ev.detail === 'static_website'
+										if (is_static_website) {
+											authentication_method = 'none'
+										}
+									} else if (ev.detail === 'runnable') {
+										static_asset_config = undefined
 									}
-								} else if (ev.detail === 'runnable') {
-									static_asset_config = undefined
-								}
-							}}
-						>
-							{#snippet children({ item, disabled })}
-								<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
-								<ToggleButton label="Static asset" value="static_asset" {item} {disabled} />
-								<ToggleButton label="Static website" value="static_website" {item} {disabled} />
-							{/snippet}
-						</ToggleButtonGroup>
-					{/if}
-
-					{#if static_asset_config}
-						{#if is_static_website}
-							<p class="text-xs my-1 text-tertiary">
-								Upload or specify a <b>folder</b> on S3. All its files will be served under the path
-								above. Use this full path as the base URL of your website to ensure relative imports
-								work correctly.
-							</p>
-						{/if}
-						<div class="flex flex-col gap-4">
-							<div class="flex flex-col w-full gap-1">
-								{#if can_write}
-									<Toggle
-										class="flex justify-end"
-										bind:checked={s3FileUploadRawMode}
-										size="xs"
-										options={{ left: 'Raw S3 object input' }}
-										disabled={!can_write}
+								}}
+							>
+								{#snippet children({ item, disabled })}
+									<ToggleButton label="Runnable" value="runnable" {item} {disabled} />
+									<ToggleButton
+										label="Static asset"
+										value="static_asset"
+										{item}
+										disabled={disabled || mode === 'suspended'}
 									/>
-								{/if}
-								{#if s3FileUploadRawMode}
-									{#if can_write}
-										<JsonEditor
-											bind:editor={s3Editor}
-											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
-											bind:value={static_asset_config}
-										/>
-									{:else}
-										<Highlight
-											language={json}
-											code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
-										/>
-									{/if}
-								{:else}
-									{#key is_static_website}
-										<FileUpload
-											folderOnly={is_static_website}
-											allowMultiple={false}
-											randomFileKey={true}
-											on:addition={(evt) => {
-												static_asset_config = {
-													s3: evt.detail?.path ?? '',
-													filename: evt.detail?.filename ?? undefined
-												}
-											}}
-											on:deletion={(evt) => {
-												static_asset_config = {
-													s3: ''
-												}
-											}}
-										/>
-									{/key}
-								{/if}
-								{#if can_write}
-									<Button
-										variant="border"
-										color="light"
-										size="xs"
-										btnClasses="mt-1"
-										on:click={() => {
-											s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
-										}}
-										startIcon={{ icon: Pipette }}
-									>
-										Choose an object from the catalog
-									</Button>
-								{/if}
-							</div>
-						</div>
-					{:else}
-						<p class="text-xs mt-3 mb-1 text-tertiary">
-							Pick a script or flow to be triggered<Required required={true} /><br />
-							To handle headers, query or path parameters, add a preprocessor to your runnable.
-						</p>
-						<div class="flex flex-col gap-2">
-							<div class="flex flex-row mb-2">
-								<ScriptPicker
-									disabled={fixedScriptPath != '' || !can_write}
-									initialPath={fixedScriptPath || initialScriptPath}
-									kinds={['script']}
-									allowFlow={true}
-									bind:itemKind
-									bind:scriptPath={script_path}
-									allowRefresh={can_write}
-									allowEdit={!$userStore?.operator}
-									clearable
-								/>
+									<ToggleButton
+										label="Static website"
+										value="static_website"
+										{item}
+										disabled={disabled || mode === 'suspended'}
+									/>
+								{/snippet}
+							</ToggleButtonGroup>
+						{/if}
 
-								{#if emptyString(script_path)}
-									<Button
-										btnClasses="ml-4 mt-2"
-										color="dark"
-										size="xs"
-										href={itemKind === 'flow'
-											? '/flows/add?hub=62'
-											: '/scripts/add?hub=hub%2F19669'}
-										target="_blank">Create from template</Button
-									>
+						{#if static_asset_config}
+							<div class="flex flex-col gap-1">
+								{#if is_static_website}
+									<p class="text-xs text-primary">
+										Upload or specify a <b class="font-semibold text-emphasis">folder</b> on S3. All
+										its files will be served under the path above. Use this full path as the base URL
+										of your website to ensure relative imports work correctly.
+									</p>
 								{/if}
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-col w-full gap-1">
+										{#if can_write}
+											<Toggle
+												class="flex justify-end"
+												bind:checked={s3FileUploadRawMode}
+												size="xs"
+												options={{ left: 'Raw S3 object input' }}
+												disabled={!can_write}
+											/>
+										{/if}
+										{#if s3FileUploadRawMode}
+											{#if can_write}
+												<JsonEditor
+													bind:editor={s3Editor}
+													code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+													bind:value={static_asset_config}
+												/>
+											{:else}
+												<Highlight
+													language={json}
+													code={JSON.stringify(static_asset_config ?? { s3: '' }, null, 2)}
+												/>
+											{/if}
+										{:else}
+											{#key is_static_website}
+												<FileUpload
+													folderOnly={is_static_website}
+													allowMultiple={false}
+													randomFileKey={true}
+													on:addition={(evt) => {
+														static_asset_config = {
+															s3: evt.detail?.path ?? '',
+															filename: evt.detail?.filename ?? undefined
+														}
+													}}
+													on:deletion={(evt) => {
+														static_asset_config = {
+															s3: ''
+														}
+													}}
+												/>
+											{/key}
+										{/if}
+										{#if can_write}
+											<Button
+												variant="default"
+												size="xs"
+												on:click={() => {
+													s3FilePicker?.open?.(!is_static_website ? static_asset_config : undefined)
+												}}
+												startIcon={{ icon: Pipette }}
+											>
+												Choose an object from the catalog
+											</Button>
+										{/if}
+									</div>
+								</div>
 							</div>
-						</div>
-					{/if}
+						{:else}
+							<div class="flex flex-col gap-1">
+								<p class="text-xs text-primary font-normal">
+									Pick a script or flow to be triggered<Required required={true} />
+								</p>
+
+								<div class="flex flex-row items-center gap-2">
+									<ScriptPicker
+										disabled={fixedScriptPath != '' || !can_write}
+										initialPath={fixedScriptPath || initialScriptPath}
+										kinds={['script']}
+										allowFlow={true}
+										bind:itemKind
+										bind:scriptPath={script_path}
+										allowRefresh={can_write}
+										allowEdit={!$userStore?.operator}
+										clearable
+									/>
+
+									{#if emptyString(script_path)}
+										<Button
+											variant="default"
+											size="lg"
+											href={itemKind === 'flow'
+												? '/flows/add?hub=62'
+												: '/scripts/add?hub=hub%2F19669'}
+											target="_blank">Create from template</Button
+										>
+									{/if}
+								</div>
+								<p class="text-2xs text-secondary font-normal">
+									To handle headers, query or path parameters, add a preprocessor to your runnable.
+								</p>
+							</div>
+						{/if}
+					</div>
 				</Section>
 			{/if}
 
@@ -601,153 +695,149 @@
 
 			{#if !is_static_website}
 				<Section label="Advanced" collapsable>
-					<div class="flex flex-col gap-4">
-						<div class="min-h-96">
-							<Tabs bind:selected={optionTabSelected}>
-								<Tab value="request_options">Request Options</Tab>
-								<Tab value="error_handler">Error Handler</Tab>
-								<Tab value="retries">Retries</Tab>
-							</Tabs>
-							<div class="mt-4">
-								{#if optionTabSelected === 'request_options'}
-									<div class="flex flex-col gap-4">
-										{#if !static_asset_config}
-											<div class="flex flex-row justify-between">
-												<Label label="Request type" class="w-full">
-													{#snippet action()}
-														<ToggleButtonGroup
-															class="w-auto h-full"
-															selected={request_type}
-															on:selected={({ detail }) => {
-																request_type = detail
-															}}
-															disabled={!can_write || !!static_asset_config}
-														>
-															{#snippet children({ item, disabled })}
-																<ToggleButton
-																	label="Sync"
-																	value="sync"
-																	tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-																	{item}
-																	{disabled}
-																/>
-																<ToggleButton
-																	label="Async"
-																	value="async"
-																	tooltip="The returning value is the uuid of the job assigned to execute the job."
-																	{item}
-																	{disabled}
-																/>
-																<ToggleButton
-																	label="Sync SSE"
-																	value="sync_sse"
-																	tooltip="Triggers the execution and returns an SSE stream."
-																	{item}
-																	{disabled}
-																/>
-															{/snippet}
-														</ToggleButtonGroup>
-													{/snippet}
-												</Label>
-											</div>
-										{/if}
-										<Label label="Authentication" class="w-full">
-											{#snippet action()}
-												<ToggleButtonGroup
-													class="w-auto h-full"
-													bind:selected={authentication_method}
-													on:selected={(e) => {
-														if (
-															e.detail === 'signature' &&
-															signature_options_type === 'custom_script'
-														) {
-															raw_string = true
-														}
-													}}
-													disabled={!can_write}
-												>
-													{#snippet children({ item, disabled })}
-														{#each authentication_options as option}
-															{#if option.value === 'signature'}
-																<Popover placement="top-end" usePointerDownOutside>
-																	{#snippet trigger()}
-																		<ToggleButton
-																			label={option.label}
-																			value={option.value}
-																			tooltip={option.tooltip}
-																			{item}
-																			{disabled}
-																		/>
-																	{/snippet}
-																	{#snippet content()}
-																		<ToggleButtonGroup
-																			class="w-auto h-full"
-																			bind:selected={signature_options_type}
-																			on:selected={(e) => {
-																				if (e.detail === 'custom_script') {
-																					if (!raw_string) {
-																						raw_string = true
-																					}
+					<div class="min-h-96">
+						<Tabs bind:selected={optionTabSelected}>
+							<Tab value="request_options" label="Request Options" />
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
+						</Tabs>
+						<div class="mt-4">
+							{#if optionTabSelected === 'request_options'}
+								<div class="flex flex-col gap-4">
+									{#if !static_asset_config}
+										<div class="flex flex-row justify-between">
+											<Label label="Request type" class="w-full">
+												{#snippet action()}
+													<ToggleButtonGroup
+														class="w-auto h-full"
+														selected={request_type}
+														on:selected={({ detail }) => {
+															request_type = detail
+														}}
+														disabled={!can_write || !!static_asset_config}
+													>
+														{#snippet children({ item, disabled })}
+															<ToggleButton
+																label="Sync"
+																value="sync"
+																tooltip="Triggers the execution, wait for the job to complete and return it as a response."
+																{item}
+																{disabled}
+															/>
+															<ToggleButton
+																label="Async"
+																value="async"
+																tooltip="The returning value is the uuid of the job assigned to execute the job."
+																{item}
+																{disabled}
+															/>
+															<ToggleButton
+																label="Sync SSE"
+																value="sync_sse"
+																tooltip="Triggers the execution and returns an SSE stream."
+																{item}
+																{disabled}
+															/>
+														{/snippet}
+													</ToggleButtonGroup>
+												{/snippet}
+											</Label>
+										</div>
+									{/if}
+									<Label label="Authentication" class="w-full">
+										{#snippet action()}
+											<ToggleButtonGroup
+												class="w-auto h-full"
+												bind:selected={authentication_method}
+												on:selected={(e) => {
+													if (
+														e.detail === 'signature' &&
+														signature_options_type === 'custom_script'
+													) {
+														raw_string = true
+													}
+												}}
+												disabled={!can_write}
+											>
+												{#snippet children({ item, disabled })}
+													{#each authentication_options as option}
+														{#if option.value === 'signature'}
+															<Popover placement="top-end" usePointerDownOutside>
+																{#snippet trigger()}
+																	<ToggleButton
+																		label={option.label}
+																		value={option.value}
+																		tooltip={option.tooltip}
+																		{item}
+																		{disabled}
+																	/>
+																{/snippet}
+																{#snippet content()}
+																	<ToggleButtonGroup
+																		class="w-auto h-full"
+																		bind:selected={signature_options_type}
+																		on:selected={(e) => {
+																			if (e.detail === 'custom_script') {
+																				if (!raw_string) {
+																					raw_string = true
 																				}
-																			}}
-																			disabled={!can_write}
-																		>
-																			{#snippet children({ item, disabled })}
-																				<ToggleButton
-																					label="Signature validation"
-																					value="custom_signature"
-																					tooltip="Use a predefined or custom signature-based authentication scheme"
-																					{item}
-																					{disabled}
-																				/>
-																				<ToggleButton
-																					label="Custom script"
-																					value="custom_script"
-																					tooltip="Use your own script logic"
-																					{item}
-																					{disabled}
-																				/>
-																			{/snippet}
-																		</ToggleButtonGroup>
-																	{/snippet}
-																</Popover>
-															{:else}
-																<ToggleButton
-																	label={option.label}
-																	value={option.value}
-																	tooltip={option.tooltip}
-																	{item}
-																	{disabled}
-																/>
-															{/if}
-														{/each}
-													{/snippet}
-												</ToggleButtonGroup>
-											{/snippet}
-										</Label>
+																			}
+																		}}
+																		disabled={!can_write}
+																	>
+																		{#snippet children({ item, disabled })}
+																			<ToggleButton
+																				label="Signature validation"
+																				value="custom_signature"
+																				tooltip="Use a predefined or custom signature-based authentication scheme"
+																				{item}
+																				{disabled}
+																			/>
+																			<ToggleButton
+																				label="Custom script"
+																				value="custom_script"
+																				tooltip="Use your own script logic"
+																				{item}
+																				{disabled}
+																			/>
+																		{/snippet}
+																	</ToggleButtonGroup>
+																{/snippet}
+															</Popover>
+														{:else}
+															<ToggleButton
+																label={option.label}
+																value={option.value}
+																tooltip={option.tooltip}
+																{item}
+																{disabled}
+															/>
+														{/if}
+													{/each}
+												{/snippet}
+											</ToggleButtonGroup>
+										{/snippet}
+									</Label>
 
-										{#each authentication_options as option}
-											{#if option.resource_type && authentication_method === option.value}
-												<ResourcePicker
-													bind:value={authentication_resource_path}
-													resourceType={option.resource_type}
-													disabled={!can_write}
-												/>
-											{/if}
-										{/each}
+									{#each authentication_options as option}
+										{#if option.resource_type && authentication_method === option.value}
+											<ResourcePicker
+												bind:value={authentication_resource_path}
+												resourceType={option.resource_type}
+												disabled={!can_write}
+											/>
+										{/if}
+									{/each}
 
-										{#if authentication_method === 'signature'}
-											{#if signature_options_type === 'custom_signature'}
-												<ResourcePicker
-													bind:value={authentication_resource_path}
-													resourceType={'signature_auth'}
-													disabled={!can_write}
-												/>
-											{:else if signature_options_type === 'custom_script'}
-												<p class="text-xs mt-3 mb-1 text-tertiary">
-													Pick a secret variable or create one which will be used as a secret key
-													for your custom script/flow<Required required={true} /><br />
-												</p>
+									{#if authentication_method === 'signature'}
+										{#if signature_options_type === 'custom_signature'}
+											<ResourcePicker
+												bind:value={authentication_resource_path}
+												resourceType={'signature_auth'}
+												disabled={!can_write}
+											/>
+										{:else if signature_options_type === 'custom_script'}
+											<div class="flex flex-col gap-1">
 												<div class="flex flex-row gap-2">
 													<div class="flex flex-row gap-2 w-full">
 														<input
@@ -759,9 +849,9 @@
 														/>
 														<Button
 															title="Add variable"
+															variant="accent"
 															on:click={() => variablePicker?.openDrawer()}
 															size="xs"
-															color="dark"
 															disabled={!can_write}
 														>
 															Pick variable
@@ -769,7 +859,7 @@
 													</div>
 													<Button
 														disabled={emptyString(variable_path) || !can_write}
-														color="dark"
+														variant="default"
 														size="xs"
 														href={itemKind === 'flow'
 															? `/flows/add?${SECRET_KEY_PATH}=${encodeURIComponent(variable_path)}&hub=${
@@ -781,28 +871,41 @@
 														target="_blank">Create from template</Button
 													>
 												</div>
-											{/if}
+												<p class="text-2xs text-secondary">
+													Pick a secret variable or create one which will be used as a secret key
+													for your custom script/flow<Required required={true} /><br />
+												</p>
+											</div>
 										{/if}
+									{:else if authentication_method === 'windmill'}
+										<Button size="xs" variant="default" on:click={() => userSettings?.openDrawer()}>
+											Create a route-specific token
+											<Tooltip light>
+												The token will have a scope such that it can only be used to read and
+												trigger this route. It is safe to share as it cannot be used to impersonate
+												you.
+											</Tooltip>
+										</Button>
+									{/if}
 
-										<RouteBodyTransformerOption
-											bind:raw_string
-											bind:wrap_body
-											disabled={!can_write}
-											{testingBadge}
-										/>
-									</div>
-								{:else}
-									<TriggerRetriesAndErrorHandler
-										{optionTabSelected}
-										{itemKind}
-										{can_write}
-										bind:errorHandlerSelected
-										bind:error_handler_path
-										bind:error_handler_args
-										bind:retry
+									<RouteBodyTransformerOption
+										bind:raw_string
+										bind:wrap_body
+										disabled={!can_write}
+										{testingBadge}
 									/>
-								{/if}
-							</div>
+								</div>
+							{:else}
+								<TriggerRetriesAndErrorHandler
+									{optionTabSelected}
+									{itemKind}
+									{can_write}
+									bind:errorHandlerSelected
+									bind:error_handler_path
+									bind:error_handler_args
+									bind:retry
+								/>
+							{/if}
 						</div>
 					</div>
 				</Section>
@@ -823,7 +926,6 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			enabled={undefined}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -831,6 +933,9 @@
 			{onReset}
 			{onDelete}
 			{isDeployed}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}
@@ -883,8 +988,7 @@
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
-				color="blue"
+				variant="default"
 				size="sm"
 				startIcon={{ icon: Plus }}
 				on:click={() => {

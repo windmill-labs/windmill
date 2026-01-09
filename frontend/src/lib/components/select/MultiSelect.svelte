@@ -7,7 +7,11 @@
 	import DraggableTags from './DraggableTags.svelte'
 	import { Search } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
-	import TextInput, { inputBorderClass } from '../text_input/TextInput.svelte'
+	import TextInput, {
+		inputBaseClass,
+		inputBorderClass,
+		inputSizeClasses
+	} from '../text_input/TextInput.svelte'
 
 	type Value = Item['value']
 
@@ -27,6 +31,9 @@
 		placeholderClass = '',
 		allowClear = true,
 		hideMainClearBtn = false,
+		size = 'md',
+		id,
+		error = false,
 		onOpen,
 		groupBy,
 		sortBy,
@@ -50,6 +57,9 @@
 		placeholderClass?: string
 		allowClear?: boolean
 		hideMainClearBtn?: boolean
+		size?: keyof typeof inputSizeClasses
+		id?: string
+		error?: boolean
 		groupBy?: (item: Item) => string
 		sortBy?: (a: Item, b: Item) => number
 		onOpen?: () => void
@@ -95,13 +105,19 @@
 		filterText = ''
 		value = []
 	}
+
+	export function getFilteredInputText() {
+		return filterText
+	}
 </script>
 
 <div
 	bind:this={wrapperEl}
 	class={twMerge(
-		'relative min-h-10 flex items-center w-full bg-surface-secondary !text-secondary rounded-md',
-		inputBorderClass({ forceFocus: open && !disabled }),
+		'flex items-center flex-wrap relative',
+		inputBaseClass,
+		inputSizeClasses[size],
+		inputBorderClass({ forceFocus: open && !disabled, error }),
 		disabled ? 'pointer-events-none' : '',
 		open && !disabled ? 'open' : '',
 		disabled ? 'disabled' : '',
@@ -110,20 +126,19 @@
 	{style}
 	onpointerup={() => (open = true)}
 	use:clickOutside={{ onClickOutside: () => (open = false) }}
+	{id}
 >
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 
 	{#if value.length === 0}
-		<span
-			class={twMerge('text-sm ml-4 h-full flex items-center flex-1 text-hint', placeholderClass)}
-		>
+		<span class={twMerge('text-xs h-full flex items-center flex-1 text-hint', placeholderClass)}>
 			{placeholder}
 		</span>
 	{:else}
 		<ul
 			class={twMerge(
-				'overflow-clip overflow-x-hidden h-full cursor-pointer items-center flex flex-wrap gap-1 py-0.5 px-0.5 flex-1 text-primary',
+				'overflow-clip overflow-x-hidden h-full cursor-pointer items-center flex flex-wrap gap-1 py-0.5 flex-1 text-primary',
 				selectedUlClass
 			)}
 			role="list"
@@ -176,7 +191,7 @@
 						}}
 						class="!pr-7 !bg-surface"
 					/>
-					<Search size={16} class="absolute right-2 text-tertiary" />
+					<Search size={16} class="absolute right-2 text-primary" />
 				</div>
 			{/if}
 		{/snippet}

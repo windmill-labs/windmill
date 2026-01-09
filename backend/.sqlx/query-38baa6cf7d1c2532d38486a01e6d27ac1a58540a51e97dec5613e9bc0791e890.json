@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO ai_agent_memory (workspace_id, conversation_id, step_id, messages, created_at, updated_at)\n         VALUES ($1, $2, $3, $4, NOW(), NOW())\n         ON CONFLICT (workspace_id, conversation_id, step_id)\n         DO UPDATE SET\n            messages = EXCLUDED.messages,\n            updated_at = NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Uuid",
+        "Varchar",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "38baa6cf7d1c2532d38486a01e6d27ac1a58540a51e97dec5613e9bc0791e890"
+}

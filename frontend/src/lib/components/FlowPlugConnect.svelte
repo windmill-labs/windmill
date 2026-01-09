@@ -11,12 +11,10 @@
 
 <AnimatedButton animate={connecting} baseRadius="6px" animationDuration="2s" marginWidth="2px">
 	<Button
-		variant="border"
-		color="light"
-		size="xs2"
+		variant="default"
 		btnClasses={twMerge(
-			connecting ? 'text-blue-500' : 'text-tertiary',
-			'group/plug-btn overflow-clip flex p-0'
+			connecting ? 'text-accent' : '',
+			'bg-surface hover:bg-surface-hover group/plug-btn overflow-clip flex p-0'
 		)}
 		on:click
 		{...id ? { id } : {}}

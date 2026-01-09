@@ -1,13 +1,13 @@
 <script lang="ts">
 	import { getContext, tick } from 'svelte'
 	import type { AppViewerContext } from '../../../types'
-	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import { RefreshCw } from 'lucide-svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { isObject } from '$lib/utils'
 	import type { WindmillColumnDef } from './utils'
+	import { findGridItem } from '$lib/components/apps/editor/appUtilsCore'
 
 	type ColumnDefsConfiguration =
 		| { type: 'static'; value: WindmillColumnDef[] }
@@ -71,20 +71,10 @@
 
 		// Type guard for configuration structure
 		const conf = rawConf as ColumnDefsConfiguration
-		if (!conf.type || (conf.type !== 'static' && conf.type !== 'evalv2')) return
+		if (!conf.type || conf.type !== 'static') return
 
 		let currentColumns: WindmillColumnDef[] | undefined
-		if (conf.type === 'static') {
-			currentColumns = Array.isArray(conf.value) ? conf.value : []
-		} else if (conf.type === 'evalv2') {
-			try {
-				const parsed = JSON.parse(conf.expr ?? '[]')
-				currentColumns = Array.isArray(parsed) ? parsed : []
-			} catch (e) {
-				console.warn('Failed to parse columnDefs expression:', e)
-				currentColumns = []
-			}
-		}
+		currentColumns = Array.isArray(conf.value) ? conf.value : []
 
 		const hasPlaceholder = hasActionsPlaceholder(currentColumns)
 
@@ -99,11 +89,7 @@
 		if (needsRemove) nextColumns = removeActionsPlaceholder(nextColumns)
 
 		// Update configuration with proper typing
-		if (conf.type === 'static') {
-			conf.value = nextColumns
-		} else if (conf.type === 'evalv2') {
-			conf.expr = JSON.stringify(nextColumns)
-		}
+		conf.value = nextColumns
 
 		await updateConfiguration()
 	}
@@ -177,7 +163,12 @@
 							{/each}
 						</div>
 						<div class="w-full flex fles-row justify-end">
-							<Button startIcon={{ icon: RefreshCw }} size="xs" color="dark" on:click={syncColumns}>
+							<Button
+								startIcon={{ icon: RefreshCw }}
+								size="xs"
+								variant="accent"
+								on:click={syncColumns}
+							>
 								Sync columns definition
 							</Button>
 						</div>

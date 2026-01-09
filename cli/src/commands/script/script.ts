@@ -26,13 +26,14 @@ import {
 import { Workspace } from "../workspace/workspace.ts";
 import {
   generateScriptMetadataInternal,
+  getRawWorkspaceDependencies,
   parseMetadataFile,
 } from "../../utils/metadata.ts";
 import {
-  LanguageWithRawReqsSupport,
+  WorkspaceDependenciesLanguage,
   ScriptLanguage,
   inferContentTypeFromFilePath,
-  languagesWithRawReqsSupport,
+  workspaceDependenciesLanguages,
 } from "../../utils/script_common.ts";
 import {
   elementsToMap,
@@ -54,6 +55,13 @@ import { type Tarball } from "npm:@ayonli/jsext/archive";
 
 import { execSync } from "node:child_process";
 import { NewScript, Script } from "../../../gen/types.gen.ts";
+import {
+  isRawAppBackendPath as isRawAppBackendPathInternal,
+  isAppInlineScriptPath as isAppInlineScriptPathInternal,
+  isFlowInlineScriptPath as isFlowInlineScriptPathInternal,
+  isFlowPath,
+  isAppPath,
+} from "../../utils/resource_folders.ts";
 
 export interface ScriptFile {
   parent_hash?: string;
@@ -63,6 +71,30 @@ export interface ScriptFile {
   is_template?: boolean;
   lock?: Array<string>;
   kind?: "script" | "failure" | "trigger" | "command" | "approval";
+}
+
+/**
+ * Checks if a path is inside a raw app backend folder.
+ * Matches patterns like: .../myApp.raw_app/backend/...
+ */
+export function isRawAppBackendPath(filePath: string): boolean {
+  return isRawAppBackendPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a normal app folder (inline script).
+ * Matches patterns like: .../myApp.app/... or .../myApp__app/...
+ */
+export function isAppInlineScriptPath(filePath: string): boolean {
+  return isAppInlineScriptPathInternal(filePath);
+}
+
+/**
+ * Checks if a path is inside a flow folder (inline script).
+ * Matches patterns like: .../myFlow.flow/... or .../myFlow__flow/...
+ */
+export function isFlowInlineScriptPath(filePath: string): boolean {
+  return isFlowInlineScriptPathInternal(filePath);
 }
 
 type PushOptions = GlobalOptions;
@@ -88,14 +120,13 @@ async function push(opts: PushOptions, filePath: string) {
   await requireLogin(opts);
   const codebases = await listSyncCodebases(opts as SyncOptions);
 
-  const globalDeps = await findGlobalDeps();
   await handleFile(
     filePath,
     workspace,
     [],
     undefined,
     opts,
-    globalDeps,
+    await getRawWorkspaceDependencies(),
     codebases
   );
   log.info(colors.bold.underline.green(`Script ${filePath} pushed`));
@@ -156,7 +187,7 @@ export async function handleScriptMetadata(
   workspace: Workspace,
   alreadySynced: string[],
   message: string | undefined,
-  globalDeps: GlobalDeps,
+  rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[],
   opts: GlobalOptions
 ): Promise<boolean> {
@@ -172,12 +203,20 @@ export async function handleScriptMetadata(
       alreadySynced,
       message,
       opts,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases
     );
   } else {
     return false;
   }
+}
+
+export interface OutputFile {
+  path: string;
+  contents: Uint8Array;
+  hash: string;
+  /** "contents" as text (changes automatically with "contents") */
+  readonly text: string;
 }
 
 export async function handleFile(
@@ -186,11 +225,13 @@ export async function handleFile(
   alreadySynced: string[],
   message: string | undefined,
   opts: (GlobalOptions & { defaultTs?: "bun" | "deno" } & Skips) | undefined,
-  globalDeps: GlobalDeps,
+  rawWorkspaceDependencies: Record<string, string>,
   codebases: SyncCodebase[]
 ): Promise<boolean> {
   if (
-    !path.includes(".inline_script.") &&
+    !isAppInlineScriptPath(path) &&
+    !isFlowInlineScriptPath(path) &&
+    !isRawAppBackendPath(path) &&
     exts.some((exts) => path.endsWith(exts))
   ) {
     if (alreadySynced.includes(path)) {
@@ -210,15 +251,17 @@ export async function handleFile(
 
     let bundleContent: string | Tarball | undefined = undefined;
 
+    let forceTar = false;
     if (codebase) {
+      let outputFiles: OutputFile[] = [];
       if (codebase.customBundler) {
         log.info(`Using custom bundler ${codebase.customBundler} for ${path}`);
-        bundleContent = execSync(
-          codebase.customBundler + " " + path
-        ).toString();
+        bundleContent = execSync(codebase.customBundler + " " + path, {
+          maxBuffer: 1024 * 1024 * 50,
+        }).toString();
         log.info("Custom bundler executed for " + path);
       } else {
-        const esbuild = await import("npm:esbuild");
+        const esbuild = await import("npm:esbuild@0.24.2");
 
         log.info(`Started bundling ${path} ...`);
         const startTime = performance.now();
@@ -231,35 +274,48 @@ export async function handleFile(
           external: codebase.external,
           inject: codebase.inject,
           define: codebase.define,
+          loader: codebase.loader ?? { ".node": "file" },
+          outdir: "/",
           platform: "node",
           packages: "bundle",
           target: format == "cjs" ? "node20.15.1" : "esnext",
+          banner: codebase.banner,
+          // ...(codebase.banner != null && { banner: codebase.banner }),
         });
         const endTime = performance.now();
         bundleContent = out.outputFiles[0].text;
+        outputFiles = out.outputFiles ?? [];
+        if (outputFiles.length == 0) {
+          throw new Error(`No output files found for ${path}`);
+        }
         log.info(
           `Finished bundling ${path}: ${(bundleContent.length / 1024).toFixed(
             0
           )}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
       }
-      if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+      if (outputFiles.length > 1) {
         const archiveNpm = await import("npm:@ayonli/jsext/archive");
         log.info(
-          `Using the following asset configuration for ${path}: ${JSON.stringify(
-            codebase.assets
-          )}`
+          `Found multiple output files for ${path}, creating a tarball... ${outputFiles
+            .map((file) => file.path)
+            .join(", ")}`
         );
+        forceTar = true;
         const startTime = performance.now();
         const tarball = new archiveNpm.Tarball();
-        tarball.append(
-          new File([bundleContent], "main.js", { type: "text/plain" })
-        );
-        for (const asset of codebase.assets) {
-          const data = fs.readFileSync(asset.from);
-          const blob = new Blob([data], { type: "text/plain" });
-          const file = new File([blob], asset.to);
-          tarball.append(file);
+        const mainPath = path.split(SEP).pop()?.split(".")[0] + ".js";
+        const content =
+          outputFiles.find((file) => file.path == "/" + mainPath)?.text ?? "";
+        log.info(`Main content: ${content.length}chars`);
+        tarball.append(new File([content], "main.js", { type: "text/plain" }));
+        for (const file of outputFiles) {
+          if (file.path == "/" + mainPath) {
+            continue;
+          }
+          log.info(`Adding file: ${file.path.substring(1)}`);
+          const fil = new File([file.contents], file.path.substring(1));
+          tarball.append(fil);
         }
         const endTime = performance.now();
         log.info(
@@ -268,6 +324,33 @@ export async function handleFile(
           ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
         );
         bundleContent = tarball;
+      } else {
+        if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+          const archiveNpm = await import("npm:@ayonli/jsext/archive");
+          log.info(
+            `Using the following asset configuration for ${path}: ${JSON.stringify(
+              codebase.assets
+            )}`
+          );
+          const startTime = performance.now();
+          const tarball = new archiveNpm.Tarball();
+          tarball.append(
+            new File([bundleContent], "main.js", { type: "text/plain" })
+          );
+          for (const asset of codebase.assets) {
+            const data = fs.readFileSync(asset.from);
+            const blob = new Blob([data], { type: "text/plain" });
+            const file = new File([blob], asset.to);
+            tarball.append(file);
+          }
+          const endTime = performance.now();
+          log.info(
+            `Finished creating tarball for ${path}: ${(
+              tarball.size / 1024
+            ).toFixed(0)}kB (${(endTime - startTime).toFixed(0)}ms)`
+          );
+          bundleContent = tarball;
+        }
       }
     }
     let typed = opts?.skipScriptsMetadata
@@ -281,10 +364,10 @@ export async function handleFile(
                   path,
                   workspaceRemote: workspace,
                   schemaOnly: codebase ? true : undefined,
+                  rawWorkspaceDependencies,
+                  codebases,
                 }
-              : undefined,
-            globalDeps,
-            codebases
+              : undefined
           )
         )?.payload;
 
@@ -324,7 +407,7 @@ export async function handleFile(
     }
 
     if (typed && codebase) {
-      typed.codebase = await codebase.getDigest();
+      typed.codebase = await codebase.getDigest(forceTar);
     }
 
     const requestBodyCommon: NewScript = {
@@ -349,11 +432,14 @@ export async function handleFile(
       has_preprocessor: typed?.has_preprocessor,
       priority: typed?.priority,
       concurrency_key: typed?.concurrency_key,
-      codebase: await codebase?.getDigest(),
+      debounce_key: typed?.debounce_key,
+      debounce_delay_s: typed?.debounce_delay_s,
+      codebase: await codebase?.getDigest(forceTar),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
     };
 
+    // console.log(requestBodyCommon.codebase);
     // log.info(JSON.stringify(requestBodyCommon, null, 2))
     // log.info(JSON.stringify(opts, null, 2))
     if (remote) {
@@ -388,6 +474,8 @@ export async function handleFile(
             typed.timeout == remote.timeout &&
             //@ts-ignore
             typed.concurrency_key == remote["concurrency_key"] &&
+            typed.debounce_key == remote["debounce_key"] &&
+            typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
             typed.on_behalf_of_email == remote.on_behalf_of_email)
         ) {
@@ -893,39 +981,10 @@ async function bootstrap(
 }
 
 export type GlobalDeps = Map<
-  LanguageWithRawReqsSupport,
+  WorkspaceDependenciesLanguage,
   Record<string, string>
 >;
 
-export async function findGlobalDeps(): Promise<GlobalDeps> {
-  var globalDeps: GlobalDeps = new Map();
-  const els = await FSFSElement(Deno.cwd(), [], false);
-  for await (const entry of readDirRecursiveWithIgnore((p, isDir) => {
-    p = SEP + p;
-    return (
-      !isDir &&
-      // Skip if the filename is not one of lockfile names
-      !languagesWithRawReqsSupport.some((lockfile) =>
-        p.endsWith(SEP + lockfile.rrFilename)
-      )
-    );
-  }, els)) {
-    if (entry.isDirectory || entry.ignored) continue;
-    const content = await entry.getContentText();
-
-    // Iterate over available languages to find which lockfile
-    languagesWithRawReqsSupport.map((lock) => {
-      if (entry.path.endsWith(lock.rrFilename)) {
-        const current = globalDeps.get(lock) ?? {};
-        current[
-          entry.path.substring(0, entry.path.length - lock.rrFilename.length)
-        ] = content;
-        globalDeps.set(lock, current);
-      }
-    });
-  }
-  return globalDeps;
-}
 async function generateMetadata(
   opts: GlobalOptions & {
     lockOnly?: boolean;
@@ -935,7 +994,7 @@ async function generateMetadata(
   scriptPath: string | undefined
 ) {
   log.info(
-    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate - locks`"
+    "This command only works for workspace scripts, for flows inline scripts use `wmill flow generate-locks`"
   );
   if (scriptPath == "") {
     scriptPath = undefined;
@@ -949,7 +1008,7 @@ async function generateMetadata(
   opts = await mergeConfigWithConfigFile(opts);
   const codebases = await listSyncCodebases(opts);
 
-  const globalDeps = await findGlobalDeps();
+  const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
   if (scriptPath) {
     // read script metadata file
     await generateScriptMetadataInternal(
@@ -958,11 +1017,12 @@ async function generateMetadata(
       opts,
       false,
       false,
-      globalDeps,
+      rawWorkspaceDependencies,
       codebases,
       false
     );
   } else {
+    // TODO: test this as well.
     const ignore = await ignoreF(opts);
     const elems = await elementsToMap(
       await FSFSElement(Deno.cwd(), codebases, false),
@@ -970,8 +1030,8 @@ async function generateMetadata(
         return (
           (!isD && !exts.some((ext) => p.endsWith(ext))) ||
           ignore(p, isD) ||
-          p.includes(".flow" + SEP) ||
-          p.includes(".app" + SEP)
+          isFlowPath(p) ||
+          isAppPath(p)
         );
       },
       false,
@@ -986,7 +1046,7 @@ async function generateMetadata(
         opts,
         true,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         false
       );
@@ -1013,6 +1073,7 @@ async function generateMetadata(
       log.info(colors.green.bold("No metadata to update"));
       return;
     }
+    // TODO: test this
     for (const e of Object.keys(elems)) {
       await generateScriptMetadataInternal(
         e,
@@ -1020,7 +1081,7 @@ async function generateMetadata(
         opts,
         false,
         true,
-        globalDeps,
+        rawWorkspaceDependencies,
         codebases,
         false
       );

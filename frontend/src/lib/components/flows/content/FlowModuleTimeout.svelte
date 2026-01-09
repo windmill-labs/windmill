@@ -77,7 +77,7 @@
 			right: 'Add a custom timeout for this step'
 		}}
 	/>
-	<Label label="Timeout duration">
+	<Label label="Timeout duration" class="mt-2">
 		{#if flowModule.timeout && schema.properties['timeout']}
 			<div class="border">
 				<PropPickerWrapper
@@ -101,13 +101,13 @@
 			</div>
 		{:else}
 			<SecondsInput disabled />
-			<div class="text-secondary">OR use a dynamic expression</div>
+			<div class="text-secondary text-sm">OR use a dynamic expression</div>
 		{/if}
 	</Label>
 
 	<div class="mt-4">
 		<Alert title="Only used when testing the full flow" type="info">
-			<p class="text-sm"> The timeout will be ignored when running "Test this step" </p>
+			<p class="text-xs"> The timeout will be ignored when running "Test this step" </p>
 		</Alert>
 	</div>
 </Section>

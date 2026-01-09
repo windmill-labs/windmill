@@ -59,14 +59,14 @@
 	{#if prefix !== undefined}
 		<button
 			onclick={preventDefault(() => isOpenStore.toggle(storeTitle))}
-			class="w-full flex justify-between items-center text-secondary px-2 py-1
+			class="w-full flex justify-between items-center px-2 py-1
 			rounded-sm duration-200 hover:bg-surface-hover {toggleClasses}"
 		>
-			<h1 class="text-sm font-semibold text-left">
+			<h1 class="text-left text-xs font-semibold text-emphasis">
 				{#if titleSlot}{@render titleSlot()}{:else}
 					{title}
 					{#if subtitle}
-						<span class="text-2xs text-tertiary ml-1">
+						<span class="text-2xs text-secondary font-normal ml-1">
 							{subtitle}
 						</span>
 					{/if}
@@ -83,17 +83,19 @@
 			</div>
 		{/if}
 	{:else}
-		<h1 class="text-base font-semibold text-left px-2 py-1 text-secondary">
+		<h1 class="text-left px-2 py-1">
 			{#if titleSlot}{@render titleSlot()}{:else}
-				{title}
+				<span class="text-emphasis text-xs font-semibold">
+					{title}
+				</span>
 				{#if subtitle}
-					<span class="text-2xs text-tertiary ml-1">
+					<span class="text-2xs text-secondary font-normal ml-1">
 						{subtitle}
 					</span>
 				{/if}
 			{/if}
 			{#if tooltip}
-				<Tooltip class="ml-1" {documentationLink}>{tooltip}</Tooltip>
+				<Tooltip class="ml-1 text-secondary" {documentationLink}>{tooltip}</Tooltip>
 			{/if}
 		</h1>
 		<div class="px-2">

@@ -5,7 +5,7 @@
 	import '@codingame/monaco-vscode-standalone-languages'
 	import '@codingame/monaco-vscode-standalone-json-language-features'
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
-	import { editor as meditor } from 'monaco-editor'
+	import { editor as meditor, KeyMod, KeyCode } from 'monaco-editor'
 
 	import { initializeVscode } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
@@ -32,7 +32,7 @@
 		defaultModified?: string
 		readOnly?: boolean
 		buttons?: ButtonProp[]
-		modifiedModel?: meditor.ITextModel
+		modifiedModel?: meditor.ITextModel | meditor.IEditorModel
 	}
 
 	let {
@@ -75,6 +75,38 @@
 			scrollbar: { alwaysConsumeMouseWheel: false }
 		})
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			const modifiedEditor = diffEditor.getModifiedEditor()
+			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			modifiedEditor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				try {
+					const text = await navigator.clipboard.readText()
+					if (text) {
+						const selection = modifiedEditor.getSelection()
+						if (selection) {
+							modifiedEditor.executeEdits('paste', [
+								{
+									range: selection,
+									text: text,
+									forceMoveMarkers: true
+								}
+							])
+						}
+					}
+				} catch (e) {
+					document.execCommand('paste')
+				}
+			})
+		}
+
+		console.log('defaultModified', defaultModified)
 		if (defaultLang !== undefined) {
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
 		}
@@ -90,7 +122,7 @@
 		const m = modifiedModel ?? meditor.createModel(modified ?? '', modifiedLang ?? lang)
 		diffEditor?.setModel({
 			original: o,
-			modified: m
+			modified: m as meditor.ITextModel
 		})
 	}
 
@@ -117,6 +149,14 @@
 		})
 	}
 
+	export function showWithModelAndOriginal(
+		original: string,
+		model: meditor.ITextModel | meditor.IEditorModel
+	) {
+		setOriginal(original)
+		setModifiedModel(model as meditor.ITextModel)
+		show()
+	}
 	export function getModified(): string {
 		return diffEditor?.getModel()?.modified.getValue() ?? ''
 	}

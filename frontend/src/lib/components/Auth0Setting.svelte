@@ -6,6 +6,7 @@
 	import Tooltip from './Tooltip.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import TextInput from './text_input/TextInput.svelte'
 
 	interface Props {
 		value: any
@@ -44,7 +45,7 @@
 
 <div class="flex flex-col gap-1">
 	<!-- svelte-ignore a11y_label_has_associated_control -->
-	<label class="text-sm font-medium text-primary flex gap-4 items-center"
+	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center"
 		><div class="w-[120px]"><IconedResourceType name="auth0" after={true} /></div><Toggle
 			checked={enabled}
 			on:change={(e) => {
@@ -57,9 +58,9 @@
 		/></label
 	>
 	{#if enabled}
-		<div class="p-2 rounded border">
-			<label class="block pb-2">
-				<div class="flex gap-2 items-end">
+		<div class="p-4 rounded-md border flex flex-col gap-6">
+			<label>
+				<div class="flex gap-2 items-start">
 					<div>
 						<ToggleButtonGroup
 							selected={value['custom'] ? 'custom' : 'org'}
@@ -73,44 +74,88 @@
 							{/snippet}
 						</ToggleButtonGroup>
 					</div>
-					<div class="grow">
-						<span class="text-primary font-semibold text-sm"
+					<div class="grow flex flex-col gap-1">
+						<input type="text" placeholder="yourorg" bind:value={value['domain']} />
+						<span class="text-hint font-normal text-2xs"
 							>{#if value['custom']}Custom ({'https://<domain>'}){:else}
 								Org ({'https://<your org>.auth0.com'}){/if}</span
 						>
-						<input type="text" placeholder="yourorg" bind:value={value['domain']} />
 					</div>
 				</div>
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm">Custom Name</span>
-				<input type="text" placeholder="Custom Name" bind:value={value['display_name']} />
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Custom Name' }}
+					bind:value={value['display_name']}
+				/>
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
-					>Client ID <Tooltip>Client ID credential of the auth0 service configuration</Tooltip
-					></span
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs">Client ID </span>
+				<span class="text-secondary font-normal text-xs"
+					>Client ID credential of the auth0 service configuration</span
 				>
-				<input type="text" placeholder="Client Id" bind:value={value['id']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Id' }}
+					bind:value={value['id']}
+				/>
 			</label>
-			<label class="block pb-2">
-				<span class="text-primary font-semibold text-sm"
+			<label class="flex flex-col gap-1">
+				<span class="text-emphasis font-semibold text-xs"
 					>Client Secret <Tooltip>Client Secret of the auth0 service configuration</Tooltip></span
 				>
-				<input type="text" placeholder="Client Secret" bind:value={value['secret']} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					bind:value={value['secret']}
+				/>
 			</label>
 			<CollapseLink text="Instructions">
-				<div class="text-sm text-secondary border p-2">
-					From your Admin page, setup a Windmill application<br />
-					Create a new application<br />
-					For "application type" select "Regular Web Application"<br />
-					Copy down the "Client ID" and "Client Secret" and paste them into the fields above <br />
-					Under "Application URIs", set the following:<br />
-					a. Application Login URI: `BASE_URL/user/login`<br />
-					b. Allowed Callback URLs: `BASE_URL/user/login_callback/auth0`<br />
-					c. Allowed Logout URLs: `BASE_URL/auth/logout`<br />
-					d. Allowed Web Origins: `BASE_URL`<br />
-					e. Allowed Origins (CORS): `BASE_URL`<br />
+				<div class="text-xs text-primary border rounded-md p-4 space-y-3">
+					<div>
+						<strong>1. Create Application</strong>
+						<div class="ml-4 mt-1">
+							From your auth0 Admin page, setup a Windmill application:
+							<ul class="list-disc ml-4 mt-1 space-y-1">
+								<li>Create a new application</li>
+								<li>For "application type" select <strong>Regular Web Application</strong></li>
+								<li
+									>Copy down the "Client ID" and "Client Secret" and paste them into the fields
+									above</li
+								>
+							</ul>
+						</div>
+					</div>
+
+					<div>
+						<strong>2. Application URIs Configuration</strong>
+						<div class="ml-4 mt-1">
+							Under "Application URIs", set the following:
+							<ul class="list-disc ml-4 mt-1 space-y-1">
+								<li
+									><strong>Application Login URI:</strong>
+									<code class="bg-surface px-1 rounded text-xs">BASE_URL/user/login</code></li
+								>
+								<li
+									><strong>Allowed Callback URLs:</strong>
+									<code class="bg-surface px-1 rounded text-xs"
+										>BASE_URL/user/login_callback/auth0</code
+									></li
+								>
+								<li
+									><strong>Allowed Logout URLs:</strong>
+									<code class="bg-surface px-1 rounded text-xs">BASE_URL/auth/logout</code></li
+								>
+								<li
+									><strong>Allowed Web Origins:</strong>
+									<code class="bg-surface px-1 rounded text-xs">BASE_URL</code></li
+								>
+								<li
+									><strong>Allowed Origins (CORS):</strong>
+									<code class="bg-surface px-1 rounded text-xs">BASE_URL</code></li
+								>
+							</ul>
+						</div>
+					</div>
 				</div>
 			</CollapseLink>
 		</div>

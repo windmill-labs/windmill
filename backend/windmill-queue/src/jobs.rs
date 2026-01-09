@@ -6,6 +6,8 @@
  * LICENSE-AGPL for a copy of the license.
  */
 
+use std::future::Future;
+use std::time::Duration;
 use std::{collections::HashMap, sync::Arc, vec};
 
 use anyhow::Context;
@@ -15,6 +17,7 @@ use futures::future::TryFutureExt;
 use itertools::Itertools;
 #[cfg(feature = "prometheus")]
 use prometheus::IntCounter;
+use quick_cache::sync::Cache;
 use regex::Regex;
 use reqwest::Client;
 use serde::Deserialize;
@@ -22,21 +25,32 @@ use serde::{ser::SerializeMap, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres, Transaction};
 use sqlx::{Encode, PgExecutor};
+use tokio::sync::mpsc::Sender;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tokio::{sync::RwLock, time::sleep};
 use ulid::Ulid;
 use uuid::Uuid;
-use windmill_audit::audit_oss::{audit_log, AuditAuthor};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-
 #[cfg(feature = "benchmark")]
 use windmill_common::add_time;
+use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::JobPerms;
 #[cfg(feature = "benchmark")]
 use windmill_common::bench::BenchmarkIter;
-use windmill_common::flow_conversations::{add_message_to_conversation_tx, MessageType};
 use windmill_common::jobs::{JobTriggerKind, EMAIL_ERROR_HANDLER_USER_EMAIL};
-use windmill_common::utils::now_from_db;
-use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
+use windmill_common::runnable_settings::{
+    ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
+    RunnableSettingsTrait,
+};
+use windmill_common::triggers::TriggerMetadata;
+use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
+use windmill_common::worker::{
+    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+    SCRIPT_TOKEN_EXPIRY,
+};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -100,20 +114,20 @@ lazy_static::lazy_static! {
 }
 
 lazy_static::lazy_static! {
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .timeout(std::time::Duration::from_secs(20))
-        .connect_timeout(std::time::Duration::from_secs(10))
+        .connect_timeout(std::time::Duration::from_secs(10)))
         .build().unwrap();
 
+    pub static ref WMDEBUG_NO_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DEBOUNCING").is_ok();
+    pub static ref WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: bool = std::env::var("WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT").is_ok();
 
     static ref JOB_ARGS_AUDIT_LOGS: bool = std::env::var("JOB_ARGS_AUDIT_LOGS")
         .ok()
         .and_then(|x| x.parse().ok())
         .unwrap_or(false);
 
-    // TODO: Remove
-    static ref WMDEBUG_NO_DJOB_DEBOUNCING: bool = std::env::var("WMDEBUG_NO_DJOB_DEBOUNCING").is_ok();
 }
 
 #[cfg(feature = "cloud")]
@@ -135,9 +149,9 @@ pub struct CanceledBy {
     pub reason: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JobCompleted {
-    pub job: Arc<MiniPulledJob>,
+    pub job: MiniCompletedJob,
     pub preprocessed_args: Option<HashMap<String, Box<RawValue>>>,
     pub result: Arc<Box<RawValue>>,
     pub result_columns: Option<Vec<String>>,
@@ -149,23 +163,27 @@ pub struct JobCompleted {
     pub duration: Option<i64>,
     pub has_stream: Option<bool>,
     pub from_cache: Option<bool>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    #[serde(skip)]
+    pub done_tx: Option<oneshot::Sender<()>>,
 }
 
 pub async fn cancel_single_job<'c>(
     username: &str,
     reason: Option<String>,
-    job_running: Arc<QueuedJob>,
+    job_running: QueuedJobV2,
     w_id: &str,
     mut tx: Transaction<'c, Postgres>,
     db: &Pool<Postgres>,
     force_cancel: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
+    let id = job_running.id;
     if force_cancel || (job_running.parent_job.is_none() && !job_running.running) {
         let username = username.to_string();
         let w_id = w_id.to_string();
         let db = db.clone();
         tracing::info!("cancelling job {:?}", job_running.id);
-        let job_running = job_running.clone();
         tokio::task::spawn(async move {
             let reason: String = reason
                 .clone()
@@ -179,10 +197,11 @@ pub async fn cancel_single_job<'c>(
                 &Connection::from(db.clone()),
             )
             .await;
+            let memory_peak = job_running.memory_peak.unwrap_or(0);
             let add_job = add_completed_job_error(
                 &db,
-                &MiniPulledJob::from(&job_running),
-                job_running.mem_peak.unwrap_or(0),
+                &MiniCompletedJob::from(job_running),
+                memory_peak,
                 Some(CanceledBy { username: Some(username.to_string()), reason: Some(reason) }),
                 e,
                 "server",
@@ -210,7 +229,7 @@ pub async fn cancel_single_job<'c>(
         }
     }
 
-    Ok((tx, Some(job_running.id)))
+    Ok((tx, Some(id)))
 }
 
 pub async fn cancel_job<'c>(
@@ -223,26 +242,34 @@ pub async fn cancel_job<'c>(
     force_cancel: bool,
     require_anonymous: bool,
 ) -> error::Result<(Transaction<'c, Postgres>, Option<Uuid>)> {
-    let job = get_queued_job_tx(id, &w_id, &mut tx).await?;
+    //TODO fetch mini completed job instead of QueuedJob
+    let job = get_queued_job_v2(&mut *tx, &id).await?;
 
     if job.is_none() {
         return Ok((tx, None));
     }
 
-    if require_anonymous && job.as_ref().unwrap().created_by != "anonymous" {
+    let mut job = job.unwrap();
+
+    if require_anonymous && job.created_by != "anonymous" {
         return Err(Error::BadRequest(
             "You are not logged in and this job was not created by an anonymous user like you so you cannot cancel it".to_string(),
         ));
     }
 
-    let mut job = job.unwrap();
+    if job.workspace_id != w_id {
+        return Err(Error::BadRequest(
+            "You are not authorized to cancel this job belonging to another workspace".to_string(),
+        ));
+    }
+
     if force_cancel {
         // if force canceling a flow step, make sure we force cancel from the highest parent
         loop {
             if job.parent_job.is_none() {
                 break;
             }
-            match get_queued_job_tx(job.parent_job.unwrap(), &w_id, &mut tx).await? {
+            match get_queued_job_v2(&mut *tx, &job.parent_job.unwrap()).await? {
                 Some(j) => {
                     job = j;
                 }
@@ -252,7 +279,7 @@ pub async fn cancel_job<'c>(
     }
 
     // prevent cancelling a future tick of a schedule
-    if let Some(schedule_path) = job.schedule_path.as_ref() {
+    if let Some(schedule_path) = job.schedule_path().as_ref() {
         let now = now_from_db(&mut *tx).await?;
         if job.scheduled_for > now {
             return Err(Error::BadRequest(
@@ -265,7 +292,7 @@ pub async fn cancel_job<'c>(
         }
     }
 
-    let job = Arc::new(job);
+    let job = job;
 
     // get all children using recursive CTE
     let mut jobs_to_cancel = sqlx::query!(
@@ -304,16 +331,8 @@ ORDER BY depth, id
         tracing::info!("Found {} child jobs to cancel", jobs_to_cancel.len());
     }
 
-    let (ntx, _) = cancel_single_job(
-        username,
-        reason.clone(),
-        job.clone(),
-        w_id,
-        tx,
-        db,
-        force_cancel,
-    )
-    .await?;
+    let (ntx, _) =
+        cancel_single_job(username, reason.clone(), job, w_id, tx, db, force_cancel).await?;
     tx = ntx;
 
     if !force_cancel {
@@ -334,19 +353,12 @@ ORDER BY depth, id
         }
     }
     for job_id in jobs_to_cancel {
-        let job = get_queued_job_tx(job_id, &w_id, &mut tx).await?;
+        let job = get_queued_job_v2(&mut *tx, &job_id).await?;
 
         if let Some(job) = job {
-            let (ntx, _) = cancel_single_job(
-                username,
-                reason.clone(),
-                Arc::new(job),
-                w_id,
-                tx,
-                db,
-                force_cancel,
-            )
-            .await?;
+            let (ntx, _) =
+                cancel_single_job(username, reason.clone(), job, w_id, tx, db, force_cancel)
+                    .await?;
             tx = ntx;
         }
     }
@@ -425,11 +437,11 @@ pub async fn push_init_job<'c>(
             path: Some(format!("{INIT_SCRIPT_PATH_PREFIX}{worker_name}")),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
+            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+            debouncing_settings: DebouncingSettings::default(),
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -452,6 +464,7 @@ pub async fn push_init_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
     )
@@ -481,11 +494,11 @@ pub async fn push_periodic_bash_job<'c>(
             )),
             language: ScriptLang::Bash,
             lock: None,
-            custom_concurrency_key: None,
-            concurrent_limit: None,
-            concurrency_time_window_s: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             dedicated_worker: None,
+            concurrency_settings: ConcurrencySettingsWithCustom::default(),
+            debouncing_settings: DebouncingSettings::default(),
         }),
         PushArgs::from(&ehm),
         worker_name,
@@ -508,6 +521,7 @@ pub async fn push_periodic_bash_job<'c>(
         None,
         None,
         false,
+        None,
         None,
         None,
     )
@@ -549,7 +563,7 @@ async fn cancel_persistent_script_jobs_internal<'c>(
 
     // we could have retrieved the job IDs in the first query where we retrieve the hashes, but just in case a job was inserted in the queue right in-between the two above query, we re-do the fetch here
     let jobs_to_cancel = sqlx::query_scalar::<_, Uuid>(
-        "SELECT id FROM v2_as_queue WHERE workspace_id = $1 AND script_path = $2 AND canceled = false",
+        "SELECT j.id FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.workspace_id = $1 AND j.runnable_path = $2 AND q.canceled_by IS NULL",
     )
     .bind(w_id)
     .bind(script_path)
@@ -698,7 +712,7 @@ where
 
 pub async fn add_completed_job_error(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    completed_job: &MiniCompletedJob,
     mem_peak: i32,
     canceled_by: Option<CanceledBy>,
     e: serde_json::Value,
@@ -709,7 +723,7 @@ pub async fn add_completed_job_error(
     #[cfg(feature = "prometheus")]
     register_metric(
         &WORKER_EXECUTION_FAILED,
-        &queued_job.tag,
+        &completed_job.tag,
         |s| {
             let counter = prometheus::register_int_counter!(prometheus::Opts::new(
                 "worker_execution_failed",
@@ -728,13 +742,13 @@ pub async fn add_completed_job_error(
     let result = WrappedError { error: e };
     tracing::error!(
         "job {} in {} did not succeed: {}",
-        queued_job.id,
-        queued_job.workspace_id,
+        completed_job.id,
+        completed_job.workspace_id,
         serde_json::to_string(&result).unwrap_or_else(|_| "".to_string())
     );
     let _ = add_completed_job(
         db,
-        &queued_job,
+        &completed_job,
         false,
         false,
         Json(&result),
@@ -746,6 +760,7 @@ pub async fn add_completed_job_error(
         false,
         false,
     )
+    .warn_after_seconds(10)
     .await?;
     Ok(result)
 }
@@ -753,11 +768,18 @@ pub async fn add_completed_job_error(
 lazy_static::lazy_static! {
     pub static ref GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE: Option<String> = std::env::var("GLOBAL_ERROR_HANDLER_PATH_IN_ADMINS_WORKSPACE").ok();
     pub static ref MAX_RESULT_SIZE_MB: usize = std::env::var("MAX_RESULT_SIZE_MB").unwrap_or("500".to_string()).parse().unwrap_or(500);
+
+    // Cache for restart_unless_cancelled flag - keyed by (hash, workspace_id)
+    static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
+
+    // Cache for workspace error handler settings with 60s TTL
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    completed_job: &MiniCompletedJob,
     success: bool,
     skipped: bool,
     result: Json<&T>,
@@ -783,7 +805,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let (opt_uuid, duration, _skip_downstream_error_handlers) = (|| {
         commit_completed_job(
             db,
-            queued_job,
+            completed_job,
             success,
             skipped,
             result,
@@ -795,6 +817,7 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             has_stream,
             from_cache,
         )
+        .warn_after_seconds(10)
     })
     .retry(
         ConstantBuilder::default()
@@ -819,12 +842,12 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     #[cfg(feature = "cloud")]
-    apply_completed_job_cloud_usage(db, queued_job, duration);
+    apply_completed_job_cloud_usage(db, completed_job, duration);
 
     #[cfg(all(feature = "enterprise", feature = "private"))]
     crate::jobs_ee::apply_completed_job_error_handlers(
         db,
-        queued_job,
+        completed_job,
         success,
         result,
         &canceled_by,
@@ -832,92 +855,16 @@ pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     )
     .await;
 
-    restart_job_if_perpetual(db, queued_job, &canceled_by).await?;
-
-    // Create assistant message if it's a flow and it's done, but only if last module is not an AI agent
-    if !skipped && flow_is_done {
-        let chat_input_enabled = queued_job.parse_chat_input_enabled();
-        if chat_input_enabled.unwrap_or(false) {
-            // Get conversation_id from flow_status.memory_id
-            let flow_status = queued_job.parse_flow_status();
-            let conversation_id = flow_status.and_then(|fs| fs.memory_id);
-
-            if let Some(conversation_id) = conversation_id {
-                // get flow value
-                let parent_job = queued_job.parent_job.unwrap_or(queued_job.id);
-                let flow_value = sqlx::query!(
-                    "SELECT f.value as \"value: Json<FlowValue>\" FROM v2_job j JOIN flow_version f ON f.id = j.runnable_id WHERE j.id = $1 AND j.workspace_id = $2",
-                    parent_job,
-                    &queued_job.workspace_id
-                )
-                .fetch_optional(db)
-                .await?
-                .map(|row| row.value.0);
-
-                let last_module_is_ai_agent = flow_value
-                    .as_ref()
-                    .and_then(|flow_value| {
-                        flow_value.modules.last().and_then(|m| m.get_value().ok())
-                    })
-                    .map(|v| matches!(v, FlowModuleValue::AIAgent { .. }))
-                    .unwrap_or(false);
-
-                // Only create assistant message if last module is NOT an AI agent, or there was an error
-                if !last_module_is_ai_agent || success == false {
-                    let value = serde_json::to_value(result.0).map_err(|e| {
-                        Error::internal_err(format!("Failed to serialize result: {e}"))
-                    })?;
-
-                    let content = match value {
-                        // If it's an Object with "output" key AND the output is a String, return it
-                        serde_json::Value::Object(mut map)
-                            if map.contains_key("output")
-                                && matches!(
-                                    map.get("output"),
-                                    Some(serde_json::Value::String(_))
-                                ) =>
-                        {
-                            if let Some(serde_json::Value::String(s)) = map.remove("output") {
-                                s
-                            } else {
-                                // prettify the whole result
-                                serde_json::to_string_pretty(&map)
-                                    .unwrap_or_else(|e| format!("Failed to serialize result: {e}"))
-                            }
-                        }
-                        // Otherwise, if the whole value is a String, return it
-                        serde_json::Value::String(s) => s,
-                        // Otherwise, prettify the whole result
-                        v => serde_json::to_string_pretty(&v)
-                            .unwrap_or_else(|e| format!("Failed to serialize result: {e}")),
-                    };
-
-                    // Insert new assistant message
-                    let mut tx = db.begin().await?;
-                    add_message_to_conversation_tx(
-                        &mut tx,
-                        conversation_id,
-                        Some(queued_job.id),
-                        &content,
-                        MessageType::Assistant,
-                        None,
-                        success,
-                    )
-                    .await?;
-                    tx.commit().await?;
-                }
-            }
-        }
-    }
+    restart_job_if_perpetual(db, completed_job, &canceled_by).await?;
 
     // tracing::error!("4 {:?}", start.elapsed());
 
-    Ok((queued_job.id, duration))
+    Ok((completed_job.id, duration))
 }
 
 async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    completed_job: &MiniCompletedJob,
     success: bool,
     skipped: bool,
     result: Json<&T>,
@@ -931,9 +878,9 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 ) -> windmill_common::error::Result<(Option<Uuid>, i64, bool)> {
     // let start = std::time::Instant::now();
 
-    let mut tx = db.begin().await?;
+    let mut tx = db.begin().warn_after_seconds(10).await?;
 
-    let job_id = queued_job.id;
+    let job_id = completed_job.id;
     // tracing::error!("1 {:?}", start.elapsed());
 
     // tracing::debug!(
@@ -945,7 +892,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     let mem_peak = mem_peak;
     // add_time!(bench, "add_completed_job query START");
 
-    if let Some(value) = check_result_size(db, queued_job, result).await {
+    if let Some(value) = check_result_size(db, completed_job, result).await {
         return value;
     }
 
@@ -974,7 +921,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         q.worker
                 FROM v2_job_queue q LEFT JOIN v2_job_status USING (id) WHERE q.id = $1
             ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, result = $3 RETURNING duration_ms AS \"duration_ms!\"",
-            /* $1 */ queued_job.id,
+            /* $1 */ completed_job.id,
             /* $2 */ success,
             /* $3 */ result as Json<&T>,
             /* $4 */ canceled_by.is_some(),
@@ -986,6 +933,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             /* $10 */ result_columns as Option<&Vec<String>>,
         )
         .fetch_optional(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?;
 
@@ -997,6 +945,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             job_id
         )
         .fetch_one(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::internal_err(format!("Could not add completed job {job_id}: {e:#}")))?
         .unwrap_or(false);
@@ -1022,12 +971,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             labels as Vec<String>
         )
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await
         .map_err(|e| Error::InternalErr(format!("Could not update job labels: {e:#}")))?;
     }
 
-    if !queued_job.is_flow_step() {
-        if let Some(parent_job) = queued_job.parent_job {
+    if !completed_job.is_flow_step() {
+        if let Some(parent_job) = completed_job.parent_job {
             let _ = sqlx::query_scalar!(
                 "UPDATE v2_job_status SET
                         workflow_as_code_status = jsonb_set(
@@ -1040,11 +990,12 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                             to_jsonb($2::bigint)
                         )
                     WHERE id = $3",
-                &queued_job.id.to_string(),
+                &completed_job.id.to_string(),
                 duration,
                 parent_job
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await
             .inspect_err(|e| {
                 tracing::error!(
@@ -1057,11 +1008,11 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
-    tx = delete_job(tx, &job_id).await?;
+    tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
-    if queued_job.is_flow_step() {
-        if let Some(parent_job) = queued_job.parent_job {
+    if completed_job.is_flow_step() {
+        if let Some(parent_job) = completed_job.parent_job {
             // persist the flow last progress timestamp to avoid zombie flow jobs
             tracing::debug!(
                 "Persisting flow last progress timestamp to flow job: {:?}",
@@ -1075,31 +1026,33 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         AND q.workspace_id = $2
                         AND canceled_by IS NULL",
                 parent_job,
-                &queued_job.workspace_id
+                &completed_job.workspace_id
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await?;
             if flow_is_done {
                 let r = sqlx::query_scalar!(
                     "UPDATE parallel_monitor_lock SET last_ping = now() WHERE parent_flow_id = $1 and job_id = $2 RETURNING 1",
                     parent_job,
-                    &queued_job.id
-                ).fetch_optional(&mut *tx).await?;
+                    &completed_job.id
+                ).fetch_optional(&mut *tx).warn_after_seconds(10).await?;
                 if r.is_some() {
                     tracing::info!(
                             "parallel flow iteration is done, setting parallel monitor last ping lock for job {}",
-                            &queued_job.id
+                            &completed_job.id
                         );
                 }
             }
         }
     } else {
-        if queued_job.schedule_path().is_some() && queued_job.runnable_path.is_some() {
-            let schedule_path = queued_job.schedule_path().unwrap();
-            let script_path = queued_job.runnable_path.as_ref().unwrap();
+        if completed_job.schedule_path().is_some() && completed_job.runnable_path.is_some() {
+            let schedule_path = completed_job.schedule_path().unwrap();
+            let script_path = completed_job.runnable_path.as_ref().unwrap();
 
-            let schedule =
-                get_schedule_opt(&mut *tx, &queued_job.workspace_id, &schedule_path).await?;
+            let schedule = get_schedule_opt(&mut *tx, &completed_job.workspace_id, &schedule_path)
+                .warn_after_seconds(10)
+                .await?;
 
             if let Some(schedule) = schedule {
                 #[cfg(feature = "enterprise")]
@@ -1111,7 +1064,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                 // for flows, only try to schedule next tick here if flow failed and because first handle_flow failed (step = 0, modules[0] = {type: 'Failure', 'job': uuid::nil()})
                 // or job was cancelled before first handle_flow was called (step = 0, modules = [] OR modules[0].type == 'WaitingForPriorSteps')
                 // otherwise flow rescheduling is done inside handle_flow
-                let schedule_next_tick = !queued_job.is_flow()
+                let schedule_next_tick = !completed_job.is_flow()
                     || from_cache
                     || !success
                         && sqlx::query_scalar!(
@@ -1127,22 +1080,24 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                                 )
                             FROM v2_job_completed WHERE id = $2 AND workspace_id = $3",
                             Uuid::nil().to_string(),
-                            &queued_job.id,
-                            &queued_job.workspace_id
+                            &completed_job.id,
+                            &completed_job.workspace_id
                         )
                         .fetch_optional(&mut *tx)
+                        .warn_after_seconds(10)
                         .await?
                         .flatten()
                         .unwrap_or(false);
 
                 if schedule_next_tick {
-                    if let Err(err) = handle_maybe_scheduled_job(
+                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
                         db,
-                        queued_job,
+                        completed_job,
                         &schedule,
                         &script_path,
-                        &queued_job.workspace_id,
-                    )
+                        &completed_job.workspace_id,
+                    ))
+                    .warn_after_seconds(10)
                     .await
                     {
                         match err {
@@ -1158,29 +1113,31 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     db,
                     &schedule,
                     &script_path,
-                    &queued_job.workspace_id,
+                    &completed_job.workspace_id,
                     success,
                     result,
                     job_id,
-                    queued_job.started_at.unwrap_or(chrono::Utc::now()),
-                    queued_job.priority,
+                    completed_job.started_at.unwrap_or(chrono::Utc::now()),
+                    completed_job.priority,
                 )
+                .warn_after_seconds(10)
                 .await
                 {
                     if !success {
                         tracing::error!("Could not apply schedule error handler: {}", err);
                         let base_url = windmill_common::BASE_URL.read().await;
-                        let w_id: &String = &queued_job.workspace_id;
+                        let w_id: &String = &completed_job.workspace_id;
                         if !matches!(err, Error::QuotaExceeded(_)) {
                             report_error_to_workspace_handler_or_critical_side_channel(
-                                    &queued_job,
+                                    &completed_job,
                                     db,
                                     format!(
                                         "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                        queued_job.id,
+                                        completed_job.id,
                                         err
                                     ),
                                 )
+                                .warn_after_seconds(10)
                                 .await;
                         }
                     } else {
@@ -1190,13 +1147,20 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
-                        &queued_job.workspace_id
+                        &completed_job.workspace_id
                     );
             }
         }
     }
-    if queued_job.concurrent_limit.is_some() {
-        let concurrency_key = concurrency_key(db, &queued_job.id).await?;
+
+    if completed_job.concurrent_limit.is_some()
+        || RunnableSettings::prefetch_cached_from_handle(completed_job.runnable_settings_handle, db)
+            .await?
+            .1
+            .concurrent_limit
+            .is_some()
+    {
+        let concurrency_key = concurrency_key(db, &completed_job.id).await?;
         if *DISABLE_CONCURRENCY_LIMIT || concurrency_key.is_none() {
             tracing::warn!("Concurrency limit is disabled, skipping");
         } else {
@@ -1204,28 +1168,30 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
             sqlx::query_scalar!(
                 "UPDATE concurrency_counter SET job_uuids = job_uuids - $2 WHERE concurrency_id = $1",
                 concurrency_key,
-                queued_job.id.hyphenated().to_string(),
+                completed_job.id.hyphenated().to_string(),
             )
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await
             .map_err(|e| {
                 Error::internal_err(format!(
                     "Could not decrement concurrency counter for job_id={}: {e:#}",
-                    queued_job.id
+                    completed_job.id
                 ))
             })?;
         }
 
         if let Err(e) = sqlx::query_scalar!(
             "UPDATE concurrency_key SET ended_at = now() WHERE job_id = $1",
-            queued_job.id,
+            completed_job.id,
         )
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await
         {
             tracing::error!(
                 "Could not update concurrency_key ended_at for job_id={}: {e:#}",
-                queued_job.id,
+                completed_job.id,
             );
         }
         tracing::debug!("decremented concurrency counter");
@@ -1233,33 +1199,35 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
     sqlx::query!("DELETE FROM job_perms WHERE job_id = $1", job_id)
         .execute(&mut *tx)
+        .warn_after_seconds(10)
         .await?;
 
     if !success || has_stream {
         sqlx::query!("DELETE FROM job_result_stream_v2 WHERE job_id = $1", job_id)
             .execute(&mut *tx)
+            .warn_after_seconds(10)
             .await?;
     }
 
-    tx.commit().await?;
+    tx.commit().warn_after_seconds(10).await?;
 
     tracing::info!(
         %job_id,
-        root_job = ?queued_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
-        path = &queued_job.runnable_path(),
-        job_kind = ?queued_job.kind,
-        started_at = ?queued_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        root_job = ?completed_job.flow_innermost_root_job.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
+        path = &completed_job.runnable_path,
+        job_kind = ?completed_job.kind,
+        started_at = ?completed_job.started_at.map(|x| x.to_string()).unwrap_or_else(|| String::new()),
         duration = ?duration,
-        permissioned_as = ?queued_job.permissioned_as,
-        email = ?queued_job.permissioned_as_email,
-        created_by = queued_job.created_by,
-        is_flow_step = queued_job.is_flow_step(),
-        language = ?queued_job.script_lang,
-        scheduled_for = ?queued_job.scheduled_for,
-        workspace_id = ?queued_job.workspace_id,
+        permissioned_as = ?completed_job.permissioned_as,
+        email = ?completed_job.permissioned_as_email,
+        created_by = completed_job.created_by,
+        is_flow_step = completed_job.is_flow_step(),
+        language = ?completed_job.script_lang,
+        scheduled_for = ?completed_job.scheduled_for,
+        workspace_id = ?completed_job.workspace_id,
         success,
         "inserted completed job: {} (success: {success})",
-        queued_job.id
+        completed_job.id
     );
     // tracing::info!("completed job: {:?}", start.elapsed().as_micros());
     Ok((None, duration, _skip_downstream_error_handlers))
@@ -1267,7 +1235,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
 
 async fn check_result_size<T: ValidableJson>(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     result: Json<&T>,
 ) -> Option<Result<(Option<Uuid>, i64, bool), Error>> {
     let result_size = result.size() / 1024 / 1024;
@@ -1303,7 +1271,7 @@ async fn check_result_size<T: ValidableJson>(
 
 async fn restart_job_if_perpetual(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     canceled_by: &Option<CanceledBy>,
 ) -> Result<(), Error> {
     if !queued_job.is_flow_step() && queued_job.kind == JobKind::Script && canceled_by.is_none() {
@@ -1329,18 +1297,27 @@ async fn restart_job_if_perpetual(
 
 async fn restart_job_if_perpetual_inner(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     hash: ScriptHash,
 ) -> Result<(), Error> {
-    let restart = sqlx::query_scalar!(
-        "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
-        hash.0,
-        &queued_job.workspace_id
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten()
-    .unwrap_or(false);
+    let cache_key = (hash.0, queued_job.workspace_id.clone());
+
+    let restart = if let Some(cached) = RESTART_UNLESS_CANCELLED_CACHE.get(&cache_key) {
+        cached
+    } else {
+        let restart = sqlx::query_scalar!(
+            "SELECT restart_unless_cancelled FROM script WHERE hash = $1 AND workspace_id = $2",
+            hash.0,
+            &queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+
+        RESTART_UNLESS_CANCELLED_CACHE.insert(cache_key, restart);
+        restart
+    };
 
     if restart {
         let tx = PushIsolationLevel::IsolatedRoot(db.clone());
@@ -1360,18 +1337,24 @@ async fn restart_job_if_perpetual_inner(
             None
         };
 
-        let ehm = HashMap::new();
+        let args = sqlx::query_scalar!(
+            "SELECT args as \"args: sqlx::types::Json<HashMap<String, Box<RawValue>>>\" FROM v2_job WHERE id = $1 AND workspace_id = $2",
+            queued_job.id,
+            queued_job.workspace_id
+        )
+        .fetch_optional(db)
+        .await?
+        .flatten()
+        .unwrap_or_default();
         let (_uuid, tx) = push(
             db,
             tx,
             &queued_job.workspace_id,
             JobPayload::ScriptHash {
                 hash,
-                path: queued_job.runnable_path().to_string(),
-                custom_concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
-                concurrent_limit: queued_job.concurrent_limit,
-                concurrency_time_window_s: queued_job.concurrency_time_window_s,
+                path: queued_job.runnable_path.clone().unwrap_or_default(),
                 cache_ttl: queued_job.cache_ttl,
+                cache_ignore_s3_path: queued_job.cache_ignore_s3_path,
                 dedicated_worker: None,
                 language: queued_job
                     .script_lang
@@ -1379,12 +1362,15 @@ async fn restart_job_if_perpetual_inner(
                     .unwrap_or_else(|| ScriptLang::Deno),
                 priority: queued_job.priority,
                 apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings {
+                    concurrency_key: custom_concurrency_key(db, &queued_job.id).await?,
+                    concurrent_limit: None,
+                    concurrency_time_window_s: None,
+                },
+                // TODO(debouncing): handle properly
+                debouncing_settings: DebouncingSettings::default(),
             },
-            queued_job
-                .args
-                .as_ref()
-                .map(|x| PushArgs::from(&x.0))
-                .unwrap_or_else(|| PushArgs::from(&ehm)),
+            PushArgs::from(&args.0),
             &queued_job.created_by,
             &queued_job.permissioned_as_email,
             queued_job.permissioned_as.clone(),
@@ -1398,13 +1384,14 @@ async fn restart_job_if_perpetual_inner(
             false,
             false,
             None,
-            queued_job.visible_to_owner,
+            true,
             Some(queued_job.tag.clone()),
-            queued_job.timeout,
+            None,
             None,
             queued_job.priority,
             None,
             false,
+            None,
             None,
             None,
         )
@@ -1417,7 +1404,7 @@ async fn restart_job_if_perpetual_inner(
 #[cfg(feature = "cloud")]
 fn apply_completed_job_cloud_usage(
     db: &Pool<Postgres>,
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     _duration: i64,
 ) {
     if *CLOUD_HOSTED && !queued_job.is_flow() && _duration > 1000 {
@@ -1428,9 +1415,6 @@ fn apply_completed_job_cloud_usage(
         let email2 = email.clone();
         tokio::task::spawn(async move {
             let additional_usage = _duration / 1000;
-            let premium_workspace = windmill_common::workspaces::get_team_plan_status(&db, &w_id)
-                .await
-                .premium;
             let result = tokio::time::timeout(std::time::Duration::from_secs(10), async move {
                 // Update workspace usage
                 let workspace_result = sqlx::query!(
@@ -1447,22 +1431,29 @@ fn apply_completed_job_cloud_usage(
                     tracing::error!("Failed to update workspace usage for {}: {:#}", w_id, e);
                 }
 
-                // Update user usage for non-premium workspaces
-                if !premium_workspace {
-                    let user_result = sqlx::query!(
-                        "INSERT INTO usage (id, is_workspace, month_, usage)
-                        VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
-                        ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
-                        &email,
-                        additional_usage as i32
-                    )
-                    .execute(&db)
-                    .await;
+                match windmill_common::workspaces::get_team_plan_status(&db, &w_id).await {
+                    Ok(team_plan_status) => {
+                        // Update user usage for non-premium workspaces
+                        if !team_plan_status.premium {
+                            let user_result = sqlx::query!(
+                                "INSERT INTO usage (id, is_workspace, month_, usage)
+                                VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), $2)
+                                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + EXCLUDED.usage",
+                                &email,
+                                additional_usage as i32
+                            )
+                            .execute(&db)
+                            .await;
 
-                    if let Err(e) = user_result {
-                        tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            if let Err(e) = user_result {
+                                tracing::error!("Failed to update user usage for {}: {:#}", email, e);
+                            }
+                        }
+                    },
+                    Err(err) => {
+                        tracing::error!("Failed to get team plan status to update usage for workspace {w_id}: {err:#}");
                     }
-                }
+                };
             }).await;
 
             if let Err(_) = result {
@@ -1477,7 +1468,7 @@ fn apply_completed_job_cloud_usage(
 }
 
 pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     db: &Pool<Postgres>,
     result: Json<&T>,
 ) -> Result<(), Error> {
@@ -1513,7 +1504,7 @@ pub async fn send_error_to_global_handler<'a, T: Serialize + Send + Sync>(
 }
 
 pub async fn report_error_to_workspace_handler_or_critical_side_channel(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     db: &Pool<Postgres>,
     error_message: String,
 ) -> () {
@@ -1575,32 +1566,92 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 }
 
 pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
-    queued_job: &MiniPulledJob,
+    queued_job: &MiniCompletedJob,
     is_canceled: bool,
     db: &Pool<Postgres>,
     result: Json<&'a T>,
 ) -> Result<(), Error> {
     let w_id = &queued_job.workspace_id;
 
-    let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
-        r#"
-            SELECT
-                error_handler,
-                error_handler_extra_args,
-                error_handler_muted_on_cancel
-            FROM 
-                workspace_settings
-            WHERE 
-                workspace_id = $1
-        "#,
-    )
-    .bind(&w_id)
-    .fetch_optional(db)
-    .await
-    .context("fetching error handler info from workspace_settings")?
-    .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))?;
+    // Try to get from cache first, checking if entry is still valid (within 60s TTL)
+    let now = chrono::Utc::now().timestamp();
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+        if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
+            if cached.3 > now {
+                // Cache hit and not expired
+                (cached.0.clone(), cached.1.clone(), cached.2)
+            } else {
+                // Cache expired, fetch from database
+                let row_result =
+                    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                        r#"
+                        SELECT
+                            error_handler,
+                            error_handler_extra_args,
+                            error_handler_muted_on_cancel
+                        FROM
+                            workspace_settings
+                        WHERE
+                            workspace_id = $1
+                    "#,
+                    )
+                    .bind(&w_id)
+                    .fetch_optional(db)
+                    .await
+                    .context("fetching error handler info from workspace_settings")?
+                    .ok_or_else(|| {
+                        Error::internal_err(format!("no workspace settings for id {w_id}"))
+                    })?;
 
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) = row_result;
+                // Update cache with 60s TTL
+                let expiry = now + 60;
+                WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                    w_id.clone(),
+                    (
+                        row_result.0.clone(),
+                        row_result.1.clone(),
+                        row_result.2,
+                        expiry,
+                    ),
+                );
+                row_result
+            }
+        } else {
+            // Cache miss, fetch from database
+            let row_result =
+                sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+                    r#"
+                    SELECT
+                        error_handler,
+                        error_handler_extra_args,
+                        error_handler_muted_on_cancel
+                    FROM
+                        workspace_settings
+                    WHERE
+                        workspace_id = $1
+                "#,
+                )
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await
+                .context("fetching error handler info from workspace_settings")?
+                .ok_or_else(|| {
+                    Error::internal_err(format!("no workspace settings for id {w_id}"))
+                })?;
+
+            // Store in cache with 60s TTL
+            let expiry = now + 60;
+            WORKSPACE_ERROR_HANDLER_CACHE.insert(
+                w_id.clone(),
+                (
+                    row_result.0.clone(),
+                    row_result.1.clone(),
+                    row_result.2,
+                    expiry,
+                ),
+            );
+            row_result
+        };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
@@ -1658,7 +1709,7 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
 
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
-    job: &MiniPulledJob,
+    job: &MiniCompletedJob,
     schedule: &Schedule,
     script_path: &str,
     w_id: &str,
@@ -1908,6 +1959,7 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         false,
         None,
         None,
+        None,
     )
     .await?;
     tx.commit().await?;
@@ -1957,6 +2009,7 @@ pub struct MiniPulledJob {
     pub timeout: Option<i32>,
     pub flow_step_id: Option<String>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub priority: Option<i16>,
     pub preprocessed: Option<bool>,
     pub script_entrypoint_override: Option<String>,
@@ -1964,6 +2017,153 @@ pub struct MiniPulledJob {
     pub trigger_kind: Option<JobTriggerKind>,
     pub visible_to_owner: bool,
     pub permissioned_as_end_user_email: Option<String>,
+    pub runnable_settings_handle: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MiniCompletedJob {
+    pub id: Uuid,
+    pub workspace_id: String,
+    pub runnable_id: Option<ScriptHash>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub parent_job: Option<Uuid>,
+    // pub root_job: Option<Uuid>,
+    pub flow_innermost_root_job: Option<Uuid>,
+    pub runnable_path: Option<String>,
+    pub kind: JobKind,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissioned_as: String,
+    pub created_by: String,
+    pub script_lang: Option<ScriptLang>,
+    pub permissioned_as_email: String,
+    pub flow_step_id: Option<String>,
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger: Option<String>,
+    pub priority: Option<i16>,
+    pub concurrent_limit: Option<i32>,
+    pub tag: String,
+    pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
+}
+
+impl From<QueuedJobV2> for MiniCompletedJob {
+    fn from(job: QueuedJobV2) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id,
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path,
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as,
+            created_by: job.created_by,
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email,
+            flow_step_id: job.flow_step_id,
+            trigger_kind: job.trigger_kind,
+            trigger: job.trigger,
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag,
+            cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
+        }
+    }
+}
+
+impl From<MiniPulledJob> for MiniCompletedJob {
+    fn from(job: MiniPulledJob) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id,
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            // root_job: job.root_job,,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path,
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as,
+            created_by: job.created_by,
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email,
+            flow_step_id: job.flow_step_id,
+            trigger_kind: job.trigger_kind,
+            trigger: job.trigger,
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag,
+            cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
+        }
+    }
+}
+
+impl From<Arc<MiniPulledJob>> for MiniCompletedJob {
+    fn from(job: Arc<MiniPulledJob>) -> Self {
+        MiniCompletedJob {
+            id: job.id,
+            workspace_id: job.workspace_id.clone(),
+            runnable_id: job.runnable_id,
+            scheduled_for: job.scheduled_for,
+            parent_job: job.parent_job,
+            flow_innermost_root_job: job.flow_innermost_root_job,
+            runnable_path: job.runnable_path.clone(),
+            kind: job.kind,
+            started_at: job.started_at,
+            permissioned_as: job.permissioned_as.clone(),
+            created_by: job.created_by.clone(),
+            script_lang: job.script_lang,
+            permissioned_as_email: job.permissioned_as_email.clone(),
+            flow_step_id: job.flow_step_id.clone(),
+            trigger_kind: job.trigger_kind.clone(),
+            trigger: job.trigger.clone(),
+            priority: job.priority,
+            concurrent_limit: job.concurrent_limit,
+            tag: job.tag.clone(),
+            cache_ttl: job.cache_ttl,
+            cache_ignore_s3_path: job.cache_ignore_s3_path,
+            runnable_settings_handle: job.runnable_settings_handle,
+        }
+    }
+}
+
+impl MiniCompletedJob {
+    pub fn is_flow_step(&self) -> bool {
+        self.flow_step_id.is_some()
+    }
+    pub fn schedule_path(&self) -> Option<String> {
+        schedule_path(&self.trigger_kind, &self.trigger)
+    }
+
+    pub fn is_flow(&self) -> bool {
+        self.kind.is_flow()
+    }
+
+    pub fn is_dependency(&self) -> bool {
+        self.kind.is_dependency()
+    }
+}
+
+fn schedule_path(
+    trigger_kind: &Option<JobTriggerKind>,
+    trigger: &Option<String>,
+) -> Option<String> {
+    if trigger_kind
+        .as_ref()
+        .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
+    {
+        trigger.clone()
+    } else {
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2025,11 +2225,13 @@ impl MiniPulledJob {
             pre_run_error: job.pre_run_error.clone(),
             concurrent_limit: job.concurrent_limit.clone(),
             concurrency_time_window_s: job.concurrency_time_window_s.clone(),
+            runnable_settings_handle: job.runnable_settings_handle,
             flow_innermost_root_job: job.root_job.clone(), // QueuedJob is taken from v2_as_queue, where root_job corresponds to flow_innermost_root_job in v2_job
             root_job: None,
             timeout: job.timeout.clone(),
             flow_step_id: job.flow_step_id.clone(),
             cache_ttl: job.cache_ttl.clone(),
+            cache_ignore_s3_path: job.cache_ignore_s3_path.clone(),
             priority: job.priority.clone(),
             preprocessed: job.preprocessed.clone(),
             script_entrypoint_override: job.script_entrypoint_override.clone(),
@@ -2052,15 +2254,7 @@ impl MiniPulledJob {
     }
 
     pub fn schedule_path(&self) -> Option<String> {
-        if self
-            .trigger_kind
-            .as_ref()
-            .is_some_and(|t| matches!(t, JobTriggerKind::Schedule))
-        {
-            self.trigger.clone()
-        } else {
-            None
-        }
+        schedule_path(&self.trigger_kind, &self.trigger)
     }
 
     pub async fn mark_as_started_if_step(&self, db: &DB) -> Result<(), Error> {
@@ -2081,7 +2275,7 @@ impl MiniPulledJob {
     }
 }
 
-#[derive(sqlx::FromRow, Debug, Clone, Serialize, Deserialize)]
+#[derive(sqlx::FromRow, Debug, Clone)]
 pub struct PulledJob {
     #[sqlx(flatten)]
     pub job: MiniPulledJob,
@@ -2124,6 +2318,8 @@ pub struct JobAndPerms {
     pub parent_runnable_path: Option<String>,
     pub token: String,
     pub precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 impl PulledJob {
     pub async fn get_job_and_perms(self, db: &DB) -> JobAndPerms {
@@ -2155,6 +2351,7 @@ impl PulledJob {
             parent_runnable_path: self.parent_runnable_path,
             token,
             precomputed_agent_info: None,
+            flow_runners: None,
         }
     }
 }
@@ -2222,6 +2419,7 @@ pub async fn get_mini_pulled_job<'c>(
         v2_job.parent_job,
         v2_job.created_by,
         v2_job_queue.started_at,
+        v2_job_queue.runnable_settings_handle,
         scheduled_for,
         runnable_path,
         kind as \"kind: JobKind\",
@@ -2242,6 +2440,7 @@ pub async fn get_mini_pulled_job<'c>(
         timeout,
         flow_step_id,
         cache_ttl,
+        cache_ignore_s3_path,
         v2_job_queue.priority,
         preprocessed,
         script_entrypoint_override,
@@ -2257,15 +2456,101 @@ pub async fn get_mini_pulled_job<'c>(
     Ok(job)
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+pub struct QueuedJobV2 {
+    pub id: Uuid,
+    pub workspace_id: String,
+    pub runnable_id: Option<ScriptHash>,
+    pub scheduled_for: chrono::DateTime<chrono::Utc>,
+    pub parent_job: Option<Uuid>,
+    // pub root_job: Option<Uuid>,
+    pub flow_innermost_root_job: Option<Uuid>,
+    pub runnable_path: Option<String>,
+    pub kind: JobKind,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub permissioned_as: String,
+    pub created_by: String,
+    pub script_lang: Option<ScriptLang>,
+    pub permissioned_as_email: String,
+    pub flow_step_id: Option<String>,
+    pub trigger_kind: Option<JobTriggerKind>,
+    pub trigger: Option<String>,
+    pub priority: Option<i16>,
+    pub concurrent_limit: Option<i32>,
+    pub tag: String,
+    pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
+    pub runnable_settings_handle: Option<i64>,
+    pub last_ping: Option<chrono::DateTime<chrono::Utc>>,
+    pub worker: Option<String>,
+    pub memory_peak: Option<i32>,
+    pub running: bool,
+}
+
+impl QueuedJobV2 {
+    pub fn schedule_path(&self) -> Option<String> {
+        schedule_path(&self.trigger_kind, &self.trigger)
+    }
+}
+
+pub async fn get_queued_job_v2<'c>(
+    e: impl PgExecutor<'c>,
+    job_id: &Uuid,
+) -> error::Result<Option<QueuedJobV2>> {
+    let job = sqlx::query_as!(
+        QueuedJobV2,
+        r#"SELECT
+                id,
+                q.runnable_settings_handle,
+                q.workspace_id,
+                j.runnable_id as "runnable_id: ScriptHash",
+                scheduled_for,
+                parent_job,
+                flow_innermost_root_job,
+                runnable_path,
+                kind as "kind: JobKind",
+                started_at,
+                permissioned_as,
+                created_by,
+                script_lang as "script_lang: ScriptLang",
+                permissioned_as_email,
+                flow_step_id,
+                trigger_kind as "trigger_kind: JobTriggerKind",
+                trigger,
+                q.priority,
+                concurrent_limit,
+                q.tag,
+                cache_ttl,
+                cache_ignore_s3_path,
+                r.ping as last_ping,
+                worker,
+                memory_peak,
+                running
+            FROM v2_job_queue q
+                JOIN v2_job j USING (id)
+                LEFT JOIN v2_job_runtime r USING (id)
+                LEFT JOIN v2_job_status s USING (id)
+            WHERE j.id = $1"#,
+        job_id,
+    )
+    .fetch_optional(e)
+    .await?;
+    Ok(job)
+}
+
+#[derive(Debug)]
 pub struct PulledJobResult {
     pub job: Option<PulledJob>,
     pub suspended: bool,
     pub missing_concurrency_key: bool,
+    pub error_while_preprocessing: Option<String>,
 }
 
+#[derive(thiserror::Error, Debug)]
 pub enum PulledJobResultToJobErr {
+    #[error("missing concurrency key")]
     MissingConcurrencyKey(JobCompleted),
+    #[error("pulled job preprocessor error: {}", .0.result)]
+    ErrorWhilePreprocessing(JobCompleted),
 }
 
 impl PulledJobResult {
@@ -2274,7 +2559,7 @@ impl PulledJobResult {
             PulledJobResult { job: Some(job), missing_concurrency_key: true, .. } => Err(
                 PulledJobResultToJobErr::MissingConcurrencyKey(JobCompleted {
                     preprocessed_args: None,
-                    job: Arc::new(job.job),
+                    job: MiniCompletedJob::from(job.job),
                     success: false,
                     result: Arc::new(windmill_common::worker::to_raw_value(&json!({
                         "name": "InternalErr",
@@ -2288,13 +2573,253 @@ impl PulledJobResult {
                     duration: None,
                     has_stream: Some(false),
                     from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
+                }),
+            ),
+            PulledJobResult { job: Some(job), error_while_preprocessing: Some(e), .. } => Err(
+                PulledJobResultToJobErr::ErrorWhilePreprocessing(JobCompleted {
+                    preprocessed_args: None,
+                    job: MiniCompletedJob::from(job.job),
+                    success: false,
+                    result: Arc::new(windmill_common::worker::to_raw_value(&json!({
+                        "name": "Pulled job preprocessing error",
+                        "message": e
+                    }))),
+                    result_columns: None,
+                    mem_peak: 0,
+                    cached_res_path: None,
+                    token: "".to_string(),
+                    canceled_by: None,
+                    duration: None,
+                    has_stream: Some(false),
+                    from_cache: None,
+                    flow_runners: None,
+                    done_tx: None,
                 }),
             ),
             PulledJobResult { job, .. } => Ok(job),
         }
     }
+
+    /// Generic preprocess function
+    /// Can be used for any kind of preprocessing
+    pub async fn maybe_apply_debouncing(&mut self, db: &DB) -> error::Result<()> {
+        let PulledJobResult { job: Some(ref mut j), .. } = self else {
+            return Ok(());
+        };
+
+        let DebouncingSettings { debounce_delay_s, debounce_args_to_accumulate, .. } =
+            RunnableSettings::prefetch_cached_from_handle(j.runnable_settings_handle, db)
+                .await?
+                .0;
+
+        let (kind, j_id) = (j.kind, j.id);
+        let is_djob_to_debounce = kind.is_dependency()
+            && j.args
+                .as_ref()
+                .and_then(|x| x.get("triggered_by_relative_import"))
+                .is_some();
+
+        if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && !*WMDEBUG_NO_DEBOUNCING
+        {
+            let needs_debounce = sqlx::query_scalar!(
+                "WITH _ AS (
+                    DELETE FROM debounce_key WHERE job_id = $1
+                ) SELECT status = 'skipped' FROM v2_job_completed WHERE id = $1",
+                j_id,
+            )
+            .fetch_optional(db)
+            .await?
+            .flatten()
+            .unwrap_or_default();
+
+            if needs_debounce {
+                tracing::info!(
+                    job_id = %j_id,
+                    "Late debounce: job was already debounced by another job, skipping execution"
+                );
+                self.job = None;
+                return Ok(());
+            }
+
+            if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
+                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
+            {
+                // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
+                let field_name = match kind {
+                    JobKind::FlowDependencies => "nodes_to_relock",
+                    JobKind::AppDependencies => "components_to_relock",
+                    _ => unreachable!(),
+                };
+
+                tracing::debug!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    field_removed = field_name,
+                    "Removing optimization field: workers behind v2 debouncing version, disabling relock optimization"
+                );
+
+                if let Some(args) = &mut j.args {
+                    args.remove(field_name);
+                }
+            } else if let Some(arg_name_to_accumulate) =
+                // TODO: Maybe support multiple arguments in future
+                debounce_args_to_accumulate.as_ref().and_then(|v| v.get(0))
+            {
+                tracing::debug!(
+                    job_id = %j_id,
+                    job_kind = ?kind,
+                    arg_name = arg_name_to_accumulate,
+                    "Accumulating debounced arguments from batch"
+                );
+                let mut accumulated_arg: Vec<Box<RawValue>> = vec![];
+                for str_o in sqlx::query_scalar!(
+                    "WITH ids AS (
+                        SELECT id as job_id FROM v2_job_debounce_batch WHERE debounce_batch = (
+                            SELECT debounce_batch FROM v2_job_debounce_batch WHERE id = $1
+                        )
+                    ) SELECT args->>$2 FROM ids LEFT JOIN v2_job ON v2_job.id = ids.job_id
+                    ",
+                    j_id,
+                    arg_name_to_accumulate,
+                )
+                .fetch_all(db)
+                .await?
+                .into_iter()
+                {
+                    if let Some(s) = str_o.as_ref() {
+                        match serde_json::from_str::<Vec<Box<RawValue>>>(s) {
+                            Ok(ref mut vec) => accumulated_arg.append(vec),
+                            Err(e) => {
+                                return Err(error::Error::ArgumentErr(format!("cannot consolidate arguments of non-list type. Type provided for argument `{arg_name_to_accumulate}` is not a list\nUnwrapped Error: {e}")));
+                            }
+                        }
+                    }
+                }
+
+                tracing::debug!(
+                    job_id = %j_id,
+                    arg_name = arg_name_to_accumulate,
+                    accumulated_count = accumulated_arg.len(),
+                    "Accumulated arguments from debounced jobs in batch"
+                );
+
+                let new_value = to_raw_value(&accumulated_arg);
+
+                append_logs(
+                    &j_id,
+                    &j.workspace_id,
+                    format!(
+                        "Substituting `{arg_name_to_accumulate}` with: {}\n\n",
+                        &new_value
+                    ),
+                    &(db.into()),
+                )
+                .await;
+
+                j.args
+                    .get_or_insert(Json(Default::default()))
+                    .as_mut()
+                    .insert(arg_name_to_accumulate.to_owned(), new_value);
+            }
+
+            // Handle dependency job debouncing cleanup when a job is pulled for execution
+            if is_djob_to_debounce {
+                clone_runnable(j, db).await?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
+async fn clone_runnable(j: &mut PulledJob, db: &DB) -> error::Result<()> {
+    let Some(base_hash) = j.runnable_id else {
+        return Err(Error::InternalErr(
+            "Missing runnable_id for dependency job triggered by relative import".to_string(),
+        ));
+    };
+
+    tracing::debug!(
+        job_id = %j.id,
+        base_hash = %base_hash,
+        job_kind = ?j.kind,
+        runnable_path = ?j.runnable_path,
+        "Creating new version for dependency job triggered by relative import"
+    );
+
+    {
+        let maybe_new_id = match j.kind {
+            JobKind::Dependencies => {
+                let deployment_message = j
+                    .args
+                    .clone()
+                    .map(|hashmap| {
+                        hashmap
+                            .get("deployment_message")
+                            .map(|map_value| serde_json::from_str::<String>(map_value.get()).ok())
+                            .flatten()
+                    })
+                    .flatten();
+
+                // This way we tell downstream which script we should archive when the resolution is finished.
+                // (not used at the moment)
+                j.args
+                    .as_mut()
+                    .map(|args| args.insert("base_hash".to_owned(), to_raw_value(&*base_hash)));
+
+                windmill_common::scripts::clone_script(
+                    j.runnable_path(),
+                    &j.workspace_id,
+                    deployment_message,
+                    db,
+                )
+                .await?
+                .new_hash
+            }
+            JobKind::FlowDependencies => {
+                sqlx::query_scalar!(
+                    "INSERT INTO flow_version
+                    (workspace_id, path, value, schema, created_by)
+
+                    SELECT workspace_id, path, value, schema, created_by
+                    FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
+
+                    RETURNING id
+                    ",
+                    j.runnable_path(),
+                    j.workspace_id,
+                    *base_hash,
+                )
+                .fetch_one(db)
+                .await?
+            }
+            JobKind::AppDependencies => {
+                sqlx::query_scalar!(
+                    "INSERT INTO app_version
+                        (app_id, value, created_by, raw_app)
+                    SELECT app_id, value, created_by, raw_app
+                    FROM app_version WHERE id = $1
+                    RETURNING id",
+                    *base_hash
+                )
+                .fetch_one(db)
+                .await?
+            }
+            _ => *base_hash,
+        };
+
+        j.runnable_id.replace(maybe_new_id.into());
+    }
+
+    Ok(())
+}
+
+// TODO: Factorize
 /// Pull the job from queue
 pub async fn pull(
     db: &Pool<Postgres>,
@@ -2318,6 +2843,7 @@ pub async fn pull(
                 job: None,
                 suspended: false,
                 missing_concurrency_key: false,
+                error_while_preprocessing: None,
             });
         }
 
@@ -2326,19 +2852,26 @@ pub async fn pull(
                 let job = if query_suspended.is_empty() {
                     None
                 } else {
-                    sqlx::query_as::<_, PulledJob>(query_suspended)
-                        .bind(worker_name)
-                        .fetch_optional(db)
-                        .await?
+                    timeout(
+                        Duration::from_secs(15),
+                        sqlx::query_as::<_, PulledJob>(query_suspended)
+                            .bind(worker_name)
+                            .fetch_optional(db),
+                    )
+                    .await??
                 };
 
                 let (job, suspended) = if let Some(job) = job {
                     (Some(job), true)
                 } else {
-                    let job = sqlx::query_as::<_, PulledJob>(query_no_suspend)
-                        .bind(worker_name)
-                        .fetch_optional(db)
-                        .await?;
+                    let job = timeout(
+                        Duration::from_secs(15),
+                        sqlx::query_as::<_, PulledJob>(query_no_suspend)
+                            .bind(worker_name)
+                            .fetch_optional(db),
+                    )
+                    .await??;
+
                     (job, false)
                 };
 
@@ -2366,27 +2899,49 @@ pub async fn pull(
                     }
                 }
 
+                #[cfg(feature = "private")]
+                let concurrency_settings = if let Some(ref j) = job {
+                    RunnableSettings::from_runnable_settings_handle(j.runnable_settings_handle, db)
+                        .await?
+                        .prefetch_cached(db)
+                        .await?
+                        .1
+                        .maybe_fallback(None, j.concurrent_limit, j.concurrency_time_window_s)
+                } else {
+                    Default::default()
+                };
+
                 let pulled_job_result = match job {
                     #[cfg(feature = "private")]
                     Some(job)
-                        if job.concurrent_limit.is_some()
+                        if concurrency_settings.concurrent_limit.is_some()
                             // Concurrency limit is available for either enterprise job or dependency job
-                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)) =>
+                            && (cfg!(feature = "enterprise") || (job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING)) =>
                     {
-                        let job = crate::jobs_ee::apply_concurrency_limit(
-                            db,
-                            pull_loop_count,
-                            suspended,
-                            job,
+                        timeout(
+                            Duration::from_secs(15),
+                            crate::jobs_ee::apply_concurrency_limit(
+                                db,
+                                pull_loop_count,
+                                suspended,
+                                job,
+                                &concurrency_settings,
+                            ),
                         )
-                        .await?;
-                        job.unwrap_or(PulledJobResult {
+                        .await??
+                        .unwrap_or(PulledJobResult {
                             job: None,
                             suspended,
                             missing_concurrency_key: false,
+                            error_while_preprocessing: None,
                         })
                     }
-                    _ => PulledJobResult { job, suspended, missing_concurrency_key: false },
+                    _ => PulledJobResult {
+                        job,
+                        suspended,
+                        missing_concurrency_key: false,
+                        error_while_preprocessing: None,
+                    },
                 };
 
                 Ok::<_, Error>(pulled_job_result)
@@ -2395,19 +2950,35 @@ pub async fn pull(
             return Ok(njob);
         };
 
-        let (job, suspended) = pull_single_job_and_mark_as_running_no_concurrency_limit(
-            db,
-            suspend_first,
-            worker_name,
-            #[cfg(feature = "benchmark")]
-            bench,
+        let (job, suspended) = timeout(
+            Duration::from_secs(15),
+            pull_single_job_and_mark_as_running_no_concurrency_limit(
+                db,
+                suspend_first,
+                worker_name,
+                #[cfg(feature = "benchmark")]
+                bench,
+            ),
         )
-        .await?;
+        .await??;
         let Some(job) = job else {
-            return Ok(PulledJobResult { job: None, suspended, missing_concurrency_key: false });
+            return Ok(PulledJobResult {
+                job: None,
+                suspended,
+                missing_concurrency_key: false,
+                error_while_preprocessing: None,
+            });
         };
 
-        let has_concurent_limit = job.concurrent_limit.is_some();
+        let concurrency_settings =
+            RunnableSettings::from_runnable_settings_handle(job.runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?
+                .1
+                .maybe_fallback(None, job.concurrent_limit, job.concurrency_time_window_s);
+
+        let has_concurent_limit = concurrency_settings.concurrent_limit.is_some();
 
         #[cfg(not(feature = "enterprise"))]
         if has_concurent_limit && !job.is_dependency() {
@@ -2415,8 +2986,10 @@ pub async fn pull(
         }
 
         #[cfg(not(feature = "enterprise"))]
-        let has_concurent_limit = false
-            || (job.is_dependency() && cfg!(feature = "private") && !*WMDEBUG_NO_DJOB_DEBOUNCING);
+        let has_concurent_limit = job.is_dependency()
+            && job.concurrent_limit.is_some()
+            && cfg!(feature = "private")
+            && !*WMDEBUG_NO_DEBOUNCING;
         // if we don't have private flag, we don't have concurrency limit
 
         // concurrency check. If more than X jobs for this path are already running, we re-queue and pull another job from the queue
@@ -2433,18 +3006,25 @@ pub async fn pull(
                 job: Some(pulled_job),
                 suspended,
                 missing_concurrency_key: false,
+                error_while_preprocessing: None,
             });
         }
 
         #[cfg(feature = "private")]
-        if cfg!(feature = "enterprise")
-            || (pulled_job.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING)
-        {
-            if let Some(pulled_job) =
-                crate::jobs_ee::apply_concurrency_limit(db, pull_loop_count, suspended, pulled_job)
-                    .await?
+        if cfg!(feature = "enterprise") || (pulled_job.is_dependency() && !*WMDEBUG_NO_DEBOUNCING) {
+            if let Some(pulled_job_res) = timeout(
+                Duration::from_secs(15),
+                crate::jobs_ee::apply_concurrency_limit(
+                    db,
+                    pull_loop_count,
+                    suspended,
+                    pulled_job,
+                    &concurrency_settings,
+                ),
+            )
+            .await??
             {
-                return Ok(pulled_job);
+                return Ok(pulled_job_res);
             }
         }
     }
@@ -2559,7 +3139,7 @@ pub async fn concurrency_key(
         .await
         .map(|x| {
             if x.is_none() {
-                tracing::info!("No concurrency key found for job {id}, defaulting to empty string");
+                tracing::info!("No concurrency key found for job {id}");
             }
             return x;
         })
@@ -2591,44 +3171,139 @@ pub async fn custom_debounce_key(
     .await
 }
 
-/// Helper function to extract nodes/components to relock from job arguments
-/// Returns the list of nodes to relock if present in either nodes_to_relock (flows) or components_to_relock (apps)
-fn extract_to_relock_from_args(args: &HashMap<String, Box<RawValue>>) -> Option<Vec<String>> {
-    args.get("nodes_to_relock") // For flows
-        .or(args.get("components_to_relock")) // For apps
-        .and_then(|rv| {
-            serde_json::from_str::<Vec<String>>(&rv.to_string())
-                .map_err(|e| tracing::warn!("Failed to deserialize relock data: {}", e))
-                .ok()
-        })
+pub fn resolve_debounce_key<'b>(
+    unresolved_debounce_key: Option<String>,
+    runnable_path: &Option<String>,
+    workspace_id: &str,
+    job_kind: JobKind,
+    args: &PushArgs<'b>,
+    args_to_ignore_if_default: Option<&String>,
+) -> String {
+    let original_debounce_key = unresolved_debounce_key
+        .map(|x| crate::interpolate_args(x, &args, workspace_id))
+        .unwrap_or(format!(
+            "{}#args:{}",
+            crate::fullpath_with_workspace(workspace_id, runnable_path.as_ref(), &job_kind),
+            args.args
+                .iter()
+                .filter_map(|(k, v)| {
+                    if args_to_ignore_if_default
+                        .map(|name| name == k)
+                        .unwrap_or_default()
+                    {
+                        None
+                    } else {
+                        Some(v.to_string())
+                    }
+                })
+                // TODO: disable sorted?
+                .sorted()
+                .collect_vec()
+                .join(":"),
+        ));
+
+    tracing::debug!("Original debounce key: {}", original_debounce_key);
+
+    // If debounce_key is not too long (< 255 chars), keep it as is, otherwise hash it
+    const MAX_DEBOUNCE_KEY_LENGTH: usize = 255;
+    let resolved = if original_debounce_key.len() <= MAX_DEBOUNCE_KEY_LENGTH {
+        original_debounce_key
+    } else {
+        let hash = calculate_hash(&original_debounce_key);
+        tracing::debug!(
+            "Debounce key too long ({}), using hash: {}",
+            original_debounce_key.len(),
+            hash
+        );
+        hash
+    };
+
+    #[cfg(feature = "cloud")]
+    let resolved = format!("{workspace_id}:{resolved}");
+
+    tracing::debug!("Final debounce key: {}", resolved);
+    resolved
 }
 
-/// Helper function to accumulate nodes/components to relock for a debounced job
-/// This merges new items with existing ones, removing duplicates
-async fn accumulate_debounce_stale_data(
-    tx: &mut Transaction<'_, Postgres>,
+#[derive(Debug)]
+pub enum DebouncingLimitsReport {
+    MaxCountExceeded,
+    TimeExceeded,
+    CanDebounce,
+}
+
+pub async fn check_debouncing_within_limits(
+    (current_time, current_amount): (DateTime<Utc>, i32),
+    (allowed_time, allowed_amount): (Option<i32>, Option<i32>),
     job_id: &Uuid,
-    to_relock: &[String],
-) -> Result<(), Error> {
-    sqlx::query!(
-        "
-        INSERT INTO debounce_stale_data (job_id, to_relock)
-            VALUES ($1, $2)
-            ON CONFLICT (job_id)
-                DO UPDATE SET to_relock = (
-                    SELECT array_agg(DISTINCT x)
-                    FROM unnest(
-                        -- Combine existing array with new values, removing duplicates
-                        array_cat(debounce_stale_data.to_relock, EXCLUDED.to_relock)
-                    ) AS x
-                )
-        ",
-        job_id,
-        to_relock
-    )
-    .execute(&mut **tx)
-    .await?;
-    Ok(())
+    runnable_path: &Option<String>,
+) -> DebouncingLimitsReport {
+    use DebouncingLimitsReport::*;
+
+    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+        || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
+
+    if !no_legacy_compat {
+        tracing::warn!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            allowed_time = ?allowed_time,
+            allowed_amount = ?allowed_amount,
+            "Debouncing limits not enforced: workers are behind minimum version for v2 debouncing (require >= 1.597.0)"
+        );
+    }
+
+    let elapsed_seconds = (Utc::now() - current_time).num_seconds() as i32;
+
+    tracing::debug!(
+        job_id = %job_id,
+        runnable_path = ?runnable_path,
+        current_amount = current_amount,
+        allowed_amount = ?allowed_amount,
+        elapsed_seconds = elapsed_seconds,
+        allowed_time = ?allowed_time,
+        first_started_at = %current_time,
+        no_legacy_compat = no_legacy_compat,
+        "Checking debouncing limits"
+    );
+
+    if allowed_amount
+        .map(|allowed_amount| current_amount > allowed_amount)
+        .unwrap_or_default()
+        && no_legacy_compat
+    {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            allowed_amount = allowed_amount,
+            "Debouncing limit exceeded: max debounce count reached"
+        );
+        MaxCountExceeded
+    } else if allowed_time
+        .map(|allowed_time| elapsed_seconds > allowed_time)
+        .unwrap_or_default()
+        && no_legacy_compat
+    {
+        tracing::info!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            elapsed_seconds = elapsed_seconds,
+            allowed_time = allowed_time,
+            first_started_at = %current_time,
+            "Debouncing limit exceeded: max debounce time window reached"
+        );
+        TimeExceeded
+    } else {
+        tracing::debug!(
+            job_id = %job_id,
+            runnable_path = ?runnable_path,
+            current_amount = current_amount,
+            elapsed_seconds = elapsed_seconds,
+            "Debouncing within limits: can continue debouncing"
+        );
+        CanDebounce
+    }
 }
 
 pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> String {
@@ -2681,7 +3356,7 @@ pub fn interpolate_args(x: String, args: &PushArgs, workspace_id: &str) -> Strin
     }
 }
 
-fn fullpath_with_workspace(
+pub fn fullpath_with_workspace(
     workspace_id: &str,
     script_path: Option<&String>,
     job_kind: &JobKind,
@@ -3112,32 +3787,27 @@ pub async fn job_is_complete(db: &DB, id: Uuid, w_id: &str) -> error::Result<boo
     .unwrap_or(false))
 }
 
-async fn get_queued_job_tx<'c>(
-    id: Uuid,
-    w_id: &str,
-    tx: &mut Transaction<'c, Postgres>,
-) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(Into::into)
-}
-
-pub async fn get_queued_job(id: &Uuid, w_id: &str, db: &DB) -> error::Result<Option<QueuedJob>> {
-    sqlx::query_as::<_, QueuedJob>(
-        "SELECT *, null as workflow_as_code_status
-            FROM v2_as_queue WHERE id = $1 AND workspace_id = $2",
-    )
-    .bind(id)
-    .bind(w_id)
-    .fetch_optional(db)
-    .await
-    .map_err(Into::into)
+pub fn get_mini_completed_job<'a, 'e, A: sqlx::Acquire<'e, Database = Postgres> + Send + 'a>(
+    id: &'a Uuid,
+    w_id: &'a str,
+    db: A,
+) -> impl Future<Output = error::Result<Option<MiniCompletedJob>>> + Send + 'a {
+    async move {
+        let mut conn = db.acquire().await?;
+        sqlx::query_as!(
+            MiniCompletedJob,
+            "SELECT 
+            j.id, j.workspace_id, j.runnable_id AS \"runnable_id: ScriptHash\", q.scheduled_for, q.started_at, j.parent_job, j.flow_innermost_root_job, j.runnable_path, j.kind as \"kind!: JobKind\", j.permissioned_as, 
+            j.created_by, j.script_lang AS \"script_lang: ScriptLang\", j.permissioned_as_email, j.flow_step_id, j.trigger_kind AS \"trigger_kind: JobTriggerKind\", j.trigger, j.priority, j.concurrent_limit, j.tag, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle
+            FROM v2_job j LEFT JOIN v2_job_queue q ON j.id = q.id
+            WHERE j.id = $1 AND j.workspace_id = $2",
+            id,
+            w_id
+        )
+        .fetch_optional(&mut *conn)
+        .await
+        .map_err(Into::into)
+    }
 }
 
 pub enum PushIsolationLevel<'c> {
@@ -3147,7 +3817,7 @@ pub enum PushIsolationLevel<'c> {
 }
 
 impl<'c> PushIsolationLevel<'c> {
-    async fn into_tx(self) -> error::Result<Transaction<'c, Postgres>> {
+    pub async fn into_tx(self) -> error::Result<Transaction<'c, Postgres>> {
         match self {
             PushIsolationLevel::Isolated(db, authed) => Ok((db.begin(&authed).await?).into()),
             PushIsolationLevel::IsolatedRoot(db) => Ok(db.begin().await?),
@@ -3266,10 +3936,7 @@ lazy_static::lazy_static! {
 const SUPERADMIN_CACHE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
 #[cfg(feature = "cloud")]
-async fn is_superadmin_cached(
-    db: &Pool<Postgres>,
-    email: &str,
-) -> Result<bool, Error> {
+async fn is_superadmin_cached(db: &Pool<Postgres>, email: &str) -> Result<bool, Error> {
     let now = std::time::Instant::now();
 
     // Try to get from cache first
@@ -3283,18 +3950,19 @@ async fn is_superadmin_cached(
     }
 
     // Cache miss or expired, fetch from database
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        email
-    )
-    .fetch_optional(db)
-    .await?
-    .unwrap_or(false);
+    let is_super_admin =
+        sqlx::query_scalar!("SELECT super_admin FROM password WHERE email = $1", email)
+            .fetch_optional(db)
+            .await?
+            .unwrap_or(false);
 
     // Update cache
     {
         let mut cache = SUPERADMIN_CACHE.write().await;
-        cache.insert(email.to_string(), (is_super_admin, now + SUPERADMIN_CACHE_TTL));
+        cache.insert(
+            email.to_string(),
+            (is_super_admin, now + SUPERADMIN_CACHE_TTL),
+        );
     }
 
     Ok(is_super_admin)
@@ -3340,54 +4008,7 @@ async fn check_usage_limits(
 }
 
 #[cfg(feature = "cloud")]
-fn increment_usage_async(
-    db: Pool<Postgres>,
-    workspace_id: String,
-    email: Option<String>,
-) {
-    tokio::task::spawn(async move {
-        let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            // Update workspace usage
-            let workspace_result = sqlx::query!(
-                "INSERT INTO usage (id, is_workspace, month_, usage)
-                VALUES ($1, TRUE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                &workspace_id
-            )
-            .execute(&db)
-            .await;
-
-            if let Err(e) = workspace_result {
-                tracing::error!("Failed to update workspace usage for {}: {:#}", workspace_id, e);
-            }
-
-            // Update user usage if email is provided (non-premium workspaces only)
-            if let Some(ref email) = email {
-                let user_result = sqlx::query!(
-                    "INSERT INTO usage (id, is_workspace, month_, usage)
-                    VALUES ($1, FALSE, EXTRACT(YEAR FROM current_date) * 12 + EXTRACT(MONTH FROM current_date), 1)
-                    ON CONFLICT (id, is_workspace, month_) DO UPDATE SET usage = usage.usage + 1",
-                    email
-                )
-                .execute(&db)
-                .await;
-
-                if let Err(e) = user_result {
-                    tracing::error!("Failed to update user usage for {}: {:#}", email, e);
-                }
-            }
-        })
-        .await;
-
-        if let Err(_) = result {
-            tracing::error!(
-                "Usage update timed out after 10s for workspace {} and email {:?}",
-                workspace_id,
-                email
-            );
-        }
-    });
-}
+use crate::cloud_usage::increment_usage_async;
 
 // #[instrument(level = "trace", skip_all)]
 pub async fn push<'c, 'd>(
@@ -3400,8 +4021,8 @@ pub async fn push<'c, 'd>(
     mut email: &str,
     mut permissioned_as: String,
     token_prefix: Option<&str>,
-    scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
-    schedule_path: Option<String>,
+    #[allow(unused_mut)] mut scheduled_for_o: Option<chrono::DateTime<chrono::Utc>>,
+    schedule_path: Option<String>, //should be removed in favor of the trigger param below
     parent_job: Option<Uuid>,
     root_job: Option<Uuid>,
     flow_innermost_root_job: Option<Uuid>,
@@ -3417,12 +4038,13 @@ pub async fn push<'c, 'd>(
     authed: Option<&Authed>,
     running: bool, // whether the job is already running: only set this to true if you don't want the job to be picked up by a worker from the queue. It will also set started_at to now.
     end_user_email: Option<String>,
-    // If we know there is already a debounce job, we can use this for debouncing.
-    debounce_job_id_o: Option<Uuid>,
+    trigger: Option<TriggerMetadata>,
+    suspended_mode: Option<bool>,
 ) -> Result<(Uuid, Transaction<'c, Postgres>), Error> {
     #[cfg(feature = "cloud")]
     if *CLOUD_HOSTED {
-        let team_plan_status = windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await;
+        let team_plan_status =
+            windmill_common::workspaces::get_team_plan_status(_db, workspace_id).await?;
         // we track only non flow steps
         let (workspace_usage, user_usage) = if !matches!(
             job_payload,
@@ -3437,7 +4059,11 @@ pub async fn push<'c, 'd>(
             increment_usage_async(
                 _db.clone(),
                 workspace_id.to_string(),
-                if !team_plan_status.premium { Some(email.to_string()) } else { None },
+                if !team_plan_status.premium {
+                    Some(email.to_string())
+                } else {
+                    None
+                },
             );
 
             // Return the current usage + 1 to account for this job
@@ -3498,7 +4124,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let in_queue = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -3512,7 +4138,7 @@ pub async fn push<'c, 'd>(
                     }
 
                     let concurrent_runs = sqlx::query_scalar!(
-                        "SELECT COUNT(id) FROM v2_as_queue WHERE running = true AND email = $1",
+                        "SELECT COUNT(j.id) FROM v2_job_queue q JOIN v2_job j USING (id) WHERE q.running = true AND j.permissioned_as_email = $1",
                         email
                     )
                     .fetch_one(_db)
@@ -3595,78 +4221,88 @@ pub async fn push<'c, 'd>(
         }
     }
 
+    #[derive(Default)]
+    struct JobPayloadUntagged {
+        runnable_id: Option<i64>,
+        runnable_path: Option<String>,
+        raw_code_tuple: Option<(String, Option<String>)>, // (content, lock)
+        job_kind: JobKind,
+        raw_flow: Option<FlowValue>,
+        flow_status: Option<FlowStatus>,
+        language: Option<ScriptLang>,
+        cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
+        dedicated_worker: Option<bool>,
+        _low_level_priority: Option<i16>,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
+    }
     let mut preprocessed = None;
-    let (
-        script_hash,
-        script_path,
+    #[allow(unused)]
+    let JobPayloadUntagged {
+        runnable_id,
+        runnable_path,
         raw_code_tuple,
-        job_kind,
+        mut job_kind,
         raw_flow,
         flow_status,
         language,
-        mut custom_concurrency_key,
-        mut concurrent_limit,
-        concurrency_time_window_s,
         cache_ttl,
+        cache_ignore_s3_path,
         dedicated_worker,
         _low_level_priority,
-    ) = match job_payload {
+        mut concurrency_settings,
+        debouncing_settings,
+    } = match job_payload {
         JobPayload::ScriptHash {
             hash,
             path,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
             apply_preprocessor,
+            concurrency_settings,
+            debouncing_settings,
         } => {
             if apply_preprocessor {
                 preprocessed = Some(false);
             }
 
-            (
-                Some(hash.0),
-                Some(path),
-                None,
-                JobKind::Script,
-                None,
-                None,
-                Some(language),
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: Some(hash.0),
+                runnable_path: Some(path),
+                job_kind: JobKind::Script,
+                language: Some(language),
+                concurrency_settings,
+                debouncing_settings,
                 cache_ttl,
+                cache_ignore_s3_path,
                 dedicated_worker,
-                priority,
-            )
+                _low_level_priority: priority,
+                ..Default::default()
+            }
         }
         JobPayload::FlowScript {
             id, // flow_node(id).
             language,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
             path,
-        } => (
-            Some(id.0),
-            Some(path),
-            None,
-            JobKind::FlowScript,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            concurrency_settings,
+        } => JobPayloadUntagged {
+            runnable_id: Some(id.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::FlowScript,
+            language: Some(language),
+            concurrency_settings,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
-            None,
-        ),
+            ..Default::default()
+        },
         JobPayload::FlowNode { id, path } => {
             let data = cache::flow::fetch_flow(_db, id).await?;
             let value = data.value();
@@ -3679,42 +4315,28 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(id.0),
-                Some(path),
-                None,
-                JobKind::FlowNode,
-                value_o,
-                status,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                runnable_id: Some(id.0),
+                runnable_path: Some(path),
+                job_kind: JobKind::FlowNode,
+                raw_flow: value_o,
+                flow_status: status,
+                ..Default::default()
+            }
         }
         JobPayload::AppScript {
             id, // app_script(id).
             path,
             language,
             cache_ttl,
-        } => (
-            Some(id.0),
-            path,
-            None,
-            JobKind::AppScript,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
+        } => JobPayloadUntagged {
+            runnable_id: Some(id.0),
+            runnable_path: path,
+            job_kind: JobKind::AppScript,
+            language: Some(language),
             cache_ttl,
-            None,
-            None,
-        ),
+            ..Default::default()
+        },
         JobPayload::ScriptHub { path, apply_preprocessor } => {
             if path == "hub/7771/slack" || path == "hub/7836/slack" || path == "hub/9084/slack" {
                 // these scripts send app reports to slack
@@ -3731,22 +4353,12 @@ pub async fn push<'c, 'd>(
                 get_full_hub_script_by_path(StripPath(path.clone()), &HTTP_CLIENT, Some(_db))
                     .await?;
 
-            (
-                None,
-                Some(path),
-                None,
-                // Some((script.content, script.lockfile)),
-                JobKind::Script_Hub,
-                None,
-                None,
-                Some(hub_script.language),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+            JobPayloadUntagged {
+                runnable_path: Some(path),
+                job_kind: JobKind::Script_Hub,
+                language: Some(hub_script.language),
+                ..Default::default()
+            }
         }
         JobPayload::Code(RawCode {
             content,
@@ -3754,76 +4366,59 @@ pub async fn push<'c, 'd>(
             hash,
             language,
             lock,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
+            cache_ignore_s3_path,
             dedicated_worker,
-        }) => (
+            concurrency_settings,
+            debouncing_settings,
+        }) => JobPayloadUntagged {
+            runnable_id: hash,
+            runnable_path: path,
+            raw_code_tuple: Some((content, lock)),
+            job_kind: JobKind::Preview,
+            language: Some(language),
+            concurrency_settings: concurrency_settings.into(),
+            debouncing_settings,
+            cache_ttl,
+            cache_ignore_s3_path,
+            dedicated_worker,
+            ..Default::default()
+        },
+        JobPayload::Dependencies {
             hash,
+            language,
             path,
-            Some((content, lock)),
-            JobKind::Preview,
-            None,
-            None,
-            Some(language),
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
-            cache_ttl,
             dedicated_worker,
-            None,
-        ),
-        JobPayload::Dependencies { hash, language, path, dedicated_worker } => (
-            Some(hash.0),
-            Some(path.clone()),
-            None,
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
+            debouncing_settings,
+        } => JobPayloadUntagged {
+            runnable_id: Some(hash.0),
+            runnable_path: Some(path),
+            job_kind: JobKind::Dependencies,
+            language: Some(language),
             dedicated_worker,
-            None,
-        ),
+            debouncing_settings,
+            ..Default::default()
+        },
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawScriptDependencies { script_path, content, language } => (
-            None,
-            Some(script_path),
-            Some((content, None)),
-            JobKind::Dependencies,
-            None,
-            None,
-            Some(language),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::RawScriptDependencies { script_path, content, language } => {
+            JobPayloadUntagged {
+                runnable_path: Some(script_path),
+                raw_code_tuple: Some((content, None)),
+                job_kind: JobKind::Dependencies,
+                language: Some(language),
+                ..Default::default()
+            }
+        }
 
         // CLI usage, is not modifying db, no need for debouncing.
-        JobPayload::RawFlowDependencies { path, flow_value } => (
-            None,
-            Some(path),
-            None,
-            JobKind::FlowDependencies,
-            Some(flow_value),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::FlowDependencies { path, dedicated_worker, version } => {
+        JobPayload::RawFlowDependencies { path, flow_value } => JobPayloadUntagged {
+            runnable_path: Some(path),
+            job_kind: JobKind::FlowDependencies,
+            raw_flow: Some(flow_value),
+            ..Default::default()
+        },
+        JobPayload::FlowDependencies { path, dedicated_worker, version, debouncing_settings } => {
             #[cfg(test)]
             let skip_compat = args
                 .args
@@ -3844,37 +4439,23 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                Some(version),
-                Some(path.clone()),
-                None,
-                JobKind::FlowDependencies,
-                value_o,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+            JobPayloadUntagged {
+                runnable_id: Some(version),
+                runnable_path: Some(path.clone()),
+                job_kind: JobKind::FlowDependencies,
+                raw_flow: value_o,
                 dedicated_worker,
-                None,
-            )
+                debouncing_settings,
+                ..Default::default()
+            }
         }
-        JobPayload::AppDependencies { path, version } => (
-            Some(version),
-            Some(path.clone()),
-            None,
-            JobKind::AppDependencies,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::AppDependencies { path, version, debouncing_settings } => JobPayloadUntagged {
+            runnable_id: Some(version),
+            runnable_path: Some(path.clone()),
+            job_kind: JobKind::AppDependencies,
+            debouncing_settings,
+            ..Default::default()
+        },
         JobPayload::RawFlow { mut value, path, restarted_from } => {
             add_virtual_items_if_necessary(&mut value.modules);
 
@@ -3887,6 +4468,7 @@ pub async fn push<'c, 'd>(
                             restarted_from_val.flow_job_id,
                             restarted_from_val.step_id.as_str(),
                             restarted_from_val.branch_or_iteration_n,
+                            restarted_from_val.flow_version,
                         )
                         .await?;
                     FlowStatus {
@@ -3908,6 +4490,7 @@ pub async fn push<'c, 'd>(
                             flow_job_id: restarted_from_val.flow_job_id,
                             step_id: restarted_from_val.step_id,
                             branch_or_iteration_n: restarted_from_val.branch_or_iteration_n,
+                            flow_version: restarted_from_val.flow_version,
                         }),
                         user_states,
                         preprocessor_module: None,
@@ -3921,26 +4504,20 @@ pub async fn push<'c, 'd>(
                     FlowStatus::new(&value)
                 } // this is a new flow being pushed, flow_status is set to flow_value
             };
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             let priority = value.priority;
-            (
-                None,
-                path,
-                None,
-                JobKind::FlowPreview,
-                Some(value),
-                Some(flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_path: path,
+                job_kind: JobKind::FlowPreview,
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-            )
+                cache_ignore_s3_path: value.cache_ignore_s3_path,
+                _low_level_priority: priority,
+                concurrency_settings: value.concurrency_settings.clone(),
+                debouncing_settings: value.debouncing_settings.clone(),
+                raw_flow: Some(value),
+                ..Default::default()
+            }
         }
         JobPayload::SingleStepFlow {
             path,
@@ -3951,14 +4528,14 @@ pub async fn push<'c, 'd>(
             error_handler_args,
             skip_handler,
             args,
-            custom_concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
             cache_ttl,
+            cache_ignore_s3_path,
             priority,
             tag_override,
             trigger_path,
             apply_preprocessor,
+            debouncing_settings,
+            concurrency_settings,
         } => {
             // Determine if this is a flow or a script
             let is_flow = flow_version.is_some();
@@ -4092,34 +4669,32 @@ pub async fn push<'c, 'd>(
             let flow_value = FlowValue {
                 modules,
                 failure_module,
-                concurrency_time_window_s,
-                concurrent_limit,
+                concurrency_settings: concurrency_settings.clone(),
+                debouncing_settings: debouncing_settings.clone(),
                 priority,
                 cache_ttl: cache_ttl.map(|val| val as u32),
-                concurrency_key: custom_concurrency_key.clone(),
+                cache_ignore_s3_path: cache_ignore_s3_path,
                 same_worker: false,
                 early_return: None,
                 skip_expr: None,
                 preprocessor_module: None,
                 chat_input_enabled: None,
+                flow_env: None,
             };
             // this is a new flow being pushed, flow_status is set to flow_value:
             let flow_status: FlowStatus = FlowStatus::new(&flow_value);
-            (
-                None, // No version needed - flow is stored in raw_flow like FlowPreview
-                Some(path),
-                None,
-                JobKind::SingleStepFlow,
-                Some(flow_value),
-                Some(flow_status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_path: Some(path),
+                job_kind: JobKind::SingleStepFlow,
+                raw_flow: Some(flow_value),
+                flow_status: Some(flow_status),
                 cache_ttl,
-                None,
-                priority,
-            )
+                cache_ignore_s3_path,
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
         JobPayload::Flow { path, dedicated_worker, apply_preprocessor, version } => {
             let mut ntx = tx.into_tx().await?;
@@ -4142,15 +4717,19 @@ pub async fn push<'c, 'd>(
             let mut value = data.value().clone();
             let priority = value.priority;
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
-            let custom_concurrency_key = value.concurrency_key.clone();
-            let concurrency_time_window_s = value.concurrency_time_window_s;
-            let mut concurrent_limit = value.concurrent_limit;
+            let cache_ignore_s3_path = value.cache_ignore_s3_path;
+            let mut concurrency_settings = value.concurrency_settings.clone();
+            let mut debouncing_settings = value.debouncing_settings.clone();
 
             if !apply_preprocessor {
                 value.preprocessor_module = None;
             } else {
                 tag = None;
-                concurrent_limit = None;
+
+                concurrency_settings.concurrent_limit = None;
+                // TODO: May be re-enable?
+                debouncing_settings.debounce_delay_s = None;
+
                 preprocessed = Some(false);
             }
 
@@ -4171,23 +4750,27 @@ pub async fn push<'c, 'd>(
                 // by additional checks when handling the flow.
                 None
             };
-            (
-                Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
-                Some(path),
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(status),
-                None,
-                custom_concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: Some(version), // Starting from `v1.436`, the version id is used to fetch the value on pull.
+                runnable_path: Some(path),
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(status),
                 cache_ttl,
+                cache_ignore_s3_path,
                 dedicated_worker,
-                priority,
-            )
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
-        JobPayload::RestartedFlow { completed_job_id, step_id, branch_or_iteration_n } => {
+        JobPayload::RestartedFlow {
+            completed_job_id,
+            step_id,
+            branch_or_iteration_n,
+            flow_version,
+        } => {
             let (
                 version,
                 flow_path,
@@ -4202,8 +4785,10 @@ pub async fn push<'c, 'd>(
                 completed_job_id,
                 step_id.as_str(),
                 branch_or_iteration_n,
+                flow_version,
             )
             .await?;
+
             let restarted_flow_status = FlowStatus {
                 step: step_n,
                 modules: truncated_modules,
@@ -4223,6 +4808,7 @@ pub async fn push<'c, 'd>(
                     flow_job_id: completed_job_id,
                     step_id,
                     branch_or_iteration_n,
+                    flow_version,
                 }),
                 user_states,
                 preprocessor_module: None,
@@ -4232,9 +4818,8 @@ pub async fn push<'c, 'd>(
             };
             let value = flow_data.value();
             let priority = value.priority;
-            let concurrency_key = value.concurrency_key.clone();
-            let concurrent_limit = value.concurrent_limit;
-            let concurrency_time_window_s = value.concurrency_time_window_s;
+            let concurrency_settings = value.concurrency_settings.clone();
+            let debouncing_settings = value.debouncing_settings.clone();
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
@@ -4244,82 +4829,40 @@ pub async fn push<'c, 'd>(
                 // `raw_flow` is fetched on pull.
                 None
             };
-            (
-                version,
-                flow_path,
-                None,
-                JobKind::Flow,
-                value_o,
-                Some(restarted_flow_status),
-                None,
-                concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
+            JobPayloadUntagged {
+                runnable_id: version,
+                runnable_path: flow_path,
+                job_kind: JobKind::Flow,
+                raw_flow: value_o,
+                flow_status: Some(restarted_flow_status),
                 cache_ttl,
-                None,
-                priority,
-            )
+                cache_ignore_s3_path: value.cache_ignore_s3_path,
+                _low_level_priority: priority,
+                concurrency_settings,
+                debouncing_settings,
+                ..Default::default()
+            }
         }
-        JobPayload::DeploymentCallback { path } => (
-            None,
-            Some(path.clone()),
-            None,
-            JobKind::DeploymentCallback,
-            None,
-            None,
-            None,
-            Some(format!("{workspace_id}:git_sync")),
-            Some(1),
-            Some(0),
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Identity => (
-            None,
-            None,
-            None,
-            JobKind::Identity,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::Noop => (
-            None,
-            None,
-            None,
-            JobKind::Noop,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
-        JobPayload::AIAgent { path } => (
-            None,
-            Some(path),
-            None,
-            JobKind::AIAgent,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-        ),
+        JobPayload::DeploymentCallback { path, debouncing_settings } => JobPayloadUntagged {
+            runnable_path: Some(path.clone()),
+            job_kind: JobKind::DeploymentCallback,
+            concurrency_settings: ConcurrencySettings {
+                concurrency_key: Some(format!("{workspace_id}:git_sync")),
+                concurrent_limit: Some(1),
+                concurrency_time_window_s: Some(0),
+            },
+            debouncing_settings,
+            ..Default::default()
+        },
+        JobPayload::Identity => {
+            JobPayloadUntagged { job_kind: JobKind::Identity, ..Default::default() }
+        }
+        JobPayload::Noop => JobPayloadUntagged { job_kind: JobKind::Noop, ..Default::default() },
+        JobPayload::AIAgent { path } => JobPayloadUntagged {
+            runnable_path: Some(path),
+            job_kind: JobKind::AIAgent,
+            ..Default::default()
+        },
     };
 
     // Enforce concurrency limit on all dependency jobs.
@@ -4328,11 +4871,14 @@ pub async fn push<'c, 'd>(
     //
     // This is not the case for scripts, so we can potentially have multiple djobs for scripts at the same time.
     if let (Some(path), true) = (
-        &script_path,
-        cfg!(feature = "private") && job_kind.is_dependency() && !*WMDEBUG_NO_DJOB_DEBOUNCING,
+        &runnable_path,
+        cfg!(feature = "private")
+            && job_kind.is_dependency()
+            && !*WMDEBUG_NO_DEBOUNCING
+            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
     ) {
-        custom_concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
-        concurrent_limit = Some(1);
+        concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
+        concurrency_settings.concurrent_limit = Some(1);
     }
 
     let final_priority: Option<i16>;
@@ -4355,6 +4901,8 @@ pub async fn push<'c, 'd>(
     }
     // prioritize flow steps to drain the queue faster
     let final_priority = if flow_step_id.is_some() && final_priority.is_none() {
+        Some(0)
+    } else if job_kind == JobKind::Dependencies {
         Some(0)
     } else {
         final_priority
@@ -4395,7 +4943,7 @@ pub async fn push<'c, 'd>(
             } else {
                 ""
             },
-            script_path.clone().expect("dedicated script has a path")
+            runnable_path.clone().expect("dedicated script has a path")
         )
     } else {
         if tag == Some("".to_string()) {
@@ -4465,191 +5013,36 @@ pub async fn push<'c, 'd>(
         Ulid::new().into()
     };
 
-    // Dependency job debouncing: When multiple dependency jobs are scheduled for the same script/flow/app,
-    // we want to deduplicate them to avoid redundant work. The debouncing mechanism works by:
-    // 1. Creating a unique debounce key for each dependency target (dependency:workspace/type/path)
-    // 2. Reusing existing jobs when possible, or creating new ones when the existing job is already running
-    // 3. Accumulating the nodes/components that need relocking across all debounced requests
-    match (
-        scheduled_for_o.is_some(),
-        job_kind.is_dependency(),
-        script_path.clone(),
-        *WMDEBUG_NO_DJOB_DEBOUNCING,
-        // We only do debouncing for jobs triggered by relative imports
-        // We do not want this be the case for normal djobs, since they will always be sequential.
-        args.args.contains_key("triggered_by_relative_import"),
-    ) {
-        // === DEPENDENCY JOB DEBOUNCING ===
-        //
-        // Debouncing consolidates multiple dependency job requests into a single execution,
-        // reducing redundant work when many scripts/flows/apps are updated simultaneously.
-        //
-        // Prerequisites for debouncing (all must be true):
-        // 1. Job is scheduled in the future (debounce_delay is not None) - provides consolidation window
-        // 2. Job is a dependency job
-        // 3. Object path is provided (script/flow/app path)
-        // 4. Fallback mode is disabled (normal operation)
-        // 5. Job was created by relative imports (triggered by dependency chain)
-        //
-        // How it works:
-        //
-        // PHASE 1 - PUSH (in jobs.rs::push):
-        //   When a dependency job is scheduled with delay, check debounce_key table
-        //   - If key exists: Merge request into existing job, accumulate nodes/components
-        //   - If key doesn't exist: Create new entry and store initial nodes/components
-        //
-        // PHASE 2 - ACCUMULATION:
-        //   During the debounce window (typically 5-15 seconds), multiple requests merge
-        //   - Each request adds nodes/components to debounce_stale_data table
-        //   - SQL DISTINCT automatically removes duplicates during merge
-        //
-        // PHASE 3 - PULL (in jobs.rs::pull):
-        //   When the delayed job finally executes:
-        //   - Lock debounce_key FOR UPDATE to prevent races
-        //   - Retrieve all accumulated nodes/components from debounce_stale_data
-        //   - Process all collected dependencies in single execution
-        //   - Clean up both debounce_key and debounce_stale_data entries
-        (true, true, Some(obj_path), false, true) => {
-            // Generate unique debounce key: "workspace_id:object_path:dependency"
-            // This ensures each workspace+path combination has independent debounce window
-            let debounce_key = format!("{workspace_id}:{obj_path}:dependency");
+    #[cfg(feature = "private")]
+    if schedule_path.is_none() && flow_step_id.is_none() {
+        crate::jobs_ee::maybe_debounce(
+            &debouncing_settings,
+            &mut scheduled_for_o,
+            &runnable_path,
+            workspace_id,
+            job_kind,
+            job_id,
+            &args,
+            &mut tx,
+            _db,
+        )
+        .await?
+    }
 
-            tracing::debug!(
-                workspace_id = %workspace_id,
-                object_path = %obj_path,
-                debounce_key = %debounce_key,
-                "Checking for existing debounced dependency job"
-            );
+    let (trigger_path, trigger_kind) = trigger
+        .map_or_else(
+            || schedule_path.map(|path| (Some(path), JobTriggerKind::Schedule)),
+            |trigger| Some((trigger.trigger_path, trigger.trigger_kind)),
+        )
+        .unzip();
 
-            // Check if there's already a pending job registered for this debounce key
-            // The debounce_job_id_o is passed in by the caller after locking the key FOR UPDATE
-            // IMPORTANT: This is assumed that the caller will lock debounce_key row in this transaction.
-            // We do this to block puller from further actions until we are done with consolidation and stuff that we do here in push.
-            if let Some(debounce_job_id) = debounce_job_id_o {
-                tracing::debug!(
-                    existing_job_id = %debounce_job_id,
-                    new_job_id = %job_id,
-                    "Found existing debounced job, merging this request"
-                );
-
-                // NOTE: Race condition handling:
-                // In rare cases, the debounce_key entry may still exist even though the job
-                // has been pulled and is running. This can happen because:
-                // - Job pull marks job as running first
-                // - Then debounce_key cleanup happens (without transaction for performance)
-                // - Between these steps, new requests might see the old debounce_key
-                //
-                // This is acceptable because the puller will be blocked and cannot proceed until this transaction finishes.
-                // This will give us some space to add consolidated data (if such) and debounce the request.
-                // Once tx is commited, the puller will be unblocked and continue execution.
-                // Accumulate the nodes/components that need relocking from this request
-
-                // This ensures all dependency updates are handled even if jobs are debounced
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %debounce_job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Accumulating nodes/components to existing debounced job"
-                    );
-
-                    accumulate_debounce_stale_data(&mut tx, &debounce_job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %debounce_job_id,
-                                debounce_key = %debounce_key,
-                                "Failed to accumulate stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %debounce_job_id,
-                        "No nodes to relock in this request, skipping accumulation"
-                    );
-                }
-
-                // Return the existing job ID, effectively debouncing this request
-                // The new job_id we generated won't be used
-                tracing::debug!(
-                    returned_job_id = %debounce_job_id,
-                    skipped_job_id = %job_id,
-                    "Debounced: returning existing job ID instead of creating new job"
-                );
-
-                // We will skip some of the work downstream and just debounce the job.
-                return Ok((debounce_job_id, tx));
-            } else {
-                // No existing debounce entry - this is the first request in the debounce window
-                tracing::debug!(
-                    job_id = %job_id,
-                    debounce_key = %debounce_key,
-                    "Creating new debounce entry (first request in window)"
-                );
-
-                sqlx::query!(
-                    "INSERT INTO debounce_key (key, job_id) VALUES ($1, $2)",
-                    &debounce_key,
-                    job_id,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        debounce_key = %debounce_key,
-                        job_id = %job_id,
-                        "Failed to insert debounce_key entry"
-                    );
-                    Error::InternalErr(format!("Failed to create debounce entry: {}", e))
-                })?;
-
-                // Store initial nodes/components to relock if provided
-                if let Some(to_relock) = extract_to_relock_from_args(&args.args) {
-                    tracing::debug!(
-                        job_id = %job_id,
-                        node_count = to_relock.len(),
-                        nodes = ?to_relock,
-                        "Storing initial nodes/components for new debounced job"
-                    );
-
-                    accumulate_debounce_stale_data(&mut tx, &job_id, &to_relock)
-                        .await
-                        .map_err(|e| {
-                            tracing::error!(
-                                error = %e,
-                                job_id = %job_id,
-                                "Failed to store initial stale data for debounced job"
-                            );
-                            e
-                        })?;
-                } else {
-                    tracing::trace!(
-                        job_id = %job_id,
-                        "No initial nodes to relock, debounce entry created without stale data"
-                    );
-                }
-            }
-        }
-        _ => {
-            // Debouncing not applicable - proceed with normal job creation
-            tracing::trace!(
-                job_id = %job_id,
-                job_kind = ?job_kind,
-                "Debouncing conditions not met, proceeding with normal job creation"
-            );
-        }
-    };
-
-    if concurrent_limit.is_some() {
+    if concurrency_settings.concurrent_limit.is_some() {
         insert_concurrency_key(
             workspace_id,
             &args,
-            &script_path,
+            &runnable_path,
             job_kind,
-            custom_concurrency_key,
+            concurrency_settings.concurrency_key.clone(),
             &mut tx,
             job_id,
         )
@@ -4718,12 +5111,6 @@ pub async fn push<'c, 'd>(
     //     tracing::error!("Could not insert job_perms for job {job_id}: {err:#}");
     // }
 
-    let trigger_kind = if schedule_path.is_some() {
-        Some(JobTriggerKind::Schedule)
-    } else {
-        None
-    };
-
     let root_job = if root_job.is_some()
         && (root_job == flow_innermost_root_job.or(parent_job).or(Some(job_id)))
     {
@@ -4734,14 +5121,71 @@ pub async fn push<'c, 'd>(
         root_job
     };
 
+    let (job_kind, scheduled_for_o) = if suspended_mode.unwrap_or(false) {
+        let unassigned_job_kind = match job_kind {
+            JobKind::Script => JobKind::UnassignedScript,
+            JobKind::Flow => JobKind::UnassignedFlow,
+            JobKind::SingleStepFlow => JobKind::UnassignedSinglestepFlow,
+            _ => return Err(Error::internal_err(format!("Cannot suspend job of kind {job_kind:?} as it is not a script, flow or single step flow"))),
+        };
+        (
+            unassigned_job_kind,
+            Some(Utc::now() + chrono::Duration::days(30)),
+        )
+    } else {
+        (job_kind, scheduled_for_o)
+    };
+
+    let runnable_settings_handle = RunnableSettings {
+        debouncing_settings: debouncing_settings.insert_cached(_db).await?,
+        concurrency_settings: concurrency_settings.insert_cached(_db).await?,
+    }
+    .insert_cached(_db)
+    .await?;
+
+    let (guarded_concurrent_limit, guarded_concurrency_time_window_s) =
+        if windmill_common::runnable_settings::min_version_supports_runnable_settings_v0().await {
+            (None, None)
+        } else {
+            (
+                concurrency_settings.concurrent_limit,
+                concurrency_settings.concurrency_time_window_s,
+            )
+        };
     sqlx::query!(
         "WITH inserted_job AS (
-            INSERT INTO v2_job (id, workspace_id, raw_code, raw_lock, raw_flow, tag, parent_job,
-                created_by, permissioned_as, runnable_id, runnable_path, args, kind, trigger,
-            script_lang, same_worker, pre_run_error, permissioned_as_email, visible_to_owner,
-            flow_innermost_root_job, root_job, concurrent_limit, concurrency_time_window_s, timeout, flow_step_id,
-            cache_ttl, priority, trigger_kind, script_entrypoint_override, preprocessed)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
+            INSERT INTO v2_job (
+                id, -- 1
+                workspace_id, -- 2
+                raw_code, -- 3
+                raw_lock, -- 4
+                raw_flow, -- 5
+                tag, -- 6
+                parent_job, -- 7
+                created_by, -- 8
+                permissioned_as, -- 9
+                runnable_id, -- 10
+                runnable_path, -- 11
+                args, -- 12
+                kind, -- 13
+                trigger, -- 14
+                script_lang, -- 15
+                same_worker, -- 16
+                pre_run_error, -- 17 
+                permissioned_as_email, -- 18
+                visible_to_owner, -- 19
+                flow_innermost_root_job, -- 20
+                root_job, -- 38
+                concurrent_limit, -- 21
+                concurrency_time_window_s, -- 22
+                timeout, -- 23
+                flow_step_id, -- 24
+                cache_ttl, -- 25
+                priority, -- 26
+                trigger_kind, -- 39
+                script_entrypoint_override, -- 12
+                preprocessed -- 27,
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
             $19, $20, $38, $21, $22, $23, $24, $25, $26, $39::job_trigger_kind,
             ($12::JSONB)->>'_ENTRYPOINT_OVERRIDE', $27)
         ),
@@ -4754,8 +5198,8 @@ pub async fn push<'c, 'd>(
             ON CONFLICT (job_id) DO UPDATE SET email = EXCLUDED.email, username = EXCLUDED.username, is_admin = EXCLUDED.is_admin, is_operator = EXCLUDED.is_operator, folders = EXCLUDED.folders, groups = EXCLUDED.groups, workspace_id = EXCLUDED.workspace_id, end_user_email = EXCLUDED.end_user_email
         )
         INSERT INTO v2_job_queue
-            (workspace_id, id, running, scheduled_for, started_at, tag, priority)
-            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31)",
+            (workspace_id, id, running, scheduled_for, started_at, tag, priority, cache_ignore_s3_path, runnable_settings_handle)
+            VALUES ($2, $1, $28, COALESCE($29, now()), CASE WHEN $27 OR $40 THEN now() END, $30, $31, $42, $43)",
         job_id,
         workspace_id,
         raw_code,
@@ -4765,23 +5209,19 @@ pub async fn push<'c, 'd>(
         parent_job,
         user,
         permissioned_as,
-        script_hash,
-        script_path.clone(),
+        runnable_id,
+        runnable_path.clone(),
         Json(args) as Json<PushArgs>,
         job_kind.clone() as JobKind,
-        schedule_path,
+        trigger_path.flatten(),
         language as Option<ScriptLang>,
         same_worker,
         pre_run_error.map(|e| e.to_string()),
         email,
         visible_to_owner,
         flow_innermost_root_job,
-        concurrent_limit,
-        if concurrent_limit.is_some() {
-            concurrency_time_window_s
-        } else {
-            None
-        },
+        guarded_concurrent_limit,
+        guarded_concurrency_time_window_s,
         custom_timeout,
         flow_step_id,
         cache_ttl,
@@ -4801,10 +5241,14 @@ pub async fn push<'c, 'd>(
         trigger_kind as Option<JobTriggerKind>,
         running,
         end_user_email,
+        cache_ignore_s3_path,
+        runnable_settings_handle,
     )
     .execute(&mut *tx)
     .warn_after_seconds(1)
     .await?;
+
+    // RunnableSettings::insert(RunnableType::Job)
 
     //     tracing::debug!("Pushing job {job_id} with tag {tag}, schedule_path {schedule_path:?}, script_path: {script_path:?}, email {email}, workspace_id {workspace_id}");
     //     let uuid = sqlx::query_scalar!(
@@ -4855,7 +5299,7 @@ pub async fn push<'c, 'd>(
         let operation_name = match job_kind {
             JobKind::Preview => "jobs.run.preview",
             JobKind::Script => {
-                s = ScriptHash(script_hash.unwrap()).to_string();
+                s = ScriptHash(runnable_id.unwrap()).to_string();
                 hm.insert("hash", s.as_str());
                 "jobs.run.script"
             }
@@ -4873,6 +5317,9 @@ pub async fn push<'c, 'd>(
             JobKind::FlowNode => "jobs.run.flow_node",
             JobKind::AppScript => "jobs.run.app_script",
             JobKind::AIAgent => "jobs.run.ai_agent",
+            JobKind::UnassignedScript => "jobs.run.unassigned_script",
+            JobKind::UnassignedFlow => "jobs.run.unassigned_flow",
+            JobKind::UnassignedSinglestepFlow => "jobs.run.unassigned_singlestepflow",
         };
 
         let audit_author = if format!("u/{user}") != permissioned_as && user != permissioned_as {
@@ -4901,7 +5348,7 @@ pub async fn push<'c, 'd>(
             operation_name,
             ActionKind::Execute,
             workspace_id,
-            script_path.as_ref().map(|x| x.as_str()),
+            runnable_path.as_ref().map(|x| x.as_str()),
             Some(hm),
         )
         .warn_after_seconds(1)
@@ -4921,7 +5368,23 @@ pub async fn insert_concurrency_key<'d, 'c>(
     job_id: Uuid,
 ) -> Result<(), Error> {
     let concurrency_key = custom_concurrency_key
-        .map(|x| interpolate_args(x, args, workspace_id))
+        .map(|x| {
+            let interpolated = interpolate_args(x.clone(), args, workspace_id);
+            // In cloud mode, enforce workspace isolation by prefixing with workspace
+            // if the custom key doesn't already specify $workspace
+            #[cfg(feature = "cloud")]
+            {
+                if !x.contains("$workspace") {
+                    format!("{}/{}", workspace_id, interpolated)
+                } else {
+                    interpolated
+                }
+            }
+            #[cfg(not(feature = "cloud"))]
+            {
+                interpolated
+            }
+        })
         .unwrap_or(fullpath_with_workspace(
             workspace_id,
             script_path.as_ref(),
@@ -4986,12 +5449,118 @@ pub fn canceled_job_to_result(job: &MiniPulledJob) -> serde_json::Value {
     serde_json::json!({"message": format!("Job canceled: {reason} by {canceler}"), "name": "Canceled", "reason": reason, "canceler": canceler})
 }
 
+/// Helper function to create a restarted module for branch/iteration restart
+fn create_restarted_module(
+    module: &FlowStatusModule,
+    module_definition: &FlowModule,
+    branch_or_iteration_n: usize,
+    restart_step_id: &str,
+) -> Result<FlowStatusModule, Error> {
+    match module_definition.get_value() {
+        Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
+            if parallel {
+                return Err(Error::internal_err(format!(
+                    "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
+                    restart_step_id,
+                )));
+            }
+            let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+            if total_branch_number <= branch_or_iteration_n {
+                return Err(Error::internal_err(format!(
+                    "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
+                    restart_step_id, total_branch_number, branch_or_iteration_n,
+                )));
+            }
+            let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+            new_flow_jobs.truncate(branch_or_iteration_n);
+            let mut new_flow_jobs_success = module.flow_jobs_success();
+            if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                new_flow_jobs_success.truncate(branch_or_iteration_n);
+            }
+            let mut new_flow_jobs_timeline = module.flow_jobs_duration();
+            if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
+                new_flow_jobs_timeline.truncate(branch_or_iteration_n);
+            }
+            Ok(FlowStatusModule::InProgress {
+                id: module.id(),
+                job: new_flow_jobs[new_flow_jobs.len() - 1],
+                iterator: None,
+                flow_jobs: Some(new_flow_jobs),
+                flow_jobs_success: new_flow_jobs_success,
+                flow_jobs_duration: new_flow_jobs_timeline,
+                branch_chosen: None,
+                branchall: Some(BranchAllStatus {
+                    branch: branch_or_iteration_n - 1,
+                    len: branches.len(),
+                }),
+                parallel,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+            })
+        }
+        Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
+            if parallel {
+                return Err(Error::internal_err(format!(
+                    "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
+                    restart_step_id,
+                )));
+            }
+            let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
+            if total_iterations <= branch_or_iteration_n {
+                return Err(Error::internal_err(format!(
+                    "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
+                    restart_step_id,
+                    branch_or_iteration_n,
+                    total_iterations,
+                )));
+            }
+            let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
+            new_flow_jobs.truncate(branch_or_iteration_n);
+            let mut new_flow_jobs_success = module.flow_jobs_success();
+            if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
+                new_flow_jobs_success.truncate(branch_or_iteration_n);
+            }
+            let mut new_flow_jobs_timeline = module.flow_jobs_duration();
+            if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
+                new_flow_jobs_timeline.truncate(branch_or_iteration_n);
+            }
+            Ok(FlowStatusModule::InProgress {
+                id: module.id(),
+                job: new_flow_jobs[new_flow_jobs.len() - 1],
+                iterator: Some(FlowIterator {
+                    index: branch_or_iteration_n - 1,
+                    itered: None,
+                    itered_len: None,
+                }),
+                flow_jobs: Some(new_flow_jobs),
+                flow_jobs_success: new_flow_jobs_success,
+                flow_jobs_duration: new_flow_jobs_timeline,
+                branch_chosen: None,
+                branchall: None,
+                parallel,
+                while_loop: false,
+                progress: None,
+                agent_actions: None,
+                agent_actions_success: None,
+            })
+        }
+        _ => Err(Error::internal_err(format!(
+            "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
+            restart_step_id, branch_or_iteration_n
+        ))),
+    }
+}
+
 async fn restarted_flows_resolution(
     db: &Pool<Postgres>,
     workspace_id: &str,
     completed_flow_id: Uuid,
     restart_step_id: &str,
     branch_or_iteration_n: Option<usize>,
+    flow_version: Option<i64>,
+    // parents: Vec<RestartedParent>,
 ) -> Result<
     (
         Option<i64>,
@@ -5006,11 +5575,11 @@ async fn restarted_flows_resolution(
 > {
     let row = sqlx::query!(
         "SELECT
-            script_path, script_hash AS \"script_hash: ScriptHash\",
-            job_kind AS \"job_kind!: JobKind\",
-            flow_status AS \"flow_status: Json<Box<RawValue>>\",
-            raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
-        FROM v2_as_completed_job WHERE id = $1 and workspace_id = $2",
+            j.runnable_path as script_path, j.runnable_id AS \"script_hash: ScriptHash\",
+            j.kind AS \"job_kind!: JobKind\",
+            COALESCE(c.flow_status, c.workflow_as_code_status) AS \"flow_status: Json<Box<RawValue>>\",
+            j.raw_flow AS \"raw_flow: Json<Box<RawValue>>\"
+        FROM v2_job_completed c JOIN v2_job j USING (id) WHERE j.id = $1 and j.workspace_id = $2",
         completed_flow_id,
         workspace_id,
     )
@@ -5023,9 +5592,24 @@ async fn restarted_flows_resolution(
         ))
     })?;
 
-    let flow_data = cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
-        .or_else(|_| cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow))
-        .await?;
+    let current_flow_version = row.script_hash.map(|x| x.0);
+    let is_version_change = flow_version.is_some()
+        && current_flow_version.is_some()
+        && flow_version != current_flow_version
+        && row.job_kind == JobKind::Flow;
+
+    let flow_data = if is_version_change {
+        // Fetch the new flow version
+        let new_version = flow_version.unwrap();
+        cache::flow::fetch_version(db, new_version).await?
+    } else {
+        cache::job::fetch_flow(db, &row.job_kind, row.script_hash)
+            .or_else(|_| {
+                cache::job::fetch_preview_flow(db.into(), &completed_flow_id, row.raw_flow)
+            })
+            .await?
+    };
+
     let flow_value = flow_data.value();
     let flow_status = row
         .flow_status
@@ -5039,137 +5623,93 @@ async fn restarted_flows_resolution(
     let mut step_n = 0;
     let mut dependent_module = false;
     let mut truncated_modules: Vec<FlowStatusModule> = vec![];
-    for module in flow_status.modules {
-        let Some(module_definition) = flow_value
-            .modules
-            .iter()
-            .find(|flow_value_module| flow_value_module.id == module.id())
-        else {
-            // skip module as it doesn't appear in the flow_value anymore
-            continue;
-        };
-        if module.id() == restart_step_id {
-            // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
-            // set the module as WaitingForPriorSteps as it needs to be re-run
-            if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
-                // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
-                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
-            } else {
-                // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
-                let branch_or_iteration_n = branch_or_iteration_n.unwrap();
 
-                match module_definition.get_value() {
-                    Ok(FlowModuleValue::BranchAll { branches, parallel, .. }) => {
-                        if parallel {
-                            return Err(Error::internal_err(format!(
-                                "Module {} is a parallel branchall. It can only be restarted at a given branch if it's sequential",
-                                restart_step_id,
-                            )));
-                        }
-                        let total_branch_number = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
-                        if total_branch_number <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
-                                "Branch-all module {} has only {} branches. It can't be restarted on branch {}",
-                                restart_step_id,
-                                total_branch_number,
-                                branch_or_iteration_n,
-                            )));
-                        }
-                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
-                        new_flow_jobs.truncate(branch_or_iteration_n);
-                        let mut new_flow_jobs_success = module.flow_jobs_success();
-                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
-                            new_flow_jobs_success.truncate(branch_or_iteration_n);
-                        }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
-                        if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
-                            new_flow_jobs_timeline.truncate(branch_or_iteration_n);
-                        }
-                        truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
-                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
-                            iterator: None,
-                            flow_jobs: Some(new_flow_jobs),
-                            flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_duration: new_flow_jobs_timeline,
-                            branch_chosen: None,
-                            branchall: Some(BranchAllStatus {
-                                branch: branch_or_iteration_n - 1, // Doing minus one here as this variable reflects the latest finished job in the iteration
-                                len: branches.len(),
-                            }),
-                            parallel,
-                            while_loop: false,
-                            progress: None,
-                            agent_actions: None,
-                            agent_actions_success: None,
-                        });
-                    }
-                    Ok(FlowModuleValue::ForloopFlow { parallel, .. }) => {
-                        if parallel {
-                            return Err(Error::internal_err(format!(
-                                "Module {} is not parallel loop. It can only be restarted at a given iteration if it's sequential",
-                                restart_step_id,
-                            )));
-                        }
-                        let total_iterations = module.flow_jobs().map(|v| v.len()).unwrap_or(0);
-                        if total_iterations <= branch_or_iteration_n {
-                            return Err(Error::internal_err(format!(
-                                "For-loop module {} doesn't cannot be restarted on iteration number {} as it has only {} iterations",
-                                restart_step_id,
-                                branch_or_iteration_n,
-                                total_iterations,
-                            )));
-                        }
-                        let mut new_flow_jobs = module.flow_jobs().unwrap_or_default();
-                        new_flow_jobs.truncate(branch_or_iteration_n);
-                        let mut new_flow_jobs_success = module.flow_jobs_success();
-                        if let Some(new_flow_jobs_success) = new_flow_jobs_success.as_mut() {
-                            new_flow_jobs_success.truncate(branch_or_iteration_n);
-                        }
-                        let mut new_flow_jobs_timeline = module.flow_jobs_duration();
-                        if let Some(new_flow_jobs_timeline) = new_flow_jobs_timeline.as_mut() {
-                            new_flow_jobs_timeline.truncate(branch_or_iteration_n);
-                        }
-                        truncated_modules.push(FlowStatusModule::InProgress {
-                            id: module.id(),
-                            job: new_flow_jobs[new_flow_jobs.len() - 1], // set to last finished job from completed flow
-                            iterator: Some(FlowIterator {
-                                index: branch_or_iteration_n - 1, // same deal as above, this refers to the last finished job
-                                itered: vec![], // Setting itered to empty array here, such that input transforms will be re-computed by worker_flows
-                            }),
-                            flow_jobs: Some(new_flow_jobs),
-                            flow_jobs_success: new_flow_jobs_success,
-                            flow_jobs_duration: new_flow_jobs_timeline,
-                            branch_chosen: None,
-                            branchall: None,
-                            parallel,
-                            while_loop: false,
-                            progress: None,
-                            agent_actions: None,
-                            agent_actions_success: None,
-                        });
-                    }
-                    _ => {
-                        return Err(Error::internal_err(format!(
-                            "Module {} is not a branchall or forloop, unable to restart it at step {:?}",
+    if is_version_change {
+        // When the flow version has changed, create flow status from scratch
+        // based on the new flow, but match modules from the old flow status where possible
+        for module_definition in &flow_value.modules {
+            let module_id = &module_definition.id;
+
+            if module_id == restart_step_id {
+                // Mark this and all following modules as WaitingForPriorSteps
+                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+                } else {
+                    // Handle branch/iteration restart for version changes
+                    let branch_n = branch_or_iteration_n.unwrap();
+                    // Try to find matching module in old flow status
+                    if let Some(old_module) =
+                        flow_status.modules.iter().find(|m| &m.id() == module_id)
+                    {
+                        truncated_modules.push(create_restarted_module(
+                            old_module,
+                            module_definition,
+                            branch_n,
                             restart_step_id,
-                            branch_or_iteration_n
-                        )));
+                        )?);
+                    } else {
+                        // Module not found in old flow, mark as waiting
+                        truncated_modules
+                            .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
                     }
                 }
+                dependent_module = true;
+            } else if dependent_module {
+                truncated_modules
+                    .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+            } else {
+                // Before the restart step, try to match with old flow status
+                if let Some(old_module) = flow_status.modules.iter().find(|m| &m.id() == module_id)
+                {
+                    truncated_modules.push(old_module.clone());
+                } else {
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module_id.clone() });
+                }
+                step_n += 1;
             }
-            dependent_module = true;
-        } else if dependent_module {
-            truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
-        } else {
-            // else we simply "transfer" the module from the completed flow to the new one if it's a success
-            step_n = step_n + 1;
-            match module.clone() {
-                FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
-                _ => Err(Error::internal_err(format!(
-                    "Flow cannot be restarted from a non successful module",
-                ))),
-            }?;
+        }
+    } else {
+        // Original logic for same version
+        for module in flow_status.modules {
+            let Some(module_definition) = flow_value
+                .modules
+                .iter()
+                .find(|flow_value_module| flow_value_module.id == module.id())
+            else {
+                // skip module as it doesn't appear in the flow_value anymore
+                continue;
+            };
+            if module.id() == restart_step_id {
+                // if the module ID is the one we want to restart the flow at, or if it's past it in the flow,
+                // set the module as WaitingForPriorSteps as it needs to be re-run
+                if branch_or_iteration_n.is_none() || branch_or_iteration_n.unwrap() == 0 {
+                    // The module as WaitingForPriorSteps as the entire module (i.e. all the branches) need to be re-run
+                    truncated_modules
+                        .push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+                } else {
+                    // expect a module to be either a branchall (resp. loop), and resume the flow from this branch (resp. iteration)
+                    truncated_modules.push(create_restarted_module(
+                        &module,
+                        module_definition,
+                        branch_or_iteration_n.unwrap(),
+                        restart_step_id,
+                    )?);
+                }
+                dependent_module = true;
+            } else if dependent_module {
+                truncated_modules.push(FlowStatusModule::WaitingForPriorSteps { id: module.id() });
+            } else {
+                // else we simply "transfer" the module from the completed flow to the new one if it's a success
+                step_n = step_n + 1;
+                match module.clone() {
+                    FlowStatusModule::Success { .. } => Ok(truncated_modules.push(module)),
+                    _ => Err(Error::internal_err(format!(
+                        "Flow cannot be restarted from a non successful module",
+                    ))),
+                }?;
+            }
         }
     }
 
@@ -5182,7 +5722,11 @@ async fn restarted_flows_resolution(
     }
 
     Ok((
-        row.script_hash.map(|x| x.0),
+        if is_version_change {
+            flow_version
+        } else {
+            row.script_hash.map(|x| x.0)
+        },
         row.script_path,
         flow_data,
         step_n,
@@ -5192,10 +5736,81 @@ async fn restarted_flows_resolution(
     ))
 }
 
+// Wrapper struct to send both job and optional flow_runners to dedicated workers
+pub struct DedicatedWorkerJob {
+    pub job: Arc<MiniPulledJob>,
+    pub flow_runners: Option<Arc<FlowRunners>>,
+    pub done_tx: Option<oneshot::Sender<()>>,
+}
+
+#[derive(Debug)]
+pub struct FlowRunners {
+    pub runners: HashMap<String, Sender<DedicatedWorkerJob>>,
+    pub handles: Vec<JoinHandle<()>>,
+    pub job_id: Uuid,
+}
+
+impl Drop for FlowRunners {
+    fn drop(&mut self) {
+        let total_runners = self.handles.len();
+        tracing::info!(
+            "dropping {} flow runners for job {}",
+            total_runners,
+            self.job_id
+        );
+
+        // First, drop all senders to signal workers to stop gracefully
+        self.runners.clear();
+
+        // Spawn a background task to wait with timeout and abort if needed
+        let handles = std::mem::take(&mut self.handles);
+        let job_id = self.job_id;
+
+        tokio::spawn(async move {
+            // Extract abort handles before consuming the join handles
+            let abort_handles: Vec<_> = handles.iter().map(|h| h.abort_handle()).collect();
+
+            // Wait up to 5 seconds for natural termination
+            let timeout_result = tokio::time::timeout(
+                tokio::time::Duration::from_secs(5),
+                futures::future::join_all(handles),
+            )
+            .await;
+
+            match timeout_result {
+                Ok(_) => {
+                    tracing::info!(
+                        "all {} flow runners for job {} terminated gracefully",
+                        total_runners,
+                        job_id
+                    );
+                }
+                Err(_) => {
+                    // Timeout reached, abort only the handles that haven't finished
+                    let mut aborted = 0;
+                    for abort_handle in abort_handles {
+                        if !abort_handle.is_finished() {
+                            abort_handle.abort();
+                            aborted += 1;
+                        }
+                    }
+                    let graceful = total_runners - aborted;
+                    tracing::warn!(
+                        "flow runners for job {}: {} terminated gracefully, {} aborted after 5s timeout",
+                        job_id, graceful, aborted
+                    );
+                }
+            }
+        });
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SameWorkerPayload {
     pub job_id: Uuid,
     pub recoverable: bool,
+    #[serde(skip)]
+    pub flow_runners: Option<Arc<FlowRunners>>,
 }
 
 pub async fn get_same_worker_job(
@@ -5236,6 +5851,8 @@ pub async fn get_same_worker_job(
                     v2_job.timeout,
                     v2_job.flow_step_id,
                     v2_job.cache_ttl,
+                    v2_job_queue.cache_ignore_s3_path,
+                    v2_job_queue.runnable_settings_handle,
                     v2_job_queue.priority,
                     v2_job.preprocessed,
                     v2_job.script_entrypoint_override,
@@ -5265,236 +5882,4 @@ pub async fn get_same_worker_job(
             same_worker_job.job_id, e
         ))
     })
-}
-
-pub async fn preprocess_dependency_job(job: &mut PulledJob, db: &DB) -> error::Result<()> {
-    let kind = job.kind;
-    // Handle dependency job debouncing cleanup when a job is pulled for execution
-    if kind.is_dependency()
-        && job
-            .args
-            .as_ref()
-            .map(|x| x.get("triggered_by_relative_import").is_some())
-            .unwrap_or_default()
-        && !*WMDEBUG_NO_DJOB_DEBOUNCING
-    {
-        return Box::pin(async move {
-            // Only used for testing in tests/relative_imports.rs
-            // Give us some space to work with.
-            #[cfg(debug_assertions)]
-            if let Some(duration) = job
-                .args
-                .as_ref()
-                .map(|x| {
-                    x.get("dbg_sleep_between_pull_and_debounce_key_removal")
-                        .map(|v| serde_json::from_str::<u32>(v.get()).ok())
-                        .flatten()
-                })
-                .flatten()
-            {
-                tracing::debug!("going to sleep",);
-                sleep(std::time::Duration::from_secs(duration as u64)).await;
-            }
-
-            tracing::debug!(
-                "Processing debounce cleanup for dependency job {} at path {:?}",
-                &job.id,
-                &job.runnable_path
-            );
-
-            let key = format!("{}:{}:dependency", &job.workspace_id, job.runnable_path());
-            let mut tx = db.begin().await?;
-
-            // === DEBOUNCE CLEANUP ===
-            //
-            // Clean up the debounce_key entry for this job (if it exists).
-            //
-            // IMPORTANT: We delete by key (not job_id) to avoid race conditions:
-            // If pusher has locked this row then this call will be blocked until all txs are commited.
-            //
-            // The idea is that the worker_lockfiles::trigger_dependents_to_recompute_locks will fetch the latest version of the obj.
-            // This object needs to be created before the djob is executed and it happens right here.
-            //
-            // This way the next pusher can fetch the latest version of object and base their djob payload on newest version.
-            // The concurrency limit on djobs will make sure that by the time next djob is started executing the base version it is referencing
-            // has already calculated all locks. This way even next djob will always use the fully finalized version of object.
-            //
-            //
-            //
-            // Note: We don't use a transaction here for performance (it's called during job pull).
-            // This means there's a tiny window where the job is running but key isn't deleted yet,
-            // which is acceptable because new requests will just accumulate data to this job.
-            tracing::debug!(
-                job_id = %job.id,
-                "Cleaning up debounce_key entry for completed/pulled job"
-            );
-
-            // This will either:
-            // 1. Block until pusher pushed. Which gives us:
-            //   - If there was any stale data in pusher, then we will read it here (couple of lines below)
-            // 2. Block pusher until we are done here. This gives us:
-            //   - We will clone objects and retrieve the latest version. So when we are done the pusher can read latest version.
-            sqlx::query!("DELETE FROM debounce_key WHERE key = $1", &key)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        job_id = %job.id,
-                        "Failed to delete debounce_key"
-                    );
-                    e
-            })?;
-
-            let Some(base_hash) = job.runnable_id else {
-                return Err(Error::InternalErr(
-                    "Missing runnable_id for dependency job triggered by relative import"
-                        .to_string(),
-                ));
-            };
-
-            tracing::debug!(
-                job_id = %job.id,
-                base_hash = %base_hash,
-                job_kind = ?kind,
-                "Creating new version for dependency job triggered by relative import"
-            );
-
-            let new_id = match kind {
-                JobKind::Dependencies => {
-                    let deployment_message = job
-                        .args
-                        .clone()
-                        .map(|hashmap| {
-                            hashmap
-                                .get("deployment_message")
-                                .map(|map_value| {
-                                    serde_json::from_str::<String>(map_value.get()).ok()
-                                })
-                                .flatten()
-                        })
-                        .flatten();
-
-                    // This way we tell downstream which script we should archive when the resolution is finished.
-                    // (not used at the moment)
-                    job.args.as_mut().map(|args| {
-                        args.insert("base_hash".to_owned(), to_raw_value(&*base_hash))
-                    });
-
-                    let new_hash = windmill_common::scripts::clone_script(
-                        base_hash,
-                        &job.workspace_id,
-                        deployment_message,
-                        &mut tx,
-                    )
-                    .await?;
-
-                    new_hash
-                }
-                JobKind::FlowDependencies => {
-                    sqlx::query_scalar!(
-                        "INSERT INTO flow_version
-                    (workspace_id, path, value, schema, created_by)
-
-                    SELECT workspace_id, path, value, schema, created_by
-                    FROM flow_version WHERE path = $1 AND workspace_id = $2 AND id = $3
-
-                    RETURNING id
-                    ",
-                        job.runnable_path(),
-                        job.workspace_id,
-                        *base_hash,
-                    )
-                    .fetch_one(&mut *tx)
-                    .await?
-                }
-                JobKind::AppDependencies => {
-                    sqlx::query_scalar!(
-                        "INSERT INTO app_version
-                        (app_id, value, created_by, raw_app)
-                    SELECT app_id, value, created_by, raw_app
-                    FROM app_version WHERE id = $1
-                    RETURNING id",
-                        *base_hash
-                    )
-                    .fetch_one(&mut *tx)
-                    .await?
-                }
-                _ => {
-                    return Err(Error::InternalErr(format!(
-                        "Matched unexpected JobKind ({:?}). This is a bug!",
-                        kind
-                    )))
-                }
-            };
-
-            job.runnable_id.replace(new_id.into());
-
-            // === RETRIEVE ACCUMULATED DEBOUNCE DATA ===
-            //
-            // For flows and apps, retrieve all nodes/components that were accumulated
-            // during the debounce window. This data comes from requests that were merged
-            // into this job instead of creating their own jobs.
-            //
-            // Scripts don't need this because they don't have nodes/components to relock.
-            if let Some(to_relock_field) = match &job.kind {
-                JobKind::FlowDependencies => Some("nodes_to_relock"),
-                JobKind::AppDependencies => Some("components_to_relock"),
-                _ => None, // Scripts don't use accumulated stale data
-            } {
-                tracing::debug!(
-                    job_id = %job.id,
-                    job_kind = ?job.kind,
-                    field = %to_relock_field,
-                    "Retrieving accumulated stale data from debounced requests"
-                );
-
-                if let Some(stale_data) = sqlx::query_scalar!(
-                    "DELETE FROM debounce_stale_data WHERE job_id = $1 RETURNING to_relock",
-                    &job.id
-                )
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| {
-                    tracing::error!(
-                        error = %e,
-                        job_id = %job.id,
-                        "Failed to retrieve debounce_stale_data"
-                    );
-                    e
-                })?
-                .flatten()
-                {
-                    tracing::debug!(
-                        job_id = %job.id,
-                        node_count = stale_data.len(),
-                        nodes = ?stale_data,
-                        "Retrieved accumulated nodes/components from {} debounced requests",
-                        stale_data.len()
-                    );
-
-                    // Replace the job's relock list with the accumulated data
-                    // This ensures all nodes from all debounced requests are processed
-                    if let Some(args) = job.args.as_mut() {
-                        args.insert(to_relock_field.to_owned(), to_raw_value(&stale_data));
-                        tracing::debug!(
-                            field = %to_relock_field,
-                            "Updated job args with accumulated debounce data"
-                        );
-                    }
-                } else {
-                    tracing::trace!(
-                        job_id = %job.id,
-                        "No accumulated stale data found (no debounced requests or already cleaned up)"
-                    );
-                }
-            }
-
-            // This will unblock pusher.
-            tx.commit().await?;
-            Ok(())
-        }).await;
-    }
-
-    Ok(())
 }

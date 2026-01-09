@@ -54,8 +54,7 @@
 	</div>
 
 	<Button
-		variant="border"
-		color="light"
+		variant="default"
 		on:click={() => {
 			$workerTags = undefined
 			loadWorkerTags(true)
@@ -63,5 +62,5 @@
 		startIcon={{ icon: RotateCw }}
 		{disabled}
 	/>
-	<AssignableTags placement={popupPlacement} color="nord" {disabled} />
+	<AssignableTags placement={popupPlacement} {disabled} />
 </div>

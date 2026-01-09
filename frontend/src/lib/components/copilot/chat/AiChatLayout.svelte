@@ -6,6 +6,8 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { chatState } from './sharedChatState.svelte'
 	import { loadCopilot } from '$lib/aiStore'
+	import { aiChatManager } from './AIChatManager.svelte'
+	import { onDestroy } from 'svelte'
 
 	interface Props {
 		noPadding?: boolean
@@ -33,11 +35,19 @@
 			loadCopilot($workspaceStore)
 		}
 	})
+
+	const historyManager = aiChatManager.historyManager
+	historyManager.init()
+
+	onDestroy(() => {
+		aiChatManager.cancel('aiChatLayout destroyed')
+		historyManager.close()
+	})
 </script>
 
 {#if !disableAi}
 	<Splitpanes horizontal={false} class="flex-1 min-h-0">
-		<Pane size={99.8 - chatState.size} minSize={50} class="flex flex-col min-h-0">
+		<Pane size={100 - chatState.size} minSize={50} class="flex flex-col min-h-0">
 			<div
 				id="content"
 				class={classNames(
@@ -50,7 +60,7 @@
 					<div class="relative w-full flex-1 flex flex-col">
 						<div
 							class={classNames(
-								'pt-2 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
+								'py-0.5 px-4 sm:px-4 flex flex-row justify-between items-center shadow-sm max-w-7xl md:hidden',
 								noBorder || $userStore?.operator ? 'hidden' : ''
 							)}
 						>
@@ -60,7 +70,7 @@
 								onclick={() => {
 									onMenuOpen?.()
 								}}
-								class="h-8 w-8 inline-flex items-center justify-center rounded-md text-tertiary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
+								class="h-8 w-8 inline-flex items-center justify-center rounded-md text-primary hover:text-primary focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500"
 							>
 								<svg
 									class="h-6 w-6"
@@ -86,13 +96,15 @@
 				</main>
 			</div>
 		</Pane>
-		<Pane
-			bind:size={chatState.size}
-			minSize={15}
-			class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
-		>
-			<AiChat />
-		</Pane>
+		{#if chatState.size > 1}
+			<Pane
+				bind:size={chatState.size}
+				minSize={15}
+				class={`flex flex-col min-h-0 z-[${zIndexes.aiChat}]`}
+			>
+				<AiChat />
+			</Pane>
+		{/if}
 	</Splitpanes>
 {:else}
 	{@render children?.()}

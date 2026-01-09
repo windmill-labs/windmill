@@ -248,9 +248,9 @@ export async function main(message: string, name: string, step_id: string) {
 }
 `
 
-const POSTGRES_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const POSTGRES_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
--- to only return the result of the last query use '--return_last_result'
 -- $1 name1 = default arg
 -- $2 name2
 -- $3 name3
@@ -259,7 +259,8 @@ INSERT INTO demo VALUES (\$1::TEXT, \$2::INT, \$3::TEXT[]) RETURNING *;
 UPDATE demo SET col2 = \$4::INT WHERE col2 = \$2::INT;
 `
 
-const MYSQL_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const MYSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -268,7 +269,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const BIGQUERY_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const BIGQUERY_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @name1 (string) = default arg
 -- @name2 (integer)
@@ -278,7 +280,8 @@ INSERT INTO \`demodb.demo\` VALUES (@name1, @name2, @name3);
 UPDATE \`demodb.demo\` SET col2 = @name4 WHERE col2 = @name2;
 `
 
-const ORACLEDB_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const ORACLEDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- :name1 (text) = default arg
 -- :name2 (int)
@@ -287,7 +290,8 @@ INSERT INTO demo VALUES (:name1, :name2);
 UPDATE demo SET col2 = :name3 WHERE col2 = :name2;
 `
 
-const SNOWFLAKE_INIT_CODE = `-- to pin the database use '-- database f/your/path'
+const SNOWFLAKE_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- ? name1 (varchar) = default arg
 -- ? name2 (int)
@@ -297,7 +301,7 @@ INSERT INTO demo VALUES (?, ?);
 UPDATE demo SET col2 = ? WHERE col2 = ?;
 `
 
-const MSSQL_INIT_CODE = `-- return_last_result
+const MSSQL_INIT_CODE = `-- result_collection=last_statement_all_rows
 -- to pin the database use '-- database f/your/path'
 -- to stream a large query result to your workspace storage use '-- s3'
 -- @P1 name1 (varchar) = default arg
@@ -307,7 +311,8 @@ INSERT INTO demo VALUES (@P1, @P2);
 UPDATE demo SET col2 = @P3 WHERE col2 = @P2;
 `
 
-const DUCKDB_INIT_CODE = `-- $name (text) = Ben
+const DUCKDB_INIT_CODE = `-- result_collection=last_statement_all_rows
+-- $name (text) = Ben
 -- $age (text) = 20
 -- -- $friends_csv (s3object)
 
@@ -318,7 +323,7 @@ const DUCKDB_INIT_CODE = `-- $name (text) = Ben
 -- SELECT * FROM db.public.friends;
 
 -- Click the +Ducklake button to use a ducklake
--- https://www.windmill.dev/docs/core_concepts/ducklake
+-- https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake
 --
 -- ATTACH 'ducklake' AS dl;
 -- USE dl;
@@ -686,16 +691,21 @@ export const TS_PREPROCESSOR_FLOW_INTRO = `/**
  * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
  */\n`
 
-export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
-  event:
-    | {
+export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(event: TriggerEvent) {
+  return {
+    // return the args to be passed to the runnable
+  };
+}
+
+type TriggerEvent =
+  | {
       kind: "webhook";
       body: any;
       raw_string: string | null;
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "http";
       body: any;
       raw_string: string | null;
@@ -706,21 +716,21 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       query: Record<string, string>;
       headers: Record<string, string>;
     }
-    | {
+  | {
       kind: "email";
       parsed_email: any;
       raw_email: string;
       email_extra_args?: Record<string, string>;
     }
-    | { kind: "websocket"; msg: string; url: string }
-    | {
+  | { kind: "websocket"; msg: string; url: string }
+  | {
       kind: "kafka";
       payload: string;
       brokers: string[];
       topic: string;
       group_id: string;
     }
-    | {
+  | {
       kind: "nats";
       payload: string;
       servers: string[];
@@ -730,7 +740,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       description?: string;
       length: number;
     }
-    | {
+  | {
       kind: "sqs";
       msg: string;
       queue_url: string;
@@ -742,7 +752,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         { string_value?: string; data_type: string }
       >;
     }
-    | {
+  | {
       kind: "mqtt";
       payload: string;
       topic: string;
@@ -759,7 +769,7 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
         content_type?: string;
       };
     }
-    | {
+  | {
       kind: "gcp";
       payload: string;
       message_id: string;
@@ -771,19 +781,14 @@ export const TS_PREPROCESSOR_MODULE_CODE = `export async function preprocessor(
       publish_time?: string;
       ack_id?: string;
     }
-    | {
+  | {
       kind: "postgres";
-      transaction_type: "insert" | "update" | "delete",
-      schema_name: string,
-      table_name: string,
-      old_row?: Record<string, any>,
-      row: Record<string, any>
-    }
-) {
-  return {
-    // return the args to be passed to the runnable
-  };
-}
+      transaction_type: "insert" | "update" | "delete";
+      schema_name: string;
+      table_name: string;
+      old_row?: Record<string, any>;
+      row: Record<string, any>;
+    };
 `
 
 const PYTHON_INIT_CODE_APPROVAL = `import wmill
@@ -967,6 +972,86 @@ def preprocessor(event: Event):
     return {
         # return the args to be passed to the runnable
     }
+`
+
+export const PHP_PREPROCESSOR_SCRIPT_INTRO = `<?php
+/**
+ * Trigger preprocessor
+ *
+ * ⚠️ This function runs BEFORE the main function.
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email)
+ * before passing it to \`main\`. This separates the trigger logic from the main logic and keeps the auto-generated runnable UI clean.
+ *
+ * The returned object defines the parameter values passed to \`main()\`.
+ * e.g., ['b' => 1, 'a' => 2] → Calls \`main(2, 1)\`, assuming \`main\` is defined as \`main($a, $b)\`.
+ * Ensure that the parameter names in \`main\` match the keys in the returned array.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */
+
+`
+
+export const PHP_PREPROCESSOR_FLOW_INTRO = `<?php
+/**
+ * Trigger preprocessor
+ *
+ * It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) 
+ * before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+ * 
+ * The returned object determines the parameter values passed to the flow.
+ * e.g., ['b' => 1, 'a' => 2] → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
+ * Ensure that the input names of the flow match the keys in the returned array.
+ * 
+ * Learn more: https://www.windmill.dev/docs/core_concepts/preprocessors
+ */
+
+`
+
+export const PHP_PREPROCESSOR_MODULE_CODE = `function preprocessor(object $event) {
+    // $event can be one of the following types:
+    // 
+    // Webhook event:
+    // ['kind' => 'webhook', 'body' => [...], 'raw_string' => '...', 'query' => [...], 'headers' => [...]]
+    // 
+    // HTTP event:
+    // ['kind' => 'http', 'body' => [...], 'raw_string' => '...', 'route' => '...', 'path' => '...', 
+    //  'method' => '...', 'params' => [...], 'query' => [...], 'headers' => [...]]
+    // 
+    // Email event:
+    // ['kind' => 'email', 'parsed_email' => [...], 'raw_email' => '...', 'email_extra_args' => [...]]
+    // 
+    // WebSocket event:
+    // ['kind' => 'websocket', 'msg' => '...', 'url' => '...']
+    // 
+    // Kafka event:
+    // ['kind' => 'kafka', 'payload' => '...', 'brokers' => [...], 'topic' => '...', 'group_id' => '...']
+    // 
+    // NATS event:
+    // ['kind' => 'nats', 'payload' => '...', 'servers' => [...], 'subject' => '...', 
+    //  'headers' => [...], 'status' => 200, 'description' => '...', 'length' => 100]
+    // 
+    // SQS event:
+    // ['kind' => 'sqs', 'msg' => '...', 'queue_url' => '...', 'message_id' => '...', 
+    //  'receipt_handle' => '...', 'attributes' => [...], 'message_attributes' => [...]]
+    // 
+    // MQTT event:
+    // ['kind' => 'mqtt', 'payload' => '...', 'topic' => '...', 'retain' => true, 'pkid' => 1, 
+    //  'qos' => 1, 'v5' => [...]]
+    // 
+    // GCP event:
+    // ['kind' => 'gcp', 'payload' => '...', 'message_id' => '...', 'subscription' => '...', 
+    //  'ordering_key' => '...', 'attributes' => [...], 'delivery_type' => 'push', 
+    //  'headers' => [...], 'publish_time' => '...', 'ack_id' => '...']
+    // 
+    // Postgres event:
+    // ['kind' => 'postgres', 'transaction_type' => 'insert', 'schema_name' => '...', 
+    //  'table_name' => '...', 'old_row' => [...], 'row' => [...]]
+
+    return [
+        // return the args to be passed to the runnable
+    ];
+}
 `
 
 const DOCKER_INIT_CODE = `# shellcheck shell=bash
@@ -1226,7 +1311,8 @@ export const INITIAL_CODE = {
 		script: ORACLEDB_INIT_CODE
 	},
 	php: {
-		script: PHP_INIT_CODE
+		script: PHP_INIT_CODE,
+		preprocessor: PHP_PREPROCESSOR_FLOW_INTRO + PHP_PREPROCESSOR_MODULE_CODE
 	},
 	rust: {
 		script: RUST_INIT_CODE
@@ -1349,6 +1435,9 @@ export function initialCode(
 	} else if (language == 'duckdb') {
 		return INITIAL_CODE.duckdb.script
 	} else if (language == 'php') {
+		if (kind == 'preprocessor') {
+			return INITIAL_CODE.php.preprocessor
+		}
 		return INITIAL_CODE.php.script
 	} else if (language == 'rust') {
 		return INITIAL_CODE.rust.script
@@ -1418,5 +1507,117 @@ export function getResetCode(
 		return BUNNATIVE_INIT_CODE
 	} else {
 		return initialCode(language, kind, subkind)
+	}
+}
+
+export const PREPROCESSOR_SUPPORTED_LANGUAGES = [
+	'typescript',
+	'python',
+	'python3',
+	'deno',
+	'bun',
+	'php'
+] as const
+
+export function canHavePreprocessor(language: string | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)
+}
+
+export function canHaveTrigger(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun', 'deno', 'go'].includes(language)
+}
+
+export function canHaveApproval(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun', 'deno'].includes(language)
+}
+
+export function canHaveFailure(language: SupportedLanguage | undefined): boolean {
+	if (!language) {
+		return false
+	}
+
+	return ['python3', 'bun', 'deno', 'go'].includes(language)
+}
+
+export function getPreprocessorIntro(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return isFlow ? PYTHON_PREPROCESSOR_FLOW_INTRO : PYTHON_PREPROCESSOR_SCRIPT_INTRO
+		case 'deno':
+		case 'bun':
+			return isFlow ? TS_PREPROCESSOR_FLOW_INTRO : TS_PREPROCESSOR_SCRIPT_INTRO
+		case 'php':
+			return isFlow ? PHP_PREPROCESSOR_FLOW_INTRO : PHP_PREPROCESSOR_SCRIPT_INTRO
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorModuleCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language || !PREPROCESSOR_SUPPORTED_LANGUAGES.includes(language as any)) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return PYTHON_PREPROCESSOR_MODULE_CODE
+		case 'deno':
+		case 'bun':
+			return TS_PREPROCESSOR_MODULE_CODE
+		case 'php':
+			return PHP_PREPROCESSOR_MODULE_CODE
+		default:
+			return ''
+	}
+}
+
+export function getPreprocessorFullCode(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined,
+	isFlow: boolean = false
+): string {
+	const intro = getPreprocessorIntro(language, isFlow)
+	const moduleCode = getPreprocessorModuleCode(language)
+	return intro + moduleCode
+}
+
+export function getMainFunctionPattern(
+	language: SupportedLanguage | 'docker' | 'bunnative' | undefined
+): string {
+	if (!language) {
+		return ''
+	}
+
+	switch (language) {
+		case 'python3':
+			return 'def main'
+		case 'deno':
+		case 'bun':
+		case 'nativets':
+			return 'export async function main'
+		case 'php':
+			return 'function main'
+		default:
+			return 'main'
 	}
 }

@@ -1,5 +1,9 @@
 <script module>
 	import '@codingame/monaco-vscode-standalone-typescript-language-features'
+	import {
+		javascriptDefaults,
+		getJavaScriptWorker
+	} from '@codingame/monaco-vscode-standalone-typescript-language-features'
 </script>
 
 <script lang="ts">
@@ -15,18 +19,19 @@
 
 	import libStdContent from '$lib/es6.d.ts.txt?raw'
 	import { editor as meditor, Uri as mUri, languages, Range, KeyMod, KeyCode } from 'monaco-editor'
-	import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte'
+	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { AppViewerContext } from './apps/types'
 	import { writable } from 'svelte/store'
 	// import '@codingame/monaco-vscode-standalone-languages'
 
 	// import '@codingame/monaco-vscode-standalone-typescript-language-features'
 
-	import { initializeVscode } from './vscode'
+	import { initializeVscode, MONACO_Y_PADDING } from './vscode'
 	import EditorTheme from './EditorTheme.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 	import { setMonacoJsonOptions } from './monacoLanguagesOptions'
 	import { inputBorderClass } from './text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	export const conf = {
 		wordPattern:
@@ -357,8 +362,8 @@
 		}
 	}
 
-	let divEl: HTMLDivElement | null = null
-	let editor: meditor.IStandaloneCodeEditor
+	let divEl: HTMLDivElement | null = $state(null)
+	let editor: meditor.IStandaloneCodeEditor | undefined = $state(undefined)
 	let model: meditor.ITextModel
 
 	const { componentControl, selectedComponent } = getContext<AppViewerContext>(
@@ -374,14 +379,31 @@
 		}
 	}
 
-	export let code: string = ''
-	export let hash: string = createHash()
-	export let automaticLayout = true
-	export let extraLib: string = ''
-	export let autoHeight = true
-	export let fixedOverflowWidgets = true
-	export let fontSize = 16
-	export let loadAsync = false
+	interface Props {
+		code?: string
+		hash?: string
+		automaticLayout?: boolean
+		extraLib?: string
+		autoHeight?: boolean
+		fixedOverflowWidgets?: boolean
+		fontSize?: number
+		loadAsync?: boolean
+		class?: string | undefined
+	}
+
+	let {
+		code = $bindable(),
+		hash = createHash(),
+		automaticLayout = true,
+		extraLib = '',
+		autoHeight = true,
+		fixedOverflowWidgets = true,
+		fontSize = 12,
+		loadAsync = false,
+		class: clazz = ''
+	}: Props = $props()
+
+	let yPadding = MONACO_Y_PADDING
 
 	if (typeof code != 'string') {
 		code = ''
@@ -416,10 +438,10 @@
 	let cip
 	let extraModel
 
-	let width = 0
+	let width = $state(0)
 	// let widgets: HTMLElement | undefined = document.getElementById('monaco-widgets-root') ?? undefined
 
-	let initialized = false
+	let initialized = $state(false)
 
 	let jsLoader: number | undefined = undefined
 	let timeoutModel: number | undefined = undefined
@@ -437,39 +459,66 @@
 
 		languages.setLanguageConfiguration('template', conf)
 
-		model = meditor.createModel(code, lang, mUri.parse(uri))
+		model = meditor.createModel(code ?? '', lang, mUri.parse(uri))
 
 		model.updateOptions(updateOptions)
 
 		try {
 			editor = meditor.create(divEl as HTMLDivElement, {
-				...editorConfig(code, lang, automaticLayout, fixedOverflowWidgets, false),
+				...editorConfig(code ?? '', lang, automaticLayout, fixedOverflowWidgets, false),
 				model,
 				// overflowWidgetsDomNode: widgets,
 				// lineNumbers: 'on',
-				lineDecorationsWidth: 6,
+				lineDecorationsWidth: 0,
 				lineNumbersMinChars: 2,
 				fontSize,
 				suggestOnTriggerCharacters: true,
 				renderLineHighlight: 'none',
 				lineNumbers: 'off',
 
-				padding: {
-					bottom: 8,
-					top: 8
-				}
+				...(yPadding !== undefined ? { padding: { bottom: yPadding, top: yPadding } } : {})
 			})
 		} catch (e) {
 			console.error('Error loading monaco:', e)
 			return
 		}
 
+		// In VSCode webview (iframe), clipboard operations need special handling
+		// because the webview has restricted clipboard API access
+		if (window.parent !== window) {
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyC, function () {
+				document.execCommand('copy')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyX, function () {
+				document.execCommand('cut')
+			})
+			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyV, async function () {
+				try {
+					const text = await navigator.clipboard.readText()
+					if (text && editor) {
+						const selection = editor.getSelection()
+						if (selection) {
+							editor.executeEdits('paste', [
+								{
+									range: selection,
+									text: text,
+									forceMoveMarkers: true
+								}
+							])
+						}
+					}
+				} catch (e) {
+					document.execCommand('paste')
+				}
+			})
+		}
+
 		editor.onDidFocusEditorText(() => {
 			dispatch('focus')
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, function () {})
 
-			editor.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
+			editor?.addCommand(KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.Digit7, function () {})
 		})
 
 		function updateCode() {
@@ -492,12 +541,12 @@
 
 		if (autoHeight) {
 			const updateHeight = () => {
-				const contentHeight = Math.min(1000, editor.getContentHeight())
+				const contentHeight = Math.min(1000, editor?.getContentHeight() ?? 0)
 				if (divEl) {
-					divEl.style.height = `${contentHeight + 2}px`
+					divEl.style.height = `${contentHeight}px`
 				}
 				try {
-					editor.layout({ width, height: contentHeight })
+					editor?.layout({ width, height: contentHeight })
 				} catch {}
 			}
 			editor.onDidContentSizeChange(updateHeight)
@@ -518,7 +567,7 @@
 		jsLoader = setTimeout(async () => {
 			jsLoader = undefined
 			try {
-				const worker = await languages.typescript.getJavaScriptWorker()
+				const worker = await getJavaScriptWorker()
 				const client = await worker(extraModel.uri)
 
 				cip = languages.registerCompletionItemProvider('template', {
@@ -607,8 +656,8 @@
 		editor?.focus()
 	}
 
-	let isFocus = false
-	let mounted = false
+	let isFocus = $state(false)
+	let mounted = $state(false)
 	let loadTimeout: number | undefined = undefined
 	onMount(async () => {
 		try {
@@ -628,8 +677,6 @@
 		}
 	})
 
-	$: mounted && extraLib && initialized && loadExtraLib()
-
 	function loadExtraLib() {
 		const stdLib = { content: libStdContent, filePath: 'es6.d.ts' }
 		const libs = [stdLib]
@@ -639,7 +686,7 @@
 				filePath: 'windmill.d.ts'
 			})
 		}
-		languages.typescript.javascriptDefaults.setExtraLibs(libs)
+		javascriptDefaults.setExtraLibs(libs)
 	}
 
 	onDestroy(() => {
@@ -654,27 +701,26 @@
 			extraModel && extraModel.dispose()
 		} catch (err) {}
 	})
+	$effect(() => {
+		mounted && extraLib && initialized && untrack(() => loadExtraLib())
+	})
 </script>
 
 <EditorTheme />
 
-{#if !editor}
-	<FakeMonacoPlaceHolder
-		autoheight
-		showNumbers={false}
-		{code}
-		lineNumbersWidth={14}
-		lineNumbersOffset={-20}
-		class="template nonmain-editor rounded-md min-h-4 bg-surface-secondary !py-[9px] overflow-clip"
-	/>
-{/if}
 <div
-	bind:this={divEl}
-	style="height: 18px; padding-left: 6px;"
-	class="{inputBorderClass({ forceFocus: isFocus })} {$$props.class ??
-		''} template nonmain-editor rounded-md min-h-4 overflow-clip {!editor ? 'hidden' : ''}"
-	bind:clientWidth={width}
-></div>
+	class={twMerge(inputBorderClass({ forceFocus: isFocus }), 'rounded-md overflow-auto pl-2', clazz)}
+>
+	{#if !editor}
+		<FakeMonacoPlaceHolder autoheight showNumbers={false} {code} {fontSize} />
+	{/if}
+	<div
+		bind:this={divEl}
+		style="height: 18px;"
+		class="template nonmain-editor rounded-md overflow-clip {!editor ? 'hidden' : ''}"
+		bind:clientWidth={width}
+	></div>
+</div>
 
 <style>
 	:global(.template .mtk20) {

@@ -65,8 +65,6 @@
 
 		token = undefined
 
-
-
 		scopes = [`jobs:run:${itemKind}s:${scriptPath}`]
 	}
 </script>
@@ -112,15 +110,11 @@
 				/>
 				<h4>or</h4>
 				<div class="flex flex-row gap-2">
-					<Button size="xs" color="light" variant="border" target="_blank" href="/scripts/add"
+					<Button size="xs" variant="default" target="_blank" href="/scripts/add"
 						>Create new script</Button
 					>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						target="_blank"
-						href="/flows/add?nodraft=true">Create new flow</Button
+					<Button size="xs" variant="default" target="_blank" href="/flows/add?nodraft=true"
+						>Create new flow</Button
 					>
 				</div>
 			</div>

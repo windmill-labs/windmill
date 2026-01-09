@@ -3,15 +3,15 @@
 	import { RefreshCw } from 'lucide-svelte'
 
 	import Popover from '$lib/components/Popover.svelte'
-	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		loading: boolean
-		size?: ButtonType.Size
+		size?: ButtonType.UnifiedSize
 		light?: boolean
+		onClick?: () => void
 	}
 
-	let { loading, size = 'xs2', light = false }: Props = $props()
+	let { loading, size = 'md', onClick }: Props = $props()
 
 	let buttonHover = $state(false)
 </script>
@@ -21,15 +21,11 @@
 		on:mouseenter={() => (buttonHover = true)}
 		on:mouseleave={() => (buttonHover = false)}
 		color="light"
-		{size}
-		variant="border"
-		on:click
-	>
-		<RefreshCw
-			class={twMerge(loading ? 'animate-spin ' : '', light ? 'text-secondary' : '')}
-			size="14"
-		/>
-	</Button>
+		unifiedSize={size}
+		variant="subtle"
+		{onClick}
+		startIcon={{ icon: RefreshCw, props: { class: loading ? 'animate-spin' : '' } }}
+	></Button>
 	{#snippet text()}
 		{#if loading}
 			{#if buttonHover}

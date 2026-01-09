@@ -27,8 +27,8 @@ use windmill_queue::CanceledBy;
 #[cfg(feature = "csharp")]
 use crate::{
     common::{
-        check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process,
+        build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
+        get_reserved_variables, read_result, start_child_process,
     },
     handle_child::handle_child,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
@@ -58,7 +58,12 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "csharp")]
-const CSHARP_OBJECT_STORE_PREFIX: &str = "csharpbin/";
+const CSHARP_OBJECT_STORE_PREFIX: &str = const_format::concatcp!(
+    std::env::consts::OS,
+    "_",
+    std::env::consts::ARCH,
+    "_csharpbin/"
+);
 
 #[cfg(feature = "csharp")]
 pub async fn generate_nuget_lockfile(
@@ -588,7 +593,8 @@ pub async fn handle_csharp_job(
         } else {
             format!("{job_dir}/Main.exe")
         };
-        let mut run_csharp = Command::new(&compiled_executable_name);
+
+        let mut run_csharp = build_command_with_isolation(&compiled_executable_name, &[]);
         run_csharp
             .current_dir(job_dir)
             .env_clear()

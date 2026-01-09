@@ -31,7 +31,6 @@ use crate::utils::require_devops_role;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
-use windmill_common::error::to_anyhow;
 use windmill_common::{
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -41,9 +40,9 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
-    parse_postgres_url,
     server::Smtp,
 };
+use windmill_common::{error::to_anyhow, PgDatabase};
 
 pub fn global_service() -> Router {
     #[warn(unused_mut)]
@@ -70,12 +69,16 @@ pub fn global_service() -> Router {
             post(acknowledge_critical_alert),
         )
         .route(
-            "/get_ducklake_instance_catalog_db_status",
-            post(get_ducklake_instance_catalog_db_status),
+            "/list_custom_instance_pg_databases",
+            post(list_custom_instance_pg_databases),
         )
         .route(
-            "/setup_ducklake_catalog_db/:name",
-            post(setup_ducklake_catalog_db),
+            "/refresh_custom_instance_user_pwd",
+            post(refresh_custom_instance_user_pwd),
+        )
+        .route(
+            "/setup_custom_instance_pg_database/:name",
+            post(setup_custom_instance_pg_database),
         )
         .route(
             "/critical_alerts/acknowledge_all",
@@ -188,7 +191,7 @@ pub async fn test_license_key(
     Json(TestKey { license_key }): Json<TestKey>,
 ) -> error::Result<String> {
     require_super_admin(&db, &authed.email).await?;
-    let (_, expired) = validate_license_key(license_key).await?;
+    let (_, expired) = validate_license_key(license_key, Some(&db)).await?;
 
     if expired {
         Err(error::Error::BadRequest("Expired license key".to_string()))
@@ -218,7 +221,12 @@ pub struct Value {
 }
 
 pub async fn delete_global_setting(db: &DB, key: &str) -> error::Result<()> {
-    if key == "ducklake_user_pg_pwd" || key == "ducklake_settings" {
+    // ducklake_user_pg_pwd and ducklake_settings were old names stored as standalone global settings.
+    // Leave them for backward compatibility (CLI will try to delete them if not present in the yaml)
+    if key == "ducklake_user_pg_pwd"
+        || key == "ducklake_settings"
+        || key == "custom_instance_pg_databases"
+    {
         tracing::error!("Tried to unset global setting {}, ignored", key);
         return Ok(());
     }
@@ -578,15 +586,16 @@ pub async fn acknowledge_all_critical_alerts() -> error::Error {
 }
 
 #[derive(Deserialize, Debug, Serialize)]
-struct DucklakeInstanceCatalogDbStatus {
-    logs: DucklakeInstanceCatalogDbStatusLogs, // (Step, Message)[]
+struct CustomInstanceDb {
+    logs: CustomInstanceDbLogs, // (Step, Message)[]
     success: bool,
     error: Option<String>,
+    tag: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Serialize, Default)]
 #[serde(default)]
-struct DucklakeInstanceCatalogDbStatusLogs {
+struct CustomInstanceDbLogs {
     super_admin: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     database_credentials: String,
@@ -600,55 +609,101 @@ struct DucklakeInstanceCatalogDbStatusLogs {
     grant_permissions: String,
 }
 
-async fn get_ducklake_instance_catalog_db_status(
+async fn list_custom_instance_pg_databases(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
-) -> JsonResult<HashMap<String, DucklakeInstanceCatalogDbStatus>> {
+) -> JsonResult<HashMap<String, CustomInstanceDb>> {
     let result = sqlx::query_scalar!(
-        r#"SELECT value->'instance_catalog_db_status' FROM global_settings WHERE name = 'ducklake_settings'"#,
+        r#"SELECT value->'databases' FROM global_settings WHERE name = 'custom_instance_pg_databases'"#,
     )
     .fetch_one(&db)
     .await?
-    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find ducklake_settings".to_string()))?;
+    .ok_or_else(|| error::Error::ExecutionErr("Couldn't find custom_instance_pg_databases".to_string()))?;
     let result = serde_json::from_value(result).map_err(|e| {
         error::Error::ExecutionErr(format!(
-            "couldn't parse instance_catalog_db_status : {}",
+            "couldn't parse custom_instance_pg_databases.databases : {}",
             e.to_string()
         ))
     })?;
     return Ok(Json(result));
 }
 
-async fn setup_ducklake_catalog_db(
+async fn refresh_custom_instance_user_pwd(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+) -> JsonResult<()> {
+    require_super_admin(&db, &authed.email).await?;
+    // 20251208123907_safety_custom_instance_db_user_pwd.up
+    let query = r#"
+    DO $$
+        DECLARE
+            pwd text;
+        BEGIN
+            SELECT gen_random_uuid()::text INTO pwd;
+            
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'custom_instance_user') THEN
+                EXECUTE format('ALTER USER custom_instance_user WITH PASSWORD %L', pwd);
+                RAISE NOTICE 'Updated password for existing user custom_instance_user';
+            ELSE
+                EXECUTE format('CREATE USER custom_instance_user WITH PASSWORD %L', pwd);
+                RAISE NOTICE 'Created new user custom_instance_user';
+            END IF;
+
+            IF NOT EXISTS (SELECT 1 FROM global_settings WHERE name = 'custom_instance_pg_databases') THEN
+                INSERT INTO global_settings (name, value)
+                VALUES ('custom_instance_pg_databases', jsonb_build_object(
+                'user_pwd', pwd::text,
+                'databases', jsonb_build_object()
+                ));
+                RAISE NOTICE 'Inserted new global setting for custom_instance_pg_databases';
+            ELSE
+                UPDATE global_settings
+                SET value = jsonb_set(COALESCE(value, '{}'::jsonb), '{user_pwd}', to_jsonb(pwd::text)::jsonb)
+                WHERE name = 'custom_instance_pg_databases';
+                RAISE NOTICE 'Updated user_pwd in existing global setting for custom_instance_pg_databases';
+            END IF;
+        END
+        $$;
+    "#;
+    sqlx::query(query).execute(&db).await?;
+    Ok(Json(()))
+}
+
+#[derive(Deserialize)]
+struct SetupCustomInstanceDbBody {
+    tag: Option<String>,
+}
+
+async fn setup_custom_instance_pg_database(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(dbname): Path<String>,
-) -> JsonResult<DucklakeInstanceCatalogDbStatus> {
-    let mut logs = DucklakeInstanceCatalogDbStatusLogs::default();
-    let result = setup_ducklake_catalog_db_inner(authed, &db, &dbname, &mut logs).await;
+    Json(body): Json<SetupCustomInstanceDbBody>,
+) -> JsonResult<CustomInstanceDb> {
+    let mut logs = CustomInstanceDbLogs::default();
+    let result = setup_custom_instance_pg_database_inner(authed, &db, &dbname, &mut logs).await;
     let success = result.is_ok();
     let error = result.err().map(|e| e.to_string());
-    let status = DucklakeInstanceCatalogDbStatus { logs, success, error };
+    let status = CustomInstanceDb { logs, success, error, tag: body.tag };
     let status_json = serde_json::to_value(&status).map_err(to_anyhow)?;
     // Save that the database was setup successfully
     sqlx::query!(
-        r#"UPDATE global_settings SET value = jsonb_set(value, '{instance_catalog_db_status}', (COALESCE(value->'instance_catalog_db_status', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'ducklake_settings'"#,
+        r#"UPDATE global_settings SET value = jsonb_set(value, '{databases}', (COALESCE(value->'databases', '{}'::jsonb) || to_jsonb($1::json))) WHERE name = 'custom_instance_pg_databases'"#,
         json!({ dbname: status_json })
     ).execute(&db).await?;
 
     Ok(Json(status))
 }
 
-async fn setup_ducklake_catalog_db_inner(
+async fn setup_custom_instance_pg_database_inner(
     authed: ApiAuthed,
     db: &DB,
     dbname: &str,
-    logs: &mut DucklakeInstanceCatalogDbStatusLogs,
+    logs: &mut CustomInstanceDbLogs,
 ) -> Result<()> {
     require_super_admin(db, &authed.email).await?;
     logs.super_admin = "OK".to_string();
-    let pg_creds = &get_database_url().await?;
-    let pg_creds = parse_postgres_url(pg_creds)?;
+    let wmill_pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
     logs.database_credentials = "OK".to_string();
 
     // Validate name to ensure it only contains alphanumeric characters
@@ -661,7 +716,7 @@ async fn setup_ducklake_catalog_db_inner(
             "Catalog name must be alphanumeric, underscores allowed".to_string(),
         ));
     }
-    if pg_creds.database.trim().eq_ignore_ascii_case(dbname.trim()) {
+    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
         return Err(error::Error::BadRequest(
             "Database name cannot be the same as the main database".to_string(),
         ));
@@ -676,6 +731,11 @@ async fn setup_ducklake_catalog_db_inner(
     .await?
     .unwrap_or(false);
 
+    let pg_creds = PgDatabase {
+        dbname: dbname.to_string(),
+        ..wmill_pg_creds
+    };
+
     logs.created_database = "SKIP".to_string();
     if !db_exists {
         sqlx::query(&format!("CREATE DATABASE \"{dbname}\""))
@@ -684,45 +744,25 @@ async fn setup_ducklake_catalog_db_inner(
         logs.created_database = "OK".to_string();
     }
 
-    let ssl_mode = match pg_creds.ssl_mode.as_deref() {
-        Some("allow") => "prefer".to_string(),
-        Some("verify-ca") | Some("verify-full") => "require".to_string(),
-        Some(s) => s.to_string(),
-        None => "prefer".to_string(),
-    };
     // We have to connect to the newly created database as admin to grant permissions
-    let conn_str = format!(
-        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = urlencoding::encode(&pg_creds.username.unwrap_or_else(|| "postgres".to_string())),
-        password = urlencoding::encode(&pg_creds.password.as_deref().unwrap_or("")),
-        host = urlencoding::encode(&pg_creds.host),
-        port = pg_creds.port.unwrap_or(5432),
-        dbname = dbname,
-        sslmode = ssl_mode
-    );
-
-    let (client, connection) = tokio::time::timeout(
-        std::time::Duration::from_secs(20),
-        tokio_postgres::connect(&conn_str, tokio_postgres::NoTls),
-    )
-    .await
-    .map_err(|e| error::Error::ExecutionErr(format!("timeout: {}", e.to_string())))?
-    .map_err(|e| error::Error::ExecutionErr(format!("error: {}", e.to_string())))?;
+    let (client, connection) = pg_creds.connect().await?;
     let join_handle = tokio::spawn(async move { connection.await });
+
     logs.db_connect = "OK".to_string();
 
     client
         .batch_execute(&format!(
-            "GRANT CONNECT ON DATABASE \"{dbname}\" TO ducklake_user;
-            GRANT USAGE ON SCHEMA public TO ducklake_user;
-            GRANT CREATE ON SCHEMA public TO ducklake_user;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ducklake_user;"
+            "GRANT CONNECT ON DATABASE \"{dbname}\" TO custom_instance_user;
+             GRANT USAGE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON SCHEMA public TO custom_instance_user;
+             GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
+             ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
         ))
         .await
         .map_err(|e| {
             error::Error::ExecutionErr(format!(
-                "Failed to grant permissions to ducklake_user: {}",
+                "Failed to grant permissions to custom_instance_user: {}",
                 e.to_string(),
             ))
         })?;

@@ -10,7 +10,8 @@
 		aiId?: string | undefined
 		aiDescription?: string | undefined
 		value: string
-		size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+		label?: string
+		icon?: any | undefined
 		class?: string
 		style?: string
 		selectedClass?: string
@@ -20,14 +21,19 @@
 		exact?: boolean
 		otherValues?: string[]
 		disabled?: boolean
-		children?: import('svelte').Snippet
+		/**
+		 * @deprecated TODO : Re-organize workspace settings so we don't have so many tabs
+		 */
+		small?: boolean
+		extra?: import('svelte').Snippet
 	}
 
 	let {
 		aiId = undefined,
 		aiDescription = undefined,
 		value,
-		size = 'sm',
+		label,
+		icon = undefined,
 		class: c = '',
 		style = '',
 		selectedClass = '',
@@ -37,7 +43,8 @@
 		exact = false,
 		otherValues = [],
 		disabled = false,
-		children
+		small = false,
+		extra = undefined
 	}: Props = $props()
 	const { selected, update, hashNavigation } = getContext<TabsContext>('Tabs')
 
@@ -54,14 +61,6 @@
 	let isSelectedFn = $derived(getIsSelectedFn(exact, otherValues))
 
 	let isSelected = $derived(isSelectedFn($selected))
-
-	const fontSizeClasses = {
-		xs: 'text-xs',
-		sm: 'text-sm',
-		md: 'text-md',
-		lg: 'text-lg',
-		xl: 'text-xl'
-	}
 </script>
 
 <button
@@ -77,14 +76,14 @@
 		}
 	}}
 	class={twMerge(
-		'border-b-2 py-1 px-2 cursor-pointer transition-all z-10 ease-linear font-normal text-tertiary',
+		'border-b-2 border-border-light py-1 cursor-pointer transition-all z-10 ease-linear text-primary font-normal text-xs',
 		isSelected
-			? 'wm-tab-active font-main'
-			: 'border-gray-300 dark:border-gray-600 border-opacity-0 hover:border-opacity-100 ',
-		fontSizeClasses[size],
+			? 'text-emphasis font-semibold border-border-normal'
+			: 'border-opacity-0 hover:border-opacity-100',
+		small ? 'px-1' : 'px-2',
 		c,
 		isSelected ? selectedClass : '',
-		disabled ? 'cursor-not-allowed text-tertiary' : ''
+		disabled ? 'cursor-not-allowed text-disabled' : ''
 	)}
 	style={`${style} ${isSelected ? selectedStyle : ''}`}
 	onclick={() => {
@@ -101,7 +100,19 @@
 	{disabled}
 	{id}
 >
-	<div class={twMerge(active ? 'bg-blue-50 text-blue-800 rounded-md ' : '', 'px-2 ')}>
-		{@render children?.()}
+	<div
+		class={twMerge(
+			active ? 'bg-surface-accent-selected text-accent rounded-md' : '',
+			'flex gap-2 items-center my-1 px-2'
+		)}
+	>
+		{#if icon}
+			{@const IconComponent = icon}
+			<IconComponent size={14} />
+		{/if}
+		{#if label}
+			{label}
+		{/if}
+		{@render extra?.()}
 	</div>
 </button>

@@ -4,10 +4,10 @@
 //! them to MCP tools and handling HTTP calls to Windmill API endpoints.
 
 use crate::db::ApiAuthed;
-use rmcp::{model::Tool, ErrorData};
 use std::sync::Arc;
 use windmill_common::db::Authed;
 use windmill_common::{auth::create_jwt_token, BASE_INTERNAL_URL};
+use windmill_mcp::server::{ErrorData, Tool, ToolAnnotations};
 
 // Import the auto-generated tools
 use super::auto_generated_endpoints;
@@ -61,11 +61,12 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         output_schema: None,
         icons: None,
         annotations: Some(annotations),
+        meta: None,
     }
 }
 
 /// Create appropriate annotations for endpoint tools based on HTTP method
-fn create_endpoint_annotations(tool: &EndpointTool) -> rmcp::model::ToolAnnotations {
+fn create_endpoint_annotations(tool: &EndpointTool) -> ToolAnnotations {
     let method = tool.method.as_ref();
 
     // Determine characteristics based on HTTP method
@@ -78,7 +79,7 @@ fn create_endpoint_annotations(tool: &EndpointTool) -> rmcp::model::ToolAnnotati
         _ => (false, true, false, true),    // Default: assume can modify and be destructive
     };
 
-    rmcp::model::ToolAnnotations {
+    ToolAnnotations {
         title: Some(format!("{} {}", method, tool.path)),
         read_only_hint: Some(read_only),
         destructive_hint: Some(destructive),

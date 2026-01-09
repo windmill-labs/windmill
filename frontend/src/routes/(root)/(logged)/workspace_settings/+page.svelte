@@ -3,7 +3,9 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
+	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
 	import DeployToSetting from '$lib/components/DeployToSetting.svelte'
 	import ErrorOrRecoveryHandler from '$lib/components/ErrorOrRecoveryHandler.svelte'
@@ -31,7 +33,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString } from '$lib/utils'
-	import { RotateCw, Save } from 'lucide-svelte'
+	import { RotateCw, Save, Slack } from 'lucide-svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -57,6 +59,13 @@
 	} from '$lib/components/workspaceSettings/DucklakeSettings.svelte'
 	import { AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import DataTableSettings, {
+		convertDataTableSettingsFromBackend,
+		type DataTableSettingsType
+	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
+	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -65,6 +74,20 @@
 	let slack_team_name: string | undefined = $state()
 	let teams_team_id: string | undefined = $state()
 	let teams_team_name: string | undefined = $state()
+	let useCustomSlackApp: boolean = $state(false)
+	let slackAppType: 'instance' | 'workspace' = $state('instance')
+
+	// Keep slackAppType and useCustomSlackApp in sync
+	$effect(() => {
+		if (slackAppType === 'workspace') {
+			useCustomSlackApp = true
+		} else {
+			useCustomSlackApp = false
+		}
+	})
+	let slackOAuthClientId: string = $state('')
+	let slackOAuthClientSecret: string = $state('')
+	let slackOAuthConfigLoaded: boolean = $state(false)
 	let itemKind: 'flow' | 'script' = $state('flow')
 	let plan: string | undefined = $state(undefined)
 	let customer_id: string | undefined = $state(undefined)
@@ -104,9 +127,10 @@
 		secondaryStorage: undefined
 	})
 
-	let ducklakeSettings: DucklakeSettingsType = $state({
-		ducklakes: []
-	})
+	let dataTableSettings: DataTableSettingsType = $state({ dataTables: [] })
+	let dataTableSettingsComponent: DataTableSettings | undefined = $state(undefined)
+
+	let ducklakeSettings: DucklakeSettingsType = $state({ ducklakes: [] })
 	let ducklakeSavedSettings: DucklakeSettingsType = $state(untrack(() => ducklakeSettings))
 
 	let workspaceDefaultAppPath: string | undefined = $state(undefined)
@@ -114,26 +138,57 @@
 	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 	let workspaceReencryptionInProgress: boolean = $state(false)
 	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
-	let slack_tabs: 'slack_commands' | 'teams_commands' = $state('slack_commands')
-	let tab = $state(
-		($page.url.searchParams.get('tab') as
+	// All state derived from URL - no local state needed
+	let tab = $derived.by(() => {
+		const selectedTab = $page.url.searchParams.get('tab') as
 			| 'users'
 			| 'slack'
+			| 'teams'
 			| 'premium'
 			| 'general'
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler'
 			| 'ai'
+			| 'windmill_data_tables'
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
 			| 'native_triggers'
-			| 'encryption') ?? 'users'
+			| 'encryption'
+			| 'dependencies'
+		// Both 'slack' and 'teams' URLs map to 'slack' tab
+		if (selectedTab === 'teams') {
+			return 'slack'
+		}
+		return selectedTab || 'users'
+	})
+
+	let slack_tabs: 'slack_commands' | 'teams_commands' = $derived(
+		$page.url.searchParams.get('tab') === 'teams' ? 'teams_commands' : 'slack_commands'
 	)
+
 	let usingOpenaiClientCredentialsOauth = $state(false)
 
 	let loadedSettings = $state(false)
+	let oauths: Record<string, any> = $state({})
+
+	// OAuth validation functions
+	function isSlackOAuthConfigured(slackConfig: any): boolean {
+		return slackConfig && slackConfig.id?.trim() && slackConfig.secret?.trim()
+	}
+
+	function isTeamsOAuthConfigured(teamsConfig: any): boolean {
+		return (
+			teamsConfig &&
+			teamsConfig.id?.trim() &&
+			teamsConfig.secret?.trim() &&
+			teamsConfig.tenant?.trim()
+		)
+	}
+
+	const isSlackOAuthEnabled = $derived(isSlackOAuthConfigured(oauths?.slack))
+	const isTeamsOAuthEnabled = $derived(isTeamsOAuthConfigured(oauths?.teams))
 
 	async function editWorkspaceCommand(platform: 'slack' | 'teams'): Promise<void> {
 		if (platform === 'slack') {
@@ -300,6 +355,7 @@
 			!!$enterpriseLicense
 		)
 		initialS3ResourceSettings = clone(s3ResourceSettings)
+		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
 
@@ -330,6 +386,87 @@
 		loadedSettings = true
 	}
 
+	async function loadSlackOAuthConfig(): Promise<void> {
+		if (!$workspaceStore) return
+
+		try {
+			const config = await WorkspaceService.getWorkspaceSlackOauthConfig({
+				workspace: $workspaceStore
+			})
+			useCustomSlackApp = !!config.slack_oauth_client_id
+			slackAppType = config.slack_oauth_client_id ? 'workspace' : 'instance'
+			slackOAuthClientId = config.slack_oauth_client_id || ''
+			slackOAuthClientSecret = config.slack_oauth_client_secret || ''
+			slackOAuthConfigLoaded = !!config.slack_oauth_client_id
+		} catch (e) {
+			console.error('Failed to load Slack OAuth config:', e)
+		}
+	}
+
+	async function loadGlobalOAuthSettings(): Promise<void> {
+		try {
+			oauths = (await SettingService.getGlobal({ key: 'oauths' })) ?? {}
+		} catch (e) {
+			console.error('Failed to load global OAuth config:', e)
+			oauths = {}
+		}
+	}
+
+	async function saveAndConnectSlack(): Promise<void> {
+		if (!$workspaceStore) return
+
+		if (!slackOAuthClientId || !slackOAuthClientSecret) {
+			sendUserToast('Both client ID and client secret are required', true)
+			return
+		}
+
+		try {
+			// Disconnect existing Slack connection (if any) before saving workspace-specific config
+			if (slack_team_name) {
+				await OauthService.disconnectSlack({ workspace: $workspaceStore })
+			}
+
+			await WorkspaceService.setWorkspaceSlackOauthConfig({
+				workspace: $workspaceStore,
+				requestBody: {
+					slack_oauth_client_id: slackOAuthClientId,
+					slack_oauth_client_secret: slackOAuthClientSecret
+				}
+			})
+
+			// Redirect to OAuth flow
+			window.location.href = `${base}/api/oauth/connect_slack?workspace=${$workspaceStore}`
+		} catch (e) {
+			sendUserToast('Failed to save Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
+	async function deleteSlackOAuthConfig(): Promise<void> {
+		if (!$workspaceStore) return
+
+		try {
+			// Delete workspace OAuth config
+			await WorkspaceService.deleteWorkspaceSlackOauthConfig({ workspace: $workspaceStore })
+
+			// Also disconnect any existing Slack connection
+			if (slack_team_name) {
+				await OauthService.disconnectSlack({ workspace: $workspaceStore })
+			}
+
+			useCustomSlackApp = false
+			slackAppType = 'instance'
+			slackOAuthClientId = ''
+			slackOAuthClientSecret = ''
+			slackOAuthConfigLoaded = false
+			await loadSettings()
+			sendUserToast('Workspace Slack app deleted')
+		} catch (e) {
+			sendUserToast('Failed to delete Slack OAuth configuration', true)
+			console.error(e)
+		}
+	}
+
 	let deployUiSettings:
 		| {
 				include_path: string[]
@@ -346,7 +483,13 @@
 		| undefined = $state()
 
 	$effect(() => {
-		$workspaceStore && untrack(() => loadSettings())
+		if ($workspaceStore) {
+			untrack(() => {
+				loadSettings()
+				loadSlackOAuthConfig()
+				loadGlobalOAuthSettings()
+			})
+		}
 	})
 
 	async function editErrorHandler() {
@@ -388,19 +531,6 @@
 			window.location.reload()
 		}, 3000)
 	}
-
-	function updateFromSearchTab(searchTab: string | null, currentTab: string) {
-		if (searchTab && searchTab !== currentTab) {
-			tab = searchTab as typeof tab
-		}
-	}
-
-	$effect(() => {
-		updateFromSearchTab(
-			$page.url.searchParams.get('tab'),
-			untrack(() => tab)
-		)
-	})
 
 	// Function to check if there are unsaved changes in AI settings
 	function getAiSettingsInitialAndModifiedValues() {
@@ -471,6 +601,10 @@
 
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
+		if (dataTableSettingsComponent) {
+			return dataTableSettingsComponent.unsavedChanges()
+		}
+
 		// Check AI settings
 		const aiChanges = getAiSettingsInitialAndModifiedValues()
 		if (aiChanges.savedValue && aiChanges.modifiedValue) {
@@ -503,12 +637,7 @@
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
-				<Button
-					variant="border"
-					color="dark"
-					size="sm"
-					on:click={() => goto('#superadmin-settings')}
-				>
+				<Button variant="default" size="sm" on:click={() => goto('#superadmin-settings')}>
 					Instance settings
 				</Button>
 			{/if}</PageHeader
@@ -527,75 +656,75 @@
 				}}
 			>
 				<Tab
-					size="xs"
+					small
 					value="users"
 					aiId="workspace-settings-users"
 					aiDescription="Users workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Users</div>
-				</Tab>
+					label="Users"
+				/>
 				<Tab
-					size="xs"
+					small
 					value="git_sync"
 					aiId="workspace-settings-git-sync"
 					aiDescription="Git sync workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Git Sync</div>
-				</Tab>
+					label="Git Sync"
+				/>
 				<Tab
-					size="xs"
+					small
 					value="deploy_to"
 					aiId="workspace-settings-deploy-to"
 					aiDescription="Deployment UI workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Deployment UI</div>
-				</Tab>
+					label="Deployment UI"
+				/>
+
 				{#if WORKSPACE_SHOW_SLACK_CMD}
 					<Tab
-						size="xs"
+						small
 						value="slack"
 						aiId="workspace-settings-slack"
 						aiDescription="Slack / Teams workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Slack / Teams</div>
-					</Tab>
+						label="Slack / Teams"
+					/>
 				{/if}
 				{#if isCloudHosted()}
 					<Tab
-						size="xs"
+						small
 						value="premium"
 						aiId="workspace-settings-premium"
 						aiDescription="Premium plans workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Premium Plans</div>
-					</Tab>
+						label="Premium Plans"
+					/>
 				{/if}
 				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
 					<Tab
-						size="xs"
+						small
 						value="webhook"
 						aiId="workspace-settings-webhook"
 						aiDescription="Webhook workspace settings"
-					>
-						<div class="flex gap-2 items-center my-1">Webhook</div>
-					</Tab>
+						label="Webhook"
+					/>
 				{/if}
 				<Tab
-					size="xs"
+					small
 					value="error_handler"
 					aiId="workspace-settings-error-handler"
 					aiDescription="Error handler workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Error Handler</div>
-				</Tab>
+					label="Error Handler"
+				/>
 				<Tab
-					size="xs"
+					small
 					value="ai"
 					aiId="workspace-settings-ai"
 					aiDescription="Windmill AI workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Windmill AI</div>
-				</Tab>
+					label="Windmill AI"
+				/>
+				<Tab
+					small
+					value="windmill_data_tables"
+					aiId="workspace-settings-windmill-data-tables"
+					aiDescription="Data tables workspace settings"
+					label="Data Tables"
+				/>
 				<Tab
 					size="xs"
 					value="native_triggers"
@@ -605,37 +734,42 @@
 					<div class="flex gap-2 items-center my-1">Native Triggers</div>
 				</Tab>
 				<Tab
-					size="xs"
+					small
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Object Storage (S3)</div>
-				</Tab>
+					label="Object Storage (S3)"
+				/>
 				<Tab
-					size="xs"
+					small
 					value="default_app"
 					aiId="workspace-settings-default-app"
 					aiDescription="Default app workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Default App</div>
-				</Tab>
+					label="Default App"
+				/>
+
 				<Tab
-					size="xs"
+					small
 					value="encryption"
 					aiId="workspace-settings-encryption"
 					aiDescription="Encryption workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">Encryption</div>
-				</Tab>
+					label="Encryption"
+				/>
+
 				<Tab
-					size="xs"
+					small
 					value="general"
 					aiId="workspace-settings-general"
 					aiDescription="General workspace settings"
-				>
-					<div class="flex gap-2 items-center my-1">General</div>
-				</Tab>
+					label="General"
+				/>
+				<Tab
+					small
+					value="dependencies"
+					aiId="workspace-settings-dependencies"
+					aiDescription="Workspace dependencies settings"
+					label="Dependencies"
+				/>
 			</Tabs>
 		</div>
 		{#if !loadedSettings}
@@ -645,7 +779,7 @@
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">
+					<div class="text-sm font-semibold text-emphasis">
 						Link this Workspace to another Staging / Prod Workspace
 					</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/staging_prod">
@@ -666,24 +800,26 @@
 		{:else if tab == 'premium'}
 			<PremiumInfo {customer_id} {plan} />
 		{:else if tab == 'slack'}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"
-						>Workspace connections to Slack and Teams</div
-					>
-					<Description link="https://www.windmill.dev/docs/integrations/slack">
-						With workspace connections, you can trigger scripts or flows with a '/windmill' command
-						with your Slack or Teams bot.
-					</Description>
-				</div>
-
-				<Tabs bind:selected={slack_tabs}>
-					<Tab size="xs" value="slack_commands">
-						<div class="flex gap-2 items-center my-1"> Slack</div>
-					</Tab>
-					<Tab size="xs" value="teams_commands">
-						<div class="flex gap-2 items-center my-1"> Teams</div>
-					</Tab>
+			<div class="mt-4"></div>
+			<Section
+				label="Workspace connections to Slack and Teams"
+				description="With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot or set the workspace error handler to send notifications to your Slack or Teams channel. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>."
+				class="space-y-6"
+			>
+				<Tabs
+					selected={slack_tabs}
+					on:selected={(e) => {
+						const params = new URLSearchParams($page.url.searchParams)
+						if (e.detail === 'teams_commands') {
+							params.set('tab', 'teams')
+						} else {
+							params.set('tab', 'slack')
+						}
+						goto(`?${params.toString()}`)
+					}}
+				>
+					<Tab value="slack_commands" label="Slack" />
+					<Tab value="teams_commands" label="Teams" />
 				</Tabs>
 
 				{#if slack_tabs === 'slack_commands'}
@@ -694,18 +830,121 @@
 						bind:initialPath={slackInitialPath}
 						bind:itemKind
 						onDisconnect={async () => {
-							await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
-							loadSettings()
-							sendUserToast('Disconnected Slack')
+							if (slackOAuthConfigLoaded) {
+								deleteSlackOAuthConfig()
+							} else {
+								await OauthService.disconnectSlack({ workspace: $workspaceStore ?? '' })
+								loadSettings()
+								sendUserToast('Disconnected Slack')
+							}
 						}}
 						onSelect={editSlackCommand}
 						connectHref="{base}/api/oauth/connect_slack"
-						createScriptHref="{base}/scripts/add?hub=hub%2F314%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
+						createScriptHref="{base}/scripts/add?hub=hub%2F28071%2Fslack%2Fexample_of_responding_to_a_slack_command_slack"
 						createFlowHref="{base}/flows/add?hub=28"
 						documentationLink="https://www.windmill.dev/docs/integrations/slack"
 						onLoadSettings={loadSettings}
 						display_name={slack_team_name}
-					/>
+						hideConnectButton={useCustomSlackApp && !slackOAuthConfigLoaded}
+						isOAuthEnabled={isSlackOAuthEnabled}
+						workspaceSpecificConnection={slackOAuthConfigLoaded}
+					>
+						{#snippet workspaceConfig()}
+							<!-- Workspace OAuth Configuration Section -->
+							{#if !slack_team_name}
+								<div class="flex flex-col gap-1">
+									<!-- Show toggle buttons for app type selection -->
+									<ToggleButtonGroup bind:selected={slackAppType}>
+										{#snippet children({ item })}
+											<ToggleButton {item} value="instance" label="Instance specific Slack app" />
+											<ToggleButton {item} value="workspace" label="Workspace specific Slack app" />
+										{/snippet}
+									</ToggleButtonGroup>
+									<div class="text-2xs text-hint"
+										>Use the Slack app configured at the instance level if you want to use the same
+										Slack app for all workspaces. Configure your Slack app here if you want to use a
+										specific Slack app for this workspace.</div
+									>
+								</div>
+							{/if}
+							{#if slackOAuthConfigLoaded}
+								<!-- Show saved config with delete button -->
+								<div class="flex flex-col gap-1">
+									<div class="text-xs text-primary font-normal">Client ID</div>
+									<TextInput
+										inputProps={{
+											type: 'text',
+											readonly: true
+										}}
+										value={slackOAuthClientId}
+									/>
+									<div class="text-2xs text-hint"
+										>Client ID for the Slack app configured at the workspace level</div
+									>
+								</div>
+							{:else if slackAppType === 'workspace'}
+								<div class="flex flex-col gap-6">
+									<label class="flex flex-col gap-1">
+										<span class="text-primary font-semibold text-xs">Client ID</span>
+										<TextInput
+											inputProps={{
+												type: 'text',
+												placeholder: '1234567890.1234567890'
+											}}
+											bind:value={slackOAuthClientId}
+										/>
+									</label>
+
+									<label class="flex flex-col gap-1">
+										<span class="text-primary font-semibold text-xs">Client secret</span>
+										<TextInput
+											inputProps={{
+												type: 'password',
+												placeholder: 'Enter client secret'
+											}}
+											bind:value={slackOAuthClientSecret}
+										/>
+									</label>
+
+									<CollapseLink text="Instructions">
+										<div class="text-xs text-secondary">
+											Create a Slack app at{' '}
+											<a
+												href="https://api.slack.com/apps"
+												target="_blank"
+												rel="noopener noreferrer"
+												class="text-blue-600 dark:text-blue-400 hover:underline"
+											>
+												Slack API
+											</a>. Set the redirect URI to:{' '}
+											<code class="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+												{window.location.origin}{base}/oauth/callback_slack
+											</code>
+										</div>
+									</CollapseLink>
+
+									<div class="pt-2">
+										<Button
+											size="xs"
+											variant="accent"
+											onclick={saveAndConnectSlack}
+											disabled={!slackOAuthClientId || !slackOAuthClientSecret}
+											startIcon={{ icon: Slack }}
+											btnClasses="w-fit"
+										>
+											Connect to Slack
+										</Button>
+									</div>
+								</div>
+							{:else if !isSlackOAuthEnabled}
+								<Alert type="warning" title="Slack OAuth not configured">
+									Slack OAuth is not configured at the instance level. Please ask your administrator
+									to configure Slack OAuth settings in the instance settings before you can use
+									Slack features.
+								</Alert>
+							{/if}
+						{/snippet}
+					</ConnectionSection>
 				{:else if slack_tabs === 'teams_commands'}
 					{#if !$enterpriseLicense}
 						<div class="pt-4"></div>
@@ -714,45 +953,57 @@
 							/ Teams connection to run a custom script and send notifications.
 						</Alert>
 						<div class="pb-2"></div>
+					{:else}
+						<ConnectionSection
+							platform="teams"
+							teamName={teams_team_id}
+							bind:scriptPath={teamsScriptPath}
+							bind:initialPath={teamsInitialPath}
+							bind:itemKind
+							onDisconnect={async () => {
+								await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
+								loadSettings()
+								sendUserToast('Disconnected Teams')
+							}}
+							onSelect={editTeamsCommand}
+							connectHref={undefined}
+							createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
+							createFlowHref="{base}/flows/add?hub=58"
+							documentationLink="https://www.windmill.dev/docs/integrations/teams"
+							onLoadSettings={loadSettings}
+							display_name={teams_team_name}
+							isOAuthEnabled={isTeamsOAuthEnabled}
+						>
+							{#snippet workspaceConfig()}
+								{#if !isTeamsOAuthEnabled}
+									<Alert type="warning" title="Teams OAuth not configured">
+										Teams OAuth is not configured at the instance level. Please ask your
+										administrator to configure Teams OAuth settings in the instance settings before
+										you can use Teams features.
+									</Alert>
+								{/if}
+							{/snippet}
+						</ConnectionSection>
 					{/if}
-					<ConnectionSection
-						platform="teams"
-						teamName={teams_team_id}
-						bind:scriptPath={teamsScriptPath}
-						bind:initialPath={teamsInitialPath}
-						bind:itemKind
-						onDisconnect={async () => {
-							await OauthService.disconnectTeams({ workspace: $workspaceStore ?? '' })
-							loadSettings()
-							sendUserToast('Disconnected Teams')
-						}}
-						onSelect={editTeamsCommand}
-						connectHref={undefined}
-						createScriptHref="{base}/scripts/add?hub=hub%2F11591%2Fteams%2FExample%20of%20responding%20to%20a%20Microsoft%20Teams%20command"
-						createFlowHref="{base}/flows/add?hub=58"
-						documentationLink="https://www.windmill.dev/docs/integrations/teams"
-						onLoadSettings={loadSettings}
-						display_name={teams_team_name}
-					/>
 				{/if}
-			</div>
+			</Section>
 		{:else if tab == 'general'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4 my-6">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold">General</div>
+					<div class="text-sm font-semibold text-emphasis">General</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
 						Configure general workspace settings.
 					</Description>
 				</div>
 			</div>
 
-			<div class="flex flex-col gap-10">
+			<div class="flex flex-col gap-6">
 				<ChangeWorkspaceName />
 				<ChangeWorkspaceId />
 				<ChangeWorkspaceColor />
 			</div>
 
-			<PageHeader title="Export workspace" primary={false} />
+			<div class="text-xs font-semibold text-emphasis mt-6 mb-1">Export workspace</div>
 			<div class="flex justify-start">
 				<Button
 					size="sm"
@@ -763,22 +1014,22 @@
 				</Button>
 			</div>
 
-			<div class="mt-20"></div>
-			<PageHeader title="Delete workspace" primary={false} />
+			<div class="mt-12"></div>
+			<span class="text-sm font-semibold text-emphasis">Delete workspace</span>
 			{#if !$superadmin}
-				<p class="italic text-xs"> Only instance superadmins can delete a workspace. </p>
+				<p class="text-2xs text-secondary"> Only instance superadmins can delete a workspace. </p>
 			{/if}
 			{#if $workspaceStore === 'admins' || $workspaceStore === 'starter'}
-				<p class="italic text-xs">
+				<p class="text-2xs text-secondary">
 					This workspace cannot be deleted as it has a special function. Consult the documentation
 					for more information.
 				</p>
 			{/if}
 			<div class="flex gap-2">
 				<Button
-					color="red"
+					destructive
 					disabled={$workspaceStore === 'admins' || $workspaceStore === 'starter'}
-					size="sm"
+					unifiedSize="md"
 					btnClasses="mt-2"
 					on:click={async () => {
 						await WorkspaceService.archiveWorkspace({ workspace: $workspaceStore ?? '' })
@@ -812,7 +1063,7 @@
 		{:else if tab == 'webhook'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-lg font-semibold"> Workspace Webhook</div>
+					<div class="text-xs font-semibold text-emphasis"> Workspace Webhook</div>
 					<Description
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					>
@@ -823,8 +1074,8 @@
 			</div>
 			<div class="flex flex-col gap-4 my-4">
 				<div class="flex flex-col gap-1">
-					<div class=" text-primary text-base font-semibold"> URL to send requests to</div>
-					<div class="text-tertiary text-xs">
+					<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
+					<div class="text-primary text-xs">
 						This URL will be POSTed to with a JSON body depending on the type of event. The type is
 						indicated by the type field. The other fields are dependent on the type.
 					</div>
@@ -836,113 +1087,108 @@
 			</div>
 		{:else if tab == 'error_handler'}
 			{#if !$enterpriseLicense}
-				<div class="pt-4"></div>
+				<div class="pb-2"></div>
 				<Alert type="warning" title="Workspace error handler is an EE feature">
 					Workspace error handler is a Windmill EE feature. It enables using your current Slack
 					connection or a custom script to send notifications anytime any job would fail.
 				</Alert>
-				<div class="pb-2"></div>
 			{/if}
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Workspace Error Handler</div>
-					<Description
-						link="https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler"
-					>
-						Define a script or flow to be executed automatically in case of error in the workspace.
-					</Description>
-				</div>
-			</div>
-			<div class="flex flex-col gap-4 my-4">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-base font-semibold">
-						Script or flow to run as error handler</div
-					>
-				</div>
-			</div>
-			<ErrorOrRecoveryHandler
-				isEditable={true}
-				errorOrRecovery="error"
-				showScriptHelpText={true}
-				bind:handlerSelected={errorHandlerSelected}
-				bind:handlerPath={errorHandlerScriptPath}
-				customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-				bind:customHandlerKind={errorHandlerItemKind}
-				bind:handlerExtraArgs={errorHandlerExtraArgs}
-			>
-				{#snippet customTabTooltip()}
-					<Tooltip>
-						<div class="flex gap-20 items-start mt-3">
-							<div class="text-sm">
-								The following args will be passed to the error handler:
-								<ul class="mt-1 ml-2">
-									<li><b>path</b>: The path of the script or flow that errored.</li>
-									<li>
-										<b>email</b>: The email of the user who ran the script or flow that errored.
-									</li>
-									<li><b>error</b>: The error details.</li>
-									<li><b>job_id</b>: The job id.</li>
-									<li><b>is_flow</b>: Whether the error comes from a flow.</li>
-									<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
-								</ul>
-								<br />
-								The error handler will be executed by the automatically created group g/error_handler.
-								If your error handler requires variables or resources, you need to add them to the group.
-							</div>
-						</div>
-					</Tooltip>
-				{/snippet}
-			</ErrorOrRecoveryHandler>
-
-			<div class="flex flex-col mt-5 gap-5 items-start">
-				<Toggle
-					disabled={!$enterpriseLicense ||
-						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-							!emptyString(errorHandlerScriptPath) &&
-							emptyString(errorHandlerExtraArgs['channel']))}
-					bind:checked={errorHandlerMutedOnCancel}
-					options={{ right: 'Do not run error handler for canceled jobs' }}
-				/>
-				<Button
-					disabled={!$enterpriseLicense ||
-						((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-							!emptyString(errorHandlerScriptPath) &&
-							emptyString(errorHandlerExtraArgs['channel']))}
-					size="sm"
-					on:click={editErrorHandler}
+			<div class="flex flex-col gap-12 py-4">
+				<Section
+					label="Workspace Error Handler"
+					description="Configure a centralized error handler that automatically executes when any script or flow in the workspace fails. On error, you can trigger a custom script or flow, send notifications via Slack or Microsoft Teams, or dispatch email alerts. The handler receives error details, job information, and context about the failed execution. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>"
+					class="space-y-6"
 				>
-					Save
-				</Button>
-			</div>
-			<div class="flex flex-col gap-4 my-8">
-				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold"> Workspace Critical Alerts</div>
-					<Description link="https://www.windmill.dev/docs/core_concepts/critical_alerts">
-						Critical alerts within the scope of a workspace are sent to the workspace admins through
-						a UI notification.
-					</Description>
-					<div class="flex flex-col mt-5 gap-5 items-start">
-						<Button
-							disabled={!$enterpriseLicense}
-							size="sm"
-							on:click={() => isCriticalAlertsUIOpen.set(true)}
-						>
-							Show critical alerts
-						</Button>
+					<ErrorOrRecoveryHandler
+						isEditable={true}
+						errorOrRecovery="error"
+						showScriptHelpText={true}
+						bind:handlerSelected={errorHandlerSelected}
+						bind:handlerPath={errorHandlerScriptPath}
+						customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
+						bind:customHandlerKind={errorHandlerItemKind}
+						bind:handlerExtraArgs={errorHandlerExtraArgs}
+					>
+						{#snippet customTabTooltip()}
+							<Tooltip>
+								<div class="flex gap-20 items-start mt-3">
+									<div class="text-sm">
+										The following args will be passed to the error handler:
+										<ul class="mt-1 ml-2">
+											<li><b>path</b>: The path of the script or flow that errored.</li>
+											<li>
+												<b>email</b>: The email of the user who ran the script or flow that errored.
+											</li>
+											<li><b>error</b>: The error details.</li>
+											<li><b>job_id</b>: The job id.</li>
+											<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+											<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
+										</ul>
+										<br />
+										The error handler will be executed by the automatically created group g/error_handler.
+										If your error handler requires variables or resources, you need to add them to the
+										group.
+									</div>
+								</div>
+							</Tooltip>
+						{/snippet}
+					</ErrorOrRecoveryHandler>
+
+					<div class="flex flex-col gap-6 items-start">
 						<Toggle
-							disabled={!$enterpriseLicense}
-							bind:checked={criticalAlertUIMuted}
-							options={{ right: 'Mute critical alerts UI for this workspace' }}
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+							bind:checked={errorHandlerMutedOnCancel}
+							options={{ right: 'Do not run error handler for canceled jobs' }}
 						/>
 						<Button
-							disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
-							size="sm"
-							on:click={editCriticalAlertMuteSetting}
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+							unifiedSize="md"
+							on:click={editErrorHandler}
+							startIcon={{ icon: Save }}
+							variant="accent"
 						>
-							Save mute setting
+							Save error handler
 						</Button>
 					</div>
-				</div>
+				</Section>
+
+				<hr class="border-t" />
+				<Section
+					label="Workspace Critical Alerts"
+					description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification. <a href='https://www.windmill.dev/docs/core_concepts/critical_alerts'>Learn more</a>"
+					class="flex flex-col gap-6"
+				>
+					<Toggle
+						disabled={!$enterpriseLicense}
+						bind:checked={criticalAlertUIMuted}
+						options={{ right: 'Mute critical alerts UI for this workspace' }}
+					/>
+
+					<Button
+						disabled={!$enterpriseLicense}
+						on:click={() => isCriticalAlertsUIOpen.set(true)}
+						btnClasses="w-fit"
+					>
+						Show critical alerts
+					</Button>
+
+					<Button
+						disabled={!$enterpriseLicense || criticalAlertUIMuted == initialCriticalAlertUIMuted}
+						size="sm"
+						on:click={editCriticalAlertMuteSetting}
+						variant="default"
+						startIcon={{ icon: Save }}
+						btnClasses="w-fit"
+					>
+						Save mute setting
+					</Button>
+				</Section>
 			</div>
 		{:else if tab == 'ai'}
 			<AISettings
@@ -961,6 +1207,8 @@
 					initialMaxTokensPerModel = clone(maxTokensPerModel)
 				}}
 			/>
+		{:else if tab == 'windmill_data_tables'}
+			<DataTableSettings bind:dataTableSettings bind:this={dataTableSettingsComponent} />
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings
 				bind:s3ResourceSettings
@@ -969,12 +1217,12 @@
 				}}
 			/>
 			<DucklakeSettings
-			bind:ducklakeSettings
-			bind:ducklakeSavedSettings
-			onSave={() => {
-				ducklakeSavedSettings = clone(ducklakeSettings)
-			}}
-		/>
+				bind:ducklakeSettings
+				bind:ducklakeSavedSettings
+				onSave={() => {
+					ducklakeSavedSettings = clone(ducklakeSettings)
+				}}
+			/>
 		{:else if tab == 'git_sync'}
 			{#if $workspaceStore}
 				<GitSyncSection />
@@ -983,10 +1231,12 @@
 					<div class="text-sm text-secondary">Loading workspace...</div>
 				</div>
 			{/if}
+		{:else if tab == 'dependencies'}
+			<WorkspaceDependenciesSettings />
 		{:else if tab == 'default_app'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Default App</div>
+					<div class="text-sm font-semibold text-emphasis">Workspace Default App</div>
 					<Description>
 						If configured, users who are operators in this workspace will be redirected to this app
 						automatically when logging into this workspace.
@@ -1030,7 +1280,7 @@
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
-					<div class="text-primary text-lg font-semibold">Workspace Secret Encryption</div>
+					<div class="text-sm font-semibold text-emphasis">Workspace Secret Encryption</div>
 					<Description>
 						When updating the encryption key of a workspace, all secrets will be re-encrypted with
 						the new key and the previous key will be replaced by the new one.
@@ -1058,16 +1308,20 @@
 					}}>Save & Re-encrypt workspace</Button
 				>
 			</div>
-			<h6> Workspace encryption key </h6>
+			<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
+				Workspace encryption key
+			</label>
 			<div class="flex gap-2 mt-1">
-				<input
-					class="justify-start"
-					type="text"
-					placeholder={'*'.repeat(64)}
+				<TextInput
+					inputProps={{
+						id: 'workspace-encryption-key',
+						placeholder: '*'.repeat(64)
+					}}
 					bind:value={editedWorkspaceEncryptionKey}
 				/>
 				<Button
-					color="light"
+					variant="default"
+					unifiedSize="md"
 					on:click={() => {
 						loadWorkspaceEncryptionKey()
 					}}>Load current key</Button
@@ -1091,6 +1345,7 @@
 	getInitialAndModifiedValues={getAllUnsavedChanges}
 	onDiscardChanges={discardAllChanges}
 	triggerOnSearchParamsChange={true}
+	tabMode={true}
 />
 
 <style>

@@ -15,12 +15,12 @@
 	import { userStore, workspaceStore } from '$lib/stores'
 	import type uFuzzy from '@leeoniya/ufuzzy'
 	import {
+		ChevronsDownUp,
+		ChevronsUpDown,
 		Code2,
-		FoldVertical,
 		LayoutDashboard,
-		SearchCode,
-		SlidersHorizontal,
-		UnfoldVertical
+		ListFilterPlus,
+		SearchCode
 	} from 'lucide-svelte'
 
 	import { HOME_SEARCH_SHOW_FLOW, HOME_SEARCH_PLACEHOLDER } from '$lib/consts'
@@ -42,6 +42,7 @@
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import { getContext, untrack } from 'svelte'
 	import { triggerableByAI } from '$lib/actions/triggerableByAI.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
@@ -84,7 +85,8 @@
 			workspace: $workspaceStore!,
 			showArchived: archived ? true : undefined,
 			includeWithoutMain: includeWithoutMain ? true : undefined,
-			includeDraftOnly: true
+			includeDraftOnly: true,
+			withoutDescription: true
 		})
 
 		scripts = loadedScripts.map((script: Script) => {
@@ -101,7 +103,8 @@
 			await FlowService.listFlows({
 				workspace: $workspaceStore!,
 				showArchived: archived ? true : undefined,
-				includeDraftOnly: true
+				includeDraftOnly: true,
+				withoutDescription: true
 			})
 		).map((x: Flow) => {
 			return {
@@ -361,7 +364,7 @@
 
 <CenteredPage>
 	<div
-		class="flex flex-wrap gap-2 items-center justify-between w-full mt-2"
+		class="flex flex-wrap gap-2 items-center justify-between w-full"
 		use:triggerableByAI={{
 			id: 'home-items-list',
 			description: 'Lists of scripts, flows, and apps'
@@ -376,24 +379,17 @@
 					}
 					setQuery($page.url, 'kind', v)
 				}}
-				class="h-10"
 			>
 				{#snippet children({ item })}
-					<ToggleButton value="all" label="All" class="text-sm px-4 py-2" {item} />
-					<ToggleButton
-						value="script"
-						icon={Code2}
-						label="Scripts"
-						class="text-sm px-4 py-2"
-						{item}
-					/>
+					<ToggleButton value="all" label="All" size="md" {item} />
+					<ToggleButton value="script" icon={Code2} label="Scripts" size="md" {item} />
 					{#if HOME_SEARCH_SHOW_FLOW}
 						<ToggleButton
 							value="flow"
 							label="Flows"
 							icon={FlowIcon}
-							class="text-sm px-4 py-2"
 							selectedColor="#14b8a6"
+							size="md"
 							{item}
 						/>
 					{/if}
@@ -401,23 +397,26 @@
 						value="app"
 						label="Apps"
 						icon={LayoutDashboard}
-						class="text-sm px-4 py-2"
 						selectedColor="#fb923c"
+						size="md"
 						{item}
 					/>
 				{/snippet}
 			</ToggleButtonGroup>
 		</div>
 
-		<div class="relative text-tertiary grow min-w-[100px]">
+		<div class="relative text-primary grow min-w-[100px]">
 			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				autofocus
-				placeholder={HOME_SEARCH_PLACEHOLDER}
+			<TextInput
+				inputProps={{
+					autofocus: true,
+					placeholder: HOME_SEARCH_PLACEHOLDER
+				}}
+				size="md"
 				bind:value={filter}
-				class="bg-surface !h-10 !px-4 !pr-10 !rounded-lg text-sm focus:outline-none"
+				class="!pr-10"
 			/>
-			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-3 mr-4">
+			<button aria-label="Search" type="submit" class="absolute right-0 top-0 mt-2 mr-4">
 				<svg
 					class="h-4 w-4 fill-current"
 					xmlns="http://www.w3.org/2000/svg"
@@ -440,11 +439,8 @@
 		</div>
 		<Button
 			on:click={() => openSearchWithPrefilledText('#')}
-			variant="border"
-			size="sm"
-			spacingSize="lg"
-			wrapperClasses="h-10"
-			color="light"
+			variant="default"
+			unifiedSize="md"
 			endIcon={{
 				icon: SearchCode
 			}}
@@ -463,24 +459,24 @@
 			<div class="mt-10"></div>
 		{/if}
 		{#if !loading}
-			<div class="flex w-full flex-row-reverse gap-2 mt-4 mb-1 items-center h-6">
+			<div class="flex w-full flex-row-reverse gap-2 mt-2 mb-1 items-center h-6">
 				<Popover floatingConfig={{ placement: 'bottom-end' }}>
 					{#snippet trigger()}
 						<Button
 							startIcon={{
-								icon: SlidersHorizontal
+								icon: ListFilterPlus
 							}}
 							nonCaptureEvent
 							iconOnly
 							size="xs"
 							color="light"
-							variant="border"
+							variant="default"
 							spacingSize="xs2"
 						/>
 					{/snippet}
 					{#snippet content()}
 						<div class="p-4">
-							<span class="text-sm font-semibold">Filters</span>
+							<span class="text-sm font-semibold text-emphasis">Filters</span>
 							<div class="flex flex-col gap-2 mt-2">
 								<Toggle size="xs" bind:checked={archived} options={{ right: 'Only archived' }} />
 								{#if $userStore && !$userStore.operator}
@@ -506,13 +502,11 @@
 				<Toggle size="xs" bind:checked={treeView} options={{ right: 'Tree view' }} />
 				{#if treeView}
 					<Button
-						btnClasses="py-0 h-6"
-						size="xs"
-						variant="border"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						on:click={() => (collapseAll = !collapseAll)}
 						startIcon={{
-							icon: collapseAll ? UnfoldVertical : FoldVertical
+							icon: collapseAll ? ChevronsUpDown : ChevronsDownUp
 						}}
 					>
 						{#if collapseAll}
@@ -533,7 +527,7 @@
 				<Skeleton layout={[[4], 0.5]} />
 			{/each}
 		{:else if filteredItems.length === 0}
-			<NoItemFound />
+			<NoItemFound hasFilters={filter !== '' || archived || filterUserFolders} />
 		{:else if treeView}
 			<TreeViewRoot
 				{items}
@@ -553,7 +547,7 @@
 				{showCode}
 			/>
 		{:else}
-			<div class="border rounded-md">
+			<div class="border rounded-md bg-surface-tertiary">
 				{#each (items ?? []).slice(0, nbDisplayed) as item (item.type + '/' + item.path + (item.hash ? '/' + item.hash : ''))}
 					<Item
 						{item}
@@ -572,9 +566,12 @@
 				{/each}
 			</div>
 			{#if items && items?.length > 15 && nbDisplayed < items.length}
-				<span class="text-xs"
+				<span class="text-xs font-normal text-secondary"
 					>{nbDisplayed} items out of {items.length}
-					<button class="ml-4" onclick={() => (nbDisplayed += 30)}>load 30 more</button></span
+					<button
+						class="ml-4 text-xs font-normal text-primary hover:text-emphasis"
+						onclick={() => (nbDisplayed += 30)}>load 30 more</button
+					></span
 				>
 			{/if}
 		{/if}

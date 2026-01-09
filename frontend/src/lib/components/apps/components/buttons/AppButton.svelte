@@ -167,14 +167,30 @@
 			if (iterContext && listInputs) {
 				listInputs.set(id, inputOutput)
 			}
-			if (preclickAction) {
-				await preclickAction()
+
+			// Set loading state immediately for immediate visual feedback
+			// This ensures the spinner appears right away, even before the API request completes
+			if (runnableComponent) {
+				loading = true
 			}
 
-			if (!runnableComponent) {
-				runnableWrapper?.handleSideEffect(true)
-			} else {
-				await runnableComponent?.runComponent()
+			try {
+				if (preclickAction) {
+					await preclickAction()
+				}
+
+				if (!runnableComponent) {
+					runnableWrapper?.handleSideEffect(true)
+				} else {
+					await runnableComponent?.runComponent()
+				}
+			} catch (error) {
+				// If an error occurs before the job starts, reset loading state
+				// (If the job started, RunnableComponent will handle resetting loading)
+				if (runnableComponent) {
+					loading = false
+				}
+				throw error
 			}
 		}
 
@@ -235,6 +251,7 @@
 	bind:loading
 	{componentInput}
 	doOnSuccess={resolvedConfig.onSuccess}
+	doOnSubmit={resolvedConfig.onSubmit}
 	doOnError={resolvedConfig.onError}
 	{errorHandledByComponent}
 	{id}
@@ -268,7 +285,7 @@
 		{/if}
 		{#key css}
 			<div
-				class="inline-flex"
+				class={twMerge('inline-flex', resolvedConfig.fillContainer ? 'w-full h-full' : '')}
 				title={resolvedConfig.tooltip && String(resolvedConfig.tooltip).length > 0
 					? String(resolvedConfig.tooltip)
 					: undefined}
@@ -294,7 +311,7 @@
 					wrapperStyle={css?.container?.style}
 					disabled={resolvedConfig.disabled}
 					on:click={handleClick}
-					size={resolvedConfig.size}
+					extendedSize={resolvedConfig.size}
 					color={resolvedConfig.color}
 					loading={resolvedConfig.runInBackground ? backgroundClickFeedback : loading}
 				>

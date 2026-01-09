@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
@@ -82,10 +82,76 @@ struct SnowflakeError {
     message: String,
 }
 
-trait SnowflakeResponseExt {
-    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
-        self,
-    ) -> windmill_common::error::Result<T>;
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+struct SnowflakeAsyncResponse {
+    statement_handle: String,
+}
+
+async fn poll_snowflake_async_query(
+    http_client: &Client,
+    account_identifier: &str,
+    statement_handle: &str,
+    token: &str,
+    token_is_keypair: bool,
+    deadline: std::time::Instant,
+) -> windmill_common::error::Result<SnowflakeResponse> {
+    let url = format!(
+        "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+        account_identifier.to_uppercase(),
+        statement_handle
+    );
+
+    loop {
+        if std::time::Instant::now() > deadline {
+            return Err(Error::ExecutionErr(
+                "Snowflake query timed out while polling for results".to_string(),
+            ));
+        }
+
+        let mut request = http_client.get(&url).bearer_auth(token);
+        if token_is_keypair {
+            request = request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+        }
+
+        let response = request.send().await.map_err(|e| {
+            Error::ExecutionErr(format!("Could not poll Snowflake status: {:?}", e))
+        })?;
+
+        let status = response.status();
+        let body = response.text().await.map_err(|e| {
+            Error::ExecutionErr(format!("error reading poll response body: {}", e))
+        })?;
+
+        tracing::debug!("Snowflake poll response status: {}, body: {}", status, &body[..body.len().min(500)]);
+
+        if status == reqwest::StatusCode::ACCEPTED {
+            // Still running, wait and poll again
+            tracing::info!("Snowflake query still running, polling again in 1s...");
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            continue;
+        }
+
+        if !status.is_success() {
+            return Err(Error::ExecutionErr(format!(
+                "Snowflake poll returned error status {}: {}",
+                status,
+                &body[..body.len().min(500)]
+            )));
+        }
+
+        // Query completed, parse the response
+        let response: SnowflakeResponse = serde_json::from_str(&body).map_err(|e| {
+            Error::ExecutionErr(format!(
+                "error decoding poll response: {}. Status: {}. Body preview: {}",
+                e,
+                status,
+                &body[..body.len().min(500)]
+            ))
+        })?;
+
+        return Ok(response);
+    }
 }
 
 async fn handle_snowflake_result(
@@ -109,18 +175,6 @@ async fn handle_snowflake_result(
     }
 }
 
-impl SnowflakeResponseExt for Result<Response, reqwest::Error> {
-    async fn parse_snowflake_response<T: for<'a> Deserialize<'a>>(
-        self,
-    ) -> windmill_common::error::Result<T> {
-        let response = handle_snowflake_result(self).await?;
-        response
-            .json::<T>()
-            .await
-            .map_err(|e| Error::ExecutionErr(e.to_string()))
-    }
-}
-
 fn do_snowflake_inner<'a>(
     query: &'a str,
     job_args: &HashMap<String, Value>,
@@ -130,10 +184,13 @@ fn do_snowflake_inner<'a>(
     token_is_keypair: bool,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     http_client: &'a Client,
     s3: Option<S3ModeWorkerData>,
     reserved_variables: &HashMap<String, String>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+    deadline: std::time::Instant,
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let sig = parse_snowflake_sig(&query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
         .args;
@@ -178,12 +235,85 @@ fn do_snowflake_inner<'a>(
         let result = request.send().await;
 
         if skip_collect {
-            handle_snowflake_result(result).await?;
-            Ok(to_raw_value(&Value::Array(vec![])))
-        } else {
-            let response = result
-                .parse_snowflake_response::<SnowflakeResponse>()
+            // Still need to handle async (202) responses even when not collecting results
+            let raw_response = handle_snowflake_result(result).await?;
+            let status = raw_response.status();
+
+            if status == reqwest::StatusCode::ACCEPTED {
+                let body = raw_response.text().await.map_err(|e| {
+                    Error::ExecutionErr(format!("error reading response body: {}", e))
+                })?;
+                let async_resp: SnowflakeAsyncResponse = serde_json::from_str(&body).map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "error decoding async response: {}. Body preview: {}",
+                        e,
+                        &body[..body.len().min(500)]
+                    ))
+                })?;
+
+                tracing::info!(
+                    "Snowflake statement running asynchronously, polling for completion (handle: {})",
+                    async_resp.statement_handle
+                );
+
+                // Poll until complete, but discard the results
+                poll_snowflake_async_query(
+                    http_client,
+                    account_identifier,
+                    &async_resp.statement_handle,
+                    token,
+                    token_is_keypair,
+                    deadline,
+                )
                 .await?;
+            }
+
+            Ok(vec![])
+        } else {
+            // Handle both sync (200) and async (202) responses
+            let raw_response = handle_snowflake_result(result).await?;
+            let status = raw_response.status();
+            let body = raw_response.text().await.map_err(|e| {
+                Error::ExecutionErr(format!("error reading response body: {}", e))
+            })?;
+
+            tracing::debug!("Snowflake response status: {}, body: {}", status, &body[..body.len().min(1000)]);
+
+            let response = if status == reqwest::StatusCode::ACCEPTED {
+                // Async execution - need to poll for results
+                let async_resp: SnowflakeAsyncResponse = serde_json::from_str(&body).map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "error decoding async response: {}. Body preview: {}",
+                        e,
+                        &body[..body.len().min(500)]
+                    ))
+                })?;
+
+                tracing::info!(
+                    "Snowflake query running asynchronously, polling for results (handle: {})",
+                    async_resp.statement_handle
+                );
+
+                poll_snowflake_async_query(
+                    http_client,
+                    account_identifier,
+                    &async_resp.statement_handle,
+                    token,
+                    token_is_keypair,
+                    deadline,
+                )
+                .await?
+            } else {
+                // Sync execution - parse directly
+                serde_json::from_str::<SnowflakeResponse>(&body).map_err(|e| {
+                    Error::ExecutionErr(format!(
+                        "error decoding response body: {}. Status: {}. Body preview: {}",
+                        e,
+                        status,
+                        &body[..body.len().min(500)]
+                    ))
+                })?
+            };
 
             if s3.is_none() && response.resultSetMetaData.numRows > 10000 {
                 return Err(Error::ExecutionErr(
@@ -231,13 +361,113 @@ fn do_snowflake_inner<'a>(
                                 request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
                         }
 
-                        let response = request
-                            .send()
-                            .await
-                            .parse_snowflake_response::<SnowflakeDataOnlyResponse>()
-                            .await?;
+                        let result = request.send().await;
+                        let raw_response = match handle_snowflake_result(result).await {
+                            Ok(r) => r,
+                            Err(e) => {
+                                yield Err(e);
+                                return;
+                            }
+                        };
+                        let status = raw_response.status();
+                        let body = match raw_response.text().await {
+                            Ok(b) => b,
+                            Err(e) => {
+                                yield Err(Error::ExecutionErr(format!("error reading partition response: {}", e)));
+                                return;
+                            }
+                        };
 
-                        for row in response.data {
+                        // Handle async (202) response for partition fetch
+                        let partition_data: SnowflakeDataOnlyResponse = if status == reqwest::StatusCode::ACCEPTED {
+                            // Poll until complete - partition fetches should be fast, but handle async just in case
+                            let mut poll_body = body;
+                            loop {
+                                if std::time::Instant::now() > deadline {
+                                    yield Err(Error::ExecutionErr(
+                                        "Snowflake partition fetch timed out while polling".to_string(),
+                                    ));
+                                    return;
+                                }
+
+                                let async_resp: SnowflakeAsyncResponse = match serde_json::from_str(&poll_body) {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!(
+                                            "error decoding async partition response: {}",
+                                            e
+                                        )));
+                                        return;
+                                    }
+                                };
+
+                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+                                let poll_url = format!(
+                                    "https://{}.snowflakecomputing.com/api/v2/statements/{}",
+                                    cloned_account_identifier.to_uppercase(),
+                                    async_resp.statement_handle
+                                );
+                                let mut poll_request = HTTP_CLIENT.get(&poll_url).bearer_auth(cloned_token.as_str());
+                                if token_is_keypair {
+                                    poll_request = poll_request.header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT");
+                                }
+
+                                let poll_response = match poll_request.send().await {
+                                    Ok(r) => r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!("partition poll error: {:?}", e)));
+                                        return;
+                                    }
+                                };
+
+                                let poll_status = poll_response.status();
+                                poll_body = match poll_response.text().await {
+                                    Ok(b) => b,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!("error reading partition poll response: {}", e)));
+                                        return;
+                                    }
+                                };
+
+                                if poll_status == reqwest::StatusCode::ACCEPTED {
+                                    continue;
+                                }
+
+                                if !poll_status.is_success() {
+                                    yield Err(Error::ExecutionErr(format!(
+                                        "partition poll returned error: {}",
+                                        &poll_body[..poll_body.len().min(500)]
+                                    )));
+                                    return;
+                                }
+
+                                match serde_json::from_str(&poll_body) {
+                                    Ok(r) => break r,
+                                    Err(e) => {
+                                        yield Err(Error::ExecutionErr(format!(
+                                            "error decoding partition poll response: {}",
+                                            e
+                                        )));
+                                        return;
+                                    }
+                                }
+                            }
+                        } else {
+                            match serde_json::from_str(&body) {
+                                Ok(r) => r,
+                                Err(e) => {
+                                    yield Err(Error::ExecutionErr(format!(
+                                        "error decoding partition response: {}. Body: {}",
+                                        e,
+                                        &body[..body.len().min(500)]
+                                    )));
+                                    return;
+                                }
+                            }
+                        };
+
+                        for row in partition_data.data {
                             yield Ok(row);
                         }
                     }
@@ -254,19 +484,22 @@ fn do_snowflake_inner<'a>(
                 row_map
             });
 
+            let rows_stream = rows_stream.take(if first_row_only { 1 } else { usize::MAX });
+
             if let Some(s3) = s3 {
                 let rows_stream =
                     rows_stream.map(|r| serde_json::value::to_value(&r?).map_err(to_anyhow));
                 let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                 s3.upload(stream.boxed()).await?;
-                Ok(to_raw_value(&s3.to_return_s3_obj()))
+                Ok(vec![to_raw_value(&s3.to_return_s3_obj())])
             } else {
                 let rows = rows_stream
                     .collect::<Vec<_>>()
                     .await
                     .into_iter()
+                    .map(|x| x.map(|v| to_raw_value(&v)))
                     .collect::<Result<Vec<_>, _>>()?;
-                Ok(to_raw_value(&rows))
+                Ok(rows)
             }
         }
     };
@@ -312,6 +545,11 @@ pub async fn do_snowflake(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     // Check if the token is present in db_arg and use it if available
     let (token, token_is_keypair) = if let Some(token) = db_arg
@@ -406,59 +644,45 @@ pub async fn do_snowflake(
 
     let http_client = build_http_client(timeout_duration)?;
 
+    let deadline = std::time::Instant::now() + timeout_duration;
+
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_snowflake_inner(
-                    x,
-                    &snowflake_args,
-                    body.clone(),
-                    &database.account_identifier,
-                    &token,
-                    token_is_keypair,
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    &http_client,
-                    s3.clone(),
-                    &reserved_variables,
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let result = do_snowflake_inner(
+                q,
+                &snowflake_args,
+                body.clone(),
+                &database.account_identifier,
+                &token,
+                token_is_keypair,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                &http_client,
+                s3.clone(),
+                &reserved_variables,
+                deadline,
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_snowflake_inner(
-            query,
-            &snowflake_args,
-            body.clone(),
-            &database.account_identifier,
-            &token,
-            token_is_keypair,
-            Some(column_order),
-            false,
-            &http_client,
-            s3.clone(),
-            &reserved_variables,
-        )?
+        collection_strategy.collect(results)
     };
+
     let r = run_future_with_polling_update_job_poller(
         job.id,
         job.timeout,

@@ -39,18 +39,17 @@
 </script>
 
 <div class="flex flex-col space-y-2 w-full">
-	<div class="w-full">
+	<div class="w-full flex justify-start">
 		<AddTriggersButton {onAddDraftTrigger} setDropdownWidthToButtonWidth class="w-full" {isEditor}>
 			<Button
 				aiId="add-trigger"
 				aiDescription="Add a new trigger"
-				size="xs"
-				color="blue"
-				startIcon={{ icon: Plus }}
+				unifiedSize="md"
 				nonCaptureEvent
-				btnClasses="w-full justify-center"
+				variant="accent"
+				startIcon={{ icon: Plus }}
 			>
-				<span>Add trigger</span>
+				Add trigger
 			</Button>
 		</AddTriggersButton>
 	</div>
@@ -60,8 +59,11 @@
 				{@const SvelteComponent = triggerIconMap[trigger.type]}
 				<tr
 					class={twMerge(
-						'hover:bg-surface-hover cursor-pointer h-10 group',
-						selectedTrigger === index ? 'bg-surface-hover ' : ''
+						'cursor-pointer h-8 group',
+						trigger.isDraft ? 'text-hint' : '',
+						selectedTrigger === index
+							? 'bg-surface-accent-selected text-accent '
+							: 'hover:bg-surface-hover'
 					)}
 					onclick={() => onSelect?.(index)}
 					use:triggerableByAI={{
@@ -70,12 +72,9 @@
 						callback: () => onSelect?.(index)
 					}}
 				>
-					<td class="w-12 text-center py-2 px-2">
+					<td class="w-8 text-center py-2 px-2">
 						<div class="relative flex justify-center items-center">
-							<SvelteComponent
-								size={16}
-								class={trigger.isDraft ? 'text-frost-400' : 'text-tertiary'}
-							/>
+							<SvelteComponent size={14} />
 
 							{#if trigger.isPrimary}
 								<Star size={10} class="absolute -mt-3 ml-3 text-blue-400" />
@@ -123,12 +122,12 @@
 
 			{#if !loading && triggers.length === 0}
 				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm"> No triggers found </td>
+					<td colspan="2" class="text-center py-4 text-primary text-sm"> No triggers found </td>
 				</tr>
 			{/if}
 			{#if loading && triggers.length === 0}
 				<tr>
-					<td colspan="2" class="text-center py-4 text-tertiary text-sm">
+					<td colspan="2" class="text-center py-4 text-primary text-sm">
 						<div class="flex justify-center items-center gap-2">
 							<Loader2 class="animate-spin" size={16} />
 							<span>Loading triggers...</span>

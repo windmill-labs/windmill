@@ -21,8 +21,8 @@
 	<Pane size={frontendJob ? 30 : 50} minSize={10}>
 		{#if frontendJob}
 			<div class="p-2 bg-surface-secondary h-full w-full">
-				<div class="text-sm text-tertiary pb-4">Frontend Job</div>
-				<div class="text-2xs text-tertiary">Check your browser console to see the logs</div>
+				<div class="text-sm text-primary pb-4">Frontend Job</div>
+				<div class="text-2xs text-primary">Check your browser console to see the logs</div>
 			</div>
 		{:else}
 			<LogViewer
@@ -37,7 +37,7 @@
 			/>
 		{/if}
 	</Pane>
-	<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-tertiary">
+	<Pane size={frontendJob ? 70 : 50} minSize={10} class="text-sm text-primary">
 		{#if frontendJob}
 			<div class="break-words relative h-full px-1">
 				<DisplayResult bind:drawerOpen={resultDrawerOpen} result={frontendJob} />

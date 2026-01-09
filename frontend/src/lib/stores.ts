@@ -3,14 +3,17 @@ import { derived, type Readable, writable } from 'svelte/store'
 
 import type { IntrospectionQuery } from 'graphql'
 import {
+	CancelablePromise,
 	type OperatorSettings,
 	type TokenResponse,
 	type UserWorkspaceList,
+	type Workspace,
 	type WorkspaceDefaultScripts,
 	WorkspaceService
 } from './gen'
 import { getLocalSetting, type StateStore } from './utils'
 import { createState } from './svelte5Utils.svelte'
+import { DEFAULT_HUB_BASE_URL } from './hub'
 
 export interface UserExt {
 	email: string
@@ -36,17 +39,23 @@ export interface UserWorkspace {
 	disabled: boolean
 }
 
-const persistedWorkspace = BROWSER && getWorkspace()
+const persistedWorkspace = BROWSER && getWorkspaceFromStorage()
 
-function getWorkspace(): string | undefined {
+export function getWorkspaceFromStorage(): string | undefined {
 	try {
-		return localStorage.getItem('workspace') ?? undefined
+		return sessionStorage.getItem('workspace') ?? localStorage.getItem('workspace') ?? undefined
 	} catch (e) {
 		console.error('error interacting with local storage', e)
 	}
 	return undefined
 }
+export function clearWorkspaceFromStorage() {
+	localStorage.removeItem('workspace')
+	sessionStorage.removeItem('workspace')
+}
+
 export const tutorialsToDo = writable<number[]>([])
+export const skippedAll = writable<boolean>(false)
 export const globalEmailInvite = writable<string>('')
 export const awarenessStore = writable<Record<string, string>>(undefined)
 export const enterpriseLicense = writable<string | undefined>(undefined)
@@ -73,7 +82,7 @@ export const usersWorkspaceStore = writable<UserWorkspaceList | undefined>(undef
 export const superadmin = writable<string | false | undefined>(undefined)
 export const devopsRole = writable<string | false | undefined>(undefined)
 export const lspTokenStore = writable<string | undefined>(undefined)
-export const hubBaseUrlStore = writable<string>('https://hub.windmill.dev')
+export const hubBaseUrlStore = writable<string>(DEFAULT_HUB_BASE_URL)
 export const userWorkspaces: Readable<Array<UserWorkspace>> = derived(
 	[usersWorkspaceStore, superadmin],
 	([store, superadmin]) => {
@@ -115,7 +124,6 @@ export const relativeLineNumbers = writable<boolean>(
 export const codeCompletionSessionEnabled = writable<boolean>(
 	getLocalSetting(CODE_COMPLETION_SETTING_NAME) != 'false'
 )
-
 
 export const usedTriggerKinds = writable<string[]>([])
 
@@ -163,32 +171,40 @@ export const instanceSettingsSelectedTab = writable('Core')
 
 export const isCriticalAlertsUIOpen = writable(false)
 
+let getWorkspacePromise: CancelablePromise<Workspace> | null = null
 export const workspaceColor: Readable<string | null | undefined> = derived(
 	[workspaceStore, usersWorkspaceStore, superadmin],
 	([workspaceStore, usersWorkspaceStore, superadmin], set: (value: string | undefined) => void) => {
-		if (!workspaceStore) {
-			set(undefined)
+		if (!workspaceStore || !usersWorkspaceStore) {
 			return
 		}
 
 		// First try to get the color from usersWorkspaceStore
-		const color = usersWorkspaceStore?.workspaces.find((w) => w.id === workspaceStore)?.color
+		const workspace = usersWorkspaceStore.workspaces.find((w) => w.id === workspaceStore)
 
-		if (color) {
-			set(color)
+		if (workspace) {
+			set(workspace.color)
 			return
 		}
 
-		// If not found and user is superadmin, try to get it from superadmin list
+		// If workspace not found and user is superadmin, get it as superadmin
 		if (!superadmin) {
 			set(undefined)
 			return
 		}
 
-		WorkspaceService.listWorkspacesAsSuperAdmin().then((workspaces) => {
-			const superadminColor = workspaces.find((w) => w.id === workspaceStore)?.color
-			set(superadminColor)
+		getWorkspacePromise?.cancel()
+
+		getWorkspacePromise = WorkspaceService.getWorkspaceAsSuperAdmin({
+			workspace: workspaceStore
 		})
+
+		getWorkspacePromise
+			.then((workspace) => set(workspace.color))
+			.catch((error) => {
+				console.error('error getting workspace as superadmin', error)
+				set(undefined)
+			})
 	}
 )
 

@@ -123,7 +123,7 @@
 					const result = await ResourceService.getGitCommitHash({
 						workspace: $workspaceStore!,
 						path: selectedResource,
-						gitSshIdentity: gitSshIdentity?.join(",")
+						gitSshIdentity: gitSshIdentity?.join(',')
 					})
 					commitHash = result.commit_hash
 				} catch (err) {
@@ -164,8 +164,8 @@
 		tooltip="Select a git repository resource to delegate ansible execution to"
 	>
 		<div class="flex flex-col gap-4 p-4">
-			<div class="flex flex-col gap-2">
-				<div class="text-sm font-medium text-primary"> Git Repository Resource </div>
+			<div class="flex flex-col gap-1">
+				<div class="text-xs font-semibold text-emphasis"> Git Repository Resource </div>
 
 				{#if currentResource}
 					<div
@@ -174,10 +174,10 @@
 						<div class="flex items-center gap-2">
 							<GitBranch size={16} class="text-blue-600 dark:text-blue-400 flex-shrink-0" />
 							<div class="flex-1 min-w-0">
-								<div class="text-sm font-medium text-blue-800 dark:text-blue-200">
+								<div class="text-xs font-semibold text-blue-800 dark:text-blue-200">
 									Currently delegating to:
 								</div>
-								<div class="text-sm text-blue-600 dark:text-blue-300 truncate">
+								<div class="text-xs text-blue-600 dark:text-blue-300 truncate">
 									{currentResource}
 								</div>
 							</div>
@@ -188,13 +188,13 @@
 				{#if loading}
 					<div class="flex items-center gap-2 p-2">
 						<Loader2 size={16} class="animate-spin" />
-						<span class="text-sm text-secondary">Loading git repository resources...</span>
+						<span class="text-xs text-primary">Loading git repository resources...</span>
 					</div>
 				{:else if gitRepoResources.length === 0}
-					<div class="p-4 text-center border border-gray-200 dark:border-gray-700 rounded-md">
-						<GitBranch size={24} class="mx-auto mb-2 text-tertiary" />
-						<p class="text-sm text-secondary mb-2">No git repository resources found</p>
-						<p class="text-xs text-tertiary">
+					<div class="p-4 text-center border border-border-light rounded-md">
+						<GitBranch size={24} class="mx-auto mb-2 text-primary" />
+						<p class="text-xs text-primary mb-2">No git repository resources found</p>
+						<p class="text-2xs text-secondary">
 							Create a git repository resource first to use this feature
 						</p>
 					</div>
@@ -209,28 +209,27 @@
 			</div>
 
 			<!-- Playbook Configuration -->
-			<div class="flex flex-col gap-2">
-				<div class="text-sm font-medium text-primary">
+			<div class="flex flex-col gap-1">
+				<div class="text-xs font-semibold text-emphasis">
 					Playbook Path
-					<span class="text-xs text-tertiary font-normal ml-1">(optional)</span>
+					<span class="text-xs text-primary font-normal ml-1">(optional)</span>
 				</div>
+				<p class="text-xs text-primary">
+					Specify the path to your main playbook file relative to the git repository root
+				</p>
 				<input
 					type="text"
 					bind:value={playbook}
 					placeholder="e.g., ./playbooks/site.yml"
 					class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 				/>
-				<p class="text-xs text-tertiary">
-					Specify the path to your main playbook file relative to the git repository root
-				</p>
 			</div>
 
 			<!-- Inventories Location Configuration -->
-
 			<div class="flex justify-end gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
-				<Button color="light" variant="border" on:click={handleClose}>Cancel</Button>
+				<Button variant="default" on:click={handleClose}>Cancel</Button>
 				<Button
-					color="dark"
+					variant="accent"
 					disabled={!selectedResource || loading}
 					on:click={handleSelect}
 					startIcon={{ icon: GitBranch }}
@@ -240,25 +239,22 @@
 			</div>
 			{#if selectedResource}
 				<div class="flex flex-col gap-2">
-					<div class="text-sm font-medium text-primary">
-						Inventories Location
-					</div>
+					<div class="text-xs font-semibold text-emphasis"> Inventories Location </div>
 					<input
 						type="text"
 						bind:value={inventoriesLocation}
 						placeholder="e.g., hosts"
 						class="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary placeholder-tertiary focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 					/>
-					<p class="text-xs text-tertiary">
+					<p class="text-xs text-primary">
 						Specify the directory containing your inventory files relative to the git repository
 						root
 					</p>
 
 					<div class="mt-2">
 						<Button
-							color="light"
-							variant="border"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							disabled={loadingInventories || !inventoriesLocation.trim()}
 							startIcon={{ icon: loadingInventories ? Loader2 : FolderOpen }}
 							onclick={handleAddInventories}

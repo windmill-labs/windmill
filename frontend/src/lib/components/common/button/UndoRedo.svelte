@@ -11,24 +11,20 @@
 <div class="flex">
 	<Button
 		title="Undo"
-		variant="border"
-		color="light"
-		size="xs"
+		variant="default"
 		btnClasses="!min-h-[30px] !rounded-r-none"
 		on:click={() => dispatch('undo')}
+		startIcon={{ icon: Undo }}
+		iconOnly
 		{...undoProps}
-	>
-		<Undo size={14} />
-	</Button>
+	></Button>
 	<Button
 		title="Redo"
-		variant="border"
-		color="light"
-		size="xs"
+		variant="default"
 		btnClasses="!min-h-[30px] !rounded-l-none !border-l-0"
 		on:click={() => dispatch('redo')}
+		startIcon={{ icon: Redo }}
+		iconOnly
 		{...redoProps}
-	>
-		<Redo size={14} />
-	</Button>
+	></Button>
 </div>

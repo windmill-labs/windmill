@@ -16,9 +16,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { isCloudHosted } from '$lib/cloud'
 	import { refreshSuperadmin } from '$lib/refreshUser'
-	import { createEventDispatcher, onDestroy, onMount } from 'svelte'
+	import { onDestroy, onMount } from 'svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import Button from './common/button/Button.svelte'
+	import { sameTopDomainOrigin } from '$lib/cookies'
 
 	interface Props {
 		rd?: string | undefined
@@ -27,6 +28,7 @@
 		error?: string | undefined
 		popup?: boolean
 		firstTime?: boolean
+		onLoginSuccess?: () => void
 	}
 
 	let {
@@ -35,7 +37,8 @@
 		password = $bindable(undefined),
 		error = undefined,
 		popup = false,
-		firstTime = false
+		firstTime = false,
+		onLoginSuccess = undefined
 	}: Props = $props()
 
 	const providers = [
@@ -200,8 +203,6 @@
 		}
 	}
 
-	const dispatch = createEventDispatcher()
-
 	onMount(() => {
 		try {
 			localStorage.removeItem('closeUponLogin')
@@ -212,19 +213,24 @@
 
 	function popupListener(event) {
 		let data = event.data
-		if (event.origin !== window.location.origin) {
+		// console.log('popupListener', data, event.origin, window.location.origin)
+		if (!sameTopDomainOrigin(event.origin, window.location.origin)) {
+			console.log('popupListener from different origin', event.origin, window.location.origin)
 			return
 		}
 
 		processPopupData(data)
-		window.removeEventListener('message', popupListener)
+		if (data.type === 'success' || data.type === 'error') {
+			console.log('Removing popup listener')
+			window.removeEventListener('message', popupListener)
+		}
 	}
 
 	function processPopupData(data) {
 		if (data.type === 'error') {
 			sendUserToast(data.error, true)
 		} else if (data.type === 'success') {
-			dispatch('login')
+			onLoginSuccess?.()
 		}
 	}
 
@@ -257,7 +263,9 @@
 				console.error('Could not persist redirection to local storage', e)
 			}
 		}
-		let url = base + '/api/oauth/login/' + provider
+		let url = base + '/api/oauth/login/' + provider + (popup ? '?close=true' : '')
+		console.log('storeRedirect', popup, url)
+
 		if (popup) {
 			localStorage.setItem('closeUponLogin', 'true')
 			window.addEventListener('message', popupListener)
@@ -274,7 +282,7 @@
 	})
 </script>
 
-<div class="bg-surface px-4 py-8 shadow md:border sm:rounded-lg sm:px-10">
+<div class="bg-surface px-4 py-8 border sm:rounded-lg sm:px-10">
 	<div class="grid {logins && logins.length > 2 ? 'grid-cols-2' : ''} gap-4">
 		{#if !logins}
 			{#each Array(4) as _}
@@ -284,8 +292,7 @@
 			{#each providers as { type, icon }}
 				{#if logins?.some((login) => login.type === type)}
 					<Button
-						color="light"
-						variant="border"
+						variant="default"
 						startIcon={{ icon, classes: 'h-4' }}
 						on:click={() => storeRedirect(type)}
 					>
@@ -295,8 +302,7 @@
 			{/each}
 			{#each logins.filter((login) => !providersType?.includes(login.type)) as login}
 				<Button
-					color="dark"
-					variant="border"
+					variant="default"
 					btnClasses="mt-2 w-full"
 					on:click={() => storeRedirect(login.type)}
 				>
@@ -306,8 +312,7 @@
 		{/if}
 		{#if saml}
 			<Button
-				color="dark"
-				variant="border"
+				variant="default"
 				btnClasses="mt-2 w-full"
 				on:click={() => {
 					if (saml) {
@@ -325,9 +330,7 @@
 		<div class={classNames('center-center', logins && logins.length > 0 ? 'mt-6' : '')}>
 			<Button
 				size="xs"
-				color="blue"
-				variant="border"
-				btnClasses="!border-none"
+				variant="subtle"
 				on:click={() => {
 					showPassword = !showPassword
 				}}
@@ -340,36 +343,26 @@
 	{#if showPassword}
 		<div>
 			{#if firstTime}
-				<div class="text-lg text-center w-full pb-6"
+				<div class="text-lg text-center w-full pb-6 text-emphasis"
 					>First time login: admin@windmill.dev / changeme</div
 				>
 			{/if}
 			<div class="space-y-6">
 				{#if isCloudHosted()}
-					<p class="text-xs text-tertiary italic pb-6">
+					<p class="text-xs text-secondary pb-6">
 						To get credentials without the OAuth providers above, send an email at
 						contact@windmill.dev
 					</p>
 				{/if}
-				<div>
-					<label for="email" class="block text-sm font-medium leading-6 text-primary">
-						Email
-					</label>
+				<div class="space-y-1">
+					<label for="email" class="block text-xs font-semibold text-emphasis"> Email </label>
 					<div>
-						<input
-							type="email"
-							bind:value={email}
-							id="email"
-							autocomplete="email"
-							class="block w-full rounded-md border-0 py-1.5 text-primary shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
-						/>
+						<input type="email" bind:value={email} id="email" autocomplete="email" />
 					</div>
 				</div>
 
-				<div>
-					<label for="password" class="block text-sm font-medium leading-6 text-primary">
-						Password
-					</label>
+				<div class="space-y-1">
+					<label for="password" class="block text-xs font-semibold text-emphasis"> Password </label>
 					<div>
 						<input
 							onkeyup={handleKeyUp}
@@ -377,24 +370,17 @@
 							id="password"
 							type="password"
 							autocomplete="current-password"
-							class="block w-full rounded-md border-0 py-1.5 text-shadow shadow-sm ring-1 ring-inset placeholder:text-secondary focus:ring-2 focus:ring-inset focus:ring-frost-600 sm:text-sm sm:leading-6"
 						/>
 					</div>
 				</div>
 
 				<div class="pt-2">
-					<button
-						onclick={login}
-						disabled={!email || !password}
-						class="flex w-full justify-center rounded-md bg-frost-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-frost-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-frost-600"
-					>
-						Sign in
-					</button>
+					<Button onClick={login} variant="accent" disabled={!email || !password}>Sign in</Button>
 				</div>
 			</div>
 
 			{#if isCloudHosted()}
-				<p class="text-2xs text-tertiary italic mt-10 text-center">
+				<p class="text-2xs text-secondary mt-10 text-center">
 					By logging in, you agree to our
 					<a href="https://windmill.dev/terms_of_service" target="_blank" rel="noreferrer">
 						Terms of service

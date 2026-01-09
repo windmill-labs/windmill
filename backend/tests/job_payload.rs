@@ -1,20 +1,19 @@
 mod common;
 
-
 mod job_payload {
     use serde_json::json;
+    use sqlx::{Pool, Postgres};
     use std::sync::Arc;
     use tokio::sync::RwLock;
-    use sqlx::{Pool, Postgres};
-    use windmill_common::scripts::{ScriptHash, ScriptLang};
-    use windmill_common::jobs::JobPayload;
-    use windmill_common::flows::{FlowValue, FlowModule, FlowModuleValue};
     use windmill_common::flow_status::RestartedFrom;
-    
+    use windmill_common::flows::{FlowModule, FlowModuleValue, FlowValue};
+    use windmill_common::jobs::JobPayload;
+    use windmill_common::scripts::{ScriptHash, ScriptLang};
+
+    use crate::common::*;
     use windmill_common::worker::{
         MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
     };
-    use crate::common::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -42,11 +41,9 @@ mod job_payload {
         ];
     }
 
-
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_script_hash_payload(db: Pool<Postgres>) -> anyhow::Result<()> {
-
         initialize_tracing().await;
         let server = ApiServer::start(db.clone()).await?;
         let port = server.addr.port();
@@ -55,17 +52,19 @@ mod job_payload {
             let result = RunJob::from(JobPayload::ScriptHash {
                 hash: ScriptHash(123412),
                 path: "f/system/hello".to_string(),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: false,
             })
             .arg("world", json!("foo"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -87,16 +86,18 @@ mod job_payload {
             let job = RunJob::from(JobPayload::ScriptHash {
                 hash: ScriptHash(123413),
                 path: "f/system/hello_with_preprocessor".to_string(),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 language: ScriptLang::Deno,
                 priority: None,
                 apply_preprocessor: true,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
+                debouncing_settings:
+                    windmill_common::runnable_settings::DebouncingSettings::default(),
             })
-            .run_until_complete_with(db, port, |id| async move {
+            .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
                     .fetch_one(db)
                     .await
@@ -130,8 +131,9 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -166,15 +168,15 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[0],
                 language: ScriptLang::Deno,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })
             .arg("world", json!("foo"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -186,15 +188,15 @@ mod job_payload {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[1],
                 language: ScriptLang::Deno,
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
+                concurrency_settings:
+                    windmill_common::runnable_settings::ConcurrencySettings::default(),
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 dedicated_worker: None,
                 path: "f/system/hello/test-0".into(),
             })
             .arg("hello", json!("You know nothing Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -220,8 +222,9 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -242,7 +245,7 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow/forloop-0".into(),
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -262,9 +265,10 @@ mod job_payload {
             path: "f/system/hello".to_string(),
             hash: ScriptHash(123412),
             language: ScriptLang::Deno,
+            debouncing_settings: Default::default(),
             dedicated_worker: None,
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -307,8 +311,9 @@ mod job_payload {
                 path: "f/system/hello_with_nodes_flow".to_string(),
                 dedicated_worker: None,
                 version: 1443253234253454,
+            debouncing_settings: Default::default(),
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -357,7 +362,7 @@ mod job_payload {
                 .unwrap(),
             })
             .arg("skip_flow_update", json!(true))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -371,7 +376,7 @@ mod job_payload {
                 restarted_from: None,
             })
             .arg("world", json!("Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -399,7 +404,7 @@ mod job_payload {
                 .into(),
                 language: ScriptLang::Deno,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -427,7 +432,7 @@ mod job_payload {
                 apply_preprocessor: false,
                 version: 1443253234253454,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -448,8 +453,9 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -475,7 +481,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253456,
             })
-            .run_until_complete_with(db, port, |id| async move {
+            .run_until_complete_with(db, false, port, |id| async move {
                 let job = sqlx::query!("SELECT preprocessed FROM v2_job WHERE id = $1", id)
                     .fetch_one(db)
                     .await
@@ -520,8 +526,9 @@ mod job_payload {
             path: "f/system/hello_with_preprocessor".to_string(),
             dedicated_worker: None,
             version: 1443253234253456,
+            debouncing_settings: Default::default(),
         })
-        .run_until_complete(db, port)
+        .run_until_complete(db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -544,7 +551,7 @@ mod job_payload {
                 apply_preprocessor: true,
                 version: 1443253234253454,
             })
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .id;
 
@@ -552,9 +559,10 @@ mod job_payload {
                 completed_job_id,
                 step_id: "a".into(),
                 branch_or_iteration_n: None,
+                flow_version: None,
             })
             .arg("iter", json!({ "value": "tests", "index": 0 }))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -575,8 +583,9 @@ mod job_payload {
             path: "f/system/hello_with_nodes_flow".to_string(),
             dedicated_worker: None,
             version: 1443253234253454,
+            debouncing_settings: Default::default(),
         })
-        .run_until_complete(&db, port)
+        .run_until_complete(&db, false, port)
         .await
         .json_result()
         .unwrap();
@@ -622,7 +631,7 @@ mod job_payload {
                 restarted_from: None,
             })
             .arg("world", json!("Jean Neige"))
-            .run_until_complete(&db, port)
+            .run_until_complete(&db, false, port)
             .await
             .json_result()
             .unwrap();
@@ -702,7 +711,7 @@ mod job_payload {
                 restarted_from,
             })
             .arg("world", arg)
-            .run_until_complete(db, port)
+            .run_until_complete(db, false, port)
             .await;
 
             assert_eq!(job.json_result().unwrap(), result);
@@ -719,7 +728,12 @@ mod job_payload {
         )
         .await;
         let flow_job_id = test(
-            Some(RestartedFrom { flow_job_id, step_id: "a".into(), branch_or_iteration_n: None }),
+            Some(RestartedFrom {
+                flow_job_id,
+                step_id: "a".into(),
+                branch_or_iteration_n: None,
+                flow_version: None,
+            }),
             json!("foo"),
             json!([
                 "a: Hello foo! foo! foo!",
@@ -729,7 +743,12 @@ mod job_payload {
         )
         .await;
         let flow_job_id = test(
-            Some(RestartedFrom { flow_job_id, step_id: "b".into(), branch_or_iteration_n: None }),
+            Some(RestartedFrom {
+                flow_job_id,
+                step_id: "b".into(),
+                branch_or_iteration_n: None,
+                flow_version: None,
+            }),
             json!("bar"),
             json!([
                 "a: Hello foo! bar! bar!",
@@ -743,6 +762,7 @@ mod job_payload {
                 flow_job_id,
                 step_id: "c".into(),
                 branch_or_iteration_n: Some(1),
+                flow_version: None,
             }),
             json!("yolo"),
             json!([

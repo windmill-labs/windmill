@@ -49,7 +49,7 @@ export function yamlParseContent(
 
 export * as Diff from "npm:diff";
 export { minimatch } from "npm:minimatch";
-export { default as JSZip } from "npm:jszip@3.7.1";
+export { default as JSZip } from "npm:jszip@3.8.0";
 
 export * as express from "npm:express";
 export * as http from "node:http";
@@ -57,6 +57,10 @@ export { WebSocketServer, WebSocket } from "npm:ws";
 export * as getPort from "npm:get-port@7.1.0";
 export * as open from "npm:open";
 export * as esMain from "npm:es-main";
+export * as windmillUtils from "jsr:@windmill-labs/shared-utils@1.0.11";
+
+// needed for dnt transform
+import * as wsTypes from "npm:@types/ws";
 
 import { OpenAPI } from "./gen/index.ts";
 

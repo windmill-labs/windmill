@@ -171,7 +171,7 @@
 	</div>
 {:else}
 	<div class="flex flex-col gap-1 w-full">
-		<div class="text-xs text-tertiary"
+		<div class="text-xs text-primary"
 			>Dynamic input ({inputType}) is not available in this mode, write value directly</div
 		>
 		{#await import('$lib/components/JsonEditor.svelte')}

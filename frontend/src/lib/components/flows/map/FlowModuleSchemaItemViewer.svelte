@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { preventDefault, stopPropagation } from 'svelte/legacy'
-
 	import Popover from '$lib/components/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import type { FlowNodeColorClasses } from '$lib/components/graph'
 	import { Pencil } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	let iconWidth: number = $state(0)
 	let idBadgeWidth: number | undefined = $state(undefined)
@@ -15,6 +16,7 @@
 		bold?: boolean
 		editId?: boolean
 		hover?: boolean
+		colorClasses?: FlowNodeColorClasses
 		icon?: import('svelte').Snippet
 		onclick?: () => void
 	}
@@ -27,6 +29,7 @@
 		bold = false,
 		editId = $bindable(false),
 		hover = false,
+		colorClasses,
 		icon,
 		onclick
 	}: Props = $props()
@@ -35,6 +38,7 @@
 </script>
 
 <div
+	id={id || undefined}
 	class="relative flex gap-1 justify-between items-center w-full overflow-hidden rounded-sm
 	 p-2 text-2xs module text-primary"
 >
@@ -48,7 +52,7 @@
 		class="absolute left-1/2 transform -translate-x-1/2 center-center"
 		style="max-width: calc(100% - {marginLeft}px)"
 	>
-		<div class="text-center truncate {bold ? '!font-bold' : 'font-normal'}">
+		<div class="text-center {colorClasses?.text} truncate {bold ? '!font-bold' : 'font-normal'}">
 			{label}
 		</div>
 		{#snippet text()}
@@ -59,31 +63,36 @@
 		{/snippet}
 	</Popover>
 
-	<div class="flex items-center space-x-2 relative max-w-[25%]" bind:clientWidth={idBadgeWidth}>
+	<div class="flex items-center space-x-2 relative" bind:clientWidth={idBadgeWidth}>
 		{#if id && id !== 'preprocessor' && !id.startsWith('failure') && !id.startsWith('subflow:')}
 			<Badge
-				color="indigo"
-				wrapperClass="max-w-full"
-				baseClass="max-w-full truncate !px-1"
+				color="transparent"
+				class="border-none"
+				wrapperClass={twMerge(
+					'max-w-full rounded-md hover:opacity-60 transition-opacity',
+					colorClasses?.badge
+				)}
+				baseClass={twMerge('!px-1')}
 				title={id}
+				clickable
+				onclick={(e) => {
+					e?.preventDefault()
+					e?.stopPropagation()
+					editId = !editId
+					onclick?.()
+				}}
 			>
-				<span class="max-w-full text-2xs truncate">{id}</span></Badge
-			>
-			{#if deletable}
-				<button
-					class="absolute -left-[28px] z-10 h-[20px] rounded-l rounded-t rounded-s w-[20px] trash center-center text-secondary bg-surface duration-0 hover:bg-blue-400 {editId
-						? '!bg-blue-400'
-						: ''} hover:text-white
-hover:border-blue-700 hover:!visible {hover ? '' : '!hidden'}"
-					onclick={stopPropagation(
-						preventDefault((event) => {
-							editId = !editId
-							onclick?.()
-						})
-					)}
-					title="Edit Id"><Pencil size={12} /></button
-				>
-			{/if}
+				<span class="max-w-full text-2xs truncate flex items-center">
+					{#if editId || (hover && deletable)}
+						<span transition:slide={{ axis: 'x', duration: 100 }}>
+							<Pencil size={10} class="mr-1" />
+						</span>
+					{/if}
+					<span class="max-w-12 truncate">
+						{id}
+					</span>
+				</span>
+			</Badge>
 		{:else if id?.startsWith('subflow:')}
 			<Badge color="blue" wrapperClass="max-w-full" baseClass="!px-1" title={id}>
 				<span class="max-w-full text-2xs truncate">{id.substring('subflow:'.length)}</span></Badge

@@ -78,9 +78,8 @@
 							{#snippet action()}
 								<Button
 									size="xs"
-									color="light"
 									startIcon={{ icon: Trash }}
-									variant="border"
+									variant="default"
 									on:click={() => {
 										nodes = removeNode(nodes, selectedNode)
 
@@ -197,7 +196,7 @@
 			drawer?.openDrawer()
 		}}
 		size="xs"
-		color="dark"
+		variant="accent"
 		startIcon={{ icon: Network }}
 	>
 		Graph editor

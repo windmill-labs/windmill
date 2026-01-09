@@ -51,16 +51,16 @@
 {#if $userStore}
 	<S3FilePicker
 		bind:this={s3FilePicker}
-		on:selectAndClose={(ev) => {
+		onSelectAndClose={(selected) => {
 			if (multiple) {
 				if (Array.isArray(value)) {
-					value.push(ev.detail)
+					value.push(selected)
 				} else {
-					value = [ev.detail]
+					value = [selected]
 				}
-				fileUpload?.addUpload(ev.detail)
+				fileUpload?.addUpload(selected)
 			} else {
-				value = ev.detail
+				value = selected
 				fileUpload?.setUpload(value)
 			}
 			editor?.setCode(JSON.stringify(value))
@@ -128,10 +128,9 @@
 	{/if}
 	{#if $userStore}
 		<Button
-			variant="border"
-			color="light"
+			variant="default"
 			size="xs"
-			btnClasses="mt-1 font-normal text-tertiary"
+			btnClasses="mt-1 font-normal text-primary"
 			on:click={() => {
 				s3FilePicker?.open?.(value)
 			}}

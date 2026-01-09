@@ -2,14 +2,17 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import type { InputN } from '../../graphBuilder.svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
+
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import DiffActionBar from '$lib/components/flows/map/DiffActionBar.svelte'
 	import { schemaToObject } from '$lib/schema'
 	import type { Schema } from '$lib/common'
 	import type { FlowEditorContext } from '$lib/components/flows/types'
 	import { MessageSquare } from 'lucide-svelte'
+	import { getGraphContext } from '../../graphContext'
+	import FunnelCog from '$lib/components/icons/FunnelCog.svelte'
 
 	interface Props {
 		data: InputN['data']
@@ -17,12 +20,10 @@
 
 	let { data }: Props = $props()
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	const { selectionManager, diffManager } = getGraphContext()
 
-	const { previewArgs, flowStore } =
-		getContext<FlowEditorContext | undefined>('FlowEditorContext') || {}
+	const flowEditorContext = getContext<FlowEditorContext | undefined>('FlowEditorContext')
+	const { previewArgs, flowStore } = flowEditorContext || {}
 
 	let topFlowInput = $derived(
 		flowStore?.val && previewArgs && flowStore?.val?.schema
@@ -33,13 +34,20 @@
 	let inputLabel = $derived(data.chatInputEnabled ? 'Chat message' : 'Input')
 </script>
 
+<DiffActionBar
+	moduleId="Input"
+	moduleAction={data.moduleAction}
+	{diffManager}
+	flowStore={flowEditorContext?.flowStore}
+/>
+
 <NodeWrapper>
 	{#snippet children({ darkMode })}
 		{#if data.insertable && !data.hasPreprocessor}
-			<div class="absolute bottom-full left-0 right-0 flex center-center mb-3.5">
-				<InsertModuleButton
+			<div class="absolute bottom-full left-0 right-0 center-center mb-2.5">
+				<InsertModulePopover
 					disableAi={data.disableAi}
-					index={0}
+					allowTrigger
 					kind="preprocessor"
 					on:new={(e) => {
 						data?.eventHandlers.insert({
@@ -57,9 +65,15 @@
 							isPreprocessor: true
 						})
 					}}
-					clazz="w-[14px] h-[14px]"
-					iconSize={10}
-				/>
+				>
+					{#snippet trigger()}
+						<InsertModuleButton
+							title={`Add preprocessor step`}
+							id={`flow-editor-add-step-0`}
+							Icon={FunnelCog}
+						/>
+					{/snippet}
+				</InsertModulePopover>
 			</div>
 		{/if}
 		<VirtualItem
@@ -67,9 +81,7 @@
 			hideId={true}
 			label={inputLabel}
 			selectable
-			selected={$selectedId === 'Input'}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
+			selected={selectionManager?.isNodeSelected('Input')}
 			on:insert={(e) => {
 				setTimeout(() => data?.eventHandlers?.insert(e.detail))
 			}}
@@ -82,6 +94,7 @@
 			cache={data.cache}
 			earlyStop={data.earlyStop}
 			editMode={data.editMode}
+			action={data.moduleAction?.action}
 			onEditInput={data.eventHandlers.editInput}
 			onTestFlow={() => {
 				data.eventHandlers.testFlow()
@@ -100,7 +113,6 @@
 			job={data.flowJob}
 			showJobStatus={data.showJobStatus}
 			flowHasChanged={data.flowHasChanged}
-			{darkMode}
 		>
 			{#snippet icon()}
 				{#if data.chatInputEnabled}

@@ -76,7 +76,7 @@
 		}`}
 	>
 		{#if Object.keys(groupFields ?? {}).length == 0}
-			<span class="text-xs text-tertiary">No group fields</span>
+			<span class="text-xs text-primary">No group fields</span>
 		{/if}
 		<div class="w-full flex gap-2 flex-col mt-2">
 			<InputsSpecsEditor
@@ -112,8 +112,7 @@
 				<Button
 					disabled={fieldName == ''}
 					size="sm"
-					color="light"
-					variant="border"
+					variant="default"
 					startIcon={{ icon: Plus }}
 					on:click={() => addField(fieldName)}
 					iconOnly

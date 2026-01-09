@@ -3,7 +3,7 @@
 	import PickHubScript from '$lib/components/flows/pickers/PickHubScript.svelte'
 	import { Building, Globe2, MousePointer, Plus } from 'lucide-svelte'
 	import InlineScriptList from './InlineScriptList.svelte'
-	import type { Runnable, StaticAppInput } from '$lib/components/apps/inputType'
+	import type { InlineScript, Runnable, StaticAppInput } from '$lib/components/apps/inputType'
 	import WorkspaceScriptList from './WorkspaceScriptList.svelte'
 	import WorkspaceFlowList from './WorkspaceFlowList.svelte'
 	import { createEventDispatcher } from 'svelte'
@@ -12,7 +12,6 @@
 	import { defaultIfEmptyString, emptySchema } from '$lib/utils'
 	import { loadSchema } from '$lib/infer'
 	import { workspaceStore } from '$lib/stores'
-	import type { InlineScript } from '$lib/components/apps/types'
 
 	type TabType = 'hubscripts' | 'workspacescripts' | 'workspaceflows' | 'inlinescripts'
 
@@ -66,7 +65,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'script')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'script',
 			schema: schema.schema,
@@ -83,7 +82,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'flow')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'flow',
 			schema,
@@ -99,7 +98,7 @@
 		const schema = await loadSchemaFromTriggerable(path, 'hubscript')
 		const fields = schemaToInputsSpec(schema.schema, defaultUserInput)
 		const runnable = {
-			type: 'runnableByPath',
+			type: 'path',
 			path,
 			runType: 'hubscript',
 			schema: schema.schema,
@@ -116,7 +115,7 @@
 		const unusedInlineScript = unusedInlineScripts?.[unusedInlineScriptIndex]
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
+				type: 'inline',
 				name,
 				inlineScript: unusedInlineScript.inlineScript
 			},
@@ -132,7 +131,7 @@
 
 		dispatch('pick', {
 			runnable: {
-				type: 'runnableByName',
+				type: 'inline',
 				name: newScriptName,
 				inlineScript: undefined
 			},
@@ -148,33 +147,13 @@
 				<Tabs bind:selected={tab}>
 					{#if !onlyFlow}
 						{#if !rawApps}
-							<Tab size="sm" value="inlinescripts">
-								<div class="flex gap-2 items-center my-1">
-									<Building size={18} strokeWidth={1.5} />
-									Detached Inline Scripts
-								</div>
-							</Tab>
+							<Tab value="inlinescripts" label="Detached Inline Scripts" icon={Building} />
 						{/if}
-						<Tab size="sm" value="workspacescripts">
-							<div class="flex gap-2 items-center my-1">
-								<Building size={18} strokeWidth={1.5} />
-								Workspace Scripts
-							</div>
-						</Tab>
+						<Tab value="workspacescripts" label="Workspace Scripts" icon={Building} />
 					{/if}
-					<Tab size="sm" value="workspaceflows">
-						<div class="flex gap-2 items-center my-1">
-							<Building size={18} strokeWidth={1.5} />
-							Workspace Flows
-						</div>
-					</Tab>
+					<Tab value="workspaceflows" label="Workspace Flows" icon={Building} />
 					{#if !onlyFlow}
-						<Tab size="sm" value="hubscripts">
-							<div class="flex gap-2 items-center my-1">
-								<Globe2 size={18} strokeWidth={1.5} />
-								Hub Scripts
-							</div>
-						</Tab>
+						<Tab value="hubscripts" label="Hub Scripts" icon={Globe2} />
 					{/if}
 				</Tabs>
 				<div class="my-2"></div>
@@ -205,9 +184,8 @@
 	{#if !hideCreateScript}
 		<Button
 			on:click={createScript}
-			size="xs"
-			color="light"
-			variant="border"
+			unifiedSize="md"
+			variant="default"
 			startIcon={{ icon: Plus }}
 			btnClasses="truncate w-full"
 			id="app-editor-create-inline-script"
@@ -217,8 +195,7 @@
 	{/if}
 	<Button
 		on:click={() => picker?.openDrawer()}
-		size="xs"
-		color="blue"
+		unifiedSize="md"
 		variant={rawApps ? 'contained' : 'border'}
 		startIcon={{ icon: MousePointer }}
 		btnClasses="truncate w-full"

@@ -38,7 +38,7 @@
 		<div class="flex flex-row gap-2">
 			<input bind:value={editedName} />
 			<Button
-				color="dark"
+				variant="accent"
 				size="xs"
 				on:click={async () => {
 					if (!$workspaceStore) return

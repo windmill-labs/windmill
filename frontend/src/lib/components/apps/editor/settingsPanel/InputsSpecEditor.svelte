@@ -28,6 +28,7 @@
 	import ConnectionButton from '$lib/components/common/button/ConnectionButton.svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
+	import type SimpleEditor from '$lib/components/SimpleEditor.svelte'
 
 	interface Props {
 		id: string
@@ -108,6 +109,7 @@
 	let s3PickerSelection: { s3: string; storage?: string } | undefined = $state(undefined)
 	let s3FolderPrefix: string = $state('')
 	let s3FileUploadRawMode = $state(componentInput?.type == 'uploadS3' && !!componentInput.value?.s3)
+	let s3JsonEditor: SimpleEditor | undefined = $state()
 
 	function updateSelectedS3File() {
 		if (s3PickerSelection) {
@@ -115,6 +117,7 @@
 				componentInput.value = {
 					...s3PickerSelection
 				}
+				s3JsonEditor?.setCode(JSON.stringify(s3PickerSelection, null, 2))
 			}
 			s3FileUploadRawMode = true
 		}
@@ -178,7 +181,7 @@
 					{/if}
 				</div>
 				{#if displayType}
-					<div class="text-xs text-tertiary mr-1">
+					<div class="text-xs text-primary mr-1">
 						{fieldType === 'array' && subFieldType
 							? `${fieldTypeToTsType(subFieldType)}[]`
 							: fieldTypeToTsType(fieldType)}
@@ -197,7 +200,6 @@
 						id="schema-plug-{key}"
 					/>
 					<ToggleButtonGroup
-						class="h-6"
 						bind:selected={componentInput.type}
 						on:selected={(e) => {
 							if (
@@ -219,43 +221,18 @@
 						}}
 					>
 						{#snippet children({ item })}
-							<ToggleButton
-								small
-								light
-								value="static"
-								icon={Pen}
-								iconOnly
-								tooltip="Static"
-								{item}
-							/>
+							<ToggleButton small value="static" icon={Pen} iconOnly tooltip="Static" {item} />
 							{#if userInputEnabled}
-								<ToggleButton
-									small
-									light
-									value="user"
-									icon={User}
-									iconOnly
-									tooltip="User Input"
-									{item}
-								/>
+								<ToggleButton small value="user" icon={User} iconOnly tooltip="User Input" {item} />
 							{/if}
 							{#if fileUpload}
-								<ToggleButton
-									small
-									light
-									value="upload"
-									icon={Upload}
-									iconOnly
-									tooltip="Upload"
-									{item}
-								/>
+								<ToggleButton small value="upload" icon={Upload} iconOnly tooltip="Upload" {item} />
 							{/if}
 							{#if fileUploadS3}
 								<ToggleButton
 									value="uploadS3"
 									icon={UploadCloud}
 									iconOnly
-									light
 									small
 									tooltip="Upload S3"
 									{item}
@@ -263,7 +240,6 @@
 							{/if}
 							{#if componentInput?.type === 'connected'}
 								<ToggleButton
-									light
 									value="connected"
 									icon={Plug2}
 									iconOnly
@@ -277,7 +253,6 @@
 									value="eval"
 									icon={FunctionSquare}
 									iconOnly
-									light
 									small
 									tooltip="Eval Legacy"
 									{item}
@@ -285,7 +260,6 @@
 							{/if}
 							<ToggleButton
 								value="evalv2"
-								light
 								icon={FunctionSquare}
 								iconOnly
 								small
@@ -346,6 +320,7 @@
 						<Module.default
 							code={JSON.stringify(componentInput.value ?? { s3: '' }, null, 2)}
 							bind:value={componentInput.value}
+							bind:editor={s3JsonEditor}
 						/>
 					{/await}
 				{:else}
@@ -365,8 +340,7 @@
 					/>
 				{/if}
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					size="xs"
 					btnClasses="mt-1"
 					on:click={() => {
@@ -381,15 +355,15 @@
 			<S3FilePicker
 				bind:this={s3FilePicker}
 				folderOnly={false}
-				on:close={(e) => {
-					s3PickerSelection = e.detail
+				onSelectAndClose={(selected) => {
+					s3PickerSelection = selected
 					updateSelectedS3File()
 				}}
 				readOnlyMode={false}
 				regexFilter={/\.(png|jpg|jpeg|svg|webp)$/i}
 			/>
 		{:else if componentInput?.type === 'user'}
-			<span class="text-2xs italic text-tertiary">Field's value is set by the user</span>
+			<span class="text-2xs italic text-primary">Field's value is set by the user</span>
 		{/if}
 		{#if (componentInput?.type === 'evalv2' || componentInput?.type === 'connected' || componentInput?.type === 'user') && ((fieldType == 'object' && format?.startsWith('resource-') && format !== 'resource-s3_object') || fieldType == 'resource')}
 			<div class="flex flex-row items-center">

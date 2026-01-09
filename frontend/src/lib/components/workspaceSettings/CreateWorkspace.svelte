@@ -4,12 +4,14 @@
 	import { goto } from '$lib/navigation'
 	import { base } from '$lib/base'
 	import {
+		JobService,
 		ResourceService,
 		SettingService,
 		UserService,
 		VariableService,
 		WorkspaceService,
-		type AIProvider
+		type AIProvider,
+		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
 	import { logoutWithRedirect } from '$lib/logout'
@@ -27,8 +29,11 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import { AI_PROVIDERS } from '$lib/components/copilot/lib'
-	import { GitFork } from 'lucide-svelte'
+	import { GitFork, LoaderCircle } from 'lucide-svelte'
 	import PrefixedInput from '../PrefixedInput.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
+	import { jobManager } from '$lib/services/JobManager'
+	import Alert from '../common/alert/Alert.svelte'
 
 	interface Props {
 		isFork?: boolean
@@ -48,7 +53,7 @@
 	let codeCompletionEnabled = $state(true)
 	let checking = $state(false)
 
-	let workspaceColor: string | null = $state(null)
+	let workspaceColor: string | undefined = $state(undefined)
 	let colorEnabled = $state(false)
 
 	function generateRandomColor() {
@@ -75,20 +80,113 @@
 
 	const WM_FORK_PREFIX = 'wm-fork-'
 
+	let forkCreationLoading = $state(false)
+	let forkCreationError = $state('')
+	let errorMsgs: string[] = $state([])
+	let failedSyncJobs: string[] = $state([])
+
+	async function fetchFailedSyncJobs(jobs: string[]): Promise<CompletedJob[]> {
+		let ret: CompletedJob[] = []
+		for (const job of jobs) {
+			let j = await JobService.getCompletedJob({
+				id: job,
+				workspace: $workspaceStore!
+			})
+			ret.push(j)
+		}
+		return ret
+	}
+
+	function isPathVersionLessThan(path: string | undefined, version: number): boolean {
+		if (!path || !path.startsWith('hub/')) {
+			return false
+		}
+
+		const parts = path.split('/')
+
+		if (parts.length < 2) {
+			return false
+		}
+
+		const embeddedVersion = parseInt(parts[1], 10)
+
+		if (isNaN(embeddedVersion)) {
+			return false
+		}
+
+		return embeddedVersion < version
+	}
+
 	async function createOrForkWorkspace() {
 		const prefixed_id = `${WM_FORK_PREFIX}${id}`
 		if (isFork) {
 			if ($workspaceStore) {
-				await WorkspaceService.createWorkspaceFork({
+				forkCreationLoading = true
+				errorMsgs = []
+				failedSyncJobs = []
+				forkCreationError = ''
+
+				let gitSyncJobIds = await WorkspaceService.createWorkspaceForkGitBranch({
+					workspace: $workspaceStore!,
 					requestBody: {
 						id: prefixed_id,
 						name,
-						color: colorEnabled && workspaceColor ? workspaceColor : undefined,
-						username: automateUsernameCreation ? undefined : username,
-						parent_workspace_id: $workspaceStore
+						color: colorEnabled && workspaceColor ? workspaceColor : undefined
 					}
 				})
 
+				try {
+					await Promise.all(
+						gitSyncJobIds.map((jobId) =>
+							jobManager.runWithProgress(() => Promise.resolve(jobId), {
+								workspace: $workspaceStore,
+								timeout: 60000,
+								timeoutMessage: `Deploy fork job timed out after 60s`,
+								onProgress: (status) => {
+									if (status.status === 'failure') {
+										errorMsgs.push(status.error ?? 'Deploy fork job failed')
+										failedSyncJobs.push(jobId)
+									}
+								}
+							})
+						)
+					)
+				} catch (error) {
+					forkCreationLoading = false
+					sendUserToast(
+						`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs} - ${error}`,
+						true
+					)
+					return
+				}
+				if (errorMsgs.length != 0) {
+					forkCreationError = 'Failed to create a branch for this fork on the git sync repo(s)'
+					forkCreationLoading = false
+					sendUserToast(
+						`Could not fork workspace ${$workspaceStore} because branch creation failed: ${errorMsgs}`,
+						true
+					)
+					return
+				}
+
+				try {
+					await WorkspaceService.createWorkspaceFork({
+						workspace: $workspaceStore!,
+						requestBody: {
+							id: prefixed_id,
+							name,
+							color: colorEnabled && workspaceColor ? workspaceColor : undefined
+						}
+					})
+				} catch (e) {
+					forkCreationError = `Failed to create fork '${prefixed_id}'`
+					errorMsgs.push(e?.body ?? e ?? 'Unknown error')
+					forkCreationLoading = false
+					sendUserToast(`Could not create fork '${prefixed_id}' ${e}`, true)
+					return
+				}
+
+				forkCreationLoading = false
 				sendUserToast(`Successfully forked workspace ${$workspaceStore} as: wm-fork-${id}`)
 			} else {
 				sendUserToast('No workspace selected, cannot fork non-existent workspace', true)
@@ -115,7 +213,7 @@
 		if (auto_invite) {
 			await WorkspaceService.editAutoInvite({
 				workspace: id,
-				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: true }
+				requestBody: { operator: operatorOnly, invite_all: !isCloudHosted(), auto_add: autoAdd }
 			})
 		}
 		if (aiKey != '') {
@@ -229,6 +327,7 @@
 
 	let auto_invite = $state(false)
 	let operatorOnly = $state(false)
+	let autoAdd = $state(false)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
@@ -245,99 +344,165 @@
 	let domain = $derived($usersWorkspaceStore?.email.split('@')[1])
 </script>
 
-<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace">
-	{#if isFork}
-		<div class="flex flex-block gap-2">
-			<GitFork />
-			<span class="text-secondary text-l"> Forking </span>
-			<span class="text-secondary font-bold text-l">
-				{$workspaceStore}
-			</span>
-		</div>
-	{/if}
-	<label class="block pb-4 pt-4">
+<CenteredModal title="{isFork ? 'Forking' : 'New'} Workspace" centerVertically={false}>
+	<div class="flex flex-col gap-8">
 		{#if isFork}
-			<span class="text-secondary text-sm">Fork name</span>
-			<span class="ml-4 text-tertiary text-xs">Displayable name of the forked workspace</span>
-		{:else}
-			<span class="text-secondary text-sm">Workspace name</span>
-			<span class="ml-4 text-tertiary text-xs">Displayable name</span>
+			<div class="flex flex-block gap-2">
+				<GitFork size={16} />
+				<span class="text-xs text-normal">Forking </span>
+				<span class="text-xs text-emphasis font-semibold">
+					{$workspaceStore}
+				</span>
+			</div>
 		{/if}
-		<!-- svelte-ignore a11y_autofocus -->
-		<input autofocus type="text" bind:value={name} />
-	</label>
-	<label class="block pb-4">
-		<span class="text-secondary text-sm">Workspace ID</span>
-		{#if isFork}
-			<span class="ml-10 text-tertiary text-xs"
-				>Slug to uniquely identify your fork (this will also set the branch name)</span
-			>
-		{:else}
-			<span class="ml-10 text-tertiary text-xs">Slug to uniquely identify your workspace</span>
+		{#if errorMsgs.length != 0}
+			<Alert class="p-2" title={forkCreationError} type="error">
+				<ul class="pl-2 pr-4 break-words pb-5">
+					{#each errorMsgs as errorMsg}
+						<li><pre class="whitespace-pre-wrap">- {errorMsg}</pre></li>
+					{/each}
+				</ul>
+				{#if failedSyncJobs.length != 0}
+					More details on the jobs that failed:
+					{#await fetchFailedSyncJobs(failedSyncJobs)}
+						<LoaderCircle class="animate-spin" />
+					{:then failedJobs}
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedJobs as job}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${job.id}?workspace=${$workspaceStore}`}
+									>
+										{job.id}
+									</a>
+								</li>
+								<!-- This 28073 is the version where git sync on fork was introduced -->
+								{#if isPathVersionLessThan(job.script_path, 28073)}
+									<div class="font-bold">
+										This job was not running the latest version of the git sync script available on
+										the hub. You might be able to solve this issue by going to `Workspace Settings`
+										-> `Git Sync` and updating the script.
+									</div>
+								{/if}
+							{/each}
+						</ul>
+					{:catch error}
+						Tried to fetch jobs to get more information, but failed: {error}. Here are the failed
+						job ids:
+						<ul class="pl-2 pr-4 break-words">
+							{#each failedSyncJobs as jobId}
+								<li>
+									-
+									<a
+										target="_blank"
+										class="underline"
+										href={`/run/${jobId}?workspace=${$workspaceStore}`}
+									>
+										{jobId}
+									</a>
+								</li>
+							{/each}
+						</ul>
+					{/await}
+				{/if}
+			</Alert>
 		{/if}
-		{#if errorId}
-			<span class="text-red-500 text-xs">{errorId}</span>
-		{/if}
+		<label class="flex flex-col gap-1">
+			{#if isFork}
+				<span class="text-xs font-semibold text-emphasis">Fork name</span>
+				<span class="text-xs text-secondary">Displayable name of the forked workspace</span>
+			{:else}
+				<span class="text-xs font-semibold text-emphasis">Workspace name</span>
+				<span class="text-xs text-secondary">Displayable name</span>
+			{/if}
+			<!-- svelte-ignore a11y_autofocus -->
+			<TextInput inputProps={{ autofocus: true }} bind:value={name} />
+		</label>
+		<label class="flex flex-col gap-1">
+			<span class="text-xs font-semibold text-emphasis">Workspace ID</span>
+			{#if isFork}
+				<span class="text-2xs text-secondary"
+					>Slug to uniquely identify your fork (this will also set the branch name)</span
+				>
+			{:else}
+				<span class="text-2xs text-secondary">Slug to uniquely identify your workspace</span>
+			{/if}
 
-		{#if isFork}
-			<PrefixedInput
-				prefix={WM_FORK_PREFIX}
-				type="text"
-				bind:value={id}
-				placeholder="example.com"
-				class={errorId != '' ? 'input-error' : ''}
-			/>
-		{:else}
-			<input type="text" bind:value={id} class:input-error={errorId != ''} />
-		{/if}
-	</label>
-	<label class="block pb-4">
-		<span class="text-secondary text-sm">Workspace color</span>
-		<span class="ml-5 text-tertiary text-xs"
-			>Color to identify the current workspace in the list of workspaces</span
-		>
-		<div class="flex items-center gap-2">
-			<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
-			{#if colorEnabled}<input
-					class="w-10"
-					type="color"
-					bind:value={workspaceColor}
-					disabled={!colorEnabled}
-				/>{/if}
-			<input
-				type="text"
-				class="w-24 text-sm"
-				bind:value={workspaceColor}
-				disabled={!colorEnabled}
-			/>
-			<Button on:click={generateRandomColor} size="xs" disabled={!colorEnabled}>Random</Button>
-		</div>
-	</label>
-	{#if !automateUsernameCreation}
-		<label class="block pb-4">
-			<span class="text-secondary text-sm">Your username in that workspace</span>
-			<input type="text" bind:value={username} onkeyup={handleKeyUp} />
-			{#if errorUser}
-				<span class="text-red-500 text-xs">{errorUser}</span>
+			{#if isFork}
+				<PrefixedInput
+					prefix={WM_FORK_PREFIX}
+					type="text"
+					bind:value={id}
+					placeholder="example.com"
+					class={errorId != '' ? 'input-error' : ''}
+				/>
+			{:else}
+				<TextInput bind:value={id} error={errorId} />
+			{/if}
+			{#if errorId}
+				<span class="text-red-500 text-2xs font-normal">{errorId}</span>
 			{/if}
 		</label>
-	{/if}
-	{#if !isFork}
-		<div class="block pb-4">
-			<label for="ai-key" class="flex flex-col gap-1">
-				<span class="text-secondary text-sm">
-					AI key for Windmill AI
-					<Tooltip>
-						Find out how it can help you <a
-							href="https://www.windmill.dev/docs/core_concepts/ai_generation"
-							target="_blank"
-							rel="noopener noreferrer">in the docs</a
-						>
-					</Tooltip>
-					<span class="text-2xs text-tertiary ml-2">(optional but recommended)</span>
-				</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-xs font-semibold text-emphasis">Workspace color</span>
+			<span class="text-xs text-secondary"
+				>Color to identify the current workspace in the list of workspaces</span
+			>
+			<div class="flex items-center gap-4">
+				<Toggle bind:checked={colorEnabled} options={{ right: 'Enable' }} />
+				{#if colorEnabled}
+					<div class="flex items-center gap-1 grow">
+						<input
+							class="grow min-w-10"
+							type="color"
+							bind:value={workspaceColor}
+							disabled={!colorEnabled}
+						/>
 
-				<div class="pb-2">
+						<TextInput
+							class="w-24"
+							bind:value={workspaceColor}
+							inputProps={{ disabled: !colorEnabled }}
+						/>
+						<Button
+							on:click={generateRandomColor}
+							size="xs"
+							variant="default"
+							disabled={!colorEnabled}>Random</Button
+						>
+					</div>
+				{/if}
+			</div>
+		</label>
+		{#if !automateUsernameCreation}
+			<label class="flex flex-col gap-1">
+				<span class="text-xs font-semibold text-emphasis">Your username in that workspace</span>
+				<TextInput bind:value={username} inputProps={{ onkeyup: handleKeyUp }} error={errorUser} />
+				{#if errorUser}
+					<span class="text-red-500 text-2xs">{errorUser}</span>
+				{/if}
+			</label>
+		{/if}
+		{#if !isFork}
+			<div class="block">
+				<div class="flex flex-col gap-1">
+					<label for="ai-key" class="flex flex-row gap-2">
+						<span class="text-xs font-semibold text-emphasis">
+							AI key for Windmill AI
+							<Tooltip>
+								Find out how it can help you <a
+									href="https://www.windmill.dev/docs/core_concepts/ai_generation"
+									target="_blank"
+									rel="noopener noreferrer">in the docs</a
+								>
+							</Tooltip>
+						</span>
+						<span class="text-2xs text-secondary">(optional but recommended)</span>
+					</label>
+
 					<ToggleButtonGroup bind:selected>
 						{#snippet children({ item })}
 							<ToggleButton value="openai" label="OpenAI" {item} />
@@ -346,82 +511,116 @@
 							<ToggleButton value="deepseek" label="DeepSeek" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
+					<div class="flex flex-row gap-1">
+						<input
+							id="ai-key"
+							type="password"
+							autocomplete="new-password"
+							bind:value={aiKey}
+							onkeyup={handleKeyUp}
+						/>
+						<TestAIKey
+							apiKey={aiKey}
+							disabled={!aiKey}
+							aiProvider={selected}
+							model={AI_PROVIDERS[selected].defaultModels[0]}
+						/>
+					</div>
 				</div>
-			</label>
 
-			<div class="flex flex-row gap-1 pb-4">
-				<input
-					id="ai-key"
-					type="password"
-					autocomplete="new-password"
-					bind:value={aiKey}
-					onkeyup={handleKeyUp}
-				/>
-				<TestAIKey
-					apiKey={aiKey}
-					disabled={!aiKey}
-					aiProvider={selected}
-					model={AI_PROVIDERS[selected].defaultModels[0]}
-				/>
+				{#if aiKey}
+					<div class="flex flex-col gap-2 mt-2">
+						<Toggle
+							disabled={!aiKey}
+							bind:checked={codeCompletionEnabled}
+							options={{ right: 'Enable code completion' }}
+						/>
+					</div>
+				{/if}
 			</div>
-			{#if aiKey}
+			<div class="flex flex-col gap-1">
+				<label for="auto-invite" class="text-xs font-semibold text-emphasis"
+					>{isCloudHosted()
+						? `Auto-invite anyone from ${domain}`
+						: `Auto-invite anyone joining the instance`}</label
+				>
 				<Toggle
-					disabled={!aiKey}
-					bind:checked={codeCompletionEnabled}
-					options={{ right: 'Enable code completion' }}
+					id="auto-invite"
+					disabled={isCloudHosted() && !isDomainAllowed}
+					bind:checked={auto_invite}
 				/>
-			{/if}
-		</div>
-		<Toggle
-			disabled={isCloudHosted() && !isDomainAllowed}
-			bind:checked={auto_invite}
-			options={{
-				right: isCloudHosted()
-					? `Auto-invite anyone from ${domain}`
-					: `Auto-invite anyone joining the instance`
-			}}
-		/>
-		{#if isCloudHosted() && isDomainAllowed == false}
-			<div class="text-tertiary text-sm mb-4 mt-2">{domain} domain not allowed for auto-invite</div>
-		{/if}
-		<div class={'overflow-hidden transition-all ' + (auto_invite ? 'h-36' : 'h-0')}>
-			<div class="text-xs mb-1 leading-6 pt-2">
-				Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-			</div>
+				{#if isCloudHosted() && isDomainAllowed == false}
+					<div class="text-secondary text-2xs">{domain} domain not allowed for auto-invite</div>
+				{/if}
 
-			<div class="text-xs mb-1 leading-6 pt-2"
-				>Role <Tooltip>Role of the auto-invited users</Tooltip></div
+				{#if auto_invite}
+					<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
+						<!-- svelte-ignore a11y_label_has_associated_control -->
+						<label class="flex flex-col gap-1">
+							<span class="text-xs font-semibold text-emphasis">Mode</span>
+							<span class="text-xs text-secondary font-normal"
+								>Whether to invite or add users directly to the workspace.</span
+							>
+							<ToggleButtonGroup
+								selected={autoAdd ? 'add' : 'invite'}
+								on:selected={async (e) => {
+									autoAdd = e.detail === 'add'
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="invite" label="Auto-invite" {item} />
+									<ToggleButton value="add" label="Auto-add" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</label>
+
+						<label class="font-semibold flex flex-col gap-1">
+							<span class="text-xs font-semibold text-emphasis">Role</span>
+							<span class="text-xs text-secondary font-normal">Role of the auto-invited users</span>
+							<ToggleButtonGroup
+								selected={operatorOnly ? 'operator' : 'developer'}
+								on:selected={(e) => {
+									operatorOnly = e.detail == 'operator'
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="operator" label="Operator" {item} />
+									<ToggleButton value="developer" label="Developer" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
+						</label>
+					</div>
+				{/if}
+			</div>
+		{/if}
+		<div class="flex flex-wrap flex-row justify-between gap-4 pt-4">
+			<Button
+				disabled={forkCreationLoading}
+				variant="default"
+				size="sm"
+				href="{base}/user/workspaces">&leftarrow; Back to workspaces</Button
 			>
-			<ToggleButtonGroup
-				selected={operatorOnly ? 'operator' : 'developer'}
-				on:selected={(e) => {
-					operatorOnly = e.detail == 'operator'
-				}}
-			>
-				{#snippet children({ item })}
-					<ToggleButton value="operator" small label="Operator" {item} />
-					<ToggleButton value="developer" small label="Developer" {item} />
-				{/snippet}
-			</ToggleButtonGroup>
-		</div>
-	{/if}
-	<div class="flex flex-wrap flex-row justify-between pt-10 gap-1">
-		<Button variant="border" size="sm" href="{base}/user/workspaces"
-			>&leftarrow; Back to workspaces</Button
-		>
-		<Button
-			disabled={checking ||
-				errorId != '' ||
-				!name ||
-				(!automateUsernameCreation && (errorUser != '' || !username)) ||
-				!id}
-			on:click={createOrForkWorkspace}
-		>
-			{#if isFork}
-				Fork workspace
+			{#if !forkCreationLoading}
+				<Button
+					variant="accent"
+					disabled={checking ||
+						errorId != '' ||
+						!name ||
+						(!automateUsernameCreation && (errorUser != '' || !username)) ||
+						!id}
+					on:click={createOrForkWorkspace}
+				>
+					{#if isFork}
+						Fork workspace
+					{:else}
+						Create workspace
+					{/if}
+				</Button>
 			{:else}
-				Create workspace
+				<Button variant="accent" disabled={true}>
+					<LoaderCircle class="animate-spin" /> Creating branch
+				</Button>
 			{/if}
-		</Button>
+		</div>
 	</div>
 </CenteredModal>

@@ -26,10 +26,10 @@
 	{/snippet}
 
 	{#if flowModule.value.type != 'rawscript'}
-		<p
-			>The cache settings need to be set in the referenced script/flow settings directly. Cache for
-			hub scripts is not available yet.</p
-		>
+		<p class="text-xs text-secondary">
+			The cache settings need to be set in the referenced script/flow settings directly. Cache for
+			hub scripts is not available yet.
+		</p>
 	{:else}
 		<Toggle
 			checked={isCacheEnabled}
@@ -44,12 +44,24 @@
 				right: 'Cache the results for each possible inputs'
 			}}
 		/>
-		<Label label="How long to keep cache valid">
-			{#if flowModule.cache_ttl}
-				<SecondsInput bind:seconds={flowModule.cache_ttl} />
-			{:else}
-				<SecondsInput disabled />
-			{/if}
-		</Label>
+		{#if flowModule.cache_ttl}
+			<Label label="How long to keep cache valid">
+				<div class="-mt-5">
+					<SecondsInput bind:seconds={flowModule.cache_ttl} />
+				</div>
+			</Label>
+			<Toggle
+				size="2xs"
+				bind:checked={
+					() => flowModule.cache_ignore_s3_path,
+					(v) => (flowModule.cache_ignore_s3_path = v || undefined)
+				}
+				options={{
+					right: 'Ignore S3 Object paths for caching purposes',
+					rightTooltip:
+						'If two S3 objects passed as input have the same content, they will hit the same cache entry, regardless of their path.'
+				}}
+			/>
+		{/if}
 	{/if}
 </Section>

@@ -15,7 +15,7 @@
 	import { truncate } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import { userStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 	import { ExternalLink } from 'lucide-svelte'
 	import { settingsKeys } from './instanceSettings'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
@@ -110,36 +110,40 @@
 <div class="flex flex-col h-full w-full">
 	<div>
 		<div class="flex justify-between">
-			<div class="text-xs pt-1 text-tertiary flex flex-col">
+			<div class="text-xs pt-1 text-primary flex flex-col">
 				<div>Windmill <Version /></div>
 			</div>
 			<div><Uptodate /></div></div
 		>
 	</div>
-	<div class="flex flex-row-reverse">
-		<Button
-			variant="border"
-			color="dark"
-			target="_blank"
-			href="{base}/?workspace=admins"
-			endIcon={{ icon: ExternalLink }}
-		>
-			Admins workspace
-		</Button>
-	</div>
+	{#if $workspaceStore !== 'admins'}
+		<div class="flex flex-row-reverse">
+			<Button
+				variant="default"
+				target="_blank"
+				href="{base}/?workspace=admins"
+				endIcon={{ icon: ExternalLink }}
+			>
+				Admins workspace
+			</Button>
+		</div>
+	{/if}
 	<div class="pt-4 h-full">
 		<Tabs bind:selected={tab}>
-			<Tab value="users" aiId="instance-settings-users" aiDescription="Instance users settings"
-				>Users</Tab
-			>
+			<Tab
+				value="users"
+				aiId="instance-settings-users"
+				aiDescription="Instance users settings"
+				label="Users"
+			/>
+
 			{#each settingsKeys as category}
 				<Tab
 					value={category}
 					aiId={`instance-settings-${category}`}
 					aiDescription={`Instance ${category} settings`}
-				>
-					{category}
-				</Tab>
+					label={category}
+				/>
 			{/each}
 			{#snippet content()}
 				<div class="pt-4"></div>
@@ -161,7 +165,7 @@
 								<Button
 									btnClasses="w-auto"
 									size="sm"
-									color="dark"
+									variant="accent"
 									on:click={() => {
 										automateUsernameModalOpen = true
 									}}
@@ -185,12 +189,12 @@
 							</div>
 						{/if}
 
-						<div class="py-2 mb-4">
+						<div class="py-2 mb-6">
 							<InviteGlobalUser on:new={() => listUsers(activeOnly)} />
 						</div>
 
 						<div class="flex flex-row justify-between">
-							<h3>All instance users</h3>
+							<h3 class="text-sm font-semibold text-emphasis">All instance users</h3>
 							<Toggle
 								bind:checked={activeOnly}
 								options={{
@@ -369,7 +373,7 @@
 					</div>
 				</TabContent>
 				<TabContent value="" values={settingsKeys}>
-					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave {tab} {closeDrawer} />
+					<InstanceSettings bind:this={instanceSettings} hideTabs hideSave bind:tab {closeDrawer} />
 				</TabContent>
 			{/snippet}
 		</Tabs>
@@ -378,7 +382,7 @@
 {#if tab != 'users'}
 	<div class="absolute bottom-2 w-[95%]">
 		<Button
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				instanceSettings?.saveSettings()
 			}}

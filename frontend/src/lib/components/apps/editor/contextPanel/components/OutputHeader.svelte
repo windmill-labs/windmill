@@ -2,15 +2,16 @@
 	import { stopPropagation } from 'svelte/legacy'
 
 	import type { AppViewerContext, ContextPanelContext } from '$lib/components/apps/types'
-	import { allItems, processSubcomponents } from '$lib/components/apps/utils'
+	import { processSubcomponents } from '$lib/components/apps/utils'
 	import { classNames } from '$lib/utils'
 	import { ChevronDown, ChevronUp, Pointer } from 'lucide-svelte'
 	import { getContext } from 'svelte'
-	import { allsubIds, findGridItem } from '../../appUtils'
+	import { allsubIds } from '../../appUtils'
 	import IdEditor from './IdEditor.svelte'
 	import type { AppComponent } from '../../component'
-	import type { Runnable } from '$lib/components/apps/inputType'
+	import { isRunnableByName, type Runnable } from '$lib/components/apps/inputType'
 	import DocLink from '../../settingsPanel/DocLink.svelte'
+	import { findGridItem, allItems } from '../../appUtilsCore'
 
 	interface Props {
 		id: string
@@ -158,7 +159,7 @@
 
 	function processRunnable(from: string, to: string, runnable: Runnable) {
 		if (
-			runnable?.type === 'runnableByName' &&
+			isRunnableByName(runnable) &&
 			runnable?.inlineScript?.refreshOn?.find((x) => x.id === from)
 		) {
 			runnable.inlineScript.refreshOn = runnable.inlineScript.refreshOn.map((x) => {
@@ -214,7 +215,7 @@
 					disabled={!(selectable && !$selectedComponent?.includes(id)) || $connectingInput?.opened}
 					title="Select component"
 					onclick={stopPropagation(() => ($selectedComponent = [id]))}
-					class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-tertiary"
+					class="flex items-center ml-0.5 rounded-sm bg-surface-selected hover:text-primary text-primary"
 				>
 					<div
 						class={classNames(

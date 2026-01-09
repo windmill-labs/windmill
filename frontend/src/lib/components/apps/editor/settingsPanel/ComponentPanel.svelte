@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Button from '$lib/components/common/button/Button.svelte'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { getContext } from 'svelte'
 	import type { AppEditorContext, AppViewerContext, GridItem, RichConfiguration } from '../../types'
 	import PanelSection from './common/PanelSection.svelte'
@@ -37,6 +38,7 @@
 	import ComponentPanelDataSource from './ComponentPanelDataSource.svelte'
 	import MenuItems from './MenuItems.svelte'
 	import DecisionTreeGraphEditor from './DecisionTreeGraphEditor.svelte'
+	import { getManagedFields } from '$lib/components/apps/components/componentManagedFields'
 	import GridAgChartsLicenseKe from './GridAgChartsLicenseKe.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ContextVariables from './ContextVariables.svelte'
@@ -147,6 +149,10 @@
 		? ccomponents[item?.data?.type]?.initialData?.componentInput
 		: undefined
 
+	const runnableInputsInfo = item?.data?.type
+		? ccomponents[item.data.type]?.runnableInputsInfo
+		: undefined
+
 	const hasInteraction = item.data.type ? isTriggerable(item.data.type) : false
 
 	let evalV2editor: EvalV2InputEditor | undefined = $state(undefined)
@@ -158,7 +164,7 @@
 				...item.data.componentInput,
 				type: 'runnable',
 				runnable: {
-					type: 'runnableByName',
+					type: 'inline',
 					name: `Eval of ${id}`,
 					inlineScript: {
 						content: `return ${item.data.componentInput?.['expr']}`,
@@ -296,18 +302,16 @@
 									bind:componentInput={item.data.componentInput}
 								/>
 							{:else if item.data?.componentInput?.type === 'template' || item.data?.componentInput?.type === 'templatev2'}
-								<div class="py-1 min-h-[28px] rounded border border-1 border-gray-500">
-									<TemplateEditor
-										fontSize={12}
-										bind:code={item.data.componentInput.eval}
-										{extraLib}
-										on:change={onTemplateChange}
-									/>
-								</div>
+								<TemplateEditor
+									fontSize={12}
+									bind:code={item.data.componentInput.eval}
+									{extraLib}
+									on:change={onTemplateChange}
+								/>
 								{#if item.data?.componentInput?.type === 'templatev2'}
 									{#if item.data?.componentInput.connections?.length > 0}
 										<div class="flex flex-wrap gap-2 items-center">
-											<div class="text-2xs text-tertiary">Re-evaluated on changes to:</div>
+											<div class="text-2xs text-primary">Re-evaluated on changes to:</div>
 											<div class="flex flex-wrap gap-1">
 												{#each item.data?.componentInput.connections ?? [] as connection (connection.componentId + '-' + connection.id)}
 													<span
@@ -357,6 +361,19 @@
 											parameters this component is attached to.
 										</Tooltip>
 									</div>
+
+									<!-- Generic runnable inputs validation -->
+									{#if runnableInputsInfo?.validate}
+										{@const validation = runnableInputsInfo?.validate(
+											item.data.componentInput.fields ?? {}
+										)}
+										{#if validation}
+											<Alert type={validation.type} title={validation.title} size="xs" class="my-2">
+												{@html validation.message}
+											</Alert>
+										{/if}
+									{/if}
+
 									<InputsSpecsEditor
 										id={component.id}
 										shouldCapitalize={false}
@@ -369,10 +386,7 @@
 										acceptSelf={component.type === 'aggridinfinitecomponent' ||
 											component.type === 'aggridinfinitecomponentee' ||
 											component.type === 'steppercomponent'}
-										overridenByComponent={component.type === 'aggridinfinitecomponent' ||
-										component.type === 'aggridinfinitecomponentee'
-											? ['offset', 'limit', 'orderBy', 'isDesc', 'search']
-											: []}
+										overridenByComponent={getManagedFields(component.type)}
 										securedContext
 									/>
 								</div>
@@ -457,7 +471,7 @@
 				/>
 			</PanelSection>
 		{:else if item.data.type != 'containercomponent'}
-			<div class="h-full w-full text-sm text-tertiary text-center py-8 px-2">
+			<div class="h-full w-full text-sm text-primary text-center py-8 px-2">
 				{ccomponents[component.type].name} has no configuration
 			</div>
 		{/if}
@@ -471,9 +485,8 @@
 				{#snippet action()}
 					<div class="flex justify-end flex-wrap gap-1">
 						<Button
-							color="light"
 							size="xs"
-							variant="border"
+							variant="default"
 							startIcon={{ icon: ChevronLeft }}
 							on:click={() => secondaryMenuLeft.toggle(StylePanel, { type: 'style' })}
 						>
@@ -529,20 +542,17 @@
 					<div>
 						<Button
 							size="xs"
-							color="red"
-							variant="border"
+							variant="default"
 							on:click={removeGridElement}
-							shortCut={{
-								key: isMac() ? getModifierKey() + 'Del' : 'Del',
-								withoutModifier: true
-							}}
+							shortCut={{ key: isMac() ? getModifierKey() + 'Del' : 'Del', withoutModifier: true }}
+							destructive
 						>
 							Delete
 						</Button>
 					</div>
 				{/snippet}
 
-				<div class="overflow-auto grid grid-cols-2 gap-1 text-tertiary">
+				<div class="overflow-auto grid grid-cols-2 gap-1 text-primary">
 					<div>
 						<span class="text-secondary text-xs">Copy:</span>
 					</div>

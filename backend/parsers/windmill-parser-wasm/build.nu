@@ -65,15 +65,19 @@ const targets = [
 # 	-Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
 
 # Build all separately
-def 'main all' [ --no-opt(-n), --cli] {
+def 'main all' [ --no-opt(-n), --cli, --node ] {
   if ($no_opt) {
-    if ($cli) {
+    if ($node) {
+      $targets | each { main $in.ident -n --node }
+    } else if ($cli) {
       $targets | each { main $in.ident -n --cli }
     } else {
       $targets | each { main $in.ident -n }
     }
   } else {
-    if ($cli) {
+    if ($node) {
+      $targets | each { main $in.ident --node }
+    } else if ($cli) {
       $targets | each { main $in.ident --cli }
     } else {
       $targets | each { main $in.ident }
@@ -86,6 +90,7 @@ def main [
   target: string, # Language, e.g.: py, ts, rust
   --no-opt(-n), # Compile in debug mode for dev
   --cli # Compile and place binaries in cli.
+  --node
 ] {
   let t = $targets | where ident == $target;
 
@@ -97,7 +102,10 @@ def main [
     mut profile = "";
     mut tar = "";
 
-    if ($cli) {
+    if ($node) {
+      $env.OUT_DIR = $"node-pkg-($t.ident)"
+      $tar = "nodejs"
+    } else if ($cli) {
       $env.OUT_DIR = $"../../../cli/wasm/($t.ident)"
       $tar = "deno"
     } else {
@@ -112,7 +120,7 @@ def main [
     print $"Building in ($profile) mode ($env.OUT_DIR)"
     match $t.env {
       "default" => {
-        wasm-pack build ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std -Z build-std-features=panic_immediate_abort
+        wasm-pack build --weak-refs ($profile) --target ($tar) --out-dir $env.OUT_DIR --features ($t.features) -Z build-std=panic_abort,std
       },
       "tree-sitter" => {
         $env.CFLAGS_wasm32_unknown_unknown = $"-I(pwd)/wasm-sysroot -Wbad-function-cast -Wcast-function-type -fno-builtin"

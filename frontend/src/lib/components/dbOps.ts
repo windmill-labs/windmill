@@ -1,7 +1,7 @@
 import {
 	getLanguageByResourceType,
 	type ColumnDef,
-	type DbType
+	type TableMetadata
 } from './apps/components/display/dbtable/utils'
 import { makeSelectQuery } from './apps/components/display/dbtable/queries/select'
 import { runScriptAndPollResult } from './jobs/utils'
@@ -9,18 +9,23 @@ import { makeCountQuery } from './apps/components/display/dbtable/queries/count'
 import { makeUpdateQuery } from './apps/components/display/dbtable/queries/update'
 import { makeDeleteQuery } from './apps/components/display/dbtable/queries/delete'
 import { makeInsertQuery } from './apps/components/display/dbtable/queries/insert'
-import { Trash2 } from 'lucide-svelte'
 import { makeDeleteTableQuery } from './apps/components/display/dbtable/queries/deleteTable'
 import type { DBSchema, SQLSchema } from '$lib/stores'
 import { stringifySchema } from './copilot/lib'
-
-export type DbInput =
-	| {
-			type: 'database'
-			resourceType: DbType
-			resourcePath: string
-	  }
-	| { type: 'ducklake'; ducklake: string }
+import type { DbInput, DbType } from './dbTypes'
+import { wrapDucklakeQuery } from './ducklake'
+import { assert } from '$lib/utils'
+import {
+	buildTableEditorValues,
+	type TableEditorValues
+} from './apps/components/display/dbtable/tableEditor'
+import {
+	makeAlterTableQueries,
+	makeAlterTableQuery,
+	type AlterTableValues
+} from './apps/components/display/dbtable/queries/alterTable'
+import { makeCreateTableQuery } from './apps/components/display/dbtable/queries/createTable'
+import { fetchTableRelationalKeys } from './apps/components/display/dbtable/queries/relationalKeys'
 
 export type IDbTableOps = {
 	dbType: DbType
@@ -57,7 +62,7 @@ export function dbTableOpsWithPreviewScripts({
 }): IDbTableOps {
 	const dbType = getDbType(input)
 	const language = getLanguageByResourceType(dbType)
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+	const dbArg = getDatabaseArg(input)
 	return {
 		dbType,
 		tableKey,
@@ -79,8 +84,6 @@ export function dbTableOpsWithPreviewScripts({
 				workspace,
 				requestBody: { args: { ...dbArg, ...params }, language, content: query }
 			})) as unknown[]
-			if (input.type === 'database' && input.resourceType === 'ms_sql_server')
-				items = items?.[0] as unknown[]
 			if (!items || !Array.isArray(items)) {
 				throw 'items is not an array'
 			}
@@ -117,51 +120,96 @@ export function dbTableOpsWithPreviewScripts({
 	}
 }
 
-export type DbTableAction = {
-	action: () => void | Promise<void>
-	displayName: string
-	confirmTitle?: string
-	confirmBtnText?: string
-	icon?: any
-	successText?: string
+export type IDbSchemaOps = {
+	onDelete: (params: { tableKey: string; schema?: string }) => Promise<void>
+	onCreate: (params: { values: TableEditorValues; schema?: string }) => Promise<void>
+	previewCreateSql: (params: { values: TableEditorValues; schema?: string }) => string
+	onAlter: (params: { values: AlterTableValues; schema?: string }) => Promise<void>
+	previewAlterSql: (params: { values: AlterTableValues; schema?: string }) => string[]
+	onCreateSchema: (params: { schema: string }) => Promise<void>
+	onDeleteSchema: (params: { schema: string }) => Promise<void>
+	onFetchTableEditorDefinition: (params: {
+		table: string
+		schema?: string
+		getColDefs: () => Promise<TableMetadata>
+	}) => Promise<TableEditorValues>
 }
 
-export type DbTableActionFactory = (params: {
-	tableKey: string
-	refresh: () => void
-}) => DbTableAction
-
-export function dbDeleteTableActionWithPreviewScript({
+export function dbSchemaOpsWithPreviewScripts({
 	workspace,
 	input
 }: {
 	workspace: string
 	input: DbInput
-}): DbTableActionFactory {
-	const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
-
-	return ({ tableKey, refresh }) => ({
-		confirmTitle: `Are you sure you want to delete '${tableKey}' ? This action is irreversible`,
-		displayName: 'Delete',
-		confirmBtnText: `Delete permanently`,
-		icon: Trash2,
-		successText: `Table '${tableKey}' deleted successfully`,
-		action: async () => {
-			const dbType = getDbType(input)
-			const language = getLanguageByResourceType(dbType)
-			let deleteQuery = makeDeleteTableQuery(tableKey, dbType)
+}): IDbSchemaOps {
+	const dbType = getDbType(input)
+	const dbArg = getDatabaseArg(input)
+	const language = getLanguageByResourceType(dbType)
+	return {
+		onDelete: async ({ tableKey, schema }) => {
+			let deleteQuery = makeDeleteTableQuery(tableKey, dbType, schema)
 			if (input.type === 'ducklake') deleteQuery = wrapDucklakeQuery(deleteQuery, input.ducklake)
 			await runScriptAndPollResult({
 				workspace,
-				requestBody: {
-					args: { ...dbArg },
-					language,
-					content: deleteQuery
-				}
+				requestBody: { args: { ...dbArg }, language, content: deleteQuery }
 			})
-			refresh()
+		},
+		onCreate: async ({ values, schema }) => {
+			let query = makeCreateTableQuery(values, dbType, schema)
+			if (input?.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewCreateSql: ({ values, schema }) => makeCreateTableQuery(values, dbType, schema),
+		onAlter: async ({ values, schema }) => {
+			let query = makeAlterTableQuery(values, dbType, schema)
+			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: dbArg, content: query, language }
+			})
+		},
+		previewAlterSql: ({ values, schema }) => makeAlterTableQueries(values, dbType, schema),
+		onCreateSchema: async ({ schema }) => {
+			let createSchemaQuery = `CREATE SCHEMA ${schema};`
+			if (input.type === 'ducklake')
+				createSchemaQuery = wrapDucklakeQuery(createSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: createSchemaQuery }
+			})
+		},
+		onDeleteSchema: async ({ schema }) => {
+			let dropSchemaQuery = `DROP SCHEMA ${schema} CASCADE;`
+			if (input.type === 'ducklake')
+				dropSchemaQuery = wrapDucklakeQuery(dropSchemaQuery, input.ducklake)
+			await runScriptAndPollResult({
+				workspace,
+				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
+			})
+		},
+		onFetchTableEditorDefinition: async ({ table, schema, getColDefs }) => {
+			let colDefs = await getColDefs()
+			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
+				input,
+				dbType,
+				table,
+				schema,
+				workspace,
+				dbArg,
+				language
+			)
+
+			return buildTableEditorValues({
+				tableName: table,
+				metadata: colDefs,
+				foreignKeys,
+				pk_constraint_name
+			})
 		}
-	})
+	}
 }
 
 export async function getDucklakeSchema({
@@ -179,11 +227,14 @@ export async function getDucklakeSchema({
 			args: {}
 		}
 	})
-	const stringified = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? '[]')
+	let mainSchema = Array.isArray(result) && result.length && (result?.[0]?.['result'] ?? [])
+	// Safety for agent workers (duckdb ffi lib used to return JSON as stringified json)
+	if (typeof mainSchema === 'string') mainSchema = JSON.parse(mainSchema)
 
-	if (!stringified) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	if (!mainSchema) throw new Error('Failed to get Ducklake schema: ' + JSON.stringify(result))
+	assert('mainSchema is an object', typeof mainSchema === 'object')
 	let schema: Omit<SQLSchema, 'stringified'> = {
-		schema: { main: JSON.parse(stringified) },
+		schema: { main: mainSchema },
 		publicOnly: true,
 		lang: 'ducklake'
 	}
@@ -216,7 +267,13 @@ export function getDbType(input: DbInput): DbType {
 	}
 }
 
-export function wrapDucklakeQuery(query: string, ducklake: string): string {
-	let attach = `ATTACH 'ducklake://${ducklake}' AS dl;USE dl;\n`
-	return query.replace(/^(--.*\n)*/, (match) => match + attach)
+export function getDatabaseArg(input: DbInput | undefined) {
+	if (input?.type === 'database') {
+		if (input.resourcePath.startsWith('datatable://')) {
+			return { database: input.resourcePath }
+		} else {
+			return { database: '$res:' + input.resourcePath }
+		}
+	}
+	return {}
 }

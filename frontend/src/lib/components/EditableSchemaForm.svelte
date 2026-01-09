@@ -476,7 +476,7 @@
 								<div class="flex flex-col gap-2 h-full">
 									{#if dynamicFunctions.length > 0}
 										<div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-md">
-											<div class="text-sm font-medium text-blue-800 dark:text-blue-200 mb-2">
+											<div class="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">
 												Expected Functions for Dynamic Input Fields:
 											</div>
 											<ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1">
@@ -530,7 +530,7 @@
 				{:else}
 					<!-- WIP -->
 					{#if jsonEnabled && customUi?.jsonOnly != true}
-						<div class="w-full px-3 flex gap-4 justify-end items-center">
+						<div class="w-full px-4 py-2 flex gap-4 justify-end items-center">
 							{#if addPropertyInEditorTab}
 								<AddPropertyV2
 									bind:schema
@@ -539,14 +539,13 @@
 									}}
 								>
 									{#snippet trigger()}
-										<Button color="light" size="xs" iconOnly startIcon={{ icon: Plus }} />
+										<Button variant="subtle" size="xs" iconOnly startIcon={{ icon: Plus }} />
 									{/snippet}
 								</AddPropertyV2>
 							{/if}
 							<div class="shrink-0">
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										left: 'JSON editor',
@@ -589,15 +588,15 @@
 												}
 											}}
 										>
-											<div class="flex flex-row gap-2">
+											<div class="flex flex-row gap-2 text-sm">
 												{argName}
 												{#if !uiOnly}
 													<div onclick={stopPropagation(preventDefault(bubble('click')))}>
 														<Popover placement="bottom-end" containerClasses="p-4" closeButton>
 															{#snippet trigger()}
 																<Button
-																	color="light"
-																	size="xs2"
+																	variant="subtle"
+																	size="xs3"
 																	nonCaptureEvent
 																	startIcon={{ icon: Pen }}
 																	iconOnly
@@ -619,8 +618,7 @@
 																			}}
 																		/>
 																		<Button
-																			variant="border"
-																			color="light"
+																			variant="default"
 																			size="xs"
 																			on:click={() => {
 																				renameProperty(argName, argName + i)
@@ -670,6 +668,7 @@
 															bind:customErrorMessage={
 																schema.properties[argName].customErrorMessage
 															}
+															bind:nonEmpty={schema.properties[argName].nonEmpty}
 															bind:itemsType={schema.properties[argName].items}
 															bind:extra={schema.properties[argName]}
 															bind:title={schema.properties[argName].title}
@@ -849,7 +848,7 @@
 									</div>
 								{/each}
 							{:else if !shouldHideNoInputs}
-								<div class="text-secondary text-sm p-2">No inputs</div>
+								<div class="text-secondary text-xs p-2">No inputs</div>
 							{/if}
 						</div>
 					{:else}
@@ -909,8 +908,7 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
+					variant="default"
 					size="sm"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}

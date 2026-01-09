@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import { base } from '$lib/base'
 	import { enterpriseLicense, superadmin, workspaceStore } from '$lib/stores'
 	import {
@@ -31,32 +31,37 @@
 		type Kind
 	} from '$lib/utils_deployable'
 	import type { TriggerKind } from './triggers'
+	import type { App } from './apps/types'
+	import { getAllGridItems } from './apps/editor/appUtils'
+	import { isRunnableByPath } from './apps/inputType'
 
 	const dispatch = createEventDispatcher()
 
-	export let kind: Kind
-	export let initialPath: string = ''
-	export let additionalInformation: AdditionalInformation | undefined = undefined
-	export let workspaceToDeployTo: string | undefined = undefined
-	export let hideButton: boolean = false
+	interface Props {
+		kind: Kind
+		initialPath?: string
+		additionalInformation?: AdditionalInformation | undefined
+		workspaceToDeployTo?: string | undefined
+		hideButton?: boolean
+	}
 
-	let seeTarget: boolean | undefined = undefined
+	let {
+		kind,
+		initialPath = '',
+		additionalInformation = undefined,
+		workspaceToDeployTo = $bindable(undefined),
+		hideButton = false
+	}: Props = $props()
 
-	let dependencies: { kind: Kind; path: string; include: boolean }[] | undefined = undefined
+	let seeTarget: boolean | undefined = $state(undefined)
 
-	const allAlreadyExists: { [key: string]: boolean } = {}
+	let dependencies: { kind: Kind; path: string; include: boolean }[] | undefined = $state(undefined)
 
-	let diffDrawer: DiffDrawer
-	let notSet: boolean | undefined = undefined
+	const allAlreadyExists: { [key: string]: boolean } = $state({})
 
-	$: WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
-		workspaceToDeployTo = x.deploy_to
-		if (x.deploy_to == undefined) {
-			notSet = true
-		}
-	})
-
-	$: workspaceToDeployTo && reload(initialPath)
+	let diffDrawer: DiffDrawer | undefined = $state(undefined)
+	let notSet: boolean | undefined = $state(undefined)
+	let isFlow: boolean | undefined = $state(undefined)
 
 	async function reload(path: string) {
 		try {
@@ -134,6 +139,22 @@
 					}
 					return result
 				})
+			} else if (kind == 'app') {
+				const app = await AppService.getAppByPath({ workspace: $workspaceStore!, path })
+				console.log('app', app)
+				let appValue = app.value as App
+				let result: { kind: Kind; path: string }[] = []
+				getAllGridItems(appValue).forEach((gridItem) => {
+					const ci = gridItem.data.componentInput
+					if (ci?.type == 'runnable' && isRunnableByPath(ci.runnable)) {
+						if (ci.runnable.runType == 'script') {
+							result.push({ kind: 'script', path: ci.runnable.path })
+						} else if (ci.runnable.runType == 'flow') {
+							result.push({ kind: 'flow', path: ci.runnable.path })
+						}
+					}
+				})
+				return result
 			} else if (kind == 'resource') {
 				const res = await ResourceService.getResource({ workspace: $workspaceStore!, path })
 				function recObj(obj: any) {
@@ -170,7 +191,6 @@
 				processed.push({ kind: 'folder', path: split[1] })
 			}
 		}
-		processed.reverse()
 		return processed
 	}
 
@@ -257,7 +277,7 @@
 	const deploymentStatus: Record<
 		string,
 		{ status: 'loading' | 'deployed' | 'failed'; error?: string }
-	> = {}
+	> = $state({})
 
 	async function deploy(kind: Kind, path: string) {
 		const statusPath = `${kind}:${path}`
@@ -306,7 +326,7 @@
 										workspace: workspaceToDeployTo!,
 										path: path
 									})
-							  ).hash
+								).hash
 							: undefined
 					}
 				})
@@ -566,18 +586,29 @@
 	}
 
 	async function showDiff(kind: Kind, path: string) {
-		diffDrawer.openDrawer()
+		diffDrawer?.openDrawer()
 		let values = await Promise.all([
 			getValue(kind, path, workspaceToDeployTo!),
 			getValue(kind, path, $workspaceStore!)
 		])
-		diffDrawer.setDiff({
+		diffDrawer?.setDiff({
 			mode: 'simple',
 			original: values?.[0] as any,
 			current: values?.[1] as any,
 			title: 'Staging/prod <> Dev'
 		})
 	}
+	$effect(() => {
+		WorkspaceService.getDeployTo({ workspace: $workspaceStore! }).then((x) => {
+			workspaceToDeployTo = x.deploy_to
+			if (x.deploy_to == undefined) {
+				notSet = true
+			}
+		})
+	})
+	$effect(() => {
+		workspaceToDeployTo && initialPath && untrack(() => reload(initialPath))
+	})
 </script>
 
 <div class="mt-6"></div>
@@ -609,15 +640,24 @@
 	{:else if seeTarget == true}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
-		<DiffDrawer bind:this={diffDrawer} />
+		<DiffDrawer bind:this={diffDrawer} {isFlow} />
 		<div class="grid grid-cols-9 justify-center max-w-3xl gap-2">
-			{#each dependencies ?? [] as { kind, path, include }}
+			{#each dependencies ?? [] as { kind, path, include }, i}
 				{@const statusPath = computeStatusPath(kind, path)}
 				<div class="col-span-1 truncate text-secondary text-sm pt-0.5">{kind}</div><div
 					class="col-span-5 truncate font-semibold">{path}</div
-				><div class="col-span-1 pt-1.5"><Toggle size="xs" bind:checked={include} /></div><div
-					class="col-span-1"
-				>
+				><div class="col-span-1 pt-1.5">
+					<Toggle
+						size="xs"
+						checked={include}
+						on:change={(e) => {
+							if (dependencies?.[i]) {
+								dependencies[i].include = e.detail
+							}
+						}}
+					/>
+				</div>
+				<div class="col-span-1">
 					{#if allAlreadyExists[statusPath] == false}
 						{#if include}
 							<Badge
@@ -643,8 +683,9 @@
 					{:else if allAlreadyExists[statusPath] == true}
 						<button
 							class="text-blue-600 font-normal mt-1"
-							on:click={() => {
+							onclick={() => {
 								showDiff(kind, path)
+								isFlow = kind === 'flow'
 							}}>diff</button
 						>
 					{/if}</div

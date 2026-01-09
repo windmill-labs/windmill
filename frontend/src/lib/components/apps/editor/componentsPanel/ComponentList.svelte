@@ -210,7 +210,7 @@
 
 <div class="relative" id="app-editor-component-list">
 	{#if componentsFiltered.reduce((acc, { components, presets }) => acc + components.length + (Array.isArray(presets) ? presets.length : 0), 0) === 0}
-		<div class="absolute left-0 top-0 w-full text-sm text-tertiary text-center py-6 px-2">
+		<div class="absolute left-0 top-0 w-full text-sm text-primary text-center py-6 px-2">
 			No components found
 		</div>
 	{:else}
@@ -256,7 +256,7 @@
 											class="cursor-move transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
 											justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 										>
-											<SvelteComponent class="text-primary" />
+											<SvelteComponent class="text-secondary" />
 										</button>
 										<div class="text-xs text-center flex-wrap text-secondary mt-1">
 											{componentsRecord[item].name}
@@ -271,7 +271,7 @@
 												onclick={() => addPresetComponent(presetItem)}
 												title={presetsRecord[presetItem].name}
 												class="transition-all border w-[64px] shadow-sm h-16 p-2 flex flex-col gap-2 items-center
-										justify-center bg-surface rounded-md hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
+										justify-center bg-surface hover:bg-blue-50 dark:hover:bg-blue-900 duration-200 hover:border-blue-500"
 											>
 												<SvelteComponent_1 class="text-secondary" />
 											</button>

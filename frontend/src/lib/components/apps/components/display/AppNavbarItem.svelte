@@ -170,6 +170,7 @@
 			size="xs"
 			disabled={resolvedDisabled}
 			btnClasses={orientation === 'vertical' ? '!justify-start !whitespace-normal !text-left' : ''}
+			variant="contained"
 		>
 			{#if navbarItem.icon}
 				{#key navbarItem.icon}

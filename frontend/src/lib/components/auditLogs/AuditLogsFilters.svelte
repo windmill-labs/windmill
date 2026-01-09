@@ -26,22 +26,23 @@
 		UserService,
 		ScriptService,
 		FlowService,
-		AppService
+		AppService,
+		CancelError
 	} from '$lib/gen'
 
 	import { userStore, workspaceStore } from '$lib/stores'
 	import { ChevronDown, Loader2, RefreshCcw } from 'lucide-svelte'
-	import { onDestroy, tick, untrack } from 'svelte'
+	import { onDestroy, untrack } from 'svelte'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '../select/Select.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
+	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+	import { sendUserToast } from '$lib/toast'
 
 	let usernames: string[] | undefined = $state()
 	let resources = usePromise(() => loadResources($workspaceStore!), { loadInit: false })
-	let loading: boolean = $state(false)
-	let page: number | undefined = undefined
 
 	interface Props {
 		logs?: AuditLog[]
@@ -55,6 +56,7 @@
 		resource?: string | undefined
 		actionKind?: ActionKind | 'all'
 		scope?: undefined | 'all_workspaces' | 'instance'
+		loading?: boolean
 	}
 
 	let {
@@ -68,7 +70,8 @@
 		operation = $bindable(),
 		resource = $bindable() as string | undefined,
 		actionKind = $bindable(undefined),
-		scope = $bindable(undefined)
+		scope = $bindable(undefined),
+		loading = $bindable(false)
 	}: Props = $props()
 
 	$effect.pre(() => {
@@ -86,50 +89,45 @@
 		}
 	})
 
-	async function loadLogs(
-		username: string | undefined,
-		page: number | undefined,
-		perPage: number | undefined,
-		before: string | undefined,
-		after: string | undefined,
-		operation: string | undefined,
-		resource: string | undefined,
-		actionKind: ActionKind | undefined | 'all',
-		scope: undefined | 'all_workspaces' | 'instance'
-	): Promise<void> {
+	function loadLogs() {
 		loading = true
 
-		if (username == 'all') {
-			username = undefined
-		}
-		if (operation == 'all' || operation == '') {
-			operation = undefined
-		}
+		let username_ = username == 'all' ? undefined : username
+		let operation_ = operation == 'all' || operation == '' ? undefined : operation
+		let actionKind_ = actionKind == 'all' ? undefined : actionKind
+		let resource_ = resource == 'all' || resource == '' ? undefined : resource
 
-		// @ts-ignore
-		if (actionKind == 'all' || actionKind == '') {
-			actionKind = undefined
-		}
-
-		if (resource == 'all' || resource == '') {
-			resource = undefined
-		}
-
-		logs = await AuditService.listAuditLogs({
+		let _promise = AuditService.listAuditLogs({
 			workspace: scope === 'instance' ? 'global' : $workspaceStore!,
-			page,
+			page: pageIndex,
 			perPage,
 			before,
 			after,
-			username,
-			operation,
-			resource,
-			actionKind,
+			username: username_,
+			operation: operation_,
+			resource: resource_,
+			actionKind: actionKind_,
 			allWorkspaces: scope === 'all_workspaces'
 		})
-		hasMore = logs.length > 0 && logs.length === perPage
-
-		loading = false
+		let promise = CancelablePromiseUtils.map(_promise, (value) => {
+			logs = value
+			hasMore = !logs || (logs.length > 0 && logs.length === perPage)
+			loading = false
+		})
+		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+			sendUserToast(
+				'Loading audit logs is taking longer than expected...',
+				true,
+				perPage > 25
+					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
+					: []
+			)
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) return CancelablePromiseUtils.pure<void>(undefined)
+			return CancelablePromiseUtils.err<void>(e)
+		})
+		return promise
 	}
 
 	async function loadUsers() {
@@ -139,17 +137,7 @@
 				: [$userStore?.username ?? '']
 	}
 
-	let initialLoad = true
-	function refreshLogs() {
-		loadUsers()
-		resources.refresh()
-		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
-		tick().then(() => {
-			initialLoad = false
-		})
-	}
-
-	function updateLogs() {
+	function updateQueryParams() {
 		const queryParams: string[] = []
 
 		function addQueryParam(key: string, value: string | number | undefined | null) {
@@ -159,7 +147,7 @@
 		}
 
 		addQueryParam('username', username)
-		addQueryParam('page', page)
+		addQueryParam('page', pageIndex)
 		addQueryParam('perPage', perPage)
 		addQueryParam('before', before)
 		addQueryParam('after', after)
@@ -172,25 +160,6 @@
 		}
 		const query = '?' + queryParams.join('&')
 		goto(query, { replaceState: true, keepFocus: true })
-
-		loadLogs(username, page, perPage, before, after, operation, resource, actionKind, scope)
-	}
-
-	function updateQueryParams() {
-		if (initialLoad) {
-			return
-		}
-		page = 1
-		pageIndex = 1
-		updateLogs()
-	}
-
-	function updatePageQueryParams(pageIndex?: number | undefined) {
-		if (initialLoad) {
-			return
-		}
-		page = pageIndex
-		updateLogs()
 	}
 
 	window.addEventListener('popstate', handlePopState)
@@ -307,25 +276,29 @@
 		WORKSPACES_DELETE: 'workspaces.delete'
 	}
 
-	let refresh = $state(1)
-	$effect(() => {
-		$workspaceStore && refresh && untrack(() => refreshLogs())
-	})
+	let refresh = $state(0)
+	let lastRefresh = $state(-1)
+
 	// observe all the variables that should trigger an update
 	$effect(() => {
-		;[username, perPage, before, after, operation, resource, actionKind, scope]
-		updateQueryParams()
-	})
-	// observe the pageIndex variable that should trigger an update
-	$effect(() => {
-		updatePageQueryParams(pageIndex)
+		;[refresh, username, perPage, before, after, operation, resource, actionKind, scope, pageIndex]
+		return untrack(() => {
+			if (refresh !== lastRefresh) {
+				loadUsers()
+				resources.refresh()
+				lastRefresh = refresh
+			}
+			updateQueryParams()
+			let promise = loadLogs()
+			return () => promise?.cancel()
+		})
 	})
 </script>
 
-<div class="flex flex-col items-center gap-6 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-center gap-10 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
 	{#if $workspaceStore == 'admins'}
 		<div class="flex gap-1 relative w-full">
-			<span class="text-xs absolute -top-4">Scope</span>
+			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
 				on:selected={({ detail }) => {
@@ -356,7 +329,7 @@
 		</div>
 	{/if}
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">From</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
 		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
 			clearable
@@ -372,7 +345,7 @@
 		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">To</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
 		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
 			clearable
@@ -389,24 +362,27 @@
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Username</span>
-		<select bind:value={username}>
-			{#if usernames}
-				{#if $userStore?.is_admin || $userStore?.is_super_admin}
-					<option selected>all</option>
-				{/if}
-				{#each usernames as e}
-					{#if e == username || $userStore?.is_admin || $userStore?.is_super_admin}
-						<option>{e}</option>
-					{:else}
-						<option disabled>{e}</option>
-					{/if}
-				{/each}
-			{/if}
-		</select>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
+		<Select
+			bind:value={username}
+			class="w-full"
+			RightIcon={ChevronDown}
+			items={usernames
+				? [
+						...($userStore?.is_admin || $userStore?.is_super_admin
+							? [{ value: 'all', label: 'all' }]
+							: []),
+						...usernames.map((e) => ({
+							value: e,
+							label: e,
+							disabled: e !== username && !$userStore?.is_admin && !$userStore?.is_super_admin
+						}))
+					]
+				: []}
+		/>
 	</div>
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Resource</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
 			onCreateItem={(r) => (resources.value?.push(r), (resource = r))}
@@ -415,35 +391,42 @@
 			items={safeSelectItems(['all', ...(resources.value ?? [])])}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
+			class="w-full"
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Operation</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
 			bind:value={operation}
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
+			class="w-full"
 		/>
 	</div>
 
 	<div class="flex gap-1 relative w-full">
-		<span class="text-xs absolute -top-4">Action</span>
+		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
 
-		<select class="!truncate" bind:value={actionKind}>
-			<option selected value="all">all</option>
-			{#each ['Create', 'Update', 'Delete', 'Execute'] as e}
-				<option value={e.toLocaleLowerCase()}>{e}</option>
-			{/each}
-		</select>
+		<Select
+			class="w-full"
+			bind:value={actionKind}
+			RightIcon={ChevronDown}
+			items={[
+				{ value: 'all', label: 'all' },
+				{ value: 'create', label: 'Create' },
+				{ value: 'update', label: 'Update' },
+				{ value: 'delete', label: 'Delete' },
+				{ value: 'execute', label: 'Execute' }
+			]}
+		/>
 	</div>
 
 	<div class="flex flex-row gap-1">
 		<Button
-			variant="contained"
-			color="light"
+			variant="subtle"
 			on:click={() => {
 				after = undefined
 				before = undefined
@@ -455,17 +438,16 @@
 				resource = 'all'
 				scope = undefined
 			}}
-			size="xs"
+			unifiedSize="md"
 		>
 			Clear filters
 		</Button>
 		<Button
-			variant="contained"
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				refresh++
 			}}
-			size="xs"
+			unifiedSize="md"
 		>
 			<div class="flex flex-row gap-1 items-center">
 				{#if loading}

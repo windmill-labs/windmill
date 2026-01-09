@@ -7,7 +7,7 @@ use serde_json::{json, value::RawValue, Value};
 use windmill_common::client::AuthedClient;
 use windmill_common::error::to_anyhow;
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::Connection;
+use windmill_common::worker::{Connection, SqlResultCollectionStrategy};
 use windmill_common::{error::Error, worker::to_raw_value};
 use windmill_parser_sql::{
     parse_bigquery_sig, parse_db_resource, parse_s3_mode, parse_sql_blocks,
@@ -86,9 +86,11 @@ fn do_bigquery_inner<'a>(
     timeout_ms: u64,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     http_client: &'a Client,
     s3: Option<S3ModeWorkerData>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let param_names = parse_sql_statement_named_params(query, '@');
 
     let statement_values = all_statement_values
@@ -113,7 +115,7 @@ fn do_bigquery_inner<'a>(
             .json(&json!({
                 "query": query,
                 "useLegacySql": false,
-                "maxResults": 10000,
+                "maxResults": if first_row_only { 1 } else { 10000 },
                 "timeoutMs": timeout_ms,
                 "queryParameters": statement_values,
             }))
@@ -126,7 +128,7 @@ fn do_bigquery_inner<'a>(
         match response.error_for_status_ref() {
             Ok(_) => {
                 if skip_collect {
-                    return Ok(to_raw_value(&Value::Array(vec![])));
+                    return Ok(vec![]);
                 } else {
                     let result = response.json::<BigqueryResponse>().await.map_err(|e| {
                         Error::ExecutionErr(format!(
@@ -205,10 +207,10 @@ fn do_bigquery_inner<'a>(
                             convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                         s3.upload(stream.boxed()).await?;
 
-                        return Ok(to_raw_value(&s3.to_return_s3_obj()));
+                        return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
                     }
 
-                    Ok(to_raw_value(&rows))
+                    Ok(rows.iter().map(to_raw_value).collect::<Vec<_>>())
                 }
             }
             Err(e) => match response.json::<BigqueryErrorResponse>().await {
@@ -341,6 +343,11 @@ pub async fn do_bigquery(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let service_account = CustomServiceAccount::from_json(&database)
         .map_err(|e| Error::ExecutionErr(e.to_string()))?;
@@ -425,52 +432,35 @@ pub async fn do_bigquery(
         statement_values.insert(arg_n, bigquery_v);
     }
 
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_bigquery_inner(
-                    x,
-                    &statement_values,
-                    &project_id,
-                    token.as_str(),
-                    timeout_ms,
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    &http_client,
-                    s3.clone(),
-                )
-            })
-            .collect::<windmill_common::error::Result<Vec<_>>>()?;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let result = do_bigquery_inner(
+                q,
+                &statement_values,
+                &project_id,
+                token.as_str(),
+                timeout_ms,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                &http_client,
+                s3.clone(),
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
-            }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
-
-        f.boxed()
-    } else {
-        do_bigquery_inner(
-            query,
-            &statement_values,
-            &project_id,
-            token.as_str(),
-            timeout_ms,
-            Some(column_order),
-            false,
-            &http_client,
-            s3,
-        )?
+        collection_strategy.collect(results)
     };
 
     let r = run_future_with_polling_update_job_poller(

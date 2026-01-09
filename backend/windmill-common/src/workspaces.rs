@@ -1,14 +1,16 @@
 use async_recursion::async_recursion;
+#[cfg(feature = "cloud")]
+use backon::{ConstantBuilder, Retryable};
 use quick_cache::sync::Cache;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use strum::AsRefStr;
 
 use crate::{
-    error::{to_anyhow, Error, Result},
-    get_database_url, parse_postgres_url,
+    error::{self, to_anyhow, Error, Result},
+    get_database_url,
+    utils::get_custom_pg_instance_password,
     variables::{build_crypt, decrypt},
-    DB,
+    PgDatabase, DB,
 };
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -61,6 +63,32 @@ pub struct GitRepositorySettings {
     pub settings: Option<GitSyncSettings>,
 }
 
+impl GitRepositorySettings {
+    pub fn is_script_meets_min_version(&self, min_version: u32) -> error::Result<bool> {
+        // example: "hub/28102/sync-script-to-git-repo-windmill"
+        let current = self
+            .script_path
+            .split("/") // -> ["hub" "28102" "sync-script-to-git-repo-windmill"]
+            .skip(1) // omit "hub"
+            .next() // get numeric id
+            .ok_or(Error::InternalErr(format!(
+                "cannot get script version id from: {}",
+                &self.script_path
+            )))?
+            .parse()
+            .unwrap_or_else(|e| {
+                tracing::warn!(
+                    "cannot get script version id from: {}. e: {e}",
+                    &self.script_path
+                );
+
+                u32::MAX
+            });
+
+        Ok(current >= min_version) // this works on assumption that all scripts in hub have sequential ids
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct GitSyncSettings {
     pub include_path: Vec<String>,
@@ -94,41 +122,125 @@ lazy_static::lazy_static! {
 }
 
 #[cfg(feature = "cloud")]
-pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> TeamPlanStatus {
+pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPlanStatus> {
     let cached = TEAM_PLAN_CACHE.get(_w_id);
     if let Some(cached) = cached {
-        return cached;
+        return Ok(cached);
     }
-    let team_plan_info = sqlx::query_as!(
-        TeamPlanStatus,
-        r#"
-            SELECT
-                w.premium,
-                COALESCE(cw.is_past_due, false) as "is_past_due!",
-                cw.max_tolerated_executions
-            FROM
-                workspace w
-                LEFT JOIN cloud_workspace_settings cw ON cw.workspace_id = w.id
-            WHERE
-                w.id = $1
-        "#,
-        _w_id
+
+    let team_plan_info = (|| async {
+        sqlx::query_as!(
+            TeamPlanStatus,
+            r#"
+                SELECT
+                    w.premium,
+                    COALESCE(cw.is_past_due, false) as "is_past_due!",
+                    cw.max_tolerated_executions
+                FROM
+                    workspace w
+                    LEFT JOIN cloud_workspace_settings cw ON cw.workspace_id = w.id
+                WHERE
+                    w.id = $1
+            "#,
+            _w_id
+        )
+        .fetch_optional(_db)
+        .await
+    })
+    .retry(
+        ConstantBuilder::default()
+            .with_delay(std::time::Duration::from_secs(5))
+            .with_max_times(10),
     )
-    .fetch_one(_db)
+    .notify(|err, dur| {
+        tracing::error!(
+            "Failed to get team plan status for workspace {_w_id} (will retry in {dur:?}): {err:#}"
+        );
+    })
     .await
-    .unwrap_or_else(|_| TeamPlanStatus {
+    .map_err(|err| {
+        Error::internal_err(format!(
+            "Failed to get team plan status for workspace {_w_id} after 10 retries: {err:#}"
+        ))
+    })?
+    .unwrap_or_else(|| TeamPlanStatus {
         premium: false,
         is_past_due: false,
         max_tolerated_executions: None,
     });
+
     TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
-    team_plan_info
+
+    Ok(team_plan_info)
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTable {
+    pub database: DataTableDatabase,
+}
+
+#[derive(Deserialize, Serialize, Debug)]
+pub struct DataTableDatabase {
+    pub resource_type: DataTableCatalogResourceType,
+    pub resource_path: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[derive(AsRefStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum DataTableCatalogResourceType {
+    #[strum(serialize = "postgres")]
+    Postgresql,
+    Instance,
+}
+
+pub async fn get_datatable_resource_from_db_unchecked(
+    db: &DB,
+    w_id: &str,
+    name: &str,
+) -> Result<serde_json::Value> {
+    let datatable = sqlx::query_scalar!(
+        r#"
+            SELECT ws.datatable->'datatables'->$2 AS config
+            FROM workspace_settings ws
+            WHERE ws.workspace_id = $1
+        "#,
+        &w_id,
+        name
+    )
+    .fetch_one(db)
+    .await
+    .map_err(|err| Error::internal_err(format!("getting datatable {name}: {err}")))?
+    .ok_or_else(|| Error::internal_err(format!("datatable {name} not found")))?;
+    let datatable = serde_json::from_value::<DataTable>(datatable)?;
+
+    let db_resource = if datatable.database.resource_type == DataTableCatalogResourceType::Instance
+    {
+        let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+        pg_creds.dbname = datatable.database.resource_path.clone();
+        pg_creds.user = Some("custom_instance_user".to_string());
+        pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+        serde_json::to_value(&pg_creds)
+            .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
+    } else {
+        transform_json_unchecked(
+            &serde_json::Value::String(format!("$res:{}", datatable.database.resource_path)),
+            w_id,
+            db,
+        )
+        .await?
+    };
+
+    Ok(db_resource)
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct Ducklake {
     pub catalog: DucklakeCatalog,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -160,6 +272,8 @@ pub struct DucklakeWithConnData {
     pub catalog: DucklakeCatalog,
     pub catalog_resource: serde_json::Value,
     pub storage: DucklakeStorage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_args: Option<String>,
 }
 
 pub async fn get_ducklake_from_db_unchecked(
@@ -185,15 +299,12 @@ pub async fn get_ducklake_from_db_unchecked(
 
     let catalog_resource =
         if ducklake.catalog.resource_type == DucklakeCatalogResourceType::Instance {
-            let pg_creds = parse_postgres_url(&get_database_url().await?)?;
-            json!({
-                "dbname": ducklake.catalog.resource_path,
-                "host": pg_creds.host,
-                "port": pg_creds.port,
-                "user": "ducklake_user",
-                "sslmode": pg_creds.ssl_mode,
-                "password": get_ducklake_instance_pg_catalog_password(&db).await?,
-            })
+            let mut pg_creds = PgDatabase::parse_uri(&get_database_url().await?.as_str().await)?;
+            pg_creds.dbname = ducklake.catalog.resource_path.clone();
+            pg_creds.user = Some("custom_instance_user".to_string());
+            pg_creds.password = Some(get_custom_pg_instance_password(&db).await?);
+            serde_json::to_value(&pg_creds)
+                .map_err(|e| Error::internal_err(format!("Error serializing pg creds: {}", e)))?
         } else {
             transform_json_unchecked(
                 &serde_json::Value::String(format!("$res:{}", ducklake.catalog.resource_path)),
@@ -206,21 +317,9 @@ pub async fn get_ducklake_from_db_unchecked(
         catalog_resource,
         catalog: ducklake.catalog,
         storage: ducklake.storage,
+        extra_args: ducklake.extra_args,
     };
     Ok(ducklake)
-}
-
-pub async fn get_ducklake_instance_pg_catalog_password(db: &DB) -> Result<String> {
-    sqlx::query_scalar!(
-        "SELECT value->>'ducklake_user_pg_pwd' FROM global_settings WHERE name = 'ducklake_settings';"
-    )
-    .fetch_optional(db)
-    .await?
-    .flatten().ok_or_else(||
-        Error::BadRequest(format!(
-            "Ducklake instance catalog password not found, did you run migrations ?"
-        ))
-    )
 }
 
 // This does not check for any permission. Should never be displayed to a user.

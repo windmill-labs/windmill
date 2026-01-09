@@ -1,14 +1,14 @@
 <script lang="ts">
-	import AssignableTags from '$lib/components/AssignableTags.svelte'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import OccupancyBars from '$lib/components/OccupancyBars.svelte'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
-	import DefaultTags from '$lib/components/DefaultTags.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import QueueMetricsDrawer from '$lib/components/QueueMetricsDrawer.svelte'
+	import ManageTagsDrawer from '$lib/components/ManageTagsDrawer.svelte'
 	import SimpleEditor from '$lib/components/SimpleEditor.svelte'
 	import Cell from '$lib/components/table/Cell.svelte'
 	import DataTable from '$lib/components/table/DataTable.svelte'
@@ -26,8 +26,16 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { displayDate, groupBy, pluralize, retrieveCommonWorkerPrefix, truncate } from '$lib/utils'
-	import { AlertTriangle, LineChart, List, Plus, Search, Terminal } from 'lucide-svelte'
-	import { getContext, onDestroy, onMount } from 'svelte'
+	import {
+		ExternalLink,
+		LineChart,
+		Plus,
+		Search,
+		Tags,
+		Terminal,
+		TriangleAlert
+	} from 'lucide-svelte'
+	import { onDestroy, onMount, untrack } from 'svelte'
 
 	import YAML from 'yaml'
 	import { DEFAULT_TAGS_WORKSPACES_SETTING } from '$lib/consts'
@@ -35,19 +43,22 @@
 	import HttpAgentWorkerDrawer from '$lib/components/HttpAgentWorkerDrawer.svelte'
 	import WorkerRepl from '$lib/components/WorkerRepl.svelte'
 	import Select from '$lib/components/select/Select.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import TagList from '$lib/components/TagList.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
+	import MeltTooltip from '$lib/components/meltComponents/Tooltip.svelte'
 
-	let workers: WorkerPing[] | undefined = undefined
-	let workerGroups: Record<string, any> | undefined = undefined
-	let groupedWorkers: [string, [string, WorkerPing[]][]][] = []
+	let workers: WorkerPing[] | undefined = $state(undefined)
+	let workerGroups: Record<string, any> | undefined = $state(undefined)
+	let groupedWorkers = $derived.by(() => groupWorkers(workers, workerGroups))
 	let intervalId: number | undefined
 	const splitter = '_%%%_'
-	let customTags: string[] | undefined = undefined
-	$: groupedWorkers = groupWorkers(workers, workerGroups)
+	let customTags: string[] | undefined = $state(undefined)
 
 	function groupWorkers(
 		workers: WorkerPing[] | undefined,
 		workerGroups: Record<string, any> | undefined
-	): [string, [string, WorkerPing[]][]][] {
+	): [string, [string, WorkerPing[]][], boolean][] {
 		if (!workers && !workerGroups) {
 			return []
 		}
@@ -67,9 +78,16 @@
 				grouped.push([group, []])
 			}
 		})
-		return grouped
+
+		// Add isAgent detection to each group
+		return grouped.map(([groupName, workerInstances]) => {
+			const isAgent = workerInstances.some(([_, pings]) =>
+				pings.some((ping) => ping.worker.startsWith('ag-'))
+			)
+			return [groupName, workerInstances, isAgent]
+		})
 	}
-	let timeSinceLastPing = 0
+	let timeSinceLastPing = $state(0)
 
 	async function loadWorkers(): Promise<void> {
 		try {
@@ -99,8 +117,8 @@
 		}
 	}
 
-	let defaultTagPerWorkspace: boolean | undefined = undefined
-	let defaultTagWorkspaces: string[] = []
+	let defaultTagPerWorkspace: boolean | undefined = $state(undefined)
+	let defaultTagWorkspaces: string[] = $state([])
 	async function loadDefaultTagsPerWorkspace() {
 		try {
 			defaultTagPerWorkspace = await WorkerService.isDefaultTagsPerWorkspace()
@@ -109,6 +127,70 @@
 			})) as any
 		} catch (err) {
 			sendUserToast(`Could not load default tag per workspace setting: ${err}`, true)
+		}
+	}
+
+	function parseLicenseKey(key: string): {
+		valid: boolean
+		expiration?: Date
+	} {
+		let splitted = key.split('.')
+		if (splitted.length >= 3) {
+			try {
+				let i = parseInt(splitted[1])
+				let date = new Date(i * 1000)
+				const stringDate = date.toLocaleDateString()
+				if (stringDate !== 'Invalid Date') {
+					return {
+						valid: date.getTime() > Date.now(),
+						expiration: date
+					}
+				}
+			} catch {}
+		}
+		return {
+			valid: false
+		}
+	}
+
+	async function checkLicenseExpiration() {
+		if (!$superadmin || !$enterpriseLicense) {
+			return
+		}
+
+		try {
+			const licenseKey = (await SettingService.getGlobal({
+				key: 'license_key'
+			})) as string
+
+			if (!licenseKey) {
+				return
+			}
+
+			const { valid, expiration } = parseLicenseKey(licenseKey)
+
+			if (!valid && expiration) {
+				// License is expired
+				sendUserToast(
+					`Enterprise license key expired on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
+					true
+				)
+			} else if (expiration) {
+				// Check if expires within 7 days
+				const daysUntilExpiration = Math.floor(
+					(expiration.getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+				)
+
+				if (daysUntilExpiration <= 7 && daysUntilExpiration >= 0) {
+					sendUserToast(
+						`Enterprise license key expires in ${daysUntilExpiration} day${daysUntilExpiration !== 1 ? 's' : ''} on ${expiration.toLocaleDateString()}. Please renew your license key to continue using Windmill.`,
+						true
+					)
+				}
+			}
+		} catch (err) {
+			// Silently fail - don't show errors for license check
+			console.error('Failed to check license expiration:', err)
 		}
 	}
 
@@ -125,7 +207,6 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
-	$: ($superadmin || $devopsRole) && loadDefaultTagsPerWorkspace()
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -136,16 +217,54 @@
 		}
 	})
 
-	let newConfigName = ''
+	let newConfigName = $state('')
+	let shouldAutoOpenDrawer = $state('')
 
-	async function addConfig() {
-		await ConfigService.updateConfig({ name: 'worker__' + newConfigName, requestBody: {} })
-		loadWorkerGroups()
+	function handleWorkerGroupDeleted(deletedGroupName: string) {
+		// If the deleted group was the currently selected one, check if group has workers
+		if (selectedTab === deletedGroupName) {
+			// Find the current group to check if it has active workers
+			const currentGroup = groupedWorkers.find((group) => group[0] === deletedGroupName)
+			const hasActiveWorkers =
+				currentGroup && currentGroup[1].some(([_, workers]) => workers.length > 0)
+
+			// Only select a new group if the current group has no active workers
+			if (!hasActiveWorkers) {
+				// Find available groups (after deletion)
+				const availableGroups = groupedWorkers
+					.map((group) => group[0])
+					.filter((group) => group !== deletedGroupName)
+
+				if (availableGroups.length > 0) {
+					// Prioritize 'default' group if available, otherwise pick the first one
+					selectedTab = availableGroups.includes('default') ? 'default' : availableGroups[0]
+				} else {
+					// No groups left, fall back to 'default'
+					selectedTab = 'default'
+				}
+			}
+			// If group has active workers, stay on the same group (workers remain visible without config)
+		}
 	}
 
-	let importConfigDrawer: Drawer | undefined = undefined
-	let importConfigCode = ''
-	let tag: string = ''
+	async function addConfig() {
+		const configName = newConfigName
+		try {
+			await ConfigService.updateConfig({ name: 'worker__' + configName, requestBody: {} })
+			newGroupPopover?.close()
+			await loadWorkerGroups()
+			// Select the new worker group and signal it should auto-open drawer
+			selectedTab = configName
+			shouldAutoOpenDrawer = configName
+			sendUserToast(`Worker group ${configName} created`)
+		} catch (err) {
+			sendUserToast(`Could not create worker group: ${err}`, true)
+		}
+	}
+
+	let importConfigDrawer: Drawer | undefined = $state(undefined)
+	let importConfigCode = $state('')
+	let tag: string = $state('')
 	async function importSingleWorkerConfig(c: any) {
 		if (typeof c === 'object' && c !== null) {
 			if (!c.name || typeof c.name !== 'string') {
@@ -195,28 +314,26 @@
 		await loadWorkerGroups()
 	}
 
-	let queueMetricsDrawer: QueueMetricsDrawer
-	let selectedTab: string = 'default'
-
-	$: groupedWorkers && selectedTab == 'default' && updateSelectedTabIfDefaultDoesNotExist()
+	let queueMetricsDrawer: QueueMetricsDrawer | undefined = $state(undefined)
+	let manageTagsDrawer: ManageTagsDrawer | undefined = $state(undefined)
+	let selectedTab: string = $state('default')
 
 	function updateSelectedTabIfDefaultDoesNotExist() {
-		if (selectedTab == 'default' && !groupedWorkers.some((x) => x[0] == 'default')) {
-			selectedTab = Object.keys(workerGroups ?? {})[0] ?? 'default'
+		if (
+			selectedTab == 'default' &&
+			!groupedWorkers.some((x) => x[0] == 'default') &&
+			Object.keys(workerGroups ?? {})[0]
+		) {
+			selectedTab = Object.keys(workerGroups ?? {})[0]
 		}
 	}
 
-	let search: string = ''
-
-	$: worker_group = filterWorkerGroupByNames(
-		groupedWorkers?.find((x) => x?.[0] == selectedTab),
-		search
-	)
+	let search: string = $state('')
 
 	function filterWorkerGroupByNames(
-		worker_group: [string, [string, WorkerPing[]][]] | undefined,
+		worker_group: [string, [string, WorkerPing[]][], boolean] | undefined,
 		search: string
-	): [string, [string, WorkerPing[]][]] | undefined {
+	): [string, [string, WorkerPing[]][], boolean] | undefined {
 		if (!worker_group) {
 			return undefined
 		}
@@ -244,29 +361,79 @@
 			)
 			.filter(([section, workers]) => workers.length > 0)
 
-		return [worker_group[0], filteredWorkerGroup]
+		return [worker_group[0], filteredWorkerGroup, worker_group[2]]
 	}
-	const openSearchWithPrefilledText: (t?: string) => void = getContext(
-		'openSearchWithPrefilledText'
-	)
 
-	function displayOccupancyRate(occupancy_rate: number | undefined) {
-		if (occupancy_rate == undefined) {
-			return '--'
-		}
-
-		return Math.ceil(occupancy_rate * 100) + '%'
-	}
-	let newHttpAgentWorkerDrawer: Drawer | undefined = undefined
-	let replForWorkerDrawer: Drawer | undefined = undefined
+	let newHttpAgentWorkerDrawer: Drawer | undefined = $state(undefined)
+	let replForWorkerDrawer: Drawer | undefined = $state(undefined)
 
 	function isWorkerMaybeAlive(last_ping: number | undefined): boolean | undefined {
 		return last_ping != undefined ? last_ping < 60 : undefined
 	}
+
+	function getTagMismatchInfo(
+		workerTags: string[] | undefined,
+		configTags: string[] | undefined
+	): { hasMismatch: boolean; added: string[]; removed: string[] } {
+		if (!configTags || configTags.length === 0) {
+			return { hasMismatch: false, added: [], removed: [] }
+		}
+
+		const worker = new Set(workerTags || [])
+		const config = new Set(configTags || [])
+
+		const added = [...worker].filter((tag) => !config.has(tag))
+		const removed = [...config].filter((tag) => !worker.has(tag))
+
+		const hasMismatch = added.length > 0 || removed.length > 0
+
+		return { hasMismatch, added, removed }
+	}
+
+	let newGroupPopover: Popover | undefined = $state(undefined)
+
+	$effect(() => {
+		;($superadmin || $devopsRole) && untrack(() => loadDefaultTagsPerWorkspace())
+	})
+
+	$effect(() => {
+		groupedWorkers &&
+			selectedTab == 'default' &&
+			untrack(() => updateSelectedTabIfDefaultDoesNotExist())
+	})
+
+	$effect(() => {
+		$superadmin && $enterpriseLicense && untrack(() => checkLicenseExpiration())
+	})
+
+	let worker_group = $derived(
+		filterWorkerGroupByNames(
+			groupedWorkers?.find((x) => x?.[0] == selectedTab),
+			search
+		)
+	)
+
+	let columnCount = $derived.by(() => {
+		const config = (workerGroups ?? {})[selectedTab]
+		let cols = 7 // Worker, Worker start, Jobs ran, Memory usage, Limits, Version, Status
+		if (!config || !config.worker_tags || config.worker_tags.length === 0) cols += 1 // Worker tags
+		if ((!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole))
+			cols += 2 // Last job, Occupancy rate
+		if ($superadmin || $devopsRole) cols += 1 // Repl
+		return cols
+	})
 </script>
 
 {#if $superadmin || $devopsRole}
 	<QueueMetricsDrawer bind:this={queueMetricsDrawer} />
+	<ManageTagsDrawer
+		bind:this={manageTagsDrawer}
+		bind:defaultTagPerWorkspace
+		bind:defaultTagWorkspaces
+		onRefresh={() => {
+			loadCustomTags()
+		}}
+	/>
 {/if}
 
 <Drawer bind:this={importConfigDrawer} size="800px">
@@ -281,7 +448,12 @@
 			fixedOverflowWidgets={false}
 		/>
 		{#snippet actions()}
-			<Button size="sm" on:click={importConfigFromYaml} disabled={!importConfigCode}>Import</Button>
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				onClick={importConfigFromYaml}
+				disabled={!importConfigCode}>Import</Button
+			>
 		{/snippet}
 	</DrawerContent>
 </Drawer>
@@ -320,28 +492,30 @@
 	</div>
 {:else}
 	<CenteredPage>
-		<PageHeader
-			title="Workers"
-			tooltip="The workers are the dutiful servants that execute the jobs."
-			documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
-		>
-			{#if $superadmin || $devopsRole}
-				<div class="flex flex-row-reverse w-full pb-2 items-center gap-4">
-					<div>
-						<AssignableTags
-							showWorkspaceRestriction
-							on:refresh={() => {
-								loadCustomTags()
-							}}
-						/>
-					</div>
-					<div>
-						<DefaultTags bind:defaultTagPerWorkspace bind:defaultTagWorkspaces />
-					</div>
-					<div>
+		{#snippet children({ width })}
+			<PageHeader
+				title="Workers"
+				tooltip="The workers are the dutiful servants that execute the jobs."
+				documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+			>
+				{#if $superadmin || $devopsRole}
+					<div class="flex flex-row w-full pb-2 items-center gap-4">
 						<Button
-							size="xs"
-							color="dark"
+							unifiedSize="md"
+							variant="default"
+							startIcon={{
+								icon: Tags
+							}}
+							on:click={() => {
+								manageTagsDrawer?.openDrawer()
+							}}
+						>
+							Manage tags
+						</Button>
+
+						<Button
+							unifiedSize="md"
+							variant="default"
 							startIcon={{
 								icon: LineChart
 							}}
@@ -351,60 +525,40 @@
 						>
 							Queue metrics
 						</Button>
-					</div>
-					<div>
+
 						<Button
-							size="xs"
-							color="dark"
-							startIcon={{
-								icon: List
-							}}
-							on:click={() => {
-								openSearchWithPrefilledText('!')
-							}}
-						>
-							Service logs
-						</Button>
-					</div>
-				</div>
-			{/if}
-		</PageHeader>
-
-		{#if workers != undefined}
-			{#if groupedWorkers.length == 0}
-				<p>No workers seem to be available</p>
-			{/if}
-
-			<div class="pt-4 pb-8 w-full flex justify-between items-center"
-				><h4
-					>{groupWorkers?.length} Worker Groups <Tooltip
-						documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
-						>Worker groups are groups of workers that share a config and are meant to be identical.
-						Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows
-						and can be seen as dedicated queues. Only the corresponding
-					</Tooltip></h4
-				>
-				<div></div>
-
-				{#if $superadmin || $devopsRole}
-					<div class="flex flex-row gap-4 items-center">
-						<Button
-							size="sm"
-							color="light"
-							variant="border"
+							unifiedSize="md"
+							variant="default"
 							startIcon={{ icon: Plus }}
 							on:click={() => {
 								newHttpAgentWorkerDrawer?.toggleDrawer?.()
 							}}>New agent worker</Button
 						>
 						<Popover
-							floatingConfig={{ strategy: 'absolute', placement: 'bottom-end' }}
+							floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
 							containerClasses="border rounded-lg shadow-lg p-4 bg-surface"
+							onKeyDown={(e) => {
+								if (
+									e.key === 'Enter' &&
+									newConfigName &&
+									newConfigName.trim() !== '' &&
+									$enterpriseLicense
+								) {
+									addConfig()
+								}
+							}}
+							onClose={() => {
+								newConfigName = ''
+							}}
+							bind:this={newGroupPopover}
+							targetId="new-group-popover-trigger"
 						>
-							<svelte:fragment slot="trigger">
+							{#snippet trigger()}
 								<div class="flex items-center gap-2">
 									<Button
-										size="sm"
+										id="new-group-popover-trigger"
+										variant="accent"
+										unifiedSize="md"
 										startIcon={{ icon: Plus }}
 										nonCaptureEvent
 										disabled={!$enterpriseLicense}
@@ -445,8 +599,8 @@
 										</Tooltip>
 									</Button>
 								</div>
-							</svelte:fragment>
-							<svelte:fragment slot="content">
+							{/snippet}
+							{#snippet content()}
 								<div class="flex flex-col gap-2 p-4">
 									<input
 										class="mr-2 h-full"
@@ -455,13 +609,11 @@
 									/>
 
 									{#if !$enterpriseLicense}
-										<div class="flex items-center whitespace-nowrap text-yellow-600 gap-2">
-											<AlertTriangle size={16} />
-											EE only
-										</div>
+										<EEOnly />
 									{/if}
 									<Button
-										size="sm"
+										unifiedSize="md"
+										variant="accent"
 										startIcon={{ icon: Plus }}
 										disabled={!newConfigName || !$enterpriseLicense}
 										on:click={addConfig}
@@ -469,86 +621,100 @@
 										Create
 									</Button>
 								</div>
-							</svelte:fragment>
+							{/snippet}
 						</Popover>
 					</div>
-				{/if}</div
-			>
+				{/if}
+			</PageHeader>
 
-			{#if (groupedWorkers ?? []).length > 5}
-				<div class="flex gap-2 items-center">
-					<div class="text-secondary text-sm">Worker group:</div>
-					<Select items={groupedWorkers.map((x) => ({ value: x[0] }))} bind:value={selectedTab} />
-				</div>
-			{:else}
-				<Tabs bind:selected={selectedTab}>
-					{#each groupedWorkers.map((x) => x[0]) as name (name)}
-						{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
+			{#if workers != undefined}
+				{#if groupedWorkers.length == 0}
+					<p>No workers seem to be available</p>
+				{/if}
 
-						{#if worker_group}
-							{@const activeWorkers = worker_group?.[1].flatMap((x) =>
-								x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-							)}
-							<Tab value={worker_group[0]}>
-								{`${worker_group[0]} - ${pluralize(activeWorkers?.length, 'worker')}`}
-								<Tooltip>Number of workers active in the last 15s</Tooltip>
-							</Tab>
-						{:else}
-							<Tab value={name}>
-								{name} (0 worker)
-							</Tab>
-						{/if}
-					{/each}
-				</Tabs>
-			{/if}
+				{#if (groupedWorkers ?? []).length < 6}
+					<Tabs bind:selected={selectedTab}>
+						{#each groupedWorkers.map((x) => x[0]) as name (name)}
+							{@const worker_group = groupedWorkers.find((x) => x[0] == name)}
 
-			<div>
-				{#if worker_group}
-					{@const config = (workerGroups ?? {})[worker_group[0]]}
-					{@const activeWorkers = worker_group?.[1].flatMap((x) =>
-						x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
-					)}
-					<WorkspaceGroup
-						{customTags}
-						name={worker_group[0]}
-						workers={worker_group[1]}
-						{config}
-						on:reload={() => {
-							loadWorkerGroups()
-						}}
-						activeWorkers={activeWorkers?.length ?? 0}
-						{defaultTagPerWorkspace}
-					/>
+							{#if worker_group}
+								{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+									x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+								)}
+								<Tab value={worker_group[0]} label={worker_group[0]}>
+									{#snippet extra()}
+										<span class="text-2xs text-hint">
+											{pluralize(activeWorkers?.length, 'worker')}
+										</span>
+									{/snippet}
+								</Tab>
+							{:else}
+								<Tab value={name} label={`${name} (0 worker)`} />
+							{/if}
+						{/each}
+					</Tabs>
+				{/if}
 
-					<div class="flex flex-row items-center gap-2 relative my-2">
-						<input
-							class="max-w-80 border rounded-md !pl-8"
-							placeholder="Search workers by name..."
-							autocomplete="off"
-							bind:value={search}
+				<div>
+					{#if worker_group}
+						{@const config = (workerGroups ?? {})[worker_group[0]]}
+						{@const activeWorkers = worker_group?.[1].flatMap((x) =>
+							x[1]?.filter((y) => (y.last_ping ?? 0) < 15)
+						)}
+
+						<WorkspaceGroup
+							{customTags}
+							name={worker_group[0]}
+							workers={worker_group[1]}
+							isAgent={worker_group[2]}
+							{config}
+							on:reload={() => {
+								loadWorkerGroups()
+							}}
+							activeWorkers={activeWorkers?.length ?? 0}
+							{defaultTagPerWorkspace}
+							{width}
+							shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
+							onDrawerOpened={() => {
+								shouldAutoOpenDrawer = ''
+							}}
+							onDeleted={handleWorkerGroupDeleted}
+							selectGroup={(groupedWorkers ?? []).length > 5 ? selectGroup : undefined}
 						/>
-						<Search class="absolute left-2 " size={14} />
-					</div>
-					{#if worker_group?.[1].length == 0 && search}
-						<div class="text-xs text-tertiary">
-							No workers found. Reset the search to see all workers.
+
+						<div class="mt-6"></div>
+
+						<div class="flex flex-row gap-2 items-center justify-between">
+							<div class="text-emphasis font-semibold text-xs">Active workers</div>
+							<div class="flex flex-row items-center gap-2 relative mb-2">
+								<TextInput
+									inputProps={{
+										placeholder: `Search workers in group '${worker_group[0]}'`,
+										autocomplete: 'off'
+									}}
+									class="pl-8 min-w-80"
+									bind:value={search}
+								/>
+								<Search class="absolute left-2" size={14} />
+							</div>
 						</div>
-					{:else}
+
 						<DataTable>
 							<Head>
 								<tr>
 									<Cell head first>Worker</Cell>
-									<Cell head>
-										<div class="flex flex-row items-center gap-1">
-											Worker Tags
-											<Tooltip
-												documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
-											>
-												If defined, the workers only pull jobs with the same corresponding tag
-											</Tooltip>
-										</div>
-									</Cell>
-									<Cell head>Last ping</Cell>
+									{#if !config || !config.worker_tags || config.worker_tags.length === 0}
+										<Cell head>
+											<div class="flex flex-row items-center gap-1 min-w-32">
+												Worker tags
+												<Tooltip
+													documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups#assign-custom-worker-groups"
+												>
+													If defined, the workers only pull jobs with the same corresponding tag
+												</Tooltip>
+											</div>
+										</Cell>
+									{/if}
 									<Cell head>Worker start</Cell>
 									<Cell head>Jobs ran</Cell>
 									{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
@@ -558,10 +724,10 @@
 									<Cell head>Memory usage<br />(Windmill)</Cell>
 									<Cell head>Limits</Cell>
 									<Cell head>Version</Cell>
-									<Cell head>Liveness</Cell>
+									<Cell head>Status</Cell>
 									{#if $superadmin || $devopsRole}
 										<Cell head>
-											Live Shell
+											Repl
 											<Tooltip>
 												<p class="text-sm">
 													Open a live shell to execute bash commands on the machine where the worker
@@ -572,173 +738,279 @@
 									{/if}
 								</tr>
 							</Head>
-							<tbody class="divide-y">
-								{#each worker_group[1] as [section, workers]}
-									{@const hostname = section?.split(splitter)?.[0]}
-									<tr class="border-t">
-										<Cell
-											first
-											colspan={(!config || config?.dedicated_worker == undefined) &&
-											($superadmin || $devopsRole)
-												? 12
-												: 9}
-											scope="colgroup"
-											class="bg-surface-secondary/30 !py-1 border-b !text-xs"
-										>
-											<div class="flex flex-row w-full">
-												<div class="min-w-64">
-													Host:
-													<span class="font-semibold">{hostname}</span>
-												</div>
-												<span class="ml-4">IP: </span>
-												<span class="font-semibold">{workers[0].ip}</span>
+							<tbody>
+								{#if worker_group?.[1].length > 0}
+									{#each worker_group[1] as [section, workers], groupIdx}
+										{@const hostname = section?.split(splitter)?.[0]}
+										<tr>
+											<Cell
+												first
+												colspan={columnCount}
+												scope="colgroup"
+												class="!text-xs !pb-0 {groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}"
+											>
+												<div class="flex flex-row w-full text-2xs text-hint">
+													<div class="">
+														Host:
+														<span class="">{hostname}</span>
+													</div>
+													<span class="ml-4">IP: </span>
+													<span class="">{workers[0].ip}</span>
 
-												{#if workers?.length > 1}
-													<span class="font-semibold ml-8">{workers?.length} Workers</span>
-												{/if}
+													{#if workers?.length > 1}
+														<span class="ml-8">{workers?.length} Workers</span>
+													{/if}
+												</div>
+											</Cell>
+										</tr>
+										{#if workers}
+											{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
+												{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
+												{@const tagMismatchInfo = getTagMismatchInfo(
+													custom_tags,
+													config?.worker_tags
+												)}
+												<tr class={groupIdx % 2 == 1 ? 'bg-surface-secondary/50' : ''}>
+													<Cell class="text-primary" first>
+														{@const underscorePos = worker.search('_')}
+														<div class="flex items-center gap-2">
+															<span>
+																{#if underscorePos === -1}
+																	{worker}
+																{:else}
+																	{truncate(worker, underscorePos)}
+																	<Tooltip>{worker}</Tooltip>
+																{/if}
+															</span>
+															{#if config && tagMismatchInfo.hasMismatch}
+																<MeltTooltip>
+																	<Badge color="yellow">
+																		<TriangleAlert size={14} />
+																	</Badge>
+
+																	{#snippet text()}
+																		<div class="flex flex-col gap-2 text-xs max-w-md">
+																			<div class="font-semibold text-emphasis"
+																				>Tag configuration mismatch</div
+																			>
+																			<p
+																				>This worker has tags that differ from the config. This
+																				could be due to a recent update of the config or because the
+																				worker has tags defined as environment variables.</p
+																			>
+
+																			{#if tagMismatchInfo.added.length > 0}
+																				<div>
+																					<div class="text-emphasis font-semibold"
+																						>Additional tags:</div
+																					>
+																					<TagList
+																						tags={tagMismatchInfo.added}
+																						class="flex flex-wrap gap-1"
+																					/>
+																				</div>
+																			{/if}
+
+																			{#if tagMismatchInfo.removed.length > 0}
+																				<div>
+																					<div class="text-emphasis font-semibold"
+																						>Missing tags:</div
+																					>
+																					<TagList
+																						tags={tagMismatchInfo.removed}
+																						class="flex flex-wrap gap-1"
+																					/>
+																				</div>
+																			{/if}
+																		</div>
+																	{/snippet}
+																</MeltTooltip>
+															{/if}
+														</div>
+													</Cell>
+													{#if !config || !config.worker_tags || config.worker_tags.length === 0}
+														<Cell class="min-w-0 max-w-32">
+															<TagList tags={custom_tags ?? []} maxVisible={1} />
+														</Cell>
+													{/if}
+													<Cell class="text-secondary">{displayDate(started_at)}</Cell>
+													<Cell class="text-secondary">{jobs_executed}</Cell>
+													{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
+														<Cell class="text-secondary">
+															{#if last_job_id}
+																<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
+																	View last job
+																	<ExternalLink size={12} class="inline-block" />
+																</a>
+																<br />
+																{last_job_workspace_id}
+															{/if}
+														</Cell>
+														<Cell class="text-secondary">
+															<OccupancyBars
+																rate_15s={occupancy_rate_15s}
+																rate_5m={occupancy_rate_5m}
+																rate_30m={occupancy_rate_30m}
+																rate_ever={occupancy_rate}
+															/>
+														</Cell>
+													{/if}
+													<Cell class="text-secondary">
+														<div class="flex flex-col gap-1">
+															<div>
+																{memory_usage
+																	? Math.round(memory_usage / 1024 / 1024) + 'MB'
+																	: '--'}
+															</div>
+															<div>
+																({wm_memory_usage
+																	? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
+																	: '--'})
+															</div>
+														</div>
+													</Cell>
+													<Cell class="text-secondary">
+														<div class="flex flex-col gap-1">
+															<div>
+																{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
+															</div>
+															<div>
+																{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
+															</div>
+														</div>
+													</Cell>
+													<Cell class="text-secondary">
+														<div class="!text-2xs" title={wm_version}>
+															{wm_version.split('-')[0]}
+														</div>
+													</Cell>
+													<Cell class="text-secondary">
+														{@const pingText =
+															last_ping != undefined
+																? `${last_ping + timeSinceLastPing}s ago`
+																: 'Unknown'}
+														{@const statusText =
+															isWorkerAlive != undefined
+																? isWorkerAlive
+																	? 'Alive'
+																	: 'Dead'
+																: 'Unknown'}
+														<div class="min-w-24 flex flex-row gap-1 items-center">
+															<Badge
+																color={isWorkerAlive != undefined
+																	? isWorkerAlive
+																		? 'green'
+																		: 'red'
+																	: 'gray'}
+															>
+																{statusText}
+															</Badge>
+															<div class="text-2xs text-hint">{pingText}</div>
+														</div>
+													</Cell>
+													{#if $superadmin || $devopsRole}
+														<Cell class="text-secondary">
+															<Button
+																unifiedSize="sm"
+																color="light"
+																on:click={() => {
+																	if (isWorkerAlive === false) {
+																		sendUserToast('Worker must be alive', true)
+																		return
+																	}
+																	tag = retrieveCommonWorkerPrefix(worker)
+																	replForWorkerDrawer?.openDrawer()
+																}}
+																startIcon={{ icon: Terminal }}
+																title="Open repl"
+															></Button>
+														</Cell>
+													{/if}
+												</tr>
+											{/each}
+										{/if}
+									{/each}
+								{:else if search}
+									<tr>
+										<Cell colspan={columnCount}>
+											<div class="text-xs text-primary py-2 text-center">
+												No active workers found matching the search query
 											</div>
 										</Cell>
 									</tr>
-									{#if workers}
-										{#each workers as { worker, custom_tags, last_ping, started_at, jobs_executed, last_job_id, last_job_workspace_id, occupancy_rate_15s, occupancy_rate_5m, occupancy_rate_30m, occupancy_rate, wm_version, vcpus, memory, memory_usage, wm_memory_usage }}
-											{@const isWorkerAlive = isWorkerMaybeAlive(last_ping)}
-											<tr>
-												<Cell first>
-													{@const underscorePos = worker.search('_')}
-													{#if underscorePos === -1}
-														{worker}
-													{:else}
-														{truncate(worker, underscorePos)}
-														<Tooltip>{worker}</Tooltip>
-													{/if}
-												</Cell>
-												<Cell>
-													{#if custom_tags && custom_tags?.length > 2}
-														{truncate(custom_tags?.join(', ') ?? '', 10)}
-														<Tooltip>{custom_tags?.join(', ')}</Tooltip>
-													{:else}
-														{custom_tags?.join(', ') ?? ''}
-													{/if}
-												</Cell>
-												<Cell
-													>{last_ping != undefined ? last_ping + timeSinceLastPing : -1}s ago</Cell
-												>
-												<Cell>{displayDate(started_at)}</Cell>
-												<Cell>{jobs_executed}</Cell>
-												{#if (!config || config?.dedicated_worker == undefined) && ($superadmin || $devopsRole)}
-													<Cell>
-														{#if last_job_id}
-															<a href={`/run/${last_job_id}?workspace=${last_job_workspace_id}`}>
-																View last job
-															</a>
-															<br />
-															(workspace {last_job_workspace_id})
-														{/if}
-													</Cell>
-													<Cell>
-														{displayOccupancyRate(occupancy_rate_15s)}/{displayOccupancyRate(
-															occupancy_rate_5m
-														)}/{displayOccupancyRate(occupancy_rate_30m)}/{displayOccupancyRate(
-															occupancy_rate
-														)}
-													</Cell>
-												{/if}
-												<Cell>
-													<div class="flex flex-col gap-1">
-														<div>
-															{memory_usage ? Math.round(memory_usage / 1024 / 1024) + 'MB' : '--'}
-														</div>
-														<div>
-															({wm_memory_usage
-																? Math.round(wm_memory_usage / 1024 / 1024) + 'MB'
-																: '--'})
-														</div>
-													</div>
-												</Cell>
-												<Cell>
-													<div class="flex flex-col gap-1">
-														<div>
-															{vcpus ? (vcpus / 100000).toFixed(2) + ' vCPUs' : '--'}
-														</div>
-														<div>
-															{memory ? Math.round(memory / 1024 / 1024) + 'MB' : '--'}
-														</div>
-													</div>
-												</Cell>
-												<Cell>
-													<div class="!text-2xs">
-														{wm_version.split('-')[0]}<Tooltip>{wm_version}</Tooltip>
-													</div>
-												</Cell>
-												<Cell>
-													<Badge
-														color={isWorkerAlive != undefined
-															? isWorkerAlive
-																? 'green'
-																: 'red'
-															: 'gray'}
-													>
-														{isWorkerAlive != undefined
-															? isWorkerAlive
-																? 'Alive'
-																: 'Dead'
-															: 'Unknown'}
-													</Badge>
-												</Cell>
-												{#if $superadmin || $devopsRole}
-													<Cell>
-														<Button
-															size="xs"
-															color="light"
-															on:click={() => {
-																if (isWorkerAlive === false) {
-																	sendUserToast('Worker must be alive', true)
-																	return
-																}
-																tag = retrieveCommonWorkerPrefix(worker)
-																replForWorkerDrawer?.openDrawer()
-															}}
-															startIcon={{ icon: Terminal }}
-														>
-															ssh
-														</Button>
-													</Cell>
-												{/if}
-											</tr>
-										{/each}
-									{/if}
-								{/each}
+								{:else}
+									<tr>
+										<Cell colspan={columnCount}>
+											<div class="text-xs text-primary py-2 text-center">
+												No active workers found for the group '{worker_group[0]}'
+											</div>
+										</Cell>
+									</tr>
+								{/if}
 							</tbody>
 						</DataTable>
-					{/if}
-				{:else}
-					{@const worker_group = Object.entries(workerGroups ?? {})
-						.filter((x) => !groupedWorkers.some((y) => y[0] == x[0]))
-						.find((x) => x[0] == selectedTab)}
+					{:else}
+						{@const worker_group = Object.entries(workerGroups ?? {})
+							.filter((x) => !groupedWorkers.some((y) => y[0] == x[0]))
+							.find((x) => x[0] == selectedTab)}
 
-					{#if worker_group}
-						<WorkspaceGroup
-							{customTags}
-							workers={worker_group[1]}
-							on:reload={() => {
-								loadWorkerGroups()
-							}}
-							name={worker_group[0]}
-							config={worker_group[1]}
-							activeWorkers={0}
-						/>
-						<div class="text-xs text-tertiary"> No workers currently in this worker group </div>
+						{#if worker_group}
+							<WorkspaceGroup
+								{customTags}
+								workers={worker_group[1]}
+								isAgent={false}
+								on:reload={() => {
+									loadWorkerGroups()
+								}}
+								name={worker_group[0]}
+								config={worker_group[1]}
+								activeWorkers={0}
+								{width}
+								shouldAutoOpenDrawer={shouldAutoOpenDrawer === worker_group[0]}
+								onDrawerOpened={() => {
+									shouldAutoOpenDrawer = ''
+								}}
+								onDeleted={handleWorkerGroupDeleted}
+							/>
+							<div class="text-xs text-primary"> No workers currently in this worker group </div>
+						{/if}
 					{/if}
+				</div>
+				<div class="pb-8"></div>
+				<!-- Agent worker groups don't have autoscaling -->
+				{#if worker_group?.[2] === false}
+					<AutoscalingEvents worker_group={selectedTab} />
 				{/if}
-			</div>
-			<div class="pb-20"></div>
-			<AutoscalingEvents worker_group={selectedTab} />
-		{:else}
-			<div class="flex flex-col">
-				{#each new Array(4) as _}
-					<Skeleton layout={[[8], 1]} />
-				{/each}
-			</div>
-		{/if}
+			{:else}
+				<div class="flex flex-col">
+					{#each new Array(4) as _}
+						<Skeleton layout={[[8], 1]} />
+					{/each}
+				</div>
+			{/if}
+		{/snippet}
 	</CenteredPage>
 {/if}
+
+{#snippet selectGroup()}
+	<div class="flex gap-2 items-center">
+		<div class="text-secondary text-xs"
+			>Worker group
+			<Tooltip
+				documentationLink="https://www.windmill.dev/docs/core_concepts/worker_groups"
+				wrapperClass="inline-block"
+				>Worker groups are groups of workers that share a config and are meant to be identical.
+				Worker groups are meant to be used with tags. Tags can be assigned to scripts and flows and
+				can be seen as dedicated queues. Only the corresponding
+			</Tooltip>
+		</div>
+		<Select
+			inputClass="text-sm font-semibold text-emphasis"
+			items={groupedWorkers.map((x) => ({
+				value: x[0],
+				subtitle: `${pluralize(x[1]?.flatMap((x) => x[1]?.filter((y) => (y.last_ping ?? 0) < 15))?.length ?? 0, 'worker')}`
+			}))}
+			bind:value={selectedTab}
+		/>
+	</div>
+{/snippet}

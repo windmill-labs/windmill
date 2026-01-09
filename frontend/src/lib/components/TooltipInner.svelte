@@ -8,7 +8,7 @@
 </script>
 
 <div
-	class="shadow max-w-sm break-words py-2 px-3 rounded-md text-sm font-normal !text-gray-300 bg-gray-800 whitespace-normal text-left"
+	class="shadow-lg max-w-sm break-words py-2 px-3 rounded-md text-xs font-normal text-primary bg-surface-secondary whitespace-normal text-left dark:border max-h-64 overflow-y-auto"
 >
 	{#if markdownTooltip}
 		<div class="prose-sm">
@@ -19,7 +19,7 @@
 	{/if}
 
 	{#if documentationLink}
-		<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
+		<a href={documentationLink} target="_blank">
 			<div class="flex flex-row gap-2 mt-4">
 				See documentation
 				<ExternalLink size="16" />

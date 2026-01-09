@@ -70,6 +70,7 @@
 					| undefined)
 			| undefined
 		workspace?: string | undefined
+		chatInputEnabled?: boolean
 		actions?: import('svelte').Snippet<[{ item: { id: string; value: string } }]> | undefined
 	}
 
@@ -112,6 +113,7 @@
 		lightHeaderFont = false,
 		computeS3ForceViewerPolicies = undefined,
 		workspace = undefined,
+		chatInputEnabled = false,
 		actions: actions_render = undefined
 	}: Props = $props()
 
@@ -206,8 +208,17 @@
 
 	function handleHiddenFields(schema: Schema | any, args: Record<string, any>) {
 		for (const x of fields) {
-			if (schema?.properties?.[x.value]?.showExpr) {
-				if (computeShow(x.value, schema.properties?.[x.value]?.showExpr, args)) {
+			const prop = schema?.properties?.[x.value]
+			if (prop?.hideWhenChatEnabled && chatInputEnabled) {
+				if (!hidden[x.value]) {
+					hidden[x.value] = true
+					delete args[x.value]
+					inputCheck[x.value] = true
+				}
+				continue
+			}
+			if (prop?.showExpr) {
+				if (computeShow(x.value, prop.showExpr, args)) {
 					hidden[x.value] = false
 				} else if (!hidden[x.value]) {
 					hidden[x.value] = true
@@ -235,13 +246,18 @@
 		;[schema, args]
 
 		if (args && typeof args == 'object') {
-			let oneShowExpr = false
+			let hasShowExpr = false
+			let hasHideWhenChatEnabled = false
 			for (const key of fields) {
-				if (schema?.properties?.[key.value]?.showExpr) {
-					oneShowExpr = true
+				const prop = schema?.properties?.[key.value]
+				if (prop?.showExpr) {
+					hasShowExpr = true
+				}
+				if (prop?.hideWhenChatEnabled && chatInputEnabled) {
+					hasHideWhenChatEnabled = true
 				}
 			}
-			if (!oneShowExpr) {
+			if (!hasShowExpr && !hasHideWhenChatEnabled) {
 				return
 			}
 			for (const key in args) {
@@ -273,13 +289,13 @@
 	{#if keys.length > 0 && args}
 		{#each fields as item, i (item.id)}
 			{@const argName = item.value}
+			{@const prop = schema?.properties?.[argName]}
 			<ResizeTransitionWrapper
 				vertical
 				class={twMerge(
 					typeof diff[argName] === 'object' &&
 						diff[argName].diff !== 'same' &&
-						'bg-red-300 dark:bg-red-800 rounded-md',
-					'relative'
+						'bg-red-300 dark:bg-red-800 rounded-md'
 				)}
 				innerClass="w-full"
 			>
@@ -341,12 +357,12 @@
 					{/if}
 					<!-- svelte-ignore a11y_no_static_element_interactions -->
 					<div
-						class="flex flex-row items-center {largeGap ? 'pb-4' : ''} "
+						class="flex flex-row items-center {largeGap ? 'pb-4' : 'pb-2'} "
 						onclick={() => {
 							dispatch('click', argName)
 						}}
 					>
-						{#if args && typeof args == 'object' && schema?.properties[argName]}
+						{#if args && typeof args == 'object' && prop}
 							<!-- {argName}
 							{args == undefined}
 							{JSON.stringify(args?.[argName])} -->
@@ -367,38 +383,44 @@
 									{prettifyHeader}
 									autofocus={i == 0 && autofocus ? true : null}
 									label={argName}
-									description={schema.properties[argName].description}
+									description={prop?.description}
 									bind:value={args[argName]}
-									type={schema.properties[argName].type}
-									oneOf={schema.properties[argName].oneOf}
+									type={prop?.type}
+									oneOf={prop?.oneOf}
 									required={schema?.required?.includes(argName)}
-									pattern={schema.properties[argName].pattern}
+									pattern={prop?.pattern}
 									bind:valid={inputCheck[argName]}
 									defaultValue={defaultValues?.[argName] ??
-										structuredClone($state.snapshot(schema.properties[argName].default))}
-									enum_={dynamicEnums?.[argName] ?? schema.properties[argName].enum}
-									format={schema.properties[argName].format}
-									contentEncoding={schema.properties[argName].contentEncoding}
-									customErrorMessage={schema.properties[argName].customErrorMessage}
-									bind:properties={schema.properties[argName].properties}
-									bind:order={schema.properties[argName].order}
-									nestedRequired={schema.properties[argName]?.required}
-									itemsType={schema.properties[argName].items}
+										structuredClone($state.snapshot(prop?.default))}
+									enum_={dynamicEnums?.[argName] ?? prop?.enum}
+									format={prop?.format}
+									contentEncoding={prop?.contentEncoding}
+									customErrorMessage={prop?.customErrorMessage}
+									bind:properties={
+										() => prop?.properties,
+										(v) => { if (prop) prop.properties = v }
+									}
+									bind:order={
+										() => prop?.order,
+										(v) => { if (prop) prop.order = v }
+									}
+									nestedRequired={prop?.required}
+									itemsType={prop?.items}
 									disabled={disabledArgs.includes(argName) ||
 										disabled ||
-										schema.properties[argName].disabled}
+										prop?.disabled}
 									{compact}
 									{variableEditor}
 									{itemPicker}
 									bind:pickForField
 									password={linkedSecret == argName}
-									extra={schema.properties[argName]}
+									extra={prop}
 									{showSchemaExplorer}
 									simpleTooltip={schemaFieldTooltip[argName]}
 									{onlyMaskPassword}
-									nullable={schema.properties[argName].nullable}
-									title={schema.properties[argName].title}
-									placeholder={schema.properties[argName].placeholder}
+									nullable={prop?.nullable}
+									title={prop?.title}
+									placeholder={prop?.placeholder}
 									orderEditable={dndConfig != undefined}
 									otherArgs={{ ...args, [argName]: undefined }}
 									{helperScript}
@@ -416,7 +438,7 @@
 									{#snippet actions()}
 										{@render actions_render?.({ item })}
 										{#if linkedSecretCandidates?.includes(argName)}
-											<div>
+											<div class="relative">
 												<ToggleButtonGroup
 													selected={linkedSecret == argName ? 'secret' : 'inlined'}
 													on:selected={(e) => {
@@ -430,14 +452,12 @@
 													{#snippet children({ item })}
 														<ToggleButton
 															value="inlined"
-															small
 															label="Inlined"
 															tooltip="The value is inlined in the resource and thus has no special treatment."
 															{item}
 														/>
 														<ToggleButton
 															value="secret"
-															small
 															label="Secret"
 															tooltip="The value will be stored in a newly created linked secret variable at the same path. That variable can be permissioned differently, will be treated as a secret the UI, operators will not be able to load it and every access will generate a corresponding audit log."
 															{item}
@@ -456,7 +476,7 @@
 			</ResizeTransitionWrapper>
 		{/each}
 	{:else if !shouldHideNoInputs}
-		<div class="text-secondary text-sm">No inputs</div>
+		<div class="text-secondary text-xs">No inputs</div>
 	{/if}
 </div>
 {#if !noVariablePicker}
@@ -480,9 +500,8 @@
 		{#snippet submission()}
 			<div>
 				<Button
-					variant="border"
-					color="blue"
-					size="sm"
+					variant="default"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={() => variableEditor?.initNew?.()}
 				>

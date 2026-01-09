@@ -88,89 +88,72 @@
 	)
 </script>
 
-<div class="mt-6">
-	<Section
-		label="Operator Settings"
-		collapsable={true}
-		tooltip="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
-	>
-		<div class="flex flex-col gap-4 my-4">
-			<div class="flex flex-col gap-1">
-				<div class="text-tertiary text-xs">
-					Configure the operator visibility settings for your workspace. Toggle the settings you
-					want to enable.
-				</div>
-			</div>
-		</div>
+<Section
+	label="Operator settings"
+	collapsable={true}
+	tooltip="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
+	description="Configure the operator visibility settings for your workspace. Toggle the settings you want to enable."
+>
+	{#snippet action()}
+		<Button
+			on:click={saveSettings}
+			startIcon={{ icon: SaveIcon }}
+			disabled={!isChanged}
+			variant="accent"
+		>
+			Save operator settings
+		</Button>
+	{/snippet}
 
-		<div class="flex justify-end mb-2">
-			<div class="flex justify-end"></div>
-		</div>
-
-		<div class="flex flex-col">
-			<DataTable tableFixed={true} size="xs">
-				<Head>
-					<tr>
-						<Cell head first>Section</Cell>
-						<Cell head>Description</Cell>
-						<Cell head last>
-							<ToggleButtonGroup
-								bind:selected={
-									() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
-									(v) => {
-										Object.keys(operatorWorkspaceSettings).forEach((key) => {
-											if (v === 'true') operatorWorkspaceSettings[key] = true
-											if (v === 'false') operatorWorkspaceSettings[key] = false
-										})
-									}
-								}
-							>
-								{#snippet children({ item })}
-									<ToggleButton
-										icon={EyeIcon}
-										small={true}
-										value={'true'}
-										label="Enable All"
-										{item}
-									/>
-									<ToggleButton
-										icon={EyeOffIcon}
-										small={true}
-										value={'false'}
-										label="Disable All"
-										{item}
-									/>
-								{/snippet}
-							</ToggleButtonGroup>
-						</Cell>
-					</tr>
-				</Head>
-				<tbody class="divide-y bg-surface">
-					{#each Object.entries(descriptions) as [key, { title, description }]}
-						<tr>
-							<Cell first>{title}</Cell>
-							<Cell>{description}</Cell>
-							<Cell last class="pl-8">
-								<ToggleButtonGroup
-									selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
-									on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
-								>
-									{#snippet children({ item })}
-										<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
-										<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
-									{/snippet}
-								</ToggleButtonGroup>
-							</Cell>
-						</tr>
-					{/each}
-				</tbody>
-			</DataTable>
-		</div>
-
-		<div class="flex justify-end mt-4">
-			<Button on:click={saveSettings} startIcon={{ icon: SaveIcon }} disabled={!isChanged}>
-				Save
-			</Button>
-		</div>
-	</Section>
-</div>
+	<DataTable tableFixed={true} size="xs">
+		<Head>
+			<tr>
+				<Cell head first>Section</Cell>
+				<Cell head>Description</Cell>
+				<Cell head last>
+					<ToggleButtonGroup
+						bind:selected={
+							() => (allDisabled ? 'false' : allEnabled ? 'true' : ''),
+							(v) => {
+								Object.keys(operatorWorkspaceSettings).forEach((key) => {
+									if (v === 'true') operatorWorkspaceSettings[key] = true
+									if (v === 'false') operatorWorkspaceSettings[key] = false
+								})
+							}
+						}
+					>
+						{#snippet children({ item })}
+							<ToggleButton icon={EyeIcon} small={true} value={'true'} label="Enable All" {item} />
+							<ToggleButton
+								icon={EyeOffIcon}
+								small={true}
+								value={'false'}
+								label="Disable All"
+								{item}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
+				</Cell>
+			</tr>
+		</Head>
+		<tbody class="divide-y bg-surface">
+			{#each Object.entries(descriptions) as [key, { title, description }]}
+				<tr>
+					<Cell first>{title}</Cell>
+					<Cell>{description}</Cell>
+					<Cell last class="pl-8">
+						<ToggleButtonGroup
+							selected={operatorWorkspaceSettings[key] ? 'on' : 'off'}
+							on:selected={({ detail }) => (operatorWorkspaceSettings[key] = detail === 'on')}
+						>
+							{#snippet children({ item })}
+								<ToggleButton icon={EyeIcon} small={true} value={'on'} label="On" {item} />
+								<ToggleButton icon={EyeOffIcon} small={true} value={'off'} label="Off" {item} />
+							{/snippet}
+						</ToggleButtonGroup>
+					</Cell>
+				</tr>
+			{/each}
+		</tbody>
+	</DataTable>
+</Section>

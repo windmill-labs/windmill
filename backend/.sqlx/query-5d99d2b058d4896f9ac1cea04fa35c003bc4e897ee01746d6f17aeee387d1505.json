@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "create index concurrently if not exists ix_v2_job_workspace_id_created_at ON v2_job  (workspace_id, created_at DESC) where kind in ('script', 'flow', 'singlestepflow') AND parent_job IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5d99d2b058d4896f9ac1cea04fa35c003bc4e897ee01746d6f17aeee387d1505"
+}

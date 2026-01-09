@@ -109,7 +109,7 @@
 	}
 
 	// Update filter change handlers
-	$: hideAcknowledged, workspaceContext, onFiltersChange()
+	$: (hideAcknowledged, workspaceContext, onFiltersChange())
 
 	let totalNumberOfAlerts = 0
 </script>
@@ -142,10 +142,10 @@
 			</div>
 
 			<List wFull={false} horizontal gap="md" justify="end">
-				<div class="text-xs text-tertiary whitespace-nowrap"
-					>{`${totalNumberOfAlerts === 1000 ? '1000+' : totalNumberOfAlerts ?? '?'} items`}
+				<div class="text-xs text-primary whitespace-nowrap"
+					>{`${totalNumberOfAlerts === 1000 ? '1000+' : (totalNumberOfAlerts ?? '?')} items`}
 				</div>
-				<RefreshButton {loading} on:click={refreshAlerts} />
+				<RefreshButton {loading} onClick={refreshAlerts} />
 			</List>
 		</List>
 	</div>

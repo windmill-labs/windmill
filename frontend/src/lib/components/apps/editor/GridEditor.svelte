@@ -10,7 +10,6 @@
 	import {
 		dfs,
 		expandGriditem,
-		findGridItem,
 		findGridItemParentGrid,
 		insertNewGridItem,
 		isContainer,
@@ -20,7 +19,6 @@
 	import { deepEqual } from 'fast-equals'
 	import ComponentWrapper from './component/ComponentWrapper.svelte'
 	import { classNames } from '$lib/utils'
-	import { BG_PREFIX } from '../utils'
 	import GridEditorMenu from './GridEditorMenu.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -28,6 +26,7 @@
 	import { Loader2 } from 'lucide-svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import type { Policy } from '$lib/gen'
+	import { BG_PREFIX, findGridItem } from './appUtilsCore'
 
 	interface Props {
 		policy: Policy
@@ -144,7 +143,7 @@
 				</div>
 				{#if $bgRuns.length > 0}
 					<Popover notClickable>
-						<span class="!text-2xs text-tertiary inline-flex gap-1 items-center"
+						<span class="!text-2xs text-primary inline-flex gap-1 items-center"
 							><Loader2 size={10} class="animate-spin" /> {$bgRuns.length}
 						</span>
 						{#snippet text()}
@@ -152,7 +151,7 @@
 								><div class="flex flex-col">
 									{#each $bgRuns as bgRun}
 										<div class="flex gap-2 items-center">
-											<div class="text-2xs text-tertiary">{bgRun}</div>
+											<div class="text-2xs text-primary">{bgRun}</div>
 										</div>
 									{/each}
 								</div></span

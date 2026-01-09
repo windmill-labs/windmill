@@ -19,7 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import type { Flow } from '$lib/gen'
 	import { twMerge } from 'tailwind-merge'
-	import { stepInputGenButtonClasses } from './StepInputGen.svelte'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let loading = $state(false)
 	interface Props {
@@ -30,7 +30,7 @@
 
 	let { pickableProperties = undefined, argNames = [], schema = undefined }: Props = $props()
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 
 	const { exprsToSet, stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
@@ -49,7 +49,7 @@
 		stepInputsLoading?.set(true)
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -65,7 +65,7 @@
 			}
 			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId}, you can find the details for the step and previous ones below:
+The current step is ${selectionManager.getSelectedId()}, you can find the details for the step and previous ones below:
 ${flowDetails}
 
 Determine for all the inputs "${argNames.join(
@@ -170,6 +170,8 @@ input_name2: expression2
 
 	let out = $state(true) // hack to prevent regenerating answer when accepting the answer due to mouseenter on new icon
 	let openInputsModal = $state(false)
+
+	let disabled = $derived(argNames.length === 0)
 </script>
 
 <div class="flex flex-row justify-end">
@@ -183,10 +185,13 @@ input_name2: expression2
 		/>
 		<Button
 			size="xs"
-			color="light"
 			wrapperClasses="flex-1"
+			variant="default"
 			btnClasses={twMerge(
-				stepInputGenButtonClasses(!loading && Object.keys($generatedExprs || {}).length > 0)
+				!disabled &&
+					AIBtnClasses(
+						!loading && Object.keys($generatedExprs || {}).length > 0 ? 'green' : 'default'
+					)
 			)}
 			on:mouseenter={(ev) => {
 				if (out) {
@@ -208,7 +213,7 @@ input_name2: expression2
 				icon: loading ? Loader2 : Object.keys($generatedExprs || {}).length > 0 ? Check : Wand2,
 				classes: loading ? 'animate-spin' : ''
 			}}
-			disabled={argNames.length === 0}
+			{disabled}
 		>
 			{#if loading}
 				Loading
@@ -228,8 +233,8 @@ input_name2: expression2
 			{#snippet trigger()}
 				<Button
 					size="xs"
-					color="light"
-					btnClasses={stepInputGenButtonClasses(false)}
+					variant="default"
+					btnClasses={AIBtnClasses('default')}
 					nonCaptureEvent
 					startIcon={{
 						icon: Wand2

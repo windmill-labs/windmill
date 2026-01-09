@@ -10,16 +10,13 @@ use chrono::Utc;
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt};
 use itertools::Itertools;
-use native_tls::{Certificate, TlsConnector};
-use postgres_native_tls::MakeTlsConnector;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::Map;
 use serde_json::Value;
 use tokio::sync::{Mutex, RwLock};
 use tokio_postgres::Client;
-use tokio_postgres::{types::ToSql, NoTls, Row};
+use tokio_postgres::{types::ToSql, Row};
 use tokio_postgres::{
     types::{FromSql, Type},
     Column,
@@ -28,7 +25,11 @@ use uuid::Uuid;
 use windmill_common::error::to_anyhow;
 use windmill_common::error::{self, Error};
 use windmill_common::s3_helpers::convert_json_line_stream;
-use windmill_common::worker::{to_raw_value, Connection, CLOUD_HOSTED};
+use windmill_common::worker::{
+    to_raw_value, Connection, SqlResultCollectionStrategy, CLOUD_HOSTED,
+};
+use windmill_common::workspaces::get_datatable_resource_from_db_unchecked;
+use windmill_common::{PgDatabase, PrepareQueryColumnInfo, PrepareQueryResult};
 use windmill_parser::{Arg, Typ};
 use windmill_parser_sql::{
     parse_db_resource, parse_pg_statement_arg_indices, parse_pgsql_sig, parse_s3_mode,
@@ -36,27 +37,18 @@ use windmill_parser_sql::{
 };
 use windmill_queue::{CanceledBy, MiniPulledJob};
 
+use crate::agent_workers::get_datatable_resource_from_agent_http;
 use crate::common::{
     build_args_values, get_reserved_variables, s3_mode_args_to_worker_data, sizeof_val,
     OccupancyMetrics, S3ModeWorkerData,
 };
 use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::sanitized_sql_params::sanitize_and_interpolate_unsafe_sql_args;
+use crate::sql_utils::remove_comments;
 use crate::MAX_RESULT_SIZE;
 use bytes::Buf;
 use lazy_static::lazy_static;
-use urlencoding::encode;
 use windmill_common::client::AuthedClient;
-#[derive(Deserialize)]
-pub struct PgDatabase {
-    pub host: String,
-    pub user: Option<String>,
-    pub password: Option<String>,
-    pub port: Option<u16>,
-    pub sslmode: Option<String>,
-    pub dbname: String,
-    pub root_certificate_pem: Option<String>,
-}
 
 lazy_static! {
     pub static ref CONNECTION_CACHE: Arc<Mutex<Option<(String, tokio_postgres::Client)>>> =
@@ -73,8 +65,9 @@ fn do_postgresql_inner<'a>(
     column_order: Option<&'a mut Option<Vec<String>>>,
     siz: &'a AtomicUsize,
     skip_collect: bool,
+    first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
-) -> error::Result<BoxFuture<'a, error::Result<Box<RawValue>>>> {
+) -> error::Result<BoxFuture<'a, error::Result<Vec<Box<RawValue>>>>> {
     let mut query_params = vec![];
 
     let arg_indices = parse_pg_statement_arg_indices(&query);
@@ -100,7 +93,7 @@ fn do_postgresql_inner<'a>(
     let result_f = async move {
         // Now we can execute a simple statement that just returns its parameter.
 
-        let mut res: Vec<serde_json::Value> = vec![];
+        let mut res: Vec<Box<serde_json::value::RawValue>> = vec![];
 
         let query_params = query_params
             .iter()
@@ -125,12 +118,18 @@ fn do_postgresql_inner<'a>(
             let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
             s3.upload(stream.boxed()).await?;
 
-            return Ok(to_raw_value(&s3.to_return_s3_obj()));
+            return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
         } else {
             let rows = client
                 .query_raw(&query, query_params)
                 .await
                 .map_err(to_anyhow)?;
+
+            let rows = if first_row_only {
+                rows.take(1).boxed()
+            } else {
+                rows.boxed()
+            };
 
             let rows = rows.try_collect::<Vec<Row>>().await.map_err(to_anyhow)?;
 
@@ -164,14 +163,14 @@ fn do_postgresql_inner<'a>(
                     }
                 }
                 if let Ok(v) = r {
-                    res.push(v);
+                    res.push(to_raw_value(&v));
                 } else {
                     return Err(to_anyhow(r.err().unwrap()).into());
                 }
             }
         }
 
-        Ok(to_raw_value(&res))
+        Ok(res)
     };
 
     Ok(result_f.boxed())
@@ -188,6 +187,7 @@ pub async fn do_postgresql(
     column_order: &mut Option<Vec<String>>,
     occupancy_metrics: &mut OccupancyMetrics,
     parent_runnable_path: Option<String>,
+    run_inline: bool,
 ) -> error::Result<Box<RawValue>> {
     let pg_args = build_args_values(job, client, conn).await?;
 
@@ -205,7 +205,22 @@ pub async fn do_postgresql(
                 .await?,
         )
     } else {
-        pg_args.get("database").cloned()
+        match pg_args.get("database").cloned() {
+            Some(Value::String(db_str)) if db_str.starts_with("datatable://") => {
+                let db_str = db_str.trim_start_matches("datatable://");
+                Some(match conn {
+                    Connection::Http(client) => {
+                        get_datatable_resource_from_agent_http(client, &db_str, &job.workspace_id)
+                            .await?
+                    }
+                    Connection::Sql(db) => {
+                        get_datatable_resource_from_db_unchecked(db, &job.workspace_id, &db_str)
+                            .await?
+                    }
+                })
+            }
+            database => database,
+        }
     };
 
     let database = if let Some(db) = db_arg {
@@ -216,22 +231,13 @@ pub async fn do_postgresql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
-
-    let sslmode = match database.sslmode.as_deref() {
-        Some("allow") => "prefer".to_string(),
-        Some("verify-ca") | Some("verify-full") => "require".to_string(),
-        Some(s) => s.to_string(),
-        None => "prefer".to_string(),
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
     };
-    let database_string = format!(
-        "postgres://{user}:{password}@{host}:{port}/{dbname}?sslmode={sslmode}",
-        user = encode(&database.user.unwrap_or("postgres".to_string())),
-        password = encode(&database.password.unwrap_or("".to_string())),
-        host = encode(&database.host),
-        port = database.port.unwrap_or(5432),
-        dbname = database.dbname,
-        sslmode = sslmode
-    );
+
+    let database_string = database.to_uri();
     let database_string_clone = database_string.clone();
 
     let mtex;
@@ -254,54 +260,8 @@ pub async fn do_postgresql(
             std::sync::atomic::Ordering::Relaxed,
         );
         (None, mtex)
-    } else if sslmode == "require" {
-        tracing::info!("Creating new connection");
-        let mut connector = TlsConnector::builder();
-        if let Some(root_certificate_pem) = database.root_certificate_pem {
-            if !root_certificate_pem.is_empty() {
-                connector.add_root_certificate(
-                    Certificate::from_pem(root_certificate_pem.as_bytes())
-                        .map_err(|e| error::Error::BadConfig(format!("Invalid Certs: {e:#}")))?,
-                );
-            } else {
-                connector.danger_accept_invalid_certs(true);
-                connector.danger_accept_invalid_hostnames(true);
-            }
-        } else {
-            connector
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true);
-        }
-
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(
-                &database_string,
-                MakeTlsConnector::new(connector.build().map_err(to_anyhow)?),
-            ),
-        )
-        .await
-        .map_err(to_anyhow)?
-        .map_err(to_anyhow)?;
-
-        let handle = tokio::spawn(async move {
-            if let Err(e) = connection.await {
-                let mut mtex = CONNECTION_CACHE.lock().await;
-                *mtex = None;
-                tracing::error!("connection error: {}", e);
-            }
-        });
-        (Some((client, handle)), None)
     } else {
-        tracing::info!("Creating new connection");
-        let (client, connection) = tokio::time::timeout(
-            std::time::Duration::from_secs(20),
-            tokio_postgres::connect(&database_string, NoTls),
-        )
-        .await
-        .map_err(to_anyhow)?
-        .map_err(to_anyhow)?;
-
+        let (client, connection) = database.connect().await?;
         let handle = tokio::spawn(async move {
             if let Err(e) = connection.await {
                 let mut mtex = CONNECTION_CACHE.lock().await;
@@ -336,62 +296,81 @@ pub async fn do_postgresql(
         .collect::<HashMap<_, _>>();
 
     let size = AtomicUsize::new(0);
-    let result_f = if queries.len() > 1 {
-        let futures = queries
-            .iter()
-            .enumerate()
-            .map(|(i, x)| {
-                do_postgresql_inner(
-                    x.to_string(),
-                    &param_idx_to_arg_and_value,
-                    client,
-                    None,
-                    &size,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    s3.clone(),
-                )
-            })
-            .collect::<error::Result<Vec<_>>>()?;
-
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for fut in futures {
-                let r = fut.await?;
-                res.push(r);
+    let size_ref = &size;
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, query) in queries.iter().enumerate() {
+            if annotations.prepare {
+                let query = remove_comments(query);
+                // Used by the data table typechecker to set default schemas
+                if query.starts_with("SET search_path") || query.starts_with("RESET search_path") {
+                    let _ = client.execute(&query.to_string(), &[]).await;
+                    continue;
+                }
+                let prepared = client.prepare(&query).await;
+                let prepared = match prepared {
+                    Ok(prepared) => {
+                        let columns: Option<Vec<PrepareQueryColumnInfo>> = Some(
+                            prepared
+                                .columns()
+                                .iter()
+                                .map(|col| PrepareQueryColumnInfo {
+                                    name: col.name().to_string(),
+                                    type_name: col.type_().name().to_string(),
+                                })
+                                .collect(),
+                        );
+                        PrepareQueryResult { columns, error: None }
+                    }
+                    Err(e) => PrepareQueryResult { columns: None, error: Some(e.to_string()) },
+                };
+                results.push(vec![to_raw_value(&prepared)]);
+                continue;
             }
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
 
-        f.boxed()
-    } else {
-        do_postgresql_inner(
-            query.to_string(),
-            &param_idx_to_arg_and_value,
-            client,
-            Some(column_order),
-            &size,
-            false,
-            s3,
-        )?
+            let result = do_postgresql_inner(
+                query.to_string(),
+                &param_idx_to_arg_and_value,
+                client,
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                size_ref,
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+            )?
+            .await?;
+            results.push(result);
+        }
+
+        collection_strategy.collect(results)
     };
 
-    let result = run_future_with_polling_update_job_poller(
-        job.id,
-        job.timeout,
-        conn,
-        mem_peak,
-        canceled_by,
-        result_f,
-        worker_name,
-        &job.workspace_id,
-        &mut Some(occupancy_metrics),
-        Box::pin(futures::stream::once(async { 0 })),
-    )
-    .await?;
+    let result = if run_inline {
+        result_f.await?
+    } else {
+        run_future_with_polling_update_job_poller(
+            job.id,
+            job.timeout,
+            conn,
+            mem_peak,
+            canceled_by,
+            result_f,
+            worker_name,
+            &job.workspace_id,
+            &mut Some(occupancy_metrics),
+            Box::pin(futures::stream::once(async { 0 })),
+        )
+        .await?
+    };
 
     // drop the mtex to avoid holding the lock for too long, result has been returned
     drop(mtex);

@@ -31,14 +31,14 @@
 	<Button
 		size="xs"
 		startIcon={{ icon: Unplug }}
-		color="red"
-		variant="border"
+		variant="default"
 		on:click={() => {
 			if (componentInput.type === 'connected') {
 				componentInput.connection = undefined
 			}
 			$app = $app
 		}}
+		destructive
 	>
 		Disconnect
 	</Button>

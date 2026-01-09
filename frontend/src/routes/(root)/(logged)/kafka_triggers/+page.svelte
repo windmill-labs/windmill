@@ -5,6 +5,7 @@
 		KafkaTriggerService,
 		WorkspaceService,
 		type KafkaTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -30,7 +31,7 @@
 		enterpriseLicense,
 		usedTriggerKinds
 	} from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -46,6 +47,7 @@
 	import KafkaTriggerEditor from '$lib/components/triggers/kafka/KafkaTriggerEditor.svelte'
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerW = KafkaTrigger & { canWrite: boolean }
 
@@ -87,7 +89,7 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled,
+						mode: newTrigger.mode,
 						server_id: newTrigger.server_id
 					}
 				}
@@ -101,16 +103,18 @@
 		clearInterval(interval)
 	})
 
-	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await KafkaTriggerService.setKafkaTriggerEnabled({
+			await KafkaTriggerService.setKafkaTriggerMode({
 				path,
 				workspace: $workspaceStore!,
-				requestBody: { enabled }
+				requestBody: { mode }
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` Kafka trigger: ${err.body}`,
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` Kafka trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -264,7 +268,8 @@
 			tooltip="Windmill can consume kafka events and trigger scripts or flows based on them."
 		>
 			<Button
-				size="md"
+				unifiedSize="md"
+				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => kafkaTriggerEditor?.openNew(false)}
 			>
@@ -290,8 +295,8 @@
 					<div class="text-sm shrink-0"> Filter by path of </div>
 					<ToggleButtonGroup bind:selected={selectedFilterKind}>
 						{#snippet children({ item })}
-							<ToggleButton small value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
-							<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+							<ToggleButton value="trigger" label="Kafka trigger" icon={KafkaIcon} {item} />
+							<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -314,13 +319,14 @@
 					<Skeleton layout={[[6], 0.4]} />
 				{/each}
 			{:else if !triggers?.length}
-				<div class="text-center text-sm text-tertiary mt-2"> No Kafka triggers </div>
+				<div class="text-center text-sm text-primary mt-2"> No Kafka triggers </div>
 			{:else if items?.length}
 				<div class="border rounded-md divide-y">
-					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, enabled } (path)}
+					{#each items.slice(0, nbDisplayed) as { path, edited_by, edited_at, script_path, is_flow, kafka_resource_path, topics, extra_perms, canWrite, marked, server_id, error, last_server_ping, mode, retry, error_handler_path, error_handler_args } (path)}
 						{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 						{@const ping = last_server_ping ? new Date(last_server_ping) : undefined}
 						{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
+						{@const enabled = mode === 'enabled' || mode === 'suspended'}
 
 						<div
 							class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -334,7 +340,9 @@
 									onclick={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
 									class="min-w-0 grow hover:underline decoration-gray-400"
 								>
-									<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+									<div
+										class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate"
+									>
 										{#if marked}
 											<span class="text-xs">
 												{@html marked}
@@ -394,28 +402,40 @@
 									{/if}
 								</div>
 
-								<Toggle
-									checked={enabled}
-									disabled={!canWrite}
-									on:change={(e) => {
-										setTriggerEnabled(path, e.detail)
+								<TriggerModeToggle
+									onToggleMode={(newMode) => onToggleMode(path, newMode)}
+									triggerMode={mode}
+									includeModalConfig={{
+										triggerPath: path,
+										triggerKind: 'kafka',
+										runnableConfig: {
+											path: script_path,
+											kind: is_flow ? 'flow' : 'script',
+											retry,
+											errorHandlerPath: error_handler_path,
+											errorHandlerArgs: error_handler_args
+										}
 									}}
+									{canWrite}
+									hideToggleLabels
+									hideDropdown
 								/>
 
 								<div class="flex gap-2 items-center justify-end">
 									<Button
 										on:click={() => kafkaTriggerEditor?.openEdit(path, is_flow)}
-										size="xs"
+										unifiedSize="md"
 										startIcon={canWrite
 											? { icon: Pen }
 											: {
 													icon: Eye
 												}}
-										color="dark"
+										variant="subtle"
 									>
 										{canWrite ? 'Edit' : 'View'}
 									</Button>
 									<Dropdown
+										size="md"
 										items={[
 											{
 												displayName: `View ${is_flow ? 'Flow' : 'Script'}`,
@@ -424,6 +444,17 @@
 													goto(href)
 												}
 											},
+											...(canWrite && mode !== 'suspended'
+												? [
+														{
+															displayName: 'Suspend job execution',
+															icon: Pause,
+															action: () => {
+																onToggleMode(path, 'suspended')
+															}
+														}
+													]
+												: []),
 											{
 												displayName: 'Delete',
 												type: 'delete',
@@ -477,8 +508,8 @@
 							</div>
 							<div class="w-full flex justify-between items-baseline">
 								<div
-									class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
-									><div class="truncate">edited by {edited_by}</div><div class="truncate"
+									class="flex flex-wrap text-2xs font-normal text-secondary gap-1 items-center justify-end truncate pr-2"
+									><div class="truncate">Edited by {edited_by}</div><div class="truncate"
 										>the {displayDate(edited_at)}</div
 									></div
 								></div

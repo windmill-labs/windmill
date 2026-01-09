@@ -7,9 +7,8 @@
 	import InputPickerInner from './InputPickerInner.svelte'
 	import { ChevronDown, Plug } from 'lucide-svelte'
 	import { useSvelteFlow } from '@xyflow/svelte'
-	import { getStateColor } from '$lib/components/graph/util'
-	import type { FlowStatusModule } from '$lib/gen'
 	import type { FlowEditorContext } from '../types'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface Props {
 		selected?: boolean
@@ -25,9 +24,6 @@
 		onEditInput?: (moduleId: string, key: string) => void
 		initial?: boolean
 		onResetInitial?: () => void
-		type: FlowStatusModule['type'] | undefined
-		darkMode?: boolean
-		skipped?: boolean
 	}
 
 	let {
@@ -41,10 +37,7 @@
 		id,
 		bottomBarOpen = $bindable(false),
 		loopStatus,
-		onEditInput,
-		type,
-		darkMode,
-		skipped
+		onEditInput
 	}: Props = $props()
 
 	const context = getContext<PropPickerContext>('PropPickerContext')
@@ -70,14 +63,6 @@
 
 	let inputPopover: Popover | undefined = $state(undefined)
 	let popover: Popover | undefined = $state(undefined)
-
-	const virtualItemClasses = {
-		bar: 'dark:hover:bg-[#525d6f] dark:bg-[#414958] bg-[#d7dfea] hover:bg-slate-300'
-	}
-
-	const defaultClasses = {
-		bar: 'bg-surface-disabled hover:bg-surface-hover dark:bg-[#454e5f] dark:hover:bg-[#576278]'
-	}
 
 	export function toggleOpen(forceOpen: boolean = false) {
 		if (popover?.isOpened() && !forceOpen) {
@@ -130,7 +115,7 @@
 </script>
 
 <div
-	class="relative h-1 w-[275px]"
+	class="relative h-0 w-[275px] -z-10"
 	onpointerdown={(e) => {
 		e.preventDefault()
 		e.stopPropagation()
@@ -140,22 +125,16 @@
 	<div class="absolute w-full h-[20px]"></div>
 	<div
 		class={twMerge(
-			'bg-slate-200 absolute w-full',
-			variant === 'virtual'
-				? `${virtualItemClasses.bar} ${bottomBarOpen ? 'bg-slate-300 dark:bg-[#525d6f]' : ''}`
-				: `${defaultClasses.bar} ${bottomBarOpen ? 'bg-surface-hover dark:bg-[#576278]' : ''}`,
-			'shadow-[inset_0_1px_5px_0_rgba(0,0,0,0.05)] rounded-b-sm',
+			'absolute w-full top-1',
+			variant === 'virtual' ? `` : ``,
 			'group transition-all duration-100',
 			'flex flex-row items-center justify-center',
-			'h-1 hover:h-[20px]',
-			bottomBarOpen && 'h-[20px]'
+			'h-0 hover:h-[18px]',
+			bottomBarOpen && 'h-[18px]'
 		)}
-		style:background-color={type && type !== 'WaitingForEvents'
-			? getStateColor(type, !!darkMode, true, skipped)
-			: undefined}
 		data-prop-picker
 	>
-		<div class="flex flex-row items-center justify-center w-full h-full">
+		<div class="flex flex-row gap-2 items-center justify-center w-full h-full">
 			{#if showInput}
 				<Popover
 					enableFlyTransition
@@ -181,18 +160,23 @@
 					class="flex-1 h-full"
 					bind:isOpen={inputOpen}
 					bind:this={inputPopover}
+					portal="#flow-graph-v2"
 				>
 					{#snippet trigger({ isOpen })}
-						<button
-							class={twMerge(
-								'h-full center-center transition-opacity duration-150 w-full',
+						<Button
+							variant="default"
+							selected={inputOpen}
+							wrapperClasses={twMerge(
+								'w-full h-full transition-colors rounded-b-md',
 								bottomBarOpen ? 'opacity-100' : 'opacity-0',
-								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-								inputOpen ? 'border-primary' : 'hover:border-primary/20'
+								inputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
 							)}
+							btnClasses="font-normal"
+							endIcon={{ icon: ChevronDown }}
+							size="xs3"
 						>
 							In
-						</button>
+						</Button>
 					{/snippet}
 					{#snippet content()}
 						<InputPickerInner {inputTransform} {id} {onEditInput} />
@@ -223,6 +207,7 @@
 				closeOnOtherPopoverOpen
 				class="flex-1 h-full"
 				bind:isOpen={outputOpen}
+				portal="#flow-graph-v2"
 			>
 				{#snippet trigger({ isOpen })}
 					<AnimatedButton
@@ -234,12 +219,16 @@
 						baseRadius="2px"
 						marginWidth="1px"
 					>
-						<button
-							class={twMerge(
-								'text-2xs font-normal w-full h-full border-t-2 border-transparent',
-								outputOpen ? 'border-primary' : 'hover:border-primary/20',
-								showConnecting ? 'bg-surface-hover rounded-sm border-0' : ''
+						<Button
+							variant="default"
+							selected={outputOpen}
+							wrapperClasses={twMerge(
+								'w-full h-full rounded-b-md transition-colors',
+								outputOpen ? 'bg-surface-secondary' : 'bg-surface-tertiary'
 							)}
+							btnClasses="font-normal"
+							endIcon={showInput ? { icon: ChevronDown } : undefined}
+							size="xs3"
 						>
 							{#if showInput}
 								Out
@@ -248,7 +237,7 @@
 							{:else}
 								<ChevronDown size={12} class="w-full" />
 							{/if}
-						</button>
+						</Button>
 					</AnimatedButton>
 				{/snippet}
 				{#snippet content()}

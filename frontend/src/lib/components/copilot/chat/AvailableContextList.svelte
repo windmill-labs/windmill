@@ -191,7 +191,7 @@
 </script>
 
 <div
-	class="flex flex-col gap-1 text-tertiary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll"
+	class="flex flex-col gap-1 text-primary text-xs p-1 pr-0 min-w-24 max-h-48 overflow-y-scroll"
 	onmousedown={(e) =>
 		// avoids triggering onblur on the textinput and closing the tooltip
 		e.preventDefault()}
@@ -224,7 +224,7 @@
 			</button>
 		{/each}
 		{#if filteredAvailableContext.length === 0}
-			<div class="text-center text-tertiary text-xs py-2">No matching context</div>
+			<div class="text-center text-primary text-xs py-2">No matching context</div>
 		{/if}
 	{:else if currentView === 'categories'}
 		<!-- Categories view -->
@@ -243,7 +243,7 @@
 			</button>
 		{/each}
 		{#if availableCategories.length === 0}
-			<div class="text-center text-tertiary text-xs py-2">No available context</div>
+			<div class="text-center text-primary text-xs py-2">No available context</div>
 		{/if}
 	{:else}
 		<!-- Category items view -->
@@ -256,7 +256,7 @@
 		</button>
 
 		{#if currentCategoryItems.length === 0}
-			<div class="text-center text-tertiary text-xs py-2">No items in this category</div>
+			<div class="text-center text-primary text-xs py-2">No items in this category</div>
 		{:else}
 			{#each currentCategoryItems as element, i}
 				{@const Icon = ContextIconMap[element.type]}

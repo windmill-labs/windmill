@@ -86,7 +86,8 @@
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - inputAssetXGap) / 2
 										: 0),
 						y: READ_ASSET_Y_OFFSET
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -122,7 +123,8 @@
 										? (-ASSETS_OVERFLOWED_NODE_WIDTH - outputAssetXGap) / 2
 										: 0),
 						y: WRITE_ASSET_Y_OFFSET
-					}
+					},
+					selectable: false
 				}
 			})
 
@@ -206,7 +208,7 @@
 			newAssetEdges: allAssetEdges,
 			newNodePositions: Object.fromEntries(sortedNewNodes.map((n) => [n.id, n.position]))
 		}
-		computeAssetNodesCache = [nodes, ret]
+		computeAssetNodesCache = [clone(nodes), ret]
 		return ret
 	}
 </script>
@@ -218,6 +220,7 @@
 	import {
 		assetEq,
 		formatAssetKind,
+		formatShortAssetPath,
 		getAccessType,
 		type AssetWithAltAccessType
 	} from '$lib/components/assets/lib'
@@ -226,13 +229,14 @@
 	import { getContext } from 'svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from '../../../ExploreAssetButton.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { pluralize } from '$lib/utils'
+	import { clone, pluralize } from '$lib/utils'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import type { Edge, Node } from '@xyflow/svelte'
 
-	import { NODE } from '../../util'
+	import { getNodeColorClasses, NODE } from '../../util'
 	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
+	import { slide } from 'svelte/transition'
 
 	interface Props {
 		data: AssetN['data']
@@ -243,20 +247,25 @@
 	let { data }: Props = $props()
 
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
-	const cachedResourceMetadata = $derived(
-		flowGraphAssetsCtx?.val.resourceMetadataCache[data.asset.path]
-	)
+	const cachedResourceMetadata = $derived.by(() => {
+		if (data.asset.kind !== 'resource') return undefined
+		let truncatedPath = data.asset.path.split('/').slice(0, 3).join('/')
+		return flowGraphAssetsCtx?.val.resourceMetadataCache[truncatedPath]
+	})
 	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))
+	const colors = $derived(getNodeColorClasses(undefined, isSelected))
 </script>
 
-<NodeWrapper>
+<NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<Tooltip>
 			<div
 				class={twMerge(
-					'bg-surface h-6 flex items-center gap-1.5 rounded-sm text-tertiary border overflow-clip',
-					isSelected ? 'bg-surface-secondary !border-surface-inverse' : 'border-transparent'
+					'h-6 flex items-center gap-1.5 rounded-md drop-shadow-base overflow-clip transition-colors',
+					colors.outline,
+					colors.text,
+					colors.bg
 				)}
 				onmouseenter={() =>
 					flowGraphAssetsCtx && (flowGraphAssetsCtx.val.selectedAsset = data.asset)}
@@ -265,12 +274,11 @@
 			>
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
-					fill={''}
-					class="shrink-0 ml-1 fill-tertiary stroke-tertiary"
+					class="shrink-0 ml-1 {isSelected ? 'text-accent' : 'text-tertiary'}"
 					size="16px"
 				/>
 				<span class="text-3xs truncate flex-1">
-					{data.asset.path}
+					{formatShortAssetPath(data.asset)}
 				</span>
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
@@ -278,15 +286,17 @@
 						<svelte:fragment slot="text">Could not find resource</svelte:fragment>
 					</Tooltip>
 				{:else if isSelected && assetCanBeExplored(data.asset, cachedResourceMetadata) && !$userStore?.operator}
-					<ExploreAssetButton
-						btnClasses="rounded-none"
-						asset={data.asset}
-						noText
-						buttonVariant="contained"
-						s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-						dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
-						_resourceMetadata={cachedResourceMetadata}
-					/>
+					<div transition:slide={{ axis: 'x', duration: 100 }}>
+						<ExploreAssetButton
+							btnClasses="rounded-none"
+							asset={data.asset}
+							noText
+							buttonVariant="accent"
+							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
+							dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
+							_resourceMetadata={cachedResourceMetadata}
+						/>
+					</div>
 				{/if}
 			</div>
 			<svelte:fragment slot="text">
@@ -297,9 +307,7 @@
 					href={undefined}
 					class={twMerge(
 						'text-xs',
-						data.asset.kind === 'resource'
-							? 'text-blue-400 cursor-pointer'
-							: 'dark:text-tertiary text-tertiary-inverse'
+						data.asset.kind === 'resource' ? 'text-accent cursor-pointer' : 'text-hint'
 					)}
 					onclick={() => {
 						if (data.asset.kind === 'resource')
@@ -308,8 +316,8 @@
 				>
 					{data.asset.path}
 				</a><br />
-				<span class="dark:text-tertiary text-tertiary-inverse text-xs"
-					>{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
+				<span class="text-hint text-xs">
+					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
 			</svelte:fragment>
 		</Tooltip>

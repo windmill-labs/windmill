@@ -9,20 +9,22 @@ import type {
 	ChatCompletionUserMessageParam
 } from 'openai/resources/index.mjs'
 import { type DBSchema, dbSchemas } from '$lib/stores'
-import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/utils'
 import type { ContextElement } from '../context'
-import { PYTHON_PREPROCESSOR_MODULE_CODE, TS_PREPROCESSOR_MODULE_CODE } from '$lib/script_helpers'
 import {
 	createSearchHubScriptsTool,
 	type Tool,
 	executeTestRun,
 	buildTestRunArgs,
-	buildContextString
+	buildContextString,
+	type ScriptLintResult,
+	formatScriptLintResult
 } from '../shared'
 import { setupTypeAcquisition, type DepsToGet } from '$lib/ata'
 import { getModelContextWindow } from '../../lib'
 import type { ReviewChangesOpts } from '../monaco-adapter'
 import { getCurrentModel } from '$lib/aiStore'
+import { getDbSchemas } from '$lib/components/apps/components/display/dbtable/metadata'
+import { getScriptPrompt } from '$system_prompts'
 
 // Score threshold for npm packages search filtering
 const SCORE_THRESHOLD = 1000
@@ -30,13 +32,8 @@ const SCORE_THRESHOLD = 1000
 const DOCS_CONTEXT_PERCENTAGE = 1
 // percentage of the context window for types of npm packages
 const TYPES_CONTEXT_PERCENTAGE = 1
-// good providers for diff-based edit
-export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = [
-	'openai',
-	'anthropic',
-	'googleai',
-	'azure_openai'
-]
+// TODO: Explore this again when we have better diff-based edit providers
+export const DIFF_BASED_EDIT_PROVIDERS: AIProvider[] = []
 
 export function formatResourceTypes(
 	allResourceTypes: ResourceType[],
@@ -78,119 +75,6 @@ async function getResourceTypes(prompt: string, workspace: string) {
 	return resourceTypes
 }
 
-const TS_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type inside the \`RT\` namespace: for instance \`RT.Stripe\`.
-You should only use them if you need them to satisfy the user's instructions. Always use the RT namespace.\n`
-
-const TS_WINDMILL_CLIENT_CONTEXT = `
-
-The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import * as wmill from "windmill-client"\`. Key functions include:
-
-// Resource operations
-wmill.getResource(path?: string, undefinedIfEmpty?: boolean): Promise<any> // Get resource value by path
-wmill.setResource(value: any, path?: string, initializeToTypeIfNotExist?: string): Promise<void> // Set resource value
-
-// State management (persistent across executions)  
-wmill.getState(): Promise<any> // Get shared state
-wmill.setState(state: any): Promise<void> // Set shared state
-
-// Variables
-wmill.getVariable(path: string): Promise<string> // Get variable value
-wmill.setVariable(path: string, value: string, isSecretIfNotExist?: boolean, descriptionIfNotExist?: string): Promise<void> // Set variable value
-
-// Script execution
-wmill.runScript(path?: string | null, hash_?: string | null, args?: Record<string, any> | null, verbose?: boolean): Promise<any> // Run script synchronously
-wmill.runScriptAsync(path: string | null, hash_: string | null, args: Record<string, any> | null, scheduledInSeconds?: number | null): Promise<string> // Run script async, returns job ID
-wmill.waitJob(jobId: string, verbose?: boolean): Promise<any> // Wait for job completion and get result
-wmill.getResult(jobId: string): Promise<any> // Get job result by ID
-wmill.getResultMaybe(jobId: string): Promise<any> // Get job result by ID, returns undefined if not found
-wmill.getRootJobId(jobId?: string): Promise<string> // Get root job ID from job ID
-
-// S3 file operations (if S3 is configured)
-wmill.loadS3File(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Uint8Array | undefined> // Load file content from S3
-wmill.loadS3FileStream(s3object: S3Object, s3ResourcePath?: string | undefined): Promise<Blob | undefined> // Load file content from S3 as stream
-wmill.writeS3File(s3object: S3Object | undefined, fileContent: string | Blob, s3ResourcePath?: string | undefined): Promise<S3Object> // Write file to S3
-
-// Flow operations
-wmill.setFlowUserState(key: string, value: any, errorIfNotPossible?: boolean): Promise<void> // Set flow user state
-wmill.getFlowUserState(key: string, errorIfNotPossible?: boolean): Promise<any> // Get flow user state
-wmill.getResumeUrls(approver?: string): Promise<{approvalPage: string, resume: string, cancel: string}> // Get approval URLs
-
-`
-
-const PYTHON_WINDMILL_CLIENT_CONTEXT = `
-
-The windmill client (wmill) can be used to interact with Windmill from the script. Import it with \`import wmill\`. Key functions include:
-
-// Resource operations
-wmill.get_resource(path: str, none_if_undefined: bool = False) -> dict | None  // Get resource value by path
-wmill.set_resource(path: str, value: Any, resource_type: str = "any") -> None  // Set resource value
-
-// State management (persistent across executions)
-wmill.get_state() -> Any  // Get shared state (deprecated, use flow user state)
-wmill.set_state(value: Any) -> None  // Set shared state
-wmill.get_state_path() -> str  // Get state path
-wmill.get_flow_user_state(key: str) -> Any  // Get flow user state 
-wmill.set_flow_user_state(key: str, value: Any) -> None  // Set flow user state
-
-// Variables
-wmill.get_variable(path: str) -> str  // Get variable value
-wmill.set_variable(path: str, value: str, is_secret: bool = False) -> None  // Set variable value
-
-// Script execution
-wmill.run_script(path: str = None, hash_: str = None, args: dict = None, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = True) -> Any  // Run script synchronously
-wmill.run_script_async(path: str = None, hash_: str = None, args: dict = None, scheduled_in_secs: int = None) -> str  // Run script async, returns job ID
-wmill.wait_job(job_id: str, timeout = None, verbose: bool = False, cleanup: bool = True, assert_result_is_not_none: bool = False) -> Any  // Wait for job completion and get result
-wmill.get_result(job_id: str, assert_result_is_not_none: bool = True) -> Any  // Get job result by ID
-wmill.get_root_job_id(job_id: str | None = None) -> str  // Get root job ID from job ID
-
-// S3 file operations (if S3 is configured)
-wmill.load_s3_file(s3object: S3Object | str, s3_resource_path: str | None = None) -> bytes  // Load file content from S3
-wmill.load_s3_file_reader(s3object: S3Object | str, s3_resource_path: str | None = None) -> BufferedReader  // Load S3 file as stream reader
-wmill.write_s3_file(s3object: S3Object | str | None, file_content: BufferedReader | bytes, s3_resource_path: str | None = None, content_type: str | None = None, content_disposition: str | None = None) -> S3Object  // Write file to S3
-
-// Flow operations  
-wmill.run_flow_async(path: str, args: dict = None, scheduled_in_secs: int = None, do_not_track_in_parent: bool = True) -> str  // Run flow asynchronously
-wmill.get_resume_urls(approver: str = None) -> dict  // Get approval URLs for flow steps
-
-// Utilities
-wmill.get_workspace() -> str  // Get current workspace
-wmill.whoami() -> dict  // Get current user information
-wmill.get_job_status(job_id: str) -> str  // Get job status ("RUNNING" | "WAITING" | "COMPLETED")
-wmill.set_progress(value: int, job_id: Optional[str] = None) -> None  // Set job progress (0-100)
-wmill.get_progress(job_id: Optional[str] = None) -> Any  // Get job progress`
-
-const PYTHON_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type.
-You need to **redefine** the type of the resources that are needed before the main function as TypedDict, but only include them if they are actually needed to achieve the function purpose.
-The resource type name has to be exactly as specified (has to be IN LOWERCASE).
-If an import conflicts with a resource type name, **you have to rename the imported object, not the type name**.
-Make sure to import TypedDict from typing **if you're using it**`
-
-const PHP_RESOURCE_TYPE_SYSTEM = `On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
-If you need credentials, you should add a parameter to \`main\` with the corresponding resource type
-You need to **redefine** the type of the resources that are needed before the main function, but only include them if they are actually needed to achieve the function purpose.
-Before defining each type, check if the class already exists using class_exists.
-The resource type name has to be exactly as specified.`
-
-const PREPROCESSOR_INSTRUCTION_BASE = `The current script is a preprocessor. It processes raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` → Calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-The preprocessor receives a single parameter called event.
-Here's a sample script which includes the event object definition:\n`
-
-const TS_PREPROCESSOR_INSTRUCTION =
-	PREPROCESSOR_INSTRUCTION_BASE +
-	`\`\`\`typescript
-${TS_PREPROCESSOR_MODULE_CODE}
-\`\`\`\n`
-
-const PYTHON_PREPROCESSOR_INSTRUCTION =
-	PREPROCESSOR_INSTRUCTION_BASE +
-	`\`\`\`python
-${PYTHON_PREPROCESSOR_MODULE_CODE}
-\`\`\``
-
 export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'bunnative',
 	'nativets',
@@ -209,7 +93,8 @@ export const SUPPORTED_CHAT_SCRIPT_LANGUAGES = [
 	'graphql',
 	'powershell',
 	'csharp',
-	'java'
+	'java',
+	'duckdb'
 ]
 
 export function getLangContext(
@@ -218,106 +103,24 @@ export function getLangContext(
 		allowResourcesFetch = false,
 		isPreprocessor = false
 	}: { allowResourcesFetch?: boolean; isPreprocessor?: boolean; isFailure?: boolean } = {}
-) {
-	const tsContext =
-		(isPreprocessor
-			? TS_PREPROCESSOR_INSTRUCTION
-			: TS_RESOURCE_TYPE_SYSTEM +
-				(allowResourcesFetch
-					? `To query the RT namespace, you can use the \`search_resource_types\` tool.\n`
-					: '')) + TS_WINDMILL_CLIENT_CONTEXT
+): string {
+	// Get base language context from centralized prompts
+	let context = getScriptPrompt(lang)
 
-	const mainFunctionName = isPreprocessor ? 'preprocessor' : 'main'
-
-	switch (lang) {
-		case 'bunnative':
-		case 'nativets':
-			return (
-				`The user is coding in TypeScript. On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. You should use fetch (available globally, no need to import) and are not allowed to import any libraries.\n` +
-				tsContext
-			)
-		case 'bun':
-			return (
-				`The user is coding in TypeScript (bun runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
-				tsContext
-			)
-		case 'deno':
-			return (
-				`The user is coding in TypeScript (deno runtime). On Windmill, it is expected that the script exports a single **async** function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.\n` +
-				tsContext +
-				'\nYou can import deno libraries or you can import npm libraries like that: `import ... from "npm:{package}";`.'
-			)
-		case 'python3':
-			return (
-				`The user is coding in Python. On Windmill, it is expected the script contains at least one function called \`${mainFunctionName}\`. Do not call the ${mainFunctionName} function. Libraries are installed automatically, do not show how to install them.` +
-				(isPreprocessor
-					? PYTHON_PREPROCESSOR_INSTRUCTION
-					: PYTHON_RESOURCE_TYPE_SYSTEM +
-						`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}`) +
-				PYTHON_WINDMILL_CLIENT_CONTEXT
-			)
-		case 'php':
-			return (
-				'The user is coding in PHP. On Windmill, it is expected the script contains at least one function called `main`. The script must start with <?php.' +
-				PHP_RESOURCE_TYPE_SYSTEM +
-				`${allowResourcesFetch ? `\nTo query the available resource types, you can use the \`search_resource_types\` tool.` : ''}` +
-				`\nIf you need to import libraries, you need to specify them as comments in the following manner before the main function:
-					\`\`\`
-					// require:
-					// mylibrary/mylibrary
-					// myotherlibrary/myotherlibrary@optionalversion
-					\`\`\`
-					Make sure to have one per line.
-					No need to require autoload, it is already done.`
-			)
-		case 'rust':
-			return `The user is coding in Rust. On Windmill, it is expected the script contains at least one function called \`main\` (without calling it) defined like this:
-				\`\`\`rust
-				use anyhow::anyhow;
-				use serde::Serialize;
-
-				#[derive(Serialize, Debug)]
-				struct ReturnType {
-					// ...
-				}
-
-				fn main(...) -> anyhow::Result<ReturnType>
-				\`\`\`
-				Arguments should be owned. Make sure the return type is serializable.
-
-				Packages must be made available with a partial cargo.toml by adding the following comment at the beginning of the script:
-				//! \`\`\`cargo
-				//! [dependencies]
-				//! anyhow = "1.0.86"
-				//! \`\`\'
-				Serde is already included, no need to add it again.
-
-				If you want to handle async functions (e.g., using tokio), you need to keep the main function sync and create the runtime inside.`
-		case 'go':
-			return `The user is coding in Go. On Windmill, it is expected the script exports a single function called \`main\`. Its return type has to be (\`{return_type}\`, error). The file package has to be "inner".`
-		case 'bash':
-			return `The user is coding in Bash. Do not include "#!/bin/bash". On Windmill, arguments are always string and can only be obtained with "var1="$1"", "var2="$2"", etc..`
-		case 'postgresql':
-			return `The user is coding in PostgreSQL. On Windmill, arguments can be obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc... Name the parameters (without specifying the type) by adding comments at the beginning of the script before the statement like that: \`-- $1 name1\` or \`-- $2 name = default\` (one per row)`
-		case 'mysql':
-			return 'The user is coding in MySQL. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
-		case 'bigquery':
-			return 'The user is coding in BigQuery. On Windmill, arguments can be obtained by adding comments before the statement like that: `-- @name1 ({type})` or `-- @name2 ({type}) = default` (one per row). They can then be obtained directly in the statement with `@name1`, `@name2`, etc....'
-		case 'snowflake':
-			return 'The user is coding in Snowflake. On Windmill, arguments can be obtained directly in the statement with ?. Name the parameters by adding comments before the statement like that: `-- ? name1 ({type})` or `-- ? name2 ({type}) = default` (one per row)'
-		case 'mssql':
-			return 'The user is coding in Microsoft SQL Server. On Windmill, arguments can be obtained directly in the statement with @P1, @P2, etc.. Name the parameters by adding comments before the statement like that: `-- @P1 name1 ({type})` or `-- @P2 name2 ({type}) = default` (one per row)'
-		case 'graphql':
-			return 'The user is coding in GraphQL. If needed, add the needed arguments as query parameters.'
-		case 'powershell':
-			return 'The user is coding in PowerShell. On Windmill, arguments can be obtained by calling the param function on the first line of the script like that: `param($ParamName1, $ParamName2 = "default value", [{type}]$ParamName3, ...)`'
-		case 'csharp':
-			return 'The user is coding in C#. On Windmill, it is expected the script contains a public static Main method inside a class. The class name is irrelevant. NuGet packages can be added using the format: #r "nuget: PackageName, Version" at the top of the script. The Main method signature should be: public static ReturnType Main(parameter types...)'
-		case 'java':
-			return 'The user is coding in Java. On Windmill, it is expected the script contains a Main public class and a public static main() method. The return type can be Object or void. Dependencies can be added using the format: //requirements://groupId:artifactId:version at the top of the script. The method signature should be: public static Object main(parameter types...)'
-		default:
-			return ''
+	// Add tool usage instructions for applicable languages
+	if (['python3', 'php', 'bun', 'deno', 'nativets', 'bunnative'].includes(lang)) {
+		if (allowResourcesFetch) {
+			context += '\n\nTo query available resource types, use the `search_resource_types` tool.'
+		}
 	}
+
+	// Note preprocessor function naming if applicable
+	if (isPreprocessor) {
+		context +=
+			'\n\nThe main function for this script should be named `preprocessor` instead of `main`.'
+	}
+
+	return context
 }
 
 export async function getFormattedResourceTypes(
@@ -375,7 +178,7 @@ function buildChatSystemPrompt(currentModel: AIProviderModel) {
 	- You can also receive a \`DIFF\` of the changes that have been made to the code. You should use this diff to give better answers.
 	- Before giving your answer, check again that you carefully followed these instructions.
 	- When asked to create a script that communicates with an external service, you can use the \`search_hub_scripts\` tool to search for relevant scripts in the hub. Make sure the language is the same as what the user is coding in. If you do not find any relevant scripts, you can use the \`search_npm_packages\` tool to search for relevant packages and their documentation. Always give a link to the documentation in your answer if possible.
-	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
+	- After applying code changes with the \`${editToolName}\` tool, ALWAYS use the \`get_lint_errors\` tool to check for lint errors. If there are errors, fix them before proceeding. Then use the \`test_run_script\` tool to test the code, and iterate on the code until it works as expected (MAX 3 times). If the user cancels the test run, do not try again and wait for the next user instruction.
 
 	Important:
 	${useDiffBasedEdit ? '- Each old_string must match the exact text in the current code, including whitespace and indentation.' : ''}
@@ -469,22 +272,29 @@ export async function main() {
 \`\`\`
 `
 
+export function prepareInlineChatSystemPrompt(lang: ScriptLang | 'bunnative') {
+	return INLINE_CHAT_SYSTEM_PROMPT + getLangContext(lang, { allowResourcesFetch: true })
+}
+
 export const CHAT_USER_PROMPT = `
 INSTRUCTIONS:
 {instructions}
-
-WINDMILL LANGUAGE CONTEXT:
-{lang_context}
 
 `
 
 export function prepareScriptSystemMessage(
 	currentModel: AIProviderModel,
+	language: ScriptLang | 'bunnative',
+	options: { isPreprocessor?: boolean; allowResourcesFetch?: boolean } = {},
 	customPrompt?: string
 ): ChatCompletionSystemMessageParam {
 	let content = buildChatSystemPrompt(currentModel)
 
-	// If there's a custom prompt, prepend it to the system prompt
+	// Add language context to the system prompt
+	const langContext = getLangContext(language, { allowResourcesFetch: true, ...options })
+	content += `\n\nWINDMILL LANGUAGE CONTEXT:\n${langContext}`
+
+	// If there's a custom prompt, append it to the system prompt
 	if (customPrompt?.trim()) {
 		content = `${content}\n\nUSER GIVEN INSTRUCTIONS:\n${customPrompt.trim()}`
 	}
@@ -518,23 +328,18 @@ export function prepareScriptTools(
 		tools.push(editCodeTool)
 	}
 	tools.push(testRunScriptTool)
+	tools.push(getLintErrorsTool)
 	return tools
 }
 
 export function prepareScriptUserMessage(
 	instructions: string,
-	language: ScriptLang | 'bunnative',
-	selectedContext: ContextElement[],
-	options: {
-		isPreprocessor?: boolean
-	} = {}
+	selectedContext: ContextElement[]
 ): ChatCompletionUserMessageParam {
-	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions).replace(
-		'{lang_context}',
-		getLangContext(language, { allowResourcesFetch: true, ...options })
-	)
+	let userMessage = CHAT_USER_PROMPT.replace('{instructions}', instructions)
 	const contextInstructions = buildContextString(selectedContext)
 	userMessage += contextInstructions
+
 	return {
 		role: 'user',
 		content: userMessage
@@ -605,6 +410,8 @@ export interface ScriptChatHelpers {
 		args: Record<string, any>
 	}
 	applyCode: (code: string, opts?: ReviewChangesOpts) => Promise<void>
+	/** Get lint errors from the Monaco editor */
+	getLintErrors?: () => ScriptLintResult
 }
 
 export const resourceTypeTool: Tool<ScriptChatHelpers> = {
@@ -897,8 +704,27 @@ const TEST_RUN_SCRIPT_TOOL: ChatCompletionFunctionTool = {
 	}
 }
 
+const GET_LINT_ERRORS_TOOL: ChatCompletionFunctionTool = {
+	type: 'function',
+	function: {
+		name: 'get_lint_errors',
+		description:
+			'Get lint errors and warnings from the current script in the editor. Use this after making code changes to check for issues.',
+		parameters: {
+			type: 'object',
+			properties: {},
+			additionalProperties: false,
+			strict: true,
+			required: []
+		}
+	}
+}
+
 export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL_WITH_DIFF,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -949,7 +775,8 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Code changes applied`
+				content: `Code changes applied`,
+				result: 'Success'
 			})
 			return `Applied changes to the script editor.`
 		} catch (error) {
@@ -965,6 +792,9 @@ export const editCodeToolWithDiff: Tool<ScriptChatHelpers> = {
 
 export const editCodeTool: Tool<ScriptChatHelpers> = {
 	def: EDIT_CODE_TOOL,
+	streamArguments: true,
+	showDetails: true,
+	showFade: true,
 	fn: async function ({ args, helpers, toolCallbacks, toolId }) {
 		const scriptOptions = helpers.getScriptOptions()
 
@@ -986,8 +816,6 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			throw new Error('Code parameter is required and must be a string')
 		}
 
-		toolCallbacks.setToolStatus(toolId, { content: 'Applying code changes...' })
-
 		try {
 			// Save old code
 			const oldCode = scriptOptions.code
@@ -998,7 +826,10 @@ export const editCodeTool: Tool<ScriptChatHelpers> = {
 			// Show revert mode
 			await helpers.applyCode(oldCode, { mode: 'revert' })
 
-			toolCallbacks.setToolStatus(toolId, { content: 'Code changes applied' })
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Code changes applied',
+				result: 'Success'
+			})
 			return 'Code has been applied to the script editor.'
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred'
@@ -1049,4 +880,32 @@ export const testRunScriptTool: Tool<ScriptChatHelpers> = {
 	requiresConfirmation: true,
 	confirmationMessage: 'Run script test',
 	showDetails: true
+}
+
+export const getLintErrorsTool: Tool<ScriptChatHelpers> = {
+	def: GET_LINT_ERRORS_TOOL,
+	fn: async function ({ helpers, toolCallbacks, toolId }) {
+		toolCallbacks.setToolStatus(toolId, { content: 'Getting lint errors...' })
+
+		if (!helpers.getLintErrors) {
+			toolCallbacks.setToolStatus(toolId, {
+				content: 'Lint errors not available',
+				error: 'getLintErrors helper is not available in this context'
+			})
+			return 'Lint errors are not available in this context. The editor may not support lint error reporting.'
+		}
+
+		const lintResult = helpers.getLintErrors()
+
+		const status =
+			lintResult.errorCount > 0
+				? `Found ${lintResult.errorCount} error(s)`
+				: lintResult.warningCount > 0
+					? `Found ${lintResult.warningCount} warning(s)`
+					: 'No issues found'
+
+		toolCallbacks.setToolStatus(toolId, { content: status })
+
+		return formatScriptLintResult(lintResult)
+	}
 }

@@ -685,4 +685,76 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn test_parse_with_preprocessor_reexport() {
+        // Test case for issue #6894: preprocessor re-export should be detected
+        let code = r#"
+        export { preprocessor } from "./extract_user_info_from_jwt_token";
+        
+        export async function main(param: string) {
+            return param;
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(
+            sig,
+            MainArgSignature {
+                star_args: false,
+                star_kwargs: false,
+                args: vec![Arg {
+                    name: "param".to_string(),
+                    otyp: None,
+                    typ: Typ::Str(None),
+                    default: None,
+                    has_default: false,
+                    oidx: None,
+                }],
+                no_main_func: Some(false),
+                has_preprocessor: Some(true),
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_with_preprocessor_reexport_renamed() {
+        // Test case for renamed re-exports
+        let code = r#"
+        export { preprocessor as preprocessor } from "./other";
+        
+        export async function main(param: string) {
+            return param;
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(sig.has_preprocessor, Some(true));
+    }
+
+    #[test]
+    fn test_parse_with_preprocessor_among_other_exports() {
+        // Test case where preprocessor is one of many exports
+        let code = r#"
+        export { foo, preprocessor, bar } from "./utils";
+        
+        export async function main(param: string) {
+            return param;
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(sig.has_preprocessor, Some(true));
+    }
+
+    #[test]
+    fn test_parse_without_preprocessor_other_exports() {
+        // Test case where there are exports but no preprocessor
+        let code = r#"
+        export { foo, bar } from "./utils";
+        
+        export async function main(param: string) {
+            return param;
+        }
+        "#;
+        let sig = parse_deno_signature(code, false, false, None).unwrap();
+        assert_eq!(sig.has_preprocessor, Some(false));
+    }
 }

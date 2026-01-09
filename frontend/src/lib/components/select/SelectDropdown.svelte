@@ -4,6 +4,7 @@
 	import { untrack, type Snippet } from 'svelte'
 	import type { ProcessedItem } from './utils.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { PlusIcon } from 'lucide-svelte'
 
 	let {
 		processedItems: _processedItems,
@@ -152,8 +153,8 @@
 	{#if uiState.domExists}
 		<div
 			class={twMerge(
-				disablePortal ? 'absolute' : 'fixed',
-				'z-[5001] text-tertiary text-sm select-none',
+				disablePortal ? 'absolute z-[5002]' : 'fixed z-[10000]',
+				'text-primary text-sm select-none',
 				dropdownPos.isBelow ? '' : 'flex flex-col justify-end',
 				uiState.visible ? '' : 'pointer-events-none',
 				className
@@ -164,22 +165,22 @@
 		>
 			<div
 				class={twMerge(
-					'overflow-clip rounded-md bg-surface-secondary shadow-lg transition-height',
+					'overflow-clip rounded-md drop-shadow-base transition-height',
 					dropdownPos.isBelow ? '' : 'flex flex-col justify-end'
 				)}
 				style="height: {uiState.visible ? dropdownPos.height : 0}px;"
 			>
-				<div bind:this={listEl} class="flex flex-col max-h-64 border rounded-md overflow-clip">
+				<div bind:this={listEl} class="flex flex-col max-h-64 rounded-md bg-surface-input">
 					{@render header?.()}
 					{#if processedItems?.length === 0}
-						<div class="py-8 px-4 text-center text-primary">{noItemsMsg}</div>
+						<div class="py-8 px-4 text-center text-primary text-xs">{noItemsMsg}</div>
 					{/if}
 					<ul class={twMerge('flex-1 overflow-y-auto flex flex-col', ulClass)}>
 						{#each processedItems ?? [] as item, itemIndex}
 							{#if (item.__select_group && itemIndex === 0) || processedItems?.[itemIndex - 1]?.__select_group !== item.__select_group}
 								<li
 									class={twMerge(
-										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b',
+										'mx-4 pb-1 mb-2 text-xs font-semibold text-primary border-b border-border-light',
 										itemIndex === 0 ? 'mt-3' : 'mt-6'
 									)}
 								>
@@ -189,23 +190,30 @@
 							<li>
 								<button
 									class={twMerge(
-										'py-2 px-4 w-full font-normal text-left text-primary',
-										itemIndex === keyArrowPos ? 'bg-surface-hover' : '',
-										item.value === value ? 'bg-surface-selected' : 'hover:bg-surface-hover',
-										itemButtonWrapperClasses
+										'py-2 px-4 w-full font-normal text-left text-primary text-xs',
+										itemIndex === keyArrowPos || item.value === value
+											? 'bg-surface-secondary dark:bg-surface-tertiary'
+											: 'hover:bg-surface-hover',
+										endSnippet || item.__is_create ? 'flex items-center justify-between gap-2' : '',
+										itemButtonWrapperClasses,
+										item.disabled ? 'cursor-not-allowed text-disabled' : ''
 									)}
 									onclick={(e) => {
 										e.stopImmediatePropagation()
-										onSelectValue(item)
+										if (!item.disabled) onSelectValue(item)
 									}}
 								>
 									{@render startSnippet?.({ item, close: () => (open = false) })}
 									<span class={itemLabelWrapperClasses}>
 										{item.label || '\xa0'}
 									</span>
-									{@render endSnippet?.({ item, close: () => (open = false) })}
+									{#if item.__is_create}
+										<PlusIcon class="inline ml-auto" size={16} />
+									{:else}
+										{@render endSnippet?.({ item, close: () => (open = false) })}
+									{/if}
 									{#if item.subtitle}
-										<div class="text-xs text-tertiary">{item.subtitle}</div>
+										<div class="text-2xs text-secondary">{item.subtitle}</div>
 									{/if}
 								</button>
 							</li>

@@ -11,8 +11,8 @@
 	import Toggle from '$lib/components/Toggle.svelte'
 	import QuickAddColumn from './QuickAddColumn.svelte'
 	import RefreshDatabaseStudioTable from './RefreshDatabaseStudioTable.svelte'
-	import { findGridItem } from '$lib/components/apps/editor/appUtils'
 	import type { AppViewerContext } from '$lib/components/apps/types'
+	import { findGridItem } from '../appUtilsCore'
 
 	interface Props {
 		componentInput: StaticInput<any[]> & { loading?: boolean }
@@ -204,12 +204,14 @@
 			// If deleting actions column, clear all table actions
 			if (subFieldType === 'ag-grid' && item && item._isActionsColumn === true) {
 				const gridItem = id ? findGridItem($app, id) : null
-				if (gridItem && (
-					gridItem.data.type === 'aggridcomponent' ||
-					gridItem.data.type === 'aggridcomponentee' ||
-					gridItem.data.type === 'aggridinfinitecomponent' ||
-					gridItem.data.type === 'aggridinfinitecomponentee'
-				) && Array.isArray(gridItem.data.actions)) {
+				if (
+					gridItem &&
+					(gridItem.data.type === 'aggridcomponent' ||
+						gridItem.data.type === 'aggridcomponentee' ||
+						gridItem.data.type === 'aggridinfinitecomponent' ||
+						gridItem.data.type === 'aggridinfinitecomponentee') &&
+					Array.isArray(gridItem.data.actions)
+				) {
 					gridItem.data.actions.length = 0
 				}
 				await updateConfiguration()
@@ -273,7 +275,7 @@
 <div class="flex gap-2 flex-col mt-2 w-full">
 	{#if Array.isArray(items) && componentInput.value}
 		<div class="flex flex-row items-center justify-between mr-1">
-			<div class="text-xs text-tertiary font-semibold">{pluralize(items.length, 'item')}</div>
+			<div class="text-xs text-primary font-semibold">{pluralize(items.length, 'item')}</div>
 			{#if subFieldType == 'labeledselect'}
 				<Toggle
 					options={{

@@ -1,11 +1,11 @@
 <script lang="ts">
-	import type { InputConnection } from '$lib/components/apps/inputType'
+	import type { InlineScript, InputConnection } from '$lib/components/apps/inputType'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
 	import { classNames, itemsExists } from '$lib/utils'
 	import { Plus, X } from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 	import { getContext, untrack } from 'svelte'
-	import type { App, AppViewerContext, InlineScript } from '$lib/components/apps/types'
+	import type { App, AppViewerContext } from '$lib/components/apps/types'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import { deepEqual } from 'fast-equals'
 	import { getAllGridItems } from '../../../appUtils'
@@ -166,7 +166,7 @@
 	<div class="flex my-4">
 		<Button
 			size="xs2"
-			color="dark"
+			variant="accent"
 			on:click={() => {
 				$connectingInput = {
 					opened: true,

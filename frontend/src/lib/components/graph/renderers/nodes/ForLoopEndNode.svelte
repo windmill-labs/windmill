@@ -1,14 +1,16 @@
 <script lang="ts">
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
-	import { getStateColor } from '../../util'
 	import type { ForLoopEndN } from '../../graphBuilder.svelte'
-
+	import { getGraphContext } from '../../graphContext'
 	interface Props {
 		data: ForLoopEndN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -20,8 +22,6 @@
 				selected={false}
 				id={data.id}
 				hideId
-				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}
@@ -30,10 +30,8 @@
 			<VirtualItem
 				label={'Collect result of each iteration'}
 				selectable={true}
-				selected={false}
+				selected={selectionManager && selectionManager.isNodeSelected(id)}
 				id={data.id}
-				bgColor={getStateColor(undefined, darkMode)}
-				borderColor={getStateColor(data.flowModuleState?.type, darkMode)}
 				on:select={(e) => {
 					setTimeout(() => data?.eventHandlers?.select(e.detail))
 				}}

@@ -17,6 +17,7 @@ export async function downloadZip(
   includeGroups?: boolean,
   includeSettings?: boolean,
   includeKey?: boolean,
+  skipWorkspaceDependencies?: boolean,
   defaultTs?: "bun" | "deno"
 ): Promise<JSZip | undefined> {
   const requestHeaders = new Headers();
@@ -30,8 +31,8 @@ export async function downloadZip(
     }
   }
 
-  const zipResponse = await fetch(
-    workspace.remote +
+  const includeWorkspaceDependenciesValue = !(skipWorkspaceDependencies ?? false);
+  const url = workspace.remote +
     "api/w/" +
     workspace.workspaceId +
     `/workspaces/tarball?archive_type=zip&plain_secret=${plainSecrets ?? false
@@ -39,8 +40,9 @@ export async function downloadZip(
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}`,
-    {
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}`;
+
+  const zipResponse = await fetch(url, {
       headers: requestHeaders,
       method: "GET",
     }

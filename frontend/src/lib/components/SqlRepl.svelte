@@ -55,7 +55,9 @@
 	import { getLanguageByResourceType } from './apps/components/display/dbtable/utils'
 	import StepHistory, { type StepHistoryData } from './flows/propPicker/StepHistory.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { getDbType, wrapDucklakeQuery, type DbInput } from './dbOps'
+	import { getDatabaseArg, getDbType } from './dbOps'
+	import type { DbInput } from './dbTypes'
+	import { wrapDucklakeQuery } from './ducklake'
 
 	type Props = {
 		input: DbInput
@@ -79,6 +81,7 @@
 
 	async function run({ doPostgresRowToJsonFix }: { doPostgresRowToJsonFix?: boolean } = {}) {
 		if (isRunning || !$workspaceStore) return
+		const READ_OPS = ['SELECT', 'WITH', 'SHOW', 'EXPLAIN', 'DESCRIBE']
 		isRunning = true
 		try {
 			const statements = splitSqlStatements(pruneComments(code))
@@ -94,14 +97,14 @@
 			if (doPostgresRowToJsonFix) {
 				transformedCode = statements
 					.map((statement) => {
-						if (statement.trim().toUpperCase().startsWith('SELECT')) {
+						if (READ_OPS.some((op) => statement.trim().toUpperCase().startsWith(op))) {
 							return `SELECT row_to_json(__t__) FROM (${statement}) __t__`
 						}
 						return statement
 					})
 					.join(';')
 			}
-			const dbArg = input?.type === 'database' ? { database: '$res:' + input.resourcePath } : {}
+			const dbArg = getDatabaseArg(input)
 
 			if (input?.type === 'ducklake') {
 				transformedCode = wrapDucklakeQuery(transformedCode, input.ducklake)
@@ -130,7 +133,9 @@
 				result = result.map((row: any) => row['row_to_json'])
 			}
 
-			if (statements[statements.length - 1].toUpperCase().trim().startsWith('SELECT')) {
+			if (
+				READ_OPS.some((op) => statements[statements.length - 1].toUpperCase().trim().startsWith(op))
+			) {
 				runHistory.push({
 					created_at: new Date().toISOString(),
 					created_by: '',
@@ -174,8 +179,8 @@
 		{/await}
 		<Button
 			wrapperClasses="absolute z-10 bottom-2 right-6"
-			color={isRunning ? 'red' : undefined}
-			variant="border"
+			variant="accent"
+			destructive={isRunning}
 			shortCut={{ Icon: CornerDownLeft }}
 			on:click={() => run()}
 		>

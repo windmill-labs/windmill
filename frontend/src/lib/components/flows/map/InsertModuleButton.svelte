@@ -1,106 +1,22 @@
 <script lang="ts">
-	import { Bug, Cross } from 'lucide-svelte'
-	import InsertModuleInner from './InsertModuleInner.svelte'
-	import { twMerge } from 'tailwind-merge'
-	import type { ComputeConfig } from 'svelte-floating-ui'
+	import type { IconType } from '$lib/utils'
+	import { Plus } from 'lucide-svelte'
 
-	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
-	import { flip, offset } from 'svelte-floating-ui/dom'
-	import { SchedulePollIcon } from '$lib/components/icons'
-
-	// import type { Writable } from 'svelte/store'
-
-	type Alignment = 'start' | 'end' | 'center'
-	type Side = 'top' | 'bottom'
-	type Placement = `${Side}-${Alignment}`
-
-	interface Props {
-		index?: number | 'error-handler-button'
-		funcDesc?: string
-		kind?: 'script' | 'trigger' | 'preprocessor' | 'failure'
-		iconSize?: number
-		clazz?: string
-		placement?: Placement
-		disableAi?: boolean
+	type Props = {
+		Icon?: IconType
+		title?: string
+		id?: string
 	}
 
-	let {
-		index = 0,
-		funcDesc = $bindable(''),
-		kind = 'script',
-		iconSize = 12,
-		clazz = '',
-		placement = 'bottom-center',
-		disableAi = false
-	}: Props = $props()
-
-	let floatingConfig: ComputeConfig = {
-		strategy: 'fixed',
-		// @ts-ignore
-		placement,
-		middleware: [offset(8), flip()],
-		autoUpdate: true
-	}
-
-	let open = $state(false)
-
-	$effect(() => {
-		!open && (funcDesc = '')
-	})
+	let { Icon = Plus, title, id }: Props = $props()
 </script>
 
-<!-- <Menu transitionDuration={0} pointerDown bind:show={open} noMinW {placement} let:close> -->
-
-<!-- {floatingConfig}
-floatingClasses="mt-2"
-containerClasses="border rounded-lg shadow-lg  bg-surface"
-noTransition
-shouldUsePortal={true} -->
-
-<PopupV2 {floatingConfig} bind:open target="#flow-editor">
-	{#snippet button()}
-		<button
-			title={`Add ${
-				kind === 'failure'
-					? ' failure module '
-					: kind === 'preprocessor'
-						? 'preprocessor step'
-						: kind === 'trigger'
-							? 'trigger'
-							: 'step'
-			}`}
-			id={`flow-editor-add-step-${index}`}
-			type="button"
-			class={twMerge(
-				'w-[17.5px] h-[17.5px] flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded',
-				clazz
-			)}
-			onpointerdown={() => {
-				open = !open
-			}}
-		>
-			{#if kind === 'trigger'}
-				<SchedulePollIcon size={14} />
-			{:else if kind === 'failure'}
-				<div class="flex items-center gap-1">
-					<Bug size={14} />
-					<span class="text-xs w-20">Error Handler</span>
-				</div>
-			{:else}
-				<Cross size={iconSize} />
-			{/if}
-		</button>
-	{/snippet}
-	{#snippet children({ close })}
-		<InsertModuleInner
-			on:close={() => close()}
-			on:insert
-			on:new
-			on:pickFlow
-			on:pickScript
-			allowTrigger={index == 0}
-			{kind}
-			{disableAi}
-		/>
-	{/snippet}
-</PopupV2>
+<button class="center-center p-2 group" onclick={(e) => e.stopPropagation()}>
+	<div
+		{title}
+		{id}
+		class={'w-[20px] h-[20px] flex items-center justify-center text-primary border border-border-normal bg-surface-secondary group-hover:bg-surface-accent-primary group-hover:text-white group-hover:border-none transition-all rounded-md'}
+	>
+		<Icon size={12} />
+	</div>
+</button>

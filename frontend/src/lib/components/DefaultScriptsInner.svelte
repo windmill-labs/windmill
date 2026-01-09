@@ -42,7 +42,8 @@
 			class="w-full p-2 rounded {small
 				? ''
 				: 'border border-secondary'} grid grid-cols-3 items-center"
-			><h3 class={small ? 'text-xs font-medium justify-center' : ''}>{lang}</h3>
+		>
+			<p class={small ? 'text-2xs font-medium justify-center' : 'text-sm'}>{lang}</p>
 			<div>
 				{#if i > 0}
 					<button

@@ -24,7 +24,7 @@
 
 {#if component.horizontalAlignment || component.verticalAlignment}
 	<div class="flex flex-wrap gap-x-4 gap-y-1 w-full justify-end items-center">
-		<div class="text-tertiary text-xs">Alignment</div>
+		<div class="text-primary text-xs">Alignment</div>
 		{#if component.horizontalAlignment}
 			<ToggleButtonGroup
 				noWFull

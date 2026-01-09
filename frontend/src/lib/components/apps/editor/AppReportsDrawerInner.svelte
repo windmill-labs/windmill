@@ -159,71 +159,6 @@
 		sendUserToast('App reporting disabled')
 	}
 
-	const appPreviewScript = `import puppeteer from 'puppeteer-core';
-import dayjs from 'dayjs';
-export async function main(
-  app_path: string,
-  startup_duration = 5,
-  kind: 'pdf' | 'png' = 'pdf',
-  customWidth: null | number,
-  customHeight: null | number,
-) {
-  let browser = null
-  try {
-  browser = await puppeteer.launch({ headless: true, executablePath: '/usr/bin/chromium', args: ['--no-sandbox',
-      '--no-zygote',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu'] });
-  const page = await browser.newPage();
-  await page.setCookie({
-    "name": "token",
-    "value": Bun.env["WM_TOKEN"],
-    "domain": Bun.env["BASE_URL"]?.replace(/https?:\\/\\//, '')
-  })
-  page
-    .on('console', msg =>
-      console.log(dayjs().format("HH:mm:ss") + " " + msg.type().substr(0, 3).toUpperCase() + " " + msg.text()))
-    .on('pageerror', ({ msg }) => console.log(dayjs().format("HH:mm:ss") + " " + msg));
-  await page.setViewport({ width: 1200, height: 2000 });
-  await page.goto(Bun.env["BASE_URL"] + '/apps/get/' + app_path + '?workspace=' + Bun.env["WM_WORKSPACE"] + "&hideRefreshBar=true&hideEditBtn=true");
-	await page.waitForSelector("#app-content", { timeout: 20000 })
-  
-  const elem = await page.$('#app-content');
-  let width: null | number = customWidth || 1200
-  let height: null | number = customHeight || (await elem.boundingBox()).height
-  await page.setViewport({ width, height });
-  await new Promise((resolve, _) => {
-		setTimeout(resolve, startup_duration * 1000)
-  })
-  try {
-    await page.$eval("#sidebar", el => el.remove())
-  } catch {}
-  await page.$eval("#content", el => el.classList.remove("md:pl-12"))
-  await page.$$eval(".app-component-refresh-btn", els => els.forEach(el => el.remove()))
-  await page.$$eval(".app-table-footer-btn", els => els.forEach(el => el.remove()))
-
-  await new Promise((resolve, _) => setTimeout(resolve, 500))
-  
-  const screenshot = kind === "pdf" ? await page.pdf({
-		printBackground: true,
-		width,
-		height
-  }) : await page.screenshot({
-		fullPage: true,
-		type: "png",
-    	captureBeyondViewport: false
-	});
-	await browser.close();
-	return Buffer.from(screenshot).toString('base64');
-  } catch (err) {
-	if (browser) {
-	  await browser.close();
-	}
-	throw err;
-  }
-}`
-
 	const notificationScripts = {
 		discord: {
 			path: hubPaths.discordReport,
@@ -347,10 +282,9 @@ export async function main(
 				{
 					id: 'a',
 					value: {
-						type: 'rawscript' as const,
-						tag: 'chromium',
-						content: appPreviewScript,
-						language: 'bun' as const,
+						type: 'script' as const,
+						tag_override: 'chromium',
+						path: hubPaths.appReport,
 						input_transforms: {
 							app_path: {
 								expr: 'flow_input.app_path',
@@ -587,9 +521,9 @@ export async function main(
 			/>
 		</div>
 		<Button
-			color="dark"
+			variant="accent"
 			startIcon={{ icon: Save }}
-			size="sm"
+			unifiedSize="md"
 			on:click={async () => {
 				await enableAppReporting()
 				sendUserToast('App reporting updated')
@@ -649,28 +583,35 @@ export async function main(
 					min="768"
 				/>
 				x
-				<input type="number" class="text-sm" bind:value={customHeight} placeholder="auto" min="0" />
+				<input type="number" bind:value={customHeight} placeholder="auto" min="0" />
 			</div>
 		</Section>
 
 		<Section label="Notification">
 			<Tabs bind:selected={selectedTab}>
 				{#if !$enterpriseLicense}
-					<Tab value="custom">Custom</Tab>
+					<Tab value="custom" label="Custom" />
 				{/if}
-				<Tab value="slack" disabled={!$enterpriseLicense}
-					>Slack{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
-				>
-				<Tab value="discord" disabled={!$enterpriseLicense}
-					>Discord{!$enterpriseLicense ? ' (EE only)' : ''}</Tab
-				>
-				<Tab value="email" disabled={!$enterpriseLicense}>
-					<div class="flex flex-row gap-1 items-center"
-						>Email{!$enterpriseLicense ? ' (EE only)' : ''}
-					</div>
-				</Tab>
+				<Tab
+					value="slack"
+					disabled={!$enterpriseLicense}
+					label="Slack{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
+				<Tab
+					value="discord"
+					disabled={!$enterpriseLicense}
+					label="Discord{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
+				<Tab
+					value="email"
+					disabled={!$enterpriseLicense}
+					label="Email{!$enterpriseLicense ? ' (EE only)' : ''}"
+				/>
+
 				{#if $enterpriseLicense}
-					<Tab value="custom">Custom</Tab>
+					<Tab value="custom" label="Custom" />
 				{/if}
 			</Tabs>
 			{#if selectedTab === 'custom'}
@@ -683,7 +624,7 @@ export async function main(
 						allowRefresh
 					/>
 				</div>
-				<div class="prose text-2xs text-tertiary mt-2">
+				<div class="prose text-2xs text-primary mt-2">
 					Pick a script that does whatever with the PDF/PNG report.
 
 					<br />
@@ -707,8 +648,7 @@ export async function main(
 									>.
 								</p>
 								<Button
-									variant="border"
-									color="light"
+									variant="default"
 									on:click={getWorspaceSlackSetting}
 									startIcon={{ icon: RotateCw }}
 								/>
@@ -735,8 +675,8 @@ export async function main(
 				loading={testLoading}
 				{disabled}
 				on:click={testReport}
-				size="xs"
-				color="dark"
+				unifiedSize="md"
+				variant="accent"
 				btnClasses="w-auto"
 			>
 				Send test report

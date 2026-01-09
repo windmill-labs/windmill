@@ -3,7 +3,7 @@
 
 	const bubble = createBubbler()
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import { Clipboard } from 'lucide-svelte'
+	import { Copy } from 'lucide-svelte'
 	import { getContext, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copyToClipboard, isCodeInjection } from '../../../../utils'
@@ -97,7 +97,7 @@
 	function getClasses() {
 		switch (resolvedConfig.style) {
 			case 'Caption':
-				return 'text-sm italic text-tertiary'
+				return 'text-sm italic text-primary'
 			case 'Label':
 				return 'font-semibold text-sm'
 			default:
@@ -268,13 +268,12 @@
 							<div class="flex items-center">
 								<Button
 									title="Copy to clipboard"
-									variant="border"
+									variant="default"
 									size="xs"
-									color="light"
 									btnClasses="!p-1"
 									on:click={() => copyToClipboard(result)}
 								>
-									<Clipboard size={14} strokeWidth={2} />
+									<Copy size={14} strokeWidth={2} />
 								</Button>
 							</div>
 						{/if}

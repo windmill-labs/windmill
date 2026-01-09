@@ -10,7 +10,7 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { LogIn, AlertTriangle } from 'lucide-svelte'
+	import { LogIn, AlertTriangle, ExternalLink } from 'lucide-svelte'
 	import { mergeSchema } from '$lib/common'
 	import { emptyString } from '$lib/utils'
 	import { Alert } from '$lib/components/common'
@@ -158,7 +158,7 @@
 
 <ScheduleEditor bind:this={scheduleEditor} />
 
-<CenteredModal title="Approval for resuming of flow" disableLogo>
+<CenteredModal title="Approval for resuming of flow" disableLogo centerVertically={false}>
 	{#if error}
 		<div class="space-y-6">
 			{#if error.startsWith('Not authorized:')}
@@ -182,23 +182,22 @@
 	{:else}
 		<div class="flex flex-row justify-between flex-wrap sm:flex-nowrap gap-x-4">
 			<div class="w-full">
-				<h2 class="mt-4">Approvers</h2>
+				<h2 class="text-sm font-semibold text-emphasis">Approvers</h2>
 
-				<div class="my-4">
+				<div class="mt-2 text-xs font-normal text-primary">
 					{#if currentApprovers.length > 0}
 						<ul>
 							{#each currentApprovers as approver}
-								<li
-									><b
-										>{approver.approver}<Tooltip
-											>Unique id of approval: {approver.resume_id}</Tooltip
-										></b
-									></li
-								>
+								<li>
+									<p>
+										{approver.approver}
+										<Tooltip>Unique id of approval: {approver.resume_id}</Tooltip>
+									</p>
+								</li>
 							{/each}
 						</ul>
 					{:else}
-						<p class="text-sm"
+						<p class="text-xs text-secondary"
 							>No current approvers for this step (approval steps can require more than one
 							approval)</p
 						>
@@ -212,7 +211,7 @@
 			</div>
 		</div>
 		{#if !completed}
-			<h2 class="mt-4 mb-2">Flow arguments</h2>
+			<h2 class="mt-4 mb-2 text-sm font-semibold text-emphasis">Flow arguments</h2>
 
 			<JobArgs
 				id={job?.id}
@@ -221,77 +220,87 @@
 			/>
 		{/if}
 
-		<div class="mt-8">
+		<div class="mt-8"></div>
+
+		<div class="p-4 rounded-md bg-surface-tertiary shadow-md">
 			{#if approver}
-				<p>Approving as: <b>{approver}</b></p>
+				<p class="text-xs font-normal text-primary mb-2"
+					>Approving as: <b class="font-semibold text-emphasis">{approver}</b></p
+				>
+			{/if}
+
+			{#if completed}
+				<Alert type="info" title="Flow completed"
+					>The flow is not running anymore. You cannot cancel or resume it.
+				</Alert>
+			{:else if alreadyResumed}
+				<Alert type="info" title="Flow already resumed">
+					You have already approved this flow to be resumed
+				</Alert>
+			{/if}
+
+			{#if description != undefined}
+				<DisplayResult noControls result={description} />
+			{/if}
+
+			{#if schema && Object.keys(schema).length > 0 && !completed}
+				{#if emptyString($enterpriseLicense)}
+					<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
+				{:else}
+					<SchemaForm
+						onlyMaskPassword
+						noVariablePicker
+						bind:isValid={valid}
+						schema={mergeSchema(schema, enum_payload)}
+						bind:args={default_payload}
+					/>
+				{/if}
+			{/if}
+
+			{#if !completed}
+				<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap">
+					{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
+						<Button
+							variant="accent"
+							destructive
+							on:click|once={cancel}
+							size="lg"
+							disabled={completed || alreadyResumed}>Deny</Button
+						>
+					{:else}
+						<div></div>
+					{/if}
+
+					<Button
+						variant="accent"
+						on:click|once={resume}
+						size="lg"
+						disabled={completed || alreadyResumed || !valid}>Approve</Button
+					>
+				</div>
+			{/if}
+			{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
+				<div class="mt-2">
+					<Alert type="warning" title="Warning">
+						As an administrator, by resuming or cancelling this stage of the flow, you bypass the
+						self-approval interdiction.
+					</Alert>
+				</div>
 			{/if}
 		</div>
-		{#if completed}
-			<div class="my-2"
-				><p><b>The flow is not running anymore. You cannot cancel or resume it.</b></p></div
-			>
-		{:else if alreadyResumed}
-			<div class="my-2"><p><b>You have already approved this flow to be resumed</b></p></div>
-		{/if}
-
-		{#if description != undefined}
-			<DisplayResult noControls result={description} />
-		{/if}
-
-		{#if schema && !completed}
-			{#if emptyString($enterpriseLicense)}
-				<Alert type="warning" title="Adding a form to the approval page is an EE feature" />
-			{:else}
-				<SchemaForm
-					onlyMaskPassword
-					noVariablePicker
-					bind:isValid={valid}
-					schema={mergeSchema(schema, enum_payload)}
-					bind:args={default_payload}
-				/>
-			{/if}
-		{/if}
-
-		{#if !completed}
-			<div class="w-max-md flex flex-row gap-x-4 gap-y-4 justify-between w-full flex-wrap mt-2">
-				{#if !job?.raw_flow?.modules?.[approvalStep]?.suspend?.hide_cancel}
-					<Button
-						btnClasses="grow"
-						color="red"
-						on:click|once={cancel}
-						size="md"
-						disabled={completed || alreadyResumed}>Deny</Button
-					>
-				{:else}
-					<div></div>
-				{/if}
-
-				<Button
-					btnClasses="grow"
-					color="green"
-					on:click|once={resume}
-					size="md"
-					disabled={completed || alreadyResumed || !valid}>Approve</Button
-				>
-			</div>
-		{/if}
-		{#if !completed && !alreadyResumed && job?.raw_flow?.modules?.[approvalStep]?.suspend?.user_auth_required && job?.raw_flow?.modules?.[approvalStep]?.suspend?.self_approval_disabled && $userStore && $userStore.email === job.email && ($userStore.is_admin || $userStore.is_super_admin)}
-			<div class="mt-2">
-				<Alert type="warning" title="Warning">
-					As an administrator, by resuming or cancelling this stage of the flow, you bypass the
-					self-approval interdiction.
-				</Alert>
-			</div>
-		{/if}
 
 		<div class="mt-4 flex flex-row flex-wrap justify-between">
-			<a target="_blank" rel="noreferrer" href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				>Flow run details (require auth)</a
+			<a
+				class="text-accent text-xs"
+				target="_blank"
+				rel="noreferrer"
+				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
+				>Open run details (require auth) <ExternalLink size={12} class="inline" /></a
 			>
 		</div>
 		{#if job && job.raw_flow && !completed}
-			<h2 class="mt-10">Flow details</h2>
-			<div class="border border-gray-700">
+			<h2 class="mt-10 text-sm font-semibold text-emphasis mb-2">Flow details</h2>
+			<div class="rounded-md overflow-hidden">
 				<FlowGraphV2
 					workspace={job.workspace_id}
 					triggerNode={false}

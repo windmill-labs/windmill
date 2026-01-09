@@ -1,6 +1,7 @@
 import type { AppInput } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { buildParameters, ColumnIdentity, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters, ColumnIdentity } from '../utils'
 import { getLanguageByResourceType, type ColumnDef } from '../utils'
 
 function formatInsertValues(columns: ColumnDef[], dbType: DbType, startIndex: number = 1): string {
@@ -98,8 +99,10 @@ export function makeInsertQuery(table: string, columns: ColumnDef[], dbType: DbT
 	const insertValues = formatInsertValues(columnsInsert, dbType)
 	const defaultValues = formatDefaultValues(columnsDefault)
 	const commaOrEmpty = shouldInsertComma ? ', ' : ''
+	const valuesStr = `${insertValues}${commaOrEmpty}${defaultValues}`
 
-	query += `INSERT INTO ${table} (${columnNames}) VALUES (${insertValues}${commaOrEmpty}${defaultValues})`
+	if (!valuesStr.trim()) return `INSERT INTO ${table} DEFAULT VALUES`
+	query += `INSERT INTO ${table} (${columnNames}) VALUES (${valuesStr})`
 	return query
 }
 
@@ -110,7 +113,7 @@ export function getInsertInput(dbInput: DbInput, table: string, columns: ColumnD
 	return {
 		runnable: {
 			name: 'AppDbExplorer',
-			type: 'runnableByName',
+			type: 'inline',
 			inlineScript: {
 				content: query,
 				language: getLanguageByResourceType(dbType),

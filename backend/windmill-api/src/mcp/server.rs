@@ -9,18 +9,20 @@ use std::sync::Arc;
 use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
-use rmcp::{
-    handler::server::ServerHandler,
-    model::*,
-    service::{RequestContext, RoleServer},
-    transport::StreamableHttpServerConfig,
-    ErrorData,
-};
 use serde_json::Value;
 use tokio::try_join;
+use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{utils::StripPath, DB};
+use windmill_mcp::server::{
+    Annotated, CallToolRequestParam, CallToolResult, Content, ErrorData, Implementation,
+    InitializeRequestParam, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, LocalSessionManager, PaginatedRequestParam,
+    ProtocolVersion, RawContent, RawTextContent, RequestContext, RoleServer, ServerCapabilities,
+    ServerHandler, ServerInfo, StreamableHttpServerConfig, StreamableHttpService, Tool,
+    ToolAnnotations,
+};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -39,14 +41,12 @@ use super::utils::{
         FlowInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem, WorkspaceId,
     },
     schema::transform_schema_for_resources,
+    scope_matcher::{is_resource_allowed, parse_mcp_scopes},
     transform::{reverse_transform, reverse_transform_key},
 };
 
 use axum::{
     extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
-};
-use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, SessionManager, StreamableHttpService,
 };
 use windmill_common::error::JsonResult;
 
@@ -125,6 +125,7 @@ impl Runner {
                 idempotent_hint: Some(false), // Are not guaranteed to be idempotent
                 open_world_hint: Some(true),  // Can interact with external services
             }),
+            meta: None,
         })
     }
 }
@@ -150,6 +151,10 @@ impl ServerHandler for Runner {
         })?;
 
         check_scopes(authed)?;
+
+        // Parse MCP scopes for authorization
+        let scopes = authed.scopes.as_ref().map(|s| s.as_slice()).unwrap_or(&[]);
+        let scope_config = parse_mcp_scopes(scopes)?;
 
         if request.name.ends_with("_TRUNC") {
             return Ok(CallToolResult::error(
@@ -197,6 +202,19 @@ impl ServerHandler for Runner {
         let endpoint_tools = all_endpoint_tools();
         for endpoint_tool in endpoint_tools {
             if endpoint_tool.name.as_ref() == request.name {
+                // Validate endpoint scope
+                if scope_config.granular
+                    && !is_resource_allowed(&endpoint_tool.name, &scope_config.endpoints)
+                {
+                    return Err(ErrorData::internal_error(
+                        format!(
+                            "Access denied: endpoint '{}' not in token scope",
+                            endpoint_tool.name
+                        ),
+                        None,
+                    ));
+                }
+
                 // This is an endpoint tool, forward to the actual HTTP endpoint
                 let result =
                     call_endpoint_tool(&endpoint_tool, args.clone(), &workspace_id, &authed)
@@ -211,6 +229,21 @@ impl ServerHandler for Runner {
         let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
             ErrorData::internal_error(format!("Failed to reverse transform path: {}", e), None)
         })?;
+
+        // Validate script/flow scope
+        if !is_hub && scope_config.granular {
+            if tool_type == "script" && !is_resource_allowed(&path, &scope_config.scripts) {
+                return Err(ErrorData::internal_error(
+                    format!("Access denied: script '{}' not in token scope", path),
+                    None,
+                ));
+            } else if tool_type == "flow" && !is_resource_allowed(&path, &scope_config.flows) {
+                return Err(ErrorData::internal_error(
+                    format!("Access denied: flow '{}' not in token scope", path),
+                    None,
+                ));
+            }
+        }
 
         let item_schema = if is_hub {
             get_hub_script_schema(&format!("hub/{}", path), db).await?
@@ -337,53 +370,23 @@ impl ServerHandler for Runner {
             })
             .map(|w_id| w_id.0.clone())?;
 
-        let scopes = authed.scopes.as_ref();
-        let owned_scope = scopes.and_then(|scopes| {
-            scopes
-                .iter()
-                .find(|scope| scope.starts_with("mcp:") && !scope.contains("hub"))
-        });
-        let hub_scope =
-            scopes.and_then(|scopes| scopes.iter().find(|scope| scope.starts_with("mcp:hub")));
-        let (scope_type, scope_path) = owned_scope.map_or(("all", None), |scope| {
-            let parts = scope.split(":").collect::<Vec<&str>>();
-            (
-                parts[1],
-                if parts.len() == 3 {
-                    Some(parts[2])
-                } else {
-                    None
-                },
-            )
-        });
-        let scope_integrations = hub_scope.and_then(|scope| {
-            let parts = scope.split(":").collect::<Vec<&str>>();
-            if parts.len() == 3 {
-                Some(parts[2])
-            } else {
-                None
-            }
-        });
+        // Parse MCP scopes to determine what to expose
+        let scopes = authed.scopes.as_ref().map(|s| s.as_slice()).unwrap_or(&[]);
+        let scope_config = parse_mcp_scopes(scopes)?;
 
-        let scripts_fn = get_items::<ScriptInfo>(
-            user_db,
-            authed,
-            &workspace_id,
-            scope_type,
-            "script",
-            scope_path.as_deref(),
-        );
-        let flows_fn = get_items::<FlowInfo>(
-            user_db,
-            authed,
-            &workspace_id,
-            scope_type,
-            "flow",
-            scope_path.as_deref(),
-        );
+        let scope_type = if scope_config.favorites {
+            "favorites"
+        } else {
+            // Fetch all items if either all or granular scope set (we filter later for granular scopes)
+            "all"
+        };
+
+        let scripts_fn =
+            get_items::<ScriptInfo>(user_db, authed, &workspace_id, scope_type, "script");
+        let flows_fn = get_items::<FlowInfo>(user_db, authed, &workspace_id, scope_type, "flow");
         let resources_types_fn = get_resources_types(user_db, authed, &workspace_id);
-        let hub_scripts_fn = get_scripts_from_hub(db, scope_integrations.as_deref());
-        let (scripts, flows, resources_types, hub_scripts) = if scope_integrations.is_some() {
+        let hub_scripts_fn = get_scripts_from_hub(db, scope_config.hub_apps.as_deref());
+        let (scripts, flows, resources_types, hub_scripts) = if scope_config.hub_apps.is_some() {
             let (scripts, flows, resources_types, hub_scripts) =
                 try_join!(scripts_fn, flows_fn, resources_types_fn, hub_scripts_fn)?;
             (scripts, flows, resources_types, hub_scripts)
@@ -396,7 +399,13 @@ impl ServerHandler for Runner {
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
         let mut tools: Vec<Tool> = Vec::new();
 
+        // Filter and add scripts based on scope
         for script in scripts {
+            // For granular scopes, filter by path
+            if scope_config.granular && !is_resource_allowed(&script.path, &scope_config.scripts) {
+                continue;
+            }
+
             tools.push(
                 Runner::create_tool_from_item(
                     &script,
@@ -410,7 +419,13 @@ impl ServerHandler for Runner {
             );
         }
 
+        // Filter and add flows based on scope
         for flow in flows {
+            // For granular scopes, filter by path
+            if scope_config.granular && !is_resource_allowed(&flow.path, &scope_config.flows) {
+                continue;
+            }
+
             tools.push(
                 Runner::create_tool_from_item(
                     &flow,
@@ -438,12 +453,25 @@ impl ServerHandler for Runner {
             );
         }
 
-        // Add endpoint tools from the generated MCP tools
+        // Add endpoint tools from the generated MCP tools, filtered by scope
         let endpoint_tools = all_endpoint_tools();
-        let mcp_tools_converted = endpoint_tools_to_mcp_tools(endpoint_tools);
-        tools.extend(mcp_tools_converted);
+        for endpoint_tool in endpoint_tools {
+            // For granular scopes, filter by endpoint name
+            if scope_config.granular
+                && !is_resource_allowed(&endpoint_tool.name, &scope_config.endpoints)
+            {
+                continue;
+            }
 
-        Ok(ListToolsResult { tools, next_cursor: None })
+            tools.push(
+                endpoint_tools_to_mcp_tools(vec![endpoint_tool])
+                    .into_iter()
+                    .next()
+                    .unwrap(),
+            );
+        }
+
+        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
     }
 
     fn get_info(&self) -> ServerInfo {
@@ -470,7 +498,7 @@ impl ServerHandler for Runner {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(ListResourcesResult { resources: vec![], next_cursor: None })
+        Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
     }
 
     async fn list_prompts(
@@ -502,11 +530,13 @@ pub async fn extract_and_store_workspace_id(
 }
 
 /// Setup the MCP server with HTTP transport
-pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManager>)> {
+pub async fn setup_mcp_server() -> anyhow::Result<(Router, CancellationToken)> {
+    let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
     let service_config = StreamableHttpServerConfig {
         sse_keep_alive: Some(Duration::from_secs(15)),
         stateful_mode: false,
+        cancellation_token: cancellation_token.clone(),
     };
     let service = StreamableHttpService::new(
         || Ok(Runner::new()),
@@ -515,34 +545,7 @@ pub async fn setup_mcp_server() -> anyhow::Result<(Router, Arc<LocalSessionManag
     );
 
     let router = axum::Router::new().nest_service("/", service);
-    Ok((router, session_manager))
-}
-
-/// Shutdown the MCP server gracefully by closing all active sessions
-pub async fn shutdown_mcp_server(session_manager: Arc<LocalSessionManager>) {
-    let session_ids_to_close = {
-        let sessions_map = session_manager.sessions.read().await;
-        sessions_map.keys().cloned().collect::<Vec<_>>()
-    };
-
-    if !session_ids_to_close.is_empty() {
-        tracing::info!(
-            "Closing {} active MCP session(s)...",
-            session_ids_to_close.len()
-        );
-        let close_futures = session_ids_to_close
-            .iter()
-            .map(|session_id| {
-                let manager_clone = session_manager.clone();
-                async move {
-                    if let Err(_) = manager_clone.close_session(session_id).await {
-                        tracing::warn!("Error closing MCP session");
-                    }
-                }
-            })
-            .collect::<Vec<_>>();
-        futures::future::join_all(close_futures).await;
-    }
+    Ok((router, cancellation_token))
 }
 
 /// HTTP handler to list MCP tools as JSON

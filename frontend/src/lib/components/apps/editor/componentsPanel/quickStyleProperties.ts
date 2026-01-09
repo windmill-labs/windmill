@@ -649,11 +649,23 @@ export const quickStyleProperties: Record<
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
+	chatcomponent: {
+		container: containerDefaultProps,
+		messagesContainer: containerDefaultProps,
+		userMessage: containerDefaultProps,
+		assistantMessage: containerDefaultProps,
+		input: containerDefaultProps,
+		button: buttonDefaultProps
+	},
 	logcomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},
 	jobidlogcomponent: {
+		header: [...containerDefaultProps, typographyGrouping],
+		container: containerDefaultProps
+	},
+	jobprogressbarcomponent: {
 		header: [...containerDefaultProps, typographyGrouping],
 		container: containerDefaultProps
 	},

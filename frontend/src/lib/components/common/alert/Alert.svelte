@@ -73,14 +73,14 @@
 <div
 	class={twMerge(
 		notRounded ? '' : 'rounded-md',
-		size === 'sm' ? 'p-4' : 'p-2',
+		size === 'sm' ? 'p-4' : 'p-3',
 		classes[type].bgClass,
 		bgClass,
 		classNames
 	)}
 	style={bgStyle}
 >
-	<div class="flex">
+	<div class="flex flex-row items-center">
 		<div class="flex h-8 w-8 items-center justify-center rounded-full">
 			<SvelteComponent
 				class={twMerge(classes[type].iconClass, iconClass)}
@@ -89,14 +89,9 @@
 			/>
 		</div>
 		<div class={twMerge('ml-1 w-full')}>
-			<div class={twMerge('w-full flex flex-row items-center justify-between h-8')}>
+			<div class={twMerge('w-full flex flex-row items-center justify-between')}>
 				<span
-					class={twMerge(
-						size === 'sm' ? 'text-sm' : 'text-xs',
-						'font-medium',
-						classes[type].titleClass,
-						titleClass
-					)}
+					class={twMerge('text-xs font-semibold', classes[type].titleClass, titleClass)}
 					style={titleStyle}
 				>
 					{title}
@@ -118,11 +113,7 @@
 			{#if children && !isCollapsed}
 				<div transition:slide|local={{ duration: 200 }} class="mt-2">
 					<div
-						class={twMerge(
-							size === 'sm' ? 'text-sm' : 'text-xs',
-							classes[type].descriptionClass,
-							descriptionClass
-						)}
+						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
 						style={descriptionStyle}
 					>
 						{@render children?.()}
@@ -131,11 +122,7 @@
 			{:else if children && !collapsible}
 				<div class="mb-2">
 					<div
-						class={twMerge(
-							size === 'sm' ? 'text-sm' : 'text-xs',
-							classes[type].descriptionClass,
-							descriptionClass
-						)}
+						class={twMerge('text-xs', classes[type].descriptionClass, descriptionClass)}
 						style={descriptionStyle}
 					>
 						{@render children?.()}

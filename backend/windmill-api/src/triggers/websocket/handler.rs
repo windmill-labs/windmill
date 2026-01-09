@@ -30,7 +30,6 @@ impl TriggerCrud for WebsocketTrigger {
 
     const TABLE_NAME: &'static str = "websocket_trigger";
     const TRIGGER_TYPE: &'static str = "websocket";
-    const SUPPORTS_ENABLED: bool = true;
     const SUPPORTS_SERVER_STATE: bool = true;
     const SUPPORTS_TEST_CONNECTION: bool = true;
     const ROUTE_PREFIX: &'static str = "/websocket_triggers";
@@ -101,7 +100,7 @@ impl TriggerCrud for WebsocketTrigger {
                 url,
                 script_path,
                 is_flow,
-                enabled,
+                mode,
                 filters,
                 initial_messages,
                 url_runnable_args,
@@ -122,7 +121,7 @@ impl TriggerCrud for WebsocketTrigger {
             trigger.config.url,
             trigger.base.script_path,
             trigger.base.is_flow,
-            trigger.base.enabled.unwrap_or(true),
+            trigger.base.mode() as _,
             &filters as _,
             &initial_messages as _,
             trigger

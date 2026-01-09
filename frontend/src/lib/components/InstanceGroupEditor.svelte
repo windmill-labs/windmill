@@ -29,7 +29,7 @@
 		members = instance_group?.emails
 			? instance_group.emails.map((x) => {
 					return { member_email: x }
-			  })
+				})
 			: []
 	}
 </script>
@@ -67,8 +67,7 @@
 		<div class="flex items-start">
 			<input type="text" placeholder="john@acme.com" bind:value={email} />
 			<Button
-				variant="contained"
-				color="blue"
+				variant="accent"
 				size="sm"
 				btnClasses="!ml-4"
 				on:click={async () => {

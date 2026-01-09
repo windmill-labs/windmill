@@ -484,10 +484,12 @@
 
 	async function fetchCombinedItems() {
 		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			withoutDescription: true
 		})
 		const flows = await FlowService.listFlows({
-			workspace: $workspaceStore!
+			workspace: $workspaceStore!,
+			withoutDescription: true
 		})
 		const apps = await AppService.listApps({ workspace: $workspaceStore! })
 		const raw_apps = await RawAppService.listRawApps({ workspace: $workspaceStore! })
@@ -615,20 +617,21 @@
 			>
 				<div class="px-4 py-2 flex flex-row gap-1 items-center border-b">
 					<Search size="16" />
-					<div class="relative inline-block w-full">
+					<div class="relative inline-block flex-1">
 						<input
 							id="quickSearchInput"
 							bind:this={textInput}
 							type="text"
-							class="quick-search-input !bg-surface"
+							class="no-default-style !bg-transparent !border-none w-full !ring-0 !text-sm"
 							bind:value={searchTerm}
 							autocomplete="off"
 						/>
 						<label
 							for="quickSearchInput"
-							class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre"
-							>{placeholderFromPrefix(searchTerm)}</label
+							class="absolute top-1/2 left-2 transform -translate-y-1/2 pointer-events-none text-gray-400 transition-all duration-200 whitespace-pre text-xs"
 						>
+							{placeholderFromPrefix(searchTerm)}
+						</label>
 					</div>
 					{#if (itemMap[tab] ?? []).length === 0 && searchTerm.length > 0}
 						<AskAiButton
@@ -685,9 +688,7 @@
 					{#if tab === 'default'}
 						{#if (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)).length > 0}
 							<div class="p-2">
-								<div class="py-2 px-1 text-xs font-semibold text-tertiary">
-									Flows/Scripts/Apps
-								</div>
+								<div class="py-2 px-1 text-xs font-semibold text-primary"> Flows/Scripts/Apps </div>
 								{#each (itemMap[tab] ?? []).filter((e) => (combinedItems ?? []).includes(e)) as el}
 									<QuickMenuItem
 										onselect={(shift) => {
@@ -719,7 +720,7 @@
 									bind:mouseMoved
 								/>
 								<div class="flex w-full justify-center items-center">
-									<div class="text-tertiary text-center">
+									<div class="text-primary text-center">
 										<div class="pt-1 text-sm">Tip: press `esc` to quickly clear the search bar</div>
 									</div>
 								</div>
@@ -775,15 +776,3 @@
 		</div>
 	</Portal>
 {/if}
-
-<style>
-	.quick-search-input {
-		outline: none;
-		border: none !important;
-		box-shadow: none !important;
-	}
-
-	.quick-search-input:focus-visible {
-		outline: none !important;
-	}
-</style>

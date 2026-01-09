@@ -109,7 +109,7 @@ export class StepHistoryLoader {
 							? module.value.path
 							: (initialPath === '' ? path : initialPath) + '/' + module.id
 
-					const previousJobId = await JobService.listJobs({
+					const previousJobId = await JobService.listCompletedJobs({
 						workspace: workspaceId,
 						scriptPathExact: scriptPath,
 						jobKinds: ['preview', 'script', 'flowpreview', 'flow', 'flowscript'].join(','),

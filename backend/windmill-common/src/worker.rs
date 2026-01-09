@@ -7,13 +7,14 @@ use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
 use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     fs::{self, File},
     io::Write,
+    ops::Deref,
     panic::Location,
     path::{Component, Path, PathBuf},
     str::FromStr,
@@ -33,6 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -167,6 +169,7 @@ lazy_static::lazy_static! {
         "powershell".to_string(),
         "nativets".to_string(),
         "mysql".to_string(),
+        "oracledb".to_string(),
         "bun".to_string(),
         "postgresql".to_string(),
         "bigquery".to_string(),
@@ -185,6 +188,18 @@ lazy_static::lazy_static! {
         "dependency".to_string(),
         "flow".to_string(),
         "other".to_string()
+    ];
+
+    pub static ref NATIVE_TAGS: Vec<String> = vec![
+        "nativets".to_string(),
+        "postgresql".to_string(),
+        "mysql".to_string(),
+        "graphql".to_string(),
+        "snowflake".to_string(),
+        "mssql".to_string(),
+        "bigquery".to_string(),
+        "oracledb".to_string()
+        // for related places search: ADD_NEW_LANG
     ];
 
     pub static ref DEFAULT_TAGS_PER_WORKSPACE: AtomicBool = AtomicBool::new(false);
@@ -250,10 +265,22 @@ lazy_static::lazy_static! {
     .unwrap_or(false);
 
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
+    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
+    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
+    /// This flag is updated during worker initialization by checking the minimum version across all workers
+    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
     pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
+    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
@@ -266,7 +293,18 @@ pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone)]
-pub struct HttpClient(pub ClientWithMiddleware);
+pub struct HttpClient {
+    pub client: ClientWithMiddleware,
+    pub base_internal_url: Option<String>,
+}
+
+impl Deref for HttpClient {
+    type Target = ClientWithMiddleware;
+
+    fn deref(&self) -> &Self::Target {
+        &self.client
+    }
+}
 
 impl HttpClient {
     pub async fn post<T: Serialize, R: DeserializeOwned>(
@@ -275,10 +313,12 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let response_builder = self
-            .0
-            .post(format!("{}{}", *BASE_INTERNAL_URL, url))
-            .json(body);
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
+        let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
         let response_builder = match headers {
             Some(headers) => response_builder.headers(headers),
@@ -302,9 +342,14 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
+        let base_url = self
+            .base_internal_url
+            .clone()
+            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+
         let response = self
-            .0
-            .get(format!("{}{}", *BASE_INTERNAL_URL, url))
+            .client
+            .get(format!("{}{}", base_url, url))
             .send()
             .await
             .map_err(|e| anyhow::anyhow!(e))?;
@@ -370,7 +415,7 @@ fn format_pull_query(peek: String) -> String {
             WHERE id = (SELECT id FROM peek)
             RETURNING
                 started_at, scheduled_for,
-                canceled_by, canceled_reason, worker
+                canceled_by, canceled_reason, worker, cache_ignore_s3_path, runnable_settings_handle
         ), r AS NOT MATERIALIZED (
             UPDATE v2_job_runtime SET
                 ping = now()
@@ -392,14 +437,15 @@ fn format_pull_query(peek: String) -> String {
             flow_status, j.script_lang,
             j.same_worker, j.pre_run_error, j.visible_to_owner,
             j.tag, j.concurrent_limit, j.concurrency_time_window_s, j.flow_innermost_root_job, j.root_job,
-            j.timeout, j.flow_step_id, j.cache_ttl, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
+            j.timeout, j.flow_step_id, j.cache_ttl, q.cache_ignore_s3_path, q.runnable_settings_handle, j.priority, j.raw_code, j.raw_lock, j.raw_flow,
             j.script_entrypoint_override, j.preprocessed, pj.runnable_path as parent_runnable_path,
             COALESCE(p.email, j.permissioned_as_email) as permissioned_as_email, p.username as permissioned_as_username, p.is_admin as permissioned_as_is_admin,
             p.is_operator as permissioned_as_is_operator, p.groups as permissioned_as_groups, p.folders as permissioned_as_folders, p.end_user_email as permissioned_as_end_user_email
         FROM q, j
             LEFT JOIN v2_job_status f USING (id)
             LEFT JOIN job_perms p ON p.job_id = j.id
-            LEFT JOIN v2_job pj ON j.parent_job = pj.id",
+            LEFT JOIN v2_job pj ON j.parent_job = pj.id
+            ",
         peek
     );
     // tracing::debug!("pull query: {}", r);
@@ -457,7 +503,6 @@ pub async fn store_pull_query(wc: &WorkerConfig) {
 
 pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
-pub const TMP_MEMORY_DIR: &str = concatcp!(TMP_DIR, "/memory");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
 
@@ -465,7 +510,10 @@ pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
 pub fn write_file(dir: &str, path: &str, content: &str) -> error::Result<File> {
     let path = format!("{}/{}", dir, path);
-    let mut file = File::create(&path)?;
+    let mut file = File::create(&path).map_err(|e| {
+        tracing::error!("Failed to create file at {path}: {:?}", &e);
+        e
+    })?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
     Ok(file)
@@ -623,13 +671,11 @@ fn parse_file<T: FromStr>(path: &str) -> Option<T> {
         .flatten()
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct RubyAnnotations {
     pub verbose: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("#")]
 pub struct PythonAnnotations {
     pub no_cache: bool,
@@ -642,7 +688,6 @@ pub struct PythonAnnotations {
     pub py313: bool,
 }
 
-#[derive(Copy, Clone)]
 #[annotations("//")]
 pub struct GoAnnotations {
     pub go1_22_compat: bool,
@@ -658,13 +703,177 @@ pub struct TypeScriptAnnotations {
 
 #[annotations("--")]
 pub struct SqlAnnotations {
-    pub return_last_result: bool,
+    pub return_last_result: bool, // deprecated, use result_collection instead
+    pub result_collection: SqlResultCollectionStrategy,
+    pub prepare: bool, // Used to prepare datatable queries without executing
 }
 
 #[annotations("#")]
 pub struct BashAnnotations {
     pub docker: bool,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SqlResultCollectionStrategy {
+    LastStatementAllRows,
+    LastStatementFirstRow,
+    LastStatementAllRowsScalar,
+    LastStatementFirstRowScalar,
+    AllStatementsAllRows,
+    AllStatementsFirstRow,
+    AllStatementsAllRowsScalar,
+    AllStatementsFirstRowScalar,
+    Legacy,
+}
+
+impl SqlResultCollectionStrategy {
+    pub fn parse(s: &str) -> Self {
+        use SqlResultCollectionStrategy::*;
+        match s {
+            "last_statement_all_rows" => LastStatementAllRows,
+            "last_statement_first_row" => LastStatementFirstRow,
+            "last_statement_all_rows_scalar" => LastStatementAllRowsScalar,
+            "last_statement_first_row_scalar" => LastStatementFirstRowScalar,
+            "all_statements_all_rows" => AllStatementsAllRows,
+            "all_statements_first_row" => AllStatementsFirstRow,
+            "all_statements_all_rows_scalar" => AllStatementsAllRowsScalar,
+            "all_statements_first_row_scalar" => AllStatementsFirstRowScalar,
+            "legacy" => Legacy,
+            _ => SqlResultCollectionStrategy::default(),
+        }
+    }
+
+    pub fn collect_last_statement_only(&self, query_count: usize) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementAllRows
+            | LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | LastStatementAllRowsScalar => true,
+            Legacy => query_count == 1,
+            _ => false,
+        }
+    }
+    pub fn collect_first_row_only(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRow
+            | LastStatementFirstRowScalar
+            | AllStatementsFirstRow
+            | AllStatementsFirstRowScalar => true,
+            _ => false,
+        }
+    }
+    pub fn collect_scalar(&self) -> bool {
+        use SqlResultCollectionStrategy::*;
+        match self {
+            LastStatementFirstRowScalar
+            | AllStatementsFirstRowScalar
+            | LastStatementAllRowsScalar
+            | AllStatementsAllRowsScalar => true,
+            _ => false,
+        }
+    }
+
+    // This function transforms the shape (e.g Row[][] -> Row)
+    // It is the responsibility of the executor to avoid fetching unnecessary statements/rows
+    pub fn collect(
+        &self,
+        values: Vec<Vec<Box<serde_json::value::RawValue>>>,
+    ) -> error::Result<Box<serde_json::value::RawValue>> {
+        let null = || serde_json::value::RawValue::from_string("null".to_string()).unwrap();
+
+        let values = if self.collect_last_statement_only(values.len()) {
+            values.into_iter().rev().take(1).collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_first_row_only() {
+            values
+                .into_iter()
+                .map(|rows| rows.into_iter().take(1).collect())
+                .collect()
+        } else {
+            values
+        };
+
+        let values = if self.collect_scalar() {
+            values
+                .into_iter()
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| {
+                            // Take the first value in the object
+                            let record =
+                                match serde_json::from_str(row.get()) {
+                                    Ok(serde_json::Value::Object(record)) => record,
+                                    Ok(_) => return Err(error::Error::ExecutionErr(
+                                        "Could not collect sql scalar value from non-object row"
+                                            .to_string(),
+                                    )),
+                                    Err(e) => {
+                                        return Err(error::Error::ExecutionErr(format!(
+                                    "Could not collect sql scalar value (failed to parse row): {}",
+                                    e
+                                )))
+                                    }
+                                };
+                            let Some((_, value)) = record.iter().next() else {
+                                return Err(error::Error::ExecutionErr(
+                                    "Could not collect sql scalar value from empty row".to_string(),
+                                ));
+                            };
+                            Ok(serde_json::value::RawValue::from_string(
+                                serde_json::to_string(value).map_err(to_anyhow)?,
+                            )
+                            .map_err(to_anyhow)?)
+                        })
+                        .collect::<error::Result<Vec<_>>>()
+                })
+                .collect::<error::Result<Vec<_>>>()?
+        } else {
+            values
+        };
+
+        match (
+            self.collect_last_statement_only(values.len()),
+            self.collect_first_row_only(),
+        ) {
+            (true, true) => {
+                match values
+                    .into_iter()
+                    .last()
+                    .map(|rows| rows.into_iter().next())
+                {
+                    Some(Some(row)) => Ok(row.clone()),
+                    _ => Ok(null()),
+                }
+            }
+            (true, false) => match values.into_iter().last() {
+                Some(rows) => Ok(merge_raw_values_to_array(rows.as_slice())),
+                None => Ok(null()),
+            },
+            (false, true) => {
+                let values = values
+                    .into_iter()
+                    .map(|rows| rows.into_iter().next().unwrap_or_else(null))
+                    .collect::<Vec<_>>();
+                Ok(merge_raw_values_to_array(values.as_slice()))
+            }
+            (false, false) => Ok(merge_nested_raw_values_to_array(
+                values.iter().map(|x| x.iter()),
+            )),
+        }
+    }
+}
+
+impl Default for SqlResultCollectionStrategy {
+    fn default() -> Self {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    }
+}
+
 /// length = 5
 /// value  = "foo"
 /// output = "foo  "
@@ -1033,18 +1242,16 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn update_min_version(conn: &Connection) -> bool {
-    use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
+pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
+    use crate::utils::GIT_VERSION;
 
-    let cur_version = GIT_SEM_VERSION.clone();
-
-    let min_version = match conn {
+    let fetched = match conn {
         Connection::Sql(pool) => {
             // fetch all pings with a different version than self from the last 5 minutes.
             let pings = sqlx::query_scalar!(
                 "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
                 GIT_VERSION
-            ).fetch_all(pool).await.unwrap_or_default();
+            ).fetch_all(pool).await?;
 
             pings
                 .iter()
@@ -1053,10 +1260,34 @@ pub async fn update_min_version(conn: &Connection) -> bool {
                     semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
                 })
                 .min()
-                .unwrap_or_else(|| cur_version.clone())
         }
-        Connection::Http(_) => {
-            // TODO: get min version from server, for now we use the current version. Min version should be of no interest for http mode workers
+        Connection::Http(client) => {
+            // Fetch min version from server
+            Some(
+                client
+                    .get::<String>("/api/agent_workers/get_min_version")
+                    .await
+                    .map(|v| Version::parse(&v))??,
+            )
+        }
+    };
+
+    Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
+}
+
+pub async fn update_min_version(conn: &Connection) -> bool {
+    tracing::debug!("Updating min version");
+    use crate::utils::GIT_SEM_VERSION;
+
+    let cur_version = GIT_SEM_VERSION.clone();
+
+    let min_version = match get_min_version(conn).await {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                "Failed to fetch min version: {:#?}, using current version",
+                e
+            );
             cur_version.clone()
         }
     };
@@ -1065,10 +1296,24 @@ pub async fn update_min_version(conn: &Connection) -> bool {
         tracing::info!("Minimal worker version: {min_version}");
     }
 
+    *MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING.write().await =
+        min_version >= Version::new(1, 602, 0);
+    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
+    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
+        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
+
+    // Workspace dependencies feature requires minimum version across all workers
+    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
+        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
+            .unwrap();
+    // Debouncing feature requires minimum version 1.566.0 across all workers
+    // This ensures all workers can handle debounce keys and stale data accumulation
+    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
     *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
     *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
     *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
     *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
+    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
 
     *MIN_VERSION.write().await = min_version.clone();
     min_version >= cur_version
@@ -1099,6 +1344,7 @@ pub struct Ping {
     pub occupancy_rate_15s: Option<f32>,
     pub occupancy_rate_5m: Option<f32>,
     pub occupancy_rate_30m: Option<f32>,
+    pub job_isolation: Option<String>,
     pub ping_type: PingType,
 }
 pub async fn update_ping_http(
@@ -1146,6 +1392,7 @@ pub async fn update_ping_http(
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1161,6 +1408,7 @@ pub async fn update_ping_http(
                 insert_ping.occupancy_rate_15s,
                 insert_ping.occupancy_rate_5m,
                 insert_ping.occupancy_rate_30m,
+                insert_ping.job_isolation,
                 db,
             )
             .await?;
@@ -1274,10 +1522,11 @@ pub async fn insert_ping_query(
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (worker) 
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
         DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
         worker_instance,
         worker_name,
@@ -1287,7 +1536,8 @@ pub async fn insert_ping_query(
         dw,
         version,
         vcpus,
-        memory
+        memory,
+        job_isolation.as_deref()
         )
         .execute(db)
         .await?;
@@ -1304,11 +1554,12 @@ pub async fn update_worker_ping_from_job_query(
     occupancy_rate_15s: Option<f32>,
     occupancy_rate_5m: Option<f32>,
     occupancy_rate_30m: Option<f32>,
+    job_isolation: Option<String>,
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
         "UPDATE worker_ping SET ping_at = now(), current_job_id = $1, current_job_workspace_id = $2, memory_usage = $3, wm_memory_usage = $4,
-        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9 WHERE worker = $5",
+        occupancy_rate = $6, occupancy_rate_15s = $7, occupancy_rate_5m = $8, occupancy_rate_30m = $9, job_isolation = $10 WHERE worker = $5",
             job_id,
         w_id,
         memory_usage,
@@ -1318,6 +1569,7 @@ pub async fn update_worker_ping_from_job_query(
         occupancy_rate_15s,
         occupancy_rate_5m,
         occupancy_rate_30m,
+        job_isolation,
     )
     .execute(db)
     .await?;
@@ -1657,6 +1909,13 @@ pub fn load_env_vars(
         .collect()
 }
 
+pub fn error_to_value(err: &error::Error) -> serde_json::Value {
+    match err {
+        error::Error::JsonErr(err) => err.clone(),
+        _ => json!({"message": err.to_string(), "name": err.name()}),
+    }
+}
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct WorkspacedPath {
     pub workspace_id: String,
@@ -1731,6 +1990,115 @@ pub fn to_raw_value<T: Serialize>(result: &T) -> Box<RawValue> {
 pub fn to_raw_value_owned(result: serde_json::Value) -> Box<RawValue> {
     serde_json::value::to_raw_value(&result)
         .unwrap_or_else(|_| RawValue::from_string("{}".to_string()).unwrap())
+}
+
+pub fn split_python_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
+    requirements
+        .as_ref()
+        .lines()
+        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
+        .map(String::from)
+        .collect()
+}
+
+#[derive(Eq, PartialEq, Clone, Copy, Default, Debug)]
+#[repr(u32)]
+pub enum PyVAlias {
+    Py310 = 10,
+    Py311,
+    #[default]
+    Py312,
+    Py313,
+}
+
+impl Into<pep440_rs::Version> for PyVAlias {
+    fn into(self) -> pep440_rs::Version {
+        pep440_rs::Version::new([self.major() as u64, self as u64])
+    }
+}
+
+impl Into<u32> for PyVAlias {
+    fn into(self) -> u32 {
+        self.major() * 100 + self as u32
+    }
+}
+
+impl PyVAlias {
+    pub fn all<T: From<PyVAlias>>() -> Vec<T> {
+        use PyVAlias::*;
+        vec![Py310.into(), Py311.into(), Py312.into(), Py313.into()]
+    }
+    // Get MAJOR part of alias. (semver: MAJOR.MINOR.PATCH)
+    fn major(&self) -> u32 {
+        use PyVAlias::*;
+        match self {
+            Py310 | Py311 | Py312 | Py313 => 3,
+            // Py400 | Py401 => 4
+        }
+    }
+
+    /// Converts numeric format to alias
+    /// Example:
+    /// 310u32 (in) -> PyVAlias::Py310 (out)
+    pub fn try_from_v1<T: ToString>(numeric: T) -> Option<Self> {
+        use PyVAlias::*;
+        match numeric.to_string().as_str() {
+            "310" => Some(Py310),
+            "311" => Some(Py311),
+            "312" => Some(Py312),
+            "313" => Some(Py313),
+            _ => None,
+        }
+    }
+}
+
+/// Parse lockfile for assigned python version.
+/// If not found returns None
+pub fn try_parse_locked_python_version_from_requirements<S: AsRef<str>>(
+    requirements_lines: &[S],
+) -> Option<pep440_rs::Version> {
+    let parse_version = |s: &str| -> Option<pep440_rs::Version> {
+        // Possible inputs:
+        // V2:
+        // # py: 3.11.0 or #py:3.11.0 or #py: 3.11.0
+        //
+        // V1:
+        // # py311 or #py311
+        let version_unparsed = s
+            .to_owned()
+            // Remove whitespaces. That leaves us with:
+            // V2: #py:3.11.0
+            // V1: #py311
+            //
+            // Remove #
+            // V2: py:3.11.0
+            // V1: py311
+            //
+            // Remove :
+            // V2: py3.11.0
+            // V1: py311
+            .replace([' ', '#', ':'], "")
+            // Remove "py"
+            // V2: 3.11.0
+            // V1: 311
+            .replace("py", "");
+
+        // We will support reading V1 syntax, but it will be overwritten next deploy
+        PyVAlias::try_from_v1(&version_unparsed)
+            .map(PyVAlias::into)
+            .or(pep440_rs::Version::from_str(&version_unparsed)
+                .ok()
+                .map(pep440_rs::Version::into))
+    };
+
+    requirements_lines
+        .iter()
+        .find(|s| {
+            let s = s.as_ref();
+            s.starts_with("#py") || s.starts_with("# py")
+        })
+        .map(S::as_ref)
+        .and_then(parse_version)
 }
 
 #[cfg(test)]

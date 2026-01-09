@@ -1,14 +1,3 @@
-<script lang="ts" module>
-	export function stepInputGenButtonClasses(selected: boolean) {
-		return twMerge(
-			'text-violet-500 dark:text-violet-400 border',
-			selected
-				? 'bg-green-50 hover:bg-green-50 dark:bg-green-400/15 dark:hover:bg-green-400/15 text-green-800 border-green-200 dark:border-green-300/60 dark:text-green-400 '
-				: 'hover:bg-violet-50 border-violet-100 dark:hover:bg-violet-400/15 dark:border-violet-400/20'
-		)
-	}
-</script>
-
 <script lang="ts">
 	import { run } from 'svelte/legacy'
 
@@ -17,7 +6,6 @@
 	import { getNonStreamingCompletion } from './lib'
 	import { sendUserToast } from '$lib/toast'
 	import type { Flow, InputTransform } from '$lib/gen'
-	import ManualPopover from '../ManualPopover.svelte'
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from '../flows/types'
 	import type { PickableProperties } from '../flows/previousResults'
@@ -31,6 +19,7 @@
 	import FlowCopilotInputsModal from './FlowCopilotInputsModal.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { copilotInfo } from '$lib/aiStore'
+	import { AIBtnClasses } from './chat/AIButtonStyle'
 
 	let generatedContent = $state('')
 	let loading = $state(false)
@@ -40,7 +29,6 @@
 		schemaProperty: SchemaProperty
 		pickableProperties?: PickableProperties | undefined
 		argName: string
-		showPopup: boolean
 		btnClass?: string
 	}
 
@@ -50,7 +38,6 @@
 		schemaProperty,
 		pickableProperties = undefined,
 		argName,
-		showPopup,
 		btnClass = ''
 	}: Props = $props()
 
@@ -67,7 +54,7 @@
 	let abortController = new AbortController()
 	let newFlowInput = $state('')
 
-	const { flowStore, selectedId } = getContext<FlowEditorContext>('FlowEditorContext')
+	const { flowStore, selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
 	const { stepInputsLoading, generatedExprs } =
 		getContext<FlowCopilotContext | undefined>('FlowCopilotContext') || {}
 
@@ -99,7 +86,7 @@
 		loading = true
 		const flow: Flow = JSON.parse(JSON.stringify(flowStore.val))
 		const idOrders = dfs(flow.value.modules, (x) => x.id)
-		const upToIndex = idOrders.indexOf($selectedId)
+		const upToIndex = idOrders.indexOf(selectionManager.getSelectedId())
 		if (upToIndex === -1) {
 			throw new Error('Could not find the selected id in the flow')
 		}
@@ -115,7 +102,7 @@
 			}
 			const isInsideLoop = availableData.flow_input && 'iter' in availableData.flow_input
 			const user = `I'm building a workflow which is a DAG of script steps.
-The current step is ${$selectedId}, you can find the details for the step and previous ones below:
+The current step is ${selectionManager.getSelectedId()}, you can find the details for the step and previous ones below:
 ${flowDetails}
 Determine for the input "${argName}", what to pass either from the previous results or the flow inputs. 
 All possibles inputs either start with results. or flow_input. and are followed by the key of the input.
@@ -241,65 +228,54 @@ Only return the expression without any wrapper.`
 		bind:open={openInputsModal}
 		inputs={[newFlowInput]}
 	/>
-	<ManualPopover
-		showTooltip={showPopup && (generatedContent.length > 0 || !!$generatedExprs?.[argName])}
-		placement="bottom"
-		class="p-2"
+	<Button
+		size="xs"
+		variant="default"
+		btnClasses={twMerge(
+			AIBtnClasses(!loading && generatedContent.length > 0 ? 'green' : 'default'),
+			btnClass
+		)}
+		on:click={() => {
+			if (!loading && generatedContent.length > 0) {
+				dispatch('setExpr', generatedContent)
+				if (newFlowInput) {
+					openInputsModal = true
+				}
+				generatedContent = ''
+			}
+		}}
+		on:mouseenter={(ev) => {
+			if (out) {
+				out = false
+				generateStepInput()
+			}
+		}}
+		on:mouseleave={() => {
+			out = true
+			cancel()
+		}}
+		endIcon={{
+			icon:
+				loading || ($stepInputsLoading && empty)
+					? Loader2
+					: generatedContent.length > 0
+						? Check
+						: Wand2,
+			classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
+		}}
+		on:focus={() => {
+			btnFocused = true
+		}}
+		on:blur={() => {
+			btnFocused = false
+		}}
 	>
-		<Button
-			size="xs"
-			color="light"
-			btnClasses={twMerge(
-				stepInputGenButtonClasses(!loading && generatedContent.length > 0),
-				btnClass
-			)}
-			on:click={() => {
-				if (!loading && generatedContent.length > 0) {
-					dispatch('setExpr', generatedContent)
-					if (newFlowInput) {
-						openInputsModal = true
-					}
-					generatedContent = ''
-				}
-			}}
-			on:mouseenter={(ev) => {
-				if (out) {
-					out = false
-					generateStepInput()
-				}
-			}}
-			on:mouseleave={() => {
-				out = true
-				cancel()
-			}}
-			endIcon={{
-				icon:
-					loading || ($stepInputsLoading && empty)
-						? Loader2
-						: generatedContent.length > 0
-							? Check
-							: Wand2,
-				classes: loading || ($stepInputsLoading && empty) ? 'animate-spin' : ''
-			}}
-			on:focus={() => {
-				btnFocused = true
-			}}
-			on:blur={() => {
-				btnFocused = false
-			}}
-		>
-			{#if focused}
-				{#if loading}
-					ESC
-				{:else if generatedContent.length > 0}
-					TAB
-				{/if}
+		{#if focused}
+			{#if loading}
+				ESC
+			{:else if generatedContent.length > 0}
+				TAB
 			{/if}
-		</Button>
-		{#snippet content()}
-			<div class="text-sm text-tertiary">
-				{generatedContent || $generatedExprs?.[argName]}
-			</div>
-		{/snippet}
-	</ManualPopover>
+		{/if}
+	</Button>
 {/if}

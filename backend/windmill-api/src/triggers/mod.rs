@@ -2,6 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{types::Json as SqlxJson, FromRow};
 use std::{collections::HashMap, fmt::Debug};
+use windmill_common::jobs::JobTriggerKind;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum HandlerAction {
+    Trigger { path: String, trigger_kind: JobTriggerKind },
+    // Future variants can be added here (e.g., Script, Flow, etc.)
+}
 
 #[cfg(all(feature = "smtp", feature = "enterprise", feature = "private"))]
 pub mod email;
@@ -22,6 +30,7 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
+pub mod global_handler;
 mod handler;
 mod listener;
 pub mod trigger_helpers;
@@ -47,6 +56,7 @@ pub struct BaseTrigger {
     pub workspace_id: String,
     pub path: String,
     pub script_path: String,
+    pub mode: TriggerMode,
     pub is_flow: bool,
     pub edited_by: String,
     pub email: String,
@@ -56,7 +66,6 @@ pub struct BaseTrigger {
 
 #[derive(Debug, FromRow, Clone, Serialize, Deserialize)]
 pub struct ServerState {
-    pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub server_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -98,8 +107,10 @@ where
     T: for<'r> FromRow<'r, sqlx::postgres::PgRow>,
 {
     fn from_row(row: &sqlx::postgres::PgRow) -> std::result::Result<Self, sqlx::Error> {
+        let base = BaseTrigger::from_row(row)?;
+
         Ok(Trigger {
-            base: BaseTrigger::from_row(row)?,
+            base,
             config: T::from_row(row)?,
             server_state: ServerState::from_row(row).ok(),
             error_handling: TriggerErrorHandling::from_row(row)?,
@@ -112,7 +123,22 @@ pub struct BaseTriggerData {
     pub path: String,
     pub script_path: String,
     pub is_flow: bool,
-    pub enabled: Option<bool>,
+    #[deprecated(note = "Use mode instead")]
+    enabled: Option<bool>, // Kept for backwards compatibility, use mode instead
+    mode: Option<TriggerMode>,
+}
+
+impl BaseTriggerData {
+    pub fn mode(&self) -> &TriggerMode {
+        self.mode.as_ref().unwrap_or(
+            #[allow(deprecated)]
+            if self.enabled.unwrap_or(true) {
+                &TriggerMode::Enabled
+            } else {
+                &TriggerMode::Disabled
+            },
+        )
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,4 +169,13 @@ impl Default for StandardTriggerQuery {
     fn default() -> Self {
         Self { page: Some(0), per_page: Some(100), path: None, path_start: None, is_flow: None }
     }
+}
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[sqlx(type_name = "TRIGGER_MODE", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum TriggerMode {
+    Enabled,
+    Disabled,
+    Suspended,
 }

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import { stopPropagation } from 'svelte/legacy'
-
 	import { base } from '$lib/base'
 	import {
 		JobService,
@@ -28,7 +26,6 @@
 
 	import {
 		Activity,
-		ArrowRight,
 		Calendar,
 		CheckCircle2,
 		Circle,
@@ -42,8 +39,8 @@
 		XCircle,
 		Code2,
 		ClipboardCopy,
-		MoreVertical,
-		GitBranch
+		GitBranch,
+		EllipsisVertical
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -60,13 +57,11 @@
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
-	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
-	import Badge from '$lib/components/common/badge/Badge.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
 	import { forLater } from '$lib/forLater'
@@ -84,7 +79,6 @@
 	import HighlightTheme from '$lib/components/HighlightTheme.svelte'
 
 	import ExecutionDuration from '$lib/components/ExecutionDuration.svelte'
-	import CustomPopover from '$lib/components/CustomPopover.svelte'
 	import { isWindmillTooBigObject } from '$lib/components/job_args'
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import { setContext, untrack } from 'svelte'
@@ -95,6 +89,8 @@
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
@@ -103,7 +99,6 @@
 
 	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
-	let branchOrIterationN: number = $state(0)
 
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
 	let selectedJobStepType: 'single' | 'forloop' | 'branchall' = $state('single')
@@ -151,24 +146,6 @@
 		} catch (err) {
 			sendUserToast('could not cancel job', true)
 		}
-	}
-
-	async function restartFlow(
-		id: string | undefined,
-		stepId: string | undefined,
-		branchOrIterationN: number
-	) {
-		if (id === undefined || stepId === undefined) {
-			return
-		}
-		let run = await JobService.restartFlowAtStep({
-			workspace: $workspaceStore!,
-			id,
-			stepId,
-			branchOrIterationN,
-			requestBody: {}
-		})
-		await goto('/run/' + run + '?workspace=' + $workspaceStore)
 	}
 
 	// If we get results, focus on that tab. Else, focus on logs
@@ -320,7 +297,8 @@
 				flow: { value: job?.raw_flow },
 				path: job?.script_path + '_fork'
 			}
-			window.open(`/flows/add#${encodeState(state)}`)
+			const encodedArgs = encodeState(job?.args)
+			window.open(`/flows/add?initial_args=${encodedArgs}#${encodeState(state)}`)
 		} else {
 			$initialArgsStore = job?.args
 			let n: NewScript = {
@@ -328,9 +306,11 @@
 				summary: 'Fork of preview of ' + job?.script_path,
 				language: job?.language as NewScript['language'],
 				description: '',
-				content: job?.raw_code ?? ''
+				content: job?.raw_code ?? '',
+				kind: 'script'
 			}
-			window.open(`/scripts/add#${encodeState(n)}`)
+			const encodedArgs = encodeState(job?.args)
+			window.open(`/scripts/add?initial_args=${encodedArgs}#${encodeState(n)}`)
 		}
 	}
 
@@ -412,8 +392,8 @@
 							copyToClipboard(
 								JSON.stringify(removeSensitiveInfos(debugContent, redactSensitive), null, 4)
 							)}
-						color="light"
-						size="xs"
+						unifiedSize="md"
+						variant="subtle"
 					>
 						<div class="flex gap-2 items-center">Copy <ClipboardCopy /> </div>
 					</Button>
@@ -449,13 +429,16 @@
 {#if notfound || (job?.workspace_id != undefined && $workspaceStore != undefined && job?.workspace_id != $workspaceStore)}
 	<div class="max-w-7xl px-4 mx-auto w-full">
 		<div class="flex flex-col gap-6">
-			<h1 class="text-red-400 mt-6">Job {page.params.run} not found in {$workspaceStore}</h1>
-			<h2>Are you in the right workspace?</h2>
+			<h1 class="text-red-400 mt-6 text-2xl font-semibold"
+				>Job {page.params.run} not found in {$workspaceStore}</h1
+			>
+			<h2 class="text-primary text-lg font-semibold">Are you in the right workspace?</h2>
 			<div class="flex flex-col gap-2">
 				{#each $userWorkspaces as workspace}
 					<div>
 						<Button
-							variant="border"
+							variant="default"
+							unifiedSize="md"
 							on:click={() => {
 								goto(`/run/${page.params.run}?workspace=${workspace.id}`)
 							}}
@@ -465,7 +448,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}/runs">Go to runs page</Button>
+					<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
@@ -494,17 +477,11 @@
 						]}
 					>
 						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent variant="border" size="sm" startIcon={{ icon: Trash }} />
+							<Button nonCaptureEvent variant="default" size="sm" startIcon={{ icon: Trash }} />
 						{/snippet}
 					</Dropdown>
 					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-						<Button
-							href={runsHref}
-							variant="border"
-							color="blue"
-							size="sm"
-							startIcon={{ icon: List }}
-						>
+						<Button href={runsHref} variant="default" size="sm" startIcon={{ icon: List }}>
 							View runs
 						</Button>
 					{/if}
@@ -529,9 +506,9 @@
 						class="h-auto"
 					>
 						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent size="xs" color="light">
+							<Button nonCaptureEvent unifiedSize="md" variant="subtle">
 								<div class="flex flex-row items-center">
-									<MoreVertical size={14} />
+									<EllipsisVertical size={14} />
 								</div>
 							</Button>
 						{/snippet}
@@ -540,9 +517,8 @@
 			{/if}
 			{#if isFlowPreview(job?.job_kind) || isScriptPreview(job?.job_kind)}
 				<Button
-					color="dark"
-					size="md"
-					variant="border"
+					unifiedSize="md"
+					variant="default"
 					startIcon={{ icon: GitBranch }}
 					on:click={forkPreview}
 				>
@@ -551,8 +527,8 @@
 			{/if}
 			{#if persistentScriptDefinition !== undefined}
 				<Button
-					color="blue"
-					size="md"
+					unifiedSize="md"
+					variant="default"
 					startIcon={{ icon: Activity }}
 					on:click={() => {
 						persistentScriptDrawer?.open?.(persistentScriptDefinition)
@@ -564,8 +540,9 @@
 			{#if job && job?.type != 'CompletedJob' && (!job?.schedule_path || job?.['running'] == true)}
 				{#if !forceCancel}
 					<Button
-						color="red"
-						size="md"
+						unifiedSize="md"
+						variant="accent"
+						destructive
 						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
@@ -580,8 +557,9 @@
 					</Button>
 				{:else}
 					<Button
-						color="red"
-						size="md"
+						unifiedSize="md"
+						variant="accent"
+						destructive
 						startIcon={{ icon: TimerOff }}
 						on:click|once={() => {
 							if (job?.id) {
@@ -595,7 +573,8 @@
 			{/if}
 			{#if job?.schedule_path}
 				<Button
-					size="sm"
+					unifiedSize="md"
+					variant="default"
 					on:click={() => {
 						if (!job || !job.schedule_path) {
 							return
@@ -605,114 +584,35 @@
 					startIcon={{ icon: Calendar }}>Edit schedule</Button
 				>
 			{/if}
-			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel}
-				{#if selectedJobStepType == 'single'}
-					<Button
-						title={`Re-start this flow from step ${selectedJobStep} (included). ${
-							!$enterpriseLicense ? ' This is a feature only available in enterprise edition.' : ''
-						}`}
-						variant="border"
-						color="blue"
-						disabled={!$enterpriseLicense}
-						on:click|once={() => {
-							restartFlow(job?.id, selectedJobStep, 0)
-						}}
-						startIcon={{ icon: RefreshCw }}
-					>
-						Re-start from
-						<Badge baseClass="ml-1" color="indigo">
-							{selectedJobStep}
-						</Badge>
-						{#if !$enterpriseLicense}
-							(EE)
-						{/if}
-					</Button>
-				{:else}
-					<Popover
-						floatingConfig={{ strategy: 'absolute', placement: 'bottom-start' }}
-						contentClasses="p-4"
-					>
-						{#snippet trigger()}
-							<Button
-								title={`Re-start this flow from step ${selectedJobStep} (included). ${
-									!$enterpriseLicense
-										? ' This is a feature only available in enterprise edition.'
-										: ''
-								}`}
-								variant="border"
-								color="blue"
-								disabled={!$enterpriseLicense}
-								startIcon={{ icon: RefreshCw }}
-								nonCaptureEvent={true}
-							>
-								Re-start from
-								<Badge baseClass="ml-1" color="indigo">
-									{selectedJobStep}
-								</Badge>
-							</Button>
-						{/snippet}
-						{#snippet content()}
-							<label class="block text-primary">
-								<div class="pb-1 text-sm text-secondary"
-									>{selectedJobStepType == 'forloop' ? 'From iteration #:' : 'From branch:'}</div
-								>
-								<div class="flex w-full">
-									{#if selectedJobStepType === 'forloop'}
-										<input
-											type="number"
-											min="0"
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											onclick={stopPropagation(() => {})}
-										/>
-									{:else}
-										<select
-											bind:value={branchOrIterationN}
-											class="!w-32 grow"
-											onclick={stopPropagation(() => {})}
-										>
-											{#each restartBranchNames as [branchIdx, branchName]}
-												<option value={branchIdx}>{branchName}</option>
-											{/each}
-										</select>
-									{/if}
-
-									<Button
-										size="xs"
-										color="blue"
-										buttonType="button"
-										btnClasses="!p-1 !w-[34px] !ml-1"
-										aria-label="Restart flow"
-										on:click|once={() => {
-											restartFlow(job?.id, selectedJobStep, branchOrIterationN)
-										}}
-									>
-										<ArrowRight size={18} />
-									</Button>
-								</div>
-							</label>
-						{/snippet}
-					</Popover>
-				{/if}
+			{#if job?.type === 'CompletedJob' && job?.job_kind === 'flow' && selectedJobStep !== undefined && selectedJobStepIsTopLevel && job.id}
+				<FlowRestartButton
+					jobId={job.id}
+					{selectedJobStep}
+					{selectedJobStepType}
+					{restartBranchNames}
+					flowPath={job.script_path}
+					disabled={!$enterpriseLicense}
+					enterpriseOnly={!$enterpriseLicense}
+				/>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-				<CustomPopover noPadding appearTimeout={0}>
-					<Button
-						on:click|once={() => {
-							goto(viewHref + `#${computeSharableHash(job?.args)}`)
-						}}
-						color="blue"
-						size="sm"
-						startIcon={{ icon: RefreshCw }}>Run again</Button
-					>
-					{#snippet overlay()}
-						<div class="flex flex-row gap-2">
-							<Button size="xs" loading={runImmediatelyLoading} on:click={() => runImmediately()}>
-								Run immediately with same args
-							</Button>
-						</div>
-					{/snippet}
-				</CustomPopover>
+				<Button
+					on:click|once={() => {
+						goto(viewHref + `#${computeSharableHash(job?.args)}`)
+					}}
+					unifiedSize="md"
+					variant="default"
+					startIcon={{ icon: RefreshCw }}
+					loading={runImmediatelyLoading}
+					dropdownItems={[
+						{
+							label: 'Run immediately with same args',
+							onClick: () => runImmediately()
+						}
+					]}
+				>
+					Run again
+				</Button>
 			{/if}
 			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
 				{#if !$userStore?.operator}
@@ -722,7 +622,8 @@
 								$initialArgsStore = job?.args
 								goto(`${stem}/edit/${job?.script_path}${isScript ? `` : `?nodraft=true`}`)
 							}}
-							color="blue"
+							unifiedSize="md"
+							variant="default"
 							size="sm"
 							startIcon={{ icon: Pen }}>Edit</Button
 						>
@@ -730,8 +631,8 @@
 				{/if}
 				<Button
 					href={viewHref}
-					color="blue"
-					size="sm"
+					unifiedSize="md"
+					variant="accent"
 					startIcon={{
 						icon:
 							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
@@ -743,29 +644,32 @@
 		{/snippet}
 	</ActionRow>
 	<div class="w-full">
-		<h1
+		<div
 			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4"
 		>
 			<div class="flex flex-row flex-wrap gap-6 items-center">
 				{#if job}
 					{#if 'success' in job && job.success}
 						{#if job.is_skipped}
-							<FastForward class="text-green-600" size={14} />
+							<FastForward class="text-green-600" size={20} />
 						{:else}
-							<CheckCircle2 class="text-green-600" size={14} />
+							<CheckCircle2 class="text-green-600" size={20} />
 						{/if}
 					{:else if job && 'success' in job}
-						<XCircle class="text-red-700" size={14} />
+						<XCircle class="text-red-700" size={20} />
 					{:else if job && 'running' in job && job.running && job.suspend}
-						<Hourglass class="text-violet-500" size={14} />
+						<Hourglass class="text-violet-500" size={20} />
 					{:else if job && 'running' in job && job.running}
-						<Circle class="text-yellow-500 fill-current" size={14} />
+						<Circle class="text-yellow-500 fill-current" size={20} />
 					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Calendar class="text-secondary" size={14} />
+						<Calendar class="text-secondary" size={20} />
 					{:else if job && 'running' in job && job.scheduled_for}
-						<Hourglass class="text-tertiary" size={14} />
+						<Hourglass class="text-primary" size={20} />
 					{/if}
-					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
+					<span class="text-emphasis text-2xl font-semibold"
+						>{job.script_path ??
+							(job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}</span
+					>
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						<RunBadges
 							{job}
@@ -774,11 +678,12 @@
 								persistentScriptDrawer?.open?.(persistentScriptDefinition)
 							}}
 							{concurrencyKey}
+							verySmall={false}
 						/>
 					</div>
 				{/if}
 			</div>
-		</h1>
+		</div>
 		{#if job?.['deleted']}
 			<div class="max-w-7xl mx-auto w-full px-4">
 				<Alert type="error" title="Deleted">
@@ -818,7 +723,7 @@
 									localStorage.setItem('hideExplicitProgressTip', 'true')
 									showExplicitProgressTip = false
 								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-gray-400 hover:text-tertiary focus:outline-none"
+								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
 							>
 								<span class="sr-only">Close</span>
 								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
@@ -861,18 +766,23 @@
 							manuallySetLogs = value == 'logs'
 						}}
 					>
-						<Tab value="result">Result</Tab>
-						<Tab value="logs">Logs</Tab>
-						<Tab value="stats">Metrics</Tab>
-						<Tab value="assets">Assets</Tab>
+						<Tab value="result" label="Result" />
+						<Tab value="logs" label="Logs" />
+						<Tab value="stats" label="Metrics" />
+						<Tab value="assets" label="Assets" />
 						{#if isScriptPreview(job?.job_kind)}
-							<Tab value="code">Code</Tab>
+							<Tab value="code" label="Code" />
 						{/if}
 					</Tabs>
 
 					<Skeleton loading={!job} layout={[[5]]} />
 					{#if job}
-						<div class="flex flex-row border rounded-md p-2 mt-2 overflow-auto min-h-[600px]">
+						<div
+							class={twMerge(
+								'flex flex-row border rounded-md p-2 mt-2 overflow-auto min-h-[600px]',
+								viewTab == 'logs' ? 'bg-surface-secondary' : 'bg-surface-tertiary'
+							)}
+						>
 							{#if viewTab == 'logs'}
 								<div class="w-full">
 									<LogViewer

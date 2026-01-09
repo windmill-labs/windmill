@@ -285,10 +285,10 @@
 		aiId={`trigger-button-${type}`}
 		aiDescription={`Trigger button for ${type}`}
 		class={twMerge(
-			'hover:bg-surface-hover rounded-md shadow-sm text-xs relative center-center cursor-pointer bg-slate-100 dark:bg-slate-700',
-			'dark:outline dark:outline-1 outline-tertiary/20 group',
-			isSelected ? 'outline-tertiary outline' : '',
-			small ? 'w-[23px] h-[23px] outline-[1.5px]' : 'p-2 outline-[2px]'
+			'hover:bg-surface-hover rounded-md text-xs relative center-center cursor-pointer border border-border-light',
+			'group',
+			isSelected ? 'bg-surface-accent-selected text-accent border-border-selected' : '',
+			small ? 'w-[23px] h-[23px]' : 'p-2'
 		)}
 		on:click={(e) => {
 			e.stopPropagation()

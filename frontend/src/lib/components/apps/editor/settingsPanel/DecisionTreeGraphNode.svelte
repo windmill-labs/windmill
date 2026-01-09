@@ -9,7 +9,6 @@
 	import type { Writable } from 'svelte/store'
 	import { Badge } from '$lib/components/common'
 	import { X } from 'lucide-svelte'
-	import { getStateColor } from '$lib/components/graph'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import NodeWrapper from '$lib/components/graph/renderers/nodes/NodeWrapper.svelte'
 
@@ -47,15 +46,11 @@
 		<div class="rounded-sm group">
 			<Button
 				class={twMerge(
-					'p-2 bg-surface w-full h-8 relative rounded-sm border border-gray-400',
+					'p-2 w-full h-8 relative rounded-sm border border-gray-400',
 					selected ? 'outline outline-2 outline-offset-2 outline-gray-600' : '',
-					'flex flex-row gap-2 items-center justify-between'
+					'flex flex-row gap-2 items-center justify-between bg-surface-tertiary'
 				)}
-				style="width: 275px; height: 34px; background-color: {getStateColor(
-					undefined,
-					darkMode,
-					true
-				)};"
+				style="width: 275px; height: 34px;"
 				on:click={() => {
 					selected = true
 					data.nodeCallbackHandler('select', data.node.id, data.node, data.parentIds, false)

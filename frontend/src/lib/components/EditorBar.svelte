@@ -1,10 +1,19 @@
 <script module lang="ts">
-	export const EDITOR_BAR_WIDTH_THRESHOLD = 1044
+	export const EDITOR_BAR_WIDTH_THRESHOLD = 1420
+
+	function getImportWmillTsStatement(lang: string | undefined) {
+		if (lang === 'deno') {
+			return `import * as wmill from "npm:windmill-client@1"\n`
+		} else if (lang === 'bun' || lang === 'bunnative') {
+			return `import * as wmill from "windmill-client"\n`
+		} else if (lang === 'nativets') {
+			return `import * as wmill from "./windmill.ts"\n`
+		}
+		return ''
+	}
 </script>
 
 <script lang="ts">
-	import { run } from 'svelte/legacy'
-
 	import { ResourceService, VariableService, WorkspaceService, type Script } from '$lib/gen'
 
 	import { workspaceStore } from '$lib/stores'
@@ -39,12 +48,12 @@
 		Plus,
 		RotateCw,
 		Save,
+		Settings,
 		Users
 	} from 'lucide-svelte'
 	import { capitalize, formatS3Object, toCamel } from '$lib/utils'
 	import type { Schema, SchemaProperty, SupportedLanguage } from '$lib/common'
 	import ScriptVersionHistory from './ScriptVersionHistory.svelte'
-	import type DiffEditor from './DiffEditor.svelte'
 	import { getResetCode } from '$lib/script_helpers'
 	import Popover from './Popover.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -54,7 +63,6 @@
 	import S3FilePicker from './S3FilePicker.svelte'
 	import DucklakeIcon from './icons/DucklakeIcon.svelte'
 	import FlowInlineScriptAiButton from './copilot/FlowInlineScriptAIButton.svelte'
-	import ScriptGen from './copilot/ScriptGen.svelte'
 	import GitRepoPopoverPicker from './GitRepoPopoverPicker.svelte'
 	import { insertDelegateToGitRepoInCode } from '$lib/ansibleUtils'
 
@@ -76,8 +84,7 @@
 		collabLive?: boolean
 		collabUsers?: { name: string }[]
 		scriptPath?: string | undefined
-		diffEditor?: DiffEditor | undefined
-		args: Record<string, any>
+		args?: Record<string, any>
 		noHistory?: boolean
 		saveToWorkspace?: boolean
 		customUi?: EditorBarUi
@@ -101,8 +108,6 @@
 		collabLive = false,
 		collabUsers = [],
 		scriptPath = undefined,
-		diffEditor = undefined,
-		args,
 		noHistory = false,
 		saveToWorkspace = false,
 		customUi = {},
@@ -122,6 +127,7 @@
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let ducklakePicker: ItemPicker | undefined = $state()
+	let dataTablePicker: ItemPicker | undefined = $state()
 	let databasePicker: ItemPicker | undefined = $state()
 	let gitRepoPickerOpen = $state(false)
 
@@ -196,15 +202,22 @@
 		['duckdb', 'python3'].includes(lang ?? '') ||
 			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
 	)
-	let showDucklakePicker = $derived(['duckdb'].includes(lang ?? ''))
+	let showDucklakePicker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
+	let showDataTablePicker = $derived(
+		['duckdb', 'python3'].includes(lang ?? '') ||
+			['typescript', 'javascript'].includes(scriptLangToEditorLang(lang))
+	)
 	let showDatabasePicker = $derived(['duckdb'].includes(lang ?? ''))
 	let showGitRepoPicker = $derived(lang === 'ansible')
 
 	let showResourceTypePicker = $derived(
 		['typescript', 'javascript'].includes(scriptLangToEditorLang(lang)) ||
-		lang === 'python3' ||
-		lang === 'php' ||
-		lang === 'rust'
+			lang === 'python3' ||
+			lang === 'php' ||
+			lang === 'rust'
 	)
 
 	let codeViewer: Drawer | undefined = $state()
@@ -227,7 +240,7 @@
 		})
 	}
 
-	run(() => {
+	$effect(() => {
 		editor && untrack(() => addEditorActions())
 	})
 
@@ -329,9 +342,9 @@
 				name,
 				JSON.stringify(resourceType.schema),
 				{
-					"leading-comments": false,
-					"density": "dense",
-					"derive-debug": true
+					'leading-comments': false,
+					density: 'dense',
+					'derive-debug': true
 				}
 			)
 			editor.insertAtCurrentLine(lines.join('\n'))
@@ -514,15 +527,9 @@
 	bind:this={variablePicker}
 	pickCallback={(path, name) => {
 		if (!editor) return
-		if (lang == 'deno') {
+		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
-		} else if (lang === 'bun' || lang === 'bunnative') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
+				editor.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'python3') {
@@ -544,12 +551,6 @@
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/variables/get_value/${path}"`
 			)
-		} else if (lang == 'nativets') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getVariable('${path}'))`)
 		} else if (lang == 'php') {
 			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/variables/get_value/${path}');
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
@@ -587,9 +588,7 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	{#snippet submission()}
 		<div class="flex flex-row">
 			<Button
-				variant="border"
-				color="blue"
-				size="sm"
+				variant="accent"
 				startIcon={{ icon: Plus }}
 				on:click={() => {
 					variableEditor?.initNew()
@@ -605,15 +604,9 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 	bind:this={resourcePicker}
 	pickCallback={(path, _, resType) => {
 		if (!editor) return
-		if (lang == 'deno') {
+		if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor.getCode().includes('import * as wmill from')) {
-				editor.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
-		} else if (lang === 'bun' || lang === 'bunnative') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "windmill-client"\n`)
+				editor.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'python3') {
@@ -635,12 +628,6 @@ string ${windmillPathToCamelCaseName(path)} = await client.GetStringAsync(uri);
 			editor.insertAtCursor(
 				`\nInvoke-RestMethod -Headers $Headers -Uri "$Env:BASE_INTERNAL_URL/api/w/$Env:WM_WORKSPACE/resources/get_value_interpolated/${path}"`
 			)
-		} else if (lang == 'nativets') {
-			const code = editor.getCode()
-			if (!code.includes(`import * as wmill from`)) {
-				editor.insertAtBeginning(`import * as wmill from "./windmill.ts"\n`)
-			}
-			editor.insertAtCursor(`(await wmill.getResource('${path}'))`)
 		} else if (lang == 'php') {
 			editor.insertAtCursor(`$ch = curl_init(getenv('BASE_INTERNAL_URL') . '/api/w/' . getenv('WM_WORKSPACE') . '/resources/get_value_interpolated/${path}');
 curl_setopt($ch, CURLOPT_HTTPHEADER, array('Authorization: Bearer ' . getenv('WM_TOKEN')));
@@ -695,9 +682,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			<Button
 				startIcon={{ icon: Plus }}
 				target="_blank"
-				variant="border"
-				color="blue"
-				size="sm"
+				variant="accent"
 				href="{base}/resources?connect_app=undefined"
 			>
 				Add resource
@@ -727,17 +712,85 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 	<ItemPicker
 		bind:this={ducklakePicker}
 		pickCallback={async (_, name) => {
-			const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
-			editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'ducklake' : `ducklake://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dl; USE dl;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`dl = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(getImportWmillTsStatement(lang))
+				}
+				editor?.insertAtCursor(`let sql = wmill.ducklake(${name == 'main' ? '' : `'${name}'`})\n`)
+			}
 		}}
-		tooltip="Attach a Ducklake in your DuckDB script. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
-		documentationLink="https://www.windmill.dev/docs/core_concepts/ducklake"
+		tooltip="Attach a Ducklake to your scripts. Ducklake allows you to manipulate large data on S3 blob files through a traditional SQL interface."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake"
 		itemName="ducklake"
 		loadItems={async () =>
 			(await WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? 'NO_W' })).map(
 				(path) => ({ path })
 			)}
-	/>
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_lfs"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
+{/if}
+
+{#if showDataTablePicker}
+	<ItemPicker
+		bind:this={dataTablePicker}
+		pickCallback={async (_, name) => {
+			if (lang === 'duckdb') {
+				const connStr = name == 'main' ? 'datatable' : `datatable://${name}`
+				editor?.insertAtCursor(`ATTACH '${connStr}' AS dt; USE dt;\n`)
+			} else if (lang === 'python3') {
+				if (!editor?.getCode().includes('import wmill')) {
+					editor?.insertAtBeginning('import wmill\n')
+				}
+				editor?.insertAtCursor(`db = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+			} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
+				if (!editor?.getCode().includes('import * as wmill from')) {
+					editor?.insertAtBeginning(getImportWmillTsStatement(lang))
+				}
+				editor?.insertAtCursor(`let sql = wmill.datatable(${name == 'main' ? '' : `'${name}'`})\n`)
+				editor?.insertAtCursor(`let query_result = await sql\`SELECT * FROM _\`.fetchOne()\n`)
+			}
+		}}
+		tooltip="Attach a datatable to your script."
+		documentationLink="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
+		itemName="data table"
+		loadItems={async () =>
+			(await WorkspaceService.listDataTables({ workspace: $workspaceStore ?? 'NO_W' })).map(
+				(path) => ({ path })
+			)}
+	>
+		{#snippet submission()}
+			<div class="flex flex-row gap-x-1 mr-2">
+				<Button
+					startIcon={{ icon: Settings }}
+					target="_blank"
+					variant="accent"
+					href="{base}/workspace_settings?tab=windmill_data_tables"
+				>
+					Go to settings
+				</Button>
+			</div>
+		{/snippet}
+	</ItemPicker>
 {/if}
 
 {#if showDatabasePicker}
@@ -768,10 +821,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 <S3FilePicker
 	bind:this={s3FilePicker}
 	readOnlyMode={false}
-	on:selectAndClose={(s3obj) => {
-		let s = `'${formatS3Object(s3obj.detail)}'`
+	onSelectAndClose={(s3obj) => {
+		let s = `'${formatS3Object(s3obj)}'`
 		if (lang === 'duckdb') {
-			editor?.insertAtCursor(`SELECT * FROM ${s}`)
+			editor?.insertAtCursor(`SELECT * FROM ${s};`)
 		} else if (lang === 'python3') {
 			if (!editor?.getCode().includes('import wmill')) {
 				editor?.insertAtBeginning('import wmill\n')
@@ -779,7 +832,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			editor?.insertAtCursor(`wmill.load_s3_file(${s})`)
 		} else if (['javascript', 'typescript'].includes(scriptLangToEditorLang(lang))) {
 			if (!editor?.getCode().includes('import * as wmill from')) {
-				editor?.insertAtBeginning(`import * as wmill from "npm:windmill-client@1"\n`)
+				editor?.insertAtBeginning(getImportWmillTsStatement(lang))
 			}
 			editor?.insertAtCursor(`wmill.loadS3File(${s})`)
 		}
@@ -787,22 +840,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 />
 
 <div class="flex justify-between items-center overflow-y-auto w-full p-0.5">
-	<div class="flex items-center">
+	<div class="flex gap-3 items-center">
 		<div
 			title={validCode ? 'Main function parsable' : 'Main function not parsable'}
 			class="rounded-full w-2 h-2 mx-2 {validCode ? 'bg-green-300' : 'bg-red-300'}"
 		></div>
-		<div class="flex items-center gap-0.5">
+		<div class="flex items-center gap-2">
 			{#if showContextVarPicker && customUi?.contextVar != false}
 				<Button
 					aiId="editor-bar-add-context-variable"
 					aiDescription="Add context variable"
 					title="Add context variable"
-					color="light"
+					variant="subtle"
 					on:click={contextualVariablePicker.openDrawer}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 					>+Context var
@@ -813,11 +864,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-variable"
 					aiDescription="Add variable"
 					title="Add variable"
-					color="light"
-					btnClasses="!font-medium text-tertiary"
+					variant="subtle"
 					on:click={variablePicker.openDrawer}
-					size="xs"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DollarSign }}
 					{iconOnly}
 				>
@@ -830,11 +879,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-s3-object"
 					aiDescription="Add S3 Object"
 					title="Add S3 object"
-					color="light"
+					variant="subtle"
 					on:click={() => s3FilePicker?.open()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: File }}
 					{iconOnly}
 					>+S3 Object
@@ -846,10 +893,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-resource"
 					aiDescription="Add resource"
 					title="Add resource"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="sm"
+					variant="subtle"
 					on:click={resourcePicker.openDrawer}
 					{iconOnly}
 					startIcon={{ icon: Package }}
@@ -867,10 +912,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						aiId="editor-bar-add-git-repo"
 						aiDescription="Delegate to Git repository"
 						title="Delegate to Git repository"
-						btnClasses="!font-medium text-tertiary"
-						size="xs"
-						spacingSize="md"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						on:click={() => (gitRepoPickerOpen = true)}
 						{iconOnly}
 						startIcon={{ icon: GitBranch }}
@@ -885,10 +928,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-resource-type"
 					aiDescription="Add resource type"
 					title="Add resource type"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					variant="subtle"
+					unifiedSize="sm"
 					on:click={() => resourceTypePicker?.openDrawer()}
 					{iconOnly}
 					startIcon={{ icon: Package }}
@@ -902,11 +943,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-add-database"
 					aiDescription="Add database"
 					title="Add database"
-					color="light"
+					variant="subtle"
 					on:click={() => databasePicker?.openDrawer()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DatabaseIcon }}
 					{iconOnly}
 					>+Database
@@ -918,14 +957,26 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-use-ducklake"
 					aiDescription="Use Ducklake"
 					title="Use Ducklake"
-					color="light"
+					variant="subtle"
 					on:click={() => ducklakePicker?.openDrawer()}
-					size="xs"
-					btnClasses="!font-medium text-tertiary"
-					spacingSize="md"
+					unifiedSize="sm"
 					startIcon={{ icon: DucklakeIcon }}
 					{iconOnly}
 					>+Ducklake
+				</Button>
+			{/if}
+
+			{#if showDataTablePicker && customUi?.dataTable != false}
+				<Button
+					aiId="editor-bar-use-datatable"
+					aiDescription="Use DataTable"
+					title="Use DataTable"
+					variant="subtle"
+					on:click={() => dataTablePicker?.openDrawer()}
+					unifiedSize="sm"
+					startIcon={{ icon: DatabaseIcon }}
+					{iconOnly}
+					>+Data table
 				</Button>
 			{/if}
 
@@ -934,10 +985,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					aiId="editor-bar-reset-content"
 					aiDescription="Reset content"
 					title="Reset Content"
-					btnClasses="!font-medium text-tertiary"
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="sm"
+					variant="subtle"
 					on:click={clearContent}
 					{iconOnly}
 					startIcon={{ icon: RotateCw }}
@@ -951,10 +1000,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 					<Button
 						aiId="editor-bar-reload-assistants"
 						aiDescription="Reload assistants"
-						btnClasses="!font-medium text-tertiary"
-						size="xs"
-						spacingSize="md"
-						color="light"
+						unifiedSize="sm"
+						variant="subtle"
 						on:click={() => editor?.reloadWebsocket()}
 						startIcon={{
 							icon: RotateCw,
@@ -985,8 +1032,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 			{#if customUi?.diffMode != false}
 				<div class="flex items-center px-3">
 					<Toggle
-						options={{ right: '' }}
-						size="xs"
+						options={{ right: 'Diff' }}
+						size="sm"
 						checked={diffMode}
 						disabled={!lastDeployedCode}
 						on:change={(e) => {
@@ -998,7 +1045,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Toggle diff mode
 						{/snippet}
-						<DiffIcon class="ml-1 text-tertiary" size={14} />
+						<DiffIcon class="ml-1 text-primary" size={14} />
 					</Popover>
 				</div>
 			{/if}
@@ -1015,7 +1062,7 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						{#snippet text()}
 							Multiplayer
 						{/snippet}
-						<Users class="ml-1 text-tertiary" size={14} />
+						<Users class="ml-1 text-primary" size={14} />
 					</Popover>
 					{#if collabLive}
 						<button
@@ -1029,9 +1076,9 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 									class="inline-flex h-6 w-6 items-center justify-center rounded-full ring-2 ring-white bg-gray-600"
 									title={user.name}
 								>
-									<span class="text-sm font-medium leading-none text-white"
-										>{user.name.substring(0, 2).toLocaleUpperCase()}</span
-									>
+									<span class="text-sm font-semibold leading-none text-white">
+										{user.name.substring(0, 2).toLocaleUpperCase()}
+									</span>
 								</span>
 							{/each}
 						</div>
@@ -1041,24 +1088,20 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 
 			{#if customUi?.aiGen != false}
 				{#if openAiChat}
-					<FlowInlineScriptAiButton {moduleId} />
-				{:else}
-					<ScriptGen {editor} {diffEditor} {lang} {iconOnly} {args} />
+					<FlowInlineScriptAiButton {moduleId} btnProps={{ variant: 'subtle' }} />
 				{/if}
 			{/if}
 
-			<EditorSettings {customUi} />
+			<EditorSettings {customUi} btnProps={{ variant: 'subtle', unifiedSize: 'md' }} />
 		</div>
 	</div>
 
-	<div class="flex flex-row items-center gap-2">
+	<div class="flex flex-row items-center gap-2 whitespace-nowrap">
 		{@render right?.()}
 		{#if scriptPath && !noHistory}
 			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={() => (showHistoryDrawer = true)}
 				{iconOnly}
 				startIcon={{ icon: History }}
@@ -1069,10 +1112,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if SCRIPT_EDITOR_SHOW_EXPLORE_OTHER_SCRIPTS && customUi?.library != false}
 			<Button
-				btnClasses="!font-medium text-tertiary"
-				size="xs"
-				spacingSize="md"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				on:click={scriptPicker.openDrawer}
 				{iconOnly}
 				startIcon={{ icon: Library }}
@@ -1083,8 +1124,8 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 		{/if}
 		{#if saveToWorkspace}
 			<Button
-				size="xs"
-				color="light"
+				unifiedSize="sm"
+				variant="subtle"
 				startIcon={{ icon: Save }}
 				on:click={() => dispatch('createScriptFromInlineScript')}
 				iconOnly={false}

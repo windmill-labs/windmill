@@ -155,7 +155,7 @@
 		title={JSON.stringify(v)}
 	>
 		{#if v === NEVER_TESTED_THIS_FAR}
-			<span class="text-2xs text-tertiary font-normal"> Test the flow to see a value </span>
+			<span class="text-2xs text-primary font-normal"> Test the flow to see a value </span>
 		{:else if v == undefined}
 			<span class="text-2xs">undefined</span>
 		{:else if v == null}
@@ -215,7 +215,7 @@
 				color="light"
 				size="xs3"
 				iconOnly
-				btnClasses="text-tertiary hover:text-primary"
+				btnClasses="text-primary hover:text-primary"
 				startIcon={{ icon: Search }}
 				on:click={() => {
 					searchOpen = true
@@ -234,16 +234,15 @@
 				<!-- svelte-ignore a11y_no_static_element_interactions -->
 
 				<Button
-					color="light"
 					size="xs2"
-					variant="border"
+					variant="default"
 					on:click={collapse}
 					wrapperClasses="!inline-flex w-fit"
 					btnClasses="font-mono h-4 text-2xs px-1 font-thin text-primary rounded-[0.275rem]"
 					>-</Button
 				>
 			{/if}
-			{#if level == 0 && topBrackets}<span class="text-tertiary">{openBracket}</span>{/if}
+			{#if level == 0 && topBrackets}<span class="text-primary">{openBracket}</span>{/if}
 			<ul
 				class={`w-full ${
 					level === 0 ? `border-none ${topBrackets ? 'pl-2' : ''}` : 'pl-2 border-l border-dotted'
@@ -269,6 +268,7 @@
 								variant="border"
 								wrapperClasses="p-0 whitespace-nowrap w-fit"
 								btnClasses={twMerge(
+									'hover:bg-surface',
 									'font-mono h-4 py-1 text-2xs',
 									'font-thin px-1 rounded-[0.275rem]',
 									metaData ? 'rounded-r-none border-r-0.5' : ''
@@ -279,7 +279,7 @@
 							</Button>
 							{@render metaData?.(key)}
 						</AnimatedButton>
-						<span class="text-2xs -ml-0.5 text-tertiary">:</span>
+						<span class="text-2xs -ml-0.5 text-primary">:</span>
 
 						{#if getTypeAsString(jsonFiltered[key]) === 'object'}
 							<ObjectViewer
@@ -310,7 +310,7 @@
 			</ul>
 			{#if level == 0 && topBrackets}
 				<div class="flex">
-					<span class="text-tertiary">{closeBracket}</span>
+					<span class="text-primary">{closeBracket}</span>
 					{#if getTypeAsString(jsonFiltered) === 's3object'}
 						<a
 							class="text-secondary underline font-semibold text-2xs whitespace-nowrap ml-1 w-fit"
@@ -340,12 +340,11 @@
 	{#if fullyCollapsed}
 		<span>
 			<Button
-				color="light"
 				size="xs2"
-				variant="border"
+				variant="default"
 				on:click={collapse}
 				wrapperClasses="!inline-flex w-fit"
-				btnClasses="h-4 text-[9px] px-1  text-primary rounded-[0.275rem]"
+				btnClasses="h-4 text-[9px] px-1 text-primary rounded-[0.275rem]"
 			>
 				{openBracket}{collapsedSymbol}{closeBracket}
 			</Button>
@@ -354,11 +353,11 @@
 {:else if topBrackets}
 	<span class="text-primary">{openBracket}{closeBracket}</span>
 {:else if jsonFiltered == undefined}
-	<span class="text-tertiary text-2xs ml-2">undefined</span>
+	<span class="text-primary text-2xs ml-2">undefined</span>
 {:else if typeof jsonFiltered != 'object'}
 	{@render renderScalar('', jsonFiltered)}
 {:else}
-	<span class="text-tertiary text-2xs ml-2">No items</span>
+	<span class="text-primary text-2xs ml-2">No items</span>
 {/if}
 
 <style lang="postcss">
@@ -368,10 +367,10 @@
 	}
 
 	.val.undefined {
-		@apply text-tertiary;
+		@apply text-primary;
 	}
 	.val.null {
-		@apply text-tertiary;
+		@apply text-primary;
 	}
 	.val.string {
 		@apply text-green-600 dark:text-green-400/80;

@@ -6,7 +6,7 @@ use crate::{
     triggers::{
         handler::TriggerCrud,
         trigger_helpers::{trigger_runnable, TriggerJobArgs},
-        Trigger, TriggerErrorHandling,
+        Trigger, TriggerErrorHandling, TriggerMode,
     },
     users::fetch_api_authed,
 };
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 use windmill_common::{
     error::{Error, Result},
     jobs::JobTriggerKind,
-    triggers::TriggerKind,
+    triggers::{TriggerKind, TriggerMetadata},
     utils::report_critical_error,
     DB, INSTANCE_NAME,
 };
@@ -34,8 +34,6 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
     type Extra: Send + Sync;
     type ExtraState: Send + Sync;
 
-    //to use in next PR to add job trigger kind to eow
-    #[allow(unused)]
     const JOB_TRIGGER_KIND: JobTriggerKind;
     const EXTRA_TRIGGER_AND_WHERE_CLAUSE: &[&'static str] = &[];
     const EXTRA_CAPTURE_AND_WHERE_CLAUSE: &[&'static str] = &[];
@@ -69,19 +67,21 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             "email",
             "edited_at",
             "extra_perms",
+            "mode",
+            "error_handler_path",
+            "error_handler_args",
+            "retry",
         ];
 
-        if Self::SUPPORTS_SERVER_STATE {
-            fields.extend_from_slice(&["enabled", "server_id", "last_server_ping", "error"]);
-        }
-        fields.extend_from_slice(&["error_handler_path", "error_handler_args", "retry"]);
         fields.extend_from_slice(Self::ADDITIONAL_SELECT_FIELDS);
 
         let mut sqlb = SqlBuilder::select_from(Self::TABLE_NAME);
 
-        sqlb.fields(&fields).and_where("enabled IS TRUE").and_where(
-            "(last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
-        );
+        sqlb.fields(&fields)
+            .and_where("(mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE)")
+            .and_where(
+                "(last_server_ping IS NULL OR last_server_ping < now() - interval '15 seconds')",
+            );
 
         for where_clause in Self::EXTRA_TRIGGER_AND_WHERE_CLAUSE {
             sqlb.and_where(where_clause);
@@ -106,6 +106,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_config: trigger.config,
                 error_handling: Some(trigger.error_handling),
                 trigger_mode: true,
+                suspended_mode: trigger.base.mode == TriggerMode::Suspended,
             })
             .collect_vec();
 
@@ -155,6 +156,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                 trigger_mode: false,
                 is_flow: capture.is_flow,
                 error_handling: None,
+                suspended_mode: false,
             })
             .collect_vec();
 
@@ -240,7 +242,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                     workspace_id = $2 AND 
                     path = $3 AND 
                     server_id = $4 AND 
-                    enabled IS TRUE
+                    (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE) 
                 RETURNING 1
             "#,
             Self::TABLE_NAME
@@ -385,7 +387,7 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
                     UPDATE 
                         {} 
                     SET 
-                        enabled = FALSE, 
+                        mode = 'disabled'::TRIGGER_MODE, 
                         error = $1, 
                         server_id = NULL, 
                         last_server_ping = NULL 
@@ -515,6 +517,8 @@ pub trait Listener: TriggerCrud + TriggerJobArgs {
             error_handler_args,
             format!("{}_trigger/{}", Self::TRIGGER_KIND, listening_trigger.path),
             None,
+            listening_trigger.suspended_mode,
+            TriggerMetadata::new(Some(listening_trigger.path.clone()), Self::JOB_TRIGGER_KIND),
         )
         .await?;
 
@@ -583,6 +587,7 @@ async fn listening<T: Listener>(
 
     let loop_ping_status = Arc::new(RwLock::new(None));
     let extra_state = listener.get_extra_state().await;
+    let path = listening_trigger.path.clone();
     tokio::select! {
         biased;
         _ = killpill_rx.recv() => {
@@ -592,15 +597,18 @@ async fn listening<T: Listener>(
             let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
         }
         consumer = {
+            tracing::info!("[{}] Getting consumer for trigger {}", T::TRIGGER_KIND, path);
             listener.get_consumer(&db, &listening_trigger, loop_ping_status.clone(), killpill_rx_get_consumer)
         } => {
             tokio::select! {
                 biased;
                 _ = killpill_rx.recv() => {
+                    tracing::info!("[{}] Killing pill received, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
                 _ = listener.loop_ping(&db, &listening_trigger, loop_ping_status.clone(), None) => {
+                    tracing::info!("[{}] Loop ping exited, stopping consumer for trigger {}", T::TRIGGER_KIND, path);
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
                     return;
                 }
@@ -608,14 +616,17 @@ async fn listening<T: Listener>(
                     match consumer {
                         Ok(Some(consumer)) => {
                             listener.update_ping_and_loop_ping_status(&db, &listening_trigger, loop_ping_status.clone(), None).await;
-                            let _ = listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
-                            tracing::debug!("Stopping consumer for trigger");
+                            tracing::info!("[{}] Starting consumer for trigger {}", T::TRIGGER_KIND, path);
+                            listener.consume(&db, consumer, &listening_trigger, loop_ping_status.clone(), killpill_rx_consumer, extra_state.as_ref()).await;
+                            tracing::info!("[{}] Consumer stopped for trigger {}", T::TRIGGER_KIND, path);
                         }
                         Err(error) => {
-                            tracing::warn!("Disabling trigger due to consumer error: {}", error);
+                            tracing::error!("[{}] Disabling trigger {} due to consumer error: {}", T::TRIGGER_KIND, path, error);
                             listener.disable_with_error(&db, &listening_trigger, error.to_string()).await;
                         }
-                        _ => {}
+                        Ok(None) => {
+                            tracing::error!("[{}] Consumer is None for trigger {}", T::TRIGGER_KIND, path);
+                        }
                     }
                 } => {
                     let _ = listener.cleanup(&db, &listening_trigger, extra_state.as_ref()).await;
@@ -647,7 +658,7 @@ async fn listen_to_unlistened_events<T: Copy + Listener>(
                             last_server_ping = now(),
                             error = 'Connecting...'
                         WHERE 
-                            enabled IS TRUE 
+                            (mode = 'enabled'::TRIGGER_MODE OR mode = 'suspended'::TRIGGER_MODE) 
                             AND workspace_id = $2 
                             AND path = $3 
                             AND (last_server_ping IS NULL 
@@ -809,6 +820,7 @@ pub struct ListeningTrigger<T> {
     pub script_path: String,
     pub trigger_mode: bool,
     pub error_handling: Option<TriggerErrorHandling>,
+    pub suspended_mode: bool,
 }
 
 impl<T> ListeningTrigger<T> {

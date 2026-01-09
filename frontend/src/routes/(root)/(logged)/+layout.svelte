@@ -53,6 +53,7 @@
 	import { Menubar } from '$lib/components/meltComponents'
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
+	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -97,6 +98,7 @@
 	async function updateUserStore(workspace: string | undefined) {
 		if (workspace) {
 			try {
+				sessionStorage.setItem('workspace', String(workspace))
 				localStorage.setItem('workspace', String(workspace))
 			} catch (e) {
 				console.error('Could not persist workspace to local storage', e)
@@ -111,8 +113,25 @@
 		}
 	}
 
-	beforeNavigate(() => {
+	beforeNavigate((navigation) => {
 		menuOpen = false
+
+		// Force page reload when navigating to /apps_raw/add or /apps_raw/edit
+		// This ensures the cross-origin isolation headers are fetched from the server
+		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
+		const toPath = navigation.to?.url.pathname
+		if (
+			toPath &&
+			(toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))
+		) {
+			const currentPath = navigation.from?.url.pathname
+			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
+			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
+			if (!currentPath?.startsWith('/apps_raw/') || currentPath?.startsWith('/apps_raw/get/')) {
+				navigation.cancel()
+				window.location.href = navigation.to!.url.href
+			}
+		}
 	})
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
@@ -146,18 +165,20 @@
 		$hubBaseUrlStore =
 			((await SettingService.getGlobal({ key: 'hub_accessible_url' })) as string) ||
 			((await SettingService.getGlobal({ key: 'hub_base_url' })) as string) ||
-			'https://hub.windmill.dev'
+			DEFAULT_HUB_BASE_URL
 	}
 
 	async function loadFavorites() {
 		const scripts = await ScriptService.listScripts({
 			workspace: $workspaceStore ?? '',
 			starredOnly: true,
-			includeWithoutMain: true
+			includeWithoutMain: true,
+			withoutDescription: true
 		})
 		const flows = await FlowService.listFlows({
 			workspace: $workspaceStore ?? '',
-			starredOnly: true
+			starredOnly: true,
+			withoutDescription: true
 		})
 		const apps = await AppService.listApps({
 			workspace: $workspaceStore ?? '',
@@ -506,7 +527,7 @@
 											}}
 											label="Ask AI"
 											class="!text-xs"
-											iconClasses="!text-violet-400 dark:!text-violet-400"
+											iconClasses="!text-ai-inverse dark:!text-ai"
 											shortcut={`${getModifierKey()}L`}
 										/>
 									</div>
@@ -580,7 +601,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
@@ -615,7 +636,6 @@
 					<OperatorMenu {favoriteLinks} />
 				</div>
 			{/if}
-
 			<!-- Legacy menu -->
 			<div
 				class={classNames(
@@ -694,7 +714,7 @@
 									}}
 									label="Ask AI"
 									class="!text-xs"
-									iconClasses="!text-violet-400 dark:!text-violet-400"
+									iconClasses="!text-ai-inverse dark:!text-ai"
 									shortcut={`${getModifierKey()}L`}
 								/>
 							</div>
@@ -710,14 +730,16 @@
 				</div>
 			</div>
 		{/if}
-		<AiChatLayout
-			{children}
-			noPadding={devOnly}
-			{isCollapsed}
-			onMenuOpen={() => {
-				menuOpen = true
-			}}
-		/>
+		<div class="flex flex-col h-full w-full">
+			<AiChatLayout
+				{children}
+				noPadding={devOnly}
+				{isCollapsed}
+				onMenuOpen={() => {
+					menuOpen = true
+				}}
+			/>
+		</div>
 	</div>
 {:else}
 	<CenteredModal title="Loading user...">

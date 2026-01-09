@@ -40,15 +40,15 @@
 		{#snippet actions()}
 			<Button
 				on:click={() => copyToClipboard(JSON.stringify(jsonViewerContent, null, 4))}
-				color="light"
-				size="xs"
+				variant="subtle"
+				unifiedSize="md"
 				startIcon={{ icon: ClipboardCopy }}
 			>
 				Copy
 			</Button>
 		{/snippet}
 		{#if isString(jsonViewerContent)}
-			<pre>{jsonViewerContent}</pre>
+			<pre class="text-xs whitespace-pre-wrap">{jsonViewerContent}</pre>
 		{:else}
 			<ObjectViewer pureViewer json={jsonViewerContent} />
 		{/if}
@@ -56,7 +56,7 @@
 </Drawer>
 
 {#if value == undefined || value == null}
-	<span class="text-tertiary">null</span>
+	<span class="text-primary">null</span>
 {:else if value === '<function call>'}
 	{'<function call>'}<Tooltip
 		>The arg was none and the default argument of the script is a function call, hence the actual
@@ -64,7 +64,7 @@
 	>
 {:else if isString(value) && value.startsWith('$res:')}
 	<button
-		class="text-xs text-blue-500"
+		class="text-xs text-accent"
 		onclick={async () => {
 			await getResource(value.substring('$res:'.length))
 			jsonViewer?.toggleDrawer()
@@ -72,7 +72,7 @@
 	>
 {:else if isString(value) && value.startsWith('$var:')}
 	<button
-		class="text-xs text-blue-500"
+		class="text-xs text-accent"
 		onclick={async () => {
 			await getVariable(value.substring('$res:'.length))
 			jsonViewer?.toggleDrawer()
@@ -83,7 +83,7 @@
 		{truncate(JSON.stringify(value), 80)}
 		{#if JSON.stringify(value).length > 80}
 			<button
-				class="text-xs text-blue-500"
+				class="text-xs text-accent"
 				onclick={() => {
 					jsonViewerContent = value
 					jsonViewer?.toggleDrawer()
@@ -95,7 +95,7 @@
 	<div class="relative">
 		{#if JSON.stringify(value).length > 120}
 			<button
-				class="text-xs absolute top-0 right-8 text-tertiary"
+				class="text-xs absolute top-0 right-8 text-primary"
 				onclick={() => {
 					jsonViewerContent = value
 					jsonViewer?.toggleDrawer()

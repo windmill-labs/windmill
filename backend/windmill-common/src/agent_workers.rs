@@ -11,7 +11,7 @@ use std::time::Duration;
 use reqwest_middleware::ClientBuilder;
 use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
-use crate::{jwt::decode_without_verify, worker::HttpClient};
+use crate::{jwt::decode_without_verify, utils::configure_client, worker::HttpClient};
 
 lazy_static! {
     pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
@@ -28,46 +28,55 @@ lazy_static! {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentAuth {
     pub worker_group: String,
-    pub suffix: Option<String>,
+pub suffix: Option<String>,
     pub tags: Vec<String>,
     pub exp: Option<usize>,
 }
 
 pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
 
-pub fn build_agent_http_client(worker_suffix: &str) -> HttpClient {
+pub fn build_agent_http_client(
+    worker_suffix: &str,
+    agent_token: Option<String>,
+    base_internal_url: Option<String>,
+) -> HttpClient {
     let client = ClientBuilder::new(
-        reqwest::Client::builder()
-            .pool_max_idle_per_host(10)
-            .pool_idle_timeout(Duration::from_secs(60))
-            .connect_timeout(Duration::from_secs(10))
-            .timeout(Duration::from_secs(30))
-            .default_headers({
-                let mut headers = reqwest::header::HeaderMap::new();
-                headers.insert(
-                    "User-Agent",                          // Replace with your desired header name
-                    "Windmill-Agent/1.0".parse().unwrap(), // Replace with your desired header value
-                );
-                let token = format!(
-                    "{}{}_{}",
-                    AGENT_JWT_PREFIX,
-                    worker_suffix,
-                    AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX),
-                );
-                headers.insert(
-                    "Authorization",
-                    format!("Bearer {}", token).parse().unwrap(),
-                );
-                headers
-            })
-            .build()
-            .expect("Failed to create HTTP client"),
+        configure_client(
+            reqwest::Client::builder()
+                .pool_max_idle_per_host(10)
+                .pool_idle_timeout(Duration::from_secs(60))
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(30)),
+        )
+        .default_headers({
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(
+                "User-Agent",                          // Replace with your desired header name
+                "Windmill-Agent/1.0".parse().unwrap(), // Replace with your desired header value
+            );
+            let token = format!(
+                "{}{}_{}",
+                AGENT_JWT_PREFIX,
+                worker_suffix,
+                agent_token
+                    .unwrap_or(AGENT_TOKEN.clone())
+                    .trim_start_matches(AGENT_JWT_PREFIX)
+            );
+            headers.insert(
+                "Authorization",
+                format!("Bearer {}", token).parse().unwrap(),
+            );
+            headers
+        })
+        .build()
+        .expect("Failed to create HTTP client"),
     )
     .with(RetryTransientMiddleware::new_with_policy(
         ExponentialBackoff::builder().build_with_max_retries(5),
     ))
     .build();
-    HttpClient(client)
+
+    HttpClient { client, base_internal_url }
 }
 
 #[derive(Deserialize, Serialize)]

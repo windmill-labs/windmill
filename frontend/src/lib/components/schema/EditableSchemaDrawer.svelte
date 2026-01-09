@@ -96,7 +96,6 @@
 
 	<Toggle
 		bind:checked={jsonView}
-		label="JSON View"
 		size="xs"
 		options={{
 			right: 'JSON editor',
@@ -178,7 +177,7 @@
 								</div>
 							{/if}
 						{:else}
-							<div class="text-tertiary"> Value is undefined </div>
+							<div class="text-primary"> Value is undefined </div>
 						{/if}
 					</div>
 				{/each}
@@ -189,7 +188,7 @@
 		{#snippet children()}
 			<DrawerContent title="UI Customisation" on:close={() => schemaFormDrawer?.closeDrawer()}>
 				<EditableSchemaForm
-					schemaFormClassName="h-full"
+					schemaFormClassName="min-h-full"
 					bind:this={editableSchemaForm}
 					bind:schema
 					isAppInput
@@ -223,7 +222,7 @@
 		{/snippet}
 	</Drawer>
 {:else}
-	<div class="mt-2 bg-surface-secondary rounded-md border py-2.5">
+	<div class="mt-2 bg-surface-tertiary rounded-md border py-2.5">
 		<SimpleEditor
 			bind:this={editor}
 			small

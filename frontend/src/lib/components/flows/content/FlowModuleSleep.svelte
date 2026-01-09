@@ -20,7 +20,7 @@
 
 	let { flowModule = $bindable(), previousModuleId }: Props = $props()
 
-	const { selectedId, flowStore, flowStateStore, previewArgs } =
+	const { selectionManager, flowStore, flowStateStore, previewArgs } =
 		getContext<FlowEditorContext>('FlowEditorContext')
 	let schema = $state(emptySchema())
 	schema.properties['sleep'] = {
@@ -41,7 +41,7 @@
 		)
 	)
 
-	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 
 	let isSleepEnabled = $derived(Boolean(flowModule.sleep))
 </script>
@@ -56,6 +56,7 @@
 
 	<Toggle
 		checked={isSleepEnabled}
+		class="mb-6"
 		on:change={() => {
 			if (isSleepEnabled && flowModule.sleep != undefined) {
 				flowModule.sleep = undefined
@@ -72,7 +73,7 @@
 	/>
 	<Label label="Sleep for duration">
 		{#if flowModule.sleep && schema.properties['sleep']}
-			<div class="border">
+			<div class="border rounded-md overflow-auto">
 				<PropPickerWrapper
 					noFlowPlugConnect={true}
 					flow_input={stepPropPicker.pickableProperties.flow_input}
@@ -97,7 +98,7 @@
 			</div>
 		{:else}
 			<SecondsInput disabled />
-			<div class="text-secondary">OR use a dynamic expression</div>
+			<div class="text-secondary text-xs">OR use a dynamic expression</div>
 		{/if}
 	</Label>
 </Section>

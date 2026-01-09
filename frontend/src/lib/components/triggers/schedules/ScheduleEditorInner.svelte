@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Alert, Badge, Button, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Badge, Button, ButtonType, Tab, Tabs } from '$lib/components/common'
 	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import CronInput from '$lib/components/CronInput.svelte'
@@ -35,6 +35,8 @@
 	import WorkerTagPicker from '$lib/components/WorkerTagPicker.svelte'
 	import { runScheduleNow } from '../scheduled/utils'
 	import { handleConfigChange } from '../utils'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	let {
 		useDrawer = true,
@@ -51,8 +53,12 @@
 		trigger = undefined
 	} = $props()
 
-	let optionTabSelected: 'error_handler' | 'recovery_handler' | 'success_handler' | 'retries' | 'dynamic_skip' =
-		$state('error_handler')
+	let optionTabSelected:
+		| 'error_handler'
+		| 'recovery_handler'
+		| 'success_handler'
+		| 'retries'
+		| 'dynamic_skip' = $state('error_handler')
 	let initialPath = $state('')
 	let edit = $state(true)
 	let schedule: string = $state('0 0 12 * *')
@@ -611,6 +617,7 @@
 				requestBody: { enabled: nEnabled }
 			})
 			sendUserToast(`${nEnabled ? 'enabled' : 'disabled'} schedule ${initialPath}`)
+			onUpdate?.(initialPath)
 		}
 	}
 
@@ -628,22 +635,23 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : 'create'}
 			{saveDisabled}
-			{enabled}
+			mode={enabled ? 'enabled' : 'disabled'}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
 			onUpdate={scheduleScript}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			onToggleMode={(mode) => handleToggleEnabled(mode === 'enabled')}
 			{isDeployed}
+			disableSuspendedMode
 		>
 			{#snippet extra()}
 				{#if !drawerLoading && edit}
-					<div class="mr-8 flex flex-row gap-3">
+					<div class="mr-12 flex flex-row gap-3">
 						<Button
 							size="sm"
-							variant="border"
+							variant="default"
 							startIcon={{ icon: List }}
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							href={`${base}/runs/${script_path}?show_schedules=true&show_future_jobs=true`}
@@ -652,7 +660,7 @@
 						</Button>
 						<Button
 							size="sm"
-							variant="border"
+							variant="default"
 							disabled={!allowSchedule || pathError != '' || emptyString(script_path)}
 							on:click={() => {
 								runScheduleNow(script_path, path, is_flow, $workspaceStore!)
@@ -673,79 +681,89 @@
 			<Loader2 class="animate-spin" />
 		{/if}
 	{:else}
-		<div class="flex flex-col gap-12">
-			<div class="flex flex-col gap-4">
-				<div>
-					<h2 class="text-base font-semibold mb-2">Metadata</h2>
-					<Label label="Summary">
+		<div class="flex flex-col gap-8">
+			<Section label="Metadata">
+				<div class="flex flex-col gap-6">
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-semibold text-emphasis">Summary</span>
 						<!-- svelte-ignore a11y_autofocus -->
-						<input
-							autofocus
-							type="text"
-							placeholder="Short summary to be displayed when listed"
-							class="text-sm w-full"
-							bind:value={summary}
-							disabled={!can_write}
-							onkeyup={() => {
-								if (!edit && summary?.length > 0 && !dirtyPath) {
-									pathC?.setName(
-										summary
-											.toLowerCase()
-											.replace(/[^a-z0-9_]/g, '_')
-											.replace(/-+/g, '_')
-											.replace(/^-|-$/g, '')
-									)
+						<TextInput
+							inputProps={{
+								autofocus: true,
+								type: 'text',
+								placeholder: 'Short summary to be displayed when listed',
+								disabled: !can_write,
+								onkeyup: () => {
+									if (!edit && summary?.length > 0 && !dirtyPath) {
+										pathC?.setName(
+											summary
+												.toLowerCase()
+												.replace(/[^a-z0-9_]/g, '_')
+												.replace(/-+/g, '_')
+												.replace(/^-|-$/g, '')
+										)
+									}
 								}
 							}}
+							bind:value={summary}
 						/>
-					</Label>
-				</div>
-				<Label label="Path">
-					{#if !edit && !trigger?.isPrimary}
-						<Path
-							bind:dirty={dirtyPath}
-							bind:this={pathC}
-							checkInitialPathExistence={!edit}
-							bind:error={pathError}
-							bind:path
-							{initialPath}
-							namePlaceholder="schedule"
-							kind="schedule"
-							disableEditing={!can_write}
-						/>
-					{:else}
-						<div class="flex justify-start w-full">
-							<Badge
-								color="gray"
-								class="center-center !bg-surface-secondary !text-tertiary  !h-[24px] rounded-r-none border"
-							>
-								Schedule path (not editable)
-							</Badge>
-							<input
-								type="text"
-								readonly
-								value={path}
-								size={path?.length || 50}
-								class="font-mono !text-xs grow shrink overflow-x-auto !h-[24px] !py-0 !border-l-0 !rounded-l-none"
-								onfocus={({ currentTarget }) => {
-									currentTarget.select()
-								}}
-							/>
-							<!-- <span class="font-mono text-sm break-all">{path}</span> -->
-						</div>
-					{/if}
-				</Label>
+					</label>
 
-				<Label label="Description">
-					<textarea
-						rows="4"
-						use:autosize
-						bind:value={description}
-						placeholder="What this schedule does and how to use it"
-						disabled={!can_write}
-					></textarea>
-				</Label>
-			</div>
+					<div class="flex flex-col gap-1">
+						<label for="path" class="text-xs font-semibold text-emphasis">Path</label>
+						{#if !edit && !trigger?.isPrimary}
+							<Path
+								bind:dirty={dirtyPath}
+								bind:this={pathC}
+								checkInitialPathExistence={!edit}
+								bind:error={pathError}
+								bind:path
+								{initialPath}
+								namePlaceholder="schedule"
+								kind="schedule"
+								disableEditing={!can_write}
+							/>
+						{:else}
+							<div class="flex justify-start w-full">
+								<Badge
+									color="gray"
+									class={twMerge(
+										'center-center !bg-surface-secondary !text-secondary rounded-r-none border',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
+								>
+									Schedule path (not editable)
+								</Badge>
+								<input
+									type="text"
+									readonly
+									value={path}
+									size={path?.length || 50}
+									class={twMerge(
+										'font-mono !text-2xs grow shrink overflow-x-auto !py-0 !border-l-0 !rounded-l-none',
+										ButtonType.UnifiedMinHeightClasses['md']
+									)}
+									onfocus={({ currentTarget }) => {
+										currentTarget.select()
+									}}
+								/>
+								<!-- <span class="font-mono text-sm break-all">{path}</span> -->
+							</div>
+						{/if}
+					</div>
+
+					<label class="flex flex-col gap-1">
+						<span class="text-xs font-semibold text-emphasis">Description</span>
+						<textarea
+							rows="4"
+							use:autosize
+							bind:value={description}
+							placeholder="What this schedule does and how to use it"
+							disabled={!can_write}
+						></textarea>
+					</label>
+				</div>
+			</Section>
 
 			<Section label="Schedule">
 				{#snippet header()}
@@ -760,50 +778,53 @@
 						>
 					{/if}
 				{/snippet}
-				{#if initialCronVersion !== 'v2'}
-					<div class="flex flex-row">
-						<AlertTriangle color="orange" class="mr-2" size={16} />
+				<div class="flex flex-col gap-6">
+					{#if initialCronVersion !== 'v2'}
+						<div class="flex flex-row">
+							<AlertTriangle color="orange" class="mr-2" size={16} />
+							<Toggle
+								options={{
+									right: 'enable latest Cron syntax',
+									rightTooltip:
+										'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
+									rightDocumentationLink:
+										'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+								}}
+								size="xs"
+								bind:checked={isLatestCron}
+								on:change={onVersionChange}
+								disabled={!can_write}
+							/>
+						</div>
+					{/if}
+					<CronInput
+						disabled={!can_write}
+						bind:schedule
+						bind:timezone
+						bind:validCRON
+						bind:cronVersion
+					/>
+					<div class="flex flex-col gap-1">
 						<Toggle
 							options={{
-								right: 'enable latest Cron syntax',
+								right: 'Pause schedule until...',
 								rightTooltip:
-									'The latest Cron syntax is more flexible and allows for more complex schedules. See the documentation for more information.',
-								rightDocumentationLink:
-									'https://www.windmill.dev/docs/core_concepts/scheduling#cron-syntax'
+									'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
 							}}
-							size="xs"
-							bind:checked={isLatestCron}
-							on:change={onVersionChange}
+							bind:checked={showPauseUntil}
 							disabled={!can_write}
 						/>
+						{#if showPauseUntil}
+							<DateTimeInput bind:value={paused_until} />
+						{/if}
 					</div>
-				{/if}
-				<CronInput
-					disabled={!can_write}
-					bind:schedule
-					bind:timezone
-					bind:validCRON
-					bind:cronVersion
-				/>
-				<Toggle
-					options={{
-						right: 'Pause schedule until...',
-						rightTooltip:
-							'Pausing the schedule will program the next job to run as if the schedule starts at the time the pause is lifted, instead of now.'
-					}}
-					bind:checked={showPauseUntil}
-					size="xs"
-					disabled={!can_write}
-				/>
-				{#if showPauseUntil}
-					<DateTimeInput bind:value={paused_until} />
-				{/if}
+				</div>
 			</Section>
 
 			<Section label="Runnable">
 				{#if !hideTarget}
 					{#if !edit}
-						<p class="text-xs mb-1 text-tertiary">
+						<p class="text-xs mb-1 text-secondary">
 							Pick a script or flow to be triggered by the schedule<Required required={true} />
 						</p>
 						<ScriptPicker
@@ -869,17 +890,17 @@
 									/>
 								{/await}
 							{:else}
-								<div class="text-xs texg-gray-700">
+								<div class="text-xs text-secondary">
 									This {is_flow ? 'flow' : 'script'} takes no argument
 								</div>
 							{/if}
 						{:else if script_path != ''}
-							<div class="text-xs texg-gray-700 my-2">
+							<div class="text-xs text-secondary my-2">
 								You cannot see the the {is_flow ? 'flow' : 'script'} input form as you do not have access
 								to it.
 							</div>
 						{:else}
-							<div class="text-xs texg-gray-700 my-2">
+							<div class="text-xs text-secondary my-2">
 								Pick a {is_flow ? 'flow' : 'script'} and fill its argument here
 							</div>
 						{/if}
@@ -900,25 +921,24 @@
 	<div class="flex flex-col gap-2 min-h-96">
 		{#if !loading}
 			<Tabs bind:selected={optionTabSelected}>
-				<Tab value="error_handler">Error Handler</Tab>
-				<Tab value="recovery_handler">Recovery Handler</Tab>
-				<Tab value="success_handler">Success Handler</Tab>
-				<Tab value="retries">Retries</Tab>
-				<Tab value="dynamic_skip">Dynamic skip</Tab>
+				<Tab value="error_handler" label="Error Handler" />
+				<Tab value="recovery_handler" label="Recovery Handler" />
+				<Tab value="success_handler" label="Success Handler" />
+				<Tab value="retries" label="Retries" />
+				<Tab value="dynamic_skip" label="Dynamic skip" />
 				{#if itemKind === 'script'}
-					<Tab value="tag">Custom tag</Tab>
+					<Tab value="tag" label="Custom tag" />
 				{/if}
 			</Tabs>
-			<div class="pt-0.5"></div>
 			{#if optionTabSelected === 'error_handler'}
 				<Section label="Error handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
 						</div>
 					{/snippet}
 					{#snippet action()}
-						<div class="flex flex-row items-center gap-1 text-2xs text-tertiary">
+						<div class="flex flex-row items-center gap-1 text-xs text-secondary">
 							<Dropdown
 								disabled={!can_write}
 								items={[
@@ -963,7 +983,7 @@
 						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
-									<div class="text-sm"
+									<div class="text-xs"
 										>The following args will be passed to the error handler:
 										<ul class="mt-1 ml-2">
 											<li
@@ -986,8 +1006,8 @@
 						{/snippet}
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
-						<div class="flex flex-row items-center mt-4 font-semibold text-sm gap-2">
-							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}>
+						<div class="flex flex-row items-center mt-4 font-semibold text-xs gap-2">
+							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}>
 								Triggered when schedule failed</p
 							>
 							<select
@@ -1000,12 +1020,12 @@
 							</select>
 							<input
 								type="number"
-								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-tertiary' : ''}"
+								class="!w-14 text-center {emptyString(errorHandlerPath) ? 'text-primary' : ''}"
 								bind:value={failedTimes}
 								disabled={!$enterpriseLicense}
 								min="1"
 							/>
-							<p class={emptyString(errorHandlerPath) ? 'text-tertiary' : ''}
+							<p class={emptyString(errorHandlerPath) ? 'text-primary' : ''}
 								>time{failedTimes > 1 ? 's in a row' : ''}</p
 							>
 						</div>
@@ -1016,11 +1036,11 @@
 				<Section label="Recovery handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
 						</div>
 					{/snippet}
 					{#snippet action()}
-						<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+						<div class="flex flex-row items-center text-secondary text-xs gap-2">
 							defaults
 							<Dropdown
 								{disabled}
@@ -1056,7 +1076,7 @@
 						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
-									<div class=" text-sm"
+									<div class="text-xs"
 										>The following args will be passed to the recovery handler:
 										<ul class="mt-1 ml-2">
 											<li><b>path</b>: The path of the script or flow that recovered.</li>
@@ -1082,10 +1102,10 @@
 					</ErrorOrRecoveryHandler>
 					<div class="flex flex-row items-center justify-between">
 						<div
-							class="flex flex-row items-center mt-5 font-semibold text-sm {emptyString(
+							class="flex flex-row items-center mt-5 font-semibold text-xs {emptyString(
 								recoveryHandlerPath
 							)
-								? 'text-tertiary'
+								? 'text-primary'
 								: ''}"
 						>
 							<p>Triggered when schedule recovered</p>
@@ -1105,11 +1125,11 @@
 				<Section label="Success handler">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
 						</div>
 					{/snippet}
 					{#snippet action()}
-						<div class="flex flex-row items-center text-tertiary text-2xs gap-2">
+						<div class="flex flex-row items-center text-secondary text-xs gap-2">
 							defaults
 							<Dropdown
 								{disabled}
@@ -1145,7 +1165,7 @@
 						{#snippet customTabTooltip()}
 							<Tooltip>
 								<div class="flex gap-20 items-start mt-3">
-									<div class=" text-sm"
+									<div class="text-xs"
 										>The following args will be passed to the success handler:
 										<ul class="mt-1 ml-2">
 											<li><b>path</b>: The path of the script or flow that succeeded.</li>
@@ -1165,7 +1185,7 @@
 				<Section label="Retries">
 					{#snippet header()}
 						<div class="flex flex-row gap-2">
-							{#if !$enterpriseLicense}<span class="text-normal text-2xs">(ee only)</span>{/if}
+							{#if !$enterpriseLicense}<span class="text-xs text-secondary">(ee only)</span>{/if}
 						</div>
 						<Tooltip>
 							If defined, upon error this schedule will be retried with a delay and a maximum number
@@ -1198,7 +1218,7 @@
 							boolean. True = run on this date, False = skip to next occurrence.
 						</Tooltip>
 					{/snippet}
-					<div class="flex flex-col gap-2">
+					<div class="flex flex-col gap-6">
 						<Label label="Dynamic skip script">
 							<div class="flex flex-row">
 								<ScriptPicker
@@ -1210,8 +1230,8 @@
 								/>
 								{#if !dynamicSkipPath}
 									<Button
-										btnClasses="ml-4 mt-2"
-										color="dark"
+										btnClasses="ml-4 whitespace-nowrap"
+										variant="default"
 										size="xs"
 										href="/scripts/add?hub=hub%2F19822%2Fwindmill%2Fdynamic_skip_template"
 										disabled={!can_write}
@@ -1223,7 +1243,8 @@
 							</div>
 						</Label>
 						<Alert type="info" size="xs" title="Handler requirements">
-							Handler must return a boolean value. Return true to execute the scheduled job, false to skip.
+							Handler must return a boolean value. Return true to execute the scheduled job, false
+							to skip.
 						</Alert>
 					</div>
 				</Section>

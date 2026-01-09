@@ -71,7 +71,7 @@
 			kind: 'main' | 'preprocessor'
 			args: Record<string, any> | undefined
 		}
-		addPreprocessor: null
+		addPreprocessor: { args: Record<string, any> } | undefined
 		updateSchema: {
 			payloadData: any
 			redirect: boolean
@@ -333,7 +333,7 @@
 									<CustomPopover noPadding>
 										<Button
 											size="xs2"
-											color="dark"
+											variant="accent"
 											disabled
 											endIcon={{
 												icon: Info
@@ -347,7 +347,7 @@
 												<p> You need to add a preprocessor to use preprocessor captures as args </p>
 												<Button
 													size="xs2"
-													color="dark"
+													variant="accent"
 													on:click={() => {
 														dispatch('addPreprocessor')
 													}}
@@ -416,7 +416,7 @@
 				</SchemaPickerRow>
 			{/snippet}
 			{#snippet empty()}
-				<div class="text-center text-xs text-tertiary py-2">No captures yet</div>
+				<div class="text-center text-xs text-primary py-2">No captures yet</div>
 			{/snippet}
 		</InfiniteList>
 	</div>

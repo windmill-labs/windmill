@@ -10,7 +10,8 @@
 		type ErrorHandler,
 		type Language,
 		type Relations,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
 	import { canWrite, emptyString, emptyStringTrimmed, sendUserToast } from '$lib/utils'
@@ -38,6 +39,10 @@
 	import { fade } from 'svelte/transition'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
+	import { deepEqual } from 'fast-equals'
+	import { capitalize } from '$lib/utils'
 
 	interface Props {
 		useDrawer?: boolean
@@ -85,7 +90,6 @@
 	let fixedScriptPath: string = $state('')
 	let path: string = $state('')
 	let pathError = $state('')
-	let enabled: boolean = $state(false)
 	let dirtyPath: boolean = $state(false)
 	let can_write: boolean = $state(true)
 	let drawerLoading: boolean = $state(true)
@@ -116,6 +120,12 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let mode = $state<TriggerMode>('enabled')
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 
 	const errorMessage = $derived.by(() => {
 		if (relations && relations.length > 0) {
@@ -149,7 +159,12 @@
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 
 	const saveDisabled = $derived(
-		pathError !== '' || emptyString(script_path) || drawerLoading || !can_write || !isValid
+		pathError !== '' ||
+			emptyString(script_path) ||
+			drawerLoading ||
+			!can_write ||
+			!isValid ||
+			!hasChanged
 	)
 
 	async function createPublication() {
@@ -218,6 +233,7 @@
 			transaction_to_track = []
 			tab = 'basic'
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err) {
 			sendUserToast(`Could not load postgres trigger: ${err.body}`, true)
 		} finally {
@@ -274,6 +290,8 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			mode = defaultValues?.mode ?? 'enabled'
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loadingTimeout)
 			drawerLoading = false
@@ -284,7 +302,6 @@
 	function getSaveCfg(): Record<string, any> {
 		const cfg = {
 			script_path: script_path,
-			initialScriptPath: initialScriptPath,
 			is_flow: is_flow,
 			path: path,
 			postgres_resource_path: postgres_resource_path,
@@ -299,7 +316,8 @@
 					: undefined,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			mode
 		}
 		return cfg
 	}
@@ -309,7 +327,6 @@
 		initialScriptPath = cfg?.script_path
 		is_flow = cfg?.is_flow
 		path = cfg?.path
-		enabled = cfg?.enabled
 		postgres_resource_path = cfg?.postgres_resource_path
 		publication_name = cfg?.publication_name
 		replication_slot_name = cfg?.replication_slot_name
@@ -320,6 +337,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		mode = cfg?.mode ?? 'enabled'
 	}
 
 	async function loadTrigger(defaultConfig?: Record<string, any>): Promise<void> {
@@ -378,7 +396,12 @@
 		)
 		if (isSaved) {
 			onUpdate?.(path)
-			drawer?.closeDrawer()
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialPath = cfg.path
+			initialScriptPath = cfg.script_path
+			if (mode !== 'suspended') {
+				drawer?.closeDrawer()
+			}
 		}
 		deploymentLoading = false
 	}
@@ -406,15 +429,20 @@
 		}
 	}
 
-	async function handleToggleEnabled(toggleEnabled: boolean) {
-		enabled = toggleEnabled
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
 		if (!trigger?.draftConfig) {
-			await PostgresTriggerService.setPostgresTriggerEnabled({
+			await PostgresTriggerService.setPostgresTriggerMode({
 				path: initialPath,
 				workspace: $workspaceStore ?? '',
-				requestBody: { enabled: toggleEnabled }
+				requestBody: { mode: newMode }
 			})
-			sendUserToast(`${toggleEnabled ? 'enabled' : 'disabled'} postgres trigger ${initialPath}`)
+			sendUserToast(`${capitalize(newMode)} postgres trigger ${initialPath}`)
+
+			onUpdate?.(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
 		}
 	}
 
@@ -448,6 +476,23 @@
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="postgres"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#if useDrawer}
 	<Drawer size="800px" bind:this={drawer}>
@@ -486,12 +531,13 @@
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
-			{enabled}
 			{isDeployed}
 			onUpdate={updateTrigger}
 			{onReset}
 			{onDelete}
-			onToggleEnabled={handleToggleEnabled}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 			{cloudDisabled}
 		/>
 	{/if}
@@ -521,6 +567,9 @@
 			{/if}
 		</div>
 		<div class="flex flex-col gap-12 mt-6">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<Label label="Path">
 				<Path
 					bind:dirty={dirtyPath}
@@ -536,7 +585,7 @@
 			</Label>
 			{#if !hideTarget}
 				<Section label="Runnable">
-					<p class="text-xs text-tertiary">
+					<p class="text-xs text-primary">
 						Pick a script or flow to be triggered <Required required={true} />
 					</p>
 					<div class="flex flex-row mb-2">
@@ -556,8 +605,8 @@
 							<div class="flex">
 								<Button
 									disabled={!can_write}
-									btnClasses="ml-4 mt-2"
-									color="dark"
+									btnClasses="ml-4"
+									variant="accent"
 									size="xs"
 									on:click={getTemplateScript}
 									target="_blank"
@@ -575,13 +624,14 @@
 					</div>
 				</Section>
 			{/if}
+
 			<Section label="Database">
 				{#snippet badge()}
 					{#if isEditor}
 						<TestingBadge />
 					{/if}
 				{/snippet}
-				<p class="text-xs text-tertiary mb-2">
+				<p class="text-xs text-primary mb-2">
 					Pick a database to connect to <Required required={true} />
 				</p>
 				<div class="flex flex-col gap-8">
@@ -643,9 +693,9 @@
 								{/if}
 							{/snippet}
 							<Tabs bind:selected={tab}>
-								<Tab value="basic"
-									><div class="flex flex-row gap-1"
-										>Basic<Tooltip
+								<Tab value="basic" label="Basic">
+									{#snippet extra()}
+										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#define-what-to-track"
 											><p
 												>Choose the <strong>relations</strong> to track without worrying about the
@@ -654,12 +704,12 @@
 												or <strong>slot</strong>. This simplified option lets you focus only on the
 												data you want to monitor.</p
 											></Tooltip
-										></div
-									></Tab
-								>
-								<Tab value="advanced"
-									><div class="flex flex-row gap-1"
-										>Advanced<Tooltip
+										>
+									{/snippet}
+								</Tab>
+								<Tab value="advanced" label="Advanced">
+									{#snippet extra()}
+										<Tooltip
 											documentationLink="https://www.windmill.dev/docs/core_concepts/postgres_triggers#advanced"
 											><p
 												>Select a specific <strong>publication</strong> from your database to track,
@@ -671,9 +721,9 @@
 												<strong>currently used slot</strong> by the trigger will be retrieved from your
 												database for management.</p
 											></Tooltip
-										></div
-									></Tab
-								>
+										>
+									{/snippet}
+								</Tab>
 								{#snippet content()}
 									<div class="mt-5 overflow-hidden bg-surface">
 										<TabContent value="basic">
@@ -710,9 +760,8 @@
 																/>
 																<Button
 																	loading={creatingSlot}
-																	color="light"
 																	size="xs"
-																	variant="border"
+																	variant="default"
 																	disabled={emptyStringTrimmed(replication_slot_name) || !can_write}
 																	on:click={createSlot}>Create</Button
 																>
@@ -766,9 +815,8 @@
 																/>
 																<Button
 																	loading={creatingPublication}
-																	color="light"
 																	size="xs"
-																	variant="border"
+																	variant="default"
 																	disabled={emptyStringTrimmed(publication_name) ||
 																		(relations && relations.length === 0) ||
 																		!can_write}
@@ -808,8 +856,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler

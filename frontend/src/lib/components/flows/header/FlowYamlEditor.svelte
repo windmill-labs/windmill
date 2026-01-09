@@ -3,7 +3,7 @@
 	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
 	import { getContext } from 'svelte'
 	import type { FlowEditorContext } from '../types'
-	import { filteredContentForExport } from '../utils'
+	import { filteredContentForExport } from '../utils.svelte'
 	import YAML from 'yaml'
 
 	import { Button } from '$lib/components/common'
@@ -55,7 +55,7 @@
 			refreshStateStore(flowStore)
 			sendUserToast('Changes applied')
 		} catch (e) {
-			sendUserToast('Error parsing yaml: ' + e), true
+			;(sendUserToast('Error parsing yaml: ' + e), true)
 		}
 	}
 
@@ -65,8 +65,8 @@
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#snippet actions()}
-			<Button color="dark" size="sm" on:click={reload}>Reset code</Button>
-			<Button color="dark" size="sm" on:click={apply}>Apply changes</Button>
+			<Button variant="accent" size="sm" on:click={reload}>Reset code</Button>
+			<Button variant="accent" size="sm" on:click={apply}>Apply changes</Button>
 		{/snippet}
 
 		{#if flowStore.val}

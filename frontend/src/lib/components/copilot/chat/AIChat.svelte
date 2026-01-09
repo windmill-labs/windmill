@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AIChatDisplay from './AIChatDisplay.svelte'
-	import { onDestroy, untrack } from 'svelte'
+	import { untrack } from 'svelte'
 	import { type ScriptLang } from '$lib/gen'
 	import { dbSchemas, userStore, workspaceStore } from '$lib/stores'
 	import { aiChatManager, AIMode } from './AIChatManager.svelte'
@@ -53,17 +53,7 @@
 		aiChatManager.sendRequest(options)
 	}
 
-	function cancel() {
-		aiChatManager.cancel()
-	}
-
 	const historyManager = aiChatManager.historyManager
-	historyManager.init()
-
-	onDestroy(() => {
-		cancel()
-		historyManager.close()
-	})
 
 	let aiChatDisplay: AIChatDisplay | undefined = $state(undefined)
 
@@ -108,7 +98,9 @@
 		() => aiChatManager.contextManager.getSelectedContext(),
 		(sc) => aiChatManager.contextManager.setSelectedContext(sc)
 	}
-	availableContext={aiChatManager.contextManager.getAvailableContext()}
+	availableContext={aiChatManager.mode === AIMode.APP
+		? aiChatManager.getAppAvailableContext()
+		: aiChatManager.contextManager.getAvailableContext()}
 	messages={aiChatManager.currentReply
 		? [
 				...aiChatManager.displayMessages,
@@ -128,7 +120,7 @@
 	loadPastChat={(id) => {
 		aiChatManager.loadPastChat(id)
 	}}
-	{cancel}
+	cancel={aiChatManager.cancel}
 	askAi={aiChatManager.askAi}
 	{headerLeft}
 	hasDiff={aiChatManager.scriptEditorOptions &&

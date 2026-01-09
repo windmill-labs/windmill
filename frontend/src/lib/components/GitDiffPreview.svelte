@@ -5,16 +5,22 @@
 		previewResult: SyncResponse | undefined
 	}>()
 
-	let added = $derived(previewResult?.changes?.filter(c => c.type === 'added').map(c => c.path) || [])
-	let deleted = $derived(previewResult?.changes?.filter(c => c.type === 'deleted').map(c => c.path) || [])
-	let edited = $derived(previewResult?.changes?.filter(c => c.type === 'edited').map(c => c.path) || [])
+	let added = $derived(
+		previewResult?.changes?.filter((c) => c.type === 'added').map((c) => c.path) || []
+	)
+	let deleted = $derived(
+		previewResult?.changes?.filter((c) => c.type === 'deleted').map((c) => c.path) || []
+	)
+	let edited = $derived(
+		previewResult?.changes?.filter((c) => c.type === 'edited').map((c) => c.path) || []
+	)
 </script>
 
 <div class="border rounded p-2 text-xs max-h-40 overflow-y-auto bg-surface-secondary">
-	<div class="font-semibold text-[11px] mb-1 text-tertiary">Preview of changes:</div>
+	<div class="font-semibold text-[11px] mb-1 text-primary">Preview of changes:</div>
 
 	{#if !added.length && !deleted.length && !edited.length}
-		<div class="mt-2 text-tertiary">No changes found! The workspace is up to date.</div>
+		<div class="mt-2 text-primary">No changes found! The workspace is up to date.</div>
 	{:else}
 		{#if added.length}
 			<div class="mt-2">

@@ -8,6 +8,7 @@ import type {
 	CaptureTriggerKind,
 	ErrorHandler,
 	Flow,
+	JobTriggerKind,
 	NewScript,
 	TriggersCount
 } from '$lib/gen/types.gen'
@@ -56,6 +57,21 @@ export type TriggerType =
 	| 'cli'
 	| 'nextcloud'
 
+export const jobTriggerKinds: JobTriggerKind[] = [
+	'webhook',
+	'default_email',
+	'http',
+	'websocket',
+	'kafka',
+	'email',
+	'nats',
+	'mqtt',
+	'sqs',
+	'postgres',
+	'schedule',
+	'gcp'
+]
+
 export type Trigger = {
 	type: TriggerType
 	path?: string
@@ -88,6 +104,23 @@ export const triggerIconMap = {
 	cli: Terminal,
 	nextcloud: NextcloudIcon
 }
+
+export const triggerDisplayNamesMap = {
+	schedule: 'Schedule',
+	http: 'HTTP',
+	websocket: 'WebSocket',
+	postgres: 'Postgres',
+	kafka: 'Kafka',
+	nats: 'NATS',
+	mqtt: 'MQTT',
+	sqs: 'SQS',
+	gcp: 'GCP Pub/Sub',
+	email: 'Email',
+	poll: 'Scheduled Poll',
+	webhook: 'Webhook',
+	default_email: 'Default Email',
+	cli: 'CLI'
+} as const satisfies Record<TriggerType, string>
 
 /**
  * Converts a TriggerType to a CaptureTriggerKind when a mapping exists

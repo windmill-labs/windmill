@@ -12,6 +12,8 @@
 	import ComponentErrorHandler from '../helpers/ComponentErrorHandler.svelte'
 	import ResolveStyle from '../helpers/ResolveStyle.svelte'
 	import AlignWrapper from '../helpers/AlignWrapper.svelte'
+	import { userStore } from '$lib/stores'
+	import { isPartialS3Object, getS3File } from '../../editor/appUtilsS3'
 
 	interface Props {
 		id: string
@@ -37,13 +39,18 @@
 		initConfig(components['downloadcomponent'].initialData.configuration, configuration)
 	)
 
-	const { app, worldStore } = getContext<AppViewerContext>('AppViewerContext')
+	const { app, worldStore, appPath, workspace, isEditor } =
+		getContext<AppViewerContext>('AppViewerContext')
 
 	//used so that we can count number of outputs setup for first refresh
 	initOutput($worldStore, id, {})
 
 	let beforeIconComponent: any = $state()
 	let afterIconComponent: any = $state()
+
+	let downloadUrl: string | undefined = $state(undefined)
+
+	let token = getContext<{ token?: string }>('AuthToken')
 
 	async function handleBeforeIcon() {
 		if (resolvedConfig.beforeIcon) {
@@ -69,12 +76,45 @@
 		}
 	}
 
+	async function loadSource() {
+		if (isPartialS3Object(resolvedConfig.source)) {
+			downloadUrl = await getS3File({
+				source: resolvedConfig.source.s3,
+				storage: resolvedConfig.source.storage,
+				presigned: resolvedConfig.source.presigned,
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else if (resolvedConfig.source && typeof resolvedConfig.source !== 'string') {
+			throw new Error('Invalid source object' + typeof resolvedConfig.source)
+		} else if (resolvedConfig.source?.startsWith('s3://')) {
+			downloadUrl = await getS3File({
+				source: resolvedConfig.source?.replace('s3://', ''),
+				appPath: $appPath,
+				username: $userStore?.username,
+				workspace,
+				token: token?.token,
+				isEditor,
+				configuration
+			})
+		} else {
+			downloadUrl = transformBareBase64IfNecessary(resolvedConfig.source)
+		}
+	}
+
 	let css = $state(initCss($app.css?.downloadcomponent, customCss))
 	$effect(() => {
 		resolvedConfig.beforeIcon && beforeIconComponent && untrack(() => handleBeforeIcon())
 	})
 	$effect(() => {
 		resolvedConfig.afterIcon && afterIconComponent && untrack(() => handleAfterIcon())
+	})
+	$effect(() => {
+		resolvedConfig && loadSource()
 	})
 </script>
 
@@ -102,7 +142,9 @@
 {#if render}
 	<AlignWrapper {noWFull} {horizontalAlignment} {verticalAlignment}>
 		<ComponentErrorHandler
-			hasError={resolvedConfig?.source != undefined && typeof resolvedConfig.source !== 'string'}
+			hasError={resolvedConfig?.source != undefined &&
+				typeof resolvedConfig.source !== 'string' &&
+				!isPartialS3Object(resolvedConfig.source)}
 		>
 			<Button
 				on:pointerdown={(e) => e.stopPropagation()}
@@ -119,13 +161,14 @@
 				)}
 				style={css?.button?.style}
 				disabled={resolvedConfig.source == undefined}
-				size={resolvedConfig.size}
+				extendedSize={resolvedConfig.size}
 				color={resolvedConfig.color}
 				download={resolvedConfig.filename}
-				href={transformBareBase64IfNecessary(resolvedConfig.source)}
+				href={downloadUrl}
 				target="_blank"
 				ref="external"
 				nonCaptureEvent
+				variant="contained"
 			>
 				<span class="truncate inline-flex gap-2 items-center">
 					{#if resolvedConfig.beforeIcon}

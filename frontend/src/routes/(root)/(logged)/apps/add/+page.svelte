@@ -14,8 +14,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { DEFAULT_THEME } from '$lib/components/apps/editor/componentsPanel/themeUtils'
 	import { emptyApp } from '$lib/components/apps/editor/appUtils'
+	import { tick } from 'svelte'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
+	let appEditor: AppEditor | undefined = $state(undefined)
 	const hubId = $page.url.searchParams.get('hub')
 	const templatePath = $page.url.searchParams.get('template')
 	const templateId = $page.url.searchParams.get('template_id')
@@ -111,6 +113,19 @@
 		} else {
 			value = emptyApp()
 		}
+
+		// Trigger tutorial after everything is initialized
+		const tutorialParam = $page.url.searchParams.get('tutorial')
+		if (tutorialParam) {
+			// Wait for critical elements to be ready before triggering tutorial
+			await tick()
+			let attempts = 0
+			while (attempts < 20 && !document.querySelector('#app-editor-runnable-panel')) {
+				await new Promise(resolve => setTimeout(resolve, 100))
+				attempts++
+			}
+			appEditor?.triggerTutorial()
+		}
 	}
 </script>
 
@@ -118,6 +133,7 @@
 	<div class="h-screen">
 		{#key value}
 			<AppEditor
+				bind:this={appEditor}
 				onSavedNewAppPath={(path) => {
 					goto(`/apps/edit/${path}`)
 				}}

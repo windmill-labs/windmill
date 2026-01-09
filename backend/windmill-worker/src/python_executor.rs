@@ -7,6 +7,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(unix)]
+use std::os::unix::process::ExitStatusExt;
+
 use anyhow::anyhow;
 use itertools::Itertools;
 use regex::Regex;
@@ -18,6 +21,8 @@ use tokio::{
     sync::Semaphore,
     task,
 };
+use windmill_queue::MiniPulledJob;
+
 use uuid::Uuid;
 #[cfg(all(feature = "enterprise", feature = "parquet", unix))]
 use windmill_common::ee_oss::{get_license_plan, LicensePlan};
@@ -28,7 +33,8 @@ use windmill_common::{
     },
     utils::calculate_hash,
     worker::{
-        copy_dir_recursively, pad_string, write_file, Connection, PythonAnnotations, WORKER_CONFIG,
+        copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
+        PyVAlias, PythonAnnotations, WORKER_CONFIG,
     },
 };
 
@@ -120,13 +126,13 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 
 use crate::{
     common::{
-        create_args_and_out_file, get_reserved_variables, read_file, read_result,
-        start_child_process, OccupancyMetrics, StreamNotifier,
+        build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
+        read_result, start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
-    PyV, PyVAlias, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -564,7 +570,7 @@ pub async fn handle_python_job(
         canceled_by,
         &mut Some(occupancy_metrics),
         precomputed_agent_info,
-        annotations,
+        annotations.clone(),
     )
     .await?;
 
@@ -834,9 +840,9 @@ mount {{
             .stderr(Stdio::piped());
         start_child_process(nsjail_cmd, NSJAIL_PATH.as_str(), false).await?
     } else {
-        let mut python_cmd = Command::new(&python_path);
-
         let args = vec!["-u", "-m", "wrapper"];
+
+        let mut python_cmd = build_command_with_isolation(&python_path, &args);
         python_cmd
             .current_dir(job_dir)
             .env_clear()
@@ -846,7 +852,6 @@ mount {{
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())
-            .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1173,36 +1178,43 @@ async fn handle_python_deps(
     let (pyv, resolved_lines) = match requirements_o {
         // Deployed
         Some(r) => {
-            let rl = split_requirements(r);
+            let rl = split_python_requirements(r);
             (PyV::parse_from_requirements(&rl), rl)
         }
         // Preview
         None => {
             let (v, requirements_lines, error_hint) = match conn {
                 Connection::Sql(db) => {
-                    let mut version_specifiers = vec![];
-                    let (r, h) = windmill_parser_py_imports::parse_python_imports(
+                    let (mut version_specifiers, mut locked_v) = (vec![], None);
+                    let (r, h) = Box::pin(windmill_parser_py_imports::parse_python_imports(
                         inner_content,
                         w_id,
                         script_path,
                         db,
                         &mut version_specifiers,
-                    )
+                        &mut locked_v,
+                        &None,
+                    ))
                     .await?;
 
-                    let v = PyV::resolve(
-                        version_specifiers,
-                        job_id,
-                        w_id,
-                        annotations.py_select_latest,
-                        Some(conn.clone()),
-                        None,
-                        None,
-                    )
-                    .await?;
+                    let v = if let Some(v) = locked_v {
+                        v.into()
+                    } else {
+                        PyV::resolve(
+                            version_specifiers,
+                            job_id,
+                            w_id,
+                            annotations.py_select_latest,
+                            Some(conn.clone()),
+                            None,
+                            None,
+                        )
+                        .await?
+                    };
 
                     (v, r, h)
                 }
+
                 Connection::Http(_) => match precomputed_agent_info {
                     Some(PrecomputedAgentInfo::Python {
                         requirements,
@@ -1233,7 +1245,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
                             }
                         };
 
-                        let r = split_requirements(requirements.unwrap_or_default());
+                        let r = split_python_requirements(requirements.unwrap_or_default());
                         let h = None;
 
                         (v, r, h)
@@ -1290,6 +1302,7 @@ Returned from server: py_version - {:?}, py_version_v2 - {:?}
             worker_dir,
             occupancy_metrics,
             pyv.clone(),
+            None,
         )
         .await?;
         additional_python_paths.append(&mut venv_path);
@@ -1523,6 +1536,7 @@ pub async fn handle_python_reqs(
     worker_dir: &str,
     _occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
     py_version: PyV,
+    reduced_concurrent_downloads: Option<usize>,
 ) -> error::Result<Vec<String>> {
     let worker_dir = worker_dir.to_string();
 
@@ -1576,8 +1590,10 @@ pub async fn handle_python_reqs(
     }
 
     // Parallelism level (N)
-    let parallel_limit = // Semaphore will panic if value less then 1
-        PY_CONCURRENT_DOWNLOADS.clamp(1, 30);
+    let parallel_limit = reduced_concurrent_downloads
+        .unwrap_or(*PY_CONCURRENT_DOWNLOADS)
+        .clamp(1, 30);
+    // Semaphore will panic if value less then 1
 
     tracing::info!(
         workspace_id = %w_id,
@@ -1607,7 +1623,7 @@ pub async fn handle_python_reqs(
     // Find out if there is already cached dependencies
     // If so, skip them
     let mut in_cache = vec![];
-    for req in requirements {
+    for req in &requirements {
         // Ignore python version annotation backed into lockfile
         if req.starts_with('#') || req.starts_with('-') || req.trim().is_empty() {
             continue;
@@ -1641,8 +1657,8 @@ pub async fn handle_python_reqs(
         .map(|_| kill_tx.subscribe())
         .collect();
 
-    //   ________ Read comments at the end of the function to get more context
-    let (_done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
+    //   _______ Read comments at the end of the function to get more context
+    let (done_tx, mut done_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     let job_id_2 = job_id.clone();
     let conn_2 = conn.clone();
@@ -1730,7 +1746,6 @@ pub async fn handle_python_reqs(
                         };
 
                         if canceled {
-
                             tracing::info!(
                                 // If there is listener on other side,
                                 workspace_id = %w_id_2,
@@ -1862,7 +1877,7 @@ pub async fn handle_python_reqs(
                 if let Some(os) = windmill_common::s3_helpers::get_object_store().await {
                     tokio::select! {
                         // Cancel was called on the job
-                        _ = kill_rx.recv() => return Err(anyhow::anyhow!("S3 pull was canceled")),
+                        _ = kill_rx.recv() => return Err(Error::from(anyhow::anyhow!("S3 pull was canceled"))),
                         pull = pull_from_tar(os, venv_p.clone(), py_version.to_cache_dir_top_level(false), None, false) => {
                             if let Err(e) = pull {
                                 tracing::info!(
@@ -1923,7 +1938,7 @@ pub async fn handle_python_reqs(
                     )
                     .await;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
-                    return Err(e.into());
+                    return Err(Error::from(e));
                 }
             };
 
@@ -1945,6 +1960,20 @@ pub async fn handle_python_reqs(
 
             if let Some(pid) = pids.lock().await.get_mut(i) {
                 *pid = uv_install_proccess.id();
+                #[cfg(unix)]
+                if let Err(e) = uv_install_proccess
+                  .id()
+                  .ok_or(Error::InternalErr(format!(
+                    "failed to get PID for python installation process: {}",
+                    &req
+                  )))
+                  .and_then(|pid| write_file(&format!("/proc/{pid}"), "oom_score_adj", "1000"))
+                {
+                  tracing::error!(
+                      req = %req,
+                      "Failed to create oom_score_adj for python dependency installation process: {e}"
+                  );
+                }
             } else {
                 tracing::error!(
                     workspace_id = %w_id,
@@ -1957,22 +1986,25 @@ pub async fn handle_python_reqs(
                 _ = kill_rx.recv() => {
                     Box::into_pin(uv_install_proccess.kill()).await?;
                     pids.lock().await.get_mut(i).and_then(|e| e.take());
-                    return Err(anyhow::anyhow!("uv pip install was canceled"));
+                    return Err(Error::from(anyhow::anyhow!("uv pip install was canceled")));
                 },
                 (_, _, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
-                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited before it :/
+                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited first 
                     (stderr_future.await, stdout_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
+                        #[cfg(unix)]
+                        let code = status.signal();
+                        #[cfg(not(unix))]
                         let code = status.code();
+
                         tracing::warn!(
                             workspace_id = %w_id,
                             "uv install {} did not succeed, exit status: {:?}",
                             &req,
                             code
                         );
-
                         append_logs(
                             &job_id,
                             w_id,
@@ -1985,7 +2017,7 @@ pub async fn handle_python_reqs(
                         )
                         .await;
                         pids.lock().await.get_mut(i).and_then(|e| e.take());
-                        return Err(anyhow!(stderr_buf));
+                        return Err(Error::ExitStatus(stderr_buf, code.unwrap_or(1)));
                     },
                     Err(e) => {
                         tracing::error!(
@@ -1993,7 +2025,7 @@ pub async fn handle_python_reqs(
                             "Cannot wait for uv_install_proccess, ExitStatus is Err: {e:?}",
                         );
                         pids.lock().await.get_mut(i).and_then(|e| e.take());
-                        return Err(e.into());
+                        return Err(Error::from(e));
                     }
                 }
             };
@@ -2061,13 +2093,19 @@ pub async fn handle_python_reqs(
         }));
     }
 
-    let mut failed = false;
+    let (mut failed, mut oom_killed) = (false, false);
     for (handle, (_, venv_p)) in handles.into_iter().zip(req_with_penv.into_iter()) {
         if let Err(e) = handle
             .await
-            .unwrap_or(Err(anyhow!("Problem by joining handle")))
+            .unwrap_or(Err(Error::from(anyhow!("Problem by joining handle"))))
         {
             failed = true;
+
+            // OOM code is 9 or 137
+            if matches!(e, Error::ExitStatus(_, 9 | 137)) {
+                oom_killed = true;
+            }
+
             append_logs(
                 &job_id,
                 w_id,
@@ -2103,19 +2141,54 @@ pub async fn handle_python_reqs(
     // it will be triggered
     // If there is no listener, it will be dropped safely
     return if failed {
-        Err(anyhow!("Env installation did not succeed, check logs").into())
+        if cfg!(unix) && oom_killed && parallel_limit > 1 {
+            // We want to drop it and stop monitor
+            // new invocation will create another one
+            drop(done_tx);
+
+            let reduced_limit = parallel_limit / 2;
+
+            append_logs(
+                &job_id,
+                w_id,
+                format!(
+                    "\n
+    ======================
+    ===== IMPORTANT! =====
+    ======================
+
+Some of installations have been killed by OOM,
+restarting with reduced concurrency: {parallel_limit} -> {reduced_limit}
+
+This is not normal behavior, please make sure all workers have enough memory.\n
+"
+                ),
+                conn,
+            )
+            .await;
+
+            // restart with half of concurrency
+            Box::pin(handle_python_reqs(
+                requirements,
+                job_id,
+                w_id,
+                mem_peak,
+                _canceled_by,
+                conn,
+                _worker_name,
+                job_dir,
+                &worker_dir,
+                _occupancy_metrics,
+                py_version,
+                Some(reduced_limit),
+            ))
+            .await
+        } else {
+            Err(anyhow!("Env installation did not succeed, check logs").into())
+        }
     } else {
         Ok(req_paths)
     };
-}
-
-pub fn split_requirements<T: AsRef<str>>(requirements: T) -> Vec<String> {
-    requirements
-        .as_ref()
-        .lines()
-        .filter(|x| !x.trim_start().starts_with("--") && !x.trim().is_empty())
-        .map(String::from)
-        .collect()
 }
 
 // Returns code snippet that needs to be injected into wrapper to post-process results or leave unprocessed
@@ -2127,16 +2200,16 @@ fn get_result_postprocessor<'a>(skip: bool) -> &'a str {
     }
 }
 
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 use crate::JobCompletedSender;
-#[cfg(feature = "enterprise")]
-use crate::{common::build_envs_map, dedicated_worker::handle_dedicated_process};
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
+use crate::{common::build_envs_map, dedicated_worker_oss::handle_dedicated_process};
+#[cfg(feature = "private")]
 use windmill_common::variables;
+#[cfg(feature = "private")]
+use windmill_queue::DedicatedWorkerJob;
 
-use windmill_queue::MiniPulledJob;
-
-#[cfg(feature = "enterprise")]
+#[cfg(feature = "private")]
 pub async fn start_worker(
     requirements_o: Option<&String>,
     db: &sqlx::Pool<sqlx::Postgres>,
@@ -2149,10 +2222,12 @@ pub async fn start_worker(
     script_path: &str,
     token: &str,
     job_completed_tx: JobCompletedSender,
-    jobs_rx: tokio::sync::mpsc::Receiver<std::sync::Arc<MiniPulledJob>>,
+    jobs_rx: tokio::sync::mpsc::Receiver<DedicatedWorkerJob>,
     killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    client: windmill_common::client::AuthedClient,
 ) -> error::Result<()> {
-    use crate::{PyV, PyVAlias};
+    use crate::PyV;
+    tracing::info!("script path: {}", script_path);
 
     let mut mem_peak: i32 = 0;
     let mut canceled_by: Option<CanceledBy> = None;
@@ -2311,7 +2386,7 @@ for line in sys.stdin:
     proc_envs.insert("BASE_URL".to_string(), base_internal_url.to_string());
 
     let py_version = if let Some(requirements) = requirements_o {
-        PyV::parse_from_requirements(&split_requirements(requirements.as_str()))
+        PyV::parse_from_requirements(&split_python_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
         PyVAlias::Py311.into()
@@ -2343,6 +2418,7 @@ for line in sys.stdin:
         db,
         script_path,
         "python",
+        client,
     )
     .await
 }

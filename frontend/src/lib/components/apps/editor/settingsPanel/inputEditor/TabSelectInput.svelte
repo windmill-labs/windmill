@@ -1,8 +1,8 @@
 <script lang="ts">
 	import type { StaticInput } from '$lib/components/apps/inputType'
 	import type { AppViewerContext } from '$lib/components/apps/types'
-	import { allItems } from '$lib/components/apps/utils'
 	import { getContext } from 'svelte'
+	import { allItems } from '../../appUtilsCore'
 
 	interface Props {
 		componentInput: StaticInput<{ id: string; index: number }>
@@ -53,5 +53,5 @@
 		</div>
 	</div>
 {:else}
-	<div class="text-xs text-tertiary"> No tab component found in the app </div>
+	<div class="text-xs text-primary"> No tab component found in the app </div>
 {/if}

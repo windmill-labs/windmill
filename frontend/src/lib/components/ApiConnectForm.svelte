@@ -139,7 +139,7 @@
 </script>
 
 {#if !notFound}
-	<div class="w-full flex gap-4 flex-row-reverse items-center">
+	<div class="w-full flex gap-2 flex-row-reverse items-center">
 		<Toggle
 			on:change={(e) => switchTab(e.detail)}
 			options={{
@@ -154,14 +154,7 @@
 				}}
 			>
 				{#snippet trigger()}
-					<Button
-						spacingSize="sm"
-						size="xs"
-						btnClasses="h-8"
-						color="light"
-						variant="border"
-						nonCaptureEvent
-					>
+					<Button spacingSize="sm" size="xs" variant="default" nonCaptureEvent>
 						From connection string
 					</Button>
 				{/snippet}
@@ -217,7 +210,7 @@
 		/>
 	</div>
 {:else}
-	<p class="italic text-tertiary text-xs mb-4"
+	<p class="text-primary font-normal text-xs mb-4"
 		>No corresponding resource type found in your workspace for {resourceType}. Define the value in
 		JSON directly</p
 	>

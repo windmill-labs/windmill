@@ -1,11 +1,9 @@
 <script lang="ts">
-	import { twMerge } from 'tailwind-merge'
 	import { type NewAiToolN } from '../../graphBuilder.svelte'
 	import InsertModuleInner from '$lib/components/flows/map/InsertModuleInner.svelte'
-	import { Cross } from 'lucide-svelte'
-	import PopupV2 from '$lib/components/common/popup/PopupV2.svelte'
-	import { flip, offset } from 'svelte-floating-ui/dom'
-	import type { ComputeConfig } from 'svelte-floating-ui'
+	import { Plus } from 'lucide-svelte'
+	import Popover from '$lib/components/meltComponents/Popover.svelte'
+	import { Button } from '$lib/components/common'
 
 	let funcDesc = $state('')
 	interface Props {
@@ -13,39 +11,45 @@
 	}
 	let { data }: Props = $props()
 
-	let floatingConfig: ComputeConfig = {
-		strategy: 'fixed',
-		// @ts-ignore
-		placement: 'bottom-center',
-		middleware: [offset(8), flip()],
-		autoUpdate: true
-	}
-
 	let open = $state(false)
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<PopupV2 bind:open {floatingConfig} target="#flow-editor">
-	{#snippet button()}
-		<button
-			title={`Add 'tool'
-			}`}
-			type="button"
-			class={twMerge(
-				'!w-full h-6 flex items-center justify-center !outline-[1px] outline dark:outline-gray-500 outline-gray-300 text-secondary bg-surface focus:outline-none hover:bg-surface-hover rounded'
-			)}
-			onpointerdown={() => (open = !open)}
+<Popover
+	bind:isOpen={open}
+	portal="#flow-editor"
+	contentClasses="p-2 max-w-lg h-[400px] bg-surface"
+	class="inline-block"
+	usePointerDownOutside
+	floatingConfig={{
+		placement: 'bottom',
+		strategy: 'absolute',
+		gutter: 8,
+		overflowPadding: 16,
+		flip: true,
+		fitViewport: true,
+		overlap: false
+	}}
+>
+	{#snippet trigger()}
+		<Button
+			size="xs3"
+			variant="default"
+			nonCaptureEvent
+			selected={open}
+			startIcon={{ icon: Plus }}
+			wrapperClasses="{open
+				? 'bg-surface-secondary'
+				: 'bg-surface-tertiary'} transition-colors drop-shadow-base"
+			btnClasses="gap-1 text-2xs px-1"
 		>
-			<div class="flex flex-row items-center gap-1 font-medium text-2xs">
-				<Cross size={12} />
-				tool
-			</div>
-		</button>
+			Tool
+		</Button>
 	{/snippet}
-	{#snippet children({ close })}
+	{#snippet content({ close })}
 		<InsertModuleInner
 			bind:funcDesc
-			scriptOnly
+			toolMode
 			on:close={() => {
 				close()
 			}}
@@ -79,6 +83,22 @@
 				})
 				close()
 			}}
+			on:pickMcpTool={(e) => {
+				data.eventHandlers.insert({
+					index: -1,
+					agentId: data.agentModuleId,
+					kind: 'mcpTool'
+				})
+				close()
+			}}
+			on:pickWebsearchTool={(e) => {
+				data.eventHandlers.insert({
+					index: -1,
+					agentId: data.agentModuleId,
+					kind: 'websearchTool'
+				})
+				close()
+			}}
 		/>
 	{/snippet}
-</PopupV2>
+</Popover>

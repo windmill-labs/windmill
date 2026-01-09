@@ -3,18 +3,29 @@
 	import { sendUserToast } from '$lib/toast'
 	import Button from '../common/button/Button.svelte'
 	import { testKey } from './lib'
-	export let disabled = false
-	export let apiKey: string | undefined = undefined
-	export let resourcePath: string | undefined = undefined
-	export let aiProvider: AIProvider
-	export let model: string
-	let loading = false
+
+	interface Props {
+		disabled?: boolean
+		apiKey?: string | undefined
+		resourcePath?: string | undefined
+		aiProvider: AIProvider
+		model: string
+	}
+
+	let {
+		disabled = false,
+		apiKey = undefined,
+		resourcePath = undefined,
+		aiProvider,
+		model
+	}: Props = $props()
+
+	let loading = $state(false)
 </script>
 
 <Button
 	size="xs"
-	variant="contained"
-	color="dark"
+	variant="default"
 	{disabled}
 	{loading}
 	on:click={async () => {
@@ -49,10 +60,5 @@
 			loading = false
 		}
 	}}
->
-	{#if apiKey}
-		Test key
-	{:else}
-		Test
-	{/if}
+	>Test key
 </Button>

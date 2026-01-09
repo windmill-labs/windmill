@@ -1,34 +1,38 @@
 <script lang="ts">
+	import { preventDefault, stopPropagation } from 'svelte/legacy'
+
 	import NodeWrapper from './NodeWrapper.svelte'
 	import TriggersWrapper from '../triggers/TriggersWrapper.svelte'
 	import type { FlowModule, TriggersCount } from '$lib/gen'
 	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import { Maximize2, Minimize2, Calendar } from 'lucide-svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
+	import { getNodeColorClasses } from '../../util'
 	import { setScheduledPollSchedule, type TriggerContext } from '$lib/components/triggers'
 	import VirtualItemWrapper from '$lib/components/flows/map/VirtualItemWrapper.svelte'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { tick } from 'svelte'
 	import type { GraphEventHandlers, SimplifiableFlow } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
-	export let data: {
-		path: string
-		isEditor: boolean
-		newFlow: boolean
-		extra_perms: Record<string, any>
-		eventHandlers: GraphEventHandlers
-		modules: FlowModule[]
-		index: number
-		disableAi: boolean
-		simplifiableFlow: SimplifiableFlow
+	interface Props {
+		data: {
+			path: string
+			isEditor: boolean
+			newFlow: boolean
+			extra_perms: Record<string, any>
+			eventHandlers: GraphEventHandlers
+			modules: FlowModule[]
+			index: number
+			disableAi: boolean
+			simplifiableFlow: SimplifiableFlow
+		}
 	}
 
-	const { selectedId } = getContext<{
-		selectedId: Writable<string | undefined>
-	}>('FlowGraphContext')
+	let { data }: Props = $props()
 
-	const { triggersCount, triggersState } = getContext<TriggerContext>('TriggerContext')
+	const { selectionManager } = getGraphContext()
+
+	const { triggersCount, triggersState } = $state(getContext<TriggerContext>('TriggerContext'))
 
 	function getScheduleCfg(primary: Trigger | undefined, triggersCount: TriggersCount | undefined) {
 		return primary?.draftConfig
@@ -43,18 +47,21 @@
 						schedule: triggersCount?.primary_schedule?.schedule
 					}
 	}
+
+	let colorClasses = $derived(
+		getNodeColorClasses('_VirtualItem', selectionManager?.isNodeSelected('Trigger'))
+	)
 </script>
 
-<NodeWrapper wrapperClass="shadow-md rounded-sm">
+<NodeWrapper>
 	{#snippet children({ darkMode })}
 		{#if data.simplifiableFlow?.simplifiedFlow != true}
 			<TriggersWrapper
 				disableAi={data.disableAi}
 				isEditor={data.isEditor}
 				path={data.path}
-				bgColor={getStateColor(undefined, darkMode)}
-				bgHoverColor={getStateHoverColor(undefined, darkMode)}
 				showDraft={data.isEditor ?? false}
+				{colorClasses}
 				on:new={(e) => {
 					data?.eventHandlers.insert({
 						index: 0,
@@ -75,31 +82,30 @@
 					const primarySchedule = triggersState.triggers.findIndex((t) => t.isPrimary && !t.isDraft)
 					triggersState.selectedTriggerIndex = primarySchedule
 				}}
-				on:select={() => data?.eventHandlers?.select('triggers')}
+				on:select={() => data?.eventHandlers?.select('Trigger')}
 				onSelect={async (triggerIndex: number) => {
-					data?.eventHandlers?.select('triggers')
+					data?.eventHandlers?.select('Trigger')
 					await tick()
 					triggersState.selectedTriggerIndex = triggerIndex
 				}}
 				onAddDraftTrigger={async (type: TriggerType) => {
 					const newTrigger = triggersState.addDraftTrigger(triggersCount, type)
-					data?.eventHandlers?.select('triggers')
+					data?.eventHandlers?.select('Trigger')
 					await tick()
 					triggersState.selectedTriggerIndex = newTrigger
 				}}
-				selected={$selectedId == 'triggers'}
+				selected={selectionManager?.getSelectedId() === 'Trigger'}
 				newItem={data.newFlow}
 			/>
 		{:else}
 			<VirtualItemWrapper
 				label="Check for new events"
 				selectable={true}
-				selected={$selectedId == 'triggers'}
-				id={'triggers'}
-				bgColor={getStateColor(undefined, darkMode)}
+				id={'Trigger'}
 				on:select={(e) => {
 					data?.eventHandlers?.select(e.detail)
 				}}
+				{colorClasses}
 			>
 				{#if triggersState.triggers.some((t) => t.isPrimary) || $triggersCount?.primary_schedule}
 					{@const { enabled, schedule } = getScheduleCfg(
@@ -116,7 +122,7 @@
 				{:else}
 					<button
 						class="px-2 py-1 hover:bg-surface-inverse w-full hover:text-primary-inverse"
-						on:click={() => {
+						onclick={() => {
 							setScheduledPollSchedule(triggersState, triggersCount)
 						}}
 					>
@@ -129,8 +135,11 @@
 			<button
 				class="absolute -top-[10px] -right-[10px] rounded-full h-[20px] w-[20px] trash center-center text-secondary
 outline-[1px] outline dark:outline-gray-500 outline-gray-300 bg-surface duration-0 hover:bg-nord-950 hover:text-white"
-				on:click|preventDefault|stopPropagation={() =>
-					data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)}
+				onclick={stopPropagation(
+					preventDefault(() =>
+						data?.eventHandlers?.simplifyFlow(!data.simplifiableFlow?.simplifiedFlow)
+					)
+				)}
 				title={data.simplifiableFlow?.simplifiedFlow
 					? 'Expand to full flow view'
 					: 'Simplify flow view for scheduled poll'}

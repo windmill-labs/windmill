@@ -151,8 +151,7 @@
 		<span>Are you sure you want to discard the changes you have made? </span>
 		<Button
 			wrapperClasses="self-start"
-			color="light"
-			variant="border"
+			variant="default"
 			size="xs"
 			on:click={() => {
 				if (!savedScript || !script) {
@@ -223,7 +222,7 @@
 		{:else}
 			<div
 				out:fade={{ duration: 200 }}
-				class="absolute inset-0 center-center flex-col bg-surface text-tertiary border"
+				class="absolute inset-0 center-center flex-col bg-surface text-primary border"
 			>
 				<Loader2 class="animate-spin" size={16} />
 				<span class="text-xs mt-1">Loading</span>
@@ -232,8 +231,7 @@
 		{#snippet actions()}
 			<Button
 				disabled={!savedScript || !script}
-				color="light"
-				variant="border"
+				variant="default"
 				on:click={async () => {
 					if (!savedScript || !script) {
 						return

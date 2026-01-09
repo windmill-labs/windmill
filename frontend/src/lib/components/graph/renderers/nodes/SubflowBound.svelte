@@ -4,14 +4,17 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { Minimize2 } from 'lucide-svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { SubflowBoundN } from '../../graphBuilder.svelte'
+	import { getGraphContext } from '../../graphContext'
 
 	interface Props {
 		data: SubflowBoundN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
+
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -20,24 +23,23 @@
 			label={data.label}
 			preLabel={data.preLabel}
 			selectable
-			selected={data.selected}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={undefined}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			on:select={() => {
 				setTimeout(() => data.eventHandlers?.select(data.id))
 			}}
 		/>
-		<button
-			title="Unexpand subflow"
-			class="z-50 absolute -top-[10px] right-[25px] rounded-full h-[20px] w-[20px] center-center text-primary bg-surface duration-0 hover:bg-surface-hover"
-			onclick={stopPropagation(
-				preventDefault(() => {
-					data.eventHandlers.minimizeSubflow(data.subflowId)
-				})
-			)}
-		>
-			<Minimize2 size={12} />
-		</button>
+		<div class="z-50 absolute -top-4 right-11 rounded-md text-primary bg-surface">
+			<button
+				title="Unexpand subflow"
+				class="rounded-md center-center text-primary hover:bg-surface-tertiary shadow-md p-1 duration-0"
+				onclick={stopPropagation(
+					preventDefault(() => {
+						data.eventHandlers.minimizeSubflow(data.subflowId)
+					})
+				)}
+			>
+				<Minimize2 size={12} />
+			</button>
+		</div>
 	{/snippet}
 </NodeWrapper>

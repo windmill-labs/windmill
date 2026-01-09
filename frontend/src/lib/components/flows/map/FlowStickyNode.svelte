@@ -1,12 +1,14 @@
 <script lang="ts">
 	import type { FlowEditorContext } from '../types'
+	import type { FlowDiffManager } from '../flowDiffManager.svelte'
 	import { getContext } from 'svelte'
 	import { Badge } from '$lib/components/common'
-	import { DollarSign, Settings } from 'lucide-svelte'
-	import { twMerge } from 'tailwind-merge'
+	import { DollarSign, Settings, StickyNote } from 'lucide-svelte'
 	import FlowErrorHandlerItem from './FlowErrorHandlerItem.svelte'
-	import FlowAIButton from '$lib/components/copilot/chat/flow/FlowAIButton.svelte'
+	import AIButton from '$lib/components/copilot/chat/AIButton.svelte'
 	import Popover from '$lib/components/Popover.svelte'
+	import Button from '$lib/components/common/button/Button.svelte'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
 	interface Props {
 		disableSettings?: boolean
@@ -15,7 +17,10 @@
 		aiChatOpen?: boolean
 		showFlowAiButton?: boolean
 		toggleAiChat?: () => void
+		noteMode?: boolean
+		toggleNoteMode?: () => void
 		disableAi?: boolean
+		diffManager?: FlowDiffManager
 	}
 
 	let {
@@ -25,67 +30,79 @@
 		aiChatOpen,
 		showFlowAiButton,
 		toggleAiChat,
-		disableAi
+		noteMode,
+		toggleNoteMode,
+		disableAi,
+		diffManager
 	}: Props = $props()
 
-	const { selectedId, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
-
-	const nodeClass =
-		'border w-fit rounded p-1 px-2 bg-surface text-sm cursor-pointer flex items-center h-[28px] hover:!bg-surface-secondary active:!bg-surface'
-	const nodeSelectedClass =
-		'outline outline-offset-1 outline-2 outline-slate-800 dark:bg-white/5 dark:outline-slate-400/60 dark:outline-gray-400'
+	const { selectionManager, flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const selectedId = $derived(selectionManager.getSelectedId())
 </script>
 
-<div class="flex flex-row gap-2 p-1 rounded shadow-md bg-surface">
+<div class="flex flex-row gap-2 p-1 rounded-md bg-surface">
 	{#if !disableSettings}
-		<button
-			onclick={() => ($selectedId = 'settings-metadata')}
-			class={twMerge(nodeClass, $selectedId?.startsWith('settings') ? nodeSelectedClass : '')}
+		<Button
+			unifiedSize="sm"
+			wrapperClasses="min-w-36"
+			startIcon={{ icon: Settings }}
+			selected={selectedId?.startsWith('settings')}
+			variant="default"
 			title="Settings"
+			onClick={() => selectionManager.selectId('settings')}
 		>
-			<Settings size={14} />
-			<span
-				class="font-bold flex flex-row justify-between w-fit gap-2 items-center truncate ml-1.5"
-			>
-				<span class="text-xs">Settings</span>
-				<span class="h-[18px] flex items-center">
-					{#if flowStore.val.value.same_worker}
-						<Badge color="blue" baseClass="truncate">./shared</Badge>
-					{/if}
-				</span>
-			</span>
-		</button>
-	{/if}
-	{#if !disableStaticInputs}
-		<Popover>
-			<button
-				onclick={() => ($selectedId = 'constants')}
-				class={twMerge(nodeClass, $selectedId == 'constants' ? nodeSelectedClass : '')}
-			>
-				<DollarSign size={14} />
-			</button>
-			{#snippet text()}
-				Static Inputs
-			{/snippet}
-		</Popover>
+			Settings
+			{#if flowStore.val.value.same_worker}
+				<Badge color="blue" wrapperClass="max-h-[18px]">./shared</Badge>
+			{/if}
+		</Button>
 	{/if}
 	<Popover>
-		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} on:generateStep clazz={nodeClass} />
+		<FlowErrorHandlerItem {disableAi} small={smallErrorHandler} {diffManager} on:generateStep />
 		{#snippet text()}
 			Error Handler
 		{/snippet}
 	</Popover>
+	{#if !disableStaticInputs}
+		<Popover>
+			<Button
+				wrapperClasses="h-full"
+				unifiedSize="sm"
+				startIcon={{ icon: DollarSign }}
+				selected={selectedId === 'constants'}
+				variant="default"
+				iconOnly
+				onClick={() => selectionManager.selectId('constants')}
+			/>
+			{#snippet text()}
+				Environment Variables
+			{/snippet}
+		</Popover>
+	{/if}
 	{#if showFlowAiButton}
 		<Popover>
-			<FlowAIButton
+			<AIButton
 				togglePanel={() => {
 					toggleAiChat?.()
 				}}
-				opened={aiChatOpen}
+				btnClasses={AIBtnClasses(aiChatOpen ? 'selected' : 'default')}
 			/>
 			{#snippet text()}
 				Flow AI Chat
 			{/snippet}
 		</Popover>
 	{/if}
+	<Popover>
+		<Button
+			onclick={() => toggleNoteMode?.()}
+			iconOnly
+			variant="default"
+			unifiedSize="sm"
+			startIcon={{ icon: StickyNote }}
+			selected={noteMode}
+		></Button>
+		{#snippet text()}
+			{noteMode ? 'Exit note mode' : 'Add sticky notes'}
+		{/snippet}
+	</Popover>
 </div>

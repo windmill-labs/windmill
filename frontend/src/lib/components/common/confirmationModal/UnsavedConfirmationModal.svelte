@@ -20,6 +20,7 @@
 		additionalExitAction?: () => void
 		triggerOnSearchParamsChange?: boolean
 		onDiscardChanges?: () => void
+		tabMode?: boolean
 	}
 
 	let {
@@ -27,7 +28,8 @@
 		diffDrawer = undefined,
 		additionalExitAction = () => {},
 		triggerOnSearchParamsChange = false,
-		onDiscardChanges = undefined
+		onDiscardChanges = undefined,
+		tabMode = false
 	}: Props = $props()
 	let savedValue: Value | undefined = $state(undefined)
 	let modifiedValue: Value | undefined = $state(undefined)
@@ -66,7 +68,9 @@
 					orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) ===
 					orderedJsonStringify(replaceFalseWithUndefined(current))
 				) {
-					bypassBeforeNavigate = true
+					if (!tabMode) {
+						bypassBeforeNavigate = true
+					}
 					additionalExitAction?.()
 				} else {
 					await openModal()
@@ -113,8 +117,7 @@
 		{#if savedValue && modifiedValue && diffDrawer}
 			<Button
 				wrapperClasses="self-start"
-				color="light"
-				variant="border"
+				variant="default"
 				size="xs"
 				on:click={() => {
 					if (!savedValue || !modifiedValue) {

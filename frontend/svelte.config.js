@@ -26,7 +26,14 @@ const config = {
 		prerender: { entries: [] },
 		paths: {
 			base: process.env.VITE_BASE_URL ?? ''
+		},
+		alias: {
+			'$system_prompts': '../system_prompts/auto-generated'
 		}
+	},
+
+	vitePlugin: {
+		inspector: true
 	}
 }
 

@@ -87,10 +87,10 @@
 </script>
 
 {#if queueState}
-	<div class="text-small ml-4">
+	<div class="text-xs ml-4">
 		<span class="text-orange-600">Queue position: <b>{queueState.position}</b></span>
 		{#if !minimal}
-			<span class="ml-2 text-tertiary">(Waiting for an available worker)</span>
+			<span class="ml-2 text-primary">(Waiting for an available worker)</span>
 		{/if}
 	</div>
 {/if}

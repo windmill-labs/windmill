@@ -34,6 +34,7 @@
 	import {
 		canWrite,
 		classNames,
+		debounce,
 		emptySchema,
 		removeMarkdown,
 		truncate,
@@ -43,6 +44,7 @@
 
 	import { convert } from '@redocly/json-to-json-schema'
 	import {
+		Boxes,
 		Braces,
 		Building,
 		Circle,
@@ -94,6 +96,7 @@
 		formatExtension: undefined
 	})
 	let isNewResourceTypeNameValid: boolean = $state(false)
+	let resourceTypeNameExists: boolean = $state(false)
 
 	let editResourceType = $state({
 		name: '',
@@ -223,8 +226,26 @@
 	}
 
 	const startNewType = () => {
+		// Find a unique name by checking for duplicates and appending a number
+		const baseName = 'my_resource_type'
+		let uniqueName = baseName
+		let counter = 2
+
+		// Check if the base name or numbered variants exist
+		while (true) {
+			const fullName = (disableCustomPrefix ? '' : 'c_') + uniqueName
+			const exists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+
+			if (!exists) {
+				break
+			}
+
+			uniqueName = `${baseName}_${counter}`
+			counter++
+		}
+
 		newResourceType = {
-			name: 'my_resource_type',
+			name: uniqueName,
 			schema: emptySchema(),
 			description: '',
 			formatExtension: undefined
@@ -326,7 +347,24 @@
 	function validateResourceTypeName() {
 		const snakeCaseRegex = /^[a-z0-9]+(_[a-z0-9]+)*$/
 		isNewResourceTypeNameValid = snakeCaseRegex.test(newResourceType.name)
+		checkResourceTypeNameExists.debounced()
 	}
+
+	const checkResourceTypeNameExists = debounce(() => {
+		if (!newResourceType.name) {
+			resourceTypeNameExists = false
+			return
+		}
+		const fullName = (disableCustomPrefix ? '' : 'c_') + newResourceType.name
+		resourceTypeNameExists = resourceTypes?.some((rt) => rt.name === fullName) ?? false
+	}, 300)
+
+	// Re-check when prefix setting changes
+	$effect(() => {
+		if (disableCustomPrefix !== undefined) {
+			checkResourceTypeNameExists.debounced()
+		}
+	})
 
 	function toSnakeCase() {
 		newResourceType.name = newResourceType.name
@@ -382,32 +420,41 @@
 			? currentResources
 			: currentResources?.filter((x) => x.path.startsWith(ownerFilter ?? ''))
 	)
-	let preFilteredType = $derived(
-		typeFilter == undefined
-			? preFilteredItemsOwners?.filter((x) => {
-					return tab === 'workspace'
-						? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-						: tab === 'states'
-							? x.resource_type === 'state'
-							: tab === 'cache'
-								? x.resource_type === 'cache'
-								: tab === 'theme'
-									? x.resource_type === 'app_theme'
-									: true
-				})
-			: preFilteredItemsOwners?.filter((x) => {
-					return (
-						x.resource_type === typeFilter &&
-						(tab === 'workspace'
+	let preFilteredType = $derived.by(() => {
+		let l =
+			typeFilter == undefined
+				? preFilteredItemsOwners?.filter((x) => {
+						return tab === 'workspace'
 							? x.resource_type !== 'app_theme' &&
-								x.resource_type !== 'state' &&
-								x.resource_type !== 'cache'
-							: true)
-					)
-				})
-	)
+									x.resource_type !== 'state' &&
+									x.resource_type !== 'cache'
+							: tab === 'states'
+								? x.resource_type === 'state'
+								: tab === 'cache'
+									? x.resource_type === 'cache'
+									: tab === 'theme'
+										? x.resource_type === 'app_theme'
+										: true
+					})
+				: preFilteredItemsOwners?.filter((x) => {
+						return (
+							x.resource_type === typeFilter &&
+							(tab === 'workspace'
+								? x.resource_type !== 'app_theme' &&
+									x.resource_type !== 'state' &&
+									x.resource_type !== 'cache'
+								: true)
+						)
+					})
+		if (filterUserFolders) {
+			l = l?.filter((item) => {
+				if (filterUserFoldersType === 'only f/*') return item.path.startsWith('f/')
+				if (filterUserFoldersType === 'u/username and f/*')
+					return item.path.startsWith('f/') || item.path.startsWith(`u/${$userStore?.username}/`)
+			})
+		}
+		return l
+	})
 	$effect(() => {
 		if ($workspaceStore && $userStore) {
 			untrack(() => {
@@ -427,6 +474,15 @@
 	})
 
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+
+	let filterUserFolders = $state(false)
+	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
+		$userStore?.is_super_admin && $userStore.username.includes('@')
+			? 'only f/*'
+			: $userStore?.is_admin || $userStore?.is_super_admin
+				? 'u/username and f/*'
+				: undefined
+	)
 </script>
 
 <ConfirmationModal
@@ -557,7 +613,7 @@
 			<Button
 				startIcon={{ icon: Save }}
 				on:click={addResourceType}
-				disabled={!isNewResourceTypeNameValid}>Save</Button
+				disabled={!isNewResourceTypeNameValid || resourceTypeNameExists}>Save</Button
 			>
 		{/snippet}
 		<div class="flex flex-col gap-6">
@@ -601,6 +657,10 @@
 							>Name must be snake_case!
 							<button onclick={toSnakeCase} class="text-blue-600">Fix...</button></p
 						>
+					{:else if resourceTypeNameExists}
+						<p class="mt-1 px-2 text-red-600 dark:text-red-400 text-2xs"
+							>A resource type with this name already exists!</p
+						>
 					{/if}
 				{/if}
 			</label>
@@ -616,8 +676,7 @@
 						<Button
 							on:click={openInferrer}
 							size="sm"
-							color="light"
-							variant="border"
+							variant="default"
 							startIcon={{ icon: Braces }}
 						>
 							Infer schema from a json value
@@ -655,8 +714,8 @@
 		>
 			<div class="flex flex-row justify-end gap-4">
 				<Button
-					variant="border"
-					size="md"
+					variant="default"
+					unifiedSize="md"
 					startIcon={{ icon: Plus }}
 					on:click={startNewType}
 					aiId="resources-add-resource-type"
@@ -665,8 +724,9 @@
 					Add resource type
 				</Button>
 				<Button
-					size="md"
-					startIcon={{ icon: Link }}
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Boxes }}
 					on:click={() => appConnect?.open?.()}
 					aiId="resources-add-resource"
 					aiDescription="Add resource"
@@ -689,57 +749,47 @@
 					}
 				}}
 			>
-				<Tab size="md" value="workspace">
-					<div class="flex gap-2 items-center my-1">
-						<Building size={18} />
-						Workspace
-					</div>
-				</Tab>
-				<Tab size="md" value="types">
-					<div class="flex gap-2 items-center my-1">
-						Resource Types
+				<Tab value="workspace" label="Workspace" icon={Building} />
+				<Tab value="types" label="Resource Types">
+					{#snippet extra()}
 						<Tooltip
 							documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 						>
 							Every resource has a Resource Type attached to it which contains its schema and make
 							it easy in scripts and flows to accept only resources of a specific resource type.
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="states">
-					<div class="flex gap-2 items-center my-1">
-						States
+				<Tab value="states" label="States">
+					{#snippet extra()}
 						<Tooltip>
 							States are actually resources (but excluded from the Workspace tab for clarity).
 							States are used by scripts to keep data persistent between runs of the same script by
 							the same trigger (schedule or user)
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="cache">
-					<div class="flex gap-2 items-center my-1">
-						Cache
+				<Tab value="cache" label="Cache">
+					{#snippet extra()}
 						<Tooltip>
 							Cached results are actually resources (but excluded from the Workspace tab for
 							clarity). Cache are used by flows's step to cache result to avoid recomputing
 							unnecessarily
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
-				<Tab size="md" value="theme">
-					<div class="flex gap-2 items-center my-1">
-						Theme
+				<Tab value="theme" label="Theme">
+					{#snippet extra()}
 						<Tooltip>
 							Theme are actually resources (but excluded from the Workspace tab for clarity). Theme
 							are used by the apps to customize their look and feel.
 						</Tooltip>
-					</div>
+					{/snippet}
 				</Tab>
 			</Tabs>
 			<div class="flex">
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					on:click={reload}
 					startIcon={{
 						icon: RotateCw,
@@ -764,7 +814,18 @@
 				<div class="h-4"></div>
 			{/if}
 
-			<div class="overflow-x-auto pb-40 mt-4">
+			<div class="overflow-x-auto pb-40 mt-4"
+				><div class="flex flex-row items-center justify-end gap-4 pb-2">
+					{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+						<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+					{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+						<Toggle
+							size="xs"
+							bind:checked={filterUserFolders}
+							options={{ right: `Only u/${$userStore.username} and f/*` }}
+						/>
+					{/if}
+				</div>
 				{#if loading.resources}
 					<Skeleton layout={[0.5, [2], 1]} />
 					{#each new Array(6) as _}
@@ -772,8 +833,8 @@
 					{/each}
 				{:else if filteredItems?.length == 0}
 					<div class="flex flex-col items-center justify-center h-full">
-						<div class="text-md font-medium">No resources found</div>
-						<div class="text-sm text-secondary">
+						<div class="text-xs text-emphasis font-semibold">No resources found</div>
+						<div class="text-2xs text-secondary font-normal">
 							Try changing the filters or creating a new resource
 						</div>
 					</div>
@@ -834,7 +895,7 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-tertiary text-xs">
+											<span class="text-primary text-xs">
 												{removeMarkdown(truncate(description ?? '', 30))}
 											</span>
 										</Cell>
@@ -843,7 +904,7 @@
 												<div class="w-10">
 													{#if is_linked}
 														<Popover>
-															<Link />
+															<Link size={16} />
 															{#snippet text()}
 																<div>
 																	This resource is linked with a variable of the same path. They are
@@ -1041,7 +1102,7 @@
 											</a>
 										</Cell>
 										<Cell>
-											<span class="text-tertiary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
+											<span class="text-primary text-xs w-96 flex flex-wrap whitespace-pre-wrap">
 												{removeMarkdown(truncate(description ?? '', 200))}
 											</span>
 										</Cell>
@@ -1058,11 +1119,11 @@
 												<div class="flex flex-row-reverse gap-2">
 													<Button
 														size="xs"
-														color="red"
-														variant="border"
+														variant="default"
 														btnClasses="border-0"
 														startIcon={{ icon: Trash }}
 														on:click={() => handleDeleteResourceType(name)}
+														destructive
 													>
 														Delete
 													</Button>

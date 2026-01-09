@@ -3,17 +3,146 @@ import type {
 	ChatCompletionMessageFunctionToolCall,
 	ChatCompletionMessageParam
 } from 'openai/resources/chat/completions.mjs'
+
+/**
+ * Special module IDs used throughout the flow system
+ */
+export const SPECIAL_MODULE_IDS = {
+	/** The flow input schema node */
+	INPUT: 'Input',
+	/** The preprocessor module that runs before the flow */
+	PREPROCESSOR: 'preprocessor',
+	/** The failure handler module */
+	FAILURE: 'failure'
+} as const
 import { get } from 'svelte/store'
 import type { CodePieceElement, ContextElement, FlowModuleCodePieceElement } from './context'
 import { workspaceStore } from '$lib/stores'
 import type { ExtendedOpenFlow } from '$lib/components/flows/types'
 import type { FunctionParameters } from 'openai/resources/shared.mjs'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { z } from 'zod'
 import { ScriptService, JobService, type CompletedJob, type FlowModule } from '$lib/gen'
 import { scriptLangToEditorLang } from '$lib/scripts'
-import YAML from 'yaml'
 import { getCurrentModel } from '$lib/aiStore'
+import { type editor as meditor } from 'monaco-editor'
+
+// Prettify function for code arguments - extracts and formats code from JSON
+function prettifyCodeArguments(content: string): string {
+	let codeContent = content
+
+	// If it's a JSON string, try to extract the code property
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (parsed.code) {
+				codeContent = parsed.code
+			}
+		} catch {
+			// If JSON is incomplete during streaming, try to extract manually
+			// Remove leading { "code": " or {"code":"
+			codeContent = content.replace(/^\{\s*"code"\s*:\s*"/, '')
+			// Remove trailing } if it exists
+			codeContent = codeContent.replace(/"\s*}\s*$/, '')
+		}
+	}
+
+	// Convert escaped newlines to actual newlines
+	codeContent = codeContent.replace(/\\n/g, '\n')
+
+	// Convert other common escape sequences
+	codeContent = codeContent.replace(/\\t/g, '\t')
+	codeContent = codeContent.replace(/\\"/g, '"')
+	codeContent = codeContent.replace(/\\\\/g, '\\')
+
+	return codeContent
+}
+
+// Prettify function for set_module_code - extracts code from moduleId/code JSON
+function prettifySetModuleCode(content: string): string {
+	let codeContent = content
+
+	if (typeof content === 'string' && content.trim().startsWith('{')) {
+		try {
+			const parsed = JSON.parse(content)
+			if (parsed.code) {
+				codeContent = parsed.code
+			}
+		} catch {
+			// If JSON is incomplete during streaming, try to extract code property manually
+			const codeMatch = content.match(/"code"\s*:\s*"([\s\S]*?)(?:"\s*}?\s*$|$)/)
+			if (codeMatch) {
+				codeContent = codeMatch[1]
+			}
+		}
+	}
+
+	// Convert escape sequences
+	codeContent = codeContent.replace(/\\n/g, '\n')
+	codeContent = codeContent.replace(/\\t/g, '\t')
+	codeContent = codeContent.replace(/\\"/g, '"')
+	codeContent = codeContent.replace(/\\\\/g, '\\')
+
+	return codeContent
+}
+
+// Prettify function for module value JSON - extracts the 'value' property and formats it
+function prettifyModuleValue(content: string): string {
+	try {
+		const parsed = JSON.parse(content)
+		// Extract just the 'value' property (the actual module definition)
+		if (parsed.value) {
+			return JSON.stringify(parsed.value, null, 2)
+		}
+		return JSON.stringify(parsed, null, 2)
+	} catch {
+		// If JSON is incomplete during streaming, try to extract the value property manually
+		const valueMatch = content.match(/"value"\s*:\s*(\{[\s\S]*)$/)
+		if (valueMatch) {
+			let valueContent = valueMatch[1]
+			// Try to parse and format the extracted value
+			try {
+				// Find the matching closing brace for the value object
+				let braceCount = 0
+				let endIndex = 0
+				for (let i = 0; i < valueContent.length; i++) {
+					if (valueContent[i] === '{') braceCount++
+					else if (valueContent[i] === '}') braceCount--
+					if (braceCount === 0) {
+						endIndex = i + 1
+						break
+					}
+				}
+				if (endIndex > 0) {
+					const valueJson = valueContent.substring(0, endIndex)
+					const parsed = JSON.parse(valueJson)
+					return JSON.stringify(parsed, null, 2)
+				}
+			} catch {
+				// If parsing fails, just unescape and return the extracted value content
+				valueContent = valueContent.replace(/\\n/g, '\n')
+				valueContent = valueContent.replace(/\\t/g, '\t')
+				valueContent = valueContent.replace(/\\"/g, '"')
+				valueContent = valueContent.replace(/\\\\/g, '\\')
+				return valueContent
+			}
+		}
+		// Fallback: just unescape and return
+		let result = content
+		result = result.replace(/\\n/g, '\n')
+		result = result.replace(/\\t/g, '\t')
+		result = result.replace(/\\"/g, '"')
+		result = result.replace(/\\\\/g, '\\')
+		return result
+	}
+}
+
+// Map of tool names to their prettify functions
+export const TOOL_PRETTIFY_MAP: Record<string, (content: string) => string> = {
+	edit_code: prettifyCodeArguments,
+	set_module_code: prettifySetModuleCode,
+	add_module: prettifyModuleValue,
+	modify_module: prettifyModuleValue
+}
 
 export interface ContextStringResult {
 	dbContext: string
@@ -113,7 +242,7 @@ export function applyCodePiecesToFlowModules(
 		}
 	}
 
-	return YAML.stringify(modifiedModules)
+	return JSON.stringify(modifiedModules, null, 2)
 }
 
 export function buildContextString(selectedContext: ContextElement[]): string {
@@ -197,7 +326,7 @@ export function buildContextString(selectedContext: ContextElement[]): string {
 type BaseDisplayMessage = {
 	content: string
 	contextElements?: ContextElement[]
-	snapshot?: ExtendedOpenFlow
+	snapshot?: { type: 'flow'; value: ExtendedOpenFlow } | { type: 'app'; value: number }
 }
 
 export type UserDisplayMessage = BaseDisplayMessage & {
@@ -217,6 +346,9 @@ export type ToolDisplayMessage = {
 	error?: string
 	needsConfirmation?: boolean
 	showDetails?: boolean
+	isStreamingArguments?: boolean
+	toolName?: string
+	showFade?: boolean
 }
 
 export type AssistantDisplayMessage = BaseDisplayMessage & {
@@ -269,7 +401,6 @@ export async function processToolCall<T>({
 		// Check if tool requires confirmation
 		const needsConfirmation = tool?.requiresConfirmation
 
-		// Add the tool to the display with appropriate status
 		toolCallbacks.setToolStatus(toolCall.id, {
 			...(tool?.requiresConfirmation
 				? { content: tool.confirmationMessage ?? 'Waiting for confirmation...' }
@@ -326,7 +457,11 @@ export async function processToolCall<T>({
 				error: 'An error occurred while calling the tool'
 			})
 			const errorMessage =
-				typeof err === 'string' ? err : 'An error occurred while calling the tool'
+				typeof err === 'object' && 'message' in err
+					? err.message
+					: typeof err === 'string'
+						? err
+						: 'An error occurred while calling the tool'
 			result = `Error while calling tool: ${errorMessage}`
 		}
 		const toAdd = {
@@ -359,32 +494,31 @@ export interface Tool<T> {
 	requiresConfirmation?: boolean
 	confirmationMessage?: string
 	showDetails?: boolean
+	streamArguments?: boolean
+	showFade?: boolean
 }
 
 export interface ToolCallbacks {
 	setToolStatus: (id: string, metadata?: Partial<ToolDisplayMessage>) => void
+	removeToolStatus: (id: string) => void
 	requestConfirmation?: (toolId: string) => Promise<boolean>
 }
 
 export function createToolDef(
 	zodSchema: z.ZodSchema,
 	name: string,
-	description: string
+	description: string,
+	{ strict = true }: { strict?: boolean } = {} // we sometimes have to set strict to false for open ai models to avoid issues with complex properties
 ): ChatCompletionFunctionTool {
-	const schema = zodToJsonSchema(zodSchema, {
-		name,
-		target: 'openAi'
-	})
-	let parameters = schema.definitions![name] as FunctionParameters
-	parameters = {
-		...parameters,
-		required: parameters.required ?? []
-	}
+	// console.log('creating tool def for', name, zodSchema)
+	let parameters = z.toJSONSchema(zodSchema)
+	delete parameters.$schema
+	if (!parameters.required) parameters.required = []
 
 	return {
 		type: 'function',
 		function: {
-			strict: true,
+			strict,
 			name,
 			description,
 			parameters
@@ -438,6 +572,46 @@ export const createSearchHubScriptsTool = (withContent: boolean = false) => ({
 	}
 })
 
+/**
+ * Recursively removes format: null or format: '' from a JSON schema object
+ */
+function removeNullFormats(schema: Record<string, any> | undefined): void {
+	if (!schema || typeof schema !== 'object') {
+		return
+	}
+
+	// Remove format if it's null or empty string
+	if (schema.format === null || schema.format === '') {
+		delete schema.format
+	}
+
+	// Recurse into properties
+	if (schema.properties && typeof schema.properties === 'object') {
+		for (const key of Object.keys(schema.properties)) {
+			removeNullFormats(schema.properties[key])
+		}
+	}
+
+	// Recurse into items (for arrays)
+	if (schema.items) {
+		removeNullFormats(schema.items)
+	}
+
+	// Recurse into additionalProperties if it's an object schema
+	if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+		removeNullFormats(schema.additionalProperties)
+	}
+
+	// Recurse into allOf, anyOf, oneOf
+	for (const key of ['allOf', 'anyOf', 'oneOf']) {
+		if (Array.isArray(schema[key])) {
+			for (const subSchema of schema[key]) {
+				removeNullFormats(subSchema)
+			}
+		}
+	}
+}
+
 export async function buildSchemaForTool(
 	toolDef: ChatCompletionFunctionTool,
 	schemaBuilder: () => Promise<FunctionParameters>
@@ -455,6 +629,10 @@ export async function buildSchemaForTool(
 		}
 
 		toolDef.function.parameters = { ...schema, additionalProperties: false }
+
+		// recursively remove any format: null or format: '' (empty string) from schema
+		removeNullFormats(toolDef.function.parameters)
+
 		// OPEN AI models don't support strict mode well with schema with complex properties, so we disable it
 		const model = getCurrentModel()
 		if (model.provider === 'openai' || model.provider === 'azure_openai') {
@@ -671,4 +849,40 @@ function formatResultSummary(result: unknown, logs: string | undefined, success:
 	resultSummary += '\n\nLogs:\n\n'
 	resultSummary += formatLogs(logs) ?? 'No logs available'
 	return resultSummary
+}
+
+// ============= Script/Flow Lint Types =============
+
+/** Result of linting a script */
+export interface ScriptLintResult {
+	errorCount: number
+	warningCount: number
+	errors: meditor.IMarker[]
+	warnings: meditor.IMarker[]
+}
+
+/** Format script lint result for display */
+export function formatScriptLintResult(lintResult: ScriptLintResult): string {
+	let response = ''
+	const hasIssues = lintResult.errorCount > 0 || lintResult.warningCount > 0
+
+	if (hasIssues) {
+		if (lintResult.errorCount > 0) {
+			response += `❌ **${lintResult.errorCount} error(s)** found that must be fixed:\n`
+			for (const error of lintResult.errors) {
+				response += `- Line ${error.startLineNumber}: ${error.message}\n`
+			}
+		}
+
+		if (lintResult.warningCount > 0) {
+			response += `\n⚠️ **${lintResult.warningCount} warning(s)** found:\n`
+			for (const warning of lintResult.warnings) {
+				response += `- Line ${warning.startLineNumber}: ${warning.message}\n`
+			}
+		}
+	} else {
+		response = '✅ No lint issues found.'
+	}
+
+	return response
 }

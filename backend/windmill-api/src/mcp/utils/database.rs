@@ -3,7 +3,7 @@
 //! Contains all database query functions and database-related utilities
 //! used by the MCP server implementation.
 
-use rmcp::ErrorData;
+use windmill_mcp::server::ErrorData;
 use sql_builder::prelude::*;
 use windmill_common::db::UserDB;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
@@ -18,11 +18,10 @@ use crate::HTTP_CLIENT;
 pub fn check_scopes(authed: &ApiAuthed) -> Result<(), ErrorData> {
     let scopes = authed.scopes.as_ref();
     if scopes.is_none()
-        || scopes.unwrap().iter().all(|scope| {
-            !scope.starts_with("mcp:all")
-                && !scope.starts_with("mcp:favorites")
-                && !scope.starts_with("mcp:hub:")
-        })
+        || scopes
+            .unwrap()
+            .iter()
+            .all(|scope| !scope.starts_with("mcp:"))
     {
         tracing::error!("Unauthorized: missing mcp scope");
         return Err(ErrorData::internal_error(
@@ -141,7 +140,6 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
     workspace_id: &str,
     scope_type: &str,
     item_type: &str,
-    scope_path: Option<&str>,
 ) -> Result<Vec<T>, ErrorData> {
     let mut sqlb = SqlBuilder::select_from(&format!("{} as o", item_type));
     let fields = vec!["o.path", "o.summary", "o.description", "o.schema"];
@@ -157,23 +155,6 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
 
     if item_type == "script" {
         sqlb.and_where("(o.no_main_func IS NOT TRUE OR o.no_main_func IS NULL)");
-    }
-
-    // scope path is always a folder path, format is f/my_folder/*
-    if let Some(scope_path) = scope_path {
-        if scope_path.split("/").count() != 3
-            || !scope_path.starts_with("f/")
-            || !scope_path.ends_with("/*")
-        {
-            return Err(ErrorData::internal_error(
-                format!(
-                    "Invalid folder format: {}, expected format is f/my_folder/*",
-                    scope_path
-                ),
-                None,
-            ));
-        }
-        sqlb.and_where_like_left("o.path", &scope_path[..scope_path.len() - 2]);
     }
 
     sqlb.order_by(

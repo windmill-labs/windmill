@@ -11,7 +11,7 @@ use serde_json::{json, value::RawValue, Value};
 use windmill_common::{
     error::{to_anyhow, Error},
     s3_helpers::convert_json_line_stream,
-    worker::{to_raw_value, Connection},
+    worker::{to_raw_value, Connection, SqlResultCollectionStrategy},
 };
 use windmill_queue::MiniPulledJob;
 
@@ -48,8 +48,10 @@ pub fn do_oracledb_inner<'a>(
     conn: Arc<std::sync::Mutex<oracle::Connection>>,
     column_order: Option<&'a mut Option<Vec<String>>>,
     skip_collect: bool,
+    first_row_only: bool,
     s3: Option<S3ModeWorkerData>,
-) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Box<RawValue>>>> {
+) -> windmill_common::error::Result<BoxFuture<'a, windmill_common::error::Result<Vec<Box<RawValue>>>>>
+{
     let qw = query.trim_end_matches(';').to_string();
 
     let result_f = async move {
@@ -85,7 +87,7 @@ pub fn do_oracledb_inner<'a>(
             .map_err(to_anyhow)?
             .map_err(to_anyhow)?;
 
-            Ok(to_raw_value(&Value::Array(vec![])))
+            Ok(vec![])
         } else {
             // We use an mpsc because we need an async stream for s3 mode. However since everything is sync
             // in rust-oracle, I assumed that calling ResultSet::next() is blocking when it has to refetch.
@@ -133,6 +135,9 @@ pub fn do_oracledb_inner<'a>(
                                         break;
                                     }
                                 }
+                                if first_row_only {
+                                    break;
+                                }
                             }
                         }
                         _ => {
@@ -159,17 +164,16 @@ pub fn do_oracledb_inner<'a>(
             if let Some(s3) = s3 {
                 let stream = convert_json_line_stream(rows_stream.boxed(), s3.format).await?;
                 s3.upload(stream.boxed()).await?;
-                return Ok(to_raw_value(&s3.to_return_s3_obj()));
+                return Ok(vec![to_raw_value(&s3.to_return_s3_obj())]);
             } else {
                 let rows: Vec<_> = rows_stream.collect().await;
-                Ok(to_raw_value(
-                    &rows
-                        .into_iter()
-                        .collect::<Result<Vec<_>, _>>()
-                        .map_err(to_anyhow)?
-                        .into_iter()
-                        .collect::<Vec<serde_json::Value>>(),
-                ))
+                Ok(rows
+                    .into_iter()
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(to_anyhow)?
+                    .iter()
+                    .map(to_raw_value)
+                    .collect::<Vec<_>>())
             }
         }
     };
@@ -377,6 +381,11 @@ pub async fn do_oracledb(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let sig = parse_oracledb_sig(query)
         .map_err(|x| Error::ExecutionErr(x.to_string()))?
@@ -388,7 +397,7 @@ pub async fn do_oracledb(
     let (query, args_to_skip) =
         sanitize_and_interpolate_unsafe_sql_args(query, &sig, &job_args, &reserved_variables)?;
 
-    let (statement_values, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
+    let (_, errors) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
     if !errors.is_empty() {
         return Err(Error::ExecutionErr(errors.join("\n")));
@@ -412,40 +421,34 @@ pub async fn do_oracledb(
 
     let queries = parse_sql_blocks(&query);
 
-    let result_f = if queries.len() > 1 {
-        let f = async {
-            let mut res: Vec<Box<RawValue>> = vec![];
-            for (i, q) in queries.iter().enumerate() {
-                let (vals, _) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
-                let r = do_oracledb_inner(
-                    q,
-                    vals,
-                    conn_a.clone(),
-                    None,
-                    annotations.return_last_result && i < queries.len() - 1,
-                    s3.clone(),
-                )?
-                .await?;
-                res.push(r);
-            }
+    let result_f = async move {
+        let mut results = vec![];
+        for (i, q) in queries.iter().enumerate() {
+            let (vals, _) = get_statement_values(sig.clone(), &job_args, &args_to_skip);
 
-            if annotations.return_last_result && res.len() > 0 {
-                Ok(res.pop().unwrap())
-            } else {
-                Ok(to_raw_value(&res))
-            }
-        };
+            let result = do_oracledb_inner(
+                q,
+                vals,
+                conn_a.clone(),
+                if i == queries.len() - 1
+                    && s3.is_none()
+                    && collection_strategy.collect_last_statement_only(queries.len())
+                    && !collection_strategy.collect_scalar()
+                {
+                    Some(column_order)
+                } else {
+                    None
+                },
+                collection_strategy.collect_last_statement_only(queries.len())
+                    && i < queries.len() - 1,
+                collection_strategy.collect_first_row_only(),
+                s3.clone(),
+            )?
+            .await?;
+            results.push(result);
+        }
 
-        f.boxed()
-    } else {
-        do_oracledb_inner(
-            &query,
-            statement_values,
-            conn_a,
-            Some(column_order),
-            false,
-            s3,
-        )?
+        collection_strategy.collect(results)
     };
 
     let result = run_future_with_polling_update_job_poller(

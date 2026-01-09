@@ -19,10 +19,8 @@ use crate::oauth2_oss::SlackVerifier;
 use crate::smtp_server_oss::SmtpServer;
 
 #[cfg(feature = "mcp")]
-use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server, shutdown_mcp_server};
+use crate::mcp::{extract_and_store_workspace_id, setup_mcp_server};
 use crate::triggers::start_all_listeners;
-#[cfg(feature = "mcp")]
-use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use tower_http::catch_panic::CatchPanicLayer;
 
 use crate::tracing_init::MyOnFailure;
@@ -62,7 +60,10 @@ use tower_http::{
 };
 use windmill_common::db::UserDB;
 use windmill_common::worker::CLOUD_HOSTED;
-use windmill_common::{utils::GIT_VERSION, BASE_URL, INSTANCE_NAME};
+use windmill_common::{
+    utils::{configure_client, GIT_VERSION},
+    BASE_URL, INSTANCE_NAME,
+};
 
 use crate::scim_oss::has_scim_token;
 use windmill_common::error::AppError;
@@ -77,6 +78,7 @@ pub mod args;
 mod assets;
 mod audit;
 pub mod auth;
+mod bedrock;
 mod capture;
 mod concurrency_groups;
 mod configs;
@@ -89,8 +91,10 @@ pub mod embeddings;
 mod favorite;
 mod flow_conversations;
 pub mod flows;
+mod folder_history;
 mod folders;
 mod granular_acls;
+mod group_history;
 mod groups;
 #[cfg(feature = "private")]
 pub mod indexer_ee;
@@ -106,6 +110,7 @@ mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod s3_proxy_ee;
 mod s3_proxy_oss;
+mod workspace_dependencies;
 
 mod approvals;
 #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -122,6 +127,7 @@ pub mod job_helpers_ee;
 mod job_helpers_oss;
 pub mod job_metrics;
 pub mod jobs;
+pub mod jobs_export;
 #[cfg(all(feature = "oauth2", feature = "private"))]
 pub mod oauth2_ee;
 #[cfg(feature = "oauth2")]
@@ -151,6 +157,7 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+mod public_app_layer;
 #[cfg(feature = "native_triggers")]
 pub mod native_triggers;
 mod static_assets;
@@ -201,11 +208,11 @@ lazy_static::lazy_static! {
 
     pub static ref IS_SECURE: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
 
-    pub static ref HTTP_CLIENT: Client = reqwest::ClientBuilder::new()
+    pub static ref HTTP_CLIENT: Client = configure_client(reqwest::ClientBuilder::new()
         .user_agent("windmill/beta")
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
-        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok())
+        .danger_accept_invalid_certs(std::env::var("ACCEPT_INVALID_CERTS").is_ok()))
         .build().unwrap();
 
 
@@ -322,6 +329,11 @@ pub async fn run_server(
         #[cfg(feature = "embedding")]
         load_embeddings_db(&db);
 
+        #[cfg(feature = "cloud")]
+        if *CLOUD_HOSTED {
+            windmill_queue::init_usage_buffer(db.clone());
+        }
+
         let mut start_smtp_server = false;
         if let Some(smtp_settings) =
             load_value_from_global_settings(&db, EMAIL_DOMAIN_SETTING).await?
@@ -388,14 +400,17 @@ pub async fn run_server(
 
     // Setup MCP server
     #[allow(unused_variables)]
-    let (mcp_router, mcp_session_manager) = {
+    let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_router, mcp_session_manager) = setup_mcp_server().await?;
+            let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
             let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
-            (mcp_router.layer(mcp_middleware), Some(mcp_session_manager))
+            (
+                mcp_router.layer(mcp_middleware),
+                Some(mcp_cancellation_token),
+            )
         } else {
-            (Router::new(), Option::<Arc<LocalSessionManager>>::None)
+            (Router::new(), None)
         }
 
         #[cfg(not(feature = "mcp"))]
@@ -448,11 +463,17 @@ pub async fn run_server(
                         .nest("/favorites", favorite::workspaced_service())
                         .nest("/flows", flows::workspaced_service())
                         .nest(
+                            "/workspace_dependencies",
+                            workspace_dependencies::workspaced_service(),
+                        )
+                        .nest(
                             "/flow_conversations",
                             flow_conversations::workspaced_service(),
                         )
                         .nest("/folders", folders::workspaced_service())
+                        .nest("/folders_history", folder_history::workspaced_service())
                         .nest("/groups", groups::workspaced_service())
+                        .nest("/groups_history", group_history::workspaced_service())
                         .nest("/inputs", inputs::workspaced_service())
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
@@ -655,43 +676,35 @@ pub async fn run_server(
                     #[cfg(not(feature = "oauth2"))]
                     Router::new()
                 })
-                .nest(
-                    "/r",
+                .nest("/r", {
+                    #[cfg(feature = "http_trigger")]
                     {
-                        #[cfg(feature = "http_trigger")]
-                        {
-                            triggers::http::handler::http_route_trigger_handler()
-                        }
+                        triggers::http::handler::http_route_trigger_handler()
+                    }
 
-                        #[cfg(not(feature = "http_trigger"))]
-                        {
-                            Router::new()
-                        }
-                    }
-                    .layer(from_extractor::<OptAuthed>()),
-                )
-                .nest(
-                    "/gcp/w/:workspace_id",
+                    #[cfg(not(feature = "http_trigger"))]
                     {
-                        #[cfg(all(
-                            feature = "enterprise",
-                            feature = "gcp_trigger",
-                            feature = "private"
-                        ))]
-                        {
-                            triggers::gcp::handler_oss::gcp_push_route_handler()
-                        }
-                        #[cfg(not(all(
-                            feature = "enterprise",
-                            feature = "gcp_trigger",
-                            feature = "private"
-                        )))]
-                        {
-                            Router::new()
-                        }
+                        Router::new()
                     }
-                    .layer(from_extractor::<OptAuthed>()),
-                )
+                })
+                .nest("/gcp/w/:workspace_id", {
+                    #[cfg(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    ))]
+                    {
+                        triggers::gcp::handler_oss::gcp_push_route_handler()
+                    }
+                    #[cfg(not(all(
+                        feature = "enterprise",
+                        feature = "gcp_trigger",
+                        feature = "private"
+                    )))]
+                    {
+                        Router::new()
+                    }
+                })
                 .route("/version", get(git_v))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
@@ -711,6 +724,15 @@ pub async fn run_server(
                 .on_request(())
                 .on_failure(MyOnFailure {}),
         )
+    };
+
+    let app = if let Some(domain) = public_app_layer::PUBLIC_APP_DOMAIN.as_ref() {
+        tracing::info!("Public app domain filter enabled for domain: {}", domain);
+        app.layer(axum::middleware::from_fn(
+            public_app_layer::public_app_domain_filter,
+        ))
+    } else {
+        app
     };
 
     let app = app.layer(CatchPanicLayer::custom(|err| {
@@ -750,8 +772,8 @@ pub async fn run_server(
         tracing::info!("Graceful shutdown of server");
 
         #[cfg(feature = "mcp")]
-        if let Some(mcp_session_manager) = mcp_session_manager {
-            shutdown_mcp_server(mcp_session_manager).await;
+        if let Some(mcp_cancellation_token) = mcp_cancellation_token {
+            mcp_cancellation_token.cancel();
             tracing::info!("MCP server shutdown");
         }
     });

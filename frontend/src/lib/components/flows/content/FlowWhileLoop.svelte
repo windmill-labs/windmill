@@ -14,12 +14,13 @@
 	import FlowModuleSleep from './FlowModuleSleep.svelte'
 	import FlowModuleMock from './FlowModuleMock.svelte'
 	import { Play } from 'lucide-svelte'
-	import type { FlowModule, Job } from '$lib/gen'
+	import type { FlowModule, Job, WhileloopFlow } from '$lib/gen'
 	import FlowLoopIterationPreview from '$lib/components/FlowLoopIterationPreview.svelte'
 	import FlowModuleDeleteAfterUse from './FlowModuleDeleteAfterUse.svelte'
 	import FlowModuleSkip from './FlowModuleSkip.svelte'
 	import TabsV2 from '$lib/components/common/tabs/TabsV2.svelte'
 	import { useUiIntent } from '$lib/components/copilot/chat/flow/useUiIntent'
+	import Badge from '$lib/components/common/badge/Badge.svelte'
 
 	const { flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
 
@@ -86,7 +87,7 @@
 
 			{#if mod.value.type === 'whileloopflow'}
 				<div class="flex flex-row gap-8 mt-2 mb-6">
-					<div>
+					<div class="flex-shrink-0">
 						<div class="mb-2 text-sm font-bold"
 							>Skip failures <Tooltip
 								documentationLink="https://www.windmill.dev/docs/flows/while_loops"
@@ -102,6 +103,32 @@
 							}}
 						/>
 					</div>
+					<div class="flex-shrink-0">
+						<div class="mb-2 text-sm font-bold"
+							>Squash
+
+							<Badge
+								>Beta <Tooltip documentationLink="https://www.windmill.dev/docs/flows/while_loops">
+									<span class="font-semibold"
+										>This can result in unexpected behavior, use at your own risk for now.</span
+									><br />
+									Squashing a for loop runs all iterations on the same worker, using a single runner
+									per step for the entire loop. This eliminates cold starts between iterations for supported
+									languages (Bun, Deno, and Python).
+								</Tooltip>
+							</Badge>
+						</div>
+						<Toggle
+							bind:checked={mod.value.squash}
+							on:change={({ detail }) => {
+								;(mod.value as WhileloopFlow).squash = detail
+							}}
+							options={{
+								right: 'Squash'
+							}}
+							class="whitespace-nowrap"
+						/>
+					</div>
 				</div>
 
 				<div class="my-2 flex flex-row gap-2 items-center">
@@ -109,7 +136,7 @@
 						<Button
 							on:click={() => (previewOpen = true)}
 							startIcon={{ icon: Play }}
-							color="dark"
+							variant="accent"
 							size="sm">Test an iteration</Button
 						>
 					</div>
@@ -119,12 +146,12 @@
 		<Pane size={40} minSize={20} class="flex flex-col flex-1">
 			<TabsV2 bind:selected>
 				<!-- <Tab value="retries">Retries</Tab> -->
-				<Tab value="early-stop">Early Stop/Break</Tab>
-				<Tab value="skip">Skip</Tab>
-				<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-				<Tab value="sleep">Sleep</Tab>
-				<Tab value="mock">Mock</Tab>
-				<Tab value="lifetime">Lifetime</Tab>
+				<Tab value="early-stop" label="Early Stop/Break" />
+				<Tab value="skip" label="Skip" />
+				<Tab value="suspend" label="Suspend/Approval/Prompt" />
+				<Tab value="sleep" label="Sleep" />
+				<Tab value="mock" label="Mock" />
+				<Tab value="lifetime" label="Lifetime" />
 
 				{#snippet content()}
 					<div class="overflow-hidden bg-surface" style="height:calc(100% - 32px);">

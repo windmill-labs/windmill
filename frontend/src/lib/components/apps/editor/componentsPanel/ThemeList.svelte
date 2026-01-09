@@ -98,7 +98,7 @@
 		<Button
 			disabled={type != 'inlined' || nameField == ''}
 			on:click={() => addTheme(nameField)}
-			color="dark"
+			variant="accent"
 			size="xs">Create theme</Button
 		>
 	</div>
@@ -113,8 +113,7 @@
 		<div class="flex flex-row justify-end items-center w-full h-10">
 			{#if $previewTheme != undefined}
 				<Button
-					color="dark"
-					variant="border"
+					variant="default"
 					size="xs"
 					on:click={() => {
 						previewTheme.set(undefined)

@@ -4,7 +4,7 @@
 	import { createEventDispatcher, getContext, untrack } from 'svelte'
 	import Tooltip from '../../../Tooltip.svelte'
 	import type { AppEditorContext, AppViewerContext } from '../../types'
-	import { BG_PREFIX, getAllScriptNames } from '../../utils'
+	import { getAllScriptNames } from '../../utils'
 	import PanelSection from '../settingsPanel/common/PanelSection.svelte'
 	import { getAppScripts } from './utils'
 	import AppTutorials from '$lib/components/AppTutorials.svelte'
@@ -13,6 +13,7 @@
 	import { tutorialInProgress } from '$lib/tutorialUtils'
 	import DocLink from '../settingsPanel/DocLink.svelte'
 	import HideButton from '../settingsPanel/HideButton.svelte'
+	import { BG_PREFIX } from '../appUtilsCore'
 
 	const PREFIX = 'script-selector-' as const
 
@@ -66,7 +67,7 @@
 			name: newScriptPath,
 			inlineScript: undefined,
 			autoRefresh: true,
-			type: 'runnableByName',
+			type: 'inline',
 			fields: {},
 			recomputeIds: undefined
 		})
@@ -180,7 +181,7 @@
 					</div>
 				{/if}
 				{#if runnables.inline.length == 0 && $app.unusedInlineScripts?.length == 0 && runnables.imported.length == 0}
-					<div class="text-xs text-tertiary">No scripts/flows</div>
+					<div class="text-xs text-primary">No scripts/flows</div>
 				{/if}
 			</div>
 		</div>
@@ -198,8 +199,7 @@
 				</div>
 				<Button
 					size="xs"
-					color="light"
-					variant="border"
+					variant="default"
 					btnClasses="!rounded-full !p-1"
 					title="Create a new background runnable"
 					aria-label="Create a new background runnable"
@@ -242,7 +242,7 @@
 						{/if}
 					{/each}
 				{:else}
-					<div class="text-xs text-tertiary">No background runnable</div>
+					<div class="text-xs text-primary">No background runnable</div>
 				{/if}
 			</div>
 		</div>

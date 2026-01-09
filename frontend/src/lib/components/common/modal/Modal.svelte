@@ -1,17 +1,36 @@
 <script lang="ts">
+	import { createBubbler, stopPropagation } from 'svelte/legacy'
+
+	const bubble = createBubbler()
 	import { createEventDispatcher } from 'svelte'
 	import { fade } from 'svelte/transition'
 	import Button from '../button/Button.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import CloseButton from '../CloseButton.svelte'
 
-	export let title: string
-	export let open: boolean = false
-	let c: string = ''
-	export { c as class }
-	export let style = ''
-	export let cancelText: string | undefined = undefined
-	export let kind: 'button' | 'X' = 'button'
+	interface Props {
+		title: string
+		open?: boolean
+		class?: string
+		style?: string
+		cancelText?: string | undefined
+		kind?: 'button' | 'X'
+		settings?: import('svelte').Snippet
+		children?: import('svelte').Snippet
+		actions?: import('svelte').Snippet
+	}
+
+	let {
+		title,
+		open = $bindable(false),
+		class: c = '',
+		style = '',
+		cancelText = undefined,
+		kind = 'button',
+		settings,
+		children,
+		actions
+	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
 
@@ -37,15 +56,15 @@
 	}
 </script>
 
-<svelte:window on:keydown|capture={onKeyDown} />
+<svelte:window onkeydowncapture={onKeyDown} />
 
 {#if open}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<div
-		on:click={() => (open = false)}
+		onclick={() => (open = false)}
 		transition:fadeFast|local
-		class={'absolute top-0 bottom-0 left-0 right-0 z-[9999]'}
+		class={'fixed top-0 bottom-0 left-0 right-0 z-[9999]'}
 		role="dialog"
 		tabindex="-1"
 	>
@@ -58,11 +77,11 @@
 
 		<div class="fixed inset-0 z-10 overflow-y-auto">
 			<div class="flex min-h-full items-center justify-center p-4">
-				<!-- svelte-ignore a11y-no-static-element-interactions -->
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
 				<div
-					on:click|stopPropagation
+					onclick={stopPropagation(bubble('click'))}
 					class={twMerge(
-						'relative transform overflow-hidden rounded-lg bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
+						'relative transform overflow-hidden rounded-md bg-surface px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg sm:p-6',
 						c,
 						open
 							? 'ease-out duration-300 opacity-100 translate-y-0 sm:scale-100'
@@ -77,18 +96,18 @@
 					<div class="flex">
 						<div class="ml-4 text-left flex-1">
 							<div class="flex flex-row items-center justify-between">
-								<h3>{title}</h3>
-								<slot name="settings" />
+								<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
+								{@render settings?.()}
 							</div>
 
-							<div class="mt-4 text-sm text-tertiary">
-								<slot />
+							<div class="mt-4 text-sm text-primary">
+								{@render children?.()}
 							</div>
 						</div>
 					</div>
 					{#if kind == 'button'}
 						<div class="flex items-center space-x-2 flex-row-reverse space-x-reverse mt-4">
-							<slot name="actions" />
+							{@render actions?.()}
 							<Button
 								on:click={() => {
 									dispatch('canceled')

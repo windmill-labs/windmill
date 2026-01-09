@@ -5,6 +5,7 @@
 		SqsTriggerService,
 		WorkspaceService,
 		type SqsTrigger,
+		type TriggerMode,
 		type WorkspaceDeployUISettings
 	} from '$lib/gen'
 	import {
@@ -24,7 +25,7 @@
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import { enterpriseLicense, usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp } from 'lucide-svelte'
+	import { Code, Eye, Pen, Plus, Share, Trash, Circle, FileUp, Pause } from 'lucide-svelte'
 	import { goto } from '$lib/navigation'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
@@ -40,6 +41,7 @@
 	import { ALL_DEPLOYABLE, isDeployable } from '$lib/utils_deployable'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import { AwsIcon } from '$lib/components/icons'
+	import TriggerModeToggle from '$lib/components/triggers/TriggerModeToggle.svelte'
 
 	type TriggerD = SqsTrigger & { canWrite: boolean }
 
@@ -80,7 +82,7 @@
 						...triggers[i],
 						error: newTrigger.error,
 						last_server_ping: newTrigger.last_server_ping,
-						enabled: newTrigger.enabled,
+						mode: newTrigger.mode,
 						server_id: newTrigger.server_id
 					}
 				}
@@ -94,16 +96,18 @@
 		clearInterval(interval)
 	})
 
-	async function setTriggerEnabled(path: string, enabled: boolean): Promise<void> {
+	async function onToggleMode(path: string, mode: TriggerMode): Promise<void> {
 		try {
-			await SqsTriggerService.setSqsTriggerEnabled({
+			await SqsTriggerService.setSqsTriggerMode({
 				path,
 				workspace: $workspaceStore!,
-				requestBody: { enabled }
+				requestBody: { mode }
 			})
 		} catch (err) {
 			sendUserToast(
-				`Cannot ` + (enabled ? 'enable' : 'disable') + ` sqs trigger: ${err.body}`,
+				`Cannot ` +
+					(mode === 'enabled' ? 'enable' : mode === 'disabled' ? 'disable' : 'suspend') +
+					` sqs trigger: ${err.body}`,
 				true
 			)
 		} finally {
@@ -247,7 +251,12 @@
 
 <CenteredPage>
 	<PageHeader title="SQS triggers" tooltip="SQS trigger">
-		<Button size="md" startIcon={{ icon: Plus }} on:click={() => sqsTriggerEditor?.openNew(false)}>
+		<Button
+			unifiedSize="md"
+			variant="accent"
+			startIcon={{ icon: Plus }}
+			on:click={() => sqsTriggerEditor?.openNew(false)}
+		>
 			New&nbsp;SQS trigger
 		</Button>
 	</PageHeader>
@@ -266,12 +275,12 @@
 				bind:value={filter}
 				class="search-item"
 			/>
-			<div class="flex flex-row items-center gap-2 mt-6">
+			<div class="flex flex-row items-center gap-2 mt-2">
 				<div class="text-sm shrink-0"> Filter by path of </div>
 				<ToggleButtonGroup bind:selected={selectedFilterKind}>
 					{#snippet children({ item })}
-						<ToggleButton small value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
-						<ToggleButton small value="script_flow" label="Script/Flow" icon={Code} {item} />
+						<ToggleButton value="trigger" label="SQS trigger" icon={AwsIcon} {item} />
+						<ToggleButton value="script_flow" label="Script/Flow" icon={Code} {item} />
 					{/snippet}
 				</ToggleButtonGroup>
 			</div>
@@ -294,13 +303,14 @@
 				<Skeleton layout={[[6], 0.4]} />
 			{/each}
 		{:else if !triggers?.length}
-			<div class="text-center text-sm text-tertiary mt-2"> No sqs triggers </div>
+			<div class="text-center text-sm text-primary mt-2"> No sqs triggers </div>
 		{:else if items?.length}
 			<div class="border rounded-md divide-y">
-				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, enabled, server_id } (path)}
+				{#each items.slice(0, nbDisplayed) as { path, edited_by, error, edited_at, script_path, is_flow, extra_perms, canWrite, mode, server_id, retry, error_handler_path, error_handler_args } (path)}
 					{@const href = `${is_flow ? '/flows/get' : '/scripts/get'}/${script_path}`}
 					{@const ping = new Date()}
 					{@const pinging = ping && ping.getTime() > new Date().getTime() - 15 * 1000}
+					{@const enabled = mode === 'enabled' || mode === 'suspended'}
 
 					<div
 						class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0
@@ -314,7 +324,7 @@
 								onclick={() => sqsTriggerEditor?.openEdit(path, is_flow)}
 								class="min-w-0 grow hover:underline decoration-gray-400"
 							>
-								<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
+								<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
 									{path}
 								</div>
 								<div class="text-secondary text-xs truncate text-left font-light"></div>
@@ -363,12 +373,23 @@
 								{/if}
 							</div>
 
-							<Toggle
-								checked={enabled}
-								disabled={!canWrite}
-								on:change={(e) => {
-									setTriggerEnabled(path, e.detail)
+							<TriggerModeToggle
+								onToggleMode={(newMode) => onToggleMode(path, newMode)}
+								triggerMode={mode}
+								includeModalConfig={{
+									triggerPath: path,
+									triggerKind: 'sqs',
+									runnableConfig: {
+										path: script_path,
+										kind: is_flow ? 'flow' : 'script',
+										retry,
+										errorHandlerPath: error_handler_path,
+										errorHandlerArgs: error_handler_args
+									}
 								}}
+								{canWrite}
+								hideToggleLabels
+								hideDropdown
 							/>
 
 							<div class="flex gap-2 items-center justify-end">
@@ -380,7 +401,7 @@
 										: {
 												icon: Eye
 											}}
-									color="dark"
+									variant="accent"
 								>
 									{canWrite ? 'Edit' : 'View'}
 								</Button>
@@ -393,23 +414,17 @@
 												goto(href)
 											}
 										},
-										{
-											displayName: 'Delete',
-											type: 'delete',
-											icon: Trash,
-											disabled: !canWrite,
-											action: async () => {
-												try {
-													await SqsTriggerService.deleteSqsTrigger({
-														workspace: $workspaceStore ?? '',
-														path
-													})
-													loadTriggers()
-												} catch (error) {
-													sendUserToast(error.body, true)
-												}
-											}
-										},
+										...(canWrite && mode !== 'suspended'
+											? [
+													{
+														displayName: 'Suspend job execution',
+														icon: Pause,
+														action: () => {
+															onToggleMode(path, 'suspended')
+														}
+													}
+												]
+											: []),
 										{
 											displayName: canWrite ? 'Edit' : 'View',
 											icon: canWrite ? Pen : Eye,
@@ -443,6 +458,23 @@
 											action: () => {
 												shareModal?.openDrawer(path, 'sqs_trigger')
 											}
+										},
+										{
+											displayName: 'Delete',
+											type: 'delete',
+											icon: Trash,
+											disabled: !canWrite,
+											action: async () => {
+												try {
+													await SqsTriggerService.deleteSqsTrigger({
+														workspace: $workspaceStore ?? '',
+														path
+													})
+													loadTriggers()
+												} catch (error) {
+													sendUserToast(error.body, true)
+												}
+											}
 										}
 									]}
 								/>
@@ -450,7 +482,7 @@
 						</div>
 						<div class="w-full flex justify-between items-baseline">
 							<div
-								class="flex flex-wrap text-[0.7em] text-tertiary gap-1 items-center justify-end truncate pr-2"
+								class="flex flex-wrap text-[0.7em] text-primary gap-1 items-center justify-end truncate pr-2"
 								><div class="truncate">edited by {edited_by}</div><div class="truncate"
 									>the {displayDate(edited_at)}</div
 								></div

@@ -34,11 +34,11 @@
 				(x) => x.kind + x.path
 			)
 		}
+
 		if (job.job_kind === 'script') {
-			return [
-				...(await inferAssets(job.language!, job.raw_code ?? '')),
-				...parseInputArgsAssets(job.args ?? {})
-			]
+			let inferAssetsResult = await inferAssets(job.language!, job.raw_code ?? '')
+			let assets = inferAssetsResult.status === 'ok' ? inferAssetsResult.assets : []
+			return [...assets, ...parseInputArgsAssets(job.args ?? {})]
 		}
 		return []
 	}
@@ -53,10 +53,14 @@
 	let resourceDataCache: Record<string, string | undefined> = $state({})
 	$effect(() => {
 		for (const asset of assets.value ?? []) {
-			if (asset.kind !== 'resource' || asset.path in resourceDataCache) continue
-			ResourceService.getResource({ path: asset.path, workspace: $workspaceStore! })
-				.then((resource) => (resourceDataCache[asset.path] = resource.resource_type))
-				.catch((err) => (resourceDataCache[asset.path] = undefined))
+			if (asset.kind == 'resource') {
+				let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+				if (truncatedPath in resourceDataCache) continue
+				resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
+				ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
+					.then((r) => (resourceDataCache[truncatedPath] = r.resource_type))
+					.catch((err) => console.error("Couldn't fetch resource", truncatedPath, err))
+			}
 		}
 	})
 
@@ -71,7 +75,7 @@
 			<li class="flex justify-between py-3 leading-4 text-sm pl-4">
 				<div class="flex flex-col flex-1 truncate">
 					{asset.path}
-					<span class="text-2xs text-tertiary">
+					<span class="text-2xs text-primary">
 						{formatAssetKind({
 							...asset,
 							...(asset.kind === 'resource'
@@ -91,7 +95,7 @@
 		{/each}
 	</ul>
 {:else}
-	<div class="text-sm text-tertiary">No assets found</div>
+	<div class="text-sm text-primary">No assets found</div>
 {/if}
 
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />

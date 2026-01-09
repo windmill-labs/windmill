@@ -17,12 +17,13 @@
 	import { twMerge } from 'tailwind-merge'
 	import { deepEqual } from 'fast-equals'
 	import { dfs, maxHeight } from './appUtils'
-	import { BG_PREFIX, migrateApp } from '../utils'
+	import { migrateApp } from '../utils'
 	import { workspaceStore, enterpriseLicense } from '$lib/stores'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import { getTheme } from './componentsPanel/themeUtils'
 	import HiddenComponent from '../components/helpers/HiddenComponent.svelte'
 	import RecomputeAllComponents from './RecomputeAllComponents.svelte'
+	import { BG_PREFIX } from './appUtilsCore'
 
 	interface Props {
 		app: App

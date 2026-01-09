@@ -10,10 +10,11 @@
 		type ErrorHandler,
 		type EmailTrigger,
 		type NewEmailTrigger,
-		type Retry
+		type Retry,
+		type TriggerMode
 	} from '$lib/gen'
 	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
-	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { canWrite, capitalize, emptyString, sendUserToast } from '$lib/utils'
 	import Section from '$lib/components/Section.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import Label from '$lib/components/Label.svelte'
@@ -25,6 +26,9 @@
 	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import TriggerRetriesAndErrorHandler from '../TriggerRetriesAndErrorHandler.svelte'
 	import { saveEmailTriggerFromCfg } from './utils'
+	import { deepEqual } from 'fast-equals'
+	import TriggerSuspendedJobsAlert from '../TriggerSuspendedJobsAlert.svelte'
+	import TriggerSuspendedJobsModal from '../TriggerSuspendedJobsModal.svelte'
 
 	let {
 		useDrawer = true,
@@ -65,17 +69,28 @@
 	let error_handler_path: string | undefined = $state()
 	let error_handler_args: Record<string, any> = $state({})
 	let retry: Retry | undefined = $state()
+	let mode = $state<TriggerMode>('enabled')
 	// Component references
 	let drawer = $state<Drawer | undefined>(undefined)
 	let initialConfig: NewEmailTrigger | undefined = undefined
 	let deploymentLoading = $state(false)
 	let optionTabSelected: 'error_handler' | 'retries' = $state('error_handler')
 	let errorHandlerSelected: ErrorHandler = $state('slack')
+
+	let suspendedJobsModal = $state<TriggerSuspendedJobsModal | null>(null)
+	let originalConfig = $state<NewEmailTrigger | undefined>(undefined)
+
+	let hasChanged = $derived(!deepEqual(getEmailTriggerConfig(), originalConfig ?? {}))
 	const isAdmin = $derived($userStore?.is_admin || $userStore?.is_super_admin)
-	const routeConfig = $derived.by(getEmailTriggerConfig)
+	const emailConfig = $derived.by(getEmailTriggerConfig)
 	const captureConfig = $derived.by(isEditor ? getCaptureConfig : () => ({}))
 	const saveDisabled = $derived(
-		drawerLoading || !can_write || pathError != '' || !isValid || emptyString(script_path)
+		drawerLoading ||
+			!can_write ||
+			pathError != '' ||
+			!isValid ||
+			emptyString(script_path) ||
+			!hasChanged
 	)
 
 	$effect(() => {
@@ -100,6 +115,7 @@
 			dirtyPath = false
 			dirtyLocalPart = false
 			await loadTrigger(defaultConfig)
+			originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
 		} catch (err) {
 			sendUserToast(`Could not load email trigger: ${err}`, true)
 		} finally {
@@ -141,6 +157,8 @@
 			error_handler_args = defaultValues?.error_handler_args ?? {}
 			retry = defaultValues?.retry ?? undefined
 			errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+			mode = defaultValues?.mode ?? 'enabled'
+			originalConfig = undefined
 		} finally {
 			clearTimeout(loader)
 			drawerLoading = false
@@ -161,6 +179,7 @@
 		error_handler_args = cfg?.error_handler_args ?? {}
 		retry = cfg?.retry
 		errorHandlerSelected = getHandlerType(error_handler_path ?? '')
+		mode = cfg?.mode ?? 'enabled'
 	}
 
 	async function loadTrigger(defaultConfig?: Partial<EmailTrigger>): Promise<void> {
@@ -179,11 +198,11 @@
 
 	async function triggerScript(): Promise<void> {
 		if (customSaveBehavior) {
-			customSaveBehavior(routeConfig)
+			customSaveBehavior(emailConfig)
 			drawer?.closeDrawer()
 		} else {
 			deploymentLoading = true
-			const saveCfg = routeConfig
+			const saveCfg = emailConfig
 			const isSaved = await saveEmailTriggerFromCfg(
 				initialPath,
 				saveCfg,
@@ -194,7 +213,12 @@
 			)
 			if (isSaved) {
 				onUpdate(saveCfg.path)
-				drawer?.closeDrawer()
+				originalConfig = structuredClone($state.snapshot(getEmailTriggerConfig()))
+				initialPath = saveCfg.path
+				initialScriptPath = saveCfg.script_path
+				if (mode !== 'suspended') {
+					drawer?.closeDrawer()
+				}
 			}
 			deploymentLoading = false
 		}
@@ -210,17 +234,35 @@
 			extra_perms: extraPerms,
 			error_handler_path,
 			error_handler_args,
-			retry
+			retry,
+			mode
 		}
 
 		return nCfg
 	}
 
+	async function handleToggleMode(newMode: TriggerMode) {
+		mode = newMode
+		if (!trigger?.draftConfig) {
+			await EmailTriggerService.setEmailTriggerMode({
+				path: initialPath,
+				workspace: $workspaceStore ?? '',
+				requestBody: { mode: newMode }
+			})
+			sendUserToast(`${capitalize(newMode)} email trigger ${initialPath}`)
+
+			onUpdate(initialPath)
+		}
+		if (originalConfig) {
+			originalConfig['mode'] = newMode
+		}
+	}
+
 	// Update config for captures
 	function getCaptureConfig() {
 		const newCaptureConfig = {
-			local_part: routeConfig.local_part,
-			path: routeConfig.path
+			local_part: emailConfig.local_part,
+			path: emailConfig.path
 		}
 		//
 		return newCaptureConfig
@@ -233,10 +275,27 @@
 
 	$effect(() => {
 		if (!drawerLoading) {
-			handleConfigChange(routeConfig, initialConfig, saveDisabled, edit, onConfigChange)
+			handleConfigChange(emailConfig, initialConfig, saveDisabled, edit, onConfigChange)
 		}
 	})
 </script>
+
+{#if mode === 'suspended'}
+	<TriggerSuspendedJobsModal
+		bind:this={suspendedJobsModal}
+		triggerPath={path}
+		triggerKind="email"
+		{hasChanged}
+		onToggleMode={handleToggleMode}
+		runnableConfig={{
+			path: script_path,
+			kind: itemKind,
+			retry,
+			errorHandlerPath: error_handler_path,
+			errorHandlerArgs: error_handler_args
+		}}
+	/>
+{/if}
 
 {#snippet config()}
 	{#if drawerLoading}
@@ -245,6 +304,9 @@
 		{/if}
 	{:else}
 		<div class="flex flex-col gap-12">
+			{#if mode === 'suspended'}
+				<TriggerSuspendedJobsAlert {suspendedJobsModal} />
+			{/if}
 			<Section label="Metadata">
 				<div class="flex flex-col gap-2">
 					<Label label="Path">
@@ -265,7 +327,7 @@
 
 			{#if !hideTarget}
 				<Section label="Target">
-					<p class="text-xs mt-3 mb-1 text-tertiary">
+					<p class="text-xs mt-3 mb-1 text-primary">
 						Pick a script or flow to be triggered<Required required={true} />
 					</p>
 					<div class="flex flex-col gap-2">
@@ -284,8 +346,8 @@
 
 							{#if emptyString(script_path)}
 								<Button
-									btnClasses="ml-4 mt-2"
-									color="dark"
+									btnClasses="ml-4"
+									variant="accent"
 									size="xs"
 									href={itemKind === 'flow' ? '/flows/add?hub=72' : '/scripts/add?hub=hub%2F19813'}
 									target="_blank">Create from template</Button
@@ -311,8 +373,8 @@
 				<div class="flex flex-col gap-4">
 					<div class="min-h-96">
 						<Tabs bind:selected={optionTabSelected}>
-							<Tab value="error_handler">Error Handler</Tab>
-							<Tab value="retries">Retries</Tab>
+							<Tab value="error_handler" label="Error Handler" />
+							<Tab value="retries" label="Retries" />
 						</Tabs>
 						<div class="mt-4">
 							<TriggerRetriesAndErrorHandler
@@ -338,7 +400,6 @@
 			{trigger}
 			permissions={drawerLoading || !can_write ? 'none' : can_write && isAdmin ? 'create' : 'write'}
 			{saveDisabled}
-			enabled={undefined}
 			{allowDraft}
 			{edit}
 			isLoading={deploymentLoading}
@@ -346,6 +407,9 @@
 			{onReset}
 			{onDelete}
 			{isDeployed}
+			{mode}
+			onToggleMode={handleToggleMode}
+			{suspendedJobsModal}
 		/>
 	{/if}
 {/snippet}

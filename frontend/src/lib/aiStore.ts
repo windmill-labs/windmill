@@ -4,6 +4,8 @@ import { type AIProviderModel, type AIProvider, WorkspaceService, type AIConfig 
 import { COPILOT_SESSION_MODEL_SETTING_NAME, COPILOT_SESSION_PROVIDER_SETTING_NAME } from './stores'
 import { getLocalSetting } from './utils'
 
+const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
+
 const sessionModel = getLocalSetting(COPILOT_SESSION_MODEL_SETTING_NAME)
 const sessionProvider = getLocalSetting(COPILOT_SESSION_PROVIDER_SETTING_NAME)
 export const copilotSessionModel = writable<AIProviderModel | undefined>(
@@ -89,4 +91,31 @@ export function getCurrentModel() {
         throw new Error('No model selected')
     }
     return model
+}
+
+export function getUserCustomPrompts(): Record<string, string> {
+    const stored = getLocalSetting(USER_CUSTOM_PROMPTS_KEY)
+    if (stored) {
+        try {
+            return JSON.parse(stored)
+        } catch (e) {
+            console.error('Failed to parse user custom prompts', e)
+            return {}
+        }
+    }
+    return {}
+}
+
+export function getCombinedCustomPrompt(mode: string): string | undefined {
+    const workspacePrompt = get(copilotInfo).customPrompts?.[mode]
+    const userPrompts = getUserCustomPrompts()
+    const userPrompt = userPrompts[mode]
+
+    const prompts = [workspacePrompt, userPrompt].filter((p) => p?.trim())
+
+    if (prompts.length === 0) {
+        return undefined
+    }
+
+    return prompts.join('\n\n')
 }

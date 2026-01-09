@@ -69,7 +69,7 @@
 			Icon: RefreshCcw,
 			color: 'dark',
 			classes: {
-				icon: 'text-blue-500 dark:text-blue-400',
+				icon: 'text-blue-700 dark:text-blue-300',
 				iconWrapper: 'bg-blue-100 dark:bg-blue-800/50'
 			}
 		}
@@ -82,7 +82,7 @@
 {#if open}
 	<div
 		transition:fadeFast|local
-		class={'absolute top-0 bottom-0 left-0 right-0 z-[5000]'}
+		class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'}
 		role="dialog"
 	>
 		<div
@@ -126,6 +126,8 @@
 							color={theme[type].color}
 							size="sm"
 							shortCut={{ Icon: CornerDownLeft, hide: !keyListen, withoutModifier: true }}
+							variant="accent"
+							destructive={type === 'danger'}
 						>
 							{#if loading}
 								<Loader2 class="animate-spin" />
@@ -135,7 +137,7 @@
 						<Button
 							disabled={loading}
 							on:click={() => (dispatch('canceled'), onCanceled?.())}
-							color="light"
+							variant="default"
 							size="sm"
 							shortCut={{ key: 'Esc', hide: !keyListen, withoutModifier: true }}
 						>

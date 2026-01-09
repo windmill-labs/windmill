@@ -1,10 +1,21 @@
 <script lang="ts">
 	import { Badge, Drawer, DrawerContent } from '$lib/components/common'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { Bug, DiffIcon, FileJson, FileUp, History, MoreVertical, Pen, Save } from 'lucide-svelte'
+	import {
+		Bug,
+		DiffIcon,
+		FileJson,
+		FileUp,
+		History,
+		MoreVertical,
+		Pen,
+		Save,
+		WandSparkles
+	} from 'lucide-svelte'
 	import { createEventDispatcher } from 'svelte'
 	import {
 		cleanValueProperties,
@@ -26,16 +37,18 @@
 	import Summary from '$lib/components/Summary.svelte'
 	import DeployOverrideConfirmationModal from '$lib/components/common/confirmationModal/DeployOverrideConfirmationModal.svelte'
 
-	import type { HiddenRunnable } from '../apps/types'
 	import AppJobsDrawer from '../apps/editor/AppJobsDrawer.svelte'
-	import type { Runnable } from '../apps/inputType'
-	import { collectStaticFields, hash, type TriggerableV2 } from '../apps/editor/commonAppUtils'
 	import type { SavedAndModifiedValue } from '../common/confirmationModal/unsavedTypes'
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { stateSnapshot } from '$lib/svelte5Utils.svelte'
 	import AppEditorHeaderDeployInitialDraft from '../apps/editor/AppEditorHeaderDeployInitialDraft.svelte'
 	import AppEditorHeaderDeploy from '../apps/editor/AppEditorHeaderDeploy.svelte'
-
+	import type { Runnable } from './RawAppInlineScriptRunnable.svelte'
+	import { updateRawAppPolicy } from './rawAppPolicy'
+	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
+	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
+	import type { RawAppData } from './dataTableRefUtils'
+	
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -72,14 +85,20 @@
 		newApp: boolean
 		newPath?: string
 		appPath: string
-		runnables: Record<string, HiddenRunnable>
+		runnables: Record<string, Runnable>
 		files: Record<string, string> | undefined
+		/** Data configuration including tables and creation policy */
+		data: RawAppData
 		jobs: string[]
 		jobsById: Record<string, any>
 		getBundle: () => Promise<{
 			js: string
 			css: string
 		}>
+		canUndo?: boolean
+		canRedo?: boolean
+		onUndo?: () => void
+		onRedo?: () => void
 	}
 
 	let {
@@ -92,10 +111,15 @@
 		newPath = '',
 		appPath,
 		runnables,
+		data,
 		files,
 		jobs = $bindable(),
 		jobsById = $bindable(),
-		getBundle
+		getBundle,
+		canUndo = false,
+		canRedo = false,
+		onUndo = undefined,
+		onRedo = undefined
 	}: Props = $props()
 
 	let newEditedPath = $state('')
@@ -130,55 +154,7 @@
 	}
 
 	async function computeTriggerables() {
-		policy.execution_mode = 'publisher'
-		policy.on_behalf_of_email = $userStore?.email
-		policy.on_behalf_of = $userStore?.username.includes('@')
-			? $userStore?.username
-			: `u/${$userStore?.username}`
-		policy.triggerables_v2 = Object.fromEntries(
-			(await Promise.all(
-				Object.values(runnables).map(async (runnable) => {
-					return await processRunnable(runnable.name, runnable, runnable.fields)
-				})
-			)) as [string, TriggerableV2][]
-		)
-		return policy
-	}
-
-	async function processRunnable(
-		id: string,
-		runnable: Runnable,
-		fields: Record<string, any>
-	): Promise<[string, TriggerableV2] | undefined> {
-		const staticInputs = collectStaticFields(fields)
-		const allowUserResources: string[] = Object.entries(fields)
-			.map(([k, v]) => {
-				return v['allowUserResources'] ? k : undefined
-			})
-			.filter(Boolean) as string[]
-
-		if (runnable?.type == 'runnableByName') {
-			let hex = await hash(runnable.inlineScript?.content)
-			console.log('hex', hex, id)
-			return [
-				`${id}:rawscript/${hex}`,
-				{
-					static_inputs: staticInputs,
-					one_of_inputs: {},
-					allow_user_resources: allowUserResources
-				}
-			]
-		} else if (runnable?.type == 'runnableByPath') {
-			let prefix = runnable.runType !== 'hubscript' ? runnable.runType : 'script'
-			return [
-				`${id}:${prefix}/${runnable.path}`,
-				{
-					static_inputs: staticInputs,
-					one_of_inputs: {},
-					allow_user_resources: allowUserResources
-				}
-			]
-		}
+		policy = await updateRawAppPolicy(runnables, policy)
 	}
 
 	async function createApp(path: string) {
@@ -611,7 +587,7 @@
 			}
 		}
 	}
-	let app = $derived(files ? { runnables: runnables, files } : undefined)
+	let app = $derived(files ? { runnables: runnables, files, data } : undefined)
 
 	$effect(() => {
 		saveDrawerOpen && compareVersions()
@@ -658,8 +634,7 @@
 		{#snippet actions()}
 			<div class="flex flex-row gap-4">
 				<Button
-					variant="border"
-					color="light"
+					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
 					on:click={async () => {
 						if (!savedApp) {
@@ -758,6 +733,13 @@
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />
+		<div></div>
+		<UndoRedo
+			undoProps={{ disabled: !canUndo }}
+			redoProps={{ disabled: !canRedo }}
+			on:undo={() => onUndo?.()}
+			on:redo={() => onRedo?.()}
+		/>
 	</div>
 
 	<div class=" flex">
@@ -774,7 +756,7 @@
 					>
 						<Badge
 							color="gray"
-							class="center-center !bg-surface-secondary !text-tertiary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
+							class="center-center !bg-surface-secondary !text-primary !h-[28px]  !w-[70px] rounded-none hover:!bg-surface-hover transition-all flex gap-1"
 						>
 							<Pen size={14} />Path
 						</Badge>
@@ -819,15 +801,26 @@
 			>
 				<div class="flex flex-row gap-1 items-center">
 					<Bug size={14} />
-					<div>Debug runs</div>
+					<div>Jobs</div>
 
-					<div class="text-2xs text-tertiary"
+					<div class="text-2xs text-primary"
 						>({jobs?.length > 99 ? '99+' : (jobs?.length ?? 0)})</div
 					>
 				</div>
 			</Button>
 		</div>
 		<AppExportButton bind:this={appExport} />
+		<Button
+			unifiedSized="sm"
+			color="light"
+			variant="default"
+			onClick={() => aiChatManager.toggleOpen()}
+			startIcon={{ icon: WandSparkles }}
+			iconOnly
+			btnClasses={AIBtnClasses('default')}
+		>
+			AI
+		</Button>
 		<Button
 			loading={loading.save}
 			startIcon={{ icon: Save }}

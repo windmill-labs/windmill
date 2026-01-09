@@ -14,14 +14,9 @@
 	import { safeSelectItems } from '../select/utils.svelte'
 	import Badge from '../common/badge/Badge.svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AIMode } from '../copilot/chat/AIChatManager.svelte'
-	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
-	import autosize from '$lib/autosize'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
-
-	const MAX_CUSTOM_PROMPT_LENGTH = 5000
+	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
 
 	let {
 		aiProviders = $bindable(),
@@ -47,9 +42,6 @@
 			Object.keys(AI_PROVIDERS).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
 		) as Record<AIProvider, string[]>
 	)
-
-	// Custom system prompt settings
-	let selectedAiMode = $state<AIMode>(AIMode.ASK)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
 	let modelProviderMap = $derived(
@@ -154,16 +146,30 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-primary text-lg font-semibold"> Windmill AI</div>
+		<div class="text-emphasis text-sm font-semibold"> Windmill AI</div>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 			Windmill AI integrates with your favorite AI providers and models.
 		</Description>
 	</div>
 </div>
 
+<div class="flex flex-row-reverse gap-2 pb-4">
+	<Button
+		variant="accent"
+		size="xl"
+		wrapperClasses="self-start"
+		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+			(Object.keys(aiProviders).length > 0 && !defaultModel)}
+		on:click={editCopilotConfig}
+	>
+		Save
+	</Button>
+</div>
+
 <div class="flex flex-col gap-8">
 	<div class="flex flex-col gap-2">
-		<p class="font-semibold">AI Providers</p>
+		<p class="font-semibold text-xs text-emphasis">AI Providers</p>
 		<div class="flex flex-col gap-4">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col gap-2">
@@ -215,7 +221,7 @@
 						{#if provider === 'anthropic'}
 							<Badge color="blue">
 								Recommended
-								<Tooltip class="text-blue-800 dark:text-blue-800 mt-0.5">
+								<Tooltip>
 									Anthropic models handle tool calls better than other providers, which makes them a
 									better choice for AI chat.
 								</Tooltip>
@@ -331,64 +337,6 @@
 	{/if}
 
 	{#if Object.keys(aiProviders).length > 0}
-		<div class="flex flex-col gap-2">
-			<p class="font-semibold">Custom system prompts</p>
-			<div class="flex flex-col gap-4">
-				<Label label="AI Mode">
-					<ToggleButtonGroup
-						bind:selected={selectedAiMode}
-						on:selected={({ detail }) => {
-							selectedAiMode = detail
-						}}
-					>
-						{#snippet children({ item })}
-							{#each Object.values(AIMode) as mode}
-								<div class="relative">
-									<ToggleButton
-										value={mode}
-										label={mode.charAt(0).toUpperCase() + mode.slice(1)}
-										{item}
-									/>
-									{#if customPrompts[mode]?.length > 0}
-										<div
-											class="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-surface"
-										></div>
-									{/if}
-								</div>
-							{/each}
-						{/snippet}
-					</ToggleButtonGroup>
-				</Label>
-
-				<Label
-					label="Custom system prompt for {selectedAiMode.charAt(0).toUpperCase() +
-						selectedAiMode.slice(1)} Mode"
-				>
-					<textarea
-						bind:value={customPrompts[selectedAiMode]}
-						placeholder="Enter a custom system prompt for {selectedAiMode} mode."
-						class="w-full min-h-24 p-2 border border-gray-200 dark:border-gray-700 rounded-md bg-surface text-primary resize-y"
-						rows="4"
-						maxlength={MAX_CUSTOM_PROMPT_LENGTH}
-						use:autosize
-					></textarea>
-					<div class="flex justify-end mt-1">
-						<span class="text-xs text-secondary">
-							{(customPrompts[selectedAiMode] ?? '').length}/{MAX_CUSTOM_PROMPT_LENGTH} characters
-						</span>
-					</div>
-				</Label>
-			</div>
-		</div>
+		<CustomAIPrompts bind:customPrompts title="Custom system prompts" />
 	{/if}
-
-	<Button
-		wrapperClasses="self-start"
-		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)}
-		on:click={editCopilotConfig}
-	>
-		Save
-	</Button>
 </div>

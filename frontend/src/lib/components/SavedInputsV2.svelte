@@ -167,9 +167,8 @@
 													historicInputs?.refresh(true)
 												}}
 												endIcon={{ icon: Search }}
-												variant="contained"
 												size="xs2"
-												color="dark">Search</Button
+												variant="accent">Search</Button
 											>
 										</div>
 									</div>
@@ -193,7 +192,7 @@
 						<Button
 							size="xs2"
 							color="light"
-							btnClasses="!text-tertiary"
+							btnClasses="!text-primary"
 							endIcon={{ icon: ExternalLink }}
 							on:click={() => {
 								window.open(`/runs/${runnableId}`, '_blank')

@@ -1,9 +1,7 @@
 <script lang="ts">
-	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import InsertModulePopover from '$lib/components/flows/map/InsertModulePopover.svelte'
 	import { getBezierPath, BaseEdge, type EdgeProps, EdgeLabel } from '@xyflow/svelte'
 	import { ClipboardCopy, Hourglass } from 'lucide-svelte'
-	import { getContext } from 'svelte'
-	import type { Writable } from 'svelte/store'
 	import type { GraphEventHandlers } from '../../graphBuilder.svelte'
 	import { getStraightLinePath } from '../utils'
 	import { twMerge } from 'tailwind-merge'
@@ -12,10 +10,10 @@
 	import FlowStatusWaitingForEvents from '$lib/components/FlowStatusWaitingForEvents.svelte'
 	import type { Job } from '$lib/gen'
 	import type { GraphModuleState } from '../../model'
+	import InsertModuleButton from '$lib/components/flows/map/InsertModuleButton.svelte'
+	import { getGraphContext } from '../../graphContext'
 
-	const { useDataflow } = getContext<{
-		useDataflow: Writable<boolean | undefined>
-	}>('FlowGraphContext')
+	const { useDataflow, showAssets } = getGraphContext()
 
 	let {
 		// id,
@@ -80,82 +78,12 @@
 
 <EdgeLabel
 	x={sourceX}
-	y={sourceY + 28 + (data.shouldOffsetInsertBtnDueToAssetNode ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
+	y={sourceY +
+		32 +
+		(data.shouldOffsetInsertBtnDueToAssetNode && $showAssets ? NODE_WITH_WRITE_ASSET_Y_OFFSET : 0)}
 	class="base-edge"
 	style=""
 >
-	{#if data?.insertable && !$useDataflow && !data?.moving && !waitingForEvents}
-		<div
-			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
-			style:transform="translate(-50%, -50%)"
-		>
-			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
-			<!-- {data.targetId} B -->
-			<InsertModuleButton
-				disableAi={data.disableAi}
-				index={data.index ?? 0}
-				on:new={(e) => {
-					data?.eventHandlers.insert({
-						sourceId: data.sourceId,
-						targetId: data.targetId,
-						branch: data.branch,
-						index: data.index,
-						kind: e.detail.kind,
-						inlineScript: e.detail.inlineScript
-					})
-				}}
-				on:pickScript={(e) => {
-					// console.log('pickScript', e)
-					data?.eventHandlers.insert({
-						sourceId: data.sourceId,
-						targetId: data.targetId,
-						branch: data.branch,
-						index: data.index,
-						script: e.detail,
-						kind: e.detail.kind
-					})
-				}}
-				on:pickFlow={(e) => {
-					// console.log('pickFlow', e)
-					data?.eventHandlers.insert({
-						sourceId: data.sourceId,
-						targetId: data.targetId,
-						branch: data.branch,
-						index: data.index,
-						flow: e.detail
-					})
-				}}
-			/>
-		</div>
-	{/if}
-
-	{#if data?.moving}
-		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
-			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
-				<button
-					title="Paste module"
-					onclick={() => {
-						data.eventHandlers.insert({
-							branch: data.branch,
-							sourceId: data.sourceId,
-							targetId: data.targetId,
-							index: data.index
-						})
-					}}
-					type="button"
-					class={twMerge(
-						'w-6 h-6 flex items-center justify-center',
-						'border border-gray-300 dark:border-gray-500',
-						'text-primary text-sm',
-						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
-					)}
-				>
-					<ClipboardCopy size={14} />
-				</button>
-			{/if}
-		</div>
-	{/if}
-
 	{#if waitingForEvents && data.flowJob && data.flowJob.type === 'QueuedJob'}
 		<div
 			class="px-2 py-0.5 rounded-md bg-surface shadow-md text-violet-700 dark:text-violet-400 text-xs flex items-center gap-1"
@@ -188,6 +116,81 @@
 						/>
 					{/each}
 				</div>
+			{/if}
+		</div>
+	{:else if data?.insertable && !$useDataflow && !data?.moving}
+		<div
+			class={twMerge('edgeButtonContainer nodrag nopan top-0')}
+			style:transform="translate(-50%, -50%)"
+		>
+			<!-- <pre class="text-2xs">A{JSON.stringify(data.branch)}, {data.sourceId}, {data.targetId}</pre> -->
+			<!-- {data.targetId} B -->
+			<InsertModulePopover
+				disableAi={data.disableAi}
+				allowTrigger={data.index == 0}
+				on:new={(e) => {
+					data?.eventHandlers.insert({
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
+						index: data.index,
+						kind: e.detail.kind,
+						inlineScript: e.detail.inlineScript
+					})
+				}}
+				on:pickScript={(e) => {
+					// console.log('pickScript', e)
+					data?.eventHandlers.insert({
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
+						index: data.index,
+						script: e.detail,
+						kind: e.detail.kind
+					})
+				}}
+				on:pickFlow={(e) => {
+					// console.log('pickFlow', e)
+					data?.eventHandlers.insert({
+						sourceId: data.sourceId,
+						targetId: data.targetId,
+						branch: data.branch,
+						index: data.index,
+						flow: e.detail
+					})
+				}}
+				gutter={0}
+			>
+				{#snippet trigger()}
+					<InsertModuleButton title={`Add step`} id={`flow-editor-add-step-${data.index ?? 0}`} />
+				{/snippet}
+			</InsertModulePopover>
+		</div>
+	{/if}
+
+	{#if data?.moving}
+		<div class="edgeButtonContainer nodrag nopan" style:transform="translate(-50%, -50%)">
+			{#if data.moving && !data.disableMoveIds?.includes(data.moving)}
+				<button
+					title="Paste module"
+					onclick={() => {
+						data.eventHandlers.insert({
+							branch: data.branch,
+							sourceId: data.sourceId,
+							targetId: data.targetId,
+							index: data.index
+						})
+					}}
+					type="button"
+					class={twMerge(
+						'w-6 h-6 flex items-center justify-center',
+						'border border-gray-300 dark:border-gray-500',
+						'text-primary text-sm',
+						'bg-surface focus:outline-none hover:bg-surface-hover focus:ring-4 focus:ring-surface-selected rounded-full '
+					)}
+				>
+					<ClipboardCopy size={14} />
+				</button>
 			{/if}
 		</div>
 	{/if}

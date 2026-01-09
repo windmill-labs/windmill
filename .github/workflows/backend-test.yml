@@ -67,13 +67,26 @@ jobs:
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
           ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
+      - name: Cache DuckDB FFI module build
+        uses: actions/cache@v3
+        with:
+          path: ./backend/windmill-duckdb-ffi-internal/target
+          key: ${{ runner.os }}-duckdb-ffi-${{ hashFiles('./backend/windmill-duckdb-ffi-internal/src/**/*.rs', './backend/windmill-duckdb-ffi-internal/Cargo.toml', './backend/windmill-duckdb-ffi-internal/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-duckdb-ffi-
       - name: cargo test
         timeout-minutes: 16
-        run: deno --version && bun -v && go version && python3 --version &&
-          SQLX_OFFLINE=true
-          DATABASE_URL=postgres://postgres:changeme@localhost:5432/windmill
-          DISABLE_EMBEDDING=true RUST_LOG=info RUST_LOG_STYLE=never
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go)
-          UV_PATH=$(which uv) cargo test --features
-          enterprise,deno_core,license,python,rust,scoped_cache,private --all --
-          --nocapture
+        env:
+          SQLX_OFFLINE: true
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432/windmill
+          DISABLE_EMBEDDING: true
+          RUST_LOG: info
+          RUST_LOG_STYLE: never
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+          WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
+          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1          
+          WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+        run: |
+          deno --version && bun -v && go version && python3 --version
+          cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private --all -- --nocapture

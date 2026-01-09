@@ -4,19 +4,16 @@
 	import VirtualItem from '$lib/components/flows/map/VirtualItem.svelte'
 	import NodeWrapper from './NodeWrapper.svelte'
 	import { X } from 'lucide-svelte'
-	import { getStateColor, getStateHoverColor } from '../../util'
 	import type { BranchAllStartN } from '../../graphBuilder.svelte'
-	import { computeBorderStatus } from '../utils'
-
+	import { getGraphContext } from '../../graphContext'
 	interface Props {
 		data: BranchAllStartN['data']
+		id: string
 	}
 
-	let { data }: Props = $props()
+	let { data, id }: Props = $props()
 
-	let borderStatus = $derived(
-		computeBorderStatus(data.branchIndex, 'branchall', data.flowModuleState)
-	)
+	const { selectionManager } = getGraphContext()
 </script>
 
 <NodeWrapper offset={data.offset}>
@@ -24,12 +21,7 @@
 		<VirtualItem
 			label={data.label}
 			selectable
-			selected={false}
-			bgColor={getStateColor(undefined, darkMode)}
-			bgHoverColor={getStateHoverColor(undefined, darkMode)}
-			borderColor={borderStatus
-				? getStateColor(borderStatus, darkMode) + (!darkMode ? '; border-width: 3px' : '')
-				: undefined}
+			selected={selectionManager && selectionManager.isNodeSelected(id)}
 			on:select={() => {
 				setTimeout(() => data.eventHandlers.select(data.id))
 			}}

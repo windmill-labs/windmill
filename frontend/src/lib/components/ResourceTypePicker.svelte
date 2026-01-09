@@ -49,7 +49,7 @@
 		<Tooltip light small>Select a resource type to narrow down the object type.</Tooltip>
 
 		<div class="flex flex-row items-center w-full justify-between">
-			<Badge color={!value ? 'gray' : 'blue'}>
+			<Badge selected={!!value}>
 				{value ?? 'None'}
 			</Badge>
 		</div>
@@ -66,9 +66,8 @@
 					{@const isPicked = value === undefined}
 					<Button
 						size="sm"
-						variant="border"
-						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+						variant="default"
+						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
 							onClick(undefined)
@@ -82,9 +81,8 @@
 					{@const isPicked = value === r}
 					<Button
 						size="sm"
-						variant="border"
-						color={isPicked ? 'blue' : 'light'}
-						btnClasses={isPicked ? '!border-2' : 'm-[1px]'}
+						variant="default"
+						selected={isPicked}
 						disabled={notPickable}
 						on:click={() => {
 							onClick(r)
@@ -96,7 +94,7 @@
 				{/each}
 
 				{#if filteredResources.length === 0 && search !== ''}
-					<div class="text-tertiary text-sm">No resources found</div>
+					<div class="text-primary text-sm">No resources found</div>
 				{/if}
 			</div>
 		</div>

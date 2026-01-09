@@ -1,3 +1,5 @@
+import type { ButtonType } from './common/button/model'
+
 export interface Setting {
 	label: string
 	description?: string
@@ -45,6 +47,11 @@ export interface Setting {
 	error?: string
 	defaultValue?: () => any
 	codeAreaLang?: string
+	actionButton?: {
+		label: string
+		onclick: (values: Record<string, any>) => Promise<void>
+		variant?: ButtonType.Variant
+	}
 }
 
 export type SettingStorage = 'setting'
@@ -233,8 +240,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'hub_api_secret',
 			fieldType: 'password',
 			storage: 'setting',
-			ee_only: '',
-			requiresReloadOnChange: true
+			ee_only: ''
 		},
 		{
 			label: 'App workspace prefix',
@@ -242,6 +248,15 @@ export const settings: Record<string, Setting[]> = {
 				'When enabled apps will be accessible at /a/{workspace_id}/{custom_path} instead of /a/{custom_path} allowing you to define same custom path for apps in different workspace without conflict',
 			key: 'app_workspaced_route',
 			fieldType: 'boolean',
+			storage: 'setting',
+			ee_only: ''
+		}
+	],
+	SMTP: [
+		{
+			label: 'SMTP',
+			key: 'smtp_settings',
+			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
 		}
@@ -262,7 +277,7 @@ export const settings: Record<string, Setting[]> = {
 				{
 					label: 'Latest Stable',
 					value: 'default',
-					tooltip: 'python-3.11'
+					tooltip: 'python-3.12'
 				},
 				{
 					label: '3.10'
@@ -374,11 +389,27 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'Critical alert channels',
 			description:
-				'Channels to send critical alerts to. SMTP, Slack or Microsoft Teams must be configured below. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
+				'Channels to send critical alerts to. <a href="https://www.windmill.dev/docs/core_concepts/critical_alerts">Learn more</a>',
 			key: 'critical_error_channels',
 			fieldType: 'critical_error_channels',
 			storage: 'setting',
-			ee_only: 'Channels other than tracing are only available in the EE version'
+			ee_only: 'Channels other than tracing are only available in the EE version',
+			actionButton: {
+				label: 'Test all channels',
+				onclick: async (values) => {
+					const { SettingService } = await import('$lib/gen')
+					const { sendUserToast } = await import('$lib/toast')
+					try {
+						await SettingService.testCriticalChannels({
+							requestBody: values.critical_error_channels
+						})
+						sendUserToast('Test message sent successfully to critical channels', false)
+					} catch (error: any) {
+						sendUserToast('Failed to send test message: ' + error.message, true)
+					}
+				},
+				variant: 'accent'
+			}
 		},
 		{
 			label: 'Mute critical alerts in UI',
@@ -393,13 +424,6 @@ export const settings: Record<string, Setting[]> = {
 			label: 'Slack',
 			key: 'slack',
 			fieldType: 'slack_connect',
-			storage: 'setting',
-			ee_only: ''
-		},
-		{
-			label: 'SMTP',
-			key: 'smtp_settings',
-			fieldType: 'smtp_connect',
 			storage: 'setting',
 			ee_only: ''
 		},

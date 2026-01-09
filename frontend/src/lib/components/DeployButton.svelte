@@ -29,7 +29,8 @@
 <Button
 	disabled={loading}
 	loading={loadingSave}
-	size="xs"
+	variant="accent"
+	unifiedSize="md"
 	startIcon={{ icon: Save }}
 	on:click={() => dispatch('save')}
 	dropdownItems={!newFlow ? dropdownItems : undefined}
@@ -57,7 +58,7 @@
 >
 	Deploy
 	{#snippet tooltip()}
-		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg border z-[5001]">
+		<div class="flex flex-row gap-2 w-80 p-4 bg-surface rounded-lg shadow-lg dark:border z-[5001]">
 			<input
 				type="text"
 				placeholder="Deployment message"
@@ -70,7 +71,8 @@
 				bind:this={msgInput}
 			/>
 			<Button
-				size="sm"
+				unifiedSize="md"
+				variant="accent"
 				on:click={async () => dispatch('save', deploymentMsg)}
 				endIcon={{ icon: CornerDownLeft }}
 				loading={loadingSave}

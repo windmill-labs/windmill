@@ -24,7 +24,7 @@
 <div class="min-w-0">
 	<Popover disablePopup={!multipleModels} class="max-w-full">
 		{#snippet trigger()}
-			<div class="text-tertiary text-xs flex flex-row items-center font-normal gap-0.5">
+			<div class="text-secondary text-2xs flex flex-row items-center font-normal gap-0.5">
 				<span class={`truncate ${multipleModels ? '' : 'pr-2'}`}>{providerModel.model}</span>
 				{#if multipleModels}
 					<div class="shrink-0">

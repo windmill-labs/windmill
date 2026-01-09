@@ -13,6 +13,7 @@
 		create: boolean
 		enumLabels?: Record<string, string> | undefined
 		selectClass?: string
+		onClear?: () => void
 	}
 
 	let {
@@ -24,7 +25,8 @@
 		valid,
 		create,
 		enumLabels = undefined,
-		selectClass = ''
+		selectClass = '',
+		onClear = undefined
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -51,6 +53,7 @@
 	})
 
 	let filterText = $state('')
+	let cleared = $state(false)
 </script>
 
 <div class="w-full flex-col">
@@ -63,13 +66,19 @@
 			bind:filterText
 			{items}
 			bind:value={
-				() => value ?? defaultValue,
+				() => value ?? (cleared ? undefined : defaultValue),
 				(newValue) => {
+					cleared = false
 					if (newValue && items.findIndex((i) => i.value === newValue) === -1)
 						customItems.push(newValue)
 					value = newValue
 				}
 			}
+			onClear={() => {
+				onClear?.()
+				cleared = true
+				value = undefined
+			}}
 			onFocus={() => dispatch('focus')}
 			onBlur={() => dispatch('blur')}
 			inputClass={selectClass}

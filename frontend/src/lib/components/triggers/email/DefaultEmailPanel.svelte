@@ -16,7 +16,7 @@
 		token: string
 		scopes?: string[]
 		isFlow?: boolean
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		path: string
 		onEmailDomain: (domain: string) => void
 	}
@@ -25,7 +25,7 @@
 		token = $bindable(),
 		scopes = [],
 		isFlow = false,
-		hash = undefined,
+		runnableVersion = undefined,
 		path,
 		onEmailDomain
 	}: Props = $props()
@@ -60,7 +60,7 @@
 	{scopes}
 />
 
-<Section label="Default email trigger" class="flex flex-col gap-4">
+<Section label="Default email trigger" class="flex flex-col gap-6">
 	<Description link="https://www.windmill.dev/docs/advanced/email_triggers">
 		Default email trigger is a partially fixed email address that can be used to trigger a script or
 		flow. The email address is composed of the encoded workspace and script or flow path as well as
@@ -70,7 +70,7 @@
 		<Skeleton layout={[[18]]} />
 	{:else}
 		{#if emailDomain}
-			<DefaultEmailConfigSection {hash} {token} {path} {isFlow} {userSettings} {emailDomain} />
+			<DefaultEmailConfigSection {runnableVersion} {token} {path} {isFlow} {userSettings} {emailDomain} />
 		{:else}
 			<div>
 				<Alert title="Email triggers are disabled" size="xs" type="warning">

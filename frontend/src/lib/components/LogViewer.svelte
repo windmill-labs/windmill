@@ -156,6 +156,7 @@
 			lastJobId = jobId
 			loadedFromObjectStore = ''
 			LOG_LIMIT = LOG_INC
+			scroll = true
 		}
 	})
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
@@ -206,7 +207,7 @@
 		{/snippet}
 		<div>
 			<pre
-				class="bg-surface-secondary text-secondary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
+				class="bg-surface-secondary text-primary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
@@ -227,7 +228,7 @@
 			class="w-full h-full overflow-auto bg-surface-secondary pt-4 {noMaxH ? '' : 'max-h-screen'}"
 			data-nav-id={navigationId}
 		>
-			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-sm">
+			<div class="absolute z-10 top-0 right-0 flex flex-row-reverse justify-between text-xs">
 				<div class="flex gap-2">
 					{#if jobId && download}
 						<div class="flex items-center">
@@ -242,14 +243,14 @@
 					{/if}
 					<button onclick={logViewer.openDrawer}><Expand size="12" /></button>
 					{#if !noAutoScroll}
-						<div
-							class="{small ? '' : 'py-2'} pr-2 {small
-								? '!text-2xs'
-								: '!text-xs'} flex gap-2 text-tertiary items-center"
+						<label
+							class="{small
+								? ''
+								: 'py-2'} pr-2 text-2xs flex gap-2 font-normal text-primary items-center"
 						>
 							Auto scroll
 							<input class="windmillapp" type="checkbox" bind:checked={scroll} />
-						</div>
+						</label>
 					{/if}
 				</div>
 			</div>
@@ -258,9 +259,7 @@
 					<Loader2 class="animate-spin" />
 					{#if tag}
 						<div class="flex flex-row items-center gap-1">
-							<div class="text-secondary {small ? '!text-2xs' : '!text-xs'}"
-								>{tagLabel ?? 'tag'}: {tag}</div
-							>
+							<div class="text-primary text-2xs">{tagLabel ?? 'tag'}: {tag}</div>
 							<NoWorkerWithTagWarning {tagLabel} {tag} />
 						</div>
 					{/if}
@@ -271,7 +270,7 @@
 			{:else if duration}
 				<span
 					class={twMerge(
-						'absolute  text-tertiary dark:text-gray-400',
+						'absolute  text-primary dark:text-gray-400',
 						small ? '!text-2xs' : '!text-xs',
 						small ? 'top-0' : 'top-2',
 						noPadding ? '' : 'left-2'
@@ -280,14 +279,14 @@
 			{/if}
 			{#if mem}
 				<span
-					class="absolute {small ? '!text-2xs' : '!text-xs'} text-tertiary dark:text-gray-400 {small
+					class="absolute {small ? '!text-2xs' : '!text-xs'} text-primary dark:text-gray-400 {small
 						? 'top-0'
 						: 'top-2'}  left-36">mem peak: {(mem / 1024).toPrecision(4)}MB</span
 				>
 			{/if}
 			<pre
 				class={twMerge(
-					'whitespace-pre break-words w-full',
+					'whitespace-pre break-words w-full ',
 					small ? '!text-2xs' : '!text-xs',
 					noPadding ? '' : 'p-2'
 				)}
@@ -296,9 +295,9 @@
 						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
 							onclick={getStoreLogs}
 							>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)<br
-						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br />{/if}<span
-						>{@html html}</span
+						><br />{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
+							>Show more..</button
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br />{/if}<span>{@html html}</span
 					>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>

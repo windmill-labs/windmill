@@ -51,7 +51,7 @@
 			<p class="text-sm font-medium text-primary truncate" role="none">
 				{$userStore?.email}
 			</p>
-			<span class="text-xs text-tertiary flex flex-row gap-2 items-center">
+			<span class="text-xs text-primary flex flex-row gap-2 items-center">
 				{#if $userStore?.is_admin}
 					Admin of this workspace <Crown size={14} />
 				{:else if $userStore?.operator}
@@ -86,11 +86,7 @@
 				Switch theme
 			</MenuItem>
 
-			<MenuItem
-				onClick={() => logout()}
-				class={twMerge(itemClass, 'text-primary font-semibold')}
-				{item}
-			>
+			<MenuItem onClick={() => logout()} class={itemClass} {item}>
 				<LogOut size={16} />
 				Sign out
 			</MenuItem>

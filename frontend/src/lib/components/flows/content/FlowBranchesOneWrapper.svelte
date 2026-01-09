@@ -71,7 +71,7 @@
 						<div class="py-2">
 							<div class="flex flex-row gap-2 text-sm p-2">
 								<Badge large={true} color="blue">Default branch</Badge>
-								<p class="italic text-tertiary"
+								<p class="italic text-primary"
 									>If none of the predicates' expressions evaluated in-order match, this branch is
 									chosen</p
 								>
@@ -109,12 +109,12 @@
 				{#if flowModule}
 					<Pane size={40}>
 						<TabsV2 bind:selected>
-							<Tab value="early-stop">Early Stop/Break</Tab>
-							<Tab value="skip">Skip</Tab>
-							<Tab value="suspend">Suspend/Approval/Prompt</Tab>
-							<Tab value="sleep">Sleep</Tab>
-							<Tab value="mock">Mock</Tab>
-							<Tab value="lifetime">Lifetime</Tab>
+							<Tab value="early-stop" label="Early Stop/Break" />
+							<Tab value="skip" label="Skip" />
+							<Tab value="suspend" label="Suspend/Approval/Prompt" />
+							<Tab value="sleep" label="Sleep" />
+							<Tab value="mock" label="Mock" />
+							<Tab value="lifetime" label="Lifetime" />
 							{#snippet content()}
 								<div class="overflow-hidden bg-surface">
 									<TabContent value="early-stop" class="flex flex-col flex-1 h-full">

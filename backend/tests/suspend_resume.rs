@@ -6,13 +6,13 @@ mod suspend_resume {
 
     #[cfg(feature = "deno_core")]
     use crate::common::*;
-    
+
     #[cfg(feature = "deno_core")]
-    use sqlx::{Pool, Postgres};
+    use futures::{Stream, StreamExt};
     #[cfg(feature = "deno_core")]
     use sqlx::types::Uuid;
     #[cfg(feature = "deno_core")]
-    use futures::{Stream, StreamExt};
+    use sqlx::{Pool, Postgres};
     #[cfg(feature = "deno_core")]
     use windmill_common::flows::FlowValue;
     #[cfg(feature = "deno_core")]
@@ -223,7 +223,7 @@ mod suspend_resume {
                 .arg("n", json!(1))
                 .arg("op", json!("cancel"))
                 .arg("port", json!(port))
-                .run_until_complete(&db, port)
+                .run_until_complete(&db, false, port)
                 .await
                 .json_result()
                 .unwrap();

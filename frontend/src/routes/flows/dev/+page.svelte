@@ -9,6 +9,7 @@
 		FlowInput,
 		FlowInputEditorState
 	} from '$lib/components/flows/types'
+	import { SelectionManager } from '$lib/components/graph/selectionUtils.svelte'
 	import { writable } from 'svelte/store'
 	import { OpenAPI, type OpenFlow, type TriggersCount } from '$lib/gen'
 	import { initHistory } from '$lib/history.svelte'
@@ -76,7 +77,8 @@
 	const history = initHistory(flowStore.val)
 
 	const stepsInputArgs = new StepsInputArgs()
-	const selectedIdStore = writable('settings-metadata')
+	const selectionManager = new SelectionManager()
+	selectionManager.selectId('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	setContext<TriggerContext>('TriggerContext', {
 		triggersCount: triggersCount,
@@ -86,9 +88,10 @@
 	})
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		flowEditorDrawer: writable(undefined),
 		moving,
 		history,
 		pathStore: writable(''),
@@ -293,7 +296,7 @@
 						on:applyArgs={(ev) => {
 							if (ev.detail.kind === 'preprocessor') {
 								stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-								$selectedIdStore = 'preprocessor'
+								selectionManager.selectId('preprocessor')
 							} else {
 								previewArgsStore.val = ev.detail.args ?? {}
 								flowPreviewButtons?.openPreview()

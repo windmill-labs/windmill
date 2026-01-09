@@ -51,10 +51,10 @@
 		return null
 	}
 	let raise_error_message_stop_after_all_if = $state(
-		flowModule.stop_after_all_iters_if?.error_message !== undefined
+		flowModule.stop_after_all_iters_if?.error_message != undefined
 	)
 	let raise_error_message_stop_after_if = $state(
-		flowModule.stop_after_if?.error_message !== undefined
+		flowModule.stop_after_if?.error_message != undefined
 	)
 	let { isLoop, isParallelLoop } = $derived(
 		flowModule.value.type === 'forloopflow' || flowModule.value.type === 'whileloopflow'
@@ -117,7 +117,7 @@
 			/>
 
 			<div
-				class="w-full mt-2 border p-2 flex flex-col gap-2 {flowModule.stop_after_if
+				class="w-full mt-2 border rounded-md p-2 flex flex-col gap-2 {flowModule.stop_after_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -162,11 +162,11 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border w-full">
+					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
+							noPadding
 							notSelectable
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							pickableProperties={undefined}
+							pickableProperties={stepPropPicker.pickableProperties}
 							result={earlyStopResult}
 							extraResults={isLoop ? { all_iters: result } : undefined}
 							on:select={({ detail }) => {
@@ -178,9 +178,9 @@
 								bind:this={editor}
 								lang="javascript"
 								bind:code={flowModule.stop_after_if.expr}
-								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};` +
-									`\n declare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};` +
+								class="h-full"
+								extraLib={`declare const result = ${JSON.stringify(earlyStopResult)};\n` +
+									stepPropPicker.extraLib +
 									(isLoop ? `\ndeclare const all_iters = ${JSON.stringify(result)};` : '')}
 							/>
 						</PropPickerWrapper>
@@ -259,7 +259,7 @@
 			/>
 
 			<div
-				class="w-full border mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
+				class="w-full border rounded-md mt-2 p-2 flex flex-col gap-2 {flowModule.stop_after_all_iters_if
 					? ''
 					: 'bg-surface-secondary'}"
 			>
@@ -298,11 +298,11 @@
 						/>
 					{/if}
 					<span class="mt-2 text-xs font-bold">Stop condition expression</span>
-					<div class="border w-full">
+					<div class="border rounded-md w-full overflow-auto">
 						<PropPickerWrapper
 							notSelectable
-							flow_input={stepPropPicker.pickableProperties.flow_input}
-							pickableProperties={undefined}
+							noPadding
+							pickableProperties={stepPropPicker.pickableProperties}
 							{result}
 							on:select={({ detail }) => {
 								editor?.insertAtCursor(detail)
@@ -313,9 +313,9 @@
 								bind:this={editor}
 								lang="javascript"
 								bind:code={flowModule.stop_after_all_iters_if.expr}
-								class="few-lines-editor"
-								extraLib={`declare const result = ${JSON.stringify(result)};` +
-									`\ndeclare const flow_input = ${JSON.stringify(stepPropPicker.pickableProperties.flow_input)};`}
+								class="h-full"
+								extraLib={`declare const result = ${JSON.stringify(result)};\n` +
+									stepPropPicker.extraLib}
 							/>
 						</PropPickerWrapper>
 					</div>

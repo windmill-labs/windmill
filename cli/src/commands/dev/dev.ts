@@ -19,12 +19,17 @@ import {
   mergeConfigWithConfigFile,
   readConfigFile,
 } from "../../core/conf.ts";
-import { exts, findGlobalDeps, removeExtensionToPath } from "../script/script.ts";
+import { exts, removeExtensionToPath } from "../script/script.ts";
 import { inferContentTypeFromFilePath } from "../../utils/script_common.ts";
 import { OpenFlow } from "../../../gen/types.gen.ts";
 import { FlowFile } from "../flow/flow.ts";
 import { replaceInlineScripts } from "../../../windmill-utils-internal/src/inline-scripts/replacer.ts";
 import { parseMetadataFile } from "../../utils/metadata.ts";
+import {
+  getFolderSuffixWithSep,
+  getMetadataFileName,
+  extractFolderPath,
+} from "../../utils/resource_folders.ts";
 
 const PORT = 3001;
 async function dev(opts: GlobalOptions & SyncOptions) {
@@ -56,11 +61,12 @@ async function dev(opts: GlobalOptions & SyncOptions) {
     }
   }
 
-  const DOT_FLOW_SEP = ".flow" + SEP;
+  const flowFolderSuffix = getFolderSuffixWithSep("flow");
+  const flowMetadataFile = getMetadataFileName("flow", "yaml");
   async function loadPaths(pathsToLoad: string[]) {
     const paths = pathsToLoad.filter((path) =>
       exts.some(
-        (ext) => path.endsWith(ext) || path.endsWith(DOT_FLOW_SEP + "flow.yaml")
+        (ext) => path.endsWith(ext) || path.endsWith(flowFolderSuffix + flowMetadataFile)
       )
     );
     if (paths.length == 0) {
@@ -71,7 +77,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       const typ = getTypeStrFromPath(cpath);
       log.info("Detected change in " + cpath + " (" + typ + ")");
       if (typ == "flow") {
-        const localPath = cpath.split(DOT_FLOW_SEP)[0] + DOT_FLOW_SEP;
+        const localPath = extractFolderPath(cpath, "flow")!;
         const localFlow = (await yamlParseFile(
           localPath + "flow.yaml"
         )) as FlowFile;
@@ -82,8 +88,8 @@ async function dev(opts: GlobalOptions & SyncOptions) {
           localPath,
           SEP,
           undefined,
-          (path: string, newPath: string) => Deno.renameSync(path, newPath),
-          (path: string) => Deno.removeSync(path),
+          // (path: string, newPath: string) => Deno.renameSync(path, newPath),
+          // (path: string) => Deno.removeSync(path),
         );
         currentLastEdit = {
           type: "flow",
@@ -97,13 +103,10 @@ async function dev(opts: GlobalOptions & SyncOptions) {
         const splitted = cpath.split(".");
         const wmPath = splitted[0];
         const lang = inferContentTypeFromFilePath(cpath, conf.defaultTs);
-        const globalDeps = await findGlobalDeps();
         const typed =
           (await parseMetadataFile(
             removeExtensionToPath(cpath),
             undefined,
-            globalDeps,
-            []
           )
           )?.payload
 
@@ -170,7 +173,7 @@ async function dev(opts: GlobalOptions & SyncOptions) {
       ws.on("message", (message: WebSocket.RawData) => {
         let data;
         try {
-          data = JSON.parse(message);
+          data = JSON.parse(message.toString());
         } catch (e) {
           console.log("Received invalid JSON: " + message + " " + e);
           return;

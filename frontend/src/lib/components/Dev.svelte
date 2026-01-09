@@ -1,5 +1,6 @@
 <script lang="ts">
 	import SchemaForm from '$lib/components/SchemaForm.svelte'
+	import JsonInputs from '$lib/components/JsonInputs.svelte'
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import { Button } from '$lib/components/common'
 	import { WindmillIcon } from '$lib/components/icons'
@@ -31,6 +32,8 @@
 	import type { FlowState } from './flows/flowState'
 	import { initHistory } from '$lib/history.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
+	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { NoteEditor, setNoteEditorContext } from './graph/noteEditor.svelte'
 	import { dfs } from './flows/dfs'
 	import { loadSchemaFromModule } from './flows/flowInfers'
 	import { CornerDownLeft, Play } from 'lucide-svelte'
@@ -119,6 +122,9 @@
 	// Test args input
 	let args: Record<string, any> = $state({})
 	let isValid: boolean = $state(true)
+	let jsonView: boolean = $state(false)
+	let jsonEditor: JsonInputs | undefined = $state(undefined)
+	let schemaHeight = $state(0)
 
 	// Test
 	let testIsLoading = $state(false)
@@ -475,7 +481,7 @@
 					let ids = dfs(flowStore.val.value.modules ?? [], (m) => m.id)
 					flowStateStore.val = Object.fromEntries(ids.map((k) => [k, {}]))
 				} catch (e) {}
-				inferModuleArgs($selectedIdStore)
+				inferModuleArgs(selectedId)
 			}
 		} catch (e) {
 			console.error('issue setting new flowstore', e)
@@ -489,7 +495,8 @@
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const stepsInputArgs = new StepsInputArgs()
-	const selectedIdStore = writable('settings-metadata')
+	const selectionManager = new SelectionManager()
+	selectionManager.selectId('settings-metadata')
 	const triggersCount = writable<TriggersCount | undefined>(undefined)
 	const modulesTestStates = new ModulesTestStates((moduleId) => {
 		// console.log('FOO')
@@ -508,9 +515,10 @@
 	let pathStore = writable('')
 	let initialPathStore = writable('')
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		flowEditorDrawer: writable(undefined),
 		moving,
 		history,
 		pathStore: pathStore,
@@ -537,6 +545,13 @@
 		flowPropPickerConfig: writable<FlowPropPickerConfig | undefined>(undefined),
 		pickablePropertiesFiltered: writable<PickableProperties | undefined>(undefined)
 	})
+
+	// Set up NoteEditor context for note editing capabilities
+	const noteEditor = new NoteEditor(flowStore, () => {
+		// Enable notes display when a note is created
+		flowModuleSchemaMap?.enableNotes?.()
+	})
+	setNoteEditorContext(noteEditor)
 
 	let lastSent: OpenFlow | undefined = undefined
 	function updateFlow(flow: OpenFlow) {
@@ -618,7 +633,7 @@
 		flowStore.val && untrack(() => updateFlow(flowStore.val))
 	})
 	$effect(() => {
-		$selectedIdStore && untrack(() => inferModuleArgs($selectedIdStore))
+		selectedId && untrack(() => inferModuleArgs(selectedId))
 	})
 
 	let localModuleStates: Record<string, GraphModuleState> = $state({})
@@ -640,7 +655,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowModuleSchemaMap?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+				if (flowModuleSchemaMap?.isNodeVisible('Result') && selectedId !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
@@ -665,6 +680,8 @@
 	}
 
 	const flowHasChanged = $derived(flowPreviewContent?.flowHasChanged())
+
+	const selectedId = $derived(selectionManager.getSelectedId())
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
@@ -684,7 +701,7 @@
 				>
 			</div>
 
-			<div class="absolute top-2 right-2 !text-tertiary text-xs">
+			<div class="absolute top-2 right-2 !text-primary text-xs">
 				{#if $userStore != undefined}
 					As {$userStore?.username} in {$workspaceStore}
 				{:else}
@@ -743,7 +760,7 @@
 				{:else}
 					<Button
 						disabled={currentScript === undefined}
-						color="dark"
+						variant="accent"
 						on:click={(e) => {
 							runTest()
 						}}
@@ -768,9 +785,38 @@
 			<Splitpanes horizontal style="height: 1000px;">
 				<Pane size={33}>
 					<div class="px-2">
-						<div class="break-words relative font-sans">
-							<SchemaForm compact {schema} bind:args bind:isValid />
+						<div class="flex justify-end mb-2">
+							<Toggle
+								bind:checked={jsonView}
+								size="xs"
+								options={{
+									right: 'JSON',
+									rightTooltip: 'Fill args from JSON'
+								}}
+								lightMode
+								on:change={() => {
+									jsonEditor?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+								}}
+							/>
 						</div>
+						{#if jsonView}
+							<div class="py-2" style="height: {Math.max(schemaHeight, 300)}px">
+								<JsonInputs
+									bind:this={jsonEditor}
+									on:select={(e) => {
+										if (e.detail) {
+											args = e.detail
+										}
+									}}
+									updateOnBlur={false}
+									placeholder={`Write args as JSON.<br/><br/>Example:<br/><br/>{<br/>&nbsp;&nbsp;"foo": "12"<br/>}`}
+								/>
+							</div>
+						{:else}
+							<div class="break-words relative font-sans" bind:clientHeight={schemaHeight}>
+								<SchemaForm compact {schema} bind:args bind:isValid />
+							</div>
+						{/if}
 					</div>
 				</Pane>
 				<Pane size={67}>
@@ -846,7 +892,7 @@
 								on:applyArgs={(ev) => {
 									if (ev.detail.kind === 'preprocessor') {
 										stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-										$selectedIdStore = 'preprocessor'
+										selectionManager.selectId('preprocessor')
 									} else {
 										previewArgsStore.val = ev.detail.args ?? {}
 										flowPreviewButtons?.openPreview()

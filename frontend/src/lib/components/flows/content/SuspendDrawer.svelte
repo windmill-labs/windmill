@@ -13,8 +13,7 @@
 
 <Button
 	size="xs"
-	variant="border"
-	color="light"
+	variant="default"
 	on:click={() => {
 		drawer.openDrawer()
 	}}
@@ -35,9 +34,9 @@
 				prompt to the operator when running the flow. Additionally, adding the cancel url will also
 				render a cancel button, providing the operator with an option to cancel the step. e.g:
 				<Tabs selected="bun" class="pt-4">
-					<Tab value="bun">TypeScript (Bun)</Tab>
-					<Tab value="deno">TypeScript (Deno)</Tab>
-					<Tab value="python">Python</Tab>
+					<Tab value="bun" label="TypeScript (Bun)" />
+					<Tab value="deno" label="TypeScript (Deno)" />
+					<Tab value="python" label="Python" />
 
 					{#snippet content()}
 						<TabContent value="deno" class="p-2">

@@ -1,11 +1,14 @@
 <script lang="ts">
 	import { ConfigService, type AutoscalingEvent } from '$lib/gen'
-	import { LoaderIcon, RefreshCw } from 'lucide-svelte'
+	import { RefreshCw } from 'lucide-svelte'
 	import { Button, Skeleton } from './common'
 	import { twMerge } from 'tailwind-merge'
 	import TimeAgo from './TimeAgo.svelte'
 	import { enterpriseLicense } from '$lib/stores'
 	import { untrack } from 'svelte'
+	import DataTable from './table/DataTable.svelte'
+	import Head from './table/Head.svelte'
+	import Cell from './table/Cell.svelte'
 
 	interface Props {
 		worker_group: string
@@ -37,55 +40,74 @@
 	})
 </script>
 
-<div>
-	<h6
-		class={!$enterpriseLicense || (events != undefined && events.length == 0)
-			? 'text-tertiary'
-			: ''}
-		>Autoscaling events {#if $enterpriseLicense}<span class="text-xs text-tertiary">(5 last)</span>
-			<span class="inline-flex ml-6">
-				<Button
-					startIcon={{
-						icon: loading ? LoaderIcon : RefreshCw,
-						classes: twMerge(
-							loading ? 'animate-spin text-blue-800' : '',
-							'transition-all text-gray-500 dark:text-white'
-						)
-					}}
-					color="light"
-					size="xs2"
-					btnClasses={twMerge(loading ? ' bg-blue-100 dark:bg-blue-400' : '', 'transition-all')}
-					on:click={() => loadEvents()}
-					iconOnly
-				/>
-			</span>{/if}
-	</h6>
+<div class="flex flex-col gap-2">
+	<div class="flex flex-row items-center justify-between">
+		<div class="flex flex-row items-baseline gap-2">
+			<h3 class="text-xs font-semibold text-emphasis">Autoscaling events</h3>
+			{#if $enterpriseLicense && events && events.length > 0}
+				<span class="text-2xs text-secondary">Showing last {Math.min(limit, events.length)}</span>
+			{/if}
+		</div>
+		{#if $enterpriseLicense}
+			<Button
+				startIcon={{
+					icon: RefreshCw,
+					classes: twMerge(loading ? 'animate-spin' : '')
+				}}
+				variant="subtle"
+				unifiedSize="sm"
+				on:click={() => loadEvents()}
+				iconOnly
+			/>
+		{/if}
+	</div>
+
 	{#if !$enterpriseLicense}
-		<div class="text-xs pt-2 text-tertiary">Autoscaling is an EE feature</div>
+		<div class="text-xs font-normal text-secondary">Autoscaling is an EE feature</div>
 	{:else if loading}
 		<Skeleton layout={[[12], 1]} />
 	{:else if events}
 		{#if events.length == 0}
-			<div class="text-xs pt-2 text-tertiary"
-				>No events, is autoscaling set in the worker group config?</div
-			>
-		{:else}
-			<div class="flex flex-col gap-2 text-xs text-tertiary pt-4">
-				{#each events as event}
-					<div class="flex flex-row gap-4">
-						<div class="text-primary">{event.event_type} to {event.desired_workers}</div>
-						<div class="text-secondary">{event.reason}</div>
-						<div class="text-tertiary"><TimeAgo date={event.applied_at ?? ''} /></div>
-					</div>
-				{/each}
+			<div class="text-xs font-normal text-secondary">
+				No events. Is autoscaling configured in the worker group config?
 			</div>
+		{:else}
+			<DataTable size="sm" noBorder={false} rounded={true}>
+				<Head>
+					<tr>
+						<Cell head first>Event type</Cell>
+						<Cell head>Desired workers</Cell>
+						<Cell head>Reason</Cell>
+						<Cell head last>Time</Cell>
+					</tr>
+				</Head>
+				<tbody>
+					{#each events as event}
+						<tr class="border-b last:border-b-0">
+							<Cell first class="text-xs font-normal text-primary">{event.event_type ?? 'N/A'}</Cell
+							>
+							<Cell class="text-xs font-normal text-primary">{event.desired_workers}</Cell>
+							<Cell class="text-xs font-normal text-secondary">{event.reason ?? 'N/A'}</Cell>
+							<Cell last class="text-xs font-normal text-secondary">
+								<TimeAgo date={event.applied_at ?? ''} />
+							</Cell>
+						</tr>
+					{/each}
+				</tbody>
+			</DataTable>
+
+			{#if events.length >= limit && limit < 100}
+				<div class="flex">
+					<Button variant="subtle" unifiedSize="sm" on:click={() => (limit = limit + 25)}>
+						Show more
+					</Button>
+				</div>
+			{/if}
 		{/if}
-		<div class="mt-4 flex">
-			<Button color="light" size="xs2" on:click={() => (limit = limit + 25)}>Show more</Button>
-		</div>
+
 		{#if limit > 50}
-			<div class="mt-4 flex text-xs text-tertiary">
-				Note that autoscaling events are only stored for the last 30 days.
+			<div class="text-2xs font-normal text-hint">
+				Note: Autoscaling events are only stored for the last 30 days.
 			</div>
 		{/if}
 	{/if}

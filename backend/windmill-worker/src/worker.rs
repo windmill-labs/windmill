@@ -11,13 +11,19 @@
 
 use anyhow::anyhow;
 use futures::TryFutureExt;
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
+use windmill_common::jobs::WorkerInternalServerInlineUtils;
+use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
 use windmill_common::utils::retrieve_common_worker_prefix;
+use windmill_common::worker::error_to_value;
+use windmill_common::workspace_dependencies::RawWorkspaceDependencies;
+use windmill_common::workspace_dependencies::WorkspaceDependenciesPrefetched;
 use windmill_common::{
     agent_workers::DECODED_AGENT_TOKEN,
     apps::AppScriptId,
@@ -58,7 +64,9 @@ use std::{
     time::Duration,
 };
 use windmill_parser::MainArgSignature;
-use windmill_queue::preprocess_dependency_job;
+use windmill_queue::DedicatedWorkerJob;
+use windmill_queue::FlowRunners;
+use windmill_queue::MiniCompletedJob;
 use windmill_queue::PulledJobResultToJobErr;
 
 use uuid::Uuid;
@@ -69,6 +77,7 @@ use windmill_common::{
     flows::FlowNodeId,
     jobs::JobKind,
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
+    tracing_init::{QUIET_MODE, VERBOSE_TARGET},
     utils::StripPath,
     worker::{CLOUD_HOSTED, NO_LOGS, WORKER_CONFIG, WORKER_GROUP},
     DB, IS_READY,
@@ -105,13 +114,14 @@ use tokio::{
 use rand::Rng;
 
 use crate::ai_executor::handle_ai_agent_job;
+use crate::common::MaybeLock;
 use crate::common::StreamNotifier;
 use crate::{
     agent_workers::{queue_init_job, queue_periodic_job},
     bash_executor::handle_bash_job,
     bun_executor::handle_bun_job,
     common::{
-        build_args_map, cached_result_path, error_to_value, get_cached_resource_value_if_valid,
+        build_args_map, cached_result_path, get_cached_resource_value_if_valid,
         get_reserved_variables, update_worker_ping_for_failed_init_script, OccupancyMetrics,
     },
     csharp_executor::handle_csharp_job,
@@ -149,10 +159,9 @@ use crate::ruby_executor::{handle_ruby_job, JobHandlerInput as JobHandlerInputRu
 use crate::php_executor::handle_php_job;
 
 #[cfg(feature = "python")]
-use crate::{
-    python_executor::handle_python_job,
-    python_versions::{PyV, PyVAlias},
-};
+use crate::{python_executor::handle_python_job, python_versions::PyV};
+#[cfg(feature = "python")]
+use windmill_common::worker::PyVAlias;
 
 #[cfg(feature = "python")]
 use crate::ansible_executor::handle_ansible_job;
@@ -166,8 +175,8 @@ use crate::duckdb_executor::do_duckdb;
 #[cfg(all(feature = "enterprise", feature = "oracledb"))]
 use crate::oracledb_executor::do_oracledb;
 
-#[cfg(feature = "enterprise")]
-use crate::dedicated_worker::create_dedicated_worker_map;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use crate::dedicated_worker_oss::create_dedicated_worker_map;
 
 #[cfg(feature = "enterprise")]
 use crate::snowflake_executor::do_snowflake;
@@ -302,6 +311,191 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
+    pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
+        .ok()
+        .and_then(|x| x.parse::<bool>().ok())
+        .unwrap_or(false);
+
+    pub static ref UNSHARE_TINI_PATH: String = {
+        std::env::var("UNSHARE_TINI_PATH").unwrap_or_else(|_| "tini".to_string())
+    };
+
+    // --fork is required for unshare to work with --pid --mount-proc.
+    // When tini is available, it runs as PID 1 inside the forked namespace for proper signal handling.
+    pub static ref UNSHARE_ISOLATION_FLAGS: String = {
+        std::env::var("UNSHARE_ISOLATION_FLAGS")
+            .unwrap_or_else(|_| "--user --map-root-user --pid --fork --mount-proc".to_string())
+    };
+
+    // Check if tini is available for proper PID 1 handling in unshare namespaces.
+    // tini handles OOM signals correctly, returning exit code 137 instead of sigprocmask errors.
+    pub static ref TINI_AVAILABLE: Option<String> = {
+        let tini_path = UNSHARE_TINI_PATH.as_str();
+        let test_result = std::process::Command::new(tini_path)
+            .args(["-s", "--", "true"])
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("tini available at: {}", tini_path);
+                Some(tini_path.to_string())
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "tini test failed: {}. Proceeding without tini (OOM exit codes may be incorrect).",
+                    stderr.trim()
+                );
+                None
+            }
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::warn!(
+                        "tini not found at '{}'. Install tini for correct OOM exit codes, or set UNSHARE_TINI_PATH.",
+                        tini_path
+                    );
+                } else {
+                    tracing::warn!(
+                        "Failed to test tini: {}. Proceeding without tini.",
+                        e
+                    );
+                }
+                None
+            }
+        }
+    };
+
+    pub static ref UNSHARE_PATH: Option<String> = {
+        let flags = UNSHARE_ISOLATION_FLAGS.as_str();
+        let mut test_cmd_args: Vec<&str> = flags.split_whitespace().collect();
+
+        // Build the test command based on whether tini is available
+        // Note: --fork should already be in the flags for proper namespace setup
+        if let Some(tini_path) = TINI_AVAILABLE.as_ref() {
+            // Test with tini: unshare <flags> -- tini -s -- true
+            test_cmd_args.push("--");
+            test_cmd_args.push(tini_path.as_str());
+            test_cmd_args.push("-s");
+            test_cmd_args.push("--");
+            test_cmd_args.push("true");
+        } else {
+            // Fallback without tini: unshare <flags> -- true
+            test_cmd_args.push("--");
+            test_cmd_args.push("true");
+        }
+
+        let test_result = std::process::Command::new("unshare")
+            .args(&test_cmd_args)
+            .output();
+
+        match test_result {
+            Ok(output) if output.status.success() => {
+                if TINI_AVAILABLE.is_some() {
+                    tracing::info!("PID namespace isolation enabled with tini. Flags: {}", flags);
+                } else {
+                    tracing::info!("PID namespace isolation enabled. Flags: {}", flags);
+                }
+                Some("unshare".to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if *ENABLE_UNSHARE_PID {
+                    panic!(
+                        "ENABLE_UNSHARE_PID is set but unshare test failed.\n\
+                        Error: {}\n\
+                        Flags: {}\n\
+                        \n\
+                        Solutions:\n\
+                        • Check if user namespaces are enabled: 'sysctl kernel.unprivileged_userns_clone'\n\
+                        • Check max user namespaces limit: 'cat /proc/sys/user/max_user_namespaces'\n\
+                          (Some AMIs like Bottlerocket have max_user_namespaces=0 which disables user namespaces entirely)\n\
+                        • For Docker: Requires 'privileged: true' in docker-compose for --mount-proc flag\n\
+                        • For Kubernetes: Requires 'privileged: true' in securityContext for --mount-proc flag\n\
+                        • Try different flags via UNSHARE_ISOLATION_FLAGS env var (remove --mount-proc if privileged mode not possible)\n\
+                        • Alternative: Use NSJAIL instead\n\
+                        • Disable: Set ENABLE_UNSHARE_PID=false (or disableUnsharePid=true in Helm chart)",
+                        stderr.trim(),
+                        flags
+                    );
+                }
+
+                tracing::warn!(
+                    "unshare test failed: {}. Flags: {}. Set ENABLE_UNSHARE_PID=true to fail on error.",
+                    stderr.trim(),
+                    flags
+                );
+                None
+            },
+            Err(e) => {
+                if *ENABLE_UNSHARE_PID {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but unshare binary not found.\n\
+                            Install util-linux package or set ENABLE_UNSHARE_PID=false"
+                        );
+                    } else {
+                        panic!(
+                            "ENABLE_UNSHARE_PID is set but failed to test unshare: {}",
+                            e
+                        );
+                    }
+                }
+
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::debug!("unshare binary not found");
+                } else {
+                    tracing::warn!("Failed to test unshare: {}", e);
+                }
+                None
+            }
+        }
+    };
+
+    pub static ref NSJAIL_AVAILABLE: Option<String> = {
+        if *DISABLE_NSJAIL {
+            None
+        } else {
+            let nsjail_path = NSJAIL_PATH.as_str();
+
+            let test_result = std::process::Command::new(nsjail_path)
+                .arg("--help")
+                .output();
+
+            match test_result {
+                Ok(output) if output.status.success() => {
+                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
+                    Some(nsjail_path.to_string())
+                },
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!(
+                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
+                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        stderr.trim()
+                    );
+                    None
+                },
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        tracing::warn!(
+                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
+                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail_path
+                        );
+                    } else {
+                        tracing::warn!(
+                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
+                            nsjail_path,
+                            e
+                        );
+                    }
+                    None
+                }
+            }
+        }
+    };
+
     pub static ref KEEP_JOB_DIR: AtomicBool = AtomicBool::new(std::env::var("KEEP_JOB_DIR")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -325,6 +519,12 @@ lazy_static::lazy_static! {
             proxy_env.push(("HTTPS_PROXY", https_proxy.to_string()));
         }
         proxy_env
+    };
+    pub static ref WHITELIST_ENVS: HashMap<String, String> = {
+        windmill_common::worker::load_env_vars(
+            windmill_common::worker::load_whitelist_env_vars_from_env(),
+            &HashMap::new(),
+        )
     };
     pub static ref DENO_PATH: String = std::env::var("DENO_PATH").unwrap_or_else(|_| "/usr/bin/deno".to_string());
     pub static ref BUN_PATH: String = std::env::var("BUN_PATH").unwrap_or_else(|_| "/usr/bin/bun".to_string());
@@ -403,6 +603,8 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<i64>().ok())
         .unwrap_or(1000);
+
+    pub static ref FLOW_RUNNER_RUNNING: Mutex<bool> = Mutex::new(false);
 }
 
 type Envs = Vec<(String, String)>;
@@ -429,14 +631,14 @@ lazy_static::lazy_static! {
 
 #[derive(Debug)]
 pub enum NextJob {
-    Sql(PulledJob),
+    Sql { job: PulledJob, flow_runners: Option<Arc<FlowRunners>> },
     Http(JobAndPerms),
 }
 
 impl NextJob {
     pub fn job(self) -> MiniPulledJob {
         match self {
-            NextJob::Sql(job) => job.job,
+            NextJob::Sql { job, .. } => job.job,
             NextJob::Http(job) => job.job,
         }
     }
@@ -446,7 +648,7 @@ impl std::ops::Deref for NextJob {
     type Target = MiniPulledJob;
     fn deref(&self) -> &Self::Target {
         match self {
-            NextJob::Sql(job) => &job.job,
+            NextJob::Sql { job, .. } => &job.job,
             NextJob::Http(job) => &job.job,
         }
     }
@@ -464,6 +666,12 @@ pub enum JobCompletedSender {
     Sql(SqlJobCompletedSender),
     Http(HttpClient),
     NeverUsed,
+}
+
+impl JobCompletedSender {
+    pub fn is_sql(&self) -> bool {
+        matches!(self, Self::Sql(_))
+    }
 }
 
 #[derive(Clone)]
@@ -598,10 +806,10 @@ impl JobCompletedSender {
 impl SameWorkerSender {
     pub async fn send(
         &self,
-        payload: SameWorkerPayload,
+        message: SameWorkerPayload,
     ) -> Result<(), tokio::sync::mpsc::error::SendError<SameWorkerPayload>> {
         self.1.fetch_add(1, Ordering::Relaxed);
-        self.0.send(payload).await
+        self.0.send(message).await
     }
 }
 
@@ -694,18 +902,36 @@ fn add_outstanding_wait_time(
 
 async fn extract_job_and_perms(job: NextJob, conn: &Connection) -> JobAndPerms {
     match (job, conn) {
-        (NextJob::Sql(job), Connection::Sql(db)) => job.get_job_and_perms(db).await,
-        (NextJob::Sql(_), Connection::Http(_)) => panic!("sql job on http connection"),
+        (NextJob::Sql { job, flow_runners, .. }, Connection::Sql(db)) => {
+            JobAndPerms { flow_runners, ..job.get_job_and_perms(db).await }
+        }
+        (NextJob::Sql { .. }, Connection::Http(_)) => panic!("sql job on http connection"),
         (NextJob::Http(job), _) => job,
     }
 }
 
-fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) -> Span {
-    let span = tracing::span!(tracing::Level::INFO, "job",
-        job_id = %arc_job.id, root_job = field::Empty, workspace_id = %arc_job.workspace_id,  worker = %worker_name, hostname = %hostname, tag = %arc_job.tag,
+pub fn create_span_with_name(
+    arc_job: &MiniPulledJob,
+    worker_name: &str,
+    hostname: Option<&str>,
+    span_name: &str,
+) -> Span {
+    // The span macro requires a literal, so we use a fixed name and set otel.name dynamically
+    let span = tracing::span!(
+        tracing::Level::INFO,
+        "job",
+        job_id = %arc_job.id,
+        root_job = field::Empty,
+        workspace_id = %arc_job.workspace_id,
+        worker = %worker_name,
+        hostname = field::Empty,
+        tag = %arc_job.tag,
         language = field::Empty,
-        script_path = field::Empty, flow_step_id = field::Empty, parent_job = field::Empty,
-        otel.name = field::Empty);
+        script_path = field::Empty,
+        flow_step_id = field::Empty,
+        parent_job = field::Empty,
+        otel.name = field::Empty
+    );
 
     let rj = arc_job.flow_innermost_root_job.unwrap_or(arc_job.id);
 
@@ -713,10 +939,10 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
         span.record("language", lg.as_str());
     }
     if let Some(step_id) = arc_job.flow_step_id.as_ref() {
-        span.record("otel.name", format!("job {}", step_id).as_str());
+        span.record("otel.name", format!("{} {}", span_name, step_id).as_str());
         span.record("flow_step_id", step_id.as_str());
     } else {
-        span.record("otel.name", "job");
+        span.record("otel.name", span_name);
     }
     if let Some(parent_job) = arc_job.parent_job.as_ref() {
         span.record("parent_job", parent_job.to_string().as_str());
@@ -727,6 +953,9 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
     if let Some(root_job) = arc_job.flow_innermost_root_job.as_ref() {
         span.record("root_job", root_job.to_string().as_str());
     }
+    if let Some(hostname) = hostname {
+        span.record("hostname", hostname);
+    }
 
     windmill_common::otel_oss::set_span_parent(&span, &rj);
     span
@@ -735,12 +964,13 @@ fn create_span(arc_job: &Arc<MiniPulledJob>, worker_name: &str, hostname: &str) 
 pub async fn handle_all_job_kind_error(
     conn: &Connection,
     authed_client: &AuthedClient,
-    job: Arc<MiniPulledJob>,
+    job: MiniCompletedJob,
     err: Error,
     same_worker_tx: Option<&SameWorkerSender>,
     worker_dir: &str,
     worker_name: &str,
     job_completed_tx: JobCompletedSender,
+    killpill_rx: &tokio::sync::broadcast::Receiver<()>,
     #[cfg(feature = "benchmark")] bench: &mut BenchmarkIter,
 ) {
     match conn {
@@ -748,7 +978,7 @@ pub async fn handle_all_job_kind_error(
             handle_job_error(
                 db,
                 authed_client,
-                job.as_ref(),
+                &job,
                 0,
                 None,
                 err,
@@ -757,6 +987,7 @@ pub async fn handle_all_job_kind_error(
                 &worker_dir,
                 &worker_name,
                 job_completed_tx.clone(),
+                &killpill_rx,
                 #[cfg(feature = "benchmark")]
                 bench,
             )
@@ -767,7 +998,7 @@ pub async fn handle_all_job_kind_error(
                 .send_job(
                     JobCompleted {
                         preprocessed_args: None,
-                        job: job.clone(),
+                        job: job,
                         result: Arc::new(windmill_common::worker::to_raw_value(&error_to_value(
                             &err,
                         ))),
@@ -780,6 +1011,8 @@ pub async fn handle_all_job_kind_error(
                         duration: None,
                         has_stream: Some(false),
                         from_cache: None,
+                        flow_runners: None,
+                        done_tx: None,
                     },
                     false,
                 )
@@ -813,9 +1046,9 @@ pub fn start_interactive_worker_shell(
                     Connection::Sql(db) => {
                         let common_worker_prefix = retrieve_common_worker_prefix(&worker_name);
                         let query = ("".to_string(), make_pull_query(&[common_worker_prefix]));
-
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
+
                         let job = pull(
                             &db,
                             false,
@@ -826,12 +1059,19 @@ pub fn start_interactive_worker_shell(
                         )
                         .await;
 
+                        use PulledJobResultToJobErr::*;
                         match job {
                             Ok(j) => match j.to_pulled_job() {
-                                Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                Ok(j) => Ok(j
+                                    .clone()
+                                    .map(|job| NextJob::Sql { flow_runners: None, job })),
+                                Err(MissingConcurrencyKey(jc))
+                                | Err(ErrorWhilePreprocessing(jc)) => {
                                     if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                        tracing::error!(
+                                            "An error occurred while sending job completed: {:#?}",
+                                            err
+                                        )
                                     }
                                     Ok(None)
                                 }
@@ -849,8 +1089,7 @@ pub fn start_interactive_worker_shell(
 
                 match pulled_job {
                     Ok(Some(job)) => {
-                        tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
-
+                        tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
                         let job_dir = create_job_dir(&worker_dir, job.id).await;
                         #[cfg(feature = "benchmark")]
                         let mut bench = windmill_common::bench::BenchmarkIter::new();
@@ -863,6 +1102,7 @@ pub fn start_interactive_worker_shell(
                             parent_runnable_path,
                             token,
                             precomputed_agent_info: precomputed_bundle,
+                            flow_runners,
                         } = extract_job_and_perms(job, &conn).await;
 
                         let authed_client = AuthedClient::new(
@@ -892,6 +1132,7 @@ pub fn start_interactive_worker_shell(
                             &mut occupancy_metrics,
                             &mut killpill_rx,
                             precomputed_bundle,
+                            flow_runners,
                             #[cfg(feature = "benchmark")]
                             &mut bench,
                         )
@@ -954,6 +1195,13 @@ pub async fn run_worker(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
         );
+    }
+
+    // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
+    // This ensures we panic at startup rather than lazily when first accessed during job execution
+    if *ENABLE_UNSHARE_PID {
+        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+        let _ = &*UNSHARE_PATH;
     }
 
     let start_time = Instant::now();
@@ -1316,9 +1564,9 @@ pub async fn run_worker(
     // Option<Sender<Arc<QueuedJob>>>,
     // Option<JoinHandle<()>>,
 
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     let (dedicated_workers, is_flow_worker, dedicated_handles): (
-        HashMap<String, Sender<Arc<MiniPulledJob>>>,
+        HashMap<String, Sender<DedicatedWorkerJob>>,
         bool,
         Vec<JoinHandle<()>>,
     ) = match conn {
@@ -1337,9 +1585,9 @@ pub async fn run_worker(
         Connection::Http(_) => (HashMap::new(), false, vec![]),
     };
 
-    #[cfg(not(feature = "enterprise"))]
+    #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
     let (dedicated_workers, is_flow_worker, dedicated_handles): (
-        HashMap<String, Sender<Arc<MiniPulledJob>>>,
+        HashMap<String, Sender<DedicatedWorkerJob>>,
         bool,
         Vec<JoinHandle<()>>,
     ) = (HashMap::new(), false, vec![]);
@@ -1496,7 +1744,7 @@ pub async fn run_worker(
 
             if let Ok(same_worker_job) = same_worker_rx.try_recv() {
                 same_worker_queue_size.fetch_sub(1, Ordering::SeqCst);
-                tracing::debug!(
+                tracing::info!(
                     worker = %worker_name, hostname = %hostname,
                     "received {} from same worker channel",
                     same_worker_job.job_id
@@ -1516,7 +1764,12 @@ pub async fn run_worker(
                                 .expect("send kill to job completed tx");
                             break;
                         } else {
-                            job.map(|x| x.map(NextJob::Sql))
+                            job.map(|x| {
+                                x.map(|job| NextJob::Sql {
+                                    flow_runners: same_worker_job.flow_runners,
+                                    job,
+                                })
+                            })
                         }
                     }
                     Connection::Http(client) => client
@@ -1538,11 +1791,13 @@ pub async fn run_worker(
             } {
                 if !killed_but_draining_same_worker_jobs {
                     killed_but_draining_same_worker_jobs = true;
-                    tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
-                    job_completed_tx
-                        .kill()
-                        .await
-                        .expect("send kill to job completed tx");
+                    if job_completed_tx.is_sql() {
+                        tracing::info!(worker = %worker_name, hostname = %hostname, "killpill received in worker main loop, sending killpill job");
+                        job_completed_tx
+                            .kill()
+                            .await
+                            .expect("send kill to job completed tx");
+                    }
                 }
                 continue;
             } else if killed_but_draining_same_worker_jobs {
@@ -1569,7 +1824,7 @@ pub async fn run_worker(
                             last_suspend_first = Instant::now();
                         }
                         let mut job = match timeout(
-                            Duration::from_secs(10),
+                            Duration::from_secs(30),
                             pull(
                                 &db,
                                 suspend_first,
@@ -1584,34 +1839,26 @@ pub async fn run_worker(
                         {
                             Ok(job) => job,
                             Err(e) => {
-                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 10s, sleeping for 30s: {e:?}");
+                                tracing::error!(worker = %worker_name, hostname = %hostname, "pull timed out after 20s, sleeping for 30s: {e:?}");
                                 tokio::time::sleep(Duration::from_secs(30)).await;
                                 continue;
                             }
                         };
 
-                        // Essential debouncing job preprocessing.
-                        if let Ok(windmill_queue::PulledJobResult {
-                            job: Some(ref mut pulled_job),
-                            ..
-                        }) = &mut job
-                        {
-                            match timeout(
+                        // Preprocess pulled job result
+                        if let Ok(ref mut pulled_job_res) = job {
+                            if let Err(e) = timeout(
+                                // Will fail if longer than 10 seconds
                                 core::time::Duration::from_secs(10),
-                                preprocess_dependency_job(pulled_job, &db),
+                                pulled_job_res.maybe_apply_debouncing(db),
                             )
                             .warn_after_seconds(2)
                             .await
+                            // Flatten result
+                            .map_err(error::Error::from)
+                            .and_then(|r| r)
                             {
-                                Ok(Err(e)) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor failed: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                Err(e) => {
-                                    tracing::error!(worker = %worker_name, hostname = %hostname, "critical: debouncing job preprocessor has timed out: {e:?}");
-                                    job = Err(e.into());
-                                }
-                                _ => {}
+                                pulled_job_res.error_while_preprocessing = Some(e.to_string());
                             }
                         }
 
@@ -1673,10 +1920,14 @@ pub async fn run_worker(
                         }
                         match job {
                             Ok(pulled_job_result) => match pulled_job_result.to_pulled_job() {
-                                Ok(j) => Ok(j.map(NextJob::Sql)),
-                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc)) => {
+                                Ok(j) => Ok(j.map(|job| NextJob::Sql { flow_runners: None, job })),
+                                Err(PulledJobResultToJobErr::MissingConcurrencyKey(jc))
+                                | Err(PulledJobResultToJobErr::ErrorWhilePreprocessing(jc)) => {
                                     if let Err(err) = job_completed_tx.send_job(jc, true).await {
-                                        tracing::error!("An error occurred while sending job completed (missing concurrency key): {:#?}", err)
+                                        tracing::error!(
+                                            "An error occurred while sending job completed: {:#?}",
+                                            err
+                                        )
                                     }
                                     Ok(None)
                                 }
@@ -1706,9 +1957,12 @@ pub async fn run_worker(
                 last_executed_job = None;
                 jobs_executed += 1;
 
-                tracing::debug!(worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
+                tracing::debug!(target: VERBOSE_TARGET, worker = %worker_name, hostname = %hostname, "started handling of job {}", job.id);
 
-                if matches!(job.kind, JobKind::Script | JobKind::Preview) {
+                if matches!(
+                    job.kind,
+                    JobKind::Script | JobKind::Preview | JobKind::FlowScript
+                ) {
                     if !dedicated_workers.is_empty() {
                         let key_o = if is_flow_worker {
                             job.flow_step_id.as_ref().map(|x| x.to_string())
@@ -1717,14 +1971,89 @@ pub async fn run_worker(
                         };
                         if let Some(key) = key_o {
                             if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                if let Err(e) = dedicated_worker_tx.send(Arc::new(job.job())).await
-                                {
+                                let dedicated_job = DedicatedWorkerJob {
+                                    job: Arc::new(job.job()),
+                                    flow_runners: None,
+                                    done_tx: None,
+                                };
+                                if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
                                     tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                                 }
 
                                 #[cfg(feature = "benchmark")]
                                 {
                                     add_time!(bench, "sent to dedicated worker");
+                                    infos.add_iter(bench, true);
+                                }
+
+                                continue;
+                            }
+                        }
+                    }
+
+                    // Extract flow_runners early to use in both dedicated workers and flow runners
+                    let flow_runners = match &job {
+                        NextJob::Sql { flow_runners, .. } => flow_runners.clone(),
+                        NextJob::Http(_) => None,
+                    };
+
+                    if let Some(flow_runners) = flow_runners {
+                        let key_o = job.flow_step_id.as_ref().map(|x| x.to_string());
+                        if let Some(key) = key_o {
+                            if let Some(flow_runner_tx) = flow_runners.runners.get(&key) {
+                                tracing::info!(
+                                    "sending job {} to flow runner step {}",
+                                    job.id,
+                                    key
+                                );
+                                let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+                                let flow_runners = flow_runners.clone();
+
+                                let job = job.job();
+
+                                let dedicated_job = DedicatedWorkerJob {
+                                    job: Arc::new(job.clone()),
+                                    flow_runners: Some(flow_runners),
+                                    done_tx: Some(done_tx),
+                                };
+
+                                if let Err(e) = flow_runner_tx.send(dedicated_job).await {
+                                    let token = match &conn {
+                                        Connection::Sql(db) => {
+                                            windmill_queue::jobs::create_token(db, &job, None).await
+                                        }
+                                        _ => "".to_string(),
+                                    };
+                                    handle_all_job_kind_error(
+                                        &conn,
+                                        &AuthedClient::new(
+                                            base_internal_url.to_owned(),
+                                            job.workspace_id.clone(),
+                                            token,
+                                            None,
+                                        ),
+                                        MiniCompletedJob::from(job),
+                                        error::Error::InternalErr(format!(
+                                            "failed to send jobs to flow runners: {e:?}"
+                                        )),
+                                        Some(&same_worker_tx),
+                                        &worker_dir,
+                                        &worker_name,
+                                        job_completed_tx.clone(),
+                                        &killpill_rx,
+                                        #[cfg(feature = "benchmark")]
+                                        &mut bench,
+                                    )
+                                    .await;
+                                } else {
+                                    if let Err(err) = done_rx.await {
+                                        tracing::error!("Flow runner done channel has been dropped without being received: {err:?}");
+                                    }
+                                }
+
+                                #[cfg(feature = "benchmark")]
+                                {
+                                    add_time!(bench, "sent to flow runner");
                                     infos.add_iter(bench, true);
                                 }
 
@@ -1740,7 +2069,7 @@ pub async fn run_worker(
                         .send_job(
                             JobCompleted {
                                 preprocessed_args: None,
-                                job: Arc::new(job.job()),
+                                job: MiniCompletedJob::from(job.job()),
                                 success: true,
                                 result: Arc::new(empty_result()),
                                 result_columns: None,
@@ -1751,6 +2080,8 @@ pub async fn run_worker(
                                 duration: None,
                                 has_stream: Some(false),
                                 from_cache: None,
+                                flow_runners: None,
+                                done_tx: None,
                             },
                             true,
                         )
@@ -1882,6 +2213,7 @@ pub async fn run_worker(
                         parent_runnable_path,
                         token,
                         precomputed_agent_info: precomputed_bundle,
+                        flow_runners,
                     } = extract_job_and_perms(job, &conn).await;
 
                     let authed_client = AuthedClient::new(
@@ -1893,7 +2225,7 @@ pub async fn run_worker(
 
                     let arc_job = Arc::new(job);
 
-                    let span = create_span(&arc_job, &worker_name, hostname);
+                    let span = create_span_with_name(&arc_job, &worker_name, Some(hostname), "job");
 
                     let job_result = handle_queued_job(
                         arc_job.clone(),
@@ -1913,6 +2245,7 @@ pub async fn run_worker(
                         &mut occupancy_metrics,
                         &mut killpill_rx2,
                         precomputed_bundle,
+                        flow_runners,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
                     )
@@ -1966,12 +2299,13 @@ pub async fn run_worker(
                             handle_all_job_kind_error(
                                 &conn,
                                 &authed_client,
-                                arc_job.clone(),
+                                MiniCompletedJob::from(arc_job),
                                 err,
                                 Some(&same_worker_tx),
                                 &worker_dir,
                                 &worker_name,
                                 job_completed_tx.clone(),
+                                &killpill_rx,
                                 #[cfg(feature = "benchmark")]
                                 &mut bench,
                             )
@@ -2136,7 +2470,7 @@ async fn queue_init_bash_maybe<'c>(
     };
     if let Some((uuid, content)) = uuid_content {
         same_worker_tx
-            .send(SameWorkerPayload { job_id: uuid, recoverable: false })
+            .send(SameWorkerPayload { job_id: uuid, recoverable: false, flow_runners: None })
             .await
             .map_err(to_anyhow)?;
         tracing::info!("Creating initial job {uuid} from initial script script: {content}");
@@ -2254,7 +2588,7 @@ async fn queue_periodic_script_bash_maybe<'c>(
     };
 
     same_worker_tx
-        .send(SameWorkerPayload { job_id: uuid, recoverable: false })
+        .send(SameWorkerPayload { job_id: uuid, recoverable: false, flow_runners: None })
         .await
         .map_err(to_anyhow)?;
     tracing::info!("Creating periodic script job {uuid} from periodic script: {content}");
@@ -2266,7 +2600,6 @@ pub struct SendResult {
     pub time: Instant,
 }
 
-#[derive(Clone)]
 pub enum SendResultPayload {
     JobCompleted(JobCompleted),
     UpdateFlow(UpdateFlow),
@@ -2353,294 +2686,270 @@ pub async fn handle_queued_job(
     occupancy_metrics: &mut OccupancyMetrics,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
-    return Box::pin(async move {
-        // Extract the active span from the context
+    // Extract the active span from the context
 
-        if job.canceled_by.is_some() {
-            return Err(Error::JsonErr(canceled_job_to_result(&job)));
+    if job.canceled_by.is_some() {
+        return Err(Error::JsonErr(canceled_job_to_result(&job)));
+    }
+    if let Some(e) = &job.pre_run_error {
+        return Err(Error::ExecutionErr(e.to_string()));
+    }
+
+    match job.kind {
+        JobKind::UnassignedScript | JobKind::UnassignedFlow | JobKind::UnassignedSinglestepFlow => {
+            return Err(Error::ExecutionErr("Suspended job was not handled by the user within 30 days, job will not be executed.".to_string()));
         }
-        if let Some(e) = &job.pre_run_error {
-            return Err(Error::ExecutionErr(e.to_string()));
-        }
+        _ => {}
+    }
 
-        #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
-        match conn {
-            Connection::Sql(db) => {
-                if job.parent_job.is_none() && job.created_by.starts_with("email-") {
-                    let daily_count = sqlx::query!(
-            "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
-        ).fetch_optional(db)
-        .warn_after_seconds(5)
-        .await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
+    #[cfg(any(not(feature = "enterprise"), feature = "sqlx"))]
+    match conn {
+        Connection::Sql(db) => {
+            if job.parent_job.is_none() && job.created_by.starts_with("email-") {
+                let daily_count = sqlx::query!(
+        "SELECT value FROM metrics WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day' ORDER BY created_at DESC LIMIT 1"
+    ).fetch_optional(db)
+    .warn_after_seconds(5)
+    .await?.map(|x| serde_json::from_value::<i64>(x.value).unwrap_or(1));
 
-                    if let Some(count) = daily_count {
-                        if count >= 100 {
-                            return Err(error::Error::QuotaExceeded(format!(
-                                "Email trigger usage limit of 100 per day has been reached."
-                            )));
-                        } else {
-                            sqlx::query!(
-                    "UPDATE metrics SET value = $1 WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day'",
-                    serde_json::json!(count + 1)
-                )
-                .execute(db)
-                .warn_after_seconds(5)
-                .await?;
-                        }
+                if let Some(count) = daily_count {
+                    if count >= 100 {
+                        return Err(error::Error::QuotaExceeded(format!(
+                            "Email trigger usage limit of 100 per day has been reached."
+                        )));
                     } else {
                         sqlx::query!(
-                "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
+                "UPDATE metrics SET value = $1 WHERE id = 'email_trigger_usage' AND created_at > NOW() - INTERVAL '1 day'",
+                serde_json::json!(count + 1)
             )
-                        .execute(db)
-                        .warn_after_seconds(5)
-                        .await?;
+            .execute(db)
+            .warn_after_seconds(5)
+            .await?;
                     }
-                }
-            }
-            Connection::Http(_) => {
-                return Err(Error::internal_err(format!(
-                    "Could not check email trigger usage for job with agent worker {}",
-                    job.id
-                )))
-            }
-        }
-
-        // no need to mark job as started if http conn, it's done by the server when pulled
-        if let Connection::Sql(db) = conn {
-            job.mark_as_started_if_step(db).await?;
-        }
-
-        let started = Instant::now();
-        // Pre-fetch preview jobs raw values if necessary.
-        // The `raw_*` values passed to this function are the original raw values from `queue` tables,
-        // they are kept for backward compatibility as they have been moved to the `job` table.
-        let preview_data = match (job.kind, job.runnable_id) {
-            (
-                JobKind::Preview
-                | JobKind::Dependencies
-                | JobKind::FlowPreview
-                | JobKind::Flow
-                | JobKind::FlowDependencies
-                | JobKind::SingleStepFlow,
-                x,
-            ) => {
-                if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
-                    Some(
-                        cache::job::fetch_preview(
-                            conn,
-                            &job.id,
-                            raw_lock,
-                            raw_code,
-                            raw_flow.clone(),
-                        )
-                        .await?,
-                    )
                 } else {
-                    None
+                    sqlx::query!(
+            "INSERT INTO metrics (id, value) VALUES ('email_trigger_usage', to_jsonb(1))"
+        )
+                    .execute(db)
+                    .warn_after_seconds(5)
+                    .await?;
                 }
             }
-            _ => None,
-        };
-
-        let cached_res_path = if job.cache_ttl.is_some() {
-            match conn {
-                Connection::Sql(db) => {
-                    Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
-                }
-                Connection::Http(_) => None,
-            }
-        } else {
-            None
-        };
-
-        if let Some(db) = conn.as_sql() {
-            if let Some(cached_res_path) = cached_res_path.as_ref() {
-                let cached_result_maybe = get_cached_resource_value_if_valid(
-                    db,
-                    &client,
-                    &job.id,
-                    &job.workspace_id,
-                    &cached_res_path,
-                )
-                .warn_after_seconds(5)
-                .await;
-                if let Some(result) = cached_result_maybe {
-                    {
-                        let logs = "Job skipped because args & path found in cache and not expired"
-                            .to_string();
-                        append_logs(&job.id, &job.workspace_id, logs, conn).await;
-                    }
-                    let result = job_completed_tx
-                        .send_job(
-                            JobCompleted {
-                                preprocessed_args: None,
-                                job,
-                                result,
-                                result_columns: None,
-                                mem_peak: 0,
-                                canceled_by: None,
-                                success: true,
-                                cached_res_path: None,
-                                token: client.token.clone(),
-                                duration: None,
-                                has_stream: Some(false),
-                                from_cache: Some(true),
-                            },
-                            true,
-                        )
-                        .await;
-
-                    match result {
-                        Ok(_) => {
-                            tracing::debug!("Send job completed")
-                        }
-                        Err(err) => {
-                            tracing::error!(
-                                "An error occurred while sending job completed: {:#?}",
-                                err
-                            )
-                        }
-                    }
-
-                    return Ok(true);
-                }
-            };
         }
-        if job.is_flow() {
-            if let Some(db) = conn.as_sql() {
-                let flow_data = match preview_data {
-                    Some(RawData::Flow(data)) => data,
-                    // Not a preview: fetch from the cache or the database.
-                    _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
-                };
-                handle_flow(
-                    job,
-                    &flow_data,
-                    db,
-                    &client,
-                    None,
-                    &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS),
-                    worker_dir,
-                    job_completed_tx.clone(),
-                    worker_name,
+        Connection::Http(_) => {
+            return Err(Error::internal_err(format!(
+                "Could not check email trigger usage for job with agent worker {}",
+                job.id
+            )))
+        }
+    }
+
+    // no need to mark job as started if http conn, it's done by the server when pulled
+    if let Connection::Sql(db) = conn {
+        job.mark_as_started_if_step(db).await?;
+    }
+
+    let started = Instant::now();
+    // Pre-fetch preview jobs raw values if necessary.
+    // The `raw_*` values passed to this function are the original raw values from `queue` tables,
+    // they are kept for backward compatibility as they have been moved to the `job` table.
+    let preview_data = match (job.kind, job.runnable_id) {
+        (
+            JobKind::Preview
+            | JobKind::Dependencies
+            | JobKind::FlowPreview
+            | JobKind::Flow
+            | JobKind::FlowDependencies
+            | JobKind::SingleStepFlow,
+            x,
+        ) => {
+            if x.map(|x| x.0).is_none_or(|x| is_special_codebase_hash(x)) {
+                Some(
+                    cache::job::fetch_preview(conn, &job.id, raw_lock, raw_code, raw_flow.clone())
+                        .await?,
                 )
-                .warn_after_seconds(10)
-                .await?;
-                Ok(true)
             } else {
-                return Err(Error::internal_err(
-                    "Could not handle flow job with agent worker".to_string(),
-                ));
+                None
             }
+        }
+        _ => None,
+    };
+
+    let cached_res_path = if job.cache_ttl.is_some() {
+        match conn {
+            Connection::Sql(db) => {
+                Some(cached_result_path(db, &client, &job, preview_data.as_ref()).await)
+            }
+            Connection::Http(_) => None,
+        }
+    } else {
+        None
+    };
+
+    if let Some(db) = conn.as_sql() {
+        if let Some(cached_res_path) = cached_res_path.as_ref() {
+            let cached_result_maybe = get_cached_resource_value_if_valid(
+                db,
+                &client,
+                &job.workspace_id,
+                &cached_res_path,
+            )
+            .warn_after_seconds(5)
+            .await;
+            if let Some(result) = cached_result_maybe {
+                {
+                    let logs = "Job skipped because args & path found in cache and not expired"
+                        .to_string();
+                    append_logs(&job.id, &job.workspace_id, logs, conn).await;
+                }
+                let result = job_completed_tx
+                    .send_job(
+                        JobCompleted {
+                            preprocessed_args: None,
+                            job: MiniCompletedJob::from(job),
+                            result,
+                            result_columns: None,
+                            mem_peak: 0,
+                            canceled_by: None,
+                            success: true,
+                            cached_res_path: None,
+                            token: client.token.clone(),
+                            duration: None,
+                            has_stream: Some(false),
+                            from_cache: Some(true),
+                            flow_runners: None,
+                            done_tx: None,
+                        },
+                        true,
+                    )
+                    .await;
+
+                match result {
+                    Ok(_) => {
+                        tracing::debug!("Send job completed")
+                    }
+                    Err(err) => {
+                        tracing::error!("An error occurred while sending job completed: {:#?}", err)
+                    }
+                }
+
+                return Ok(true);
+            }
+        };
+    }
+    if job.is_flow() {
+        if let Some(db) = conn.as_sql() {
+            let flow_data = match preview_data {
+                Some(RawData::Flow(data)) => data,
+                // Not a preview: fetch from the cache or the database.
+                _ => cache::job::fetch_flow(db, &job.kind, job.runnable_id).await?,
+            };
+            Box::pin(handle_flow(
+                job,
+                &flow_data,
+                db,
+                &client,
+                None,
+                &same_worker_tx.expect(SAME_WORKER_REQUIREMENTS),
+                worker_dir,
+                job_completed_tx.clone(),
+                worker_name,
+                flow_runners,
+                &killpill_rx,
+            ))
+            .warn_after_seconds(10)
+            .await?;
+            Ok(true)
         } else {
-            let mut logs = "".to_string();
-            let mut mem_peak: i32 = 0;
-            let mut canceled_by: Option<CanceledBy> = None;
-            // println!("handle queue {:?}",  SystemTime::now());
-
-            logs.push_str(&format!(
-                "job={} {}={} worker={} hostname={}\n",
-                &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
+            return Err(Error::internal_err(
+                "Could not handle flow job with agent worker".to_string(),
             ));
+        }
+    } else {
+        let mut logs = "".to_string();
+        let mut mem_peak: i32 = 0;
+        let mut canceled_by: Option<CanceledBy> = None;
+        // println!("handle queue {:?}",  SystemTime::now());
 
-            if *NO_LOGS_AT_ALL {
-                logs.push_str("Logs are fully disabled for this worker\n");
-            }
+        logs.push_str(&format!(
+            "job={} {}={} worker={} hostname={}\n",
+            &job.id, *LOG_TAG_NAME, &job.tag, &worker_name, &hostname
+        ));
 
-            if *NO_LOGS {
-                logs.push_str("Logs are disabled for this worker\n");
-            }
+        if *NO_LOGS_AT_ALL {
+            logs.push_str("Logs are fully disabled for this worker\n");
+        }
 
-            if *SLOW_LOGS {
-                logs.push_str("Logs are 10x less frequent for this worker\n");
-            }
+        if *NO_LOGS {
+            logs.push_str("Logs are disabled for this worker\n");
+        }
 
-            #[cfg(not(feature = "enterprise"))]
-            if job.concurrent_limit.is_some() {
+        if *SLOW_LOGS {
+            logs.push_str("Logs are 10x less frequent for this worker\n");
+        }
+
+        if *QUIET_MODE {
+            logs.push_str("Quiet mode enabled: verbose service logs are suppressed\n");
+        }
+
+        #[cfg(not(feature = "enterprise"))]
+        if let Connection::Sql(db) = conn {
+            if (job.concurrent_limit.is_some() ||
+                windmill_common::runnable_settings::RunnableSettings::prefetch_cached_from_handle(job.runnable_settings_handle, db).await?.1.concurrent_limit.is_some())
+                && !job.kind.is_dependency() {
                 logs.push_str("---\n");
                 logs.push_str("WARNING: This job has concurrency limits enabled. Concurrency limits are an EE feature and the setting is ignored.\n");
                 logs.push_str("---\n");
             }
+        }
 
-            // Only used for testing in tests/relative_imports.rs
-            // Give us some space to work with.
-            #[cfg(debug_assertions)]
-            if let Some(dbg_djob_sleep) = job
-                .args
+        // Only used for testing in tests/relative_imports.rs
+        // Give us some space to work with.
+        #[cfg(debug_assertions)]
+        if let Some(dbg_djob_sleep) = job
+            .args
+            .as_ref()
+            .map(|x| {
+                x.get("dbg_djob_sleep")
+                    .map(|v| serde_json::from_str::<u32>(v.get()).ok())
+                    .flatten()
+            })
+            .flatten()
+        {
+            tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
+            sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
+        }
+
+        tracing::debug!(
+            workspace_id = %job.workspace_id,
+            "handling job {}",
+            job.id
+        );
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+
+        let mut column_order: Option<Vec<String>> = None;
+        let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+        let mut has_stream = false;
+
+        let raw_workspace_dependencies_o = if job.kind.is_dependency() {
+            job.args
                 .as_ref()
-                .map(|x| {
-                    x.get("dbg_djob_sleep")
-                        .map(|v| serde_json::from_str::<u32>(v.get()).ok())
-                        .flatten()
-                })
-                .flatten()
-            {
-                tracing::debug!("Debug: {} going to sleep for {}", job.id, dbg_djob_sleep);
-                sleep(std::time::Duration::from_secs(dbg_djob_sleep as u64)).await;
-            }
-
-            tracing::debug!(
-                workspace_id = %job.workspace_id,
-                "handling job {}",
-                job.id
-            );
-            append_logs(&job.id, &job.workspace_id, logs, conn).await;
-
-            let mut column_order: Option<Vec<String>> = None;
-            let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
-            let mut has_stream = false;
-            let result = match job.kind {
-                JobKind::Dependencies => match conn {
-                    Connection::Sql(db) => {
-                        handle_dependency_job(
-                            &job,
-                            preview_data.as_ref(),
-                            &mut mem_peak,
-                            &mut canceled_by,
-                            job_dir,
-                            db,
-                            worker_name,
-                            worker_dir,
-                            base_internal_url,
-                            &client.token,
-                            occupancy_metrics,
-                        )
-                        .await
-                    }
-                    Connection::Http(_) => {
-                        return Err(Error::internal_err(
-                            "Could not handle dependency job with agent worker".to_string(),
-                        ));
-                    }
-                },
-                JobKind::FlowDependencies => match conn {
-                    Connection::Sql(db) => {
-                        handle_flow_dependency_job(
-                            (*job).clone(),
-                            preview_data.as_ref(),
-                            &mut mem_peak,
-                            &mut canceled_by,
-                            job_dir,
-                            db,
-                            worker_name,
-                            worker_dir,
-                            base_internal_url,
-                            &client.token,
-                            occupancy_metrics,
-                        )
-                        .await
-                    }
-                    Connection::Http(_) => {
-                        return Err(Error::internal_err(
-                            "Could not handle flow dependency job with agent worker".to_string(),
-                        ));
-                    }
-                },
-                JobKind::AppDependencies => match conn {
-                    Connection::Sql(db) => handle_app_dependency_job(
-                        (*job).clone(),
+                .and_then(|x| x.get("raw_workspace_dependencies"))
+                .map(|v| v.get())
+                .and_then(|v| serde_json::from_str::<RawWorkspaceDependencies>(v).ok())
+        } else {
+            None
+        };
+        // Box::pin all async branches to prevent large match enum on stack
+        let result = match job.kind {
+            JobKind::Dependencies => match conn {
+                Connection::Sql(db) => {
+                    Box::pin(handle_dependency_job(
+                        &job,
+                        preview_data.as_ref(),
                         &mut mem_peak,
                         &mut canceled_by,
                         job_dir,
@@ -2650,109 +2959,161 @@ pub async fn handle_queued_job(
                         base_internal_url,
                         &client.token,
                         occupancy_metrics,
-                    )
+                        raw_workspace_dependencies_o,
+                    ))
                     .await
-                    .map(|()| serde_json::from_str("{}").unwrap()),
-                    Connection::Http(_) => {
-                        return Err(Error::internal_err(
-                            "Could not handle app dependency job with agent worker".to_string(),
-                        ));
-                    }
-                },
-                JobKind::Identity => Ok(job
-                    .args
-                    .as_ref()
-                    .map(|x| x.get("previous_result"))
-                    .flatten()
-                    .map(|x| x.to_owned())
-                    .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
-                JobKind::AIAgent => match conn {
-                    Connection::Sql(db) => {
-                        handle_ai_agent_job(
-                            conn,
-                            db,
-                            job.as_ref(),
-                            &client,
-                            &mut canceled_by,
-                            &mut mem_peak,
-                            &mut *occupancy_metrics,
-                            &job_completed_tx,
-                            worker_dir,
-                            base_internal_url,
-                            worker_name,
-                            hostname,
-                            killpill_rx,
-                            &mut has_stream,
-                        )
-                        .await
-                    }
-                    Connection::Http(_) => {
-                        return Err(Error::internal_err(
-                            "Agent worker does not support ai agent jobs".to_string(),
-                        ));
-                    }
-                },
-                _ => {
-                    let metric_timer = Instant::now();
-                    let preview_data = preview_data.and_then(|data| match data {
-                        RawData::Script(data) => Some(data),
-                        _ => None,
-                    });
-                    let r = handle_code_execution_job(
-                        job.as_ref(),
-                        preview_data,
-                        conn,
-                        client,
-                        parent_runnable_path,
-                        job_dir,
-                        worker_dir,
+                }
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Could not handle dependency job with agent worker".to_string(),
+                    ));
+                }
+            },
+            JobKind::FlowDependencies => match conn {
+                Connection::Sql(db) => {
+                    Box::pin(handle_flow_dependency_job(
+                        (*job).clone(),
+                        preview_data.as_ref(),
                         &mut mem_peak,
                         &mut canceled_by,
+                        job_dir,
+                        db,
+                        worker_name,
+                        worker_dir,
+                        base_internal_url,
+                        &client.token,
+                        occupancy_metrics,
+                        raw_workspace_dependencies_o,
+                    ))
+                    .await
+                }
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Could not handle flow dependency job with agent worker".to_string(),
+                    ));
+                }
+            },
+            JobKind::AppDependencies => match conn {
+                Connection::Sql(db) => Box::pin(handle_app_dependency_job(
+                    (*job).clone(),
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    job_dir,
+                    db,
+                    worker_name,
+                    worker_dir,
+                    base_internal_url,
+                    &client.token,
+                    occupancy_metrics,
+                    raw_workspace_dependencies_o,
+                ))
+                .await
+                .map(|()| serde_json::from_str("{}").unwrap()),
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Could not handle app dependency job with agent worker".to_string(),
+                    ));
+                }
+            },
+            JobKind::Identity => Ok(job
+                .args
+                .as_ref()
+                .map(|x| x.get("previous_result"))
+                .flatten()
+                .map(|x| x.to_owned())
+                .unwrap_or_else(|| serde_json::from_str("{}").unwrap())),
+            JobKind::AIAgent => match conn {
+                Connection::Sql(db) => {
+                    Box::pin(handle_ai_agent_job(
+                        conn,
+                        db,
+                        job.as_ref(),
+                        &client,
+                        &mut canceled_by,
+                        &mut mem_peak,
+                        &mut *occupancy_metrics,
+                        &job_completed_tx,
+                        worker_dir,
                         base_internal_url,
                         worker_name,
-                        &mut column_order,
-                        &mut new_args,
-                        occupancy_metrics,
+                        hostname,
                         killpill_rx,
-                        precomputed_agent_info,
                         &mut has_stream,
-                    )
-                    .await;
-                    occupancy_metrics.total_duration_of_running_jobs +=
-                        metric_timer.elapsed().as_secs_f32();
-                    r
+                    ))
+                    .await
                 }
-            };
+                Connection::Http(_) => {
+                    return Err(Error::internal_err(
+                        "Agent worker does not support ai agent jobs".to_string(),
+                    ));
+                }
+            },
+            _ => {
+                let metric_timer = Instant::now();
+                let preview_data = preview_data.and_then(|data| match data {
+                    RawData::Script(data) => Some(data),
+                    _ => None,
+                });
 
-            //it's a test job, no need to update the db
-            if job.as_ref().workspace_id == "" {
-                return Ok(true);
-            }
+                // Box::pin to move large future to heap
+                let r = Box::pin(handle_code_execution_job(
+                    job.as_ref(),
+                    preview_data,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    job_dir,
+                    worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    base_internal_url,
+                    worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    occupancy_metrics,
+                    killpill_rx,
+                    precomputed_agent_info,
+                    &mut has_stream,
+                ))
+                .await;
 
-            if result
-                .as_ref()
-                .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
-            {
-                return Ok(false);
+                occupancy_metrics.total_duration_of_running_jobs +=
+                    metric_timer.elapsed().as_secs_f32();
+                r
             }
-            process_result(
-                job,
-                result.map(|x| Arc::new(x)),
-                job_dir,
-                job_completed_tx,
-                mem_peak,
-                canceled_by,
-                cached_res_path,
-                &client.token,
-                column_order,
-                new_args,
-                conn,
-                Some(started.elapsed().as_millis() as i64),
-                has_stream,
-            )
-            .await
+        };
+
+        let cjob = MiniCompletedJob::from(job.to_owned());
+        drop(job);
+        //it's a test job, no need to update the db
+        if cjob.workspace_id == "" {
+            return Ok(true);
         }
-    }).await;
+
+        if result
+            .as_ref()
+            .is_err_and(|err| matches!(err, &Error::AlreadyCompleted(_)))
+        {
+            return Ok(false);
+        }
+        process_result(
+            cjob,
+            result.map(|x| Arc::new(x)),
+            job_dir,
+            job_completed_tx,
+            mem_peak,
+            canceled_by,
+            cached_res_path,
+            &client.token,
+            column_order,
+            new_args,
+            conn,
+            Some(started.elapsed().as_millis() as i64),
+            has_stream,
+            flow_runners,
+        )
+        .await
+    }
 }
 
 pub fn build_envs(
@@ -2880,6 +3241,9 @@ async fn try_validate_schema(
                 JobKind::Noop => 13,
                 JobKind::FlowNode => 14,
                 JobKind::AIAgent => 15,
+                JobKind::UnassignedScript => 16,
+                JobKind::UnassignedFlow => 17,
+                JobKind::UnassignedSinglestepFlow => 18,
             };
 
             let sv = match job.runnable_id {
@@ -2943,12 +3307,15 @@ async fn handle_code_execution_job(
         job.runnable_id
             .ok_or_else(|| Error::internal_err("expected script hash"))
     };
+
     let (arc_data, arc_metadata, data, metadata): (
         Arc<ScriptData>,
         Arc<ScriptMetadata>,
         ScriptData,
         ScriptMetadata,
     );
+
+    // Box::pin the script fetching match to prevent large enum on stack
     let (
         ScriptData { code, lock },
         ScriptMetadata { language, envs, codebase, schema_validator, schema },
@@ -2959,7 +3326,7 @@ async fn handle_code_execution_job(
                 .and_then(|x| hash_to_codebase_id(&job.id.to_string(), x.0));
             if codebase.is_none() && job.runnable_id.is_some() {
                 (arc_data, arc_metadata) =
-                    cache::script::fetch(conn, job.runnable_id.unwrap()).await?;
+                    Box::pin(cache::script::fetch(conn, job.runnable_id.unwrap())).await?;
                 (arc_data.as_ref(), arc_metadata.as_ref())
             } else {
                 arc_data =
@@ -2976,19 +3343,26 @@ async fn handle_code_execution_job(
         }
         JobKind::Script_Hub => {
             let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                get_hub_script_content_and_requirements(job.runnable_path.as_ref(), conn.as_sql())
-                    .await?;
+                Box::pin(get_hub_script_content_and_requirements(
+                    job.runnable_path.as_ref(),
+                    conn.as_sql(),
+                ))
+                .await?;
 
             data = ScriptData { code: content, lock: lockfile };
             metadata = ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
             (&data, &metadata)
         }
         JobKind::Script => {
-            (arc_data, arc_metadata) = cache::script::fetch(conn, script_hash()?).await?;
+            (arc_data, arc_metadata) = Box::pin(cache::script::fetch(conn, script_hash()?)).await?;
             (arc_data.as_ref(), arc_metadata.as_ref())
         }
         JobKind::FlowScript => {
-            arc_data = cache::flow::fetch_script(conn, FlowNodeId(script_hash()?.0)).await?;
+            arc_data = Box::pin(cache::flow::fetch_script(
+                conn,
+                FlowNodeId(script_hash()?.0),
+            ))
+            .await?;
             metadata = ScriptMetadata {
                 language: job.script_lang,
                 envs: None,
@@ -2999,7 +3373,11 @@ async fn handle_code_execution_job(
             (arc_data.as_ref(), &metadata)
         }
         JobKind::AppScript => {
-            arc_data = cache::app::fetch_script(conn, AppScriptId(script_hash()?.0)).await?;
+            arc_data = Box::pin(cache::app::fetch_script(
+                conn,
+                AppScriptId(script_hash()?.0),
+            ))
+            .await?;
             metadata = ScriptMetadata {
                 language: job.script_lang,
                 envs: None,
@@ -3017,8 +3395,11 @@ async fn handle_code_execution_job(
                     .ok_or_else(|| Error::internal_err("expected script path".to_string()))?;
                 if script_path.starts_with("hub/") {
                     let ContentReqLangEnvs { content, lockfile, language, envs, codebase, schema } =
-                        get_hub_script_content_and_requirements(Some(script_path), conn.as_sql())
-                            .await?;
+                        Box::pin(get_hub_script_content_and_requirements(
+                            Some(script_path),
+                            conn.as_sql(),
+                        ))
+                        .await?;
                     data = ScriptData { code: content, lock: lockfile };
                     metadata =
                         ScriptMetadata { language, envs, codebase, schema, schema_validator: None };
@@ -3034,7 +3415,8 @@ async fn handle_code_execution_job(
                     .await?
                     .ok_or_else(|| Error::internal_err("expected script hash".to_string()))?;
 
-                    (arc_data, arc_metadata) = cache::script::fetch(conn, ScriptHash(hash)).await?;
+                    (arc_data, arc_metadata) =
+                        Box::pin(cache::script::fetch(conn, ScriptHash(hash))).await?;
                     (arc_data.as_ref(), arc_metadata.as_ref())
                 }
             }
@@ -3060,6 +3442,57 @@ async fn handle_code_execution_job(
     .await?;
 
     let language = language.clone();
+    run_language_executor(
+        job,
+        conn,
+        client,
+        parent_runnable_path,
+        job_dir,
+        worker_dir,
+        mem_peak,
+        canceled_by,
+        base_internal_url,
+        worker_name,
+        column_order,
+        new_args,
+        occupancy_metrics,
+        killpill_rx,
+        precomputed_agent_info,
+        has_stream,
+        language,
+        code,
+        envs,
+        codebase,
+        lock,
+        false,
+    )
+    .await
+}
+
+pub async fn run_language_executor(
+    job: &MiniPulledJob,
+    conn: &Connection,
+    client: &AuthedClient,
+    parent_runnable_path: Option<String>,
+    job_dir: &str,
+    #[allow(unused_variables)] worker_dir: &str,
+    mem_peak: &mut i32,
+    canceled_by: &mut Option<CanceledBy>,
+    base_internal_url: &str,
+    worker_name: &str,
+    column_order: &mut Option<Vec<String>>,
+    new_args: &mut Option<HashMap<String, Box<RawValue>>>,
+    occupancy_metrics: &mut OccupancyMetrics,
+    killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
+    precomputed_agent_info: Option<PrecomputedAgentInfo>,
+    has_stream: &mut bool,
+    language: Option<ScriptLang>,
+    code: &String,
+    envs: &Option<Vec<String>>,
+    codebase: &Option<String>,
+    lock: &Option<String>,
+    run_inline: bool,
+) -> error::Result<Box<RawValue>> {
     if language == Some(ScriptLang::Postgresql) {
         return do_postgresql(
             job,
@@ -3072,6 +3505,7 @@ async fn handle_code_execution_job(
             column_order,
             occupancy_metrics,
             parent_runnable_path,
+            run_inline,
         )
         .await;
     } else if language == Some(ScriptLang::Mysql) {
@@ -3081,19 +3515,26 @@ async fn handle_code_execution_job(
         ));
 
         #[cfg(feature = "mysql")]
-        return do_mysql(
-            job,
-            &client,
-            &code,
-            conn,
-            mem_peak,
-            canceled_by,
-            worker_name,
-            column_order,
-            occupancy_metrics,
-            parent_runnable_path,
-        )
-        .await;
+        {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            return do_mysql(
+                job,
+                &client,
+                &code,
+                conn,
+                mem_peak,
+                canceled_by,
+                worker_name,
+                column_order,
+                occupancy_metrics,
+                parent_runnable_path,
+            )
+            .await;
+        }
     } else if language == Some(ScriptLang::Bigquery) {
         #[cfg(not(feature = "enterprise"))]
         {
@@ -3112,6 +3553,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "bigquery"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_bigquery(
                 job,
                 &client,
@@ -3136,6 +3582,11 @@ async fn handle_code_execution_job(
 
         #[cfg(feature = "enterprise")]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_snowflake(
                 job,
                 &client,
@@ -3168,6 +3619,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "mssql"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_mssql(
                 job,
                 &client,
@@ -3200,6 +3656,11 @@ async fn handle_code_execution_job(
 
         #[cfg(all(feature = "enterprise", feature = "oracledb"))]
         {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
             return do_oracledb(
                 job,
                 &client,
@@ -3236,10 +3697,16 @@ async fn handle_code_execution_job(
                 column_order,
                 occupancy_metrics,
                 parent_runnable_path,
+                run_inline,
             )
             .await;
         }
     } else if language == Some(ScriptLang::Graphql) {
+        if run_inline {
+            return Err(Error::internal_err(
+                "Inline execution is not yet supported for this language".to_string(),
+            ));
+        }
         return do_graphql(
             job,
             &client,
@@ -3252,6 +3719,11 @@ async fn handle_code_execution_job(
         )
         .await;
     } else if language == Some(ScriptLang::Nativets) {
+        if run_inline {
+            return Err(Error::internal_err(
+                "Inline execution is not yet supported for this language".to_string(),
+            ));
+        }
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -3324,50 +3796,92 @@ mount {{
 
     let envs = build_envs(envs.as_ref())?;
 
-    let result: error::Result<Box<RawValue>> = match language {
-        None => {
-            return Err(Error::ExecutionErr(
-                "Require language to be not null".to_string(),
-            ))?;
+    let Some(language) = language else {
+        return Err(Error::ExecutionErr(
+            "Require language to be not null".to_string(),
+        ))?;
+    };
+
+    /// Resolves MaybeLock for languages that need workspace dependencies prefetching.
+    /// Only call this for Bun, Bunnative, Go, and Php.
+    async fn resolve_maybe_lock(
+        lock: &Option<String>,
+        code: &str,
+        language: ScriptLang,
+        workspace_id: &str,
+        runnable_path: &str,
+        conn: Connection,
+    ) -> error::Result<MaybeLock> {
+        if let Some(lock) = lock.clone() {
+            Ok(MaybeLock::Resolved { lock })
+        } else {
+            Ok(MaybeLock::Unresolved {
+                workspace_dependencies: WorkspaceDependenciesPrefetched::extract(
+                    code,
+                    language,
+                    workspace_id,
+                    // TODO: implement
+                    &None,
+                    runnable_path,
+                    conn,
+                )
+                .await?,
+            })
         }
-        Some(ScriptLang::Python3) => {
+    }
+
+    // Box::pin all language handlers to prevent large match enum on stack
+    let result: error::Result<Box<RawValue>> = match language {
+        ScriptLang::Python3 => {
             #[cfg(not(feature = "python"))]
             return Err(Error::internal_err(
                 "Python requires the python feature to be enabled".to_string(),
             ));
 
             #[cfg(feature = "python")]
-            handle_python_job(
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_python_job(
+                    lock.as_ref(),
+                    job_dir,
+                    worker_dir,
+                    worker_name,
+                    job,
+                    mem_peak,
+                    canceled_by,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    &shared_mount,
+                    base_internal_url,
+                    envs,
+                    new_args,
+                    occupancy_metrics,
+                    precomputed_agent_info,
+                    has_stream,
+                ))
+                .await
+            }
+        }
+        ScriptLang::Deno => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(handle_deno_job(
                 lock.as_ref(),
-                job_dir,
-                worker_dir,
-                worker_name,
-                job,
                 mem_peak,
                 canceled_by,
+                job,
                 conn,
                 client,
                 parent_runnable_path,
-                &code,
-                &shared_mount,
-                base_internal_url,
-                envs,
-                new_args,
-                occupancy_metrics,
-                precomputed_agent_info,
-                has_stream,
-            )
-            .await
-        }
-        Some(ScriptLang::Deno) => {
-            handle_deno_job(
-                lock.as_ref(),
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
                 job_dir,
                 &code,
                 base_internal_url,
@@ -3376,12 +3890,26 @@ mount {{
                 new_args,
                 occupancy_metrics,
                 has_stream,
-            )
+            ))
             .await
         }
-        Some(ScriptLang::Bun) | Some(ScriptLang::Bunnative) => {
-            handle_bun_job(
-                lock.as_ref(),
+        ScriptLang::Bun | ScriptLang::Bunnative => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
+            Box::pin(handle_bun_job(
+                maybe_lock,
                 codebase.as_ref(),
                 mem_peak,
                 canceled_by,
@@ -3399,11 +3927,25 @@ mount {{
                 occupancy_metrics,
                 precomputed_agent_info,
                 has_stream,
-            )
+            ))
             .await
         }
-        Some(ScriptLang::Go) => {
-            handle_go_job(
+        ScriptLang::Go => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            let maybe_lock = resolve_maybe_lock(
+                &lock,
+                &code,
+                language,
+                &job.workspace_id,
+                job.runnable_path(),
+                conn.clone(),
+            )
+            .await?;
+            Box::pin(handle_go_job(
                 mem_peak,
                 canceled_by,
                 job,
@@ -3412,17 +3954,22 @@ mount {{
                 parent_runnable_path,
                 &code,
                 job_dir,
-                lock.as_ref(),
                 &shared_mount,
                 base_internal_url,
                 worker_name,
                 envs,
                 occupancy_metrics,
-            )
+                maybe_lock,
+            ))
             .await
         }
-        Some(ScriptLang::Bash) => {
-            handle_bash_job(
+        ScriptLang::Bash => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(handle_bash_job(
                 mem_peak,
                 canceled_by,
                 job,
@@ -3437,11 +3984,16 @@ mount {{
                 envs,
                 occupancy_metrics,
                 killpill_rx,
-            )
+            ))
             .await
         }
-        Some(ScriptLang::Powershell) => {
-            handle_powershell_job(
+        ScriptLang::Powershell => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(handle_powershell_job(
                 mem_peak,
                 canceled_by,
                 job,
@@ -3455,94 +4007,129 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
-            )
+            ))
             .await
         }
-        Some(ScriptLang::Php) => {
+        ScriptLang::Php => {
             #[cfg(not(feature = "php"))]
             return Err(Error::internal_err(
                 "PHP requires the php feature to be enabled".to_string(),
             ));
 
             #[cfg(feature = "php")]
-            handle_php_job(
-                lock.as_ref(),
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                job_dir,
-                &code,
-                base_internal_url,
-                worker_name,
-                envs,
-                &shared_mount,
-                occupancy_metrics,
-            )
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                let maybe_lock = resolve_maybe_lock(
+                    &lock,
+                    &code,
+                    language,
+                    &job.workspace_id,
+                    job.runnable_path(),
+                    conn.clone(),
+                )
+                .await?;
+                Box::pin(handle_php_job(
+                    maybe_lock,
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    job_dir,
+                    &code,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    &shared_mount,
+                    occupancy_metrics,
+                ))
+                .await
+            }
         }
-        Some(ScriptLang::Rust) => {
+        ScriptLang::Rust => {
             #[cfg(not(feature = "rust"))]
             return Err(Error::internal_err(
                 "Rust requires the rust feature to be enabled".to_string(),
             ));
 
             #[cfg(feature = "rust")]
-            handle_rust_job(
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                &code,
-                job_dir,
-                lock.as_ref(),
-                &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            )
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_rust_job(
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    job_dir,
+                    lock.as_ref(),
+                    &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                ))
+                .await
+            }
         }
-        Some(ScriptLang::Ansible) => {
+        ScriptLang::Ansible => {
             #[cfg(not(feature = "python"))]
             return Err(Error::internal_err(
                 "Ansible requires the python feature to be enabled".to_string(),
             ));
 
             #[cfg(feature = "python")]
-            handle_ansible_job(
-                lock.as_ref(),
-                job_dir,
-                worker_dir,
-                worker_name,
-                job,
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_ansible_job(
+                    lock.as_ref(),
+                    job_dir,
+                    worker_dir,
+                    worker_name,
+                    job,
+                    mem_peak,
+                    canceled_by,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    &code,
+                    &shared_mount,
+                    base_internal_url,
+                    envs,
+                    occupancy_metrics,
+                ))
+                .await
+            }
+        }
+        ScriptLang::CSharp => {
+            if run_inline {
+                return Err(Error::internal_err(
+                    "Inline execution is not yet supported for this language".to_string(),
+                ));
+            }
+            Box::pin(handle_csharp_job(
                 mem_peak,
                 canceled_by,
+                job,
                 conn,
                 client,
                 parent_runnable_path,
                 &code,
-                &shared_mount,
-                base_internal_url,
-                envs,
-                occupancy_metrics,
-            )
-            .await
-        }
-        Some(ScriptLang::CSharp) => {
-            handle_csharp_job(
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                &code,
                 job_dir,
                 lock.as_ref(),
                 &shared_mount,
@@ -3550,35 +4137,42 @@ mount {{
                 worker_name,
                 envs,
                 occupancy_metrics,
-            )
+            ))
             .await
         }
-        Some(ScriptLang::Nu) => {
+        ScriptLang::Nu => {
             #[cfg(not(feature = "nu"))]
             return Err(
                 anyhow::anyhow!("Nu is not available because the feature is not enabled").into(),
             );
 
             #[cfg(feature = "nu")]
-            handle_nu_job(JobHandlerInputNu {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            })
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_nu_job(JobHandlerInputNu {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
-        Some(ScriptLang::Java) => {
+        ScriptLang::Java => {
             #[cfg(not(feature = "java"))]
             return Err(anyhow::anyhow!(
                 "Java is not available because the feature is not enabled"
@@ -3586,25 +4180,32 @@ mount {{
             .into());
 
             #[cfg(feature = "java")]
-            handle_java_job(JobHandlerInputJava {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            })
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_java_job(JobHandlerInputJava {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
-        Some(ScriptLang::Ruby) => {
+        ScriptLang::Ruby => {
             #[cfg(not(feature = "ruby"))]
             return Err(anyhow::anyhow!(
                 "Ruby is not available because the feature is not enabled"
@@ -3612,23 +4213,30 @@ mount {{
             .into());
 
             #[cfg(feature = "ruby")]
-            handle_ruby_job(JobHandlerInputRuby {
-                mem_peak,
-                canceled_by,
-                job,
-                conn,
-                client,
-                parent_runnable_path,
-                inner_content: &code,
-                job_dir,
-                requirements_o: lock.as_ref(),
-                shared_mount: &shared_mount,
-                base_internal_url,
-                worker_name,
-                envs,
-                occupancy_metrics,
-            })
-            .await
+            {
+                if run_inline {
+                    return Err(Error::internal_err(
+                        "Inline execution is not yet supported for this language".to_string(),
+                    ));
+                }
+                Box::pin(handle_ruby_job(JobHandlerInputRuby {
+                    mem_peak,
+                    canceled_by,
+                    job,
+                    conn,
+                    client,
+                    parent_runnable_path,
+                    inner_content: &code,
+                    job_dir,
+                    requirements_o: lock.as_ref(),
+                    shared_mount: &shared_mount,
+                    base_internal_url,
+                    worker_name,
+                    envs,
+                    occupancy_metrics,
+                }))
+                .await
+            }
         }
         // for related places search: ADD_NEW_LANG
         _ => panic!("unreachable, language is not supported: {language:#?}"),
@@ -3712,4 +4320,106 @@ pub fn parse_sig_of_lang(
     } else {
         None
     })
+}
+
+pub fn init_worker_internal_server_inline_utils(
+    killpill_rx: tokio::sync::broadcast::Receiver<()>,
+    base_internal_url: String,
+) -> windmill_common::error::Result<()> {
+    let utils = WorkerInternalServerInlineUtils {
+        base_internal_url,
+        killpill_rx: Arc::new(killpill_rx),
+        run_inline_preview_script: Arc::new(|params| {
+            let job = MiniPulledJob {
+                workspace_id: params.workspace_id,
+                id: Uuid::new_v4(),
+                args: params.args.map(Json),
+                parent_job: None,
+                created_by: params.created_by,
+                scheduled_for: chrono::Utc::now(),
+                started_at: None,
+                runnable_path: None,
+                kind: JobKind::Preview,
+                runnable_id: None,
+                canceled_reason: None,
+                canceled_by: None,
+                permissioned_as: params.permissioned_as,
+                permissioned_as_email: params.permissioned_as_email,
+                flow_status: None,
+                tag: "inline_preview".to_string(),
+                script_lang: Some(params.lang),
+                same_worker: true,
+                pre_run_error: None,
+                flow_innermost_root_job: None,
+                root_job: None,
+                timeout: None,
+                flow_step_id: None,
+                cache_ttl: None,
+                cache_ignore_s3_path: None,
+                priority: None,
+                preprocessed: None,
+                script_entrypoint_override: None,
+                trigger: None,
+                trigger_kind: None,
+                visible_to_owner: false,
+                permissioned_as_end_user_email: None,
+                runnable_settings_handle: None,
+                concurrent_limit: None,
+                concurrency_time_window_s: None,
+            };
+            Box::pin(async move {
+                let mut mem_peak: i32 = -1;
+                let mut canceled_by: Option<CanceledBy> = None;
+                let mut column_order: Option<Vec<String>> = None;
+                let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
+                let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
+                let mut has_stream: bool = false;
+                let mut killpill_rx = params.killpill_rx;
+
+                run_language_executor(
+                    &job,
+                    &params.conn,
+                    &params.client,
+                    None,
+                    &params.job_dir,
+                    &params.worker_dir,
+                    &mut mem_peak,
+                    &mut canceled_by,
+                    &params.base_internal_url,
+                    &params.worker_name,
+                    &mut column_order,
+                    &mut new_args,
+                    &mut occupancy_metrics,
+                    &mut killpill_rx,
+                    None,
+                    &mut has_stream,
+                    Some(params.lang),
+                    &params.content,
+                    &None,
+                    &None,
+                    &None,
+                    true,
+                )
+                .await
+            })
+        }),
+    };
+    WORKER_INTERNAL_SERVER_INLINE_UTILS
+        .set(utils)
+        .map_err(|_| {
+            error::Error::InternalErr(
+                "Couldn't set WorkerInternalServerInlineUtils OnceCell".to_string(),
+            )
+        })?;
+    Ok(())
+}
+
+pub fn get_worker_internal_server_inline_utils(
+) -> windmill_common::error::Result<&'static WorkerInternalServerInlineUtils> {
+    match WORKER_INTERNAL_SERVER_INLINE_UTILS.get() {
+        Some(utils) => Ok(utils),
+        None => Err(error::Error::internal_err(
+            "worker inline functions are meant to be called from a worker's internal server",
+        )),
+    }
 }

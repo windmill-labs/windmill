@@ -1,12 +1,9 @@
-<script lang="ts" module>
-	export type RunsSelectionMode = 'cancel' | 're-run'
-</script>
-
 <script lang="ts">
 	import { userStore, superadmin } from '$lib/stores'
 	import { X, Check, ChevronDown, Loader2, SquareMousePointer } from 'lucide-svelte'
 	import { Button } from '../common'
 	import DropdownV2 from '../DropdownV2.svelte'
+	import type { RunsSelectionMode } from '$lib/utils'
 
 	interface Props {
 		isLoading?: boolean
@@ -45,18 +42,18 @@
 	<div class="h-8 flex flex-row items-center gap-1">
 		<Button
 			startIcon={{ icon: X }}
-			size="xs"
-			color="gray"
-			variant="contained"
+			iconOnly
+			unifiedSize="md"
+			variant="default"
 			on:click={() => onSetSelectionMode(false)}
 		/>
 		{#if selectionMode == 'cancel'}
 			<Button
 				disabled={selectionCount == 0}
 				startIcon={{ icon: Check }}
-				size="xs"
-				color="red"
-				variant="contained"
+				unifiedSize="md"
+				variant="accent"
+				destructive
 				on:click={onCancelSelectedJobs}
 			>
 				Cancel {jobCountString(selectionCount)}
@@ -66,9 +63,8 @@
 			<Button
 				disabled={selectionCount == 0}
 				startIcon={{ icon: Check }}
-				size="xs"
-				color="green"
-				variant="contained"
+				unifiedSize="md"
+				variant="accent"
 				on:click={onReRunSelectedJobs}
 			>
 				Re-run {jobCountString(selectionCount)}
@@ -96,15 +92,17 @@
 		]}
 	>
 		{#snippet buttonReplacement()}
-			<div
-				class="px-2 h-[30px] border flex flex-row items-center hover:bg-surface-hover cursor-pointer rounded-md gap-2"
+			<Button
+				nonCaptureEvent
+				variant="default"
+				unifiedSize="md"
+				startIcon={{ icon: SquareMousePointer }}
+				endIcon={{ icon: ChevronDown }}
 			>
-				<SquareMousePointer size={16} />
 				{#if !small}
-					<span class="text-xs min-w-[5rem]">Batch actions</span>
+					<span>Batch actions</span>
 				{/if}
-				<ChevronDown size={16} />
-			</div>
+			</Button>
 		{/snippet}
 	</DropdownV2>
 {/if}

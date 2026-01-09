@@ -13,7 +13,6 @@
 	import { initHistory, redo, undo } from '$lib/history.svelte'
 	import {
 		enterpriseLicense,
-		tutorialsToDo,
 		userStore,
 		workspaceStore,
 		usedTriggerKinds
@@ -39,11 +38,15 @@
 	import { Badge, Button, UndoRedo } from './common'
 	import FlowEditor from './flows/FlowEditor.svelte'
 	import ScriptEditorDrawer from './flows/content/ScriptEditorDrawer.svelte'
+	import FlowEditorDrawer from './flows/content/FlowEditorDrawer.svelte'
 	import { dfs as dfsApply } from './flows/dfs'
 	import FlowImportExportMenu from './flows/header/FlowImportExportMenu.svelte'
 	import FlowPreviewButtons from './flows/header/FlowPreviewButtons.svelte'
 	import type { FlowEditorContext, FlowInput, FlowInputEditorState } from './flows/types'
-	import { cleanInputs } from './flows/utils'
+	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { NoteEditor } from './graph/noteEditor.svelte'
+	import { setNoteEditorContext } from './graph/noteEditor.svelte'
+	import { cleanFlow } from './flows/utils.svelte'
 	import {
 		Calendar,
 		Pen,
@@ -58,11 +61,10 @@
 	import { getAllModules } from './flows/flowExplorer'
 	import { type FlowCopilotContext } from './copilot/flow'
 	import { loadFlowModuleState } from './flows/flowStateUtils.svelte'
-	import FlowBuilderTutorials from './FlowBuilderTutorials.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import FlowTutorials from './FlowTutorials.svelte'
-	import { ignoredTutorials } from './tutorials/ignoredTutorials'
 	import FlowHistory from './flows/FlowHistory.svelte'
+	import FlowEditorTutorial from './flows/FlowEditorTutorial.svelte'
 	import Summary from './Summary.svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from './custom_ui'
 	import FlowYamlEditor from './flows/header/FlowYamlEditor.svelte'
@@ -80,6 +82,7 @@
 	import { StepsInputArgs } from './flows/stepsInputArgs.svelte'
 	import { aiChatManager } from './copilot/chat/AIChatManager.svelte'
 	import type { GraphModuleState } from './graph'
+	import { validateRetryConfig } from '$lib/utils'
 	import {
 		setStepHistoryLoaderContext,
 		StepHistoryLoader,
@@ -88,6 +91,7 @@
 	import type { FlowBuilderProps } from './flow_builder'
 	import { ModulesTestStates } from './modulesTest.svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from './flows/FlowAssetsHandler.svelte'
+	import { inputSizeClasses } from './text_input/TextInput.svelte'
 
 	let {
 		initialPath = $bindable(''),
@@ -160,7 +164,7 @@
 	}
 
 	function hasAIChanges(): boolean {
-		return aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		return aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 	}
 
 	function withAIChangesWarning(callback: () => void) {
@@ -265,7 +269,7 @@
 		}
 		loadingDraft = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
 			try {
 				localStorage.removeItem('flow')
 				localStorage.removeItem(`flow-${$pathStore}`)
@@ -336,11 +340,11 @@
 
 			let savedAtNewPath = false
 			if (newFlow) {
-				onSaveInitial?.({ path: $pathStore, id: getSelectedId() })
+				onSaveInitial?.({ path: $pathStore, id: getSelectedId() ?? 'settings' })
 			} else if (savedFlow?.draft_only && $pathStore !== initialPath) {
 				savedAtNewPath = true
 				initialPath = $pathStore
-				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() })
+				onSaveDraftOnlyAtNewPath?.({ path: $pathStore, selectedId: getSelectedId() ?? 'settings' })
 				// this is so we can use the flow builder outside of sveltekit
 			}
 			onSaveDraft?.({ path: $pathStore, savedAtNewPath, newFlow })
@@ -426,7 +430,29 @@
 
 		loadingSave = true
 		try {
-			const flow = cleanInputs(flowStore.val)
+			const flow = cleanFlow(flowStore.val)
+
+			if (flow.value?.modules) {
+				const validationErrors: string[] = []
+				dfsApply(flow.value.modules, (module) => {
+					const error = validateRetryConfig(module.retry)
+					if (error) {
+						validationErrors.push(`Step '${module.id}': ${error}`)
+					}
+				})
+
+				if (flow.value.failure_module) {
+					// add validation logic here for failure module
+				}
+
+				if (flow.value.preprocessor_module) {
+					// add validation logic here for preprocessor module
+				}
+
+				if (validationErrors.length > 0) {
+					throw new Error(validationErrors.join('\n'))
+				}
+			}
 			// console.log('flow', computeUnlockedSteps(flow)) // del
 			// loadingSave = false // del
 			// return
@@ -537,7 +563,7 @@
 					encodeState({
 						flow: flowStore.val,
 						path: $pathStore,
-						selectedId: $selectedIdStore,
+						selectedId: selectedIdStore,
 						draft_triggers: triggersState.getDraftTriggersSnapshot(),
 						selected_trigger: triggersState.getSelectedTriggerSnapshot(),
 						loadedFromHistory: {
@@ -552,14 +578,22 @@
 		}, 500)
 	}
 
-	const selectedIdStore = writable<string>(selectedId ?? 'settings-metadata')
+	const selectionManager = new SelectionManager()
+	const selectedIdStore = $derived(selectionManager.getSelectedId())
+	// Initialize with selected id if provided
+	if (selectedId) {
+		selectionManager.selectId(selectedId)
+	} else {
+		selectionManager.selectId('settings-metadata')
+	}
 
 	export function getSelectedId() {
-		return $selectedIdStore
+		return selectedIdStore
 	}
 
 	const previewArgsStore = $state({ val: initialArgs })
 	const scriptEditorDrawer = writable<ScriptEditorDrawer | undefined>(undefined)
+	const flowEditorDrawer = writable<FlowEditorDrawer | undefined>(undefined)
 	const moving = writable<{ id: string } | undefined>(undefined)
 	const history = initHistory(flowStore.val)
 	const pathStore = writable<string>(pathStoreInit ?? initialPath)
@@ -574,7 +608,7 @@
 	const stepsInputArgs = new StepsInputArgs()
 
 	function select(selectedId: string) {
-		selectedIdStore.set(selectedId)
+		selectionManager.selectId(selectedId)
 	}
 
 	let insertButtonOpen = writable<boolean>(false)
@@ -583,10 +617,11 @@
 	let flowEditor: FlowEditor | undefined = $state(undefined)
 
 	setContext<FlowEditorContext>('FlowEditorContext', {
-		selectedId: selectedIdStore,
+		selectionManager,
 		currentEditor: writable(undefined),
 		previewArgs: previewArgsStore,
 		scriptEditorDrawer,
+		flowEditorDrawer,
 		moving,
 		history,
 		flowStateStore,
@@ -604,6 +639,13 @@
 		modulesTestStates,
 		outputPickerOpenFns
 	})
+
+	// Set up NoteEditor context for note editing capabilities
+	const noteEditor = new NoteEditor(flowStore, () => {
+		// Enable notes display when a note is created
+		flowEditor?.enableNotes?.()
+	})
+	setNoteEditorContext(noteEditor)
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -671,7 +713,7 @@
 			case 'z':
 				if (event.ctrlKey || event.metaKey) {
 					flowStore.val = undo(history, flowStore.val)
-					$selectedIdStore = 'Input'
+					selectionManager.selectId('Input')
 					event.preventDefault()
 				}
 				break
@@ -684,9 +726,9 @@
 			case 'ArrowDown': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > -1 && idx < ids.length - 1) {
-						$selectedIdStore = ids[idx + 1]
+						selectionManager.selectId(ids[idx + 1])
 						event.preventDefault()
 					}
 				}
@@ -695,9 +737,9 @@
 			case 'ArrowUp': {
 				if (!$insertButtonOpen && !flowPreviewButtons?.getPreviewOpen()) {
 					let ids = generateIds()
-					let idx = ids.indexOf($selectedIdStore)
+					let idx = ids.indexOf(selectedIdStore!)
 					if (idx > 0 && idx < ids.length) {
-						$selectedIdStore = ids[idx - 1]
+						selectionManager.selectId(ids[idx - 1])
 						event.preventDefault()
 					}
 				}
@@ -764,8 +806,6 @@
 
 		if (tutorial) {
 			flowTutorials?.runTutorialById(tutorial)
-		} else if ($tutorialsToDo.includes(0) && !$ignoredTutorials.includes(0)) {
-			flowTutorials?.runTutorialById('action')
 		}
 	}
 
@@ -844,7 +884,7 @@
 		setContext('customUi', customUi)
 	})
 	$effect.pre(() => {
-		if (flowStore.val || $selectedIdStore) {
+		if (flowStore.val || selectedIdStore) {
 			readFieldsRecursively(flowStore.val)
 			untrack(() => saveSessionDraft())
 		}
@@ -859,7 +899,7 @@
 		initialPath && initialPath != '' && $workspaceStore && untrack(() => loadTriggers())
 	})
 	$effect.pre(() => {
-		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasDiff() ?? false
+		const hasAiDiff = aiChatManager.flowAiChatHelpers?.hasPendingChanges() ?? false
 		customUi && untrack(() => onCustomUiChange(customUi, hasAiDiff))
 	})
 
@@ -908,7 +948,7 @@
 				job.success &&
 				flowPreviewButtons?.getPreviewMode() === 'whole'
 			) {
-				if (flowEditor?.isNodeVisible('result') && $selectedIdStore !== 'Result') {
+				if (flowEditor?.isNodeVisible('Result') && selectedIdStore !== 'Result') {
 					outputPickerOpenFns['Result']?.()
 				}
 			} else {
@@ -967,6 +1007,7 @@
 		<FlowYamlEditor bind:drawer={yamlEditorDrawer} />
 		<FlowImportExportMenu bind:drawer={jsonViewerDrawer} />
 		<ScriptEditorDrawer bind:this={$scriptEditorDrawer} />
+		<FlowEditorDrawer bind:this={$flowEditorDrawer} />
 
 		<div class="flex flex-col flex-1 h-screen">
 			<!-- Nav between steps-->
@@ -1002,7 +1043,7 @@
 								}
 							}
 
-							$selectedIdStore = 'Input'
+							selectionManager.selectId('Input')
 						}}
 						on:redo={() => {
 							flowStore.val = redo(history)
@@ -1010,18 +1051,17 @@
 					/>
 				</div>
 
-				<div class="gap-4 flex-row hidden md:flex w-full max-w-md">
+				<div class="gap-4 flex-row hidden md:flex w-full whitespace-nowrap max-w-md">
 					{#if triggersState.triggers?.some((t) => t.type === 'schedule')}
 						{@const primaryScheduleIndex = triggersState.triggers.findIndex((t) => t.isPrimary)}
 						{@const scheduleIndex = triggersState.triggers.findIndex((t) => t.type === 'schedule')}
 						<Button
 							btnClasses="hidden lg:inline-flex"
 							startIcon={{ icon: Calendar }}
-							variant="contained"
-							color="light"
+							variant="subtle"
 							size="xs"
 							on:click={async () => {
-								select('triggers')
+								select('Trigger')
 								const selected = primaryScheduleIndex ?? scheduleIndex
 								if (selected) {
 									triggersState.selectedTriggerIndex = selected
@@ -1035,27 +1075,25 @@
 					{/if}
 
 					{#if customUi?.topBar?.path != false}
-						<div class="flex justify-start w-full">
-							<div>
-								<button
-									onclick={async () => {
-										select('settings-metadata')
-										document.getElementById('path')?.focus()
-									}}
+						<div class="flex justify-start items-center w-full">
+							<button
+								onclick={async () => {
+									select('settings-metadata')
+									document.getElementById('path')?.focus()
+								}}
+							>
+								<Badge
+									color="gray"
+									class="text-primary rounded-r-none border border-r-0 {inputSizeClasses.md}"
 								>
-									<Badge
-										color="gray"
-										class="center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[28px]  !w-[70px] rounded-r-none"
-									>
-										<Pen size={12} class="mr-2" /> Path
-									</Badge>
-								</button>
-							</div>
+									<Pen size={12} class="mr-2" /> Path
+								</Badge>
+							</button>
 							<input
 								type="text"
 								readonly
 								value={$pathStore && $pathStore != '' ? $pathStore : 'Choose a path'}
-								class="font-mono !text-xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 !rounded-l-none"
+								class="font-mono !text-2xs !min-w-[96px] !max-w-[300px] !w-full !h-[28px] !my-0 !py-0 !border-l-0 cursor-default !rounded-l-none {inputSizeClasses.md}"
 								onfocus={({ currentTarget }) => {
 									currentTarget.select()
 								}}
@@ -1072,18 +1110,11 @@
 							<Dropdown items={moreItems} />
 						{/if}
 					</div>
-					{#if customUi?.topBar?.tutorials != false}
-						<FlowBuilderTutorials
-							on:reload={() => {
-								renderCount += 1
-							}}
-						/>
-					{/if}
+					<FlowEditorTutorial />
 					{#if customUi?.topBar?.diff != false}
 						<Button
-							color="light"
-							variant="border"
-							size="xs"
+							variant="default"
+							unifiedSize="md"
 							on:click={async () => {
 								if (!savedFlow) {
 									return
@@ -1096,8 +1127,7 @@
 								)
 
 								diffDrawer?.openDrawer()
-								const currentFlow =
-									aiChatManager.flowAiChatHelpers?.getPreviewFlow() ?? flowStore.val
+								const currentFlow = flowStore.val
 								diffDrawer?.setDiff({
 									mode: 'normal',
 									deployed: deployedValue ?? savedFlow,
@@ -1110,16 +1140,14 @@
 								})
 							}}
 							disabled={!savedFlow}
+							startIcon={{ icon: DiffIcon }}
 						>
-							<div class="flex flex-row gap-2 items-center">
-								<DiffIcon size={14} />
-								Diff
-							</div>
+							Diff
 						</Button>
 					{/if}
 					<FlowPreviewButtons
 						on:openTriggers={(e) => {
-							select('triggers')
+							select('Trigger')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)
 							captureOn.set(true)
 							showCaptureHint.set(true)
@@ -1136,18 +1164,19 @@
 							showJobStatus = true
 						}}
 					/>
-					<Button
-						loading={loadingDraft}
-						size="xs"
-						startIcon={{ icon: Save }}
-						on:click={() => saveDraft()}
-						disabled={(!newFlow && !savedFlow) || loading}
-						shortCut={{
-							key: 'S'
-						}}
-					>
-						Draft
-					</Button>
+					{#if customUi?.topBar?.draft !== false}
+						<Button
+							loading={loadingDraft}
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Save }}
+							on:click={() => saveDraft()}
+							disabled={(!newFlow && !savedFlow) || loading}
+							shortCut={{ key: 'S' }}
+						>
+							Draft
+						</Button>
+					{/if}
 
 					<DeployButton
 						on:save={async ({ detail }) => await handleSaveFlow(detail)}
@@ -1173,7 +1202,7 @@
 					on:applyArgs={(ev) => {
 						if (ev.detail.kind === 'preprocessor') {
 							stepsInputArgs.setStepArgs('preprocessor', ev.detail.args ?? {})
-							$selectedIdStore = 'preprocessor'
+							selectionManager.selectId('preprocessor')
 						}
 					}}
 					on:testWithArgs={(e) => {
@@ -1186,7 +1215,7 @@
 					{savedFlow}
 					onDeployTrigger={handleDeployTrigger}
 					onEditInput={(moduleId, key) => {
-						selectedIdStore.set(moduleId)
+						selectionManager.selectId(moduleId)
 						// Use new prop-based system
 						forceTestTab[moduleId] = true
 						highlightArg[moduleId] = key

@@ -1,10 +1,15 @@
 <script lang="ts">
+	/**
+	 * @deprecated Use `$lib/components/meltComponents/Tooltip.svelte` instead.
+	 * This legacy tooltip component will be removed in a future version.
+	 */
 	import Markdown from 'svelte-exmarkdown'
 	import type { PopoverPlacement } from './Popover.model'
 	import Popover from './Popover.svelte'
-	import { ExternalLink, InfoIcon } from 'lucide-svelte'
+	import { InfoIcon } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
 	import { getContext, hasContext } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 	interface Props {
 		light?: boolean
 		wrapperClass?: string
@@ -39,13 +44,14 @@
 	<Popover
 		notClickable
 		{placement}
-		class={wrapperClass}
+		class={twMerge(wrapperClass)}
 		style="transform: scale({parseFloat(customSize) / 100});"
+		{documentationLink}
 	>
 		<div
 			class="inline-flex w-3 mx-0.5 h-3 {light
-				? 'text-tertiary-inverse'
-				: 'text-tertiary'} {classNames} relative"
+				? 'text-primary-inverse'
+				: 'text-primary'} {classNames} relative"
 		>
 			<InfoIcon class="{small ? 'bottom-0' : '-bottom-0.5'} absolute" size={small ? 12 : 14} />
 		</div>
@@ -56,15 +62,6 @@
 				</div>
 			{:else}
 				{@render children?.()}
-			{/if}
-
-			{#if documentationLink}
-				<a href={documentationLink} target="_blank" class="text-blue-300 text-xs">
-					<div class="flex flex-row gap-2 mt-4">
-						See documentation
-						<ExternalLink size="16" />
-					</div>
-				</a>
 			{/if}
 		{/snippet}
 	</Popover>

@@ -24,12 +24,14 @@
 					properties?: { [name: string]: SchemaProperty }
 			  }
 			| undefined
+		nonEmpty?: boolean | undefined
 	}
 
 	let {
 		canEditResourceType = false,
 		originalType = undefined,
-		itemsType = $bindable()
+		itemsType = $bindable(),
+		nonEmpty = $bindable()
 	}: Props = $props()
 
 	let selected:
@@ -143,11 +145,16 @@
 				</div>
 			{/each}
 		</div>
+		<Toggle
+			size="sm"
+			class="mt-8"
+			bind:checked={nonEmpty}
+			options={{ right: 'Require non-empty array' }}
+		/>
 		{#if canEditResourceType || originalType == 'string[]' || originalType == 'object[]'}
 			<div class="flex flex-row mb-1 mt-2">
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="sm"
 					on:click={() => {
 						if (itemsType?.enum) {
@@ -160,8 +167,7 @@
 					<Plus size={14} />
 				</Button>
 				<Button
-					color="light"
-					variant="border"
+					variant="default"
 					size="sm"
 					btnClasses="ml-2"
 					on:click={() => itemsType?.enum && (itemsType.enum = undefined)}
@@ -179,13 +185,14 @@
 			() => {
 				return itemsType?.properties != undefined
 			},
-			async (v) => {
-				await tick()
-				if (v) {
-					itemsType = { type: 'object', properties: {} }
-				} else {
-					itemsType = { type: 'object', properties: undefined }
-				}
+			(v) => {
+				tick().then(() => {
+					if (v) {
+						itemsType = { type: 'object', properties: {} }
+					} else {
+						itemsType = { type: 'object', properties: undefined }
+					}
+				})
 			}
 		}
 		options={{ left: 'JSON', right: 'Custom Object' }}

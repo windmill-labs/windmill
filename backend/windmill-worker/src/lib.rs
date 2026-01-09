@@ -23,8 +23,10 @@ mod bun_executor;
 pub mod common;
 mod config;
 mod csharp_executor;
-#[cfg(feature = "enterprise")]
-mod dedicated_worker;
+
+#[cfg(feature = "private")]
+mod dedicated_worker_ee;
+mod dedicated_worker_oss;
 mod deno_executor;
 #[cfg(feature = "duckdb")]
 mod duckdb_executor;
@@ -63,11 +65,13 @@ mod rust_executor;
 mod sanitized_sql_params;
 mod schema;
 pub mod scoped_dependency_map;
+pub mod sql_utils;
 mod universal_pkg_installer;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
 mod worker_utils;
+pub mod workspace_dependencies;
 
 pub use worker::*;
 pub use worker_lockfiles::{
@@ -83,4 +87,4 @@ pub use bun_executor::{
 pub use deno_executor::generate_deno_lock;
 
 #[cfg(feature = "python")]
-pub use python_versions::{PyV, PyVAlias};
+pub use python_versions::PyV;

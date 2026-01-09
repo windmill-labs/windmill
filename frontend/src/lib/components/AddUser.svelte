@@ -75,7 +75,7 @@
 
 <Popover placement="bottom-end">
 	{#snippet trigger()}
-		<Button color="dark" size="xs" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
+		<Button variant="accent" unifiedSize="md" nonCaptureEvent={true} startIcon={{ icon: UserPlus }}>
 			Add new user
 		</Button>
 	{/snippet}
@@ -91,7 +91,7 @@
 				<input type="text" onkeyup={handleKeyUp} placeholder="username" bind:value={username} />
 			{/if}
 
-			<span class="text-xs mb-1 pt-2 leading-6">Role</span>
+			<span class="text-xs mb-1 pt-6 leading-6">Role</span>
 			<ToggleButtonGroup bind:selected class="mb-4">
 				{#snippet children({ item })}
 					<ToggleButton
@@ -115,8 +115,7 @@
 				{/snippet}
 			</ToggleButtonGroup>
 			<Button
-				variant="contained"
-				color="blue"
+				variant="accent"
 				size="sm"
 				on:click={() => {
 					addUser().then(() => {

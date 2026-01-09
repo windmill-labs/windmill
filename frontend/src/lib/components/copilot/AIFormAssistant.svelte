@@ -24,7 +24,7 @@
 		<AskAiButton label="Fill with AI" onClick={fillFormWithAI} />
 	</div>
 	<div class="flex flex-row gap-2 items-center">
-		<p class="text-sm text-tertiary">
+		<p class="text-sm text-primary">
 			{instructions
 				? 'Instructions: ' + instructions
 				: 'No AI instructions provided. Click edit to add guidance for AI form filling.'}

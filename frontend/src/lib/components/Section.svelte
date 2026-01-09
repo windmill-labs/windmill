@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { enterpriseLicense } from '$lib/stores'
-	import { AlertTriangle, ChevronRight } from 'lucide-svelte'
+	import { ChevronRight } from 'lucide-svelte'
 	import Tooltip from './Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { slide } from 'svelte/transition'
+	import EEOnly from './EEOnly.svelte'
 
 	interface Props {
 		label?: string | undefined
@@ -19,10 +20,13 @@
 		animate?: boolean
 		breakAll?: boolean
 		class?: string | undefined
+		description?: string | undefined
+		initiallyCollapsed?: boolean
 		header?: import('svelte').Snippet
 		action?: import('svelte').Snippet
 		badge?: import('svelte').Snippet
 		children?: import('svelte').Snippet
+		labelExtra?: import('svelte').Snippet
 	}
 
 	let {
@@ -34,43 +38,44 @@
 		wrapperClass = '',
 		headerClass = '',
 		collapsable = false,
-		collapsed = $bindable(true),
+		initiallyCollapsed = true,
+		collapsed = $bindable(initiallyCollapsed),
 		headless = false,
 		animate = false,
 		breakAll = false,
 		class: clazz = undefined,
+		description = undefined,
 		header,
 		action,
 		badge,
-		children
+		children,
+		labelExtra
 	}: Props = $props()
 </script>
 
 <div class={twMerge('w-full flex flex-col', wrapperClass)}>
 	{#if !headless}
-		<div class="flex flex-row justify-between items-center mb-2">
+		<div class="flex flex-row justify-between items-center">
 			<h2
 				class={twMerge(
-					'font-semibold flex flex-row items-center gap-1',
+					'text-emphasis flex flex-row items-center gap-1',
 					breakAll ? 'break-all' : '',
-					small ? 'text-sm' : 'text-base',
+					small ? 'text-xs font-semibold' : 'text-sm font-semibold',
 					headerClass
 				)}
 			>
 				{#if collapsable}
 					<button class="flex items-center gap-1" onclick={() => (collapsed = !collapsed)}>
-						<ChevronRight
-							size={16}
-							class={twMerge(
-								'transition',
-								collapsed ? '' : 'rotate-90',
-								animate ? 'duration-200' : 'duration-0'
-							)}
-						/>
 						{label}
+						{@render labelExtra?.()}
+						<ChevronRight
+							size={14}
+							class={twMerge('transition duration-200', collapsed ? '' : 'rotate-90')}
+						/>
 					</button>
 				{:else}
 					{label}
+					{@render labelExtra?.()}
 				{/if}
 
 				{@render header?.()}
@@ -79,14 +84,13 @@
 				{/if}
 				{#if eeOnly}
 					{#if !$enterpriseLicense}
-						<div class="flex text-xs items-center gap-1 text-yellow-500 whitespace-nowrap ml-8">
-							<AlertTriangle size={16} />
-							EE only <Tooltip>Enterprise Edition only feature</Tooltip>
-						</div>
+						<EEOnly />
 					{/if}
 				{/if}
 			</h2>
-			{@render action?.()}
+			{#if !(collapsable && collapsed)}
+				{@render action?.()}
+			{/if}
 			{#if collapsable && collapsed}
 				{@render badge?.()}
 			{/if}
@@ -94,10 +98,17 @@
 	{/if}
 	{#if !collapsable || !collapsed}
 		<div
-			class={twMerge('grow min-h-0', clazz)}
-			transition:slide={animate ? { duration: 200 } : { duration: 0 }}
+			class={'grow min-h-0 '}
+			transition:slide={animate || collapsable ? { duration: 200 } : { duration: 0 }}
 		>
-			{@render children?.()}
+			{#if description}
+				<div class="text-xs text-primary mt-1">{@html description}</div>
+			{/if}
+			<div class="flex flex-col gap-6 h-full mt-6">
+				<div class={twMerge('grow min-h-0', clazz)}>
+					{@render children?.()}
+				</div>
+			</div>
 		</div>
 	{/if}
 </div>

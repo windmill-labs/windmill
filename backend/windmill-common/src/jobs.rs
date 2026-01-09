@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 
 use bytes::Bytes;
 use futures_core::Stream;
 use indexmap::IndexMap;
+use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -17,11 +18,13 @@ pub const EMAIL_ERROR_HANDLER_USER_EMAIL: &str = "email_error_handler@windmill.d
 use crate::{
     apps::AppScriptId,
     auth::is_super_admin_email,
+    client::AuthedClient,
     db::{AuthedRef, UserDbWithAuthed, DB},
     error::{self, to_anyhow, Error},
     flow_status::{FlowStatus, RestartedFrom},
     flows::{FlowNodeId, FlowValue, Retry},
     get_latest_deployed_hash_for_path, get_latest_flow_version_info_for_path,
+    runnable_settings::{ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings},
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::username_to_permissioned_as,
     utils::{StripPath, HTTP_CLIENT},
@@ -73,7 +76,7 @@ impl std::fmt::Display for JobTriggerKind {
     }
 }
 
-#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Default)]
 #[sqlx(type_name = "JOB_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum JobKind {
@@ -88,12 +91,32 @@ pub enum JobKind {
     Identity,
     FlowDependencies,
     AppDependencies,
+    #[default]
     Noop,
     DeploymentCallback,
     FlowScript,
     FlowNode,
     AppScript,
     AIAgent,
+    #[serde(rename = "unassigned_script")]
+    #[sqlx(rename = "unassigned_script")]
+    UnassignedScript,
+    #[serde(rename = "unassigned_flow")]
+    #[sqlx(rename = "unassigned_flow")]
+    UnassignedFlow,
+    #[serde(rename = "unassigned_singlestepflow")]
+    #[sqlx(rename = "unassigned_singlestepflow")]
+    UnassignedSinglestepFlow,
+}
+
+#[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Copy, Clone)]
+#[sqlx(type_name = "JOB_STATUS", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum JobStatus {
+    Success,
+    Failure,
+    Canceled,
+    Skipped,
 }
 
 impl JobKind {
@@ -175,9 +198,13 @@ pub struct QueuedJob {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_ignore_s3_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preprocessed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runnable_settings_handle: Option<i64>,
 }
 
 impl QueuedJob {
@@ -248,8 +275,10 @@ impl Default for QueuedJob {
             timeout: None,
             flow_step_id: None,
             cache_ttl: None,
+            cache_ignore_s3_path: None,
             priority: None,
             preprocessed: None,
+            runnable_settings_handle: None,
         }
     }
 }
@@ -263,6 +292,7 @@ pub struct CompletedJob {
     pub created_by: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub duration_ms: i64,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -323,43 +353,44 @@ impl CompletedJob {
 
 #[derive(Debug, Clone)]
 pub enum JobPayload {
+    /// Execute Hub Script
     ScriptHub {
         path: String,
         apply_preprocessor: bool,
     },
 
+    /// Execute script
     ScriptHash {
         hash: ScriptHash,
         path: String,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         dedicated_worker: Option<bool>,
         language: ScriptLang,
         priority: Option<i16>,
         apply_preprocessor: bool,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
     },
 
-    FlowScript {
-        id: FlowNodeId, // flow_node(id).
-        language: ScriptLang,
-        /// Override default concurrency key
-        custom_concurrency_key: Option<String>,
-        /// How many jobs can run at the same time
-        concurrent_limit: Option<i32>,
-        /// In seconds
-        concurrency_time_window_s: Option<i32>,
-        cache_ttl: Option<i32>,
-        dedicated_worker: Option<bool>,
-        path: String,
-    },
-
+    /// Execute flow step (can be subflow only).
     FlowNode {
         id: FlowNodeId, // flow_node(id).
         path: String,   // flow node inner path (e.g. `outer/branchall-42`).
     },
 
+    /// Execute flow step
+    FlowScript {
+        id: FlowNodeId, // flow_node(id).
+        path: String,
+        language: ScriptLang,
+        cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
+        dedicated_worker: Option<bool>,
+        concurrency_settings: ConcurrencySettings,
+    },
+
+    /// Inline App Script
     AppScript {
         id: AppScriptId, // app_script(id).
         path: Option<String>,
@@ -367,6 +398,7 @@ pub enum JobPayload {
         cache_ttl: Option<i32>,
     },
 
+    /// Script/App/FlowAsCode Preview
     Code(RawCode),
 
     /// Script Dependency Job
@@ -375,6 +407,7 @@ pub enum JobPayload {
         hash: ScriptHash,
         language: ScriptLang,
         dedicated_worker: Option<bool>,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job
@@ -382,12 +415,14 @@ pub enum JobPayload {
         path: String,
         dedicated_worker: Option<bool>,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// App Dependency Job
     AppDependencies {
         path: String,
         version: i64,
+        debouncing_settings: DebouncingSettings,
     },
 
     /// Flow Dependency Job, exposed with API. Requirements can be partially or fully predefined
@@ -399,7 +434,7 @@ pub enum JobPayload {
     /// Dependency Job, exposed with API. Requirements can be predefined
     RawScriptDependencies {
         script_path: String,
-        /// Will reflect raw requirements content (e.g. requirements.txt)
+        /// Will reflect raw requirements content (e.g. requirements.in)
         content: String,
         language: ScriptLang,
     },
@@ -411,11 +446,15 @@ pub enum JobPayload {
         apply_preprocessor: bool,
         version: i64,
     },
+
     RestartedFlow {
         completed_job_id: Uuid,
         step_id: String,
         branch_or_iteration_n: Option<usize>,
+        flow_version: Option<i64>,
     },
+
+    /// Flow Preview
     RawFlow {
         value: FlowValue,
         path: Option<String>,
@@ -432,17 +471,18 @@ pub enum JobPayload {
         error_handler_path: Option<String>,
         error_handler_args: Option<HashMap<String, Box<RawValue>>>,
         skip_handler: Option<SkipHandler>,
-        custom_concurrency_key: Option<String>,
-        concurrent_limit: Option<i32>,
-        concurrency_time_window_s: Option<i32>,
         cache_ttl: Option<i32>,
+        cache_ignore_s3_path: Option<bool>,
         priority: Option<i16>,
         tag_override: Option<String>,
         trigger_path: Option<String>,
         apply_preprocessor: bool,
+        concurrency_settings: ConcurrencySettings,
+        debouncing_settings: DebouncingSettings,
     },
     DeploymentCallback {
         path: String,
+        debouncing_settings: DebouncingSettings,
     },
     Identity,
     Noop,
@@ -459,18 +499,50 @@ pub struct SkipHandler {
     pub stop_message: String,
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, Deserialize, Debug, Default)]
 pub struct RawCode {
     pub content: String,
     pub path: Option<String>,
     pub hash: Option<i64>,
     pub language: ScriptLang,
     pub lock: Option<String>,
-    pub custom_concurrency_key: Option<String>,
-    pub concurrent_limit: Option<i32>,
-    pub concurrency_time_window_s: Option<i32>,
     pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
     pub dedicated_worker: Option<bool>,
+    #[serde(flatten)]
+    pub concurrency_settings: ConcurrencySettingsWithCustom,
+    #[serde(flatten)]
+    // NOTE: Since we can only deserialize the struct,
+    // even though the older versions pass `custom_debounce_key` to RawCode,
+    // we can still have `debounce_key` in DebouncingSettings
+    // we just add alias `custom_debounce_key`
+    // however, serializing this settings will produce `debounce_key`
+    pub debouncing_settings: DebouncingSettings,
+}
+
+impl JobPayload {
+    pub fn job_kind(&self) -> JobKind {
+        match self {
+            JobPayload::Noop => JobKind::Noop,
+            JobPayload::Identity => JobKind::Identity,
+            JobPayload::Code { .. } => JobKind::Preview,
+            JobPayload::AIAgent { .. } => JobKind::AIAgent,
+            JobPayload::FlowNode { .. } => JobKind::FlowNode,
+            JobPayload::ScriptHash { .. } => JobKind::Script,
+            JobPayload::AppScript { .. } => JobKind::AppScript,
+            JobPayload::RawFlow { .. } => JobKind::FlowPreview,
+            JobPayload::ScriptHub { .. } => JobKind::Script_Hub,
+            JobPayload::FlowScript { .. } => JobKind::FlowScript,
+            JobPayload::Dependencies { .. } => JobKind::Dependencies,
+            JobPayload::SingleStepFlow { .. } => JobKind::SingleStepFlow,
+            JobPayload::AppDependencies { .. } => JobKind::AppDependencies,
+            JobPayload::FlowDependencies { .. } => JobKind::FlowDependencies,
+            JobPayload::RawScriptDependencies { .. } => JobKind::Dependencies,
+            JobPayload::RawFlowDependencies { .. } => JobKind::FlowDependencies,
+            JobPayload::DeploymentCallback { .. } => JobKind::DeploymentCallback,
+            JobPayload::Flow { .. } | JobPayload::RestartedFlow { .. } => JobKind::Flow,
+        }
+    }
 }
 
 type Tag = String;
@@ -537,10 +609,13 @@ pub async fn script_path_to_payload<'e>(
         let ScriptHashInfo {
             hash,
             tag,
-            concurrency_key,
-            concurrent_limit,
-            concurrency_time_window_s,
+            runnable_settings:
+                super::scripts::ScriptRunnableSettingsInline {
+                    concurrency_settings,
+                    debouncing_settings,
+                },
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
@@ -550,7 +625,10 @@ pub async fn script_path_to_payload<'e>(
             on_behalf_of_email,
             created_by,
             ..
-        } = get_latest_deployed_hash_for_path(db_authed, db, w_id, script_path).await?;
+        } = get_latest_deployed_hash_for_path(db_authed, db.clone(), w_id, script_path)
+            .await?
+            .prefetch_cached(&db)
+            .await?;
 
         let on_behalf_of = if let Some(email) = on_behalf_of_email {
             Some(OnBehalfOf {
@@ -565,15 +643,15 @@ pub async fn script_path_to_payload<'e>(
             JobPayload::ScriptHash {
                 hash: ScriptHash(hash),
                 path: script_path.to_owned(),
-                custom_concurrency_key: concurrency_key,
-                concurrent_limit,
-                concurrency_time_window_s,
                 cache_ttl,
+                cache_ignore_s3_path,
                 language,
                 dedicated_worker,
                 priority,
                 apply_preprocessor: !skip_preprocessor.unwrap_or(false)
                     && has_preprocessor.unwrap_or(false),
+                debouncing_settings,
+                concurrency_settings,
             },
             tag,
             delete_after_use,
@@ -799,25 +877,38 @@ pub async fn check_tag_available_for_workspace_internal(
     return Ok(());
 }
 
-pub async fn lock_debounce_key<'c>(
-    w_id: &str,
-    runnable_path: &str,
-    tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
-) -> error::Result<Option<Uuid>> {
-    let key = format!("{w_id}:{runnable_path}:dependency");
-
-    tracing::debug!(
-        workspace_id = %w_id,
-        runnable_path = %runnable_path,
-        debounce_key = %key,
-        "Locking debounce_key for dependency job scheduling"
-    );
-
-    sqlx::query_scalar!(
-        "SELECT job_id FROM debounce_key WHERE key = $1 FOR UPDATE",
-        &key
-    )
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(error::Error::from)
+pub struct RunInlinePreviewScriptFnParams {
+    pub workspace_id: String,
+    pub content: String,
+    pub lang: ScriptLang,
+    pub args: Option<HashMap<String, Box<RawValue>>>,
+    pub created_by: String,
+    pub permissioned_as: String,
+    pub permissioned_as_email: String,
+    pub base_internal_url: String,
+    pub worker_name: String,
+    pub conn: crate::worker::Connection,
+    pub client: AuthedClient,
+    pub job_dir: String,
+    pub worker_dir: String,
+    pub killpill_rx: tokio::sync::broadcast::Receiver<()>,
 }
+
+#[derive(Clone)]
+pub struct WorkerInternalServerInlineUtils {
+    pub killpill_rx: Arc<tokio::sync::broadcast::Receiver<()>>,
+    pub base_internal_url: String,
+    pub run_inline_preview_script: Arc<
+        dyn Fn(
+                RunInlinePreviewScriptFnParams,
+            ) -> Pin<Box<dyn Future<Output = error::Result<Box<RawValue>>> + Send>>
+            + Send
+            + Sync,
+    >,
+}
+// To run a script inline, bypassing the db and job queue, windmill-api uses these functions.
+// They should only be called by the internal server of a worker.
+// main() sets the global on startup.
+// The server cannot call the worker functions directly because they are independent crates
+pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
+    OnceCell::new();

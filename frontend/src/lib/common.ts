@@ -31,6 +31,7 @@ export interface SchemaProperty {
 		enum?: string[]
 		resourceType?: string
 		properties?: { [name: string]: SchemaProperty }
+		required?: string[]
 	}
 	min?: number
 	max?: number
@@ -41,6 +42,7 @@ export interface SchemaProperty {
 	properties?: { [name: string]: SchemaProperty }
 	required?: string[]
 	showExpr?: string
+	hideWhenChatEnabled?: boolean
 	password?: boolean
 	order?: string[]
 	nullable?: boolean
@@ -50,6 +52,8 @@ export interface SchemaProperty {
 	oneOf?: SchemaProperty[]
 	originalType?: string
 	disabled?: boolean
+	'x-no-s3-storage-workspace-warning'?: string
+	'x-auto-generate'?: boolean
 }
 
 export interface ModalSchemaProperty {
@@ -109,8 +113,8 @@ export function modalToSchema(schema: ModalSchemaProperty): SchemaProperty {
 export type Schema = {
 	$schema: string | undefined
 	type: string
-	"x-windmill-dyn-select-code"?: string
-	"x-windmill-dyn-select-lang"?: ScriptLang
+	'x-windmill-dyn-select-code'?: string
+	'x-windmill-dyn-select-lang'?: ScriptLang
 	properties: { [name: string]: SchemaProperty }
 	order?: string[]
 	required: string[]

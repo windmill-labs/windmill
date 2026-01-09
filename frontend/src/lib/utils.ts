@@ -10,15 +10,16 @@ import { deepEqual } from 'fast-equals'
 import YAML from 'yaml'
 import { type UserExt } from './stores'
 import { sendUserToast } from './toast'
-import type { Job, RunnableKind, Script, ScriptLang } from './gen'
+import type { Job, RunnableKind, Script, ScriptLang, Retry } from './gen'
 import type { EnumType, SchemaProperty } from './common'
 import type { Schema } from './common'
 export { sendUserToast }
 import type { AnyMeltElement } from '@melt-ui/svelte'
-import type { RunsSelectionMode } from './components/runs/RunsBatchActionsDropdown.svelte'
 import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
+
+export type RunsSelectionMode = 'cancel' | 're-run'
 
 export namespace OpenApi {
 	export enum OpenApiVersion {
@@ -367,6 +368,13 @@ export function clickOutside(
 			document.removeEventListener(eventToListenName, handleClick, capture ?? true)
 		}
 	}
+}
+
+export function undefinedIfEmpty(obj: any): any {
+	if (Object.keys(obj).length === 0) {
+		return undefined
+	}
+	return obj
 }
 
 export function pointerDownOutside(
@@ -793,7 +801,7 @@ export function pluralize(quantity: number, word: string, customPlural?: string)
 	if (quantity == 1) {
 		return `${quantity} ${word}`
 	} else if (customPlural) {
-		return `${quantity} ${customPlural}}`
+		return `${quantity} ${customPlural}`
 	} else {
 		return `${quantity} ${word}s`
 	}
@@ -803,9 +811,7 @@ export function addDeterminant(word: string): string {
 	return (/^[aeiou]/i.test(word) ? 'an ' : 'a ') + word
 }
 
-export function capitalize(word: string): string {
-	return word ? word.charAt(0).toUpperCase() + word.slice(1) : ''
-}
+export { capitalize } from './sharedUtils'
 
 export function addWhitespaceBeforeCapitals(word?: string): string {
 	if (!word) {
@@ -854,6 +860,150 @@ export function getModifierKey(): string {
 
 export function isValidHexColor(color: string): boolean {
 	return /^#(([A-F0-9]{2}){3,4}|[A-F0-9]{3})$/i.test(color)
+}
+
+/**
+ * Calculates the relative luminance of a color according to WCAG 2.1
+ * @param r Red component (0-255)
+ * @param g Green component (0-255)
+ * @param b Blue component (0-255)
+ * @returns Relative luminance value (0-1)
+ */
+function getRelativeLuminance(r: number, g: number, b: number): number {
+	const [rs, gs, bs] = [r, g, b].map((val) => {
+		val = val / 255
+		return val <= 0.03928 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4)
+	})
+	return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs
+}
+
+/**
+ * Converts hex color to HSL
+ * @param hex Hex color string (e.g., "#FF0000")
+ * @returns Array of [hue (0-360), saturation (0-100), lightness (0-100)]
+ */
+function hexToHsl(hex: string): [number, number, number] {
+	// Normalize hex color
+	let normalizedHex = hex.replace('#', '')
+	if (normalizedHex.length === 3) {
+		normalizedHex = normalizedHex
+			.split('')
+			.map((char) => char + char)
+			.join('')
+	}
+
+	const r = parseInt(normalizedHex.substring(0, 2), 16) / 255
+	const g = parseInt(normalizedHex.substring(2, 4), 16) / 255
+	const b = parseInt(normalizedHex.substring(4, 6), 16) / 255
+
+	const max = Math.max(r, g, b)
+	const min = Math.min(r, g, b)
+	let h = 0
+	let s = 0
+	const l = (max + min) / 2
+
+	if (max !== min) {
+		const d = max - min
+		s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+
+		switch (max) {
+			case r:
+				h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+				break
+			case g:
+				h = ((b - r) / d + 2) / 6
+				break
+			case b:
+				h = ((r - g) / d + 4) / 6
+				break
+		}
+	}
+
+	return [h * 360, s * 100, l * 100]
+}
+
+/**
+ * Converts HSL to hex color
+ * @param h Hue (0-360)
+ * @param s Saturation (0-100)
+ * @param l Lightness (0-100)
+ * @returns Hex color string
+ */
+function hslToHex(h: number, s: number, l: number): string {
+	h = h / 360
+	s = s / 100
+	l = l / 100
+
+	let r: number, g: number, b: number
+
+	if (s === 0) {
+		r = g = b = l // Achromatic
+	} else {
+		const hue2rgb = (p: number, q: number, t: number) => {
+			if (t < 0) t += 1
+			if (t > 1) t -= 1
+			if (t < 1 / 6) return p + (q - p) * 6 * t
+			if (t < 1 / 2) return q
+			if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+			return p
+		}
+
+		const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+		const p = 2 * l - q
+		r = hue2rgb(p, q, h + 1 / 3)
+		g = hue2rgb(p, q, h)
+		b = hue2rgb(p, q, h - 1 / 3)
+	}
+
+	const toHex = (c: number) => {
+		const hex = Math.round(c * 255).toString(16)
+		return hex.length === 1 ? '0' + hex : hex
+	}
+
+	return `#${toHex(r)}${toHex(g)}${toHex(b)}`
+}
+
+/**
+ * Generates a text color with the same hue as the background but adjusted lightness for good contrast
+ * @param backgroundColor Hex color string (e.g., "#FF0000" or "#F00")
+ * @returns Hex color string with same hue but good contrast, or undefined if invalid
+ */
+export function getContrastTextColor(
+	backgroundColor: string | null | undefined
+): string | undefined {
+	if (!backgroundColor || !isValidHexColor(backgroundColor)) {
+		return undefined
+	}
+
+	// Normalize hex color
+	let hex = backgroundColor.replace('#', '')
+	if (hex.length === 3) {
+		hex = hex
+			.split('')
+			.map((char) => char + char)
+			.join('')
+	}
+
+	// Parse RGB components and calculate background luminance
+	const r = parseInt(hex.substring(0, 2), 16)
+	const g = parseInt(hex.substring(2, 4), 16)
+	const b = parseInt(hex.substring(4, 6), 16)
+	const bgLuminance = getRelativeLuminance(r, g, b)
+
+	// Convert to HSL to extract hue
+	const [hue] = hexToHsl(backgroundColor)
+
+	// Determine if background is light or dark
+	const isLightBackground = bgLuminance > 0.5
+
+	// Use fixed saturation and lightness based on background lightness
+	// For light backgrounds: use dark text (low lightness, high saturation)
+	// For dark backgrounds: use light text (high lightness, high saturation)
+	const saturation = 70 // Fixed saturation for good readability
+	const lightness = isLightBackground ? 25 : 85 // Dark for light bg, light for dark bg
+
+	// Generate the color with the same hue but adjusted saturation and lightness
+	return hslToHex(hue, saturation, lightness)
 }
 
 export function sortObject<T>(o: T & object): T {
@@ -1344,6 +1494,7 @@ export type Item = {
 	hide?: boolean | undefined
 	extra?: Snippet
 	id?: string
+	tooltip?: string
 }
 
 export function isObjectTooBig(obj: any): boolean {
@@ -1458,15 +1609,9 @@ export function getOS() {
 	return 'Unknown OS' as const
 }
 
-import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
-import type { Snippet } from 'svelte'
+import type { Component, Snippet } from 'svelte'
 import { OpenAPIV2, type OpenAPI, type OpenAPIV3, type OpenAPIV3_1 } from 'openapi-types'
 import type { IPosition } from 'monaco-editor'
-
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs))
-}
 
 export type StateStore<T> = {
 	val: T
@@ -1522,7 +1667,7 @@ export function scroll_into_view_if_needed_polyfill(elem: Element, centerIfNeede
 	return observer // return for testing
 }
 
-// Structured clone raises an error on $state values
+// Structured clone raises an error on $state values and some stuff like Window
 // $state.snapshot clones everything but prints warnings for some values (e.g. functions)
 import _clone from 'clone'
 export function clone<T>(t: T): T {
@@ -1621,4 +1766,193 @@ export function createCache<Keys extends Record<string, any>, T, InitialKeys ext
 
 export async function wait(ms: number) {
 	return new Promise((resolve) => setTimeout(() => resolve(undefined), ms))
+}
+
+export function validateRetryConfig(retry: Retry | undefined): string | null {
+	if (retry?.exponential?.seconds !== undefined) {
+		const seconds = retry.exponential.seconds
+		if (typeof seconds !== 'number' || !Number.isInteger(seconds) || seconds < 0) {
+			return 'Exponential backoff base (seconds) must be an integer ≥ 0'
+		}
+	}
+	return null
+}
+export type CssColor = keyof (typeof tokensFile)['tokens']['light']
+import tokensFile from './assets/tokens/tokens.json'
+import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
+import BarsStaggered from './components/icons/BarsStaggered.svelte'
+import { GitIcon } from './components/icons'
+import { Bot, Code, Package } from 'lucide-svelte'
+export function getCssColor(
+	color: CssColor,
+	{
+		alpha = 1,
+		format = 'css-var'
+	}: {
+		alpha?: number
+		format?: 'css-var' | 'hex-dark' | 'hex-light'
+	}
+): string {
+	if (format === 'hex-light') {
+		return tokensFile.tokens[lightModeName][color]
+	}
+	if (format === 'hex-dark') {
+		return tokensFile.tokens[darkModeName][color]
+	}
+	return `rgb(var(--color-${color}) / ${alpha})`
+}
+
+export type IconType = Component<{ size?: number }> | typeof import('lucide-svelte').Dot
+
+export function getJobKindIcon(jobKind: Job['job_kind']) {
+	if (jobKind === 'flow' || isFlowPreview(jobKind) || jobKind === 'unassigned_flow') {
+		return BarsStaggered
+	} else if (jobKind === 'deploymentcallback') {
+		return GitIcon
+	} else if (
+		jobKind === 'dependencies' ||
+		jobKind === 'appdependencies' ||
+		jobKind === 'flowdependencies'
+	) {
+		return Package
+	} else if (
+		jobKind === 'script' ||
+		isScriptPreview(jobKind) ||
+		jobKind === 'script_hub' ||
+		jobKind === 'singlestepflow' ||
+		jobKind === 'unassigned_script' ||
+		jobKind === 'unassigned_singlestepflow'
+	) {
+		return Code
+	} else if (jobKind === 'aiagent') {
+		return Bot
+	} else if (jobKind) return Code
+}
+
+export function chunkBy<T>(array: T[], getKey: (key: T) => string): T[][] {
+	const chunks: T[][] = []
+
+	for (const item of array) {
+		const key = getKey(item)
+		let lastChunk = chunks[chunks.length - 1]
+
+		if (!lastChunk || getKey(lastChunk[0]) !== key) {
+			lastChunk = []
+			chunks.push(lastChunk)
+		}
+
+		lastChunk.push(item)
+	}
+
+	return chunks
+}
+
+// AI generated
+export function getQueryStmtCountHeuristic(query: string): number {
+	// Handle empty or whitespace-only strings
+	if (query.trim() === '') {
+		return 0
+	}
+
+	let count = 0
+	let currState: 'normal' | 'single-quote' | 'double-quote' | 'line-comment' | 'block-comment' =
+		'normal'
+	let hasContentAfterLastSemicolon = false
+
+	for (let i = 0; i < query.length; i++) {
+		const char = query[i]
+		const nextChar = query[i + 1]
+
+		switch (currState) {
+			case 'normal':
+				if (char === "'") {
+					currState = 'single-quote'
+					hasContentAfterLastSemicolon = true
+				} else if (char === '"') {
+					currState = 'double-quote'
+					hasContentAfterLastSemicolon = true
+				} else if (char === '-' && nextChar === '-') {
+					currState = 'line-comment'
+					i++ // skip next char
+				} else if (char === '/' && nextChar === '*') {
+					currState = 'block-comment'
+					hasContentAfterLastSemicolon = true
+					i++ // skip next char
+				} else if (char === ';') {
+					count++
+					hasContentAfterLastSemicolon = false
+				} else if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') {
+					// Non-whitespace character means we have content
+					hasContentAfterLastSemicolon = true
+				}
+				break
+
+			case 'single-quote':
+				if (char === "'") {
+					// In SQL, '' is an escaped single quote
+					if (nextChar === "'") {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'double-quote':
+				if (char === '"') {
+					// In SQL, "" is an escaped double quote
+					if (nextChar === '"') {
+						i++ // skip the escaped quote
+					} else {
+						currState = 'normal'
+					}
+				}
+				break
+
+			case 'line-comment':
+				if (char === '\n') {
+					currState = 'normal'
+				}
+				break
+
+			case 'block-comment':
+				if (char === '*' && nextChar === '/') {
+					currState = 'normal'
+					i++ // skip next char
+				}
+				break
+		}
+	}
+
+	// Count implicit final statement if:
+	// 1. We're in normal state and query doesn't end with semicolon, OR
+	// 2. We're in a quote state (unclosed quote) - there's an implicit statement
+	// 3. We're in a block comment state - there's an implicit statement before the unclosed comment
+	// 4. We're in a line comment state and we had content after the last semicolon before entering the comment
+	const trimmedQuery = query.trimEnd()
+	if (currState === 'normal' && trimmedQuery !== '' && !trimmedQuery.endsWith(';')) {
+		count++
+	} else if (
+		currState === 'single-quote' ||
+		currState === 'double-quote' ||
+		currState === 'block-comment'
+	) {
+		// Unclosed quote or unclosed block comment means there's an implicit statement
+		count++
+	} else if (currState === 'line-comment' && hasContentAfterLastSemicolon) {
+		// Line comment with content before it means there's an implicit statement
+		count++
+	}
+
+	return count
+}
+
+export function countChars(str: string, char: string): number {
+	let count = 0
+	for (let i = 0; i < str.length; i++) {
+		if (str[i] === char) {
+			count++
+		}
+	}
+	return count
 }

@@ -2,13 +2,13 @@ mod common;
 
 #[cfg(feature = "deno_core")]
 mod retry {
+    use crate::common::*;
     use serde_json::json;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use sqlx::{Pool, Postgres};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use windmill_common::flow_status::FlowStatusModule;
     use windmill_common::flows::FlowValue;
     use windmill_common::jobs::JobPayload;
-    use windmill_common::flow_status::FlowStatusModule;
-    use crate::common::*;
 
     pub async fn initialize_tracing() {
         use std::sync::Once;
@@ -166,7 +166,7 @@ def main(last, port):
         })
         .arg("items", json!(["unused", "unused", "unused"]))
         .arg("port", json!(server.addr.port()))
-        .run_until_complete(&db, server.addr.port())
+        .run_until_complete(&db, false, server.addr.port())
         .await
         .json_result()
         .unwrap();
@@ -201,7 +201,7 @@ def main(last, port):
         })
         .arg("items", json!(["unused", "unused", "unused"]))
         .arg("port", json!(server.addr.port()))
-        .run_until_complete(&db, server.addr.port())
+        .run_until_complete(&db, false, server.addr.port())
         .await
         .json_result()
         .unwrap();
@@ -248,7 +248,7 @@ def main(last, port):
         })
         .arg("items", json!(["unused", "unused", "unused"]))
         .arg("port", json!(server.addr.port()))
-        .run_until_complete(&db, server.addr.port())
+        .run_until_complete(&db, false, server.addr.port())
         .await;
 
         let result = job.json_result().unwrap();
@@ -315,7 +315,7 @@ def main(error, port):
         let server = Server::start(responses).await;
         let cjob = RunJob::from(JobPayload::RawFlow { value, path: None, restarted_from: None })
             .arg("port", json!(server.addr.port()))
-            .run_until_complete(&db, server.addr.port())
+            .run_until_complete(&db, false, server.addr.port())
             .await;
         let result = cjob.json_result().clone().unwrap();
         let failed_module = get_module(&cjob, "a").unwrap();

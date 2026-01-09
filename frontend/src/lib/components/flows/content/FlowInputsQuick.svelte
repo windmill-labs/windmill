@@ -8,24 +8,34 @@
 	import { sendUserToast } from '$lib/toast'
 	import FlowScriptPickerQuick from '../pickers/FlowScriptPickerQuick.svelte'
 	import { defaultScriptLanguages, processLangs } from '$lib/scripts'
-	import { defaultScripts, enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import {
+		defaultScripts,
+		enterpriseLicense,
+		hubBaseUrlStore,
+		userStore,
+		workspaceStore
+	} from '$lib/stores'
 	import type { SupportedLanguage } from '$lib/common'
 	import { createEventDispatcher, getContext, onDestroy, onMount, untrack } from 'svelte'
 	import type { FlowBuilderWhitelabelCustomUi } from '$lib/components/custom_ui'
 	import { type Script, type ScriptLang, type HubScriptKind } from '$lib/gen'
 	import ListFiltersQuick from '$lib/components/home/ListFiltersQuick.svelte'
-	import { Folder, User } from 'lucide-svelte'
+	import { ExternalLink, Folder, User, X } from 'lucide-svelte'
 	import type { FlowEditorContext } from '../../flows/types'
-	import { twMerge } from 'tailwind-merge'
 	import { fade } from 'svelte/transition'
 	import { flip } from 'svelte/animate'
-	import Scrollable from '$lib/components/Scrollable.svelte'
 	import { Button } from '$lib/components/common'
 	import { SettingsIcon } from 'lucide-svelte'
 	import DefaultScriptsInner from '$lib/components/DefaultScriptsInner.svelte'
 	import GenAiQuick from './GenAiQuick.svelte'
 	import FlowToplevelNode from '../pickers/FlowToplevelNode.svelte'
 	import { copilotInfo } from '$lib/aiStore'
+	import {
+		canHavePreprocessor,
+		canHaveTrigger,
+		canHaveApproval,
+		canHaveFailure
+	} from '$lib/script_helpers'
 
 	const dispatch = createEventDispatcher()
 
@@ -37,7 +47,6 @@
 		funcDesc: string
 		owners?: string[]
 		loading?: boolean
-		small?: boolean
 		kind: 'trigger' | 'script' | 'preprocessor' | 'failure' | 'approval'
 		selectedKind?: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 		displayPath?: boolean
@@ -52,7 +61,6 @@
 		funcDesc,
 		owners = $bindable([]),
 		loading = $bindable(false),
-		small = false,
 		kind,
 		selectedKind = kind,
 		displayPath = false,
@@ -92,17 +100,17 @@
 		kind: 'script' | 'flow' | 'approval' | 'trigger' | 'preprocessor' | 'failure'
 	) {
 		if (kind == 'trigger') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveTrigger(lang as SupportedLanguage)
 		} else if (kind == 'script') {
 			return true
 		} else if (kind == 'approval') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHaveApproval(lang as SupportedLanguage)
 		} else if (kind == 'flow') {
 			return false
 		} else if (kind == 'preprocessor') {
-			return ['python3', 'bun', 'deno'].includes(lang)
+			return canHavePreprocessor(lang as SupportedLanguage)
 		} else if (kind == 'failure') {
-			return ['python3', 'bun', 'deno', 'go'].includes(lang)
+			return canHaveFailure(lang as SupportedLanguage)
 		}
 	}
 
@@ -191,7 +199,7 @@
 		selectedByKeyboard = 0
 	}
 
-	let scrollable: Scrollable | undefined = $state()
+	let scrollable: HTMLElement | undefined = $state()
 	function onKeyDown(e: KeyboardEvent) {
 		let length =
 			topLevelNodes?.length +
@@ -201,11 +209,11 @@
 			hubCompletions.length
 		if (e.key === 'ArrowDown') {
 			selectedByKeyboard = (selectedByKeyboard + 1) % length
-			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
 			e.preventDefault()
 		} else if (e.key === 'ArrowUp') {
 			selectedByKeyboard = (selectedByKeyboard - 1 + length) % length
-			scrollable?.scrollIntoView(selectedByKeyboard * 32)
+			scrollable?.scrollTo({ top: selectedByKeyboard * 32, behavior: 'smooth' })
 			e.preventDefault()
 		}
 	}
@@ -246,13 +254,13 @@
 </script>
 
 <svelte:window onkeydown={onKeyDown} />
-<div class="flex flex-row grow min-w-0 divide-x relative {!small ? 'shadow-inset' : ''}">
+<div class="flex flex-row grow min-w-0 divide-x relative bg-surface-tertiary rounded-md">
 	{#if selectedKind != 'preprocessor'}
-		<Scrollable shiftedShadow scrollableClass="w-32 grow-0 shrink-0 ">
+		<div class="h-full overflow-auto p-2 w-36 shrink-0 gap-1 flex flex-col">
 			{#if ['script', 'trigger', 'approval', 'preprocessor', 'failure'].includes(selectedKind)}
 				{#if (preFilter === 'all' && owners.length > 0) || preFilter === 'workspace'}
 					{#if preFilter !== 'workspace'}
-						<div class="pb-0 text-2xs font-light text-secondary ml-2">Folders</div>
+						<div class="pb-0 text-2xs font-normal text-secondary ml-2">Folders</div>
 					{/if}
 
 					{#if owners.length > 0}
@@ -262,27 +270,26 @@
 								animate:flip={{ duration: 100 }}
 								class="w-full px-0.5"
 							>
-								<button
-									class={twMerge(
-										'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-										owner === selected?.name ? 'bg-surface-hover' : ''
-									)}
-									onclick={() => {
+								<Button
+									selected={owner === selected?.name}
+									onClick={() => {
 										selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 									}}
+									variant="subtle"
+									unifiedSize="sm"
+									btnClasses="justify-start"
+									startIcon={{
+										icon: owner.startsWith('f/') ? Folder : User,
+										props: { width: 14, height: 14 }
+									}}
 								>
-									{#if owner.startsWith('f/')}
-										<Folder class="mr-0.5" size={14} />
-									{:else}
-										<User class="mr-0.5" size={14} />
-									{/if}
 									{owner.slice(2)}
-								</button>
+								</Button>
 							</div>
 						{/each}
-						<div class="pb-1.5"></div>
+						<div class="pb-1"></div>
 					{:else}
-						<div class="text-2xs text-tertiary font-light text-center py-3 px-3 items-center">
+						<div class="text-2xs text-primary font-normal text-center py-3 px-3 items-center">
 							No items found.
 						</div>
 					{/if}
@@ -290,7 +297,7 @@
 
 				{#if preFilter === 'hub' || preFilter === 'all'}
 					{#if preFilter == 'all'}
-						<div class="pb-0 text-2xs font-light text-secondary ml-2 pt-0.5">Integrations</div>
+						<div class="pb-0 text-2xs font-normal text-secondary ml-2 pt-1">Integrations</div>
 					{/if}
 					<ListFiltersQuick
 						on:selected={() => {
@@ -301,34 +308,46 @@
 						bind:selectedFilter={selected}
 						resourceType
 					/>
+					{#if !selected}
+						<div class="pl-2 py-1">
+							<a
+								href={`${$hubBaseUrlStore}?suggest_integration=true`}
+								target="_blank"
+								class="text-2xs flex flex-row items-center gap-1"
+								>Suggest integration <ExternalLink class="size-3" />
+							</a>
+						</div>
+					{/if}
 				{/if}
 			{:else if selectedKind === 'flow'}
 				{#if owners.length > 0}
 					{#each owners as owner (owner)}
 						<div in:fade={{ duration: 50 }} animate:flip={{ duration: 100 }}>
-							<button
-								class={twMerge(
-									'w-full text-left text-2xs text-primary font-normal py-2 px-3 hover:bg-surface-hover transition-all whitespace-nowrap flex flex-row gap-2 items-center rounded-md',
-									owner === selected?.name ? 'bg-surface-hover' : ''
-								)}
-								onclick={() => {
+							<Button
+								selected={owner === selected?.name}
+								variant="subtle"
+								unifiedSize="sm"
+								btnClasses="justify-start"
+								startIcon={{
+									icon: owner.startsWith('f/') ? Folder : User
+								}}
+								onClick={() => {
 									selected = selected?.name == owner ? undefined : { kind: 'owner', name: owner }
 								}}
 							>
-								{#if owner.startsWith('f/')}
-									<Folder class="mr-0.5" size={14} />
-								{:else}
-									<User class="mr-0.5" size={14} />
-								{/if}
 								{owner.slice(2)}
-							</button>
+							</Button>
 						</div>
 					{/each}
 				{/if}
 			{/if}
-		</Scrollable>
+		</div>
 	{/if}
-	<Scrollable id="flow-editor-flow-atoms" bind:this={scrollable} scrollableClass="grow min-w-0">
+	<div
+		bind:this={scrollable}
+		id="flow-editor-flow-atoms"
+		class="h-full overflow-auto grow min-w-0 p-2 gap-1 flex flex-col"
+	>
 		{#if kind == 'script'}
 			{#each topLevelNodes as [label, kind], i (label)}
 				<FlowToplevelNode
@@ -342,28 +361,27 @@
 		{/if}
 
 		{#if inlineScripts?.length > 0}
-			<div class="pb-0 flex flex-row items-center gap-2 -mt-[3px]">
-				<div class=" text-2xs font-light text-secondary ml-2"
+			<div class="pb-0 flex flex-row items-center gap-2">
+				<div class="text-2xs font-normal text-secondary ml-2"
 					>New {selectedKind != 'script' ? selectedKind + ' ' : ''}script</div
 				>
 				{#if $userStore?.is_admin || $userStore?.is_super_admin}
 					{#if !openScriptSettings}
 						<Button
-							on:click={() => (openScriptSettings = true)}
+							onClick={() => (openScriptSettings = true)}
 							startIcon={{ icon: SettingsIcon }}
-							color="light"
-							size="xs2"
-							btnClasses="!text-tertiary"
-							variant="contained"
+							unifiedSize="sm"
+							variant="subtle"
 							title="Edit global default scripts"
+							btnClasses="-my-3"
 						/>
 					{:else}
 						<Button
-							on:click={() => (openScriptSettings = false)}
-							startIcon={{ icon: SettingsIcon }}
-							color="dark"
-							size="xs2"
-							variant="contained"
+							onClick={() => (openScriptSettings = false)}
+							startIcon={{ icon: X }}
+							variant="accent"
+							unifiedSize="sm"
+							btnClasses="-my-3"
 						>
 							Close
 						</Button>
@@ -449,7 +467,7 @@
 
 		{#if (!selected || selected?.kind === 'owner') && (preFilter === 'workspace' || preFilter === 'all')}
 			{#if !selected && (preFilter !== 'workspace' || funcDesc?.length > 0)}
-				<div class="pt-2 pb-0 text-2xs font-light text-secondary ml-2">Workspace</div>
+				<div class="pt-2 pb-0 text-2xs font-normal text-secondary ml-2">Workspace</div>
 			{/if}
 			{#await import('../pickers/WorkspaceScriptPickerQuick.svelte') then Module}
 				<Module.default
@@ -471,11 +489,12 @@
 					{refreshCount}
 				/>
 			{/await}
+			<div class="pb-1"></div>
 		{/if}
 		{#if selectedKind != 'preprocessor' && selectedKind != 'flow'}
 			{#if (!selected || selected?.kind === 'integrations') && (preFilter === 'hub' || preFilter === 'all')}
 				{#if !selected && preFilter !== 'hub'}
-					<div class=" pb-0 text-2xs font-light text-secondary ml-2">Hub</div>
+					<div class=" pb-0 text-2xs font-normal text-secondary ml-2">Hub</div>
 				{/if}
 				{#await import('../pickers/PickHubScriptQuick.svelte') then Module}
 					<Module.default
@@ -503,18 +522,5 @@
 				{/await}
 			{/if}
 		{/if}
-	</Scrollable>
+	</div>
 </div>
-
-<style>
-	.shadow-inset::before {
-		box-shadow: inset 25px 0px 12px -30px rgba(94, 129, 172, 0.5);
-		position: absolute;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		content: '';
-		pointer-events: none;
-	}
-</style>

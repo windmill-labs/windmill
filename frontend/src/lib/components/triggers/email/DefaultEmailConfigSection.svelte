@@ -12,13 +12,14 @@
 	import { base32 } from 'rfc4648'
 	import { emptyString } from '$lib/utils'
 	import UserSettings from '$lib/components/UserSettings.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
-	let requestType: 'hash' | 'path' = $state('path')
+	let requestType: 'runnableVersion' | 'path' = $state('path')
 
 	function emailAddress() {
-		const pathOrHash = requestType === 'hash' ? hash : path.replaceAll('/', '.')
+		const pathOrHash = requestType === 'runnableVersion' ? runnableVersion : path.replaceAll('/', '.')
 		const plainPrefix = `${$workspaceStore}+${
-			(requestType === 'hash' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
+			(requestType === 'runnableVersion' ? 'hash.' : isFlow ? 'flow.' : '') + pathOrHash
 		}+${token}`
 		const encodedPrefix = base32
 			.stringify(new TextEncoder().encode(plainPrefix), {
@@ -31,7 +32,7 @@
 	interface Props {
 		token?: string
 		isFlow?: boolean
-		hash?: string | undefined
+		runnableVersion?: string | undefined
 		path: string
 		userSettings: UserSettings
 		emailDomain?: string | null
@@ -41,7 +42,7 @@
 	let {
 		token = $bindable(''),
 		isFlow = false,
-		hash = undefined,
+		runnableVersion = undefined,
 		path,
 		userSettings,
 		emailDomain = null,
@@ -54,21 +55,18 @@
 </script>
 
 <div>
-	<div class="flex flex-col gap-4">
+	<div class="flex flex-col gap-6">
 		{#if SCRIPT_VIEW_SHOW_CREATE_TOKEN_BUTTON}
 			<Label label="Token">
-				<div class="flex flex-row justify-between gap-2">
-					<input
+				<div class="flex flex-row justify-between gap-2 whitespace-nowrap">
+					<TextInput
 						bind:value={token}
-						placeholder="paste your token here once created to alter examples below"
+						inputProps={{
+							placeholder: 'Paste your token here once created to alter examples below'
+						}}
 						class="!text-xs"
 					/>
-					<Button
-						size="xs"
-						color="light"
-						variant="border"
-						on:click={() => userSettings.openDrawer()}
-					>
+					<Button size="xs" variant="default" on:click={() => userSettings.openDrawer()}>
 						Create an Email-specific Token
 						<Tooltip light>
 							The token will have a scope such that it can only be used to trigger this script. It
@@ -89,10 +87,10 @@
 			<div class="flex flex-col gap-2">
 				<div class="flex flex-row justify-between">
 					<div class="text-xs font-semibold flex flex-row items-center">Call method</div>
-					<ToggleButtonGroup class="h-[30px] w-auto" bind:selected={requestType}>
+					<ToggleButtonGroup class="w-auto" bind:selected={requestType}>
 						{#snippet children({ item })}
 							<ToggleButton label="By path" value="path" {item} />
-							<ToggleButton label="By hash" value="hash" {item} />
+							<ToggleButton label="By hash" value="runnableVersion" {item} />
 						{/snippet}
 					</ToggleButtonGroup>
 				</div>
@@ -105,21 +103,15 @@
 					{#if !emptyString(token)}
 						<ClipboardPanel content={email} />
 					{:else}
-						<input
-							type="text"
-							disabled
-							value="Create a token first"
-							class="!text-xs !text-red-400"
-						/>
+						<TextInput inputProps={{ placeholder: 'Create a token first', disabled: true }} />
 					{/if}
+					<Alert title="Email trigger" size="xs" class="mt-1">
+						To trigger the job by email, send an email to the address above. The job will receive
+						two arguments: `raw_email` containing the raw email as string, and `parsed_email`
+						containing the parsed email as an object.
+					</Alert>
 				</Label>
 			{/key}
 		{/key}
-
-		<Alert title="Email trigger" size="xs">
-			To trigger the job by email, send an email to the address above. The job will receive two
-			arguments: `raw_email` containing the raw email as string, and `parsed_email` containing the
-			parsed email as an object.
-		</Alert>
 	</div>
 </div>

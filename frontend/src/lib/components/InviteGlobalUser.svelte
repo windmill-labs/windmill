@@ -31,26 +31,25 @@
 	}
 </script>
 
-<h3 class="mb-4">Add new user to instance</h3>
+<h3 class="text-sm font-semibold text-emphasis">Add new user to instance</h3>
 <div class="flex flex-row flex-wrap gap-2 mb-2 items-end">
 	<label class="block shrink min-w-0">
-		<span class="text-secondary text-sm">Email</span>
+		<span class="text-xs font-semibold text-emphasis">Email</span>
 		<input type="email" placeholder="email" bind:value={$globalEmailInvite} />
 	</label>
 	<label class="block shrink min-w-0">
-		<span class="text-secondary text-sm">Password</span>
+		<span class="text-xs font-semibold text-emphasis">Password</span>
 		<input bind:value={password} />
 	</label>
 	<div>
-		<span class="text-secondary text-sm">Name (optional)</span>
+		<span class="text-xs font-semibold text-emphasis">Name (optional)</span>
 		<input type="text" placeholder="name (optional)" bind:value={name} />
 	</div>
 	<Toggle class="mx-2 mb-1" bind:checked={is_super_admin} options={{ right: 'Superadmin' }} />
 	<div class="flex flex-row-reverse grow">
 		<div class="flex">
 			<Button
-				variant="contained"
-				color="dark"
+				variant="accent"
 				size="sm"
 				on:click={addUser}
 				disabled={$globalEmailInvite == '' || password == undefined}
@@ -61,5 +60,5 @@
 	</div>
 </div>
 <div class="flex gap-2 items-end">
-	<div class="text-xs text-tertiary grow text-right"> Email will be sent if SMTP configured </div>
+	<div class="text-2xs text-secondary grow text-right"> Email will be sent if SMTP configured </div>
 </div>

@@ -58,10 +58,10 @@
 		Pen,
 		ChevronUpSquare,
 		Share,
-		Table2,
 		Trash,
 		Play,
-		ClipboardCopy
+		ClipboardCopy,
+		LayoutDashboard
 	} from 'lucide-svelte'
 	import { SCRIPT_VIEW_SHOW_PUBLISH_TO_HUB } from '$lib/consts'
 	import { scriptToHubUrl } from '$lib/hub'
@@ -89,6 +89,7 @@
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
 	let shareModal: ShareModal | undefined = $state()
 	let runForm: RunForm | undefined = $state()
@@ -156,9 +157,12 @@
 			})
 			if (status.lock != undefined || status.lock_error_logs != undefined) {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				script.lock = status.lock
 				script.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -288,8 +292,8 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/scripts/add?template=${script.path}`,
-					size: 'xs',
-					color: 'light',
+					unifiedSize: 'md',
+					variant: 'subtle',
 					startIcon: GitFork
 				}
 			})
@@ -303,8 +307,8 @@
 			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${script.path}`,
-				size: 'xs',
-				color: 'light',
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -321,8 +325,8 @@
 						versionsDrawerOpen = !versionsDrawerOpen
 					},
 
-					size: 'xs',
-					color: 'light',
+					unifiedSize: 'md',
+					variant: 'subtle',
 					startIcon: History
 				}
 			})
@@ -338,9 +342,9 @@
 						await goto('/apps/add?nodraft=true')
 					},
 
-					size: 'xs',
-					color: 'light',
-					startIcon: Table2
+					unifiedSize: 'md',
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -351,10 +355,9 @@
 						onClick: () => {
 							persistentScriptDrawer?.open?.(script)
 						},
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Activity,
-						color: 'dark',
-						variant: 'contained'
+						variant: 'accent'
 					}
 				})
 			}
@@ -366,10 +369,9 @@
 						href: `${base}/scripts/edit/${script.path}?${
 							topHash ? `&hash=${script.hash}&topHash=` + topHash : ''
 						}`,
-						size: 'xs',
+						unifiedSize: 'md',
 						startIcon: Pen,
-						color: 'dark',
-						variant: 'contained',
+						variant: 'accent',
 						disabled: !can_write
 					}
 				})
@@ -569,9 +571,7 @@
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
-						if (script?.ws_error_handler_muted) {
-							script.ws_error_handler_muted = v
-						}
+						if (script !== undefined) script.ws_error_handler_muted = v
 					}
 				}
 				errorHandlerKind="script"
@@ -691,6 +691,13 @@
 						<Badge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</Badge>
 					{/if}
 
@@ -704,7 +711,6 @@
 							/>
 							<Toggle
 								bind:checked={jsonView}
-								label="JSON View"
 								size="xs"
 								options={{
 									right: 'JSON',
@@ -747,12 +753,12 @@
 
 					<div class="py-10"></div>
 					{#if !emptyString(script.summary)}
-						<div class="mb-2">
-							<span class="!text-tertiary">{script.path}</span>
+						<div>
+							<span class="text-primary">{script.path}</span>
 						</div>
 					{/if}
 					<div class="flex flex-row gap-x-2 flex-wrap items-center">
-						<span class="text-sm text-tertiary">
+						<span class="text-2xs text-secondary">
 							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
 						</span>
 						<Badge small color="gray">
@@ -786,6 +792,9 @@
 					on:selected_args={(e) => {
 						const nargs = JSON.parse(JSON.stringify(e.detail))
 						args = nargs
+						if (jsonView) {
+							runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+						}
 					}}
 				/>
 			{/if}
@@ -794,7 +803,7 @@
 			{#if script}
 				<TriggersEditor
 					{args}
-					hash={script.hash}
+					runnableVersion={script.hash}
 					initialPath={script.path}
 					currentPath={script.path}
 					noEditor={true}
@@ -812,9 +821,9 @@
 				<Skeleton {loading} layout={[[20]]} />
 
 				<Tabs selected="code">
-					<Tab value="code" size="xs">Code</Tab>
-					<Tab value="dependencies" size="xs">Lockfile</Tab>
-					<Tab value="schema" size="xs">Schema</Tab>
+					<Tab value="code" label="Code" />
+					<Tab value="dependencies" label="Lockfile" />
+					<Tab value="schema" label="Schema" />
 					{#snippet content()}
 						{#if script}
 							<TabContent value="code">

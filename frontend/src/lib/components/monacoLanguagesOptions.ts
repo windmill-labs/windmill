@@ -1,17 +1,24 @@
-import { languages } from 'monaco-editor'
 import processStdContent from '$lib/process.d.ts.txt?raw'
+import { jsonDefaults } from '@codingame/monaco-vscode-standalone-json-language-features'
+import {
+	javascriptDefaults,
+	JsxEmit,
+	ModuleResolutionKind,
+	ScriptTarget,
+	typescriptDefaults
+} from '@codingame/monaco-vscode-standalone-typescript-language-features'
 
 let jsonInitialized = false
 export function setMonacoJsonOptions() {
 	if (jsonInitialized) return
 	jsonInitialized = true
-	languages.json.jsonDefaults.setDiagnosticsOptions({
+	jsonDefaults.setDiagnosticsOptions({
 		validate: true,
 		allowComments: false,
 		schemas: [],
 		enableSchemaRequest: true
 	})
-	languages.json.jsonDefaults.setModeConfiguration({
+	jsonDefaults.setModeConfiguration({
 		documentRangeFormattingEdits: false,
 		documentFormattingEdits: true,
 		hovers: true,
@@ -31,9 +38,9 @@ export function setMonacoTypescriptOptions() {
 	if (typescriptInitialized) return
 	typescriptInitialized = true
 
-	languages.typescript.typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
+	typescriptDefaults.addExtraLib(processStdContent, 'process.d.ts')
 
-	languages.typescript.typescriptDefaults.setModeConfiguration({
+	typescriptDefaults.setModeConfiguration({
 		completionItems: true,
 		hovers: true,
 		documentSymbols: true,
@@ -50,7 +57,7 @@ export function setMonacoTypescriptOptions() {
 	})
 
 	// languages.typescript.javascriptDefaults.setEagerModelSync(true)
-	languages.typescript.typescriptDefaults.setEagerModelSync(true)
+	typescriptDefaults.setEagerModelSync(true)
 
 	// languages.typescript.javascriptDefaults.setDiagnosticsOptions({
 	// 	noSemanticValidation: false,
@@ -59,7 +66,7 @@ export function setMonacoTypescriptOptions() {
 	// 	diagnosticCodesToIgnore: [1108]
 	// })
 
-	languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+	typescriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
 
@@ -67,8 +74,8 @@ export function setMonacoTypescriptOptions() {
 		diagnosticCodesToIgnore: [1108, 7006, 7034, 7019, 7005]
 	})
 
-	languages.typescript.typescriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
+	typescriptDefaults.setCompilerOptions({
+		target: ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
@@ -92,8 +99,8 @@ export function setMonacoTypescriptOptions() {
 		noLib: false,
 		allowImportingTsExtensions: true,
 		allowSyntheticDefaultImports: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs,
-		jsx: languages.typescript.JsxEmit.React
+		moduleResolution: ModuleResolutionKind.NodeJs,
+		jsx: JsxEmit.React
 	})
 }
 
@@ -102,14 +109,14 @@ export function setMonacoJavascriptOptions() {
 	if (javascriptInitialized) return
 	javascriptInitialized = true
 
-	languages.typescript.javascriptDefaults.setCompilerOptions({
-		target: languages.typescript.ScriptTarget.Latest,
+	javascriptDefaults.setCompilerOptions({
+		target: ScriptTarget.Latest,
 		allowNonTsExtensions: true,
 		noSemanticValidation: false,
 		noLib: true,
-		moduleResolution: languages.typescript.ModuleResolutionKind.NodeJs
+		moduleResolution: ModuleResolutionKind.NodeJs
 	})
-	languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+	javascriptDefaults.setDiagnosticsOptions({
 		noSemanticValidation: false,
 		noSyntaxValidation: false,
 		noSuggestionDiagnostics: false,

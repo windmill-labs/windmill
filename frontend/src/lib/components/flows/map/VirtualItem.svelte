@@ -7,22 +7,16 @@
 	import Popover from '$lib/components/Popover.svelte'
 	import { fade } from 'svelte/transition'
 	import { Database, Square } from 'lucide-svelte'
-	import ModuleAcceptReject, {
-		getAiModuleAction
-	} from '$lib/components/copilot/chat/flow/ModuleAcceptReject.svelte'
-	import { aiModuleActionToBgColor } from '$lib/components/copilot/chat/flow/utils'
 	import FlowGraphPreviewButton from './FlowGraphPreviewButton.svelte'
 	import type { Job } from '$lib/gen'
+	import { getNodeColorClasses, aiActionToNodeState } from '$lib/components/graph'
 
 	interface Props {
 		label?: string | undefined
-		bgColor?: string
-		bgHoverColor?: string
 		selected: boolean
 		selectable: boolean
 		id?: string | undefined
 		center?: boolean
-		borderColor?: string | undefined
 		hideId?: boolean
 		preLabel?: string | undefined
 		inputJson?: Object | undefined
@@ -30,6 +24,7 @@
 		cache?: boolean
 		earlyStop?: boolean
 		editMode?: boolean
+		action?: 'added' | 'removed' | 'modified' | 'shadowed' | undefined
 		icon?: import('svelte').Snippet
 		onUpdateMock?: (mock: { enabled: boolean; return_value?: unknown }) => void
 		onEditInput?: (moduleId: string, key: string) => void
@@ -41,21 +36,16 @@
 		individualStepTests?: boolean
 		nodeKind?: 'input' | 'result'
 		job?: Job
-		type?: string
 		showJobStatus?: boolean
-		darkMode?: boolean
 		flowHasChanged?: boolean
 	}
 
 	let {
 		label = undefined,
-		bgColor = '',
-		bgHoverColor = '',
 		selected,
 		selectable,
 		id = undefined,
 		center = true,
-		borderColor = undefined,
 		hideId = false,
 		preLabel = undefined,
 		inputJson = undefined,
@@ -64,6 +54,7 @@
 		cache = false,
 		earlyStop = false,
 		editMode = false,
+		action = undefined,
 		icon,
 		onUpdateMock,
 		onEditInput,
@@ -75,7 +66,6 @@
 		individualStepTests = false,
 		job,
 		showJobStatus = false,
-		darkMode = false,
 		flowHasChanged = false
 	}: Props = $props()
 
@@ -83,7 +73,6 @@
 		(nodeKind || (inputJson && Object.keys(inputJson).length > 0)) && editMode
 	)
 
-	let action = $derived(label === 'Input' ? getAiModuleAction(label) : undefined)
 	let hoverButton = $state(false)
 
 	const outputType = $derived(
@@ -97,36 +86,32 @@
 					: undefined
 			: undefined
 	)
+	// AI action colors take priority over execution state, fallback to _VirtualItem
+	const effectiveState = $derived(aiActionToNodeState(action) ?? outputType ?? '_VirtualItem')
+	let colorClasses = $derived(getNodeColorClasses(effectiveState, selected))
 </script>
 
 <VirtualItemWrapper
 	{label}
-	{bgColor}
-	{bgHoverColor}
-	{selected}
 	{selectable}
 	{id}
 	outputPickerVisible={outputPickerVisible ?? false}
-	className={editMode ? aiModuleActionToBgColor(action) : ''}
+	{colorClasses}
 	on:select
 >
 	{#snippet children({ hover })}
-		{#if editMode}
-			<ModuleAcceptReject id="Input" {action} />
-		{/if}
 		<div class="flex flex-col w-full">
 			<div
-				style={borderColor ? `border-color: ${borderColor};` : 'border: 0'}
-				class="flex flex-row justify-between {center
+				class="flex flex-row justify-between {colorClasses.outline} {center
 					? 'items-center'
-					: 'items-baseline'} w-full overflow-hidden rounded-sm border p-2 text-2xs module text-primary border-gray-400 dark:border-gray-600"
+					: 'items-baseline'} w-full overflow-hidden rounded-md p-2 text-2xs module text-primary"
 			>
 				{#if icon}
 					{@render icon?.()}
 				{/if}
 				<div class="flex flex-col flex-grow shrink-0 max-w-full min-w-0">
 					{#if label}
-						<div class="truncate text-center">{label}</div>
+						<div class="truncate text-center {colorClasses.text}">{label}</div>
 					{/if}
 					{#if preLabel}
 						<div class="truncate text-2xs text-center"><pre>{preLabel}</pre></div>
@@ -147,8 +132,6 @@
 					id={id ?? ''}
 					isConnectingCandidate={nodeKind !== 'result'}
 					variant="virtual"
-					type={outputType}
-					{darkMode}
 				>
 					{#snippet children({ allowCopy, isConnecting, selectConnection })}
 						<OutputPickerInner

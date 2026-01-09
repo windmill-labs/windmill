@@ -4,7 +4,7 @@ use futures::StreamExt;
 use regex::Regex;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use serde_json::{Map, Value};
+use serde_json::Value;
 use tiberius::{
     AuthMethod, Client, ColumnData, Config, EncryptionLevel, FromSqlOwned, Query, Row, SqlBrowser,
 };
@@ -12,6 +12,8 @@ use tokio::net::TcpStream;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 use uuid::Uuid;
 use windmill_common::s3_helpers::convert_json_line_stream;
+use windmill_common::utils::merge_raw_values_to_object;
+use windmill_common::worker::SqlResultCollectionStrategy;
 use windmill_common::{
     error::{self, to_anyhow, Error},
     utils::empty_as_none,
@@ -95,6 +97,13 @@ pub async fn do_mssql(
     };
 
     let annotations = windmill_common::worker::SqlAnnotations::parse(query);
+    let collection_strategy = if annotations.return_last_result {
+        SqlResultCollectionStrategy::LastStatementAllRows
+    } else if annotations.result_collection == SqlResultCollectionStrategy::Legacy {
+        SqlResultCollectionStrategy::AllStatementsAllRows
+    } else {
+        annotations.result_collection
+    };
 
     let mut config = Config::new();
 
@@ -220,7 +229,9 @@ pub async fn do_mssql(
         if let Some(s3) = s3 {
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
-                    row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow)
+                    let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
+                    let json = raw_value.and_then(|raw_value| serde_json::to_value(raw_value.get()).map_err(to_anyhow));
+                    json
                 });
                 while let Some(row) = stream.next().await {
                     yield row;
@@ -237,21 +248,19 @@ pub async fn do_mssql(
             let len = results.len();
             let mut json_results = vec![];
             for (i, statement_result) in results.into_iter().enumerate() {
-                if annotations.return_last_result && i < len - 1 {
+                if collection_strategy.collect_last_statement_only(len) && i < len - 1 {
                     continue;
                 }
                 let mut json_rows = vec![];
                 for row in statement_result {
-                    let row = row_to_json(row)?;
-                    json_rows.push(row);
+                    json_rows.push(row_to_json(row)?);
+                    if collection_strategy.collect_first_row_only() {
+                        break;
+                    }
                 }
                 json_results.push(json_rows);
             }
-            if annotations.return_last_result && json_results.len() > 0 {
-                Ok(to_raw_value(&json_results.pop().unwrap()))
-            } else {
-                Ok(to_raw_value(&json_results))
-            }
+            collection_strategy.collect(json_results)
         }
     };
 
@@ -338,81 +347,93 @@ fn json_value_to_sql<'a>(
     Ok(())
 }
 
-fn row_to_json(row: Row) -> Result<Value, Error> {
+fn row_to_json(row: Row) -> Result<Box<RawValue>, Error> {
     let cols = row
         .columns()
         .iter()
         .map(|x| x.to_owned())
         .collect::<Vec<_>>();
-    let mut map = Map::new();
+    let mut entries = Vec::new();
     for (col, val) in cols.iter().zip(row.into_iter()) {
-        map.insert(col.name().to_string(), sql_to_json_value(val)?);
+        entries.push((col.name().to_string(), sql_to_json_value(val)?));
     }
-    Ok(Value::Object(map))
+    Ok(merge_raw_values_to_object(entries.as_slice()))
 }
 
-fn value_or_null<T>(
-    val: Option<T>,
-    convert: impl Fn(T) -> Result<Value, Error>,
-) -> Result<Value, Error> {
-    val.map_or(Ok(Value::Null), convert)
+fn sql_to_json_value(val: ColumnData) -> Result<Box<RawValue>, Error> {
+    let null = || RawValue::from_string("null".to_string()).unwrap();
+    let val = match val {
+        ColumnData::Bit(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::U8(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::I16(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::I32(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::I64(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::String(x) => x.map(|x| to_raw_value(&x.to_string())).unwrap_or_else(null),
+        ColumnData::Binary(x) => x
+            .map(|x| to_raw_value(&general_purpose::STANDARD.encode(x.as_ref())))
+            .unwrap_or_else(null),
+        ColumnData::F32(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::F64(x) => x.map(|x| to_raw_value(&x)).unwrap_or_else(null),
+        ColumnData::Guid(x) => x.map(|x| to_raw_value(&x.to_string())).unwrap_or_else(null),
+        ColumnData::Xml(x) => x.map(|x| to_raw_value(&x.to_string())).unwrap_or_else(null),
+        ColumnData::Numeric(x) => x
+            .map(|x| numeric_to_raw_value(&x))
+            .transpose()?
+            .unwrap_or_else(null),
+        ColumnData::DateTime(x) => NaiveDateTime::from_sql_owned(ColumnData::DateTime(x))
+            .map_err(to_anyhow)?
+            .map(|x| to_raw_value(&x.to_string()))
+            .unwrap_or_else(null),
+        ColumnData::DateTime2(x) => NaiveDateTime::from_sql_owned(ColumnData::DateTime2(x))
+            .map_err(to_anyhow)?
+            .map(|x| to_raw_value(&x.to_string()))
+            .unwrap_or_else(null),
+        ColumnData::SmallDateTime(x) => NaiveDateTime::from_sql_owned(ColumnData::SmallDateTime(x))
+            .map_err(to_anyhow)?
+            .map(|x| to_raw_value(&x.to_string()))
+            .unwrap_or_else(null),
+        ColumnData::Time(x) => NaiveTime::from_sql_owned(ColumnData::Time(x))
+            .map_err(to_anyhow)?
+            .map(|x| to_raw_value(&x.to_string()))
+            .unwrap_or_else(null),
+        ColumnData::Date(x) => NaiveDate::from_sql_owned(ColumnData::Date(x))
+            .map_err(to_anyhow)?
+            .map(|x| to_raw_value(&x.to_string()))
+            .unwrap_or_else(null),
+        ColumnData::DateTimeOffset(x) => {
+            DateTime::<Utc>::from_sql_owned(ColumnData::DateTimeOffset(x))
+                .map_err(to_anyhow)?
+                .map(|x| to_raw_value(&x.to_string()))
+                .unwrap_or_else(null)
+        }
+    };
+    Ok(val)
 }
 
-fn sql_to_json_value(val: ColumnData) -> Result<Value, Error> {
-    match val {
-        ColumnData::Bit(x) => value_or_null(x, |x| Ok(Value::Bool(x))),
-        ColumnData::U8(x) => value_or_null(x, |x| Ok(Value::Number(x.into()))),
-        ColumnData::I16(x) => value_or_null(x, |x| Ok(Value::Number(x.into()))),
-        ColumnData::I32(x) => value_or_null(x, |x| Ok(Value::Number(x.into()))),
-        ColumnData::I64(x) => value_or_null(x, |x| Ok(Value::Number(x.into()))),
-        ColumnData::String(x) => value_or_null(x, |x| Ok(Value::String(x.to_string()))),
-        ColumnData::Binary(x) => value_or_null(x, |x| {
-            Ok(Value::String(general_purpose::STANDARD.encode(x.as_ref())))
-        }),
-        ColumnData::F32(x) => value_or_null(x, |x| {
-            Ok(Value::Number(
-                serde_json::Number::from_f64(x.into())
-                    .ok_or(anyhow::anyhow!("invalid json-float"))?,
-            ))
-        }),
-        ColumnData::F64(x) => value_or_null(x, |x| {
-            Ok(Value::Number(
-                serde_json::Number::from_f64(x).ok_or(anyhow::anyhow!("invalid json-float"))?,
-            ))
-        }),
-        ColumnData::Guid(x) => value_or_null(x, |x| Ok(Value::String(x.to_string()))),
-        ColumnData::Xml(x) => value_or_null(x, |x| Ok(Value::String(x.to_string()))),
-        ColumnData::Numeric(x) => value_or_null(x, |x| {
-            Ok(Value::Number(
-                serde_json::Number::from_f64(x.into())
-                    .ok_or(anyhow::anyhow!("invalid json-float"))?,
-            ))
-        }),
-        ColumnData::DateTime(x) => value_or_null(
-            NaiveDateTime::from_sql_owned(ColumnData::DateTime(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-        ColumnData::DateTime2(x) => value_or_null(
-            NaiveDateTime::from_sql_owned(ColumnData::DateTime2(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-        ColumnData::SmallDateTime(x) => value_or_null(
-            NaiveDateTime::from_sql_owned(ColumnData::SmallDateTime(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-        ColumnData::Time(x) => value_or_null(
-            NaiveTime::from_sql_owned(ColumnData::Time(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-        ColumnData::Date(x) => value_or_null(
-            NaiveDate::from_sql_owned(ColumnData::Date(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-        ColumnData::DateTimeOffset(x) => value_or_null(
-            DateTime::<Utc>::from_sql_owned(ColumnData::DateTimeOffset(x)).map_err(to_anyhow)?,
-            |x| Ok(Value::String(x.to_string())),
-        ),
-    }
+fn numeric_to_raw_value(numeric: &tiberius::numeric::Numeric) -> Result<Box<RawValue>, Error> {
+    // tiberius::Numeric::to_string is broken, don't use it
+
+    let sign = if numeric.int_part().is_negative() {
+        "-"
+    } else {
+        ""
+    };
+    let int_part = numeric.int_part().abs();
+    let dec_part = numeric.dec_part().abs();
+
+    let str = if dec_part == 0 {
+        format!("{}{}", sign, int_part)
+    } else {
+        format!(
+            "{}{}.{:0pad$}",
+            sign,
+            int_part,
+            dec_part,
+            pad = numeric.scale() as usize
+        )
+    };
+
+    Ok(RawValue::from_string(str).map_err(to_anyhow)?)
 }
 
 fn deserialize_aad_token<'de, D>(deserializer: D) -> Result<Option<AadToken>, D::Error>
@@ -424,5 +445,64 @@ where
     match result {
         Ok(token) if token.token.is_some() => Ok(Some(token)),
         _ => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sql_to_json_value_numeric_null() {
+        let result = sql_to_json_value(ColumnData::Numeric(None)).unwrap();
+        assert_eq!(result.get(), "null");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_integer() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(12345, 0);
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "12345");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_decimal() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(123456, 2); // Represents 1234.56
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "1234.56");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_negative() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(-98765, 2); // Represents -987.65
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "-987.65");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_negative_integer() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(-98765, 0);
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "-98765");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_high_precision() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(123456789012345, 10); // High precision
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "12345.6789012345");
+    }
+
+    #[test]
+    fn test_sql_to_json_value_numeric_7_69() {
+        use tiberius::numeric::Numeric;
+        let numeric = Numeric::new_with_scale(769, 2);
+        let result = sql_to_json_value(ColumnData::Numeric(Some(numeric))).unwrap();
+        assert_eq!(result.get(), "7.69");
     }
 }

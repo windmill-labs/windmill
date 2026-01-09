@@ -54,7 +54,8 @@ import {
 	RefreshCw,
 	ListCollapse,
 	GalleryThumbnails,
-	Code
+	Code,
+	MessageSquare
 } from 'lucide-svelte'
 import type {
 	Aligned,
@@ -82,7 +83,7 @@ export type BaseComponent<T extends string> = {
 }
 
 export type RecomputeOthersSource = {
-	recomputeIds: string[] | undefined
+	recomputeIds?: string[] | undefined
 }
 
 export type CustomComponentConfig = {
@@ -176,7 +177,7 @@ export type AgChartsComponentEe = BaseComponent<'agchartscomponentee'> & {
 export type ScatterChartComponent = BaseComponent<'scatterchartcomponent'>
 
 export type TableAction = BaseAppComponent &
-	(ButtonComponent | CheckboxComponent | SelectComponent) &
+	(ButtonComponent | CheckboxComponent | SelectComponent | ModalComponent) &
 	GridItem
 
 export type TableComponent = BaseComponent<'tablecomponent'> & {
@@ -208,11 +209,13 @@ export type AggridInfiniteComponentEe = BaseComponent<'aggridinfinitecomponentee
 }
 
 export type DisplayComponent = BaseComponent<'displaycomponent'>
+export type ChatComponent = BaseComponent<'chatcomponent'> & RecomputeOthersSource
 export type JobIdDisplayComponent = BaseComponent<'jobiddisplaycomponent'>
 export type LogComponent = BaseComponent<'logcomponent'>
 export type JobIdLogComponent = BaseComponent<'jobidlogcomponent'>
 export type FlowStatusComponent = BaseComponent<'flowstatuscomponent'>
 export type JobIdFlowStatusComponent = BaseComponent<'jobidflowstatuscomponent'>
+export type JobProgressBarComponent = BaseComponent<'jobprogressbarcomponent'>
 export type ImageComponent = BaseComponent<'imagecomponent'>
 export type InputComponent = BaseComponent<'inputcomponent'>
 export type SelectComponent = BaseComponent<'selectcomponent'> &
@@ -338,10 +341,12 @@ export type RecomputeAllComponent = BaseComponent<'recomputeallcomponent'>
 export type TypedComponent =
 	| DBExplorerComponent
 	| DisplayComponent
+	| ChatComponent
 	| LogComponent
 	| JobIdLogComponent
 	| FlowStatusComponent
 	| JobIdFlowStatusComponent
+	| JobProgressBarComponent
 	| TextInputComponent
 	| QuillComponent
 	| CodeInputComponent
@@ -461,6 +466,23 @@ export type AppComponentConfig<T extends TypedComponent['type']> = {
 	 */
 	initialData: InitialAppComponent
 	customCss: ComponentCustomCSS<T>
+	/**
+	 * Optional configuration for runnable inputs validation
+	 */
+	runnableInputsInfo?: {
+		/**
+		 * Function to validate runnable inputs and return a warning if needed
+		 * @param fields - The fields object from componentInput.fields
+		 * @returns Warning object with type, title, and message, or undefined if valid
+		 */
+		validate?: (fields: Record<string, any>) =>
+			| {
+					type: 'warning' | 'error' | 'info'
+					title: string
+					message: string
+			  }
+			| undefined
+	}
 }
 
 export type PresetComponentConfig = {
@@ -640,6 +662,94 @@ const onSuccessClick = {
 	}
 } as const
 
+const onSubmitClick = {
+	type: 'oneOf',
+	tooltip: 'Action to perform on submit (when job ID is obtained)',
+	selected: 'none',
+	labels,
+	configuration: {
+		none: {},
+		gotoUrl: {
+			url: {
+				tooltip: 'Go to the given url, absolute or relative',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: '/apps/get/foo',
+				onDemandOnly: true
+			},
+			newTab: {
+				tooltip: 'Open the url in a new tab',
+				fieldType: 'boolean',
+				type: 'static',
+				value: true
+			}
+		},
+		setTab: {
+			setTab: {
+				type: 'static',
+				value: [] as Array<{ id: string; index: number }>,
+				fieldType: 'array',
+				subFieldType: 'tab-select',
+				tooltip: 'Set the tabs id and index to go to on submit',
+				onDemandOnly: true
+			}
+		},
+		sendToast: {
+			message: {
+				tooltip: 'The message of the toast to display',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				placeholder: 'Hello there',
+				onDemandOnly: true
+			}
+		},
+		openModal: {
+			modalId: {
+				tooltip: 'The id of the modal to open',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		closeModal: {
+			modalId: {
+				tooltip: 'The id of the modal to close',
+				fieldType: 'text',
+				type: 'static',
+				value: '',
+				deprecated: true
+			}
+		},
+		open: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to open',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		close: {
+			id: {
+				tooltip: 'The id of the modal or the drawer to close',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		},
+		clearFiles: {
+			id: {
+				tooltip: 'The id of s3 file input to clear',
+				fieldType: 'text',
+				type: 'static',
+				value: ''
+			}
+		}
+	}
+} as const
+
 const onErrorClick = {
 	type: 'oneOf',
 	tooltip: 'Action to perform on error',
@@ -707,6 +817,24 @@ const onErrorClick = {
 				noVariablePicker: true
 			}
 		}
+	}
+} as const
+
+const clearFormInputs = {
+	type: 'oneOf',
+	tooltip: 'When to clear the form inputs',
+	selected: 'never',
+	labels: {
+		never: 'Never',
+		onSuccess: 'On success',
+		onSubmit: 'On submit',
+		onError: 'On error'
+	},
+	configuration: {
+		never: {},
+		onSuccess: {},
+		onSubmit: {},
+		onError: {}
 	}
 } as const
 
@@ -1040,6 +1168,56 @@ export const components = {
 			}
 		}
 	},
+	chatcomponent: {
+		name: 'Chat',
+		icon: MessageSquare,
+		documentationLink: `${documentationBaseUrl}/chat`,
+		dims: '3:8-6:12' as AppComponentDimensions,
+		customCss: {
+			container: { class: '', style: '' },
+			messagesContainer: { class: '', style: '' },
+			inputContainer: { class: '', style: '' },
+			userMessage: { class: '', style: '' },
+			assistantMessage: { class: '', style: '' },
+			input: { class: '', style: '' },
+			button: { class: '', style: '' }
+		},
+		runnableInputsInfo: {
+			validate: (fields) => {
+				const fieldNames = Object.keys(fields)
+				const hasUserMessage = fieldNames.includes('user_message')
+
+				if (!hasUserMessage) {
+					return {
+						type: 'warning' as const,
+						title: 'Chat input configuration',
+						message:
+							'The chat component requires a <code>user_message</code> parameter to work. Please add it to your event handler.'
+					}
+				}
+
+				return undefined
+			}
+		},
+		initialData: {
+			componentInput: {
+				type: 'runnable',
+				fieldType: 'any',
+				fields: {},
+				runnable: undefined
+			},
+			recomputeIds: true,
+			configuration: {
+				placeholder: {
+					type: 'static',
+					fieldType: 'text',
+					value: 'Type a message...'
+				},
+				onSuccess: onSuccessClick,
+				onError: onErrorClick
+			}
+		}
+	},
 	jobidlogcomponent: {
 		name: 'Log by Job Id',
 		icon: Monitor,
@@ -1114,6 +1292,26 @@ export const components = {
 					fieldType: 'text',
 					value: '',
 					tooltip: 'Job id to display status from'
+				}
+			}
+		}
+	},
+	jobprogressbarcomponent: {
+		name: 'Progress Bar by Job Id',
+		icon: Monitor,
+		documentationLink: `${documentationBaseUrl}/progress_bar`,
+		dims: '2:2-6:2' as AppComponentDimensions,
+		customCss: {
+			header: { class: '', style: '' },
+			container: { class: '', style: '' }
+		},
+		initialData: {
+			configuration: {
+				jobId: {
+					type: 'static',
+					fieldType: 'text',
+					value: '',
+					tooltip: 'Job id to display progress from'
 				}
 			}
 		}
@@ -1405,6 +1603,7 @@ export const components = {
 				},
 
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
 				confirmationModal: {
 					type: 'oneOf',
@@ -1460,6 +1659,9 @@ export const components = {
 					fileUpload: {
 						accept: '*',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: '*'
 					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},
@@ -1543,7 +1745,9 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
-				onError: onErrorClick
+				onSubmit: onSubmitClick,
+				onError: onErrorClick,
+				clearFormInputs
 			}
 		}
 	},
@@ -1592,7 +1796,9 @@ export const components = {
 					selectOptions: selectOptions.buttonSizeOptions
 				},
 				onSuccess: onSuccessClick,
+				onSubmit: onSubmitClick,
 				onError: onErrorClick,
+				clearFormInputs,
 				disabled: {
 					fieldType: 'boolean',
 					type: 'static',
@@ -2252,12 +2458,7 @@ This is a paragraph.
 		documentationLink: `${documentationBaseUrl}/select`,
 		dims: '2:1-3:1' as AppComponentDimensions,
 		customCss: {
-			input: {
-				style: '',
-				tooltip:
-					'https://github.com/rob-balfre/svelte-select/blob/master/docs/theming_variables.md',
-				class: ''
-			}
+			input: { style: '', class: '' }
 		},
 		initialData: {
 			recomputeIds: true,
@@ -3281,8 +3482,7 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 						convertTo: 'base64'
 					},
 					fileUploadS3: {
-						accept: 'image/*',
-						convertTo: 'base64'
+						accept: 'image/*'
 					}
 				},
 				sourceKind: {
@@ -3481,6 +3681,9 @@ See date-fns format for more information. By default, it is 'dd.MM.yyyy HH:mm'
 					fileUpload: {
 						accept: 'application/pdf',
 						convertTo: 'base64'
+					},
+					fileUploadS3: {
+						accept: 'application/pdf'
 					},
 					placeholder: 'Enter URL or upload file (base64)'
 				},

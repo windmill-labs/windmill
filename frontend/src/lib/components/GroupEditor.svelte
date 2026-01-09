@@ -15,10 +15,12 @@
 	import { canWrite } from '$lib/utils'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from './common/toggleButton-v2/ToggleButton.svelte'
-	import Section from './Section.svelte'
 	import Label from './Label.svelte'
 	import Select from './select/Select.svelte'
 	import { safeSelectItems } from './select/utils.svelte'
+	import TextInput from './text_input/TextInput.svelte'
+	import { Trash } from 'lucide-svelte'
+	import PermissionHistory from './PermissionHistory.svelte'
 
 	interface Props {
 		name: string
@@ -80,6 +82,7 @@
 				}
 			})
 			summary = group.summary ?? ''
+			reloadHistory++
 		} catch (e) {
 			can_write = false
 			members = []
@@ -109,14 +112,20 @@
 			})
 		}
 	})
+	let reloadHistory = $state(0)
 </script>
 
-<Section label="Metadata" class="mb-4">
-	<Label label="Summary">
+<div class="flex flex-col gap-6">
+	<Label label="Summary" for="summary">
 		<div class="flex flex-row gap-2">
-			<input placeholder="Short summary to be displayed when listed" bind:value={summary} />
+			<TextInput
+				inputProps={{ placeholder: 'Short summary to be displayed when listed', id: 'summary' }}
+				bind:value={summary}
+				size="md"
+			/>
 			<Button
-				size="sm"
+				unifiedSize="md"
+				variant="accent"
 				on:click={async () => {
 					await GroupService.updateGroup({
 						workspace: $workspaceStore ?? '',
@@ -130,175 +139,195 @@
 			>
 		</div>
 	</Label>
-</Section>
 
-<Section label={`Members (${members?.length ?? 0})`}>
-	{#if can_write}
-		<div class="flex items-start">
-			<Select items={safeSelectItems(usernames)} bind:value={username} />
-			<Button variant="contained" color="blue" size="sm" btnClasses="!ml-4" on:click={addToGroup}>
-				Add member
-			</Button>
-		</div>
-	{/if}
-	{#if members}
-		<TableCustom>
-			<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
-			<tr slot="header-row">
-				<th>user</th>
-				<th></th>
-				<th></th>
-			</tr>
-			{#snippet body()}
-				<tbody>
-					{#each members ?? [] as { member_name, role }}<tr>
-							<td>{member_name}</td>
-							<td>
-								{#if can_write}
-									<div>
-										<ToggleButtonGroup
-											selected={role}
-											on:selected={async (e) => {
-												const role = e.detail
-												// const wasInGroup = (group?.members ?? []).includes(group)
-												// const inAcl = (
-												// 	group?.extra_perms ? Object.keys(group?.extra_perms) : []
-												// ).includes(group)
-												if (role == 'member') {
-													await GroupService.addUserToGroup({
-														workspace: $workspaceStore ?? '',
-														name,
-														requestBody: {
-															username: member_name
-														}
-													})
-													await GranularAclService.removeGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'group_',
-														requestBody: {
-															owner: 'u/' + member_name
-														}
-													})
-												} else if (role == 'manager') {
-													await GroupService.removeUserToGroup({
-														workspace: $workspaceStore ?? '',
-														name,
-														requestBody: {
-															username: member_name
-														}
-													})
-													await GranularAclService.addGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'group_',
-														requestBody: {
-															owner: 'u/' + member_name,
-															write: true
-														}
-													})
-												} else if (role == 'admin') {
-													await GroupService.addUserToGroup({
-														workspace: $workspaceStore ?? '',
-														name,
-														requestBody: {
-															username: member_name
-														}
-													})
-													await GranularAclService.addGranularAcls({
-														workspace: $workspaceStore ?? '',
-														path: name,
-														kind: 'group_',
-														requestBody: {
-															owner: 'u/' + member_name,
-															write: true
-														}
-													})
-												}
-												loadGroup()
-											}}
-										>
-											{#snippet children({ item })}
-												<ToggleButton
-													value="member"
-													small
-													label="Member"
-													tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
-													{item}
-												/>
-												<ToggleButton
-													value="admin"
-													small
-													label="Admin"
-													tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
-													{item}
-												/>
-												{#if role === 'manager'}
-													<ToggleButton
-														value="manager"
-														small
-														label="Manager"
-														tooltip="A manager of a group can manage the group, adding and removing users and
-													change their roles. Being a manager does not make you a member"
-														{item}
-													/>
-												{/if}
-											{/snippet}
-										</ToggleButtonGroup>
-									</div>
-								{:else}
-									{role}
-								{/if}</td
-							>
-							<td>
-								{#if can_write}
-									<button
-										class="ml-2 text-red-500"
-										onclick={async () => {
-											await GroupService.removeUserToGroup({
-												workspace: $workspaceStore ?? '',
-												name,
-												requestBody: { username: member_name }
-											})
-											await GranularAclService.removeGranularAcls({
-												workspace: $workspaceStore ?? '',
-												path: name,
-												kind: 'group_',
-												requestBody: {
-													owner: 'u/' + member_name
-												}
-											})
-											loadGroup()
-										}}>remove</button
-									>
-								{/if}</td
-							>
-						</tr>{/each}
-				</tbody>
-			{/snippet}
-		</TableCustom>
-
-		{#if instance_group?.emails}
-			<h2 class="mt-10">Members from the instance group</h2>
+	<Label label={`Members (${members?.length ?? 0})`}>
+		{#if can_write}
+			<div class="flex items-start gap-1">
+				<Select items={safeSelectItems(usernames)} bind:value={username} size="md" class="grow" />
+				<Button variant="accent" color="blue" unifiedSize="md" on:click={addToGroup}>
+					Add member
+				</Button>
+			</div>
+		{/if}
+		{#if members}
 			<TableCustom>
 				<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
 				<tr slot="header-row">
 					<th>user</th>
+					<th></th>
+					<th></th>
 				</tr>
 				{#snippet body()}
 					<tbody>
-						{#each instance_group?.emails ?? [] as email}<tr>
-								<td>{email}</td>
+						{#each members ?? [] as { member_name, role }}<tr>
+								<td>{member_name}</td>
+								<td>
+									{#if can_write}
+										<div>
+											<ToggleButtonGroup
+												selected={role}
+												on:selected={async (e) => {
+													const role = e.detail
+													// const wasInGroup = (group?.members ?? []).includes(group)
+													// const inAcl = (
+													// 	group?.extra_perms ? Object.keys(group?.extra_perms) : []
+													// ).includes(group)
+													if (role == 'member') {
+														await GroupService.addUserToGroup({
+															workspace: $workspaceStore ?? '',
+															name,
+															requestBody: {
+																username: member_name
+															}
+														})
+														await GranularAclService.removeGranularAcls({
+															workspace: $workspaceStore ?? '',
+															path: name,
+															kind: 'group_',
+															requestBody: {
+																owner: 'u/' + member_name
+															}
+														})
+													} else if (role == 'manager') {
+														await GroupService.removeUserToGroup({
+															workspace: $workspaceStore ?? '',
+															name,
+															requestBody: {
+																username: member_name
+															}
+														})
+														await GranularAclService.addGranularAcls({
+															workspace: $workspaceStore ?? '',
+															path: name,
+															kind: 'group_',
+															requestBody: {
+																owner: 'u/' + member_name,
+																write: true
+															}
+														})
+													} else if (role == 'admin') {
+														await GroupService.addUserToGroup({
+															workspace: $workspaceStore ?? '',
+															name,
+															requestBody: {
+																username: member_name
+															}
+														})
+														await GranularAclService.addGranularAcls({
+															workspace: $workspaceStore ?? '',
+															path: name,
+															kind: 'group_',
+															requestBody: {
+																owner: 'u/' + member_name,
+																write: true
+															}
+														})
+													}
+													loadGroup()
+												}}
+											>
+												{#snippet children({ item })}
+													<ToggleButton
+														value="member"
+														small
+														label="Member"
+														tooltip="A Member of a group can see everything the group can see, write to everything the group can write, and generally act on behalf of the group"
+														{item}
+													/>
+													<ToggleButton
+														value="admin"
+														small
+														label="Admin"
+														tooltip="An admin of a group is a member of a group that can also add and remove members to the group, or make them admin."
+														{item}
+													/>
+													{#if role === 'manager'}
+														<ToggleButton
+															value="manager"
+															small
+															label="Manager"
+															tooltip="A manager of a group can manage the group, adding and removing users and
+													change their roles. Being a manager does not make you a member"
+															{item}
+														/>
+													{/if}
+												{/snippet}
+											</ToggleButtonGroup>
+										</div>
+									{:else}
+										{role}
+									{/if}</td
+								>
+								<td class="flex justify-end">
+									{#if can_write}
+										<Button
+											variant="subtle"
+											destructive
+											unifiedSize="md"
+											startIcon={{ icon: Trash }}
+											iconOnly
+											onclick={async () => {
+												await GroupService.removeUserToGroup({
+													workspace: $workspaceStore ?? '',
+													name,
+													requestBody: { username: member_name }
+												})
+												await GranularAclService.removeGranularAcls({
+													workspace: $workspaceStore ?? '',
+													path: name,
+													kind: 'group_',
+													requestBody: {
+														owner: 'u/' + member_name
+													}
+												})
+												loadGroup()
+											}}
+										/>
+									{/if}</td
+								>
 							</tr>{/each}
 					</tbody>
 				{/snippet}
 			</TableCustom>
+
+			{#if instance_group?.emails}
+				<h2 class="mt-6 text-emphasis text-xs font-semibold">Members from the instance group</h2>
+				<TableCustom>
+					<!-- @migration-task: migrate this slot by hand, `header-row` is an invalid identifier -->
+					<tr slot="header-row">
+						<th>user</th>
+					</tr>
+					{#snippet body()}
+						<tbody>
+							{#each instance_group?.emails ?? [] as email}<tr>
+									<td>{email}</td>
+								</tr>{/each}
+						</tbody>
+					{/snippet}
+				</TableCustom>
+			{/if}
+		{:else}
+			<div class="flex flex-col">
+				{#each new Array(6) as _}
+					<Skeleton layout={[[2], 0.7]} />
+				{/each}
+			</div>
 		{/if}
-	{:else}
-		<div class="flex flex-col">
-			{#each new Array(6) as _}
-				<Skeleton layout={[[2], 0.7]} />
-			{/each}
-		</div>
+	</Label>
+
+	{#if reloadHistory > 0}
+		{#key reloadHistory}
+			<PermissionHistory
+				{name}
+				fetchHistory={async (workspace, groupName, page, perPage) => {
+					return await GroupService.getGroupPermissionHistory({
+						workspace,
+						name: groupName,
+						page,
+						perPage
+					})
+				}}
+			/>
+		{/key}
 	{/if}
-</Section>
+</div>

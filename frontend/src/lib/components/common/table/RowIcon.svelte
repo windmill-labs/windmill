@@ -1,32 +1,22 @@
 <script lang="ts">
-	import { classNames } from '$lib/utils'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
-	import { Code2, LayoutDashboard } from 'lucide-svelte'
+	import { Boxes, Code2, DollarSign, LayoutDashboard } from 'lucide-svelte'
 
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app'
-	export let href: string = '#'
-
-	const color = {
-		script: 'bg-blue-50 border-blue-200 dark:bg-blue-800/20 dark:border-blue-500/70',
-		flow: 'bg-[#f0fdfa] border-[#99f6e4] dark:bg-teal-800/20 dark:border-teal-600/70',
-		app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70',
-		raw_app: 'bg-[#fff7ed] border-orange-300 dark:bg-orange-800/20 dark:border-orange-400/70'
-	}[kind]
-
-	const iconColor = {
-		script: '#60A5FA',
-		flow: '#14b8a6',
-		app: '#fb923c',
-		raw_app: '#fb923c'
-	}[kind]
+	export let kind: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable'
 </script>
 
-<a {href} class={classNames('rounded-md p-1 flex justify-center items-center border', color)}>
+<div class="flex justify-center items-center">
 	{#if kind === 'flow'}
-		<BarsStaggered size={20} class=" text-[#14b8a6] p-0.5" />
+		<BarsStaggered size={16} class="text-teal-500" />
 	{:else if kind === 'app' || kind === 'raw_app'}
-		<LayoutDashboard size={20} color={iconColor} />
+		<LayoutDashboard size={16} class="text-orange-500" />
 	{:else if kind === 'script'}
-		<Code2 size={20} color={iconColor} />
+		<Code2 size={16} class="text-blue-500" />
+	{:else if kind === 'variable'}
+		<DollarSign size={16} class="text-gray-400" />
+	{:else if kind === 'resource'}
+		<Boxes size={16} class="text-gray-400" />
+	{:else}
+		<div class="w-[16px]"></div>
 	{/if}
-</a>
+</div>

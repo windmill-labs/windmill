@@ -7,7 +7,7 @@
 	import { Button } from './common'
 	import { getContext, untrack } from 'svelte'
 	import type { FlowEditorContext } from './flows/types'
-	import { evalValue } from './flows/utils'
+	import { evalValue } from './flows/utils.svelte'
 	import type { FlowModule } from '$lib/gen'
 	import type { PickableProperties } from './flows/previousResults'
 	import type SimpleEditor from './SimpleEditor.svelte'
@@ -118,7 +118,7 @@
 					<ResizeTransitionWrapper
 						vertical
 						class={twMerge(
-							'flex gap-2 relative',
+							'flex gap-2',
 							animateArg === argName && 'animate-pulse ring-2 ring-offset-2 ring-blue-500 rounded'
 						)}
 						innerClass="w-full"
@@ -173,6 +173,6 @@
 			{/each}
 		{/if}
 	{:else}
-		<div class="text-center text-sm text-tertiary"> Loading test step arguments... </div>
+		<div class="text-center text-sm text-primary"> Loading test step arguments... </div>
 	{/if}
 </div>

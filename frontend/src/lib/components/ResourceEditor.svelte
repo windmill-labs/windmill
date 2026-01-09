@@ -199,7 +199,7 @@
 </script>
 
 <div>
-	<div class="flex flex-col gap-3 py-3">
+	<div class="flex flex-col gap-6 py-2">
 		{#if !hidePath}
 			<div>
 				{#if !can_write}
@@ -220,113 +220,122 @@
 		{/if}
 
 		{#if !emptyString(resourceTypeInfo?.description)}
-			<h4 class="mt-4 mb-2">{resourceTypeInfo?.name} description</h4>
-			<div class="text-sm">
-				<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+			<div class="flex flex-col gap-1">
+				<h4 class="text-xs text-emphasis font-semibold">{resourceTypeInfo?.name} description</h4>
+				<div class="text-xs text-primary font-normal">
+					<Markdown md={urlize(resourceTypeInfo?.description ?? '', 'md')} />
+				</div>
 			</div>
 		{/if}
-		<h4 class="mt-4 inline-flex items-center gap-4"
-			>Resource description <Required required={false} />
-			{#if can_write}
-				<Button
-					size="xs2"
-					variant="contained"
-					color="light"
-					btnClasses={editDescription ? 'bg-surface-hover' : ''}
-					startIcon={{ icon: Pen }}
-					on:click={() => (editDescription = !editDescription)}
-				/>
-			{/if}</h4
-		>
-		{#if can_write && editDescription}
-			<div>
-				<div class="flex flex-row-reverse text-2xs text-tertiary -mt-1">GH Markdown</div>
-				<textarea
-					disabled={!can_write}
-					use:autosize
-					bind:value={description}
-					placeholder={DESCRIPTION_PLACEHOLDER}
-				></textarea>
-			</div>
-		{:else if description == undefined || description == ''}
-			<div class="text-sm text-tertiary">No description provided</div>
-		{:else}
-			<div class="mt-2"></div>
 
-			<GfmMarkdown md={description} />
-		{/if}
-		<div class="w-full flex gap-4 flex-row-reverse items-center mt-4">
-			<Toggle
-				on:change={(e) => switchTab(e.detail)}
-				options={{
-					right: 'As JSON'
-				}}
-			/>
-			{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
-				<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
-			{:else}
-				<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
-			{/if}
-			{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
-				<GitHubAppIntegration
-					resourceType={resource_type}
-					{args}
-					{description}
-					onArgsUpdate={(newArgs) => {
-						args = newArgs
-						// Update rawCode if in JSON view mode
-						if (viewJsonSchema) {
-							rawCode = JSON.stringify(args, null, 2)
-						}
-					}}
-					onDescriptionUpdate={(newDescription) => (description = newDescription)}
-				/>
-			{/if}
-		</div>
-		<div>
-			{#if loadingSchema}
-				<Skeleton layout={[[4]]} />
-			{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
-				{#if resourceTypeInfo?.format_extension}
-					<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
-						File content ({resourceTypeInfo.format_extension})
-					</h5>
-					<div class="">
-						<SimpleEditor
-							autoHeight
-							lang={resourceTypeInfo.format_extension}
-							bind:code={textFileContent}
-							fixedOverflowWidgets={false}
-						/>
-					</div>
-				{:else}
-					<SchemaForm
-						onlyMaskPassword
-						noDelete
-						disabled={!can_write}
-						compact
-						schema={resourceSchema}
-						bind:args
-						bind:isValid
+		<div class="flex flex-col gap-1">
+			<h4 class="inline-flex items-center gap-2 text-xs text-emphasis font-semibold"
+				>Resource description <Required required={false} />
+				{#if can_write}
+					<Button
+						variant="subtle"
+						unifiedSize="sm"
+						btnClasses={editDescription ? 'bg-surface-hover' : ''}
+						startIcon={{ icon: Pen }}
+						on:click={() => (editDescription = !editDescription)}
 					/>
 				{/if}
-			{:else if !can_write}
-				<input type="text" disabled value={rawCode} />
+			</h4>
+			{#if can_write && editDescription}
+				<div>
+					<div class="flex flex-row-reverse text-2xs text-primary -mt-1">GH Markdown</div>
+					<textarea
+						class="text-xs text-primary font-normal"
+						disabled={!can_write}
+						use:autosize
+						bind:value={description}
+						placeholder={DESCRIPTION_PLACEHOLDER}
+					></textarea>
+				</div>
+			{:else if description == undefined || description == ''}
+				<div class="text-xs text-secondary font-normal">No description provided</div>
 			{:else}
-				{#if !viewJsonSchema}
-					<p class="italic text-secondary text-xs mb-4">
-						No corresponding resource type found in your workspace for {resource_type}. Define the
-						value in JSON directly
-					</p>
-				{/if}
-
-				{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
-						>{jsonError}</span
-					>{:else}<div class="py-2"></div>{/if}
-				<div class="bg-surface-secondary rounded-md border py-2.5">
-					<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
+				<div class="text-xs text-primary font-normal">
+					<GfmMarkdown md={description} />
 				</div>
 			{/if}
+		</div>
+
+		<div class="flex flex-col gap-1">
+			<div class="w-full flex gap-4 flex-row-reverse items-center">
+				<Toggle
+					on:change={(e) => switchTab(e.detail)}
+					options={{
+						right: 'As JSON'
+					}}
+				/>
+				{#if resourceToEdit?.resource_type === 'nats' || resourceToEdit?.resource_type === 'kafka'}
+					<TestTriggerConnection kind={resourceToEdit?.resource_type} args={{ connection: args }} />
+				{:else}
+					<TestConnection resourceType={resourceToEdit?.resource_type} {args} />
+				{/if}
+				{#if resource_type === 'git_repository' && $workspaceStore && ($userStore?.is_admin || $userStore?.is_super_admin)}
+					<GitHubAppIntegration
+						resourceType={resource_type}
+						{args}
+						{description}
+						onArgsUpdate={(newArgs) => {
+							args = newArgs
+							// Update rawCode if in JSON view mode
+							if (viewJsonSchema) {
+								rawCode = JSON.stringify(args, null, 2)
+							}
+						}}
+						onDescriptionUpdate={(newDescription) => (description = newDescription)}
+					/>
+				{/if}
+			</div>
+
+			<div>
+				{#if loadingSchema}
+					<Skeleton layout={[[4]]} />
+				{:else if !viewJsonSchema && resourceSchema && resourceSchema?.properties}
+					{#if resourceTypeInfo?.format_extension}
+						<h5 class="mt-4 inline-flex items-center gap-4 pb-2">
+							File content ({resourceTypeInfo.format_extension})
+						</h5>
+						<div class="">
+							<SimpleEditor
+								autoHeight
+								lang={resourceTypeInfo.format_extension}
+								bind:code={textFileContent}
+								fixedOverflowWidgets={false}
+							/>
+						</div>
+					{:else}
+						<SchemaForm
+							onlyMaskPassword
+							noDelete
+							disabled={!can_write}
+							compact
+							schema={resourceSchema}
+							bind:args
+							bind:isValid
+						/>
+					{/if}
+				{:else if !can_write}
+					<input type="text" disabled value={rawCode} />
+				{:else}
+					{#if !viewJsonSchema}
+						<p class="italic text-secondary text-xs mb-4">
+							No corresponding resource type found in your workspace for {resource_type}. Define the
+							value in JSON directly
+						</p>
+					{/if}
+
+					{#if !emptyString(jsonError)}<span class="text-red-400 text-xs mb-1 flex flex-row-reverse"
+							>{jsonError}</span
+						>{:else}<div class="py-2"></div>{/if}
+					<div class="bg-surface-tertiary rounded-md border py-2.5">
+						<SimpleEditor autoHeight lang="json" bind:code={rawCode} />
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 </div>

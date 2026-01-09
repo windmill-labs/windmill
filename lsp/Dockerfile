@@ -1,5 +1,5 @@
-FROM python:3.11-slim as python-base
-FROM node:19-slim as node-base
+FROM python:3.12-slim as python-base
+FROM node:22-slim as node-base
 
 FROM python-base
 COPY --from=node-base /usr/local /usr/local
@@ -37,7 +37,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GOBIN=/usr/local/go/bin
 RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 
-RUN pip3 install tornado python-lsp-jsonrpc ruff-lsp
+RUN pip3 install tornado python-lsp-jsonrpc ruff
 
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
 

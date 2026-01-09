@@ -39,7 +39,7 @@
 	}
 </script>
 
-<div class={twMerge('flex flex-row gap-2.5 z-10 text-tertiary -mt-1 items-center')}>
+<div class={twMerge('flex flex-row gap-2.5 z-10 text-primary -mt-1 items-center')}>
 	{#if customUi?.disableDownload !== true}
 		<a
 			download="{filename ?? 'result'}.json"

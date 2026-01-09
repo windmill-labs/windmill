@@ -55,7 +55,7 @@
 
 <PanelSection title={`panes ${panes.length > 0 ? `(${panes.length})` : ''}`}>
 	{#if panes.length == 0}
-		<span class="text-xs text-tertiary">No panes</span>
+		<span class="text-xs text-primary">No panes</span>
 	{/if}
 	<div class="w-full flex gap-2 flex-col">
 		{#each panes as _, index (index)}
@@ -77,13 +77,6 @@
 				/>
 			</div>
 		{/each}
-		<Button
-			size="xs"
-			color="light"
-			variant="border"
-			startIcon={{ icon: Plus }}
-			on:click={addTab}
-			iconOnly
-		/>
+		<Button size="xs" variant="default" startIcon={{ icon: Plus }} on:click={addTab} iconOnly />
 	</div>
 </PanelSection>

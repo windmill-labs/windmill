@@ -18,8 +18,8 @@
 	import EditableSchemaDrawer from '$lib/components/schema/EditableSchemaDrawer.svelte'
 	import AddProperty from '$lib/components/schema/AddProperty.svelte'
 
-	const { selectedId, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
-	const result = flowStateStore.val[$selectedId]?.previewResult ?? {}
+	const { selectionManager, flowStateStore } = getContext<FlowEditorContext>('FlowEditorContext')
+	const result = flowStateStore.val[selectionManager.getSelectedId()]?.previewResult ?? {}
 	let editor: SimpleEditor | undefined = $state(undefined)
 
 	interface Props {
@@ -103,15 +103,9 @@
 
 	<div class="overflow-x-auto scrollbar-hidden">
 		<Tabs bind:selected={suspendTabSelected}>
-			<Tab size="xs" value="core" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Core</div>
-			</Tab>
-			<Tab size="xs" value="form" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Form</div>
-			</Tab>
-			<Tab size="xs" value="permissions" disabled={!isSuspendEnabled}>
-				<div class="flex gap-2 items-center my-1">Permissions</div>
-			</Tab>
+			<Tab value="core" disabled={!isSuspendEnabled} label="Core" />
+			<Tab value="form" disabled={!isSuspendEnabled} label="Form" />
+			<Tab value="permissions" disabled={!isSuspendEnabled} label="Permissions" />
 		</Tabs>
 	</div>
 
@@ -251,7 +245,6 @@
 					<div class="flex flex-col items-end mb-2 w-full">
 						<Toggle
 							checked={false}
-							label="JSON View"
 							size="xs"
 							options={{
 								right: 'JSON editor',

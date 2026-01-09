@@ -145,7 +145,7 @@ ${Object.entries(args)
 			</Button>
 		{/snippet}
 		{#if jsonStr.length > 100000 || (id && workspace && args && isWindmillTooBigObject(args))}
-			<div class="text-sm mb-2 text-tertiary">
+			<div class="text-sm mb-2 text-primary">
 				<a
 					download="windmill-args.json"
 					href={id && workspace

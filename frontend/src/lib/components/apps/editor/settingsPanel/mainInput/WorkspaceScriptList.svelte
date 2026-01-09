@@ -27,7 +27,8 @@
 	async function loadScripts(): Promise<void> {
 		const loadedScripts = await ScriptService.listScripts({
 			workspace: $workspaceStore!,
-			perPage: 300
+			perPage: 300,
+			withoutDescription: true
 		})
 
 		scripts = loadedScripts
@@ -77,7 +78,7 @@
 										{!item.summary || item.summary.length == 0 ? item.path : item.summary}
 									{/if}
 								</div>
-								<div class="text-tertiary text-xs">
+								<div class="text-primary text-xs">
 									{item.path}
 								</div>
 							</div>

@@ -1,4 +1,4 @@
-import type { DbType } from './components/apps/components/display/dbtable/utils'
+import type { DbType } from './components/dbTypes'
 
 export const DEFAULT_WEBHOOK_TYPE: 'async' | 'sync' = 'async'
 
@@ -103,7 +103,10 @@ export const MYSQL_TYPES = [
 	'enum',
 	'set',
 	'int',
-	'uint',
+	'tinyint',
+	'smallint',
+	'mediumint',
+	'bigint',
 	'integer',
 	'bool',
 	'bit',
@@ -116,7 +119,6 @@ export const MYSQL_TYPES = [
 	'timestamp',
 	'time'
 ]
-
 export const ORACLEDB_TYPES = [
 	'varchar2',
 	'char',

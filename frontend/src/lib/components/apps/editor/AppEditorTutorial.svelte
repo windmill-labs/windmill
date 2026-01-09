@@ -4,66 +4,35 @@
 	import { BookOpen, CheckCircle, Circle, RefreshCw, CheckCheck } from 'lucide-svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import { resetAllTodos, skipAllTodos } from '$lib/tutorialUtils'
-	import { getContext, onMount } from 'svelte'
-	import type { AppViewerContext } from '../types'
-	import { ignoredTutorials } from '$lib/components/tutorials/ignoredTutorials'
 	import { tutorialsToDo } from '$lib/stores'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import { isAppTainted } from '$lib/components/tutorials/utils'
+	import { getTutorialIndex } from '$lib/tutorials/config'
 
 	let appTutorials: AppTutorials | undefined = $state(undefined)
 	let targetTutorial: string | undefined = $state(undefined)
 
-	const { app } = getContext<AppViewerContext>('AppViewerContext')
-
-	onMount(() => {
-		const urlParams = new URLSearchParams(window.location.search)
-
-		const forkedFromTheHub = urlParams.get('hub')
-		const forkedFromTemplate = urlParams.get('template')
-
-		if (
-			!isAppTainted($app) &&
-			!$ignoredTutorials.includes(7) &&
-			$tutorialsToDo.includes(7) &&
-			!forkedFromTheHub &&
-			!forkedFromTemplate
-		) {
-			appTutorials?.runTutorialById('simpleapptutorial')
-		}
-	})
-
-	export function toggleTutorial() {
-		const urlParams = new URLSearchParams(window.location.search)
-		const tutorial = urlParams.get('tutorial')
-
-		if (tutorial === 'simpleapptutorial') {
-			appTutorials?.runTutorialById('simpleapptutorial')
-		}
+	export function runTutorialById(id: string, options?: { skipStepsCount?: number }) {
+		appTutorials?.runTutorialById(id, options)
 	}
 
 	async function getTutorialItems() {
+		const backgroundRunnablesIndex = getTutorialIndex('backgroundrunnables')
+		const connectionIndex = getTutorialIndex('connection')
+		
 		return [
-			{
-				displayName: 'App tutorial',
-				action: () => appTutorials?.runTutorialById('simpleapptutorial'),
-				index: 7,
-				icon: $tutorialsToDo.includes(7) ? Circle : CheckCircle,
-				iconColor: $tutorialsToDo.includes(7) ? undefined : 'green'
-			},
 			{
 				displayName: 'Background runnables',
 				action: () => appTutorials?.runTutorialById('backgroundrunnables'),
-				index: 5,
-				icon: $tutorialsToDo.includes(5) ? Circle : CheckCircle,
-				iconColor: $tutorialsToDo.includes(5) ? undefined : 'green'
+				index: backgroundRunnablesIndex,
+				icon: $tutorialsToDo.includes(backgroundRunnablesIndex) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(backgroundRunnablesIndex) ? undefined : 'green'
 			},
 			{
 				displayName: 'Connection',
 				action: () => appTutorials?.runTutorialById('connection'),
-				index: 6,
-				icon: $tutorialsToDo.includes(6) ? Circle : CheckCircle,
-				iconColor: $tutorialsToDo.includes(6) ? undefined : 'green'
+				index: connectionIndex,
+				icon: $tutorialsToDo.includes(connectionIndex) ? Circle : CheckCircle,
+				iconColor: $tutorialsToDo.includes(connectionIndex) ? undefined : 'green'
 			},
 			{
 				displayName: 'Reset tutorials',
@@ -84,13 +53,10 @@
 		{#snippet buttonReplacement()}
 			<Button
 				nonCaptureEvent
-				size="xs"
-				color="light"
-				variant="border"
+				unifiedSize="md"
+				variant="subtle"
 				iconOnly
-				startIcon={{
-					icon: BookOpen
-				}}
+				startIcon={{ icon: BookOpen }}
 			/>
 		{/snippet}
 	</Dropdown>
@@ -99,8 +65,8 @@
 <AppTutorials
 	bind:this={appTutorials}
 	on:reload
-	on:error={({ detail }) => {
-		targetTutorial = detail.detail
+	on:error={(event: CustomEvent<{ detail: string }>) => {
+		targetTutorial = event.detail.detail
 	}}
 />
 

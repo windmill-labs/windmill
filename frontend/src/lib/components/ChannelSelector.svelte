@@ -2,7 +2,8 @@
 	import Select from './select/Select.svelte'
 	import { WorkspaceService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
-	import { debounce } from '$lib/utils'
+	import { RefreshCcw } from 'lucide-svelte'
+	import { Button } from './common'
 
 	interface ChannelItem {
 		channel_id?: string
@@ -17,7 +18,9 @@
 		minWidth?: string
 		channels?: ChannelItem[]
 		teamId?: string
+		showRefreshButton?: boolean
 		onError?: (error: Error) => void
+		onSelectedChannelChange?: (channel: ChannelItem | undefined) => void
 	}
 
 	let {
@@ -28,109 +31,147 @@
 		minWidth = '160px',
 		channels = undefined,
 		teamId,
-		onError
+		showRefreshButton = true,
+		onError,
+		onSelectedChannelChange
 	}: Props = $props()
 
 	let isFetching = $state(false)
-	let searchResults = $state<ChannelItem[]>([])
+	let loadedChannels = $state<ChannelItem[]>([])
+	let loadedForTeamId = $state<string | undefined>(undefined)
 
-	// Only enable search mode if no channels are provided AND teamId is provided
-	const searchMode = !channels && !!teamId
+	let selectedChannelId = $state<string | undefined>(selectedChannel?.channel_id)
 
-	// Determine which channels to show: provided channels or search results
-	// In search mode, include the selected channel if it exists
-	let displayChannels = $derived(() => {
-		const baseChannels = channels || searchResults;
-		if (searchMode && selectedChannel && !baseChannels.find(c => c.channel_id === selectedChannel?.channel_id)) {
-			return [selectedChannel, ...baseChannels];
+	const searchMode = $derived(!channels && !!teamId)
+
+	let displayChannels = $derived.by(() => {
+		const baseChannels = channels || loadedChannels
+		if (
+			selectedChannel &&
+			!baseChannels.find((c) => c.channel_id === selectedChannel?.channel_id)
+		) {
+			return [selectedChannel, ...baseChannels]
 		}
-		return baseChannels;
+		return baseChannels
 	})
 
-	// Create separate filter text for search mode
-	let searchFilterText = $state('')
-
-	// Debounced search function
-	const debouncedSearch = debounce(async (query: string) => {
-		await searchChannels(query)
-	}, 500)
-
-	// Watch for search filter text changes (only in search mode)
 	$effect(() => {
-		if (searchMode) {
-			if (searchFilterText.length >= 1) {
-				debouncedSearch.debounced(searchFilterText)
-			} else if (searchFilterText.length === 0) {
-				searchResults = []
-			}
+		const newChannel = selectedChannelId
+			? displayChannels.find((c) => c.channel_id === selectedChannelId)
+			: undefined
+
+		if (newChannel?.channel_id !== selectedChannel?.channel_id) {
+			selectedChannel = newChannel
 		}
 	})
 
-	async function searchChannels(query: string) {
-		if (!query || !teamId) return
+	$effect(() => {
+		if (selectedChannel?.channel_id !== selectedChannelId) {
+			selectedChannelId = selectedChannel?.channel_id
+		}
+	})
+
+	let previousChannelId = $state<string | undefined>(undefined)
+
+	$effect(() => {
+		if (selectedChannel?.channel_id !== previousChannelId) {
+			previousChannelId = selectedChannel?.channel_id
+			onSelectedChannelChange?.(selectedChannel)
+		}
+	})
+
+	// Fetch channels when teamId is set or changes
+	$effect(() => {
+		if (searchMode && teamId && teamId !== loadedForTeamId) {
+			loadedForTeamId = teamId
+			fetchChannels()
+		}
+	})
+
+	async function fetchChannels() {
+		if (!teamId) return
 
 		isFetching = true
 		try {
 			const response = await WorkspaceService.listAvailableTeamsChannels({
 				workspace: $workspaceStore!,
-				teamId: teamId,
-				search: query
+				teamId: teamId
 			})
 
-			searchResults = response || []
-			isFetching = false
-			return searchResults
+			loadedChannels =
+				response.channels?.map((c) => ({
+					channel_id: c.channel_id || '',
+					channel_name: c.channel_name || ''
+				})) || []
 		} catch (error) {
+			onError?.(error as Error)
+			console.error('Error fetching channels:', error)
+			loadedChannels = []
+		} finally {
 			isFetching = false
-			onError?.(error)
-			console.error('Error searching channels:', error)
-			searchResults = []
-			return []
 		}
 	}
 
+	async function refreshChannels() {
+		if (searchMode) {
+			await fetchChannels()
+		}
+	}
 </script>
 
 <div class={containerClass}>
-	<div class="flex items-center gap-2">
-		<div class="flex-grow" style="min-width: {minWidth};">
-			{#if searchMode}
-				<Select
-					containerStyle={'min-width: ' + minWidth}
-					items={searchFilterText.length >= 1 || (searchFilterText.length === 0 && selectedChannel) ? displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
-						label: channel.channel_name ?? 'Unknown Channel',
-						value: channel.channel_id ?? ''
-					})) : []}
-					placeholder={isFetching ? "Searching..." : (teamId ? "Search channels..." : "Select a team first")}
-					clearable
-					disabled={disabled || isFetching || !teamId}
-					bind:filterText={searchFilterText}
-					bind:value={
-						() => selectedChannel?.channel_id,
-						(value) => {
-							selectedChannel = value ? displayChannels().find((channel) => channel.channel_id === value) : undefined
-						}
-					}
-				/>
-			{:else}
-				<Select
-					containerStyle={'min-width: ' + minWidth}
-					items={displayChannels().filter(channel => channel.channel_id && channel.channel_name).map((channel) => ({
-						label: channel.channel_name ?? 'Unknown Channel',
-						value: channel.channel_id ?? ''
-					}))}
-					{placeholder}
-					clearable
-					disabled={disabled || displayChannels().length === 0}
-					bind:value={
-						() => selectedChannel?.channel_id,
-						(value) => {
-							selectedChannel = value ? displayChannels().find((channel) => channel.channel_id === value) : undefined
-						}
-					}
+	<div class="flex flex-col gap-1">
+		<div class="flex items-center gap-1">
+			<div class="flex-grow" style="min-width: {minWidth};">
+				{#if searchMode}
+					<Select
+						containerStyle={'min-width: ' + minWidth}
+						items={displayChannels
+							.filter((channel) => channel.channel_id && channel.channel_name)
+							.map((channel) => ({
+								label: channel.channel_name ?? 'Unknown Channel',
+								value: channel.channel_id ?? ''
+							}))}
+						placeholder={isFetching ? 'Loading...' : teamId ? placeholder : 'Select a team first'}
+						clearable
+						disabled={disabled || !teamId}
+						loading={isFetching}
+						bind:value={selectedChannelId}
+					/>
+				{:else}
+					<Select
+						containerStyle={'min-width: ' + minWidth}
+						items={displayChannels
+							.filter((channel) => channel.channel_id && channel.channel_name)
+							.map((channel) => ({
+								label: channel.channel_name ?? 'Unknown Channel',
+								value: channel.channel_id ?? ''
+							}))}
+						{placeholder}
+						clearable
+						disabled={disabled || displayChannels.length === 0}
+						bind:value={selectedChannelId}
+					/>
+				{/if}
+			</div>
+
+			{#if showRefreshButton && searchMode}
+				<Button
+					onclick={refreshChannels}
+					disabled={isFetching || disabled || !teamId}
+					title="Refresh channels"
+					startIcon={{ icon: RefreshCcw, props: { class: isFetching ? 'animate-spin' : '' } }}
+					unifiedSize="sm"
+					variant="subtle"
+					iconOnly
 				/>
 			{/if}
 		</div>
-	</div>
 
+		{#if searchMode && loadedChannels.length > 0 && !isFetching}
+			<span class="text-2xs text-tertiary pl-1">
+				{loadedChannels.length} channel{loadedChannels.length === 1 ? '' : 's'}
+			</span>
+		{/if}
+	</div>
 </div>

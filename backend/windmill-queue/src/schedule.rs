@@ -17,12 +17,17 @@ use std::str::FromStr;
 use windmill_common::db::Authed;
 use windmill_common::ee_oss::LICENSE_KEY_VALID;
 use windmill_common::flows::Retry;
+use windmill_common::get_flow_version_info_from_version;
 use windmill_common::get_latest_flow_version_id_for_path;
-use windmill_common::get_latest_flow_version_info_for_path_from_version;
 use windmill_common::jobs::check_tag_available_for_workspace_internal;
 use windmill_common::jobs::JobPayload;
+use windmill_common::jobs::JobTriggerKind;
+use windmill_common::runnable_settings::ConcurrencySettings;
+use windmill_common::runnable_settings::DebouncingSettings;
+use windmill_common::runnable_settings::RunnableSettings;
 use windmill_common::schedule::schedule_to_user;
 use windmill_common::scripts::ScriptHash;
+use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::WarnAfterExt;
 use windmill_common::worker::to_raw_value;
 use windmill_common::FlowVersionInfo;
@@ -63,7 +68,7 @@ async fn get_schedule_metadata<'c>(
         .await?;
 
         let FlowVersionInfo { tag, on_behalf_of_email, edited_by, .. } =
-            get_latest_flow_version_info_for_path_from_version(
+            get_flow_version_info_from_version(
                 &mut **tx,
                 version,
                 &schedule.workspace_id,
@@ -87,13 +92,17 @@ async fn get_schedule_metadata<'c>(
             _custom_concurrency_key,
             _concurrent_limit,
             _concurrency_time_window_s,
+            _debounce_key,
+            _debounce_delay_s,
             _cache_ttl,
+            _cache_ignore_s3_path,
             _language,
             _dedicated_worker,
             _priority,
             timeout,
             on_behalf_of_email,
             created_by,
+            _runnable_settings_handle,
         ) = windmill_common::get_latest_hash_for_path(
             &mut **tx,
             &schedule.workspace_id,
@@ -256,14 +265,14 @@ pub async fn push_scheduled_job<'c>(
                     stop_condition,
                     stop_message,
                 }),
-                custom_concurrency_key: None,
-                concurrent_limit: None,
-                concurrency_time_window_s: None,
                 cache_ttl: None,
+                cache_ignore_s3_path: None,
                 priority: None,
                 tag_override: schedule.tag.clone(),
                 trigger_path: None,
                 apply_preprocessor: false,
+                concurrency_settings: ConcurrencySettings::default(),
+                debouncing_settings: DebouncingSettings::default(),
             },
             if schedule.tag.as_ref().is_some_and(|x| x != "") {
                 schedule.tag.clone()
@@ -287,16 +296,13 @@ pub async fn push_scheduled_job<'c>(
 
         let FlowVersionInfo {
             version, tag, dedicated_worker, on_behalf_of_email, edited_by, ..
-        } = get_latest_flow_version_info_for_path_from_version(
+        } = get_flow_version_info_from_version(
             &mut *tx,
             version,
             &schedule.workspace_id,
             &schedule.script_path,
         )
-        .warn_after_seconds_with_sql(
-            1,
-            "get_latest_flow_version_info_for_path_from_version".to_string(),
-        )
+        .warn_after_seconds_with_sql(1, "get_flow_version_info_from_version".to_string())
         .await?;
 
         (
@@ -315,16 +321,20 @@ pub async fn push_scheduled_job<'c>(
         let (
             hash,
             tag,
-            custom_concurrency_key,
+            concurrency_key,
             concurrent_limit,
             concurrency_time_window_s,
+            debounce_key,
+            debounce_delay_s,
             cache_ttl,
+            cache_ignore_s3_path,
             language,
             dedicated_worker,
             priority,
             timeout,
             on_behalf_of_email,
             created_by,
+            runnable_settings_handle,
         ) = windmill_common::get_latest_hash_for_path(
             &mut *tx,
             &schedule.workspace_id,
@@ -333,6 +343,12 @@ pub async fn push_scheduled_job<'c>(
         )
         .warn_after_seconds_with_sql(1, "get_latest_hash_for_path".to_string())
         .await?;
+
+        let (debouncing_settings, concurrency_settings) =
+            RunnableSettings::from_runnable_settings_handle(runnable_settings_handle, db)
+                .await?
+                .prefetch_cached(db)
+                .await?;
 
         if schedule.retry.is_some() {
             let parsed_retry = serde_json::from_value::<Retry>(schedule.retry.clone().unwrap())
@@ -357,14 +373,14 @@ pub async fn push_scheduled_job<'c>(
                     error_handler_args: None,
                     skip_handler: None,
                     args: static_args,
-                    custom_concurrency_key: None,
-                    concurrent_limit: None,
-                    concurrency_time_window_s: None,
-                    cache_ttl: cache_ttl,
-                    priority: priority,
+                    cache_ttl,
+                    cache_ignore_s3_path,
+                    priority,
                     tag_override: schedule.tag.clone(),
                     trigger_path: None,
                     apply_preprocessor: false,
+                    concurrency_settings: ConcurrencySettings::default(),
+                    debouncing_settings: DebouncingSettings::default(),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -380,14 +396,19 @@ pub async fn push_scheduled_job<'c>(
                 JobPayload::ScriptHash {
                     hash,
                     path: schedule.script_path.clone(),
-                    custom_concurrency_key,
-                    concurrent_limit: concurrent_limit,
-                    concurrency_time_window_s: concurrency_time_window_s,
-                    cache_ttl: cache_ttl,
+                    cache_ttl,
+                    cache_ignore_s3_path,
                     dedicated_worker,
                     language,
                     priority,
                     apply_preprocessor: false,
+                    debouncing_settings: debouncing_settings
+                        .maybe_fallback(debounce_key, debounce_delay_s),
+                    concurrency_settings: concurrency_settings.maybe_fallback(
+                        concurrency_key,
+                        concurrent_limit,
+                        concurrency_time_window_s,
+                    ),
                 },
                 if schedule.tag.as_ref().is_some_and(|x| x != "") {
                     schedule.tag.clone()
@@ -458,6 +479,12 @@ pub async fn push_scheduled_job<'c>(
         .await?;
     }
 
+    tracing::info!(
+        "Pushing next scheduled job for schedule {} at {} (schedule: {})",
+        &schedule.path,
+        next,
+        &schedule.schedule
+    );
     let tx = PushIsolationLevel::Transaction(tx);
     let (_, mut tx) = push(
         &db,
@@ -486,6 +513,10 @@ pub async fn push_scheduled_job<'c>(
         push_authed,
         false,
         None,
+        Some(TriggerMetadata::new(
+            Some(schedule.path.clone()),
+            JobTriggerKind::Schedule,
+        )),
         None,
     )
     .warn_after_seconds_with_sql(1, "push in push_scheduled_job".to_string())

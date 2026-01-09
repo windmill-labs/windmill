@@ -583,7 +583,7 @@ async fn list_schedule_with_jobs(
                     AND j.workspace_id = $1
                     AND parent_job IS NULL AND runnable_path = schedule.script_path
                     AND status <> 'skipped'
-                ORDER BY created_at DESC
+                ORDER BY completed_at DESC
                 LIMIT 20
             ) AS jobs) t
         WHERE workspace_id = $1

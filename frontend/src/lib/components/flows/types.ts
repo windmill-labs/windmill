@@ -2,6 +2,7 @@ import type { Job, OpenFlow } from '$lib/gen'
 import type { History } from '$lib/history.svelte'
 import type { Writable } from 'svelte/store'
 import type ScriptEditorDrawer from './content/ScriptEditorDrawer.svelte'
+import type FlowEditorDrawer from './content/FlowEditorDrawer.svelte'
 import type { FlowState } from './flowState'
 import type { FlowBuilderWhitelabelCustomUi } from '../custom_ui'
 import type Editor from '../Editor.svelte'
@@ -14,6 +15,9 @@ import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
+
+import type { SelectionManager } from '../graph/selectionUtils.svelte'
+import type { InferAssetsSqlQueryDetails } from '$lib/infer'
 
 export type FlowInput = Record<
 	string,
@@ -28,6 +32,7 @@ export type FlowInput = Record<
 	}
 >
 
+// Extended OpenFlow with additional properties not in the core spec
 export type ExtendedOpenFlow = OpenFlow & {
 	tag?: string
 	ws_error_handler_muted?: boolean
@@ -68,11 +73,12 @@ export type CurrentEditor =
 	| undefined
 
 export type FlowEditorContext = {
-	selectedId: Writable<string>
+	selectionManager: SelectionManager
 	currentEditor: Writable<CurrentEditor>
 	moving: Writable<{ id: string } | undefined>
 	previewArgs: StateStore<Record<string, any>>
 	scriptEditorDrawer: Writable<ScriptEditorDrawer | undefined>
+	flowEditorDrawer: Writable<FlowEditorDrawer | undefined>
 	history: History<OpenFlow>
 	pathStore: Writable<string>
 	flowStore: StateStore<ExtendedOpenFlow>
@@ -99,6 +105,7 @@ export type FlowGraphAssetContext = StateStore<{
 	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
 	additionalAssetsMap: Record<string, AssetWithAccessType[]>
 	computeAssetsCount: (asset: Asset) => number
+	sqlQueries: Record<string, InferAssetsSqlQueryDetails[] | undefined>
 }>
 
 export type OutputViewerJob =

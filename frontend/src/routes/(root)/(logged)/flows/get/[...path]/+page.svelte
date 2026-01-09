@@ -17,8 +17,6 @@
 	import { Badge as HeaderBadge, Alert } from '$lib/components/common'
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 	import RunForm from '$lib/components/RunForm.svelte'
-	import FlowChatInterface from '$lib/components/flows/conversations/FlowChatInterface.svelte'
-	import FlowConversationsSidebar from '$lib/components/flows/conversations/FlowConversationsSidebar.svelte'
 	import ShareModal from '$lib/components/ShareModal.svelte'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
@@ -35,10 +33,10 @@
 		GitFork,
 		Play,
 		History,
-		Columns,
 		Pen,
 		Eye,
-		HistoryIcon
+		HistoryIcon,
+		LayoutDashboard
 	} from 'lucide-svelte'
 
 	import DetailPageHeader from '$lib/components/details/DetailPageHeader.svelte'
@@ -65,6 +63,7 @@
 		initFlowGraphAssetsCtx
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import { page } from '$app/state'
+	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -76,6 +75,7 @@
 	let inputSelected: 'saved' | 'history' | undefined = $state(undefined)
 	let jsonView = $state(false)
 	let deploymentInProgress = $state(false)
+	let deploymentJobId: string | undefined = $state(undefined)
 
 	let intervalId: number | undefined = undefined
 
@@ -167,8 +167,11 @@
 			})
 			if (status.lock_error_logs == undefined || status.lock_error_logs != '') {
 				deploymentInProgress = false
+				deploymentJobId = undefined
 				flow.lock_error_logs = status.lock_error_logs
 				clearInterval(intervalId)
+			} else if (status.job_id) {
+				deploymentJobId = status.job_id
 			}
 		}
 	}
@@ -199,12 +202,12 @@
 		}
 	}
 
-	async function runFlowForChat(userMessage: string, conversationId: string): Promise<string> {
+	async function runFlowForChat(userMessage: string, conversationId: string, additionalInputs?: Record<string, any>): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
 			memoryId: conversationId,
-			requestBody: { user_message: userMessage },
+			requestBody: { user_message: userMessage, ...(additionalInputs ?? {}) },
 			skipPreprocessor: true
 		})
 		return run
@@ -238,8 +241,8 @@
 				label: 'Fork',
 				buttonProps: {
 					href: `${base}/flows/add?template=${flow.path}`,
-					color: 'light',
-					size: 'xs',
+					variant: 'subtle',
+					unifiedSize: 'md',
 					startIcon: GitFork
 				}
 			})
@@ -253,8 +256,8 @@
 			label: `Runs`,
 			buttonProps: {
 				href: `${base}/runs/${flow.path}`,
-				size: 'xs',
-				color: 'light',
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: Play
 			}
 		})
@@ -262,12 +265,9 @@
 		buttons.push({
 			label: `History`,
 			buttonProps: {
-				onClick: () => {
-					flowHistory?.open()
-				},
-
-				size: 'xs',
-				color: 'light',
+				onClick: () => flowHistory?.open(),
+				unifiedSize: 'md',
+				variant: 'subtle',
 				startIcon: History
 			}
 		})
@@ -285,10 +285,9 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-
-					size: 'xs',
-					color: 'light',
-					startIcon: Columns
+					unifiedSize: 'md',
+					variant: 'subtle',
+					startIcon: LayoutDashboard
 				}
 			})
 
@@ -296,9 +295,8 @@
 				label: 'Edit',
 				buttonProps: {
 					href: `${base}/flows/edit/${path}?nodraft=true`,
-					variant: 'contained',
-					size: 'xs',
-					color: 'dark',
+					variant: 'accent',
+					unifiedSize: 'md',
 					disabled: !can_write,
 					startIcon: Pen
 				}
@@ -397,67 +395,10 @@
 		}
 	}
 	let stepDetail: FlowModule | string | undefined = $state(undefined)
-	let flowChatInterface: FlowChatInterface | undefined = $state(undefined)
-	let flowConversationsSidebar: FlowConversationsSidebar | undefined = $state(undefined)
 	let rightPaneSelected = $state('saved_inputs')
 	let savedInputsV2: SavedInputsV2 | undefined = $state(undefined)
 	let flowHistory: FlowHistory | undefined = $state(undefined)
-	let selectedConversationId: string | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
-
-	async function handleNewConversation({ clearMessages = true }: { clearMessages?: boolean }) {
-		const newConversationId = crypto.randomUUID()
-
-		// Add the new conversation to the sidebar (returns id of draft or new conversation)
-		if (flowConversationsSidebar) {
-			const actualConversationId = await flowConversationsSidebar.addNewConversation(
-				newConversationId,
-				$userStore?.username || 'anonymous'
-			)
-			selectedConversationId = actualConversationId
-		} else {
-			selectedConversationId = newConversationId
-		}
-
-		// Clear messages in the chat interface
-		if (flowChatInterface && clearMessages) {
-			flowChatInterface.clearMessages()
-		}
-
-		flowChatInterface?.focusInput()
-
-		return newConversationId
-	}
-
-	async function handleSelectConversation(conversationId: string, isDraft?: boolean) {
-		selectedConversationId = conversationId
-		// Load conversation messages into chat interface
-		if (flowChatInterface) {
-			if (isDraft) {
-				// For draft conversations, just clear messages (don't try to load from backend)
-				flowChatInterface.clearMessages()
-			} else {
-				// For persisted conversations, load messages from backend
-				await flowChatInterface.loadConversationMessages(conversationId)
-			}
-		}
-	}
-
-	async function refreshConversations() {
-		if (flowConversationsSidebar) {
-			await flowConversationsSidebar.refreshConversations()
-		}
-	}
-
-	function handleDeleteConversation(conversationId: string) {
-		if (selectedConversationId === conversationId) {
-			selectedConversationId = undefined
-			// Clear chat interface since we deleted the selected conversation
-			if (flowChatInterface) {
-				flowChatInterface.clearMessages()
-			}
-		}
-	}
 
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
@@ -529,9 +470,7 @@
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
-					if (flow?.ws_error_handler_muted) {
-						flow.ws_error_handler_muted = v
-					}
+					if (flow !== undefined) flow.ws_error_handler_muted = v
 				}
 			}
 			scriptOrFlowPath={flow?.path ?? ''}
@@ -604,6 +543,13 @@
 						<HeaderBadge color="yellow">
 							<Loader2 size={12} class="inline animate-spin mr-1" />
 							Deployment in progress
+							{#if deploymentJobId}
+								<a
+									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+									class="underline"
+									target="_blank">view job</a
+								>
+							{/if}
 						</HeaderBadge>
 					{/if}
 					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
@@ -616,32 +562,13 @@
 
 					{#if chatInputEnabled}
 						<!-- Chat Layout with Sidebar -->
-						<div
-							class="flex border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex-1"
-						>
-							<div class="flex-shrink-0">
-								<FlowConversationsSidebar
-									bind:this={flowConversationsSidebar}
-									flowPath={flow?.path ?? ''}
-									{selectedConversationId}
-									onNewConversation={handleNewConversation}
-									onSelectConversation={handleSelectConversation}
-									onDeleteConversation={handleDeleteConversation}
-								/>
-							</div>
-							<div class="flex-1">
-								<FlowChatInterface
-									bind:this={flowChatInterface}
-									onRunFlow={runFlowForChat}
-									useStreaming={shouldUseStreaming}
-									{refreshConversations}
-									conversationId={selectedConversationId}
-									{deploymentInProgress}
-									createConversation={handleNewConversation}
-									{path}
-								/>
-							</div>
-						</div>
+						<FlowChat
+							onRunFlow={runFlowForChat}
+							{deploymentInProgress}
+							path={flow?.path ?? ''}
+							useStreaming={shouldUseStreaming}
+							inputSchema={flow?.schema}
+						/>
 					{:else}
 						<!-- Normal Mode: Form Layout -->
 						<div class="flex flex-col align-left">
@@ -654,7 +581,6 @@
 								/>
 								<Toggle
 									bind:checked={jsonView}
-									label="JSON View"
 									size="xs"
 									options={{
 										right: 'JSON',
@@ -697,15 +623,13 @@
 						<div class="py-10"></div>
 
 						{#if !emptyString(flow.summary)}
-							<div class="mb-2">
-								<span class="!text-tertiary">{flow.path}</span>
+							<div>
+								<span class="text-primary text-xs">{flow.path}</span>
 							</div>
 						{/if}
-						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							<span class="text-sm text-tertiary">
-								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-							</span>
-						</div>
+						<span class="text-2xs text-secondary">
+							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+						</span>
 					{/if}
 				</div>
 				{#if !chatInputEnabled}
@@ -744,12 +668,11 @@
 			args={args ?? {}}
 			bind:inputSelected
 			on:selected_args={(e) => {
-				if (chatInputEnabled) {
-					flowChatInterface?.fillInputMessage(e.detail.user_message)
-					return
-				}
 				const nargs = JSON.parse(JSON.stringify(e.detail))
 				args = nargs
+				if (jsonView) {
+					runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+				}
 			}}
 		/>
 	{/snippet}
@@ -765,6 +688,7 @@
 		{#if flow}
 			<TriggersEditor
 				{args}
+				runnableVersion={flow.version_id?.toString()}
 				initialPath={flow.path}
 				currentPath={flow.path}
 				noEditor={true}

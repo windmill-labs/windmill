@@ -32,22 +32,19 @@
 	{#if trigger !== undefined}
 		{@const IconComponent = triggerIconMap[trigger.type]}
 		<div class="flex flex-row gap-2 items-center grow min-w-0 pr-2 rounded-md my-4">
-			<IconComponent
-				size={16}
-				class={twMerge(trigger.isDraft ? 'text-frost-400' : '', 'shrink-0')}
-			/>
+			<IconComponent size={16} class={twMerge(trigger.isDraft ? 'text-hint' : '', 'shrink-0')} />
 			<TriggerLabel {trigger} />
 		</div>
 	{/if}
 </ConfirmationModal>
 
 <Button
-	size="xs"
+	unifiedSize={small ? 'xs' : 'sm'}
+	variant="subtle"
+	destructive
 	startIcon={{ icon: Trash }}
 	iconOnly
-	color={'light'}
 	on:click={() => {
 		confirmationModalOpen = true
 	}}
-	btnClasses={twMerge(small ? 'px-1 py-1' : '', 'bg-transparent hover:bg-red-500 hover:text-white')}
 />

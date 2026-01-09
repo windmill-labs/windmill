@@ -16,10 +16,10 @@ use crate::{
             get_runnable_format, trigger_runnable, trigger_runnable_and_wait_for_result,
             trigger_runnable_inner, RunnableId,
         },
-        Trigger, TriggerCrud, TriggerData,
+        Trigger, TriggerCrud, TriggerData, TriggerMode,
     },
     users::fetch_api_authed,
-    utils::ExpiringCacheEntry,
+    utils::{check_scopes, ExpiringCacheEntry},
 };
 use axum::{
     async_trait,
@@ -40,7 +40,8 @@ use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::{
     db::UserDB,
     error::{Error, Result},
-    triggers::TriggerKind,
+    jobs::JobTriggerKind,
+    triggers::{TriggerKind, TriggerMetadata},
     utils::{not_found_if_none, require_admin, StripPath},
     worker::CLOUD_HOSTED,
 };
@@ -62,7 +63,9 @@ pub async fn increase_trigger_version(tx: &mut PgConnection) -> Result<()> {
 }
 
 pub fn generate_route_path_key(route_path: &str) -> String {
-    ROUTE_PATH_KEY_RE.replace_all(route_path, "/*").to_string()
+    ROUTE_PATH_KEY_RE
+        .replace_all(route_path, "${1}${2}key")
+        .to_string()
 }
 
 pub async fn route_path_key_exists(
@@ -194,6 +197,7 @@ pub async fn insert_new_trigger_into_db(
                 summary,
                 description,
                 is_flow,
+                mode,
                 request_type,
                 authentication_method,
                 http_method,
@@ -207,7 +211,7 @@ pub async fn insert_new_trigger_into_db(
                 retry
             )
             VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, now(), $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, now(), $20, $21, $22, $23
             )
             "#,
             w_id,
@@ -222,6 +226,7 @@ pub async fn insert_new_trigger_into_db(
             trigger.config.summary,
             trigger.config.description,
             trigger.base.is_flow,
+            trigger.base.mode() as _,
             request_type as _,
             trigger.config.authentication_method as _,
             trigger.config.http_method as _,
@@ -322,7 +327,7 @@ async fn check_if_route_exist(
     workspace_id: &str,
     trigger_path: Option<&str>,
 ) -> Result<String> {
-    let route_path_key = ROUTE_PATH_KEY_RE.replace_all(&config.route_path, ":key");
+    let route_path_key = generate_route_path_key(&config.route_path);
 
     let exists = route_path_key_exists(
         &route_path_key,
@@ -340,7 +345,7 @@ async fn check_if_route_exist(
         ));
     }
 
-    Ok(route_path_key.into_owned())
+    Ok(route_path_key)
 }
 
 pub struct HttpTrigger;
@@ -354,7 +359,6 @@ impl TriggerCrud for HttpTrigger {
 
     const TABLE_NAME: &'static str = "http_trigger";
     const TRIGGER_TYPE: &'static str = "http";
-    const SUPPORTS_ENABLED: bool = false;
     const SUPPORTS_SERVER_STATE: bool = false;
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/http_triggers";
@@ -480,22 +484,23 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $7,
                 path = $8,
                 is_flow = $9,
-                http_method = $10,
-                static_asset_config = $11,
-                edited_by = $12,
-                email = $13,
-                request_type = $14,
-                authentication_method = $15,
-                summary = $16,
-                description = $17,
+                mode = $10,
+                http_method = $11,
+                static_asset_config = $12,
+                edited_by = $13,
+                email = $14,
+                request_type = $15,
+                authentication_method = $16,
+                summary = $17,
+                description = $18,
                 edited_at = now(),
-                is_static_website = $18,
-                error_handler_path = $19,
-                error_handler_args = $20,
-                retry = $21
+                is_static_website = $19,
+                error_handler_path = $20,
+                error_handler_args = $21,
+                retry = $22
             WHERE
-                workspace_id = $22 AND
-                path = $23
+                workspace_id = $23 AND
+                path = $24
             "#,
                 route_path,
                 &route_path_key,
@@ -506,6 +511,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -537,22 +543,23 @@ impl TriggerCrud for HttpTrigger {
                 script_path = $4,
                 path = $5,
                 is_flow = $6,
-                http_method = $7,
-                static_asset_config = $8,
-                edited_by = $9,
-                email = $10,
-                request_type = $11,
-                authentication_method = $12,
-                summary = $13,
-                description = $14,
+                mode = $7,
+                http_method = $8,
+                static_asset_config = $9,
+                edited_by = $10,
+                email = $11,
+                request_type = $12,
+                authentication_method = $13,
+                summary = $14,
+                description = $15,
                 edited_at = now(),
-                is_static_website = $15,
-                error_handler_path = $16,
-                error_handler_args = $17,
-                retry = $18
+                is_static_website = $16,
+                error_handler_path = $17,
+                error_handler_args = $18,
+                retry = $19
             WHERE
-                workspace_id = $19 AND
-                path = $20
+                workspace_id = $20 AND
+                path = $21
             "#,
                 trigger.config.wrap_body,
                 trigger.config.raw_string,
@@ -560,6 +567,7 @@ impl TriggerCrud for HttpTrigger {
                 trigger.base.script_path,
                 trigger.base.path,
                 trigger.base.is_flow,
+                trigger.base.mode() as _,
                 trigger.config.http_method as _,
                 trigger.config.static_asset_config as _,
                 &authed.username,
@@ -582,6 +590,10 @@ impl TriggerCrud for HttpTrigger {
         increase_trigger_version(tx).await?;
 
         Ok(())
+    }
+
+    async fn set_trigger_mode_extra_action(&self, tx: &mut PgConnection) -> Result<()> {
+        increase_trigger_version(tx).await
     }
 
     async fn delete_by_path(
@@ -724,6 +736,8 @@ async fn get_http_route_trigger(
             None
         };
         if let Some(authed) = opt_authed {
+            check_scopes(&authed, || format!("http_triggers:read:{}", &trigger.path))?;
+
             // check that the user has access to the trigger
             let cache_key = (
                 trigger.workspace_id.clone(),
@@ -912,7 +926,6 @@ async fn route_job(
                 &authed,
                 &db,
                 None,
-                &"NO_TOKEN".to_string(), // no token is provided in this case
                 &trigger.workspace_id,
                 config.storage,
             )
@@ -1031,12 +1044,44 @@ async fn route_job(
         )
         .map_err(|e| e.into_response())?;
 
+    let trigger_info = TriggerMetadata::new(Some(trigger.path.clone()), JobTriggerKind::Http);
+    if trigger.mode == TriggerMode::Suspended {
+        let _ = trigger_runnable(
+            &db,
+            Some(user_db),
+            authed,
+            &trigger.workspace_id,
+            &trigger.script_path,
+            trigger.is_flow,
+            args,
+            trigger.retry.as_ref(),
+            trigger.error_handler_path.as_deref(),
+            trigger.error_handler_args.as_ref(),
+            format!("http_trigger/{}", trigger.path),
+            None,
+            true,
+            trigger_info,
+        )
+        .await
+        .map_err(|e| e.into_response())?;
+
+        return Ok((
+            StatusCode::OK,
+            format!(
+                "Trigger {} is in suspended mode, jobs are added to the queue but suspended",
+                &trigger.path
+            ),
+        )
+            .into_response());
+    }
+
     // Handle execution based on the execution mode
     match trigger.request_type {
         RequestType::SyncSse => {
             // Trigger the job (always async when streaming)
-            let (uuid, _, _) = trigger_runnable_inner(
+            let (uuid, _, _, _) = trigger_runnable_inner(
                 &db,
+                None,
                 Some(user_db.clone()),
                 authed.clone(),
                 &trigger.workspace_id,
@@ -1047,6 +1092,8 @@ async fn route_job(
                 trigger.error_handler_path.as_deref(),
                 trigger.error_handler_args.as_ref(),
                 format!("http_trigger/{}", trigger.path),
+                None,
+                trigger_info,
                 None,
             )
             .await
@@ -1106,6 +1153,8 @@ async fn route_job(
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
             None,
+            false,
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),
@@ -1121,6 +1170,7 @@ async fn route_job(
             trigger.error_handler_path.as_deref(),
             trigger.error_handler_args.as_ref(),
             format!("http_trigger/{}", trigger.path),
+            trigger_info,
         )
         .await
         .map_err(|e| e.into_response()),

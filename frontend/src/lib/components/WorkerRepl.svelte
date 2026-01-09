@@ -278,8 +278,7 @@
 			{#if pendingsJobs.length === 0}
 				<Button
 					loading={loadingPendingJobs}
-					variant="border"
-					color="light"
+					variant="default"
 					wrapperClasses="self-stretch"
 					on:click={async () => {
 						await listPendingJobs()
@@ -303,8 +302,7 @@
 						disablePortal
 					/>
 					<Button
-						variant="border"
-						color="light"
+						variant="default"
 						disabled={emptyString(selectedJobId)}
 						wrapperClasses="self-stretch"
 						on:click={listPendingJobsAndUpdateSelectedJobid}
@@ -312,9 +310,8 @@
 						iconOnly
 					/>
 					<Button
-						color="light"
 						size="xs"
-						variant="border"
+						variant="default"
 						disabled={emptyString(selectedJobId)}
 						startIcon={{ icon: Eye }}
 						on:click={async () => {
@@ -336,9 +333,8 @@
 					<Button
 						loading={isCancelingJob}
 						disabled={emptyString(selectedJobId)}
-						color="red"
 						size="xs"
-						variant="border"
+						variant="default"
 						startIcon={{ icon: Square }}
 						on:click={async () => {
 							try {
@@ -365,7 +361,7 @@
 				<div class="flex flex-row">
 					<Badge
 						color="gray"
-						class="relative center-center !bg-gray-300 !text-tertiary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px] rounded-r-none rounded-l-none"
+						class="relative center-center !bg-gray-300 !text-primary dark:!bg-gray-700 dark:!text-gray-300 !h-[40px] rounded-r-none rounded-l-none"
 					>
 						Full path
 
@@ -383,12 +379,10 @@
 	</div>
 	<div class="flex flex-col h-full gap-1 mt-2">
 		<div class="flex flex-row w-full justify-between">
-			<div class="flex flex-row">
+			<div class="flex flex-row gap-2">
 				<Button
-					btnClasses="!font-medium text-tertiary "
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="md"
+					variant="default"
 					startIcon={{ icon: Play }}
 					title="Run bash script"
 					on:click={async () => {
@@ -398,10 +392,8 @@
 					Run
 				</Button>
 				<Button
-					btnClasses="!font-medium text-tertiary "
-					size="xs"
-					spacingSize="md"
-					color="light"
+					unifiedSize="md"
+					variant="subtle"
 					on:click={scriptPicker.openDrawer}
 					startIcon={{ icon: Library }}
 					title="Explore other scripts"

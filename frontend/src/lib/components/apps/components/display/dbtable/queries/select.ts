@@ -1,6 +1,7 @@
 import type { AppInput, RunnableByName } from '$lib/components/apps/inputType'
-import { wrapDucklakeQuery, type DbInput } from '$lib/components/dbOps'
-import { buildParameters, type DbType } from '../utils'
+import { wrapDucklakeQuery } from '../../../../../ducklake'
+import type { DbType, DbInput } from '$lib/components/dbTypes'
+import { buildParameters } from '../utils'
 import { getLanguageByResourceType, type ColumnDef, buildVisibleFieldList } from '../utils'
 
 function makeSnowflakeSelectQuery(
@@ -153,13 +154,18 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 			break
 		}
 
-		case 'ms_sql_server':
+		case 'ms_sql_server': {
 			// MSSQL uses CONCAT for string concatenation and supports OFFSET FETCH for pagination
 			// Note: MSSQL does not have a built-in ILIKE function, so we use LIKE with a case-insensitive collation if needed
 			//
 			// Note 2: CONCAT in mssql requires 2 to 254 arguments. But we can't change this query without breaking
 			// existing policies
+
+			// Filter out data types that cannot be sorted or concatenated in MS SQL Server
+			const unsortableTypes = ['text', 'ntext', 'image']
+
 			const orderBy = columnDefs
+				.filter((column) => !unsortableTypes.includes(column.datatype.toLowerCase()))
 				.map((column) => {
 					return `
 (CASE WHEN @p4 = '${column.field}' AND @p5 = 0 THEN ${column.field} END) ASC,
@@ -167,13 +173,25 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 				})
 				.join(',\n')
 
-			quicksearchCondition = ` (@p3 = '' OR CONCAT(${selectClause}) LIKE '%' + @p3 + '%')`
+			// Create search clause that excludes unsortable types to avoid CONCAT issues
+			const searchClause = filteredColumns
+				.filter((col) => {
+					const fieldName = col.slice(1, -1) // Remove brackets
+					const def = columnDefs.find((c) => c.field === fieldName)
+					return !unsortableTypes.includes(def?.datatype.toLowerCase() ?? '')
+				})
+				.join(', ')
+
+			quicksearchCondition = searchClause
+				? ` (@p3 = '' OR CONCAT(${searchClause}) LIKE '%' + @p3 + '%')`
+				: ` (@p3 = '')`
 
 			query += `SELECT ${selectClause} FROM ${table}`
 			query += ` WHERE ${whereClause ? `${whereClause} AND` : ''} ${quicksearchCondition}`
 			query += ` ORDER BY ${orderBy}`
 			query += ` OFFSET @p2 ROWS FETCH NEXT @p1 ROWS ONLY`
 			break
+		}
 		case 'snowflake': {
 			return makeSnowflakeSelectQuery(table, columnDefs, whereClause, options)
 		}
@@ -279,7 +297,7 @@ export function getSelectInput(
 	if (dbInput.type === 'ducklake') content = wrapDucklakeQuery(content, dbInput.ducklake)
 	const getRunnable: RunnableByName = {
 		name: 'AppDbExplorer',
-		type: 'runnableByName',
+		type: 'inline',
 		inlineScript: { content, language: getLanguageByResourceType(dbType) }
 	}
 

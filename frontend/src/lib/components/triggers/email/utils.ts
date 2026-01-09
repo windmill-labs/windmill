@@ -15,21 +15,22 @@ export function getEmailAddress(
 
 export async function saveEmailTriggerFromCfg(
 	initialPath: string,
-	routeCfg: Record<string, any>,
+	emailCfg: Record<string, any>,
 	edit: boolean,
 	workspace: string,
 	isAdmin: boolean,
 	usedTriggerKinds: Writable<string[]>
 ): Promise<boolean> {
 	const requestBody: NewEmailTrigger = {
-		path: routeCfg.path,
-		script_path: routeCfg.script_path,
-		local_part: routeCfg.local_part,
-		is_flow: routeCfg.is_flow,
-		workspaced_local_part: routeCfg.workspaced_local_part,
-		error_handler_path: routeCfg.error_handler_path,
-		error_handler_args: routeCfg.error_handler_path ? routeCfg.error_handler_args : undefined,
-		retry: routeCfg.retry
+		path: emailCfg.path,
+		script_path: emailCfg.script_path,
+		local_part: emailCfg.local_part,
+		is_flow: emailCfg.is_flow,
+		workspaced_local_part: emailCfg.workspaced_local_part,
+		error_handler_path: emailCfg.error_handler_path,
+		error_handler_args: emailCfg.error_handler_path ? emailCfg.error_handler_args : undefined,
+		mode: emailCfg.mode,
+		retry: emailCfg.retry
 	}
 	try {
 		if (edit) {
@@ -38,16 +39,16 @@ export async function saveEmailTriggerFromCfg(
 				path: initialPath,
 				requestBody: {
 					...requestBody,
-					local_part: isAdmin || !edit ? routeCfg.local_part : undefined
+					local_part: isAdmin || !edit ? emailCfg.local_part : undefined
 				}
 			})
-			sendUserToast(`Route ${routeCfg.path} updated`)
+			sendUserToast(`Email trigger ${emailCfg.path} updated`)
 		} else {
 			await EmailTriggerService.createEmailTrigger({
 				workspace: workspace,
-				requestBody: requestBody
+				requestBody: { ...requestBody, mode: 'enabled' }
 			})
-			sendUserToast(`Route ${routeCfg.path} created`)
+			sendUserToast(`Email trigger ${emailCfg.path} created`)
 		}
 		if (!get(usedTriggerKinds).includes('email')) {
 			usedTriggerKinds.update((t) => [...t, 'email'])

@@ -1,4 +1,4 @@
-<script context="module" lang="ts">
+<script module lang="ts">
 	type SelectCallback = (path: string) => boolean
 
 	export const CONNECT = 'connect' as const
@@ -29,21 +29,37 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { writable, type Writable } from 'svelte/store'
 	import type { PickableProperties } from '../previousResults'
-	import { twMerge } from 'tailwind-merge'
 	import AnimatedButton from '$lib/components/common/button/AnimatedButton.svelte'
 	import type { PropPickerContext } from '$lib/components/prop_picker'
+	import type { FlowEditorContext } from '../types'
 
-	export let pickableProperties: PickableProperties | undefined
-	export let result: any = undefined
-	export let extraResults: any = undefined
-	export let flow_input: any = undefined
-	export let error: boolean = false
-	export let displayContext = true
-	export let notSelectable = false
-	export let noPadding: boolean = false
-	export let alwaysOn: boolean = false
-	export let paneClass: string = ''
-	export let noFlowPlugConnect = false
+	interface Props {
+		pickableProperties: PickableProperties | undefined
+		result?: any
+		extraResults?: any
+		flow_input?: any
+		error?: boolean
+		displayContext?: boolean
+		notSelectable?: boolean
+		noPadding?: boolean
+		paneClass?: string
+		noFlowPlugConnect?: boolean
+		children?: import('svelte').Snippet
+	}
+
+	let {
+		pickableProperties,
+		result = undefined,
+		extraResults = undefined,
+		flow_input = undefined,
+		error = false,
+		displayContext = true,
+		notSelectable = false,
+		noPadding = false,
+		paneClass = '',
+		noFlowPlugConnect = false,
+		children
+	}: Props = $props()
 
 	const propPickerConfig: Writable<PropPickerConfig | undefined> = writable<
 		PropPickerConfig | undefined
@@ -54,6 +70,10 @@
 
 	const { flowPropPickerConfig } = getContext<PropPickerContext>('PropPickerContext')
 	flowPropPickerConfig.set(undefined)
+
+	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
+
+	let flow_env = $derived(pickableProperties?.flow_env || flowStore.val.value.flow_env)
 	setContext<PropPickerWrapperContext>('PropPickerWrapper', {
 		propPickerConfig,
 		inputMatches,
@@ -89,68 +109,75 @@
 			document.querySelectorAll('[data-prop-picker], [data-prop-picker] *')
 		) as HTMLElement[]
 	}
+
+	let rightPaneHeight: number = $state(0)
 </script>
 
 <div
 	class="h-full w-full"
 	data-prop-picker-root
-	use:clickOutside={{ capture: true, exclude: getPropPickerElements }}
-	on:click_outside={() => {
-		propPickerConfig.set(undefined)
-		flowPropPickerConfig.set(undefined)
+	use:clickOutside={{
+		capture: true,
+		exclude: getPropPickerElements,
+		onClickOutside: () => {
+			propPickerConfig.set(undefined)
+			flowPropPickerConfig.set(undefined)
+		}
 	}}
 >
 	<Splitpanes class={$propPickerConfig ? 'splitpanes-remove-splitter' : ''}>
-		<Pane
-			minSize={20}
-			size={60}
-			class={twMerge('relative !transition-none ', noPadding ? '' : 'p-2')}
-		>
-			<slot />
+		<Pane minSize={20} size={60} class={'relative !transition-none'}>
+			<div style="height: {rightPaneHeight}px;" class={noPadding ? '' : 'p-2'}>
+				{@render children?.()}
+			</div>
 		</Pane>
-		<Pane minSize={20} size={40} class="!transition-none z-1000 {paneClass}">
-			<AnimatedButton
-				animate={$propPickerConfig?.insertionMode == 'connect'}
-				baseRadius="4px"
-				wrapperClasses="prop-picker-inputs h-full w-full pt-1 !bg-surface "
-				marginWidth="3px"
-				ringColor={$propPickerConfig?.insertionMode == 'insert' ||
-				$propPickerConfig?.insertionMode == 'append'
-					? '#3b82f6'
-					: 'transparent'}
-				animationDuration="4s"
-			>
-				{#if result != undefined}
-					<PropPickerResult
-						{result}
-						{extraResults}
-						{flow_input}
-						allowCopy={!notSelectable && !$propPickerConfig}
-						on:select={({ detail }) => {
-							dispatch('select', detail)
-							if ($propPickerConfig?.onSelect(detail)) {
-								$propPickerConfig?.clearFocus()
-							}
-						}}
-					/>
-				{:else if pickableProperties}
-					<PropPicker
-						{alwaysOn}
-						{displayContext}
-						{error}
-						previousId={pickableProperties?.previousId}
-						{pickableProperties}
-						allowCopy={!notSelectable && !$propPickerConfig}
-						on:select={({ detail }) => {
-							// console.log('selecting', detail)
-							dispatch('select', detail)
-							if ($propPickerConfig?.onSelect(detail)) {
-								$propPickerConfig?.clearFocus()
-							}
-						}}
-					/>
-				{/if}
-			</AnimatedButton>
+		<Pane minSize={20} size={40} class="!transition-none z-1000 relative {paneClass}">
+			<div bind:clientHeight={rightPaneHeight} class="min-h-40 h-full !bg-surface-secondary">
+				<AnimatedButton
+					animate={$propPickerConfig?.insertionMode == 'connect'}
+					baseRadius="4px"
+					wrapperClasses="prop-picker-inputs h-full w-full pt-1"
+					marginWidth="3px"
+					ringColor={$propPickerConfig?.insertionMode == 'insert' ||
+					$propPickerConfig?.insertionMode == 'append'
+						? '#3b82f6'
+						: 'transparent'}
+					animationDuration="4s"
+				>
+					{#if result != undefined && !pickableProperties}
+						<PropPickerResult
+							{result}
+							{extraResults}
+							{flow_input}
+							allowCopy={!notSelectable && !$propPickerConfig}
+							on:select={({ detail }) => {
+								dispatch('select', detail)
+								if ($propPickerConfig?.onSelect(detail)) {
+									$propPickerConfig?.clearFocus()
+								}
+							}}
+						/>
+					{:else if pickableProperties}
+						<PropPicker
+							{result}
+							{extraResults}
+							{displayContext}
+							{error}
+							{flow_env}
+							previousId={pickableProperties?.previousId}
+							{pickableProperties}
+							allowCopy={!notSelectable && !$propPickerConfig}
+							on:select={({ detail }) => {
+								// console.log('selecting', detail)
+								dispatch('select', detail)
+								if ($propPickerConfig?.onSelect(detail)) {
+									$propPickerConfig?.clearFocus()
+								}
+							}}
+						/>
+					{/if}
+				</AnimatedButton>
+			</div>
 		</Pane>
 	</Splitpanes>
 </div>

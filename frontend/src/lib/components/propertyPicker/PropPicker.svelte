@@ -17,13 +17,16 @@
 	export let displayContext = true
 	export let error: boolean = false
 	export let allowCopy = false
-	export let alwaysOn = false
 	export let previousId: string | undefined = undefined
+	export let flow_env: Record<string, any> | undefined = undefined
+	export let result: any | undefined = undefined
+	export let extraResults: any = undefined
 
 	let variables: Record<string, string> = {}
 	let resources: Record<string, any> = {}
 	let displayVariable = false
 	let displayResources = false
+	let displayFlowEnv = false
 
 	let allResultsCollapsed = true
 	let collapsableInitialState:
@@ -31,6 +34,7 @@
 				allResultsCollapsed: boolean
 				displayVariable: boolean
 				displayResources: boolean
+				displayFlowEnv: boolean
 		  }
 		| undefined
 
@@ -47,6 +51,7 @@
 
 	let flowInputsFiltered: any = pickableProperties.flow_input
 	let resultByIdFiltered: any = pickableProperties.priorIds
+	let flowEnvFiltered: any = pickableProperties.flow_env
 
 	let timeout: number | undefined
 	function onSearch(search: string) {
@@ -64,6 +69,11 @@
 				search === EMPTY_STRING
 					? pickableProperties.priorIds
 					: keepByKey(pickableProperties.priorIds, search)
+
+			flowEnvFiltered =
+				search === EMPTY_STRING
+					? pickableProperties.flow_env
+					: keepByKey(pickableProperties.flow_env, search)
 		}, 50)
 	}
 
@@ -99,6 +109,7 @@
 			if (search === EMPTY_STRING) {
 				flowInputsFiltered = pickableProperties.flow_input
 				resultByIdFiltered = pickableProperties.priorIds
+				flowEnvFiltered = pickableProperties.flow_env
 			}
 			filteringFlowInputsOrResult = ''
 			return
@@ -109,6 +120,9 @@
 		}
 		if (!$inputMatches?.some((match) => match.word === 'results')) {
 			resultByIdFiltered = {}
+		}
+		if (!$inputMatches?.some((match) => match.word === 'flow_env')) {
+			flowEnvFiltered = {}
 		}
 		if ($inputMatches?.length == 1) {
 			filteringFlowInputsOrResult = $inputMatches[0].value
@@ -125,6 +139,13 @@
 				let filtered = filterNestedObject(resultByIdFiltered, nestedKeys)
 				if (Object.keys(filtered).length > 0) {
 					resultByIdFiltered = filtered
+				}
+			} else if ($inputMatches[0].word === 'flow_env') {
+				flowEnvFiltered = pickableProperties.flow_env
+				let [, ...nestedKeys] = $inputMatches[0].value.split('.')
+				let filtered = filterNestedObject(flowEnvFiltered, nestedKeys)
+				if (Object.keys(filtered).length > 0) {
+					flowEnvFiltered = filtered
 				}
 			}
 		} else {
@@ -144,7 +165,12 @@
 		}
 
 		if (!collapsableInitialState) {
-			collapsableInitialState = { allResultsCollapsed, displayVariable, displayResources }
+			collapsableInitialState = {
+				allResultsCollapsed,
+				displayVariable,
+				displayResources,
+				displayFlowEnv
+			}
 		}
 
 		if ($inputMatches[0].word === 'variable') {
@@ -157,6 +183,10 @@
 			displayResources = true
 			return
 		}
+		if ($inputMatches[0].word === 'flow_env') {
+			displayFlowEnv = true
+			return
+		}
 		if ($inputMatches[0].word === 'results') {
 			allResultsCollapsed = false
 			return
@@ -167,7 +197,8 @@
 		if (!collapsableInitialState) {
 			return
 		}
-		;({ allResultsCollapsed, displayVariable, displayResources } = collapsableInitialState)
+		;({ allResultsCollapsed, displayVariable, displayResources, displayFlowEnv } =
+			collapsableInitialState)
 		collapsableInitialState = undefined
 	}
 
@@ -184,6 +215,7 @@
 		if (prev && !filterActive) {
 			flowInputsFiltered = pickableProperties.flow_input
 			resultByIdFiltered = pickableProperties.priorIds
+			flowEnvFiltered = pickableProperties.flow_env
 		}
 	}
 
@@ -198,20 +230,19 @@
 	onDestroy(() => {
 		clearTimeout(timeout)
 	})
+
+	const categoryContentClasses = 'overflow-y-auto pb-4'
+	const categoryTitleClasses = 'font-semibold text-xs text-emphasis'
 </script>
 
-<div class="flex flex-col h-full rounded">
+<div class="flex flex-col h-full">
 	<div class="px-1 pb-1">
 		<ClearableInput bind:value={search} placeholder="Search prop..." />
 	</div>
 	<!-- <div
 	class="px-2 pt-2 grow relative"
 	class:bg-surface-secondary={!$propPickerConfig && !alwaysOn} -->
-	<Scrollable
-		scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink {!$propPickerConfig && !alwaysOn
-			? 'bg-surface-secondary'
-			: ''}"
-	>
+	<Scrollable scrollableClass="grow relative min-h-0 px-1 xl:px-2 py-1 shrink">
 		<!-- <div
 			class="px-2 pt-2 grow relative"
 			class:bg-surface-secondary={!$propPickerConfig && !alwaysOn}
@@ -224,14 +255,19 @@
 				<Badge small>filter: {filteringFlowInputsOrResult}</Badge>
 			</div>
 		{/if}
-		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
-			<div class="flex justify-between items-center space-x-1">
-				<span class="font-normal text-sm text-secondary"
-					><span class="font-mono">flow_input</span></span
-				>
-				<div class="flex space-x-2 items-center"></div>
+		{#if result != undefined}
+			<span class={categoryTitleClasses}>Step Result</span>
+			<div class={categoryContentClasses}>
+				<ObjectViewer
+					{allowCopy}
+					json={{ result, ...(extraResults ? extraResults : {}) }}
+					on:select
+				/>
 			</div>
-			<div class="overflow-y-auto pb-2">
+		{/if}
+		{#if flowInputsFiltered && (Object.keys(flowInputsFiltered ?? {}).length > 0 || !filterActive)}
+			<span class={categoryTitleClasses}>Flow Input</span>
+			<div class={categoryContentClasses}>
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -242,8 +278,8 @@
 			</div>
 		{/if}
 		{#if error}
-			<span class="font-normal text-sm text-secondary">Error</span>
-			<div class="overflow-y-auto pb-2">
+			<span class={categoryTitleClasses}>Error</span>
+			<div class={categoryContentClasses}>
 				<ObjectViewer
 					{allowCopy}
 					pureViewer={!$propPickerConfig}
@@ -260,8 +296,8 @@
 			</div>
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto pb-2">
+					<span class={categoryTitleClasses}>Suggested Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -272,8 +308,8 @@
 						/>
 					</div>
 				{/if}
-				<span class="font-normal text-sm text-tertiary font-mono">results</span>
-				<div class="overflow-y-auto pb-2">
+				<span class={categoryTitleClasses}>Results</span>
+				<div class={categoryContentClasses}>
 					<ObjectViewer
 						expandedEvenOnLevel0={previousId}
 						{allowCopy}
@@ -287,8 +323,8 @@
 			{/if}
 		{:else}
 			{#if pickableProperties.hasResume}
-				<span class="font-normal text-sm text-secondary">Resume payloads</span>
-				<div class="overflow-y-auto pb-2">
+				<span class={categoryTitleClasses}>Resume payloads</span>
+				<div class={categoryContentClasses}>
 					<ObjectViewer
 						{allowCopy}
 						pureViewer={!$propPickerConfig}
@@ -303,8 +339,8 @@
 			{/if}
 			{#if Object.keys(pickableProperties.priorIds).length > 0}
 				{#if !filterActive && suggestedPropsFiltered && Object.keys(suggestedPropsFiltered).length > 0}
-					<span class="font-normal text-sm text-secondary">Suggested Results</span>
-					<div class="overflow-y-auto pb-2">
+					<span class={categoryTitleClasses}>Suggested Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -316,9 +352,8 @@
 					</div>
 				{/if}
 				{#if Object.keys(resultByIdFiltered ?? {}).length > 0}
-					<div class="overflow-y-auto pb-2 pt-2">
-						<span class="font-normal text-sm text-tertiary font-mono">results</span>
-
+					<span class={categoryTitleClasses}>Results</span>
+					<div class={categoryContentClasses}>
 						<ObjectViewer
 							{allowCopy}
 							pureViewer={!$propPickerConfig}
@@ -335,14 +370,12 @@
 
 		{#if displayContext}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'variable')}
-				<div class="overflow-y-auto pb-2 pt-4">
-					<span class="font-normal text-xs text-secondary">Variables:</span>
-
+				<span class={categoryTitleClasses}>Variables</span>
+				<div class={categoryContentClasses}>
 					{#if displayVariable}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayVariable = false
 							}}
@@ -359,9 +392,8 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadVariables()
 								displayVariable = true
@@ -375,14 +407,12 @@
 				</div>
 			{/if}
 			{#if !filterActive || $inputMatches?.some((match) => match.word === 'resource')}
-				<div class="overflow-y-auto pb-2">
-					<span class="font-normal text-xs text-secondary">Resources:</span>
-
+				<span class={categoryTitleClasses}>Resources</span>
+				<div class={categoryContentClasses}>
 					{#if displayResources}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={() => {
 								displayResources = false
 							}}
@@ -399,12 +429,50 @@
 						/>
 					{:else}
 						<Button
-							color="light"
 							size="xs2"
-							variant="border"
+							variant="default"
 							on:click={async () => {
 								await loadResources()
 								displayResources = true
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"
+						>
+							{'{...}'}
+						</Button>
+					{/if}
+				</div>
+			{/if}
+			{#if flow_env && Object.keys(flow_env).length > 0 && (!filterActive || $inputMatches?.some((match) => match.word === 'flow_env'))}
+				<div class="overflow-y-auto pb-2">
+					<span class="font-normal text-xs text-secondary">Flow Env Variables:</span>
+
+					{#if displayFlowEnv}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayFlowEnv = false
+							}}
+							wrapperClasses="inline-flex whitespace-nowrap w-fit"
+							btnClasses="font-mono h-4 text-2xs font-thin px-1 rounded-[0.275rem]">-</Button
+						>
+						<ObjectViewer
+							{allowCopy}
+							pureViewer={!$propPickerConfig}
+							rawKey={false}
+							json={flowEnvFiltered}
+							prefix="flow_env"
+							on:select
+						/>
+					{:else}
+						<Button
+							color="light"
+							size="xs2"
+							variant="border"
+							on:click={() => {
+								displayFlowEnv = true
 							}}
 							wrapperClasses="inline-flex whitespace-nowrap w-fit"
 							btnClasses="font-normal text-2xs rounded-[0.275rem] h-4 px-1"

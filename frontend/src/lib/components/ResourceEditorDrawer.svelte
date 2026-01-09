@@ -41,7 +41,7 @@
 
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent
-		title={mode == 'edit' ? 'Edit ' + path : 'Add a resourcee'}
+		title={mode == 'edit' ? 'Edit ' + path : 'Add a resource'}
 		on:close={drawer.closeDrawer}
 	>
 		{#await import('./ResourceEditor.svelte')}
@@ -59,6 +59,8 @@
 		{/await}
 		{#snippet actions()}
 			<Button
+				variant="accent"
+				unifiedSize="md"
 				startIcon={{ icon: Save }}
 				on:click={() => {
 					if (mode == 'edit') {

@@ -111,6 +111,10 @@
 	{id}
 	doOnSuccess={resolvedConfig.onSuccess}
 	doOnError={resolvedConfig.onError}
+	clearFormInputs={{
+		selected: resolvedConfig.clearFormInputs.selected,
+		onClear: () => runnableComponent?.setArgs({})
+	}}
 	{errorHandledByComponent}
 	{extraQueryParams}
 	autoRefresh={false}
@@ -149,8 +153,9 @@
 						on:click={() => {
 							runnableComponent?.runComponent()
 						}}
-						size={resolvedConfig.size}
+						extendedSize={resolvedConfig.size}
 						color={resolvedConfig.color}
+						variant="contained"
 					>
 						{resolvedConfig.label}
 					</Button>

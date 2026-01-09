@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
-	import Description from '$lib/components/Description.svelte'
-	import { Slack, Code2 } from 'lucide-svelte'
+	import { Slack, Code2, Unplug, Plug } from 'lucide-svelte'
 	import MsTeamsIcon from '$lib/components/icons/MSTeamsIcon.svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { hubBaseUrlStore, workspaceStore, enterpriseLicense } from '$lib/stores'
@@ -9,27 +8,52 @@
 	import { WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/utils'
 	import TeamSelector from './TeamSelector.svelte'
+	import CollapseLink from './CollapseLink.svelte'
 
 	interface TeamItem {
 		team_id: string
 		team_name: string
 	}
 
-	export let platform: 'slack' | 'teams'
-	export let teamName: string | undefined
-	export let display_name: string | undefined
-	export let scriptPath: string
-	export let initialPath: string
-	export let onDisconnect: () => Promise<void>
-	export let onSelect: () => Promise<void>
-	export let connectHref: string | undefined
-	export let createScriptHref: string
-	export let createFlowHref: string
-	export let documentationLink: string
-	export let onLoadSettings: () => void
-	export let itemKind: 'flow' | 'script' = 'script'
+	let {
+		platform,
+		teamName,
+		display_name,
+		scriptPath = $bindable(),
+		initialPath = $bindable(),
+		itemKind = $bindable('script' as 'flow' | 'script'),
+		onDisconnect,
+		onSelect,
+		connectHref,
+		createScriptHref,
+		createFlowHref,
+		documentationLink,
+		onLoadSettings,
+		workspaceConfig,
+		hideConnectButton = false,
+		isOAuthEnabled = false,
+		workspaceSpecificConnection = false
+	}: {
+		platform: 'slack' | 'teams'
+		teamName: string | undefined
+		display_name: string | undefined
+		scriptPath: string
+		initialPath: string
+		itemKind: 'flow' | 'script'
+		onDisconnect: () => Promise<void>
+		onSelect: () => Promise<void>
+		connectHref: string | undefined
+		createScriptHref: string
+		createFlowHref: string
+		documentationLink: string
+		onLoadSettings: () => void
+		workspaceConfig?: import('svelte').Snippet
+		hideConnectButton?: boolean
+		isOAuthEnabled?: boolean
+		workspaceSpecificConnection?: boolean
+	} = $props()
 
-	let selectedTeam: TeamItem | undefined = undefined
+	let selectedTeam: TeamItem | undefined = $state(undefined)
 
 	async function connectTeams() {
 		if (!selectedTeam) return
@@ -60,84 +84,90 @@
 			console.error('Error connecting to Teams:', error)
 		}
 	}
+
+	const capitalizedPlatform = $derived(platform.charAt(0).toUpperCase() + platform.slice(1))
 </script>
 
 <div class="flex flex-col gap-1">
-	<div class="text-primary font-semibold"
-		>Connect Workspace to {platform.charAt(0).toUpperCase() + platform.slice(1)}</div
-	>
-	<Description link={documentationLink}>
-		Connect your Windmill workspace to your {platform} workspace to trigger a script or a flow with a
-		'/windmill' command.
-	</Description>
+	<div class="text-xs font-semibold text-emphasis">{capitalizedPlatform} connection</div>
+	<div class="rounded-md border p-4 flex flex-col gap-6">
+		{#if workspaceConfig}
+			{@render workspaceConfig()}
+		{/if}
+		{#if teamName || workspaceSpecificConnection}
+			<div class="flex flex-col gap-2 max-w-sm">
+				<div class="flex flex-row gap-2 items-center">
+					{#if display_name}
+						<Badge color="green">
+							<Plug size={14} />
+							Workspace connected to {capitalizedPlatform} team '{display_name}'</Badge
+						>
+					{/if}
+					<Button
+						unifiedSize="md"
+						startIcon={{ icon: Unplug }}
+						disabled={!$enterpriseLicense && platform === 'teams'}
+						onclick={onDisconnect}
+						destructive
+						variant="subtle"
+					>
+						Disconnect {capitalizedPlatform}
+						{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
+					</Button>
+				</div>
+			</div>
+		{:else if !hideConnectButton}
+			<div class="flex flex-col gap-2">
+				<div class="flex flex-row gap-2 items-center">
+					{#if platform === 'teams'}
+						{#if $enterpriseLicense && isOAuthEnabled}
+							<TeamSelector
+								bind:selectedTeam
+								minWidth="180px"
+								disabled={!$enterpriseLicense}
+								onError={(e) => {
+									const errorMsg =
+										typeof (e as any)?.body === 'string'
+											? (e as any).body
+											: e?.message || 'Unknown error'
+									sendUserToast('Failed to load teams: ' + errorMsg, true)
+								}}
+							/>
+						{/if}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							onclick={connectTeams}
+							endIcon={{ icon: MsTeamsIcon }}
+							disabled={!selectedTeam || !$enterpriseLicense}
+						>
+							Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+							{$enterpriseLicense ? '' : '(EE only)'}
+						</Button>
+					{:else}
+						<Button
+							size="xs"
+							variant="accent"
+							href={connectHref}
+							startIcon={{ icon: Slack }}
+							disabled={!isOAuthEnabled}
+						>
+							Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
+						</Button>
+					{/if}
+				</div>
+			</div>
+		{/if}
+	</div>
 </div>
 
-{#if teamName}
-	<div class="flex flex-col gap-2 max-w-sm">
-		<div class="flex flex-row gap-2">
-			<Button
-				size="sm"
-				endIcon={{ icon: platform === 'slack' ? Slack : MsTeamsIcon }}
-				btnClasses="mt-2"
-				variant="border"
-				disabled={!$enterpriseLicense && platform === 'teams'}
-				on:click={onDisconnect}
-			>
-				Disconnect {platform.charAt(0).toUpperCase() + platform.slice(1)}
-				{!$enterpriseLicense && platform === 'teams' ? '(EE only)' : ''}
-			</Button>
-			{#if display_name}
-				<Badge class="mt-2" color="green">Connected to Team '{display_name}'</Badge>
-			{/if}
-		</div>
-		{#if $enterpriseLicense || platform === 'slack'}
-			<Button size="sm" endIcon={{ icon: Code2 }} href={createScriptHref}>
-				Create a script to handle {platform} commands
-			</Button>
-			<Button size="sm" endIcon={{ icon: BarsStaggered }} href={createFlowHref}>
-				Create a flow to handle {platform} commands
-			</Button>
-		{/if}
-	</div>
-{:else}
-	<div class="flex flex-col gap-2">
-		<div class="flex flex-row gap-2 items-center">
-			{#if platform === 'teams'}
-				<Button
-					size="xs"
-					color="dark"
-					on:click={connectTeams}
-					startIcon={{ icon: MsTeamsIcon }}
-					disabled={!selectedTeam || !$enterpriseLicense}
-				>
-					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-					{$enterpriseLicense ? '' : '(EE only)'}
-				</Button>
+<div class="flex flex-col gap-1">
+	<div class="text-primary text-xs font-semibold"> Script or flow to run on /windmill command </div>
+	<span class="text-xs text-secondary mb-2"
+		>Pick a script or flow meant to be triggered when the `/windmill` command is invoked.</span
+	>
 
-				{#if $enterpriseLicense}
-					<TeamSelector
-						bind:selectedTeam
-						minWidth="180px"
-						disabled={!$enterpriseLicense}
-						onError={(e) => sendUserToast('Failed to load teams: ' + e.message, true)}
-					/>
-				{/if}
-			{:else}
-				<Button size="xs" color="dark" href={connectHref} startIcon={{ icon: Slack }}>
-					Connect to {platform.charAt(0).toUpperCase() + platform.slice(1)}
-				</Button>
-			{/if}
-			<Badge color="red">Not connected</Badge>
-		</div>
-	</div>
-{/if}
-
-<div class="bg-surface-disabled p-4 rounded-md flex flex-col gap-1">
-	<div class="text-primary font-md font-semibold"> Script or flow to run on /windmill command </div>
-	<div class="relative">
-		{#if !teamName || (!$enterpriseLicense && platform === 'teams')}
-			<div class="absolute top-0 right-0 bottom-0 left-0 bg-surface-disabled/50 z-40"></div>
-		{/if}
+	<div class="flex flex-row gap-2">
 		<ScriptPicker
 			kinds={['script']}
 			allowFlow
@@ -145,34 +175,57 @@
 			bind:scriptPath
 			{initialPath}
 			on:select={onSelect}
+			disabled={!teamName || (!$enterpriseLicense && platform === 'teams')}
+			clearable
 		/>
+
+		{#if teamName && ($enterpriseLicense || platform === 'slack') && (scriptPath === '' || scriptPath === undefined)}
+			{#if itemKind === 'script'}
+				<Button size="sm" endIcon={{ icon: Code2 }} href={createScriptHref}>
+					Create a script from template to handle {platform} commands
+				</Button>
+			{:else if itemKind === 'flow'}
+				<Button size="sm" endIcon={{ icon: BarsStaggered }} href={createFlowHref}>
+					Create a flow from template to handle {platform} commands
+				</Button>
+			{/if}
+		{/if}
 	</div>
 
-	<div class="prose text-2xs text-tertiary">
-		Pick a script or flow meant to be triggered when the `/windmill` command is invoked. Upon
-		connection, templates for a <a href="{$hubBaseUrlStore}/scripts/{platform}/1405/">script</a>
-		and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
+	{#if !teamName}
+		<div class="text-red-500 text-xs"
+			>Please connect your workspace to {capitalizedPlatform} to use this feature</div
+		>
+	{/if}
 
-		<br /><br />
+	<CollapseLink text="How to use">
+		<div class="prose text-2xs text-primary">
+			Upon connection, templates for a <a href="{$hubBaseUrlStore}/scripts/{platform}/1405/"
+				>script</a
+			>
+			and <a href="{$hubBaseUrlStore}/flows/28/">flow</a> are available.
 
-		The script or flow chosen is passed the parameters `response_url: string` and `text: string`
-		respectively the url to reply directly to the trigger and the text of the command.
+			<br /><br />
 
-		<br /><br />
+			The script or flow chosen is passed the parameters `response_url: string` and `text: string`
+			respectively the url to reply directly to the trigger and the text of the command.
 
-		It can take additionally the following args: channel_id, user_name, user_id, command,
-		trigger_id, api_app_id
+			<br /><br />
 
-		<br /><br />
+			It can take additionally the following args: channel_id, user_name, user_id, command,
+			trigger_id, api_app_id
 
-		<span class="font-bold text-xs">
-			The script or flow is permissioned as group "{platform}" that will be automatically created
-			after connection to {platform.charAt(0).toUpperCase() + platform.slice(1)}.
-		</span>
+			<br /><br />
 
-		<br /><br />
+			<span class="font-bold text-xs">
+				The script or flow is permissioned as group "{platform}" that will be automatically created
+				after connection to {platform.charAt(0).toUpperCase() + platform.slice(1)}.
+			</span>
 
-		See more on
-		<a href={documentationLink}>documentation</a>.
-	</div>
+			<br /><br />
+
+			See more on
+			<a href={documentationLink}>documentation</a>.
+		</div>
+	</CollapseLink>
 </div>

@@ -56,10 +56,10 @@
 	export let open = false
 </script>
 
-<div>
-	<p class="font-semibold text-sm">Workspace ID</p>
+<div class="flex flex-col gap-1">
+	<p class="font-medium text-xs text-emphasis">Workspace ID</p>
 	<div class="flex flex-row gap-0.5 items-center">
-		<p class="text-sm text-secondary">{$workspaceStore ?? ''}</p>
+		<p class="text-xs font-normal text-primary">{$workspaceStore ?? ''}</p>
 		{#if !isCloudHosted() || $superadmin}
 			<Button
 				on:click={() => {
@@ -75,24 +75,27 @@
 			/>
 		{/if}
 	</div>
-	<p class="italic text-xs">Slug to uniquely identify your workspace</p>
+	<p class="text-xs text-secondary font-normal">Slug to uniquely identify your workspace</p>
 </div>
 
 <Modal bind:open title="Change workspace ID">
 	<div class="flex flex-col gap-4">
-		<Alert type="warning" title="Warning">
-			Renaming the workspace may take a few minutes to complete. Once finished, please update your
-			webhook calls and adjust your CLI sync configuration accordingly.
+		<Alert type="info" title="Changing the workspace ID may take a few minutes to complete">
+			Once finished, please update your webhook calls and adjust your CLI sync configuration
+			accordingly.
 		</Alert>
-		<p class="text-secondary text-sm"
-			>Current ID <br /> <span class="font-bold">{$workspaceStore ?? ''}</span></p
+		<Alert type="warning" title="Running jobs and queued flow steps will not be migrated.">
+			Make sure that all your jobs are completed before changing the workspace ID.
+		</Alert>
+		<p class="text-secondary text-xs"
+			>Current ID <br /> <span class="text-emphasis">{$workspaceStore ?? ''}</span></p
 		>
-		<label class="block">
-			<span class="text-secondary text-sm">New name</span>
+		<label class="flex flex-col gap-1">
+			<span class="text-emphasis text-xs">New name</span>
 			<input type="text" bind:value={newName} />
 		</label>
 		<label class="block">
-			<span class="text-secondary text-sm">New ID</span>
+			<span class="text-emphasis text-xs">New ID</span>
 			<input type="text" bind:value={newId} />
 			{#if errorId}
 				<div class="text-red-500 text-xs mt-1">{errorId}</div>
@@ -100,9 +103,10 @@
 		</label>
 	</div>
 
-	<svelte:fragment slot="actions">
+	{#snippet actions()}
 		<Button
 			size="sm"
+			variant="accent"
 			disabled={checking || errorId.length > 0 || !newName || !newId}
 			{loading}
 			on:click={() => {
@@ -111,5 +115,5 @@
 		>
 			Save
 		</Button>
-	</svelte:fragment>
+	{/snippet}
 </Modal>

@@ -18,9 +18,10 @@
 	import AuditLogsTimeline from '$lib/components/auditLogs/AuditLogsTimeline.svelte'
 
 	let username: string = $state(page.url.searchParams.get('username') ?? 'all')
-	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 0)
+	let pageIndex: number | undefined = $state(Number(page.url.searchParams.get('page')) || 1)
 	let before: string | undefined = $state(page.url.searchParams.get('before') ?? undefined)
 	let hasMore: boolean = $state(false)
+	let loading: boolean = $state(false)
 	let after: string | undefined = $state(page.url.searchParams.get('after') ?? undefined)
 	let perPage: number | undefined = $state(Number(page.url.searchParams.get('perPage')) || 100)
 	let operation: string = $state(page.url.searchParams.get('operation') ?? 'all')
@@ -88,7 +89,7 @@
 	<div class="flex flex-col w-full h-screen">
 		<div class="flex items-center space-x-2 flex-row justify-between">
 			<div class="flex flex-row flex-wrap justify-between py-2 my-4 px-4 gap-1 items-center">
-				<h1 class="!text-2xl font-semibold leading-6 tracking-tight">Audit logs</h1>
+				<h1 class="text-2xl font-semibold text-emphasis">Audit logs</h1>
 				<Tooltip documentationLink="https://www.windmill.dev/docs/core_concepts/audit_logs">
 					You can only see your own audit logs unless you are an admin.
 				</Tooltip>
@@ -107,6 +108,7 @@
 						bind:perPage
 						bind:scope
 						bind:hasMore
+						bind:loading
 					/>
 				</div>
 				<div class="2xl:hidden">
@@ -161,6 +163,7 @@
 					<Pane size={70} minSize={50}>
 						{#if logs}
 							<AuditLogsTable
+								{loading}
 								{logs}
 								{selectedId}
 								bind:pageIndex

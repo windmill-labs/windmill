@@ -3,6 +3,7 @@
 	import { UserService } from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	let newPassword = $state<string | undefined>(undefined)
 	let passwordError = $state<string | undefined>(undefined)
@@ -30,44 +31,41 @@
 	}
 </script>
 
-<div>
-	<h2 class="border-b">User info</h2>
-	<div class="">
-		{#if passwordError}
-			<div class="text-red-600 text-2xs grow">{passwordError}</div>
-		{/if}
-		<div class="flex flex-col gap-2 w-full">
-			<form class="mt-4">
-				<label class="block w-60 mb-2 text-tertiary">
-					<div class="text-secondary">email</div>
-					<input type="text" disabled value={$usersWorkspaceStore?.email} class="input mt-1" />
-				</label>
-				{#if login_type == 'password'}
-					<label class="block w-120">
-						<div class="text-secondary">password</div>
-						<input
-							autocomplete="new-password"
-							type="password"
-							bind:value={newPassword}
-							class="
-							w-full
-							block
-							py-1
-							px-2
-							rounded-md
-							border
-							border-gray-300
-							shadow-sm
-							focus:border-indigo-300 focus:ring focus:ring-indigo-200 focus:ring-opacity-50
-							text-sm
-							"
-						/>
-						<Button size="sm" btnClasses="mt-4 w-min" on:click={setPassword}>Set password</Button>
-					</label>
-				{:else if login_type == 'github'}
-					<span class="text-sm">Authenticated through Github OAuth2. Cannot set a password.</span>
-				{/if}
-			</form>
+<div class="border border-border-light rounded-md p-4 h-full">
+	<h2 class="text-emphasis text-sm font-semibold mb-2">User info</h2>
+
+	<form class="flex flex-col gap-6">
+		<div class="w-full text-primary flex flex-col gap-1">
+			<div class="text-xs text-emphasis font-semibold">Email</div>
+			<span class="text-xs font-normal text-primary">
+				{$usersWorkspaceStore?.email}
+			</span>
 		</div>
-	</div>
+
+		<label class="flex flex-col gap-1 w-120">
+			<span class="text-xs text-emphasis font-semibold">Password</span>
+			{#if login_type == 'password'}
+				<div class="flex flex-row gap-1 items-center">
+					<TextInput
+						inputProps={{ autocomplete: 'new-password', type: 'password' }}
+						bind:value={newPassword}
+						error={passwordError}
+					/>
+					<Button
+						size="sm"
+						variant="default"
+						btnClasses="w-min whitespace-nowrap"
+						on:click={setPassword}>Set password</Button
+					>
+				</div>
+				{#if passwordError}
+					<div class="text-red-600 text-2xs">{passwordError}</div>
+				{/if}
+			{:else if login_type == 'github'}
+				<span class="text-xs text-primary font-normal"
+					>Authenticated through Github OAuth2. Cannot set a password.</span
+				>
+			{/if}
+		</label>
+	</form>
 </div>
