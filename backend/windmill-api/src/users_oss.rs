@@ -56,7 +56,7 @@ pub async fn set_password(
 }
 
 #[cfg(not(feature = "private"))]
-pub fn hash_password(argon2: Arc<Argon2<'_>>, password: String) -> Result<String> {
+pub fn hash_password(_argon2: Arc<Argon2<'_>>, _password: String) -> Result<String> {
     Err(Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
