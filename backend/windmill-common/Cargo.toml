@@ -20,6 +20,7 @@ smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
 openidconnect = ["dep:openidconnect"]
+pg_embed = ["dep:postgresql_embedded"]
 [lib]
 name = "windmill_common"
 path = "src/lib.rs"
@@ -114,6 +115,7 @@ opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
+postgresql_embedded = { version = "0.18.1", optional = true, features = ["theseus"], default-features = false }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemalloc-ctl = { optional = true, workspace = true }

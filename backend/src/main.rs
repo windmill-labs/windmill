@@ -332,6 +332,9 @@ fn print_help() {
 	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
 	println!();
 	println!("Environment variables (name = default):");
+	#[cfg(feature = "pg_embed")]
+	println!("  DATABASE_URL = <optional>              The Postgres database url (auto-generated with pg_embed if not set).");
+	#[cfg(not(feature = "pg_embed"))]
 	println!("  DATABASE_URL = <required>              The Postgres database url.");
 	println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
 	println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
@@ -345,10 +348,26 @@ fn print_help() {
 	println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
+	#[cfg(feature = "pg_embed")]
+	{
+		println!();
+		println!("Embedded PostgreSQL settings (pg_embed feature):");
+		println!("  PG_EMBED = <unset>                     Force embedded PostgreSQL even if DATABASE_URL exists");
+		println!("  PG_EMBED_DATA_DIR = ./postgresql_data  Directory for embedded PostgreSQL data");
+		println!("  PG_EMBED_PORT = 5432                   Port for embedded PostgreSQL");
+		println!("  PG_EMBED_DATABASE = windmill           Database name for embedded PostgreSQL");
+		println!();
+		println!("System dependencies required for pg_embed:");
+		println!("  Arch: sudo pacman -S libxml2 icu openssl");
+		println!("  Ubuntu/Debian: sudo apt-get install libxml2 libicu-dev libssl-dev");
+		println!("  RHEL/Fedora: sudo dnf install libxml2 libicu openssl-libs");
+	}
 	println!();
 	println!("Notes:");
 	println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
 	println!("- At startup, Windmill logs currently set configuration keys for visibility.");
+	#[cfg(feature = "pg_embed")]
+	println!("- With pg_embed feature enabled, if DATABASE_URL is not set, an embedded PostgreSQL instance will be started automatically.");
 }
 
 async fn windmill_main() -> anyhow::Result<()> {
@@ -468,6 +487,15 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR))
     } else {
         IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+    };
+
+    // Initialize embedded PostgreSQL if pg_embed feature is enabled
+    #[cfg(feature = "pg_embed")]
+    let _embedded_pg = if std::env::var("PG_EMBED").is_ok() || (mode != Mode::Agent && std::env::var("DATABASE_URL").is_err() && std::env::var("DATABASE_URL_FILE").is_err()) {
+        println!("DATABASE_URL not set, starting embedded PostgreSQL...");
+        Some(windmill_common::pg_embed::init_embedded_postgres().await?)
+    } else {
+        None
     };
 
     let (conn, first_suffix) = if mode == Mode::Agent {
