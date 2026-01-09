@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Client for Windmill API
+#[derive(Clone)]
 pub struct Client {
     pub baseurl: String,
     pub client: reqwest::Client,
