@@ -68,6 +68,8 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
+      # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
+      # add: - HOME=/tmp
       # Uncomment to enable PID namespace isolation (requires privileged: true above)
       # - ENABLE_UNSHARE_PID=true
     depends_on:
