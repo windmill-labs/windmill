@@ -48,12 +48,12 @@ use windmill_audit::ActionKind;
 use windmill_common::audit::AuditAuthor;
 use windmill_common::auth::{fetch_authed_from_permissioned_as, TOKEN_PREFIX_LEN};
 use windmill_common::global_settings::AUTOMATE_USERNAME_CREATION_SETTING;
-use windmill_common::BASE_URL;
 use windmill_common::oauth2::InstanceEvent;
 use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
@@ -126,10 +126,7 @@ pub fn make_unauthed_service() -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
-        .route(
-            "/request_password_reset",
-            post(request_password_reset),
-        )
+        .route("/request_password_reset", post(request_password_reset))
         .route("/reset_password", post(reset_password))
         .route("/is_smtp_configured", get(is_smtp_configured))
 }
@@ -3204,8 +3201,6 @@ async fn reset_password(
     Extension(argon2): Extension<Arc<Argon2<'_>>>,
     Json(req): Json<ResetPassword>,
 ) -> Result<Json<PasswordResetResponse>> {
-    use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
-
     let mut tx = db.begin().await?;
 
     // Find the token and verify it's not expired
@@ -3225,19 +3220,8 @@ async fn reset_password(
         }
     };
 
-    // Validate password length
-    if req.new_password.len() < 8 {
-        return Err(Error::BadRequest(
-            "Password must be at least 8 characters long".to_string(),
-        ));
-    }
-
     // Hash the new password
-    let salt = SaltString::generate(&mut OsRng);
-    let password_hash = argon2
-        .hash_password(req.new_password.as_bytes(), &salt)
-        .map_err(|e| Error::internal_err(format!("Failed to hash password: {}", e)))?
-        .to_string();
+    let password_hash = crate::users_oss::hash_password(argon2, req.new_password)?;
 
     // Update the password
     let rows_updated = sqlx::query!(
@@ -3262,9 +3246,12 @@ async fn reset_password(
         .await?;
 
     // Invalidate all existing sessions for this user
-    sqlx::query!("DELETE FROM token WHERE email = $1", &email)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+        &email
+    )
+    .execute(&mut *tx)
+    .await?;
 
     // Audit log
     let audit_author = AuditAuthor {
