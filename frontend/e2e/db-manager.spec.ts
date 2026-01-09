@@ -179,6 +179,18 @@ const resourceByDbType = {
 	snowflake: {} // TODO
 } as const
 
+const wsStorageResources = {
+	s3: {
+		bucket: 'test-bucket',
+		region: 'us-east-1',
+		useSSL: false,
+		endPoint: 'minio-e2e:9000',
+		accessKey: 'minioadmin',
+		pathStyle: true,
+		secretKey: 'minioadmin'
+	}
+}
+
 async function setupNewResource(
 	page: Page,
 	resourceType: DbType

@@ -228,7 +228,7 @@ services:
       retries: 5
     logging: *default-logging
 
-  minio_e2e:
+  minio-e2e:
     image: minio/minio:latest
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -245,6 +245,20 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    logging: *default-logging
+
+  minio_createbucket:
+    image: minio/mc:latest
+    depends_on:
+      minio-e2e:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set minio-e2e http://minio-e2e:9000 minioadmin minioadmin;
+      mc mb minio-e2e/test-bucket --ignore-existing;
+      mc anonymous set public minio-e2e/test-bucket;
+      exit 0;
+      "
     logging: *default-logging
 
 volumes:
