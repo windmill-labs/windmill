@@ -59,7 +59,11 @@
     ],
     "additionalDirectories": [
       "../windmill-ee-private/"
-    ]  
+    ]
   },
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": true,
+  "enabledPlugins": {
+    "rust-analyzer-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
 }
