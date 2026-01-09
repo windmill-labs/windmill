@@ -297,7 +297,6 @@ paths:
                   type: string
                 new_password:
                   type: string
-                  minLength: 8
       responses:
         "200":
           description: password reset successfully

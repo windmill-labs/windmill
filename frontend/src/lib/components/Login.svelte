@@ -384,7 +384,7 @@
 							autocomplete="current-password"
 						/>
 					</div>
-					{#if smtpConfigured && !isCloudHosted()}
+					{#if smtpConfigured}
 						<div class="text-right pt-1">
 							<a
 								href="{base}/user/forgot-password"
