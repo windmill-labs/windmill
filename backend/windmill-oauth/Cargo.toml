@@ -1,0 +1,37 @@
+[package]
+name = "windmill-oauth"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_oauth"
+path = "src/lib.rs"
+
+[features]
+default = []
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+
+async-oauth2.workspace = true
+axum.workspace = true
+tower-cookies.workspace = true
+# Note: We use reqwest 0.12 via async-oauth2, not the workspace reqwest 0.13
+reqwest = { version = "0.12", features = ["json"] }
+sqlx.workspace = true
+tokio.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+
+hmac.workspace = true
+sha2.workspace = true
+base64.workspace = true
+hex.workspace = true
+
+chrono.workspace = true
+itertools.workspace = true
+anyhow.workspace = true
+lazy_static.workspace = true
+tracing.workspace = true
