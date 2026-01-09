@@ -547,7 +547,11 @@ pub async fn execute_mcp_tool(
 
 // Stub implementations when mcp feature is not enabled
 #[cfg(not(feature = "mcp"))]
-pub struct McpResourceConfig {}
+pub struct McpResourceConfig {
+    pub resource_path: String,
+    pub include_tools: Option<Vec<String>>,
+    pub exclude_tools: Option<Vec<String>>,
+}
 
 /// Stub for cleanup_mcp_clients when mcp is not enabled
 #[cfg(not(feature = "mcp"))]
