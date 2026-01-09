@@ -27,7 +27,7 @@ websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
 license = ["dep:rsa"]
 zip = ["dep:async_zip"]
-oauth2 = ["dep:async-oauth2"]
+oauth2 = ["dep:windmill-oauth"]
 http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_eq"]
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
@@ -67,7 +67,7 @@ itertools.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 sqlx.workspace = true
-async-oauth2 = { workspace = true, optional = true }
+windmill-oauth = { workspace = true, optional = true }
 tracing.workspace = true
 sql-builder.workspace = true
 serde_json.workspace = true

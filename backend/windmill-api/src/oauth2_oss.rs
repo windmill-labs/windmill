@@ -21,7 +21,7 @@ use hmac::Mac;
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
 use itertools::Itertools;
 #[cfg(all(feature = "oauth2", not(feature = "private")))]
-use oauth2::{Client as OClient, *};
+use windmill_oauth::{OClient, AccessToken, RefreshToken, Scope, helpers};
 #[cfg(not(feature = "private"))]
 use serde::{Deserialize, Serialize};
 #[cfg(not(feature = "private"))]
