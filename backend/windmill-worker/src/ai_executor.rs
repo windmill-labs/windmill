@@ -13,7 +13,11 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
-use windmill_common::mcp_client::McpClient;
+#[cfg(feature = "mcp")]
+use windmill_mcp::McpClient;
+
+#[cfg(not(feature = "mcp"))]
+use crate::ai::tools::McpClientStub as McpClient;
 use windmill_common::{
     ai_providers::AIProvider,
     cache,

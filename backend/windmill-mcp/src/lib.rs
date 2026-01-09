@@ -1,10 +1,19 @@
-use crate::variables::get_secret_value_as_admin;
-use crate::DB;
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
 use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde_json::{json, Value};
 use std::str::FromStr;
+use windmill_common::variables::get_secret_value_as_admin;
+use windmill_common::DB;
 
+// Re-export rmcp types for client usage
 pub use rmcp::model::Tool as McpTool;
 use rmcp::{
     model::{
@@ -17,6 +26,26 @@ use rmcp::{
     },
     RoleClient, ServiceExt,
 };
+
+// Re-export rmcp server types when server feature is enabled
+#[cfg(feature = "server")]
+pub mod server {
+    //! Re-exports of rmcp server types for MCP server implementations
+
+    pub use rmcp::handler::server::ServerHandler;
+    pub use rmcp::model::{
+        Annotated, CallToolRequestParam, CallToolResult, Content, Implementation,
+        InitializeRequestParam, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParam, ProtocolVersion, RawContent,
+        RawTextContent, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
+    };
+    pub use rmcp::service::{RequestContext, RoleServer};
+    pub use rmcp::transport::streamable_http_server::{
+        session::local::LocalSessionManager, StreamableHttpService,
+    };
+    pub use rmcp::transport::StreamableHttpServerConfig;
+    pub use rmcp::ErrorData;
+}
 
 use std::collections::HashMap;
 

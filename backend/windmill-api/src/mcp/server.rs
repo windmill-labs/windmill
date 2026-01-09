@@ -9,19 +9,20 @@ use std::sync::Arc;
 use std::{borrow::Cow, time::Duration};
 
 use axum::body::to_bytes;
-use rmcp::{
-    handler::server::ServerHandler,
-    model::*,
-    service::{RequestContext, RoleServer},
-    transport::StreamableHttpServerConfig,
-    ErrorData,
-};
 use serde_json::Value;
 use tokio::try_join;
 use tokio_util::sync::CancellationToken;
 use windmill_common::db::UserDB;
 use windmill_common::worker::to_raw_value;
 use windmill_common::{utils::StripPath, DB};
+use windmill_mcp::server::{
+    Annotated, CallToolRequestParam, CallToolResult, Content, ErrorData, Implementation,
+    InitializeRequestParam, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, LocalSessionManager, PaginatedRequestParam,
+    ProtocolVersion, RawContent, RawTextContent, RequestContext, RoleServer, ServerCapabilities,
+    ServerHandler, ServerInfo, StreamableHttpServerConfig, StreamableHttpService, Tool,
+    ToolAnnotations,
+};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -46,9 +47,6 @@ use super::utils::{
 
 use axum::{
     extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
-};
-use rmcp::transport::streamable_http_server::{
-    session::local::LocalSessionManager, StreamableHttpService,
 };
 use windmill_common::error::JsonResult;
 

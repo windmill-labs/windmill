@@ -11,6 +11,7 @@ path = "src/lib.rs"
 [features]
 default = []
 private = []
+mcp = ["dep:windmill-mcp"]
 prometheus = ["dep:prometheus", "windmill-common/prometheus"]
 enterprise = ["windmill-queue/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "dep:pem", "dep:tokio-util"]
 mssql = ["dep:tiberius"]
@@ -40,6 +41,7 @@ duckdb = ["dep:libloading"]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
 windmill-common = { workspace = true, default-features = false }
+windmill-mcp = { workspace = true, optional = true }
 windmill-macros.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true

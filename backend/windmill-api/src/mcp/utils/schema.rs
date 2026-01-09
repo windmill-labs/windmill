@@ -3,7 +3,7 @@
 //! Contains functions for transforming Windmill schemas into MCP-compatible formats,
 //! including resource enrichment and schema conversion utilities.
 
-use rmcp::ErrorData;
+use windmill_mcp::server::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
 use windmill_common::db::UserDB;
