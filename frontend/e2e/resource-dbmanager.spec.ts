@@ -54,7 +54,7 @@ async function setupNewResource(
 	resourceType: DbType
 ): Promise<{ resourceName: string }> {
 	// Generate unique ID with timestamp
-	const resourceName = `${resourceType}_${process.env.TEST_UNIQUE_ID}`
+	const resourceName = `${resourceType}_${Date.now()}`
 
 	await page.goto('/resources')
 
@@ -99,4 +99,3 @@ async function setupNewResourceAndOpenDbManager(page: Page, dbType: DbType) {
 	const manageButton = resourceRow.locator('button:has-text("Manage")')
 	await manageButton.click()
 }
-declare const process: any // avoid TS errors
