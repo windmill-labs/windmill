@@ -2080,7 +2080,6 @@ async fn test_flow_lock_all(db: Pool<Postgres>) -> anyhow::Result<()> {
         .get_flow_by_path("test-workspace", "g/all/flow_lock_all", None)
         .await
         .unwrap()
-        .into_inner()
         .open_flow
         .value
         .modules;
@@ -2363,7 +2362,6 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
         no_flow_overlap: None,
         summary: None,
         tag: None,
-        paused_until: None,
         cron_version: None,
         description: None,
     };
@@ -2434,7 +2432,6 @@ async fn test_script_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()>
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
-                paused_until: None,
                 cron_version: None,
                 description: None,
             },
@@ -2520,7 +2517,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
         no_flow_overlap: None,
         summary: None,
         tag: None,
-        paused_until: None,
         cron_version: None,
         description: None,
     };
@@ -2592,7 +2588,6 @@ async fn test_flow_schedule_handlers(db: Pool<Postgres>) -> anyhow::Result<()> {
                 summary: None,
                 no_flow_overlap: None,
                 tag: None,
-                paused_until: None,
                 cron_version: None,
                 description: None,
             },
