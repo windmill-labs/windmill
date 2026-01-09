@@ -29,6 +29,7 @@
 	import Row from '../table/Row.svelte'
 	import { deepEqual } from 'fast-equals'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
+	import Modal2 from '../common/modal/Modal2.svelte'
 
 	let {
 		s3ResourceSettings = $bindable(),
@@ -39,6 +40,10 @@
 		s3ResourceSavedSettings: S3ResourceSettings
 		onSave?: () => void
 	} = $props()
+
+	let advancedPermissionModalState:
+		| { open: false }
+		| { open: true; storage: S3ResourceSettingsItem } = $state({ open: false })
 
 	let s3FileViewer: S3FilePicker | undefined = $state()
 
@@ -172,7 +177,15 @@
 
 					<Cell class="w-12">
 						<div class="flex gap-2">
-							{@render permissionBtn(tableRow[1])}
+							<Button
+								variant="default"
+								btnClasses="px-2.5"
+								size="sm"
+								onClick={() =>
+									(advancedPermissionModalState = { open: true, storage: tableRow[1] })}
+							>
+								<Shield size={16} /> Permissions <ChevronDown size={14} />
+							</Button>
 							{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
 								<Popover
 									openOnHover
@@ -261,100 +274,98 @@
 	</div>
 {/if}
 
-{#snippet permissionBtn(storage: S3ResourceSettingsItem)}
-	<Popover closeOnOtherPopoverOpen placement="left">
-		<svelte:fragment slot="trigger">
-			<Button variant="default" btnClasses="px-2.5" size="sm">
-				<Shield size={16} /> Permissions <ChevronDown size={14} />
-			</Button>
-		</svelte:fragment>
-		<svelte:fragment slot="content">
-			<div class="flex flex-col gap-3 mx-4 pb-4 pt-5 w-[48rem]">
-				{#if !$enterpriseLicense}
-					<Alert
-						type={storage.advancedPermissions ? 'error' : 'info'}
-						title="Advanced permission rules are an Enterprise feature"
-					>
-						Consider upgrading to Windmill EE to use advanced permission rules to control access to
-						your object storage at a more granular level.</Alert
-					>
-				{/if}
-				<Toggle
-					bind:checked={
-						() => !!storage.advancedPermissions,
-						(v) => {
-							storage.advancedPermissions = v
-								? defaultS3AdvancedPermissions(!!$enterpriseLicense)
-								: undefined
-							if (v) storage.publicResource = false
-						}
-					}
-					options={{
-						right: 'Enable advanced permission rules',
-						rightTooltip: 'Control precisely which paths are allowed to your users.'
-					}}
-					disabled={!storage.advancedPermissions && !$enterpriseLicense}
-				/>
-				{#if storage.advancedPermissions}
-					{@render advancedPermissionsEditor(storage.advancedPermissions)}
-				{/if}
-				{#if !storage.advancedPermissions}
-					{#if storage.resourceType == 's3'}
-						<div class="flex flex-col mt-2 mb-1 gap-1">
-							<Toggle
-								disabled={emptyString(storage.resourcePath)}
-								bind:checked={storage.publicResource}
-								options={{
-									right:
-										'S3 resource details and content can be accessed by all users of this workspace',
-									rightTooltip:
-										'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
-								}}
-							/>
-							{#if storage.publicResource === true}
-								<div class="pt-2"></div>
+<Modal2
+	target="#content"
+	title={'Permission settings'}
+	contentClasses="flex flex-col gap-3"
+	fixedWidth="md"
+	fixedHeight="lg"
+	isOpen={advancedPermissionModalState.open}
+>
+	{#if advancedPermissionModalState.open}
+		{@const storage = advancedPermissionModalState.storage}
+		{#if !$enterpriseLicense}
+			<Alert
+				type={storage.advancedPermissions ? 'error' : 'info'}
+				title="Advanced permission rules are an Enterprise feature"
+			>
+				Consider upgrading to Windmill EE to use advanced permission rules to control access to your
+				object storage at a more granular level.</Alert
+			>
+		{/if}
+		<Toggle
+			bind:checked={
+				() => !!storage.advancedPermissions,
+				(v) => {
+					storage.advancedPermissions = v
+						? defaultS3AdvancedPermissions(!!$enterpriseLicense)
+						: undefined
+					if (v) storage.publicResource = false
+				}
+			}
+			options={{
+				right: 'Enable advanced permission rules',
+				rightTooltip: 'Control precisely which paths are allowed to your users.'
+			}}
+			disabled={!storage.advancedPermissions && !$enterpriseLicense}
+		/>
+		{#if storage.advancedPermissions}
+			{@render advancedPermissionsEditor(storage.advancedPermissions)}
+		{/if}
+		{#if !storage.advancedPermissions}
+			{#if storage.resourceType == 's3'}
+				<div class="flex flex-col mt-2 mb-1 gap-1">
+					<Toggle
+						disabled={emptyString(storage.resourcePath)}
+						bind:checked={storage.publicResource}
+						options={{
+							right:
+								'S3 resource details and content can be accessed by all users of this workspace',
+							rightTooltip:
+								'If set, all users of this workspace will have access the to entire content of the S3 bucket, as well as the resource details and the "open preview" button. This effectively by-pass the permissions set on the resource and makes it public to everyone.'
+						}}
+					/>
+					{#if storage.publicResource === true}
+						<div class="pt-2"></div>
 
-								<Alert
-									type="warning"
-									title="(Legacy) S3 bucket content and resource details are shared"
-								>
-									S3 resource public access is ON, which means that the entire content of the S3
-									bucket will be accessible to all the users of this workspace regardless of whether
-									they have access the resource or not. Similarly, certain Windmill SDK endpoints
-									can be used in scripts to access the resource details, including public and
-									private keys.
-								</Alert>
-							{/if}
-						</div>
-					{:else}
-						<div class="flex flex-col mt-5 mb-1 gap-1 max-w-[40rem]">
-							<Toggle
-								disabled={emptyString(storage.resourcePath)}
-								bind:checked={storage.publicResource}
-								options={{
-									right: 'object storage content can be accessed by all users of this workspace',
-									rightTooltip:
-										'If set, all users of this workspace will have access the to entire content of the object storage.'
-								}}
-							/>
-							{#if storage.publicResource === true}
-								<div class="pt-2"></div>
-								<Alert
-									type="warning"
-									title="(Legacy) Object storage content and resource details are shared"
-								>
-									object public access is ON, which means that the entire content of the object
-									store will be accessible to all the users of this workspace regardless of whether
-									they have access the resource or not.
-								</Alert>
-							{/if}
-						</div>
+						<Alert
+							type="warning"
+							title="(Legacy) S3 bucket content and resource details are shared"
+						>
+							S3 resource public access is ON, which means that the entire content of the S3 bucket
+							will be accessible to all the users of this workspace regardless of whether they have
+							access the resource or not. Similarly, certain Windmill SDK endpoints can be used in
+							scripts to access the resource details, including public and private keys.
+						</Alert>
 					{/if}
-				{/if}
-			</div>
-		</svelte:fragment>
-	</Popover>
-{/snippet}
+				</div>
+			{:else}
+				<div class="flex flex-col mt-5 mb-1 gap-1 max-w-[40rem]">
+					<Toggle
+						disabled={emptyString(storage.resourcePath)}
+						bind:checked={storage.publicResource}
+						options={{
+							right: 'object storage content can be accessed by all users of this workspace',
+							rightTooltip:
+								'If set, all users of this workspace will have access the to entire content of the object storage.'
+						}}
+					/>
+					{#if storage.publicResource === true}
+						<div class="pt-2"></div>
+						<Alert
+							type="warning"
+							title="(Legacy) Object storage content and resource details are shared"
+						>
+							object public access is ON, which means that the entire content of the object store
+							will be accessible to all the users of this workspace regardless of whether they have
+							access the resource or not.
+						</Alert>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+	{/if}
+</Modal2>
 
 {#snippet advancedPermissionsEditor(rules: S3ResourceSettingsItem['advancedPermissions'])}
 	<Alert title="Standard Unix-style glob syntax is supported">
@@ -368,20 +379,23 @@
 		<br />
 		Note that changes may take up to 1 minute to propagate due to cache invalidation
 	</Alert>
-	{#each rules ?? [] as item, idx}
-		<div class="flex gap-2">
-			<ClearableInput bind:value={item.pattern} placeholder="Pattern" />
-			<MultiSelect
-				items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
-				bind:value={item.allow}
-				disablePortal
-				class="w-[20rem]"
-				placeholder="Deny all access"
-				hideMainClearBtn
-			/>
-			<CloseButton onClick={() => rules?.splice(idx, 1)} />
-		</div>
-	{/each}
+
+	<div class="flex-1 overflow-y-auto gap-3 flex flex-col">
+		{#each rules ?? [] as item, idx}
+			<div class="flex gap-2">
+				<ClearableInput bind:value={item.pattern} placeholder="Pattern" />
+				<MultiSelect
+					items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
+					bind:value={item.allow}
+					disablePortal
+					class="w-[20rem]"
+					placeholder="Deny all access"
+					hideMainClearBtn
+				/>
+				<CloseButton onClick={() => rules?.splice(idx, 1)} />
+			</div>
+		{/each}
+	</div>
 	<Button size="xs" variant="default" on:click={() => rules?.push({ pattern: '', allow: [] })}>
 		<Plus size={14} />
 		Add permission rule
