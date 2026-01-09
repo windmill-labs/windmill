@@ -34,11 +34,14 @@ services:
     deploy:
       replicas: 1
     restart: unless-stopped
+    ports:
+      - 8000:8000
     expose:
       - 8000
       - 2525
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - LICENSE_KEY=${LICENSE_KEY}
       - MODE=server
     depends_on:
       db:
@@ -65,6 +68,7 @@ services:
     # privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - LICENSE_KEY=${LICENSE_KEY}
       - MODE=worker
       - WORKER_GROUP=default
       # Uncomment to enable PID namespace isolation (requires privileged: true above)
@@ -100,6 +104,7 @@ services:
     # privileged: true
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      - LICENSE_KEY=${LICENSE_KEY}
       - MODE=worker
       - WORKER_GROUP=native
       - NUM_WORKERS=8
@@ -111,6 +116,25 @@ services:
         condition: service_healthy
     volumes:
       - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  caddy:
+    image: ghcr.io/windmill-labs/caddy-l4:latest
+    restart: unless-stopped
+    # Configure the mounted Caddyfile and the exposed ports or use another reverse proxy if needed
+    volumes:
+      - ../Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      # - ../certs:/certs # Provide custom certificate files like cert.pem and key.pem to enable HTTPS - See the corresponding section in the Caddyfile
+    ports:
+      # To change the exposed port, simply change 80:80 to <desired_port>:80. No other changes needed
+      - 80:80
+      - 25:25
+      # - 443:443 # Uncomment to enable HTTPS handling by Caddy
+    environment:
+      - BASE_URL=":80"
+      # - BASE_URL=":443" # uncomment and comment line above to enable HTTPS via custom certificate and key files
+      # - BASE_URL=mydomain.com # Uncomment and comment line above to enable HTTPS handling by Caddy
     logging: *default-logging
 
   # E2E Testing Services
@@ -227,6 +251,7 @@ volumes:
   db_data: null
   worker_dependency_cache: null
   worker_logs: null
+  caddy_data: null
   mysql_data: null
   mssql_data: null
   oracle_data: null

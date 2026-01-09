@@ -14,15 +14,15 @@ test.describe('DB Manager', () => {
 
 const resourceByDbType = {
 	postgresql: {
-		host: 'localhost',
+		host: 'postgres_e2e',
 		port: 5432,
-		dbname: 'testing',
-		user: 'postgres',
-		password: 'changeme',
+		dbname: 'test_db',
+		user: 'test_user',
+		password: 'postgres_password',
 		sslmode: 'disable'
 	},
 	mysql: {
-		host: 'localhost',
+		host: 'mysql_e2e',
 		port: 3306,
 		user: 'test_user',
 		database: 'test_db',
@@ -32,10 +32,10 @@ const resourceByDbType = {
 	oracle: {
 		user: 'test_user',
 		password: 'test_password',
-		database: 'localhost:1521/test_db'
+		database: 'oracle_e2e:1521/test_db'
 	},
 	ms_sql_server: {
-		host: 'localhost',
+		host: 'mssql_e2e',
 		user: 'sa',
 		password: 'MsSql_Pass123!',
 		port: 1433,
@@ -79,8 +79,6 @@ async function setupNewResource(
 	const jsonEditor = page.locator('.simple-editor .view-lines')
 	await expect(jsonEditor).toBeVisible()
 	await jsonEditor.click({ clickCount: 4 }) // Select all existing text
-	// We do copy paste to avoid issues with monaco helping with autocomplete and messing up the test
-	await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
 	await page.evaluate((c) => navigator.clipboard.writeText(c), JSON.stringify(resourceObj))
 	await page.keyboard.press('ControlOrMeta+V')
 
@@ -101,3 +99,4 @@ async function setupNewResourceAndOpenDbManager(page: Page, dbType: DbType) {
 	const manageButton = resourceRow.locator('button:has-text("Manage")')
 	await manageButton.click()
 }
+declare const process: any // avoid TS errors

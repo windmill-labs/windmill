@@ -283,6 +283,7 @@
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
+					id="run-form-run-button"
 					{loading}
 					variant="accent"
 					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"

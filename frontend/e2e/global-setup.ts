@@ -47,6 +47,16 @@ async function globalSetup(config: FullConfig) {
 	await page.waitForURL('**/')
 	await page.locator('text=Home').first().waitFor({ state: 'visible' })
 
+	const hubSyncBtn = page.locator('text=u/admin/hub_sync')
+	await hubSyncBtn.waitFor({ state: 'visible' })
+	await hubSyncBtn.click()
+
+	const runBtn = page.locator('#run-form-run-button')
+	await runBtn.waitFor({ state: 'visible' })
+	await runBtn.click()
+	await page.waitForURL(/\/run\/.+/)
+	await page.locator('text=Success').waitFor({ timeout: 30000, state: 'visible' })
+
 	// Save the authenticated state
 	await context.storageState({ path: './e2e/auth.json' })
 	await browser.close()

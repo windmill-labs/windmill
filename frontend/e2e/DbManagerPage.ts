@@ -4,8 +4,9 @@ import { expect, Locator, Page } from '@playwright/test'
 import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
 import { ConfirmationModal, Toast } from './utils'
 import { DbInput, DbType } from '../src/lib/components/dbTypes'
+import { DB_TYPES } from '../src/lib/consts'
 
-export async function runDbManagerSimpleCRUDTest(page: Page, db: _DbType) {
+export async function runDbManagerSimpleCRUDTest(page: Page, dbType: _DbType) {
 	let dbManager = new DbManagerPage(page)
 	await dbManager.expectToBeVisible()
 
@@ -14,7 +15,8 @@ export async function runDbManagerSimpleCRUDTest(page: Page, db: _DbType) {
 	// Create table
 	const tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
-	await tableEditor.addColumn('name', 'TEXT')
+	await tableEditor.addColumn('name', getDbDatatype(dbType, 'TEXT'))
+	await tableEditor.getColumn('id').delete() // remove default id column
 	await tableEditor.createTable()
 
 	await Toast.expectSuccess(page, `${friendTableName} created`)
@@ -60,14 +62,14 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	let tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
 	let friendIdCol = await tableEditor.getColumn('id') // deafult id column
-	await friendIdCol.setType('INT')
+	await friendIdCol.setType(getDbDatatype(dbType, 'INT'))
 	if (dbFeatures.primaryKeys) {
 		friendIdCol.setPrimaryKey(true)
 	} else {
 		await expect(await friendIdCol.primaryKeyCheckbox()).toBeHidden()
 	}
-	await tableEditor.addColumn('name', 'TEXT')
-	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
+	await tableEditor.addColumn('name', getDbDatatype(dbType, 'TEXT'))
+	await tableEditor.addColumn('created_at', getDbDatatype(dbType, 'TIMESTAMP'))
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${friendTableName} created`)
 	await page.waitForTimeout(100)
@@ -77,12 +79,12 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(messageTableName)
 	let messageIdCol = await tableEditor.getColumn('id') // deafult id column
-	await messageIdCol.setType('INT')
+	await messageIdCol.setType(getDbDatatype(dbType, 'INT'))
 	if (dbFeatures.primaryKeys) messageIdCol.setPrimaryKey(true)
-	await tableEditor.addColumn('friend_id', 'INT')
-	let contentColumn = await tableEditor.addColumn('content', 'TEXT')
+	await tableEditor.addColumn('friend_id', getDbDatatype(dbType, 'INT'))
+	let contentColumn = await tableEditor.addColumn('content', getDbDatatype(dbType, 'TEXT'))
 	await contentColumn.setSettings({ nullable: true })
-	await tableEditor.addColumn('created_at', dbType === 'ms_sql_server' ? 'DATETIME2' : 'TIMESTAMP')
+	await tableEditor.addColumn('created_at', getDbDatatype(dbType, 'TIMESTAMP'))
 	if (dbFeatures.foreignKeys) {
 		await tableEditor.addForeignKey(friendTableName, 'friend_id', 'id', {
 			onDelete: 'Cascade',
@@ -119,7 +121,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await tableEditor.setTableName(postsTableName)
 	await idCol.delete()
 	await friendCol.setName('person_id')
-	await friendCol.setType('BIGINT')
+	await friendCol.setType(getDbDatatype(dbType, 'BIGINT'))
 	await friendCol.setSettings({
 		defaultValue: dbFeatures.defaultValues ? '123' : undefined,
 		nullable: false
@@ -141,11 +143,11 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	tableEditor = new TableEditorDrawer(page)
 	await idCol.checkNotExists()
 	await friendCol.checkNameIs('person_id')
-	await friendCol.checkTypeIs('BIGINT')
+	await friendCol.checkTypeIs(getDbDatatype(dbType, 'BIGINT'))
 	if (dbFeatures.defaultValues) {
 		await friendCol.checkSettingsIs({ defaultValue: /123/ })
 	}
-	await createdAtCol.checkTypeIs('TIMESTAMP')
+	await createdAtCol.checkTypeIs(getDbDatatype(dbType, 'TIMESTAMP'))
 	await createdAtCol.checkNameIs('created_at')
 	if (dbFeatures.primaryKeys) {
 		await friendCol.checkPrimaryKeyIs(true)
@@ -359,6 +361,7 @@ class Column {
 	async delete() {
 		const deleteBtn = (await this.row()).locator('button.delete-column-btn')
 		await deleteBtn.click()
+		await this.page.waitForTimeout(50)
 	}
 
 	async setPrimaryKey(isPrimaryKey: boolean) {
@@ -489,4 +492,11 @@ function getDbInput(dbType: _DbType): DbInput {
 	} else {
 		return { type: 'database', resourceType: dbType, resourcePath: '' }
 	}
+}
+
+// Ensure exact casing of datatype as per DB_TYPES
+function getDbDatatype(dbType: _DbType, datatype: string): string {
+	if (dbType === 'ms_sql_server' && datatype.toLowerCase() === 'timestamp') datatype = 'datetime2'
+	const allDataTypes = DB_TYPES[dbType == 'ducklake' ? 'duckdb' : dbType] || []
+	return allDataTypes.find((dt) => dt.toLowerCase() === datatype.toLowerCase()) || datatype
 }
