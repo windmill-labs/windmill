@@ -272,6 +272,8 @@
 						uiOnly
 						jsonEnabled={false}
 						editTab="inputEditor"
+						{isFlowInput}
+						{isAppInput}
 					/>
 				</div>
 			{/if}
@@ -284,6 +286,8 @@
 					uiOnly
 					jsonEnabled={false}
 					editTab="inputEditor"
+					{isFlowInput}
+					{isAppInput}
 				/>
 			</div>
 		{/if}
