@@ -1,11 +1,9 @@
 <script lang="ts">
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { emptyString, sendUserToast } from '$lib/utils'
+	import { emptyString, pick, sendUserToast } from '$lib/utils'
 	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
-	import Tab from '../common/tabs/Tab.svelte'
-	import Tabs from '../common/tabs/Tabs.svelte'
 	import Description from '../Description.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
@@ -25,11 +23,22 @@
 	import CloseButton from '../common/CloseButton.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import Select from '../select/Select.svelte'
+	import DataTable from '../table/DataTable.svelte'
+	import Head from '../table/Head.svelte'
+	import Cell from '../table/Cell.svelte'
+	import Row from '../table/Row.svelte'
+	import { deepEqual } from 'fast-equals'
+	import ExploreAssetButton from '../ExploreAssetButton.svelte'
 
 	let {
 		s3ResourceSettings = $bindable(),
+		s3ResourceSavedSettings,
 		onSave = undefined
-	}: { s3ResourceSettings: S3ResourceSettings; onSave?: () => void } = $props()
+	}: {
+		s3ResourceSettings: S3ResourceSettings
+		s3ResourceSavedSettings: S3ResourceSettings
+		onSave?: () => void
+	} = $props()
 
 	let s3FileViewer: S3FilePicker | undefined = $state()
 
@@ -44,6 +53,43 @@
 		console.log('Large file storage settings changed', large_file_storage)
 		sendUserToast(`Large file storage settings changed`)
 		onSave?.()
+	}
+	let tableHeadNames = ['Name', 'Storage resource', '', ''] as const
+	let tableHeadTooltips: Partial<Record<(typeof tableHeadNames)[number], string | undefined>> = {
+		'Storage resource':
+			'Which resource the workspace storage will point to. Note that all users of the workspace will be able to access the workspace storage regardless of the resource visibility.'
+	}
+
+	let tableRows: [string | null, S3ResourceSettingsItem][] = $derived([
+		[null, s3ResourceSettings],
+		...(s3ResourceSettings.secondaryStorage ?? [])
+	])
+	let secondaryStorageIsDirty: Record<string, boolean> = $derived(
+		Object.fromEntries(
+			s3ResourceSettings.secondaryStorage?.map((d) => {
+				const saved = s3ResourceSavedSettings.secondaryStorage?.find((saved) => saved[0] === d[0])
+				return [d[0], !deepEqual(saved?.[1], d[1])] as const
+			}) ?? []
+		)
+	)
+	let primaryStorageIsDirty: boolean = $derived(
+		!deepEqual(
+			pick(s3ResourceSavedSettings, [
+				'resourcePath',
+				'resourceType',
+				'publicResource',
+				'advancedPermissions'
+			]),
+			pick(s3ResourceSettings, [
+				'resourcePath',
+				'resourceType',
+				'publicResource',
+				'advancedPermissions'
+			])
+		)
+	)
+	function isDirty(name: string | null): boolean {
+		return name === null ? primaryStorageIsDirty : secondaryStorageIsDirty[name]
 	}
 </script>
 
@@ -82,140 +128,127 @@
 	</Alert>
 {/if}
 {#if s3ResourceSettings}
-	<div class="mt-5">
-		<div class="w-full">
-			<!-- this can be removed once parent moves to runes -->
-			<!-- svelte-ignore binding_property_non_reactive -->
-			<Tabs bind:selected={s3ResourceSettings.resourceType}>
-				<Tab exact label="S3" value="s3" />
-				<Tab value="azure_blob" label="Azure Blob" />
-				<Tab exact value="s3_aws_oidc" label="AWS OIDC" />
-				<Tab value="azure_workload_identity" label="Azure Workload Identity" />
-				<Tab exact value="gcloud_storage" label="Google Cloud Storage" />
-			</Tabs>
-		</div>
-		<div class="w-full flex gap-1 mt-4 whitespace-nowrap">
-			<!-- this can be removed once parent moves to runes -->
-			<!-- svelte-ignore binding_property_non_reactive -->
-			<ResourcePicker
-				resourceType={s3ResourceSettings.resourceType}
-				bind:value={s3ResourceSettings.resourcePath}
-			/>
-			{@render permissionBtn(s3ResourceSettings)}
-			<Button
-				size="sm"
-				variant="accent"
-				disabled={emptyString(s3ResourceSettings.resourcePath)}
-				on:click={async () => {
-					if ($workspaceStore) {
-						s3FileViewer?.open?.(undefined)
-					}
-				}}>Browse content (save first)</Button
-			>
-		</div>
-	</div>
+	<DataTable containerClass="mt-4">
+		<Head>
+			<tr>
+				{#each tableHeadNames as name, i}
+					<Cell head first={i == 0} last={i == tableHeadNames.length - 1}>
+						{name}
+						{#if tableHeadTooltips[name]}
+							<Tooltip>{@html tableHeadTooltips[name]}</Tooltip>
+						{/if}
+					</Cell>
+				{/each}
+			</tr>
+		</Head>
+		<tbody class="divide-y bg-surface">
+			{#each tableRows as tableRow, idx}
+				<Row>
+					<Cell first class="w-48 relative">
+						{#if tableRow[0] === null}
+							<TextInput inputProps={{ placeholder: 'Primary storage', disabled: true }} />
+						{:else}
+							<TextInput bind:value={tableRow[0]} inputProps={{ placeholder: 'Name' }} />
+						{/if}
+					</Cell>
+					<Cell>
+						<div class="flex gap-2">
+							<div class="relative">
+								<Select
+									items={[
+										{ value: 's3', label: 'S3' },
+										{ value: 'azure_blob', label: 'Azure Blob' },
+										{ value: 's3_aws_oidc', label: 'AWS OIDC' },
+										{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
+										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
+									]}
+									bind:value={tableRow[1].resourceType}
+									class="w-28"
+								/>
+							</div>
+							<div class="flex flex-1">
+								<ResourcePicker
+									class="flex-1"
+									bind:value={tableRow[1].resourcePath}
+									resourceType={tableRow[1].resourceType}
+								/>
+							</div>
+						</div>
+					</Cell>
 
-	<div class="mt-6">
-		<div class="flex mt-2 flex-col gap-y-4 max-w-5xl">
-			{#each s3ResourceSettings.secondaryStorage ?? [] as _, idx}
-				<div class="flex gap-1 relative whitespace-nowrap">
-					<TextInput
-						class="max-w-[200px]"
-						inputProps={{ type: 'text', placeholder: 'Storage name' }}
-						bind:value={
-							() => s3ResourceSettings.secondaryStorage?.[idx]?.[0] || '',
-							(v) => {
-								if (s3ResourceSettings.secondaryStorage?.[idx]) {
-									s3ResourceSettings.secondaryStorage[idx][0] = v
-								}
-							}
-						}
-					/>
-					<Select
-						class="max-w-[125px]"
-						inputClass="h-full"
-						bind:value={
-							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3',
-							(v) => {
-								if (s3ResourceSettings.secondaryStorage?.[idx]) {
-									s3ResourceSettings.secondaryStorage[idx][1].resourceType = v
-								}
-							}
-						}
-						items={[
-							{ value: 's3', label: 'S3' },
-							{ value: 'azure_blob', label: 'Azure Blob' },
-							{ value: 's3_aws_oidc', label: 'AWS OIDC' },
-							{ value: 'azure_workload_identity', label: 'Azure Workload Identity' },
-							{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
-						]}
-					/>
-
-					<ResourcePicker
-						resourceType={s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourceType || 's3'}
-						bind:value={
-							() => s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath || undefined,
-							(v) => {
-								if (s3ResourceSettings.secondaryStorage?.[idx]) {
-									s3ResourceSettings.secondaryStorage[idx][1].resourcePath = v
-								}
-							}
-						}
-					/>
-					{@render permissionBtn(s3ResourceSettings.secondaryStorage![idx][1])}
-					<Button
-						size="sm"
-						variant="accent"
-						disabled={emptyString(s3ResourceSettings.secondaryStorage?.[idx]?.[1].resourcePath)}
-						on:click={async () => {
-							if ($workspaceStore) {
-								s3FileViewer?.open?.({
-									s3: '',
-									storage: s3ResourceSettings.secondaryStorage?.[idx]?.[0] || ''
-								})
-							}
-						}}>Browse content (save first)</Button
-					>
-					<CloseButton
-						class="my-auto"
-						small
-						on:close={() => {
-							if (s3ResourceSettings.secondaryStorage) {
-								s3ResourceSettings.secondaryStorage.splice(idx, 1)
-								s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
-							}
-						}}
-					/>
-				</div>
+					<Cell class="w-12">
+						<div class="flex gap-2">
+							{@render permissionBtn(tableRow[1])}
+							{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
+								<Popover
+									openOnHover
+									contentClasses="p-2 text-sm text-secondary italic"
+									class="cursor-not-allowed"
+								>
+									<svelte:fragment slot="trigger">
+										<ExploreAssetButton asset={{ kind: 's3object', path: '' }} disabled />
+									</svelte:fragment>
+									<svelte:fragment slot="content">Please save settings first</svelte:fragment>
+								</Popover>
+							{:else}
+								<ExploreAssetButton
+									asset={{ kind: 's3object', path: (tableRow[0] ?? '') + '/' }}
+									s3FilePicker={s3FileViewer}
+								/>
+							{/if}
+						</div>
+					</Cell>
+					<Cell class="w-12">
+						{#if tableRow[0] !== null}
+							<CloseButton
+								small
+								on:close={() => {
+									if (s3ResourceSettings.secondaryStorage) {
+										s3ResourceSettings.secondaryStorage.splice(idx - 1, 1)
+										s3ResourceSettings.secondaryStorage = [...s3ResourceSettings.secondaryStorage]
+									}
+								}}
+							/>
+						{/if}
+					</Cell>
+				</Row>
 			{/each}
-			<div class="flex gap-1">
-				<Button
-					size="xs"
-					variant="default"
-					on:click={() => {
-						if (s3ResourceSettings.secondaryStorage === undefined) {
-							s3ResourceSettings.secondaryStorage = []
-						}
-						s3ResourceSettings.secondaryStorage.push([
-							`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
-							{
-								resourcePath: '',
-								resourceType: 's3',
-								publicResource: false,
-								advancedPermissions: defaultS3AdvancedPermissions(!!$enterpriseLicense)
-							}
-						])
-						s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
-					}}><Plus size={14} />Add secondary storage</Button
-				>
-				<Tooltip>
-					Secondary storage is a feature that allows you to read and write from storage that isn't
-					your main storage by specifying it in the s3 object as "secondary_storage" with the name
-					of it
-				</Tooltip>
-			</div>
-		</div>
-	</div>
+			<Row class="!border-0">
+				<Cell colspan={tableHeadNames.length} class="pt-0 pb-2">
+					<div class="flex justify-center">
+						<Button
+							size="sm"
+							btnClasses="max-w-fit"
+							variant="default"
+							on:click={() => {
+								if (s3ResourceSettings.secondaryStorage === undefined) {
+									s3ResourceSettings.secondaryStorage = []
+								}
+								s3ResourceSettings.secondaryStorage.push([
+									`storage_${s3ResourceSettings.secondaryStorage.length + 1}`,
+									{
+										resourcePath: '',
+										resourceType: 's3',
+										publicResource: false,
+										advancedPermissions: defaultS3AdvancedPermissions(!!$enterpriseLicense)
+									}
+								])
+								s3ResourceSettings.secondaryStorage = s3ResourceSettings.secondaryStorage
+							}}
+						>
+							<Plus /> Add secondary storage
+							<Tooltip>
+								Secondary storage is a feature that allows you to read and write from storage that
+								isn't your main storage by specifying it in the s3 object as "secondary_storage"
+								with the name of it
+							</Tooltip>
+						</Button>
+					</div>
+				</Cell>
+			</Row>
+		</tbody>
+	</DataTable>
+
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
 			variant="accent"
@@ -228,10 +261,10 @@
 	</div>
 {/if}
 
-{#snippet permissionBtn(storage: NonNullable<S3ResourceSettings['secondaryStorage']>[number][1])}
+{#snippet permissionBtn(storage: S3ResourceSettingsItem)}
 	<Popover closeOnOtherPopoverOpen placement="left">
 		<svelte:fragment slot="trigger">
-			<Button variant="default" wrapperClasses="h-full" btnClasses="px-2.5" size="sm">
+			<Button variant="default" btnClasses="px-2.5" size="sm">
 				<Shield size={16} /> Permissions <ChevronDown size={14} />
 			</Button>
 		</svelte:fragment>

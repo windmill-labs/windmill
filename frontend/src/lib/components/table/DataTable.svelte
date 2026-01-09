@@ -35,6 +35,7 @@
 		neverShowLoader?: boolean
 		loading?: boolean
 		loadingMore?: boolean
+		containerClass?: string
 		children?: import('svelte').Snippet
 		emptyMessage?: import('svelte').Snippet
 	}
@@ -59,6 +60,7 @@
 		neverShowLoader = false,
 		loading = false,
 		loadingMore = false,
+		containerClass = '',
 		children,
 		emptyMessage
 	}: Props = $props()
@@ -119,7 +121,8 @@
 	class={twMerge(
 		'h-full',
 		rounded ? 'rounded-md overflow-hidden' : '',
-		noBorder ? 'border-0' : 'border'
+		noBorder ? 'border-0' : 'border',
+		containerClass
 	)}
 	bind:clientHeight={tableHeight}
 >
