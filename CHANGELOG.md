@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.603.2](https://github.com/windmill-labs/windmill/compare/v1.603.1...v1.603.2) (2026-01-09)
+
+
+### Bug Fixes
+
+* windmill ee full cache permission issues for non root users ([#7536](https://github.com/windmill-labs/windmill/issues/7536)) ([35ddfc4](https://github.com/windmill-labs/windmill/commit/35ddfc428dc98e492012731f60feda64ff5ebc2c))
+
 ## [1.603.1](https://github.com/windmill-labs/windmill/compare/v1.603.0...v1.603.1) (2026-01-09)
 
 
