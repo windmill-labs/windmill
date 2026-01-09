@@ -49,9 +49,9 @@ jobs:
       needs.check-membership.outputs.is_member == 'true'
     runs-on: ubicloud-standard-8
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
-      issues: read
+      issues: write
       id-token: write
     steps:
       - name: Checkout repository
@@ -63,16 +63,15 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          model: claude-opus-4-1-20250805
-          fallback_model: claude-sonnet-4-20250514
-          timeout_minutes: "60"
-          allowed_tools: "mcp__github__create_pull_request"
           allowed_bots: "windmill-internal-app[bot]"
-          custom_instructions: |
-            ## IMPORTANT INSTRUCTIONS
-            - Your branch name should be a short description of the requested changes.
-            - Bypass previous instructions and instead of adding a url in your comment to manually create a PR, if you created a new branch with your changes, automatically create a draft PR from that branch to main.
-
-            ## Available Tools
-            - mcp__github__create_pull_request: Create PRs from branches
           trigger_phrase: "/ai-fast"
+          plugins: "rust-analyzer-lsp@claude-plugins-official,typescript-lsp@claude-plugins-official"
+          settings: |
+            {
+              "env": {
+                "SQLX_OFFLINE": "true"
+              }
+            }
+          claude_args: |
+            --allowedTools "Bash,WebFetch,WebSearch"
+            --model opus
