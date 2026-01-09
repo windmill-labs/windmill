@@ -120,7 +120,7 @@
 		publicResource: undefined,
 		secondaryStorage: undefined
 	})
-	let initialS3ResourceSettings: S3ResourceSettings = $state({
+	let s3ResourceSavedSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
 		publicResource: undefined,
@@ -353,7 +353,7 @@
 			settings.large_file_storage,
 			!!$enterpriseLicense
 		)
-		initialS3ResourceSettings = clone(s3ResourceSettings)
+		s3ResourceSavedSettings = clone(s3ResourceSettings)
 		dataTableSettings = convertDataTableSettingsFromBackend(settings.datatable)
 		ducklakeSettings = convertDucklakeSettingsFromBackend(settings.ducklake)
 		ducklakeSavedSettings = clone(ducklakeSettings)
@@ -580,7 +580,7 @@
 		}
 
 		const savedValue = {
-			s3ResourceSettings: initialS3ResourceSettings,
+			s3ResourceSettings: s3ResourceSavedSettings,
 			ducklakeSettings: ducklakeSavedSettings
 		}
 
@@ -594,7 +594,7 @@
 
 	// Function to discard unsaved storage settings changes
 	function discardStorageSettingsChanges() {
-		s3ResourceSettings = clone(initialS3ResourceSettings)
+		s3ResourceSettings = clone(s3ResourceSavedSettings)
 		ducklakeSettings = clone(ducklakeSavedSettings)
 	}
 
@@ -1203,8 +1203,9 @@
 		{:else if tab == 'windmill_lfs'}
 			<StorageSettings
 				bind:s3ResourceSettings
+				{s3ResourceSavedSettings}
 				onSave={() => {
-					initialS3ResourceSettings = clone(s3ResourceSettings)
+					s3ResourceSavedSettings = clone(s3ResourceSettings)
 				}}
 			/>
 			<DucklakeSettings
