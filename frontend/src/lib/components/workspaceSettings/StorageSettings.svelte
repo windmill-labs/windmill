@@ -72,22 +72,16 @@
 			}) ?? []
 		)
 	)
-	let primaryStorageIsDirty: boolean = $derived(
-		!deepEqual(
-			pick(s3ResourceSavedSettings, [
-				'resourcePath',
-				'resourceType',
-				'publicResource',
-				'advancedPermissions'
-			]),
-			pick(s3ResourceSettings, [
-				'resourcePath',
-				'resourceType',
-				'publicResource',
-				'advancedPermissions'
-			])
-		)
-	)
+
+	let primaryStorageIsDirty: boolean = $derived.by(() => {
+		const fields = [
+			'resourcePath',
+			'resourceType',
+			'publicResource',
+			'advancedPermissions'
+		] as const
+		return !deepEqual(pick(s3ResourceSavedSettings, fields), pick(s3ResourceSettings, fields))
+	})
 	function isDirty(name: string | null): boolean {
 		return name === null ? primaryStorageIsDirty : secondaryStorageIsDirty[name]
 	}
