@@ -24,3 +24,5 @@ export class ConfirmationModal {
 		await expect(modal).toHaveText(text)
 	}
 }
+
+export const prettify = (s: string) => (s.charAt(0).toUpperCase() + s.slice(1)).replace(/_/g, ' ')
