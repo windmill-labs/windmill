@@ -53,7 +53,7 @@
 			{/if}
 		</div>
 		<h2 class="mt-6 text-center text-2xl font-semibold tracking-tight text-emphasis">
-			Reset Password
+			Reset password
 		</h2>
 		<p class="mt-2 text-center text-xs text-secondary">
 			Enter your email address and we'll send you a link to reset your password
@@ -74,9 +74,7 @@
 						Please check your email and follow the instructions to reset your password.
 					</p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>
-							Back to Login
-						</Button>
+						<Button variant="accent" on:click={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -96,11 +94,9 @@
 
 					<div class="pt-2 flex flex-col gap-2">
 						<Button on:click={requestPasswordReset} variant="accent" disabled={!email || loading}>
-							{loading ? 'Sending...' : 'Send Reset Link'}
+							{loading ? 'Sending...' : 'Send reset link'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>
-							Back to Login
-						</Button>
+						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{/if}

@@ -198,7 +198,8 @@
 	async function checkSmtpConfigured() {
 		try {
 			smtpConfigured = await UserService.isSmtpConfigured()
-		} catch {
+		} catch (err) {
+			console.error('Could not check if SMTP is configured', err)
 			smtpConfigured = false
 		}
 	}

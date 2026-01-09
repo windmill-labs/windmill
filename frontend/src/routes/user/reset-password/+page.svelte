@@ -32,11 +32,6 @@
 			return
 		}
 
-		if (newPassword.length < 8) {
-			sendUserToast('Password must be at least 8 characters long', true)
-			return
-		}
-
 		loading = true
 		try {
 			await UserService.resetPassword({
@@ -48,13 +43,8 @@
 			success = true
 			sendUserToast('Password has been reset successfully!')
 		} catch (err: any) {
-			if (err?.body?.includes('Invalid or expired')) {
-				sendUserToast('Invalid or expired password reset token. Please request a new one.', true)
-			} else if (err?.body?.includes('at least 8 characters')) {
-				sendUserToast('Password must be at least 8 characters long', true)
-			} else {
-				sendUserToast('An error occurred. Please try again later.', true)
-			}
+			console.error('Could not reset password', err)
+			sendUserToast('Could not reset password: ' + err, true)
 		} finally {
 			loading = false
 		}
@@ -82,9 +72,7 @@
 			{success ? 'Password Reset' : 'Set New Password'}
 		</h2>
 		{#if !success}
-			<p class="mt-2 text-center text-xs text-secondary">
-				Enter your new password below
-			</p>
+			<p class="mt-2 text-center text-xs text-secondary"> Enter your new password below </p>
 		{/if}
 	</div>
 
@@ -104,16 +92,10 @@
 				</div>
 			{:else if success}
 				<div class="text-center space-y-4">
-					<p class="text-secondary">
-						Your password has been reset successfully.
-					</p>
-					<p class="text-secondary text-sm">
-						You can now log in with your new password.
-					</p>
+					<p class="text-secondary"> Your password has been reset successfully. </p>
+					<p class="text-secondary text-sm"> You can now log in with your new password. </p>
 					<div class="pt-4">
-						<Button variant="accent" on:click={() => goto('/user/login')}>
-							Go to Login
-						</Button>
+						<Button variant="accent" on:click={() => goto('/user/login')}>Go to login</Button>
 					</div>
 				</div>
 			{:else}
@@ -131,7 +113,6 @@
 								onkeyup={handleKeyUp}
 							/>
 						</div>
-						<p class="text-2xs text-secondary">Minimum 8 characters</p>
 					</div>
 
 					<div class="space-y-1">
@@ -155,11 +136,9 @@
 							variant="accent"
 							disabled={!newPassword || !confirmPassword || loading}
 						>
-							{loading ? 'Resetting...' : 'Reset Password'}
+							{loading ? 'Resetting...' : 'Reset password'}
 						</Button>
-						<Button variant="subtle" on:click={() => goto('/user/login')}>
-							Back to Login
-						</Button>
+						<Button variant="subtle" on:click={() => goto('/user/login')}>Back to login</Button>
 					</div>
 				</div>
 			{/if}
