@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.603.0](https://github.com/windmill-labs/windmill/compare/v1.602.0...v1.603.0) (2026-01-09)
+
+
+### Features
+
+* add password reset flow using configured SMTP settings ([#7525](https://github.com/windmill-labs/windmill/issues/7525)) ([6f7cf2f](https://github.com/windmill-labs/windmill/commit/6f7cf2fb1645bb784af3a68760abc44013bd81f8))
+
 ## [1.602.0](https://github.com/windmill-labs/windmill/compare/v1.601.1...v1.602.0) (2026-01-08)
 
 
