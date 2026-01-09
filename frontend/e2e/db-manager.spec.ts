@@ -6,11 +6,11 @@ import { Toast, prettify } from './utils'
 test.describe('Database resources', () => {
 	for (const dbType of ['postgresql', 'mysql', 'bigquery', 'ms_sql_server', 'snowflake'] as const) {
 		test.describe(prettify(dbType), () => {
-			test(`setup a ${dbType} resource and test simple CRUD with DB Manager`, async ({ page }) => {
+			test(`simple CRUD with DB Manager`, async ({ page }) => {
 				await setupNewResourceAndOpenDbManager(page, dbType)
 				await runDbManagerSimpleCRUDTest(page, dbType)
 			})
-			test(`setup a ${dbType} resource and test Alter table with DB Manager`, async ({ page }) => {
+			test(`Alter table with DB Manager`, async ({ page }) => {
 				await setupNewResourceAndOpenDbManager(page, dbType)
 				await runDbManagerAlterTableTest(page, dbType)
 			})
@@ -28,6 +28,30 @@ test.describe('Data tables', () => {
 		await runDbManagerAlterTableTest(page, 'postgresql')
 	})
 })
+
+test.describe('Ducklake', () => {
+	test('simple CRUD with DB Manager', async ({ page }) => {
+		await openDucklakeDbManager(page)
+		await runDbManagerSimpleCRUDTest(page, 'ducklake')
+	})
+	test('Alter table with DB Manager', async ({ page }) => {
+		await openDucklakeDbManager(page)
+		await runDbManagerAlterTableTest(page, 'ducklake')
+	})
+})
+
+async function openDucklakeDbManager(page: Page) {
+	// await page.goto('/workspace_settings?tab=windmill_lfs')]
+	// // Check if ducklake already exists
+	// let table = page.locator('table')
+	// await table.waitFor({ state: 'visible' })
+	// let rows = await table.locator('tr:has(input[id="name"])').all()
+	// for (const row of rows) {
+	// 	const val = await row.locator('input[id="name"]').inputValue()
+	// 	// Don't setup again if it already exists (saving the settings creates race condition)
+	// 	if (val === datatableId) return
+	// }
+}
 
 async function openDataTableDbManager(page: Page) {
 	await page.goto('/workspace_settings?tab=windmill_data_tables')
@@ -55,9 +79,7 @@ async function setupNewDataTable(page: Page, datatableId: string) {
 	let rows = await table.locator('tr:has(input[id="name"])').all()
 	for (const row of rows) {
 		const val = await row.locator('input[id="name"]').inputValue()
-		// Don't setup again if it already exists.
-		// The reason we do not use a unique datatable per test is that saving
-		// the settings create a race condition when multiple tests run in parallel.
+		// Don't setup again if it already exists (saving the settings creates race condition)
 		if (val === datatableId) return
 	}
 
@@ -161,13 +183,15 @@ async function setupNewResource(
 	page: Page,
 	resourceType: DbType
 ): Promise<{ resourceName: string }> {
-	// Generate unique ID with timestamp
-	const resourceName = `${resourceType}_${Date.now()}`
+	const resourceName = `${resourceType}_e2e}`
 
 	await page.goto('/resources')
 
+	await page.locator('table').waitFor({ state: 'visible' })
+	if (await page.locator(`table tr:has-text("${resourceName}")`).isVisible())
+		return { resourceName }
+
 	const newDataTableButton = page.locator('button:text-is("Add resource")')
-	await newDataTableButton.waitFor({ state: 'visible' })
 	await newDataTableButton.click()
 
 	const addResourceDrawer = page.locator('#add-resource-drawer')

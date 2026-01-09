@@ -228,24 +228,24 @@ services:
       retries: 5
     logging: *default-logging
 
-  # minio_e2e:
-  #   image: minio/minio:latest
-  #   restart: unless-stopped
-  #   command: server /data --console-address ":9001"
-  #   expose:
-  #     - 9000
-  #     - 9001
-  #   environment:
-  #     MINIO_ROOT_USER: minioadmin
-  #     MINIO_ROOT_PASSWORD: minioadmin
-  #   volumes:
-  #     - minio_data:/data
-  #   healthcheck:
-  #     test: ["CMD", "mc", "ready", "local"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   logging: *default-logging
+  minio_e2e:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    expose:
+      - 9000
+      - 9001
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
 
 volumes:
   db_data: null
@@ -256,4 +256,4 @@ volumes:
   mssql_data: null
   oracle_data: null
   postgres_e2e_data: null
-  # minio_data: null
+  minio_data: null
