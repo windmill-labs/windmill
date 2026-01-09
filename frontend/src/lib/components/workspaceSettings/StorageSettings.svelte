@@ -90,6 +90,11 @@
 	function isDirty(name: string | null): boolean {
 		return name === null ? primaryStorageIsDirty : secondaryStorageIsDirty[name]
 	}
+
+	function isPermissionsNonDefault(storage: S3ResourceSettingsItem): boolean {
+		const defaultPerms = defaultS3AdvancedPermissions(!!$enterpriseLicense)
+		return !deepEqual(storage.advancedPermissions, defaultPerms)
+	}
 </script>
 
 <Portal name="workspace-settings">
@@ -179,12 +184,16 @@
 						<div class="flex gap-2">
 							<Button
 								variant="default"
-								btnClasses="px-2.5"
+								btnClasses="px-2.5 relative"
 								size="sm"
 								onClick={() =>
 									(advancedPermissionModalState = { open: true, storage: tableRow[1] })}
 							>
 								<Shield size={16} /> Permissions <ChevronDown size={14} />
+								{#if isPermissionsNonDefault(tableRow[1])}
+									<span class="absolute -top-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-accent"
+									></span>
+								{/if}
 							</Button>
 							{#if emptyString(tableRow[1].resourcePath) || isDirty(tableRow[0])}
 								<Popover
@@ -387,7 +396,6 @@
 				<MultiSelect
 					items={[{ value: 'read' }, { value: 'write' }, { value: 'delete' }, { value: 'list' }]}
 					bind:value={item.allow}
-					disablePortal
 					class="w-[20rem]"
 					placeholder="Deny all access"
 					hideMainClearBtn
