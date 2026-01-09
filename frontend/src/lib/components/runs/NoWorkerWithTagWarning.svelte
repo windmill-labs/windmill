@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { WorkerService } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { onDestroy, untrack } from 'svelte'
@@ -28,7 +29,10 @@
 	async function lookForTag(): Promise<void> {
 		try {
 			if (!customTag) return
-			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({ tags: customTag })
+			const existsWorkerWithTag = await WorkerService.existsWorkersWithTags({
+				tags: customTag,
+				workspace: $workspaceStore
+			})
 			noWorkerWithTag = !existsWorkerWithTag[customTag]
 			if (noWorkerWithTag) {
 				timeout = setTimeout(() => {
