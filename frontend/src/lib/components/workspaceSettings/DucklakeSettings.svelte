@@ -352,18 +352,12 @@
 								class="cursor-not-allowed"
 							>
 								<svelte:fragment slot="trigger">
-									<ExploreAssetButton
-										class="h-9"
-										asset={{ kind: 'ducklake', path: ducklake.name }}
-										{dbManagerDrawer}
-										disabled
-									/>
+									<ExploreAssetButton asset={{ kind: 'ducklake', path: '' }} disabled />
 								</svelte:fragment>
 								<svelte:fragment slot="content">Please save settings first</svelte:fragment>
 							</Popover>
 						{:else}
 							<ExploreAssetButton
-								class="h-9"
 								asset={{ kind: 'ducklake', path: ducklake.name }}
 								{dbManagerDrawer}
 							/>
