@@ -1,0 +1,234 @@
+version: "3.7"
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "${LOG_MAX_SIZE:-20m}"
+    max-file: "${LOG_MAX_FILE:-10}"
+    compress: "true"
+
+services:
+  db:
+    deploy:
+      replicas: 1
+    image: postgres:16
+    shm_size: 1g
+    restart: unless-stopped
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    expose:
+      - 5432
+    environment:
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: windmill
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  windmill_server:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    expose:
+      - 8000
+      - 2525
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=server
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+
+    logging: *default-logging
+
+  windmill_worker:
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 3
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
+          # for GB, use syntax '2Gi'
+    restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    # privileged: true
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=default
+      # Uncomment to enable PID namespace isolation (requires privileged: true above)
+      # - ENABLE_UNSHARE_PID=true
+    depends_on:
+      db:
+        condition: service_healthy
+    # to mount the worker folder to debug, KEEP_JOB_DIR=true and mount /tmp/windmill
+    volumes:
+      # mount the docker socket to allow to run docker containers from within the workers
+      - /var/run/docker.sock:/var/run/docker.sock
+      - worker_dependency_cache:/tmp/windmill/cache
+      - worker_logs:/tmp/windmill/logs
+
+    logging: *default-logging
+
+  ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
+  windmill_worker_native:
+    # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
+    image: ${WM_IMAGE}
+    pull_policy: always
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2048M
+          # for GB, use syntax '2Gi'
+    restart: unless-stopped
+    # Uncomment to enable PID namespace isolation (recommended for security)
+    # Requires privileged mode for --mount-proc flag
+    # See: https://www.windmill.dev/docs/advanced/security_isolation
+    # privileged: true
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MODE=worker
+      - WORKER_GROUP=native
+      - NUM_WORKERS=8
+      - SLEEP_QUEUE=200
+      # Uncomment to enable PID namespace isolation (requires privileged: true above)
+      # - ENABLE_UNSHARE_PID=true
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - worker_logs:/tmp/windmill/logs
+    logging: *default-logging
+
+  # E2E Testing Services
+  mysql_e2e:
+    image: mysql:8.0
+    restart: unless-stopped
+    expose:
+      - 3306
+    environment:
+      MYSQL_ROOT_PASSWORD: mysql_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-pmysql_password",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  mssql_e2e:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: unless-stopped
+    expose:
+      - 1433
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "MsSql_Pass123!"
+      MSSQL_PID: Developer
+    volumes:
+      - mssql_data:/var/opt/mssql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P 'MsSql_Pass123!' -Q 'SELECT 1' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging: *default-logging
+
+  oracle_e2e:
+    image: gvenzl/oracle-xe:21-slim
+    restart: unless-stopped
+    expose:
+      - 1521
+    environment:
+      ORACLE_PASSWORD: oracle_password
+      ORACLE_DATABASE: test_db
+      APP_USER: test_user
+      APP_USER_PASSWORD: test_password
+    volumes:
+      - oracle_data:/opt/oracle/oradata
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    logging: *default-logging
+
+  postgres_e2e:
+    image: postgres:16
+    restart: unless-stopped
+    expose:
+      - 5432
+    environment:
+      POSTGRES_PASSWORD: postgres_password
+      POSTGRES_DB: test_db
+      POSTGRES_USER: test_user
+    volumes:
+      - postgres_e2e_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *default-logging
+
+  # minio_e2e:
+  #   image: minio/minio:latest
+  #   restart: unless-stopped
+  #   command: server /data --console-address ":9001"
+  #   expose:
+  #     - 9000
+  #     - 9001
+  #   environment:
+  #     MINIO_ROOT_USER: minioadmin
+  #     MINIO_ROOT_PASSWORD: minioadmin
+  #   volumes:
+  #     - minio_data:/data
+  #   healthcheck:
+  #     test: ["CMD", "mc", "ready", "local"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #   logging: *default-logging
+
+volumes:
+  db_data: null
+  worker_dependency_cache: null
+  worker_logs: null
+  mysql_data: null
+  mssql_data: null
+  oracle_data: null
+  postgres_e2e_data: null
+  # minio_data: null
