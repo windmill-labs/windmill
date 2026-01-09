@@ -130,6 +130,7 @@ export type IDbSchemaOps = {
 	onDeleteSchema: (params: { schema: string }) => Promise<void>
 	onFetchTableEditorDefinition: (params: {
 		table: string
+		schema?: string
 		getColDefs: () => Promise<TableMetadata>
 	}) => Promise<TableEditorValues>
 }
@@ -189,12 +190,13 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
 			})
 		},
-		onFetchTableEditorDefinition: async ({ table, getColDefs }) => {
+		onFetchTableEditorDefinition: async ({ table, schema, getColDefs }) => {
 			let colDefs = await getColDefs()
 			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
 				input,
 				dbType,
 				table,
+				schema,
 				workspace,
 				dbArg,
 				language

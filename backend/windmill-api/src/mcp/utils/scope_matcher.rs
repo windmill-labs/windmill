@@ -3,7 +3,7 @@
 //! Contains utilities for parsing and matching MCP token scopes to determine
 //! which scripts, flows, and endpoints a token has access to.
 
-use rmcp::ErrorData;
+use windmill_mcp::server::ErrorData;
 
 /// Configuration for MCP scopes parsed from token scopes
 #[derive(Debug, Clone, Default)]

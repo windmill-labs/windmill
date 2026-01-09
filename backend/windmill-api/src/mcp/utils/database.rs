@@ -3,7 +3,7 @@
 //! Contains all database query functions and database-related utilities
 //! used by the MCP server implementation.
 
-use rmcp::ErrorData;
+use windmill_mcp::server::ErrorData;
 use sql_builder::prelude::*;
 use windmill_common::db::UserDB;
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};

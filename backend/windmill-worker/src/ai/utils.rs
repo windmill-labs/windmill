@@ -1,4 +1,5 @@
-use crate::ai::types::{ToolDef, ToolDefFunction};
+pub use crate::ai::types::McpToolSource;
+use crate::ai::types::ToolDef;
 use anyhow::Context;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
@@ -7,6 +8,7 @@ use std::{
     sync::Arc,
 };
 use uuid::Uuid;
+use windmill_common::flows::FlowModuleValue;
 use windmill_common::{
     ai_providers::AIProvider,
     db::DB,
@@ -18,10 +20,8 @@ use windmill_common::{
     scripts::{ScriptHash, ScriptLang},
     worker::to_raw_value,
 };
-use windmill_common::{
-    flows::FlowModuleValue,
-    mcp_client::{McpClient, McpResource, McpTool, McpToolSource},
-};
+#[cfg(feature = "mcp")]
+use windmill_mcp::{McpClient, McpResource, McpTool};
 use windmill_queue::{flow_status::get_step_of_flow_status, MiniPulledJob};
 
 use crate::{ai::types::*, parse_sig_of_lang};
@@ -322,6 +322,7 @@ pub fn should_use_structured_output_tool(provider: &AIProvider, model: &str) -> 
 }
 
 /// Cleanup MCP clients by gracefully shutting down connections
+#[cfg(feature = "mcp")]
 pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
     if mcp_clients.is_empty() {
         return;
@@ -351,6 +352,7 @@ pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
 }
 
 /// Convert raw MCP tools to Windmill Tool format with source tracking
+#[cfg(feature = "mcp")]
 fn convert_mcp_tools_to_windmill_tools(
     mcp_tools: &[McpTool],
     resource_name: &str,
@@ -396,6 +398,7 @@ fn convert_mcp_tools_to_windmill_tools(
 }
 
 /// Configuration for loading tools from an MCP server resource
+#[cfg(feature = "mcp")]
 #[derive(Debug, Clone)]
 pub struct McpResourceConfig {
     pub resource_path: String,
@@ -408,6 +411,7 @@ pub struct McpResourceConfig {
 /// - If include_tools is Some and non-empty: whitelist approach (keep only listed tools)
 /// - Else if exclude_tools is Some and non-empty: blacklist approach (remove listed tools)
 /// - Otherwise: no filtering (keep all tools)
+#[cfg(feature = "mcp")]
 fn apply_tool_filters(
     tools: Vec<Tool>,
     include_tools: &Option<Vec<String>>,
@@ -449,6 +453,7 @@ fn apply_tool_filters(
 
 /// Load tools from MCP servers and return both the clients and tools
 /// Returns a map of resource name -> client, and a vector of tools
+#[cfg(feature = "mcp")]
 pub async fn load_mcp_tools(
     db: &DB,
     workspace_id: &str,
@@ -517,6 +522,7 @@ pub async fn load_mcp_tools(
 }
 
 /// Execute an MCP tool by routing the call to the appropriate MCP client
+#[cfg(feature = "mcp")]
 pub async fn execute_mcp_tool(
     mcp_clients: &HashMap<String, Arc<McpClient>>,
     mcp_source: &McpToolSource,
@@ -537,6 +543,43 @@ pub async fn execute_mcp_tool(
         .context("MCP tool call failed")?;
 
     Ok(result)
+}
+
+// Stub implementations when mcp feature is not enabled
+#[cfg(not(feature = "mcp"))]
+pub struct McpResourceConfig {
+    pub resource_path: String,
+    pub include_tools: Option<Vec<String>>,
+    pub exclude_tools: Option<Vec<String>>,
+}
+
+/// Stub for cleanup_mcp_clients when mcp is not enabled
+#[cfg(not(feature = "mcp"))]
+pub async fn cleanup_mcp_clients<T>(_mcp_clients: HashMap<String, Arc<T>>) {
+    // No-op when MCP is disabled
+}
+
+/// Stub for load_mcp_tools when mcp is not enabled
+#[cfg(not(feature = "mcp"))]
+pub async fn load_mcp_tools<T>(
+    _db: &DB,
+    _workspace_id: &str,
+    _mcp_configs: Vec<McpResourceConfig>,
+) -> Result<(HashMap<String, Arc<T>>, Vec<Tool>), Error> {
+    Ok((HashMap::new(), Vec::new()))
+}
+
+/// Stub for execute_mcp_tool when mcp is not enabled
+#[cfg(not(feature = "mcp"))]
+pub async fn execute_mcp_tool<T>(
+    _mcp_clients: &HashMap<String, Arc<T>>,
+    mcp_source: &McpToolSource,
+    _arguments_str: &str,
+) -> Result<serde_json::Value, Error> {
+    Err(Error::internal_err(format!(
+        "MCP support is not enabled. Cannot execute MCP tool: {}",
+        mcp_source.tool_name
+    )))
 }
 
 /// Check if any tool's input transforms reference previous_result
