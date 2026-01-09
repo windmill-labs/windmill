@@ -70,7 +70,7 @@ export {
 //   }
 // });
 
-export const VERSION = "1.602.0";
+export const VERSION = "1.603.0";
 
 // Re-exported from constants.ts to maintain backwards compatibility
 export { WM_FORK_PREFIX } from "./core/constants.ts";
