@@ -1,4 +1,4 @@
-import { test, expect, Page } from '@playwright/test'
+import { test, expect, Page, Locator } from '@playwright/test'
 import { runDbManagerAlterTableTest, runDbManagerSimpleCRUDTest } from './DbManagerPage'
 import { DbType } from '../src/lib/components/dbTypes'
 import { Toast, prettify } from './utils'
@@ -30,27 +30,38 @@ test.describe('Data tables', () => {
 })
 
 test.describe('Ducklake', () => {
+	// Avoid race condition when saving settings.
+	// Be careful when adding new tests here.
+	// TODO : find a way to run these tests in parallel (setup for all storage resources ?)
+	test.describe.configure({ mode: 'serial' })
+
 	test('simple CRUD with DB Manager', async ({ page }) => {
-		await openDucklakeDbManager(page)
+		await openDucklakeDbManager(page, 's3')
 		await runDbManagerSimpleCRUDTest(page, 'ducklake')
 	})
 	test('Alter table with DB Manager', async ({ page }) => {
-		await openDucklakeDbManager(page)
+		await openDucklakeDbManager(page, 's3')
 		await runDbManagerAlterTableTest(page, 'ducklake')
 	})
 })
 
-async function openDucklakeDbManager(page: Page) {
-	// await page.goto('/workspace_settings?tab=windmill_lfs')]
-	// // Check if ducklake already exists
-	// let table = page.locator('table')
-	// await table.waitFor({ state: 'visible' })
-	// let rows = await table.locator('tr:has(input[id="name"])').all()
-	// for (const row of rows) {
-	// 	const val = await row.locator('input[id="name"]').inputValue()
-	// 	// Don't setup again if it already exists (saving the settings creates race condition)
-	// 	if (val === datatableId) return
-	// }
+async function openDucklakeDbManager(page: Page, resource_type: StorageResourceType) {
+	let { storage } = await setupWsStorage(page, resource_type)
+	await page.goto('/workspace_settings?tab=windmill_lfs')
+	const timestamp = Date.now()
+	await page.locator('button:has-text("New Ducklake")').click()
+	let lastRow = page.locator('.ducklake-settings-table').locator('tr').nth(-2)
+	await lastRow.locator('input.ducklake-name').fill(`ducklake_${timestamp}`)
+	await lastRow.locator('.ducklake-workspace-storage-select').click()
+	await page.locator(`.select-dropdown-open li:has(:has-text("${storage}"))`).click()
+	await lastRow.locator('input.ducklake-storage-data-path').fill(`ducklake_${timestamp}`)
+	await setupCustomInstanceDb(lastRow, page, storage)
+	await page.locator('button:has-text("Save ducklake settings")').click()
+	if (await page.locator('text=Some databases are not setup').isVisible()) {
+		await page.locator('button:has-text("Save anyway")').click()
+	}
+	await Toast.expectSuccess(page, 'Ducklake settings saved successfully')
+	await lastRow.locator('button:has-text("Manage")').click()
 }
 
 async function openDataTableDbManager(page: Page) {
@@ -98,11 +109,33 @@ async function setupNewDataTable(page: Page, datatableId: string) {
 	const databaseTypeSelect = lastRow.locator('input[id="database-type-select"]')
 	await expect(databaseTypeSelect).toHaveValue('Instance')
 
+	await setupCustomInstanceDb(lastRow, page, datatableId)
+
+	const saveBtn = page.locator('button:has-text("Save")')
+	await saveBtn.click()
+
+	if (await page.locator('text=Some databases are not setup').isVisible()) {
+		await page.locator('button:has-text("Save anyway")').click()
+	}
+
+	// Verify success toast appears
+	await Toast.expectSuccess(page, 'saved successfully')
+
+	return { datatableId }
+}
+
+async function setupCustomInstanceDb(row: Locator, page: Page, name: string) {
 	// Click on custom instance DB select and add new database
-	const customInstanceDbSelect = lastRow.locator('input[id="custom-instance-db-select"]')
+	const customInstanceDbSelect = row.locator('input[id="custom-instance-db-select"]')
 	await customInstanceDbSelect.waitFor({ state: 'visible' })
 	await customInstanceDbSelect.click()
-	await customInstanceDbSelect.fill(datatableId)
+	await customInstanceDbSelect.fill(name)
+
+	// Check if the database already exists in the dropdown
+	if (await page.locator(`.select-dropdown-open li:has(:text-is("${name}"))`).isVisible()) {
+		await page.locator(`.select-dropdown-open li:has(:text-is("${name}"))`).click()
+		return
+	}
 
 	// Click on the "Add new:" button
 	const addNewButton = page.locator(`button:has-text("Add new: ")`)
@@ -110,7 +143,7 @@ async function setupNewDataTable(page: Page, datatableId: string) {
 	await addNewButton.click()
 
 	// Click on Setup button
-	const setupButton = lastRow.locator('button:has-text("Setup")')
+	const setupButton = row.locator('button:has-text("Setup")')
 	await setupButton.waitFor({ state: 'visible' })
 	await setupButton.click()
 
@@ -128,18 +161,6 @@ async function setupNewDataTable(page: Page, datatableId: string) {
 
 	const closeModalBtn = page.locator('button[id="modal-close-button"]')
 	await closeModalBtn.click()
-
-	const saveBtn = page.locator('button:has-text("Save")')
-	await saveBtn.click()
-
-	if (await page.locator('text=Some databases are not setup').isVisible()) {
-		await page.locator('button:has-text("Save anyway")').click()
-	}
-
-	// Verify success toast appears
-	await Toast.expectSuccess(page, 'saved successfully')
-
-	return { datatableId }
 }
 
 const resourceByDbType = {
@@ -191,11 +212,66 @@ const wsStorageResources = {
 	}
 }
 
+const storageResourceTypeDropdownLabels = {
+	s3: 'S3',
+	azure_blob: 'Azure Blob',
+	s3_aws_oidc: 'AWS OIDC',
+	azure_workload_identity: 'Azure Workload Identity',
+	gcloud_storage: 'Google Cloud Storage'
+}
+type StorageResourceType = keyof typeof wsStorageResources
+
+async function setupWsStorage(
+	page: Page,
+	resource_type: StorageResourceType
+): Promise<{ storage: string }> {
+	let { resourceName } = await setupNewResource(
+		page,
+		resource_type,
+		wsStorageResources[resource_type]
+	)
+	let storage = `${resource_type}_storage_e2e`
+
+	await page.goto('/workspace_settings?tab=windmill_lfs')
+	await page.locator('.storage-settings-table').waitFor({ state: 'visible' })
+
+	let rows = await page
+		.locator('.storage-settings-table tr:has(input.secondary-storage-name-input)')
+		.all()
+	for (const row of rows) {
+		const val = await row.locator('input.secondary-storage-name-input').inputValue()
+		if (val === storage) return { storage }
+	}
+
+	// Click on the Add Storage button
+	await page.locator('button:has-text("Add secondary storage")').click()
+	let lastRow = page.locator('.storage-settings-table tr').nth(-2)
+
+	// Fill the name input with generated ID
+	const nameInput = lastRow.locator('input.secondary-storage-name-input')
+	await nameInput.fill(storage)
+
+	// Select resource type
+	await lastRow.locator('#storage-resource-type-select').click()
+	const dropdownResourceTypeLabel =
+		storageResourceTypeDropdownLabels[resource_type] ?? resource_type
+	await page.locator(`.select-dropdown-open li:has(:text-is("${dropdownResourceTypeLabel}"))`)
+
+	// Select resource
+	await lastRow.locator('#resource-picker-select').click()
+	await page.locator(`.select-dropdown-open li:has(:has-text("${resourceName}"))`).click()
+
+	await page.locator('button:has-text("Save storage settings")').click()
+	await Toast.expectSuccess(page, 'storage settings changed')
+	return { storage }
+}
+
 async function setupNewResource(
 	page: Page,
-	resourceType: DbType
+	resourceType: string,
+	resourceObj: object
 ): Promise<{ resourceName: string }> {
-	const resourceName = `${resourceType}_e2e}`
+	const resourceName = `${resourceType}_e2e`
 
 	await page.goto('/resources')
 
@@ -209,7 +285,10 @@ async function setupNewResource(
 	const addResourceDrawer = page.locator('#add-resource-drawer')
 	await expect(addResourceDrawer).toBeVisible()
 
-	const resourceTypeBtn = addResourceDrawer.locator(`button:has-text("${resourceType}")`)
+	const searchInput = addResourceDrawer.locator('input#search-resource-type')
+	await searchInput.fill(resourceType)
+
+	const resourceTypeBtn = addResourceDrawer.locator(`button:has(:text-is("${resourceType}"))`)
 	await resourceTypeBtn.waitFor({ state: 'visible' })
 	await resourceTypeBtn.click()
 
@@ -219,7 +298,6 @@ async function setupNewResource(
 
 	await addResourceDrawer.locator('input#path').fill(resourceName)
 
-	const resourceObj = resourceByDbType[resourceType]
 	const jsonEditor = page.locator('.simple-editor .view-lines')
 	await expect(jsonEditor).toBeVisible()
 	await jsonEditor.click({ clickCount: 4 }) // Select all existing text
@@ -235,7 +313,7 @@ async function setupNewResource(
 }
 
 async function setupNewResourceAndOpenDbManager(page: Page, dbType: DbType) {
-	let { resourceName } = await setupNewResource(page, dbType)
+	let { resourceName } = await setupNewResource(page, dbType, resourceByDbType[dbType])
 
 	const resourceRow = page.locator(`table tr:has-text("${resourceName}")`)
 	await expect(resourceRow).toBeVisible()
