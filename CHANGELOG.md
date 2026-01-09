@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.603.1](https://github.com/windmill-labs/windmill/compare/v1.603.0...v1.603.1) (2026-01-09)
+
+
+### Bug Fixes
+
+* Better workspace storage settings ([#7533](https://github.com/windmill-labs/windmill/issues/7533)) ([17d29cd](https://github.com/windmill-labs/windmill/commit/17d29cd8c770fbe1f7503367474951e5eb6991b1))
+* Fix custom instance user migration ([#7534](https://github.com/windmill-labs/windmill/issues/7534)) ([7b19ca4](https://github.com/windmill-labs/windmill/commit/7b19ca44a3ff7e2e87d5a358873370aeb40dc7a3))
+
 ## [1.603.0](https://github.com/windmill-labs/windmill/compare/v1.602.0...v1.603.0) (2026-01-09)
 
 
