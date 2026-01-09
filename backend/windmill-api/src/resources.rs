@@ -48,7 +48,7 @@ use windmill_common::{
 };
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/list", get(list_resources))
         .route("/list_search", get(list_search_resources))
         .route("/list_names/:type", get(list_names))
@@ -75,8 +75,12 @@ pub fn workspaced_service() -> Router {
             "/file_resource_type_to_file_ext_map",
             get(file_resource_ext_to_resource_type),
         )
-        .route("/type/create", post(create_resource_type))
-        .route("/mcp_tools/*path", get(get_mcp_tools))
+        .route("/type/create", post(create_resource_type));
+
+    #[cfg(feature = "mcp")]
+    let router = router.route("/mcp_tools/*path", get(get_mcp_tools));
+
+    router
 }
 
 pub fn public_service() -> Router {
@@ -1400,6 +1404,7 @@ where
 }
 
 /// Get list of tools from an MCP resource
+#[cfg(feature = "mcp")]
 async fn get_mcp_tools(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1431,11 +1436,11 @@ async fn get_mcp_tools(
 
     // Parse MCP resource
     let mcp_resource =
-        serde_json::from_str::<windmill_common::mcp_client::McpResource>(resource_value.0.get())
+        serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
             .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
 
     // Create MCP client connection
-    let client = windmill_common::mcp_client::McpClient::from_resource(mcp_resource, &db, &w_id)
+    let client = windmill_mcp::McpClient::from_resource(mcp_resource, &db, &w_id)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Failed to connect to MCP server: {}", e)))?;
 
