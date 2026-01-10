@@ -191,15 +191,15 @@ export function dbSchemaOpsWithPreviewScripts({
 			})
 		},
 		onFetchTableEditorDefinition: async ({ table, schema, getColDefs }) => {
-			let colDefs = await getColDefs()
-			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
+			let { foreignKeys, pk_constraint_name, colDefs } = await fetchTableRelationalKeys(
 				input,
 				dbType,
 				table,
 				schema,
 				workspace,
 				dbArg,
-				language
+				language,
+				getColDefs
 			)
 
 			return buildTableEditorValues({
