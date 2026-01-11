@@ -440,24 +440,24 @@ async fn get_flow_env_by_flow_job_id(
 ) -> windmill_common::error::JsonResult<Box<JsonRawValue>> {
     let flow_env = sqlx::query_scalar!(
             r#"
-                SELECT 
-                    CASE 
+                SELECT
+                    CASE
                         WHEN flow_version.id IS NOT NULL THEN
                             (flow_version.value -> 'flow_env' -> $3) #> $4
                         ELSE
                             (root_job.raw_flow -> 'flow_env' -> $3) #> $4
                     END AS "flow_env: sqlx::types::Json<Box<RawValue>>"
-                FROM 
+                FROM
                     v2_job current_job
-                JOIN 
+                JOIN
                     v2_job root_job ON root_job.id = COALESCE(current_job.root_job, current_job.flow_innermost_root_job, current_job.parent_job, current_job.id)
                     AND root_job.workspace_id = current_job.workspace_id
                 LEFT JOIN
                     flow_version ON flow_version.id = root_job.runnable_id
                     AND flow_version.path = root_job.runnable_path
                     AND flow_version.workspace_id = root_job.workspace_id
-            WHERE 
-                    current_job.id = $1 AND 
+            WHERE
+                    current_job.id = $1 AND
                     current_job.workspace_id = $2"#,
             flow_job_id,
             w_id,
@@ -4341,12 +4341,12 @@ pub async fn run_flow_by_version_inner(
 
     let flow_path = sqlx::query_scalar!(
         r#"
-            SELECT 
-                path 
-            FROM 
-                flow_version 
-            WHERE 
-                id = $1 AND 
+            SELECT
+                path
+            FROM
+                flow_version
+            WHERE
+                id = $1 AND
                 workspace_id = $2
             "#,
         version,
@@ -4953,10 +4953,10 @@ pub async fn run_wait_result_internal(
                         result AS \"result: sqlx::types::Json<Box<RawValue>>\",
                         result_columns,
                         status = 'success' AS \"success!\"
-                    FROM 
+                    FROM
                         v2_job_completed
-                    WHERE 
-                        id = $1 AND 
+                    WHERE
+                        id = $1 AND
                         workspace_id = $2
                     ",
                 uuid,
@@ -5960,12 +5960,12 @@ pub async fn run_wait_result_flow_by_version(
 
     let flow_path = sqlx::query_scalar!(
         r#"
-                SELECT 
-                    path 
-                FROM 
-                    flow_version 
-                WHERE 
-                    id = $1 AND 
+                SELECT
+                    path
+                FROM
+                    flow_version
+                WHERE
+                    id = $1 AND
                     workspace_id = $2
             "#,
         version,
@@ -6925,12 +6925,12 @@ async fn run_dynamic_select(
                     None => {
                         let dynamic_input = sqlx::query_scalar!(
                             r#"
-                            SELECT 
-                                schema 
-                            FROM 
-                                flow 
-                            WHERE 
-                                workspace_id = $1 AND 
+                            SELECT
+                                schema
+                            FROM
+                                flow
+                            WHERE
+                                workspace_id = $1 AND
                                 path = $2
                         "#,
                             &w_id,
@@ -7235,6 +7235,9 @@ impl Hash for JobUpdate {
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
+    if file_p.contains("..") {
+        return Err(error::Error::BadRequest("Invalid path".to_string()));
+    }
     let local_file = format!("{TMP_DIR}/logs/{file_p}");
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
@@ -7647,9 +7650,9 @@ async fn get_flow_stream_delta(
     if let Some(job_id) = flow_stream_job_id {
         let record = sqlx::query!(
             "
-                SELECT 
-                    string_agg(stream, '' order by idx asc) as stream, 
-                    max(idx) + 1 as offset 
+                SELECT
+                    string_agg(stream, '' order by idx asc) as stream,
+                    max(idx) + 1 as offset
                 FROM job_result_stream_v2
                 WHERE job_id = $2 AND idx >= $1
                 ",
@@ -7710,15 +7713,15 @@ async fn get_job_update_data(
                 let r = sqlx::query!(
                     "
                     WITH result_stream AS (
-                        SELECT 
-                            string_agg(stream, '' order by idx asc) as stream, 
-                            job_id, 
-                            max(idx) + 1 as offset 
+                        SELECT
+                            string_agg(stream, '' order by idx asc) as stream,
+                            job_id,
+                            max(idx) + 1 as offset
                         FROM job_result_stream_v2
                         WHERE job_id = $2 AND idx >= $3
                         GROUP BY job_id
                     )
-                    SELECT 
+                    SELECT
                         jc.result as \"result: sqlx::types::Json<Box<RawValue>>\",
                         v2_job.tag,
                         v2_job_queue.running as \"running: Option<bool>\",
@@ -7760,10 +7763,10 @@ async fn get_job_update_data(
                     let r = sqlx::query!(
                         "
                         WITH result_stream AS (
-                            SELECT 
-                                string_agg(stream, '' order by idx asc) as stream, 
-                                job_id, 
-                                max(idx) + 1 as offset 
+                            SELECT
+                                string_agg(stream, '' order by idx asc) as stream,
+                                job_id,
+                                max(idx) + 1 as offset
                             FROM job_result_stream_v2
                             WHERE job_id = $1 AND idx >= $3
                             GROUP BY job_id
@@ -7803,10 +7806,10 @@ async fn get_job_update_data(
                     let q = sqlx::query!(
                         "
                         WITH result_stream AS (
-                            SELECT 
-                                string_agg(stream, '' order by idx asc) as stream, 
-                                job_id, 
-                                max(idx) + 1 as offset 
+                            SELECT
+                                string_agg(stream, '' order by idx asc) as stream,
+                                job_id,
+                                max(idx) + 1 as offset
                             FROM job_result_stream_v2
                             WHERE job_id = $2 AND idx >= $3
                             GROUP BY job_id
@@ -7874,10 +7877,10 @@ async fn get_job_update_data(
         let mut record = sqlx::query!(
                 "
                 WITH result_stream AS (
-                    SELECT 
-                        string_agg(stream, '' order by idx asc) as stream, 
-                        job_id, 
-                        max(idx) + 1 as offset 
+                    SELECT
+                        string_agg(stream, '' order by idx asc) as stream,
+                        job_id,
+                        max(idx) + 1 as offset
                     FROM job_result_stream_v2
                     WHERE job_id = $3 AND idx >= $8
                     GROUP BY job_id

@@ -1469,6 +1469,55 @@ struct GitRepositoryResource {
     branch: Option<String>,
 }
 
+/// Validates a git URL to prevent git option injection attacks.
+/// Git URLs starting with '-' could be interpreted as command-line options.
+fn validate_git_url(url: &str) -> Result<()> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(Error::BadRequest("Git URL cannot be empty".to_string()));
+    }
+    if url.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git URL cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    // Block other potentially dangerous patterns
+    if url.contains('\0') || url.contains('\n') || url.contains('\r') {
+        return Err(Error::BadRequest(
+            "Git URL contains invalid characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validates a git branch/ref name to prevent injection attacks.
+fn validate_git_ref(ref_name: &str) -> Result<()> {
+    let ref_name = ref_name.trim();
+    if ref_name.is_empty() {
+        return Err(Error::BadRequest("Git ref cannot be empty".to_string()));
+    }
+    if ref_name.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git ref cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    // Git ref names have specific rules - block dangerous characters
+    if ref_name.contains('\0')
+        || ref_name.contains('\n')
+        || ref_name.contains('\r')
+        || ref_name.contains("..")
+        || ref_name.contains("@{")
+        || ref_name.ends_with('.')
+        || ref_name.ends_with('/')
+        || ref_name.contains("//")
+    {
+        return Err(Error::BadRequest(
+            "Git ref contains invalid characters or patterns".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[derive(Serialize)]
 struct GitCommitHashResponse {
     commit_hash: String,
@@ -1629,7 +1678,8 @@ async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
 ) -> Result<String> {
-    let mut git_cmd = Command::new("git");
+    // Validate URL and branch to prevent option injection attacks
+    validate_git_url(&git_resource.url)?;
 
     let ref_spec = git_resource
         .branch
@@ -1637,6 +1687,12 @@ async fn get_repo_latest_commit_hash(
         .filter(|s| !s.is_empty())
         .unwrap_or("HEAD");
 
+    // Validate ref_spec if it's not the default HEAD
+    if ref_spec != "HEAD" {
+        validate_git_ref(ref_spec)?;
+    }
+
+    let mut git_cmd = Command::new("git");
     git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
     if let Some(git_ssh_command) = git_ssh_command {
         git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);
