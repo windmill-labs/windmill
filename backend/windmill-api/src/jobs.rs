@@ -45,7 +45,7 @@ use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{RunnableKind, WarnAfterExt};
-use windmill_common::worker::{Connection, CLOUD_HOSTED, TMP_DIR};
+use windmill_common::worker::{is_allowed_file_location, Connection, CLOUD_HOSTED, TMP_DIR};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, MIN_VERSION_WORKSPACE_DEPENDENCIES,
 };
@@ -7235,7 +7235,10 @@ impl Hash for JobUpdate {
 }
 
 async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::Result<Response> {
-    let local_file = format!("{TMP_DIR}/logs/{file_p}");
+    // Validate path to prevent directory traversal attacks (CVE pending)
+    let logs_dir = format!("{TMP_DIR}/logs");
+    let local_file = is_allowed_file_location(&logs_dir, &file_p)
+        .map_err(|_| error::Error::BadRequest("Invalid file path".to_string()))?;
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
         let mut buffer = Vec::new();
@@ -7274,7 +7277,8 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
         }
     } else {
         return Err(error::Error::internal_err(format!(
-                "Object store client not present and file not found on server logs volume at {local_file}"
+                "Object store client not present and file not found on server logs volume at {}",
+                local_file.display()
             )));
     }
 
