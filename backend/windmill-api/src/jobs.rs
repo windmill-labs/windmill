@@ -7238,6 +7238,25 @@ async fn get_log_file(Path((_w_id, file_p)): Path<(String, String)>) -> error::R
     if file_p.contains("..") {
         return Err(error::Error::BadRequest("Invalid path".to_string()));
     }
+
+    // Validate path format: must be exactly 2 parts, first is UUID, second ends with .txt
+    let parts: Vec<&str> = file_p.split('/').collect();
+    if parts.len() != 2 {
+        return Err(error::Error::BadRequest(
+            "Invalid path: must have exactly 2 components".to_string(),
+        ));
+    }
+    if Uuid::parse_str(parts[0]).is_err() {
+        return Err(error::Error::BadRequest(
+            "Invalid path: first component must be a valid UUID".to_string(),
+        ));
+    }
+    if !parts[1].ends_with(".txt") {
+        return Err(error::Error::BadRequest(
+            "Invalid path: file must end with .txt".to_string(),
+        ));
+    }
+
     let local_file = format!("{TMP_DIR}/logs/{file_p}");
     if tokio::fs::metadata(&local_file).await.is_ok() {
         let mut file = tokio::fs::File::open(local_file).await.map_err(to_anyhow)?;
