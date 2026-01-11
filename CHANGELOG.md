@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.603.3](https://github.com/windmill-labs/windmill/compare/v1.603.2...v1.603.3) (2026-01-11)
+
+
+### Bug Fixes
+
+* various input tightening ([7a9ef14](https://github.com/windmill-labs/windmill/commit/7a9ef140b512d8d4af21f90fad79619ce33cb3fd))
+
 ## [1.603.2](https://github.com/windmill-labs/windmill/compare/v1.603.1...v1.603.2) (2026-01-09)
 
 
