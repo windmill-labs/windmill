@@ -130,6 +130,18 @@ async fn list_foldernames(
     Ok(Json(rows))
 }
 
+fn validate_owner(owner: &str) -> Result<()> {
+    if !owner
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '/' || c == '-')
+    {
+        return Err(error::Error::BadRequest(
+            "Invalid owner: must contain only alphanumeric characters, underscores, hyphens, or slashes".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 async fn check_name_conflict<'c>(
     tx: &mut Transaction<'c, Postgres>,
     w_id: &str,
@@ -202,7 +214,7 @@ async fn create_folder(
         ));
     }
 
-    if let Err(e) = 
+    if let Err(e) =
     sqlx::query_as!(
         Folder,
         "INSERT INTO folder (workspace_id, name, display_name, owners, extra_perms, summary, created_by, edited_at) VALUES ($1, $2, $3, $4, $5, $6, $7, now())",
@@ -262,15 +274,8 @@ async fn create_folder(
     )
     .await?;
 
-    log_folder_permission_change(
-        &mut *tx,
-        &w_id,
-        &ng.name,
-        &authed.username,
-        "create",
-        None,
-    )
-    .await?;
+    log_folder_permission_change(&mut *tx, &w_id, &ng.name, &authed.username, "create", None)
+        .await?;
 
     tx.commit().await?;
 
@@ -381,7 +386,8 @@ async fn update_folder(
     if let Some(extra_perms) = ng.extra_perms {
         if !extra_perms.is_object() {
             return Err(windmill_common::error::Error::BadRequest(format!(
-                "extra_perms must be an object, received {}", extra_perms.to_string()
+                "extra_perms must be an object, received {}",
+                extra_perms.to_string()
             )));
         }
         sqlb.set(
@@ -447,15 +453,8 @@ async fn update_folder(
         .await?;
     }
     if extra_perms_changed {
-        log_folder_permission_change(
-            &mut *tx,
-            &w_id,
-            &name,
-            &authed.username,
-            "update_acl",
-            None,
-        )
-        .await?;
+        log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, "update_acl", None)
+            .await?;
     }
 
     tx.commit().await?;
@@ -695,6 +694,7 @@ async fn add_owner(
     .fetch_optional(&mut *tx)
     .await?;
 
+    validate_owner(&owner)?;
     sqlx::query(&format!(
         "UPDATE folder SET extra_perms = jsonb_set(extra_perms, '{{\"{owner}\"}}', to_jsonb($1), \
          true) WHERE name = $2 AND workspace_id = $3 RETURNING extra_perms"
@@ -747,6 +747,7 @@ async fn remove_owner(
 
     not_found_if_none(get_folderopt(&mut tx, &w_id, &name).await?, "Folder", &name)?;
     require_is_owner(&authed, &name)?;
+    validate_owner(&owner)?;
 
     let folder = sqlx::query!(
         "UPDATE folder SET owners = array_remove(owners, $1::varchar) WHERE name = $2 AND workspace_id = $3 AND $1 = ANY(owners) RETURNING name",
@@ -758,7 +759,10 @@ async fn remove_owner(
     .await?;
 
     if folder.is_none() && write.is_none() {
-        return Ok(format!("Owner {} is already not a member of folder {}", owner, name));
+        return Ok(format!(
+            "Owner {} is already not a member of folder {}",
+            owner, name
+        ));
     }
 
     if let Some(write) = write {
@@ -775,10 +779,12 @@ async fn remove_owner(
         .flatten();
 
         if folder.is_none() && old_write.is_none_or(|ow| ow == write) {
-            return Ok(format!("Owner {} is already not a member of folder {} and write permission was already {}", owner, name, write));
+            return Ok(format!(
+                "Owner {} is already not a member of folder {} and write permission was already {}",
+                owner, name, write
+            ));
         }
     }
-
 
     audit_log(
         &mut *tx,
@@ -796,7 +802,15 @@ async fn remove_owner(
         Some(false) => "grant_viewer_only",
         None => "revoke_all",
     };
-    log_folder_permission_change(&mut *tx, &w_id, &name, &authed.username, change_type, Some(&owner)).await?;
+    log_folder_permission_change(
+        &mut *tx,
+        &w_id,
+        &name,
+        &authed.username,
+        change_type,
+        Some(&owner),
+    )
+    .await?;
 
     tx.commit().await?;
 
