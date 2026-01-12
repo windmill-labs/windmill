@@ -7,7 +7,8 @@
 		ArrowDownToLine,
 		ArrowUpFromLine,
 		Trash2,
-		AlertTriangle
+		AlertTriangle,
+		X
 	} from 'lucide-svelte'
 	import { Button } from '$lib/components/common'
 
@@ -23,6 +24,7 @@
 		onStepIn: () => Promise<void>
 		onStepOut: () => Promise<void>
 		onClearBreakpoints: () => void
+		onExitDebug?: () => void
 	}
 
 	let {
@@ -36,7 +38,8 @@
 		onStepOver,
 		onStepIn,
 		onStepOut,
-		onClearBreakpoints
+		onClearBreakpoints,
+		onExitDebug
 	}: Props = $props()
 
 	let loading = $state(false)
@@ -149,6 +152,21 @@
 		title="Clear All Breakpoints"
 		iconOnly
 	/>
+
+	{#if onExitDebug}
+		<div class="h-4 w-px bg-surface-tertiary mx-1"></div>
+
+		<Button
+			size="xs"
+			color="red"
+			variant="border"
+			startIcon={{ icon: X }}
+			onclick={onExitDebug}
+			title="Exit Debug Mode"
+		>
+			Exit Debug
+		</Button>
+	{/if}
 
 	{#if running && !stopped}
 		<span class="ml-2 text-xs text-tertiary flex items-center gap-1">

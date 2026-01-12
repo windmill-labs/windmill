@@ -20,6 +20,7 @@
 		focusArg?: string
 		class?: string
 		onJobDone?: () => void
+		hideRunButton?: boolean
 	}
 
 	let {
@@ -32,7 +33,8 @@
 		scriptProgress = $bindable(undefined),
 		focusArg = undefined,
 		class: className = '',
-		onJobDone
+		onJobDone,
+		hideRunButton = false
 	}: Props = $props()
 
 	const { flowStore } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -60,26 +62,28 @@
 		>
 	{/if}
 
-	<div class="w-full justify-center flex">
-		{#if testIsLoading}
-			<Button size="sm" on:click={moduleTest?.cancelJob} btnClasses="w-full" color="red">
-				<Loader2 size={16} class="animate-spin mr-1" />
-				Cancel
-			</Button>
-		{:else}
-			<Button
-				variant="accent"
-				btnClasses="truncate"
-				size="sm"
-				on:click={runTestWithStepArgs}
-				shortCut={{
-					Icon: CornerDownLeft
-				}}
-			>
-				Run
-			</Button>
-		{/if}
-	</div>
+	{#if !hideRunButton}
+		<div class="w-full justify-center flex">
+			{#if testIsLoading}
+				<Button size="sm" on:click={moduleTest?.cancelJob} btnClasses="w-full" color="red">
+					<Loader2 size={16} class="animate-spin mr-1" />
+					Cancel
+				</Button>
+			{:else}
+				<Button
+					variant="accent"
+					btnClasses="truncate"
+					size="sm"
+					on:click={runTestWithStepArgs}
+					shortCut={{
+						Icon: CornerDownLeft
+					}}
+				>
+					Run
+				</Button>
+			{/if}
+		</div>
+	{/if}
 
 	<ModulePreviewForm {pickableProperties} {mod} {schema} {focusArg} />
 </div>
