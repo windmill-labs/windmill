@@ -38,7 +38,7 @@
 		user?: string | null
 		folder?: string | null
 		mobile?: boolean
-		schedulePath: string | undefined
+		schedulePath: string | null
 		allowWildcards?: boolean
 		// Autocomplete data
 		paths?: string[]
@@ -120,7 +120,7 @@
 	let displayedLabel = $derived(label)
 	let displayedConcurrencyKey = $derived(concurrencyKey)
 	let displayedTag = $derived(tag)
-	let displayedSchedule = $derived(schedulePath)
+	let displayedSchedule = $derived(schedulePath ?? undefined)
 	let displayedWorker = $derived(worker)
 	$effect(() => {
 		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
@@ -134,7 +134,7 @@
 		label = null
 		concurrencyKey = null
 		tag = null
-		schedulePath = undefined
+		schedulePath = null
 		worker = null
 	}
 </script>
@@ -407,7 +407,7 @@
 							<button
 								class="absolute top-2 right-2 z-50"
 								onclick={() => {
-									schedulePath = undefined
+									schedulePath = null
 									dispatch('reset')
 								}}
 							>
@@ -426,7 +426,7 @@
 									}
 
 									tagTimeout = setTimeout(() => {
-										schedulePath = displayedSchedule
+										schedulePath = displayedSchedule ?? null
 									}, 1000)
 								},
 								id: 'schedulePath'
@@ -687,7 +687,7 @@
 										label = null
 										concurrencyKey = null
 										tag = null
-										schedulePath = undefined
+										schedulePath = null
 									}
 								}}
 							>

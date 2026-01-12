@@ -73,7 +73,12 @@
 				.nullable()
 				.default(null),
 			show_skipped: z.boolean().default(false),
-			show_schedules: z.boolean().default(true)
+			show_schedules: z.boolean().default(true),
+			min_ts: z.string().nullable().default(null),
+			max_ts: z.string().nullable().default(null),
+			schedule_path: z.string().nullable().default(null),
+			job_kinds: z.string().default('runs'),
+			all_workspaces: z.boolean().default(false)
 		})
 	)
 	let jobs: Job[] | undefined = $state()
@@ -97,13 +102,6 @@
 		(page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
 	)
 
-	// Handled on the main page
-	let minTs = $state(page.url.searchParams.get('min_ts') ?? undefined)
-	let maxTs = $state(page.url.searchParams.get('max_ts') ?? undefined)
-	let schedulePath = $state(page.url.searchParams.get('schedule_path') ?? undefined)
-	let jobKindsCat = $state(page.url.searchParams.get('job_kinds') ?? 'runs')
-	let allWorkspaces = $state(page.url.searchParams.get('all_workspaces') == 'true')
-
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
@@ -115,13 +113,7 @@
 			: undefined
 		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
 
-		// Handled on the main page
-		minTs = page.url.searchParams.get('min_ts') ?? undefined
-		maxTs = page.url.searchParams.get('max_ts') ?? undefined
-		schedulePath = page.url.searchParams.get('schedule_path') ?? undefined
 		perPage = parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_RUNS_PER_PAGE.toString())
-		jobKindsCat = page.url.searchParams.get('job_kinds') ?? 'runs'
-		allWorkspaces = page.url.searchParams.get('all_workspaces') == 'true'
 	}
 
 	let queue_count: Tweened<number> | undefined = $state(undefined)
@@ -178,24 +170,24 @@
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobsLoader?.loadJobs(minTs, maxTs, true)
+				jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 			}, 2000)
 		}
 	}
 
 	function reset() {
-		minTs = undefined
-		maxTs = undefined
+		filters.min_ts = null
+		filters.max_ts = null
 		jobs = undefined
 		completedJobs = undefined
 		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
-		schedulePath = undefined
+		filters.schedule_path = null
 		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
-		jobsLoader?.loadJobs(minTs, maxTs, true)
+		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 	}
 
 	async function loadUsernames(): Promise<void> {
@@ -222,7 +214,7 @@
 		filters.concurrency_key = null
 		filters.tag = null
 		filters.worker = null
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
@@ -232,7 +224,7 @@
 		filters.label = null
 		filters.concurrency_key = null
 		filters.tag = null
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
@@ -243,7 +235,7 @@
 		filters.concurrency_key = null
 		filters.tag = null
 		filters.worker = null
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
@@ -255,7 +247,7 @@
 		filters.tag = null
 		filters.worker = null
 		filters.allow_wildcards = false
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
@@ -266,7 +258,7 @@
 		filters.concurrency_key = e.detail
 		filters.tag = null
 		filters.worker = null
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
@@ -278,7 +270,7 @@
 		filters.tag = e.detail
 		filters.worker = null
 		filters.allow_wildcards = false
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
@@ -289,7 +281,7 @@
 		filters.concurrency_key = null
 		filters.tag = null
 		filters.worker = null
-		schedulePath = e.detail
+		filters.schedule_path = e.detail
 	}
 
 	function filterByWorker(e: CustomEvent<string>) {
@@ -301,7 +293,7 @@
 		filters.tag = null
 		filters.worker = e.detail
 		filters.allow_wildcards = false
-		schedulePath = undefined
+		filters.schedule_path = null
 	}
 
 	let calendarChangeTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
@@ -341,9 +333,9 @@
 	function getSelectedFilters() {
 		return {
 			workspace: $workspaceStore ?? '',
-			startedBefore: maxTs,
-			startedAfter: minTs,
-			schedulePath,
+			startedBefore: filters.max_ts ?? undefined,
+			startedAfter: filters.min_ts ?? undefined,
+			schedulePath: filters.schedule_path ?? undefined,
 			scriptPathExact: filters.path === null || filters.path === '' ? undefined : filters.path,
 			createdBy: filters.user || undefined,
 			scriptPathStart: filters.folder ? `f/${filters.folder}/` : undefined,
@@ -359,7 +351,7 @@
 			isSkipped: filters.show_skipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				filters.path != undefined || filters.path != undefined || jobKindsCat != 'all'
+				filters.path != undefined || filters.path != undefined || filters.job_kinds != 'all'
 					? true
 					: undefined,
 			label: filters.label || undefined,
@@ -380,7 +372,7 @@
 					? resultFilter
 					: undefined,
 			jobTriggerKind,
-			allWorkspaces: allWorkspaces || undefined,
+			allWorkspaces: filters.all_workspaces || undefined,
 			allowWildcards: filters.allow_wildcards || undefined
 		}
 	}
@@ -398,7 +390,7 @@
 			forceCancel: forceCancel
 		})
 		selectedIds = []
-		jobsLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 		selectionMode = false
 	}
@@ -505,7 +497,7 @@
 
 		selectedIds = []
 		batchReRunOptions = { flow: {}, script: {} }
-		jobsLoader?.loadJobs(minTs, maxTs, true, true)
+		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true, true)
 		selectionMode = false
 	}
 
@@ -514,7 +506,7 @@
 		selectedIds = []
 		loadingSelectedIds = true
 
-		if (jobKindsCat !== 'runs') {
+		if (filters.job_kinds !== 'runs') {
 			sendUserToast('Batch re-run is only supported for scripts and flows', true)
 		}
 		selectedIds = await JobService.listFilteredJobsUuids({
@@ -554,13 +546,13 @@
 		filters.concurrency_key = null
 		filters.tag = null
 		filters.worker = null
-		schedulePath = undefined
+		filters.schedule_path = null
 		if (filters.success == f) {
 			filters.success = null
 		} else {
 			filters.success = f
 		}
-		jobKindsCat = 'all'
+		filters.job_kinds = 'all'
 	}
 
 	$effect(() => {
@@ -620,7 +612,7 @@
 
 <JobsLoader
 	allowWildcards={filters.allow_wildcards}
-	{allWorkspaces}
+	allWorkspaces={filters.all_workspaces}
 	bind:jobs
 	user={filters.user}
 	folder={filters.folder}
@@ -636,11 +628,11 @@
 	{jobTriggerKind}
 	showSchedules={filters.show_schedules}
 	showFutureJobs={filters.show_future_jobs}
-	{schedulePath}
-	{jobKindsCat}
+	schedulePath={filters.schedule_path}
+	jobKindsCat={filters.job_kinds}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
-	bind:minTs
-	bind:maxTs
+	bind:minTs={filters.min_ts}
+	bind:maxTs={filters.max_ts}
 	bind:jobKinds
 	bind:queue_count
 	bind:suspended_count
@@ -763,70 +755,78 @@
 				<!-- Dates -->
 				<div class="flex flex-row gap-2">
 					<RunOption label="From" for="min-datetimes">
-						{#if minTs || maxTs}
+						{#if filters.min_ts || filters.max_ts}
 							<input
 								type="text"
 								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
-								value={minTs ? new Date(minTs).toLocaleString() : 'zoom x axis to set min'}
+								value={filters.min_ts
+									? new Date(filters.min_ts).toLocaleString()
+									: 'zoom x axis to set min'}
 								disabled
 								name="min-datetimes"
 							/>
 						{/if}
 						<CalendarPicker
 							clearable={true}
-							date={minTs}
+							date={filters.min_ts}
 							label="From"
-							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
+							class={filters.min_ts || filters.max_ts
+								? ''
+								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
-								minTs = new Date(detail).toISOString()
+								filters.min_ts = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
-								minTs = undefined
+								filters.min_ts = null
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 								}, 1000)
 							}}
 						/>
 					</RunOption>
 
 					<RunOption label="To" for="max-datetimes">
-						{#if maxTs || minTs}
+						{#if filters.max_ts || filters.min_ts}
 							<input
 								type="text"
 								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
-								value={maxTs ? new Date(maxTs).toLocaleString() : 'zoom x axis to set max'}
+								value={filters.max_ts
+									? new Date(filters.max_ts).toLocaleString()
+									: 'zoom x axis to set max'}
 								name="max-datetimes"
 								disabled
 							/>
 						{/if}
 						<CalendarPicker
 							clearable={true}
-							date={maxTs}
+							date={filters.max_ts}
 							label="To"
-							class={minTs || maxTs ? '' : 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
+							class={filters.min_ts || filters.max_ts
+								? ''
+								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
 							on:change={async ({ detail }) => {
-								maxTs = new Date(detail).toISOString()
+								filters.max_ts = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 								}, 1000)
 							}}
 							on:clear={async () => {
-								maxTs = undefined
+								filters.max_ts = null
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(minTs, maxTs, true)
+									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 								}, 1000)
 							}}
 						/>
 					</RunOption>
 
-					{#if minTs || maxTs}
+					{#if filters.min_ts || filters.max_ts}
 						<RunOption label="Reset" for="reset" noLabel>
 							<Button variant="default" size="xs" onClick={reset} btnClasses="h-9">Reset</Button>
 						</RunOption>
@@ -851,13 +851,13 @@
 						bind:jobTriggerKind
 						bind:argError
 						bind:resultError
-						bind:jobKindsCat
-						bind:allWorkspaces
-						bind:schedulePath
+						bind:jobKindsCat={filters.job_kinds}
+						bind:allWorkspaces={filters.all_workspaces}
+						bind:schedulePath={filters.schedule_path}
 						on:change={reloadJobsWithoutFilterError}
 						on:successChange={(e) => {
-							if (e.detail == 'running' && maxTs != undefined) {
-								maxTs = undefined
+							if (e.detail == 'running' && filters.max_ts != undefined) {
+								filters.max_ts = null
 							}
 						}}
 						{usernames}
@@ -865,7 +865,7 @@
 						{paths}
 						mobile={innerWidth < verySmallScreenWidth}
 						small={innerWidth < smallScreenWidth}
-						calendarSmall={!minTs && !maxTs}
+						calendarSmall={!filters.min_ts && !filters.max_ts}
 					/>
 				</div>
 			</div>
@@ -939,17 +939,17 @@
 					{lastFetchWentToEnd}
 					bind:selectedIds
 					canSelect={!selectionMode}
-					minTimeSet={minTs}
-					maxTimeSet={maxTs}
+					minTimeSet={filters.min_ts}
+					maxTimeSet={filters.max_ts}
 					totalRowsFetched={jobs?.length ?? 0}
-					maxIsNow={maxTs == undefined}
+					maxIsNow={filters.max_ts == undefined}
 					onLoadExtra={loadExtra}
 					jobs={completedJobs}
 					onZoom={async (zoom) => {
-						minTs = zoom.min.toISOString()
-						maxTs = zoom.max.toISOString()
+						filters.min_ts = zoom.min.toISOString()
+						filters.max_ts = zoom.max.toISOString()
 						manualDatePicker?.resetChoice()
-						jobsLoader?.loadJobs(minTs, maxTs, true)
+						jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 					}}
 					onPointClicked={(ids) => {
 						runsTable?.scrollToRun(ids)
@@ -957,14 +957,14 @@
 				/>
 			{:else if graph === 'ConcurrencyChart'}
 				<ConcurrentJobsChart
-					minTimeSet={minTs}
-					maxTimeSet={maxTs}
-					maxIsNow={maxTs == undefined}
+					minTimeSet={filters.min_ts}
+					maxTimeSet={filters.max_ts}
+					maxIsNow={filters.max_ts == undefined}
 					{extendedJobs}
 					onZoom={async (zoom) => {
-						minTs = zoom.min.toISOString()
-						maxTs = zoom.max.toISOString()
-						jobsLoader?.loadJobs(minTs, maxTs, true)
+						filters.min_ts = zoom.min.toISOString()
+						filters.max_ts = zoom.max.toISOString()
+						jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 					}}
 				/>
 			{/if}
@@ -1049,10 +1049,10 @@
 									<ManuelDatePicker
 										on:loadJobs={() => {
 											lastFetchWentToEnd = false
-											jobsLoader?.loadJobs(minTs, maxTs, true)
+											jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
 										}}
-										bind:minTs
-										bind:maxTs
+										bind:minTs={filters.min_ts}
+										bind:maxTs={filters.max_ts}
 										bind:selectedManualDate
 										{loading}
 										bind:this={manualDatePicker}

@@ -6,7 +6,7 @@
 	import DateTimeInput from '$lib/components/DateTimeInput.svelte'
 	import { twMerge } from 'tailwind-merge'
 
-	export let date: string | undefined
+	export let date: string | null
 	export let label: string
 	export let useDropdown: boolean = false
 	export let clearable: boolean = false

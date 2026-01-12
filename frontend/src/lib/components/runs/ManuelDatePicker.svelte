@@ -4,8 +4,8 @@
 	import { createEventDispatcher } from 'svelte'
 
 	interface Props {
-		minTs: string | undefined
-		maxTs: string | undefined
+		minTs: string | null
+		maxTs: string | null
 		loading?: boolean
 		selectedManualDate?: number
 		loadText?: string | undefined
@@ -23,7 +23,7 @@
 		numberOfLastJobsToFetch = 1000
 	}: Props = $props()
 
-	export function computeMinMax(): { minTs: string; maxTs: string | undefined } | undefined {
+	export function computeMinMax(): { minTs: string; maxTs: string | null } | undefined {
 		return manualDates[selectedManualDate].computeMinMax()
 	}
 
@@ -33,13 +33,13 @@
 
 	function computeMinMaxInc(inc: number) {
 		let minTs = new Date(new Date().getTime() - inc).toISOString()
-		let maxTs = undefined
+		let maxTs = null
 		return { minTs, maxTs }
 	}
 
 	const fixedManualDates: {
 		label: string
-		computeMinMax: () => { minTs: string; maxTs: string | undefined } | undefined
+		computeMinMax: () => { minTs: string; maxTs: string | null } | undefined
 	}[] = [
 		...(!serviceLogsChoices
 			? [
@@ -110,8 +110,8 @@
 					minTs = ts.minTs
 					maxTs = ts.maxTs
 				} else {
-					minTs = undefined
-					maxTs = undefined
+					minTs = null
+					maxTs = null
 				}
 				dispatch('loadJobs')
 			}

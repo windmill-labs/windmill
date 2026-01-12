@@ -23,8 +23,8 @@
 	interface Props {
 		jobs?: CompletedJob[] | undefined
 		maxIsNow?: boolean
-		minTimeSet?: string | undefined
-		maxTimeSet?: string | undefined
+		minTimeSet?: string | null
+		maxTimeSet?: string | null
 		selectedIds?: string[]
 		canSelect?: boolean
 		lastFetchWentToEnd?: boolean
@@ -37,8 +37,8 @@
 	let {
 		jobs = [],
 		maxIsNow = false,
-		minTimeSet = undefined,
-		maxTimeSet = undefined,
+		minTimeSet = null,
+		maxTimeSet = null,
 		selectedIds = $bindable([]),
 		canSelect = true,
 		lastFetchWentToEnd = false,
@@ -163,8 +163,8 @@
 
 	function computeMinMaxTime(
 		jobs: CompletedJob[] | undefined,
-		minTimeSet: string | undefined,
-		maxTimeSet: string | undefined
+		minTimeSet: string | null,
+		maxTimeSet: string | null
 	) {
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined

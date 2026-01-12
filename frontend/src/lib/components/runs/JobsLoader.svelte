@@ -32,10 +32,10 @@
 		argFilter: string | undefined
 		resultFilter?: string | undefined
 		jobTriggerKind?: JobTriggerKind | undefined
-		schedulePath?: string | undefined
-		jobKindsCat?: string | undefined
-		minTs?: string | undefined
-		maxTs?: string | undefined
+		schedulePath?: string | null
+		jobKindsCat?: string | null
+		minTs: string | null
+		maxTs: string | null
 		jobKinds?: string
 		queue_count?: Tweened<number> | undefined
 		suspended_count?: Tweened<number> | undefined
@@ -52,9 +52,9 @@
 		refreshRate?: number
 		syncQueuedRunsCount?: boolean
 		allWorkspaces?: boolean
-		computeMinAndMax: (() => { minTs: string; maxTs: string | undefined } | undefined) | undefined
+		computeMinAndMax: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
 		lookback?: number
-		perPage?: number
+		perPage: number
 		allowWildcards?: boolean
 	}
 
@@ -73,18 +73,18 @@
 		resultFilter = undefined,
 		jobTriggerKind = undefined,
 		schedulePath = undefined,
-		jobKindsCat = undefined,
-		minTs = $bindable(undefined),
-		maxTs = $bindable(undefined),
-		jobKinds = $bindable(undefined),
-		queue_count = $bindable(undefined),
-		suspended_count = $bindable(undefined),
+		jobKindsCat = null,
+		minTs = $bindable(),
+		maxTs = $bindable(),
+		jobKinds = $bindable(),
+		queue_count = $bindable(),
+		suspended_count = $bindable(),
 		autoRefresh = true,
-		completedJobs = $bindable(undefined),
-		externalJobs = $bindable(undefined),
+		completedJobs = $bindable(),
+		externalJobs = $bindable(),
 		concurrencyKey,
 		tag,
-		extendedJobs = $bindable(undefined),
+		extendedJobs = $bindable(),
 		argError = '',
 		resultError = '',
 		loading = $bindable(false),
@@ -93,7 +93,7 @@
 		allWorkspaces = false,
 		computeMinAndMax,
 		lookback = 0,
-		perPage = $bindable(1000),
+		perPage = $bindable(),
 		allowWildcards = false
 	}: Props = $props()
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
@@ -120,8 +120,8 @@
 		return promise
 	}
 
-	function computeJobKinds(jobKindsCat: string | undefined): string {
-		if (jobKindsCat == undefined && jobKinds != undefined) {
+	function computeJobKinds(jobKindsCat: string | null): string {
+		if (jobKindsCat == null && jobKinds != null) {
 			return jobKinds
 		}
 		if (jobKindsCat == 'all') {
@@ -192,8 +192,8 @@
 	}
 
 	function fetchJobs(
-		completedBefore: string | undefined,
-		completedAfter: string | undefined,
+		completedBefore: string | null,
+		completedAfter: string | null,
 		createdAfterQueue: string | undefined
 	): CancelablePromise<Job[]> {
 		loadingFetch = true
@@ -201,10 +201,10 @@
 		let scriptPathExact = path === null || path === '' ? undefined : path
 		let promise = JobService.listJobs({
 			workspace: $workspaceStore!,
-			completedBefore,
-			completedAfter,
+			completedBefore: completedBefore ?? undefined,
+			completedAfter: completedAfter ?? undefined,
 			createdAfterQueue,
-			schedulePath,
+			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
@@ -253,20 +253,20 @@
 
 	function fetchExtendedJobs(
 		concurrencyKey: string | null,
-		createdBeforeQueue: string | undefined,
-		completedAfter: string | undefined
+		createdBeforeQueue: string | null,
+		completedAfter: string | null
 	): CancelablePromise<ExtendedJobs> {
 		loadingFetch = true
 		let promise = ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: perPage,
 			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
 			workspace: $workspaceStore!,
-			completedAfter,
-			createdBeforeQueue: createdBeforeQueue,
+			completedAfter: completedAfter ?? undefined,
+			createdBeforeQueue: createdBeforeQueue ?? undefined,
 			// createdOrStartedBefore: startedBefore,
 			// createdOrStartedAfter: startedAfter,
 			// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
-			schedulePath,
+			schedulePath: schedulePath ?? undefined,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
@@ -302,8 +302,8 @@
 	}
 
 	export async function loadJobs(
-		nMinTs: string | undefined,
-		nMaxTs: string | undefined,
+		nMinTs: string | null,
+		nMaxTs: string | null,
 		reset: boolean,
 		shouldGetCount?: boolean
 	): Promise<void> {
@@ -334,7 +334,7 @@
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(fetchJobs(maxTs, undefined, extendedMinTs), (newJobs) => {
+			return CancelablePromiseUtils.map(fetchJobs(maxTs, null, extendedMinTs), (newJobs) => {
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -346,7 +346,7 @@
 			})
 		} else {
 			return CancelablePromiseUtils.map(
-				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs),
+				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
 				(newExtendedJobs) => {
 					extendedJobs = newExtendedJobs
 					const newJobs = newExtendedJobs.jobs
@@ -399,8 +399,8 @@
 
 	async function syncer() {
 		if (success == 'waiting') {
-			minTs = undefined
-			maxTs = undefined
+			minTs = null
+			maxTs = null
 		}
 		if (loadingFetch) {
 			return
@@ -426,7 +426,7 @@
 					loadJobsIntern(false)
 				} else {
 					let minQueueCreatedAt: string | undefined = undefined
-					let completedTs: string | undefined = undefined
+					let completedTs: string | null = null
 
 					let cursor = 0
 
@@ -491,8 +491,8 @@
 		return ret
 	}
 
-	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
-		if (minTs != undefined) {
+	function sortMinDate(minTs: string | null, jobs: Job[]) {
+		if (minTs) {
 			const minDate = new Date(minTs)
 			return jobs.filter((x) =>
 				x.started_at
