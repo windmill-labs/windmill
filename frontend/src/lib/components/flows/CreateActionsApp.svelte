@@ -163,7 +163,9 @@
 			>
 				Go back
 			</Button>
-			<Button color="blue" size="sm" on:click={confirmFullCode}>I understand, continue</Button>
+			<Button color="blue" size="sm" variant="accent" on:click={confirmFullCode}
+				>I understand, continue</Button
+			>
 		</div>
 	</div>
 </Modal>
