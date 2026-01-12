@@ -1,7 +1,3 @@
-<script module lang="ts">
-	export let DEFAULT_RUNS_PER_PAGE = 1000
-</script>
-
 <script lang="ts">
 	import {
 		JobService,
@@ -55,8 +51,6 @@
 	import z from 'zod'
 	import { useSearchParams } from '$lib/svelte5Utils.svelte'
 
-	let { perPage = $bindable() }: { perPage: number } = $props()
-
 	let filters = useSearchParams(
 		z.object({
 			path: z.string().nullable().default(null),
@@ -93,7 +87,8 @@
 				.string()
 				.transform((s) => s as JobTriggerKind)
 				.nullable()
-				.default(null)
+				.default(null),
+			per_page: z.number().default(1000)
 		})
 	)
 	let jobs: Job[] | undefined = $state()
@@ -104,10 +99,6 @@
 	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
 	let lastFetchWentToEnd = $state(false)
-
-	function loadFromQuery() {
-		perPage = parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_RUNS_PER_PAGE.toString())
-	}
 
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
@@ -598,7 +589,7 @@
 	let forceCancelInPopup = $state(false)
 
 	const warnJobLimitMsg = $derived(
-		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${perPage} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
+		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 </script>
 
@@ -634,7 +625,7 @@
 	bind:extendedJobs
 	{argError}
 	{resultError}
-	bind:perPage
+	bind:perPage={filters.per_page}
 	bind:loading
 	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
@@ -696,7 +687,6 @@
 <svelte:window
 	onpopstate={() => {
 		reset()
-		loadFromQuery()
 	}}
 />
 
@@ -1048,7 +1038,7 @@
 										bind:selectedManualDate
 										{loading}
 										bind:this={manualDatePicker}
-										numberOfLastJobsToFetch={perPage}
+										numberOfLastJobsToFetch={filters.per_page}
 									/>
 									<Toggle
 										size="sm"
@@ -1086,7 +1076,7 @@
 									on:filterBySchedule={filterBySchedule}
 									on:filterByWorker={filterByWorker}
 									bind:this={runsTable}
-									{perPage}
+									perPage={filters.per_page}
 								></RunsTable>
 							{:else}
 								<div class="gap-1 flex flex-col">
@@ -1103,13 +1093,13 @@
 							<Select
 								class="w-20"
 								bind:value={
-									() => perPage,
+									() => filters.per_page,
 									(newPerPage) => {
-										perPage = newPerPage
+										filters.per_page = newPerPage
 										if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
 									}
 								}
-								onCreateItem={(v) => (perPage = parseInt(v))}
+								onCreateItem={(v) => (filters.per_page = parseInt(v))}
 								items={[
 									{ value: 25, label: '25' },
 									{ value: 100, label: '100' },

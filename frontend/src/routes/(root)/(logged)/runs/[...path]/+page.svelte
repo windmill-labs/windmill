@@ -3,12 +3,8 @@
 <script lang="ts">
 	import { page } from '$app/state'
 	import { onMount } from 'svelte'
-	import RunsPage, { DEFAULT_RUNS_PER_PAGE } from '../../../../../lib/components/RunsPage.svelte'
+	import RunsPage from '../../../../../lib/components/RunsPage.svelte'
 	import RunsTutorial from '$lib/components/tutorials/RunsTutorial.svelte'
-
-	let perPage = $state(
-		parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_RUNS_PER_PAGE.toString())
-	)
 
 	let runsTutorial: RunsTutorial
 
@@ -24,8 +20,6 @@
 	})
 </script>
 
-{#key perPage}
-	<RunsPage bind:perPage />
-{/key}
+<RunsPage />
 
 <RunsTutorial bind:this={runsTutorial} index={7} />
