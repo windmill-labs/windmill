@@ -59,11 +59,11 @@
 	}
 
 	let {
-		path = $bindable(null),
-		label = $bindable(null),
-		concurrencyKey = $bindable(null),
-		worker = $bindable(null),
-		tag = $bindable(null),
+		path = $bindable(),
+		label = $bindable(),
+		concurrencyKey = $bindable(),
+		worker = $bindable(),
+		tag = $bindable(),
 		success = $bindable(undefined),
 		showSkipped = $bindable(undefined),
 		argFilter = $bindable(),
@@ -72,8 +72,8 @@
 		jobTriggerKind = $bindable(),
 		resultError = $bindable(),
 		jobKindsCat = $bindable(),
-		user = $bindable(null),
-		folder = $bindable(null),
+		user = $bindable(),
+		folder = $bindable(),
 		mobile = false,
 		schedulePath = $bindable(),
 		allowWildcards = $bindable(false),

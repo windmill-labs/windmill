@@ -4,6 +4,8 @@ import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { type StateStore } from './utils'
 import { resource, type ResourceReturn } from 'runed'
+import * as runed from 'runed/kit'
+import type z from 'zod'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -186,4 +188,23 @@ export class ChangeOnDeepInequality<T> {
 	get value(): T {
 		return this._cached!
 	}
+}
+
+// The original from runed has a weird behavior with dedup reads causing duplicate effect runs
+// (Every field has to be derived to avoid it : https://runed.dev/docs/utilities/use-search-params)
+export function useSearchParams<S extends z.ZodType>(
+	schema: S,
+	options?: runed.SearchParamsOptions
+): runed.ReturnUseSearchParams<S> {
+	let params = runed.useSearchParams(schema, options)
+	let keys = Object.keys((schema as any).shape ?? {})
+	let obj = { ...params }
+	for (const key of keys) {
+		let derivedVal = $derived(params[key])
+		Object.defineProperty(obj, key, {
+			get: () => derivedVal,
+			set: (v) => (params[key] = v)
+		})
+	}
+	return obj
 }

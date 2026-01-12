@@ -37,8 +37,6 @@
 	import JobsLoader from '$lib/components/runs/JobsLoader.svelte'
 	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { goto } from '$app/navigation'
-	import { base } from '$app/paths'
 	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
@@ -54,26 +52,30 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
+	import z from 'zod'
+	import { useSearchParams } from '$lib/svelte5Utils.svelte'
 
 	let { perPage = $bindable() }: { perPage: number } = $props()
 
+	let filters = useSearchParams(
+		z.object({
+			path: z.string().nullable().default(null),
+			worker: z.string().nullable().default(null),
+			user: z.string().nullable().default(null),
+			folder: z.string().nullable().default(null),
+			label: z.string().nullable().default(null),
+			concurrency_key: z.string().nullable().default(null),
+			tag: z.string().nullable().default(null),
+			allow_wildcards: z.boolean().default(false),
+			show_future_jobs: z.boolean().default(true)
+		})
+	)
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
 
 	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
-
-	// All Filters
-	// Filter by
-	let path: string | null = $state(page.params.path ?? null)
-	let worker: string | null = $state(page.url.searchParams.get('worker'))
-	let user: string | null = $state(page.url.searchParams.get('user'))
-	let folder: string | null = $state(page.url.searchParams.get('folder'))
-	let label: string | null = $state(page.url.searchParams.get('label'))
-	let allowWildcards: boolean = $state(page.url.searchParams.get('allow_wildcards') == 'true')
-	let concurrencyKey: string | null = $state(page.url.searchParams.get('concurrency_key'))
-	let tag: string | null = $state(page.url.searchParams.get('tag'))
 
 	// Rest of filters handled by RunsFilter
 	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
@@ -93,13 +95,6 @@
 		page.url.searchParams.get('show_schedules') != undefined
 			? page.url.searchParams.get('show_schedules') == 'true'
 			: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
-	)
-	let showFutureJobs: boolean = $state(
-		page.url.searchParams.get('show_future_jobs') != undefined
-			? page.url.searchParams.get('show_future_jobs') == 'true'
-			: localStorage.getItem('show_future_jobs') == 'false'
 				? false
 				: true
 	)
@@ -128,14 +123,6 @@
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
-		path = page.params.path ?? null
-		user = page.url.searchParams.get('user')
-		folder = page.url.searchParams.get('folder')
-		label = page.url.searchParams.get('label')
-		concurrencyKey = page.url.searchParams.get('concurrency_key')
-		tag = page.url.searchParams.get('tag')
-		worker = page.url.searchParams.get('worker')
-		allowWildcards = page.url.searchParams.get('allow_wildcards') == 'true'
 		// Rest of filters handled by RunsFilter
 		success = (page.url.searchParams.get('success') ?? undefined) as
 			| 'running'
@@ -151,12 +138,6 @@
 			page.url.searchParams.get('show_schedules') != undefined
 				? page.url.searchParams.get('show_schedules') == 'true'
 				: localStorage.getItem('show_schedules_in_run') == 'false'
-					? false
-					: true
-		showFutureJobs =
-			page.url.searchParams.get('show_future_jobs') != undefined
-				? page.url.searchParams.get('show_future_jobs') == 'true'
-				: localStorage.getItem('show_future_jobs') == 'false'
 					? false
 					: true
 
@@ -227,147 +208,6 @@
 
 	let runsTable: RunsTable | undefined = $state(undefined)
 
-	function setQuery(replaceState: boolean) {
-		let searchParams = new URLSearchParams()
-
-		if (user) {
-			searchParams.set('user', user)
-		} else {
-			searchParams.delete('user')
-		}
-
-		if (worker) {
-			searchParams.set('worker', worker)
-		} else {
-			searchParams.delete('worker')
-		}
-
-		if (folder) {
-			searchParams.set('folder', folder)
-		} else {
-			searchParams.delete('folder')
-		}
-
-		if (success !== undefined) {
-			searchParams.set('success', success.toString())
-		} else {
-			searchParams.delete('success')
-		}
-
-		if (showSkipped) {
-			searchParams.set('show_skipped', showSkipped.toString())
-		} else {
-			searchParams.delete('show_skipped')
-		}
-
-		if (showSchedules) {
-			searchParams.set('show_schedules', showSchedules.toString())
-		} else {
-			searchParams.delete('show_schedules')
-		}
-
-		if (showFutureJobs) {
-			searchParams.set('show_future_jobs', showFutureJobs.toString())
-		} else {
-			searchParams.delete('show_future_jobs')
-		}
-
-		if (allWorkspaces && $workspaceStore == 'admins') {
-			searchParams.set('all_workspaces', allWorkspaces.toString())
-			searchParams.set('workspace', 'admins')
-		} else {
-			searchParams.delete('all_workspaces')
-		}
-
-		// ArgFilter is an object. Encode it to a string
-		if (argFilter) {
-			searchParams.set('arg', encodeURIComponent(JSON.stringify(argFilter)))
-		} else {
-			searchParams.delete('arg')
-		}
-
-		if (resultFilter) {
-			searchParams.set('result', encodeURIComponent(JSON.stringify(resultFilter)))
-		} else {
-			searchParams.delete('result')
-		}
-
-		if (jobTriggerKind) {
-			searchParams.set('job_trigger_kind', jobTriggerKind)
-		} else {
-			searchParams.delete('job_trigger_kind')
-		}
-
-		if (schedulePath) {
-			searchParams.set('schedule_path', schedulePath)
-		} else {
-			searchParams.delete('schedule_path')
-		}
-		if (jobKindsCat != 'runs') {
-			searchParams.set('job_kinds', jobKindsCat)
-		} else {
-			searchParams.delete('job_kinds')
-		}
-
-		if (minTs) {
-			searchParams.set('min_ts', minTs)
-		} else {
-			searchParams.delete('min_ts')
-		}
-
-		if (maxTs) {
-			searchParams.set('max_ts', maxTs)
-		} else {
-			searchParams.delete('max_ts')
-		}
-		if (concurrencyKey) {
-			searchParams.set('concurrency_key', concurrencyKey)
-		} else {
-			searchParams.delete('concurrency_key')
-		}
-
-		if (tag) {
-			searchParams.set('tag', tag)
-		} else {
-			searchParams.delete('tag')
-		}
-
-		if (label) {
-			searchParams.set('label', label)
-		} else {
-			searchParams.delete('label')
-		}
-
-		if (allowWildcards) {
-			searchParams.set('allow_wildcards', allowWildcards.toString())
-		} else {
-			searchParams.delete('allow_wildcards')
-		}
-
-		if (graph != 'RunChart') {
-			searchParams.set('graph', graph)
-		} else {
-			searchParams.delete('graph')
-		}
-
-		if (perPage != DEFAULT_RUNS_PER_PAGE) {
-			searchParams.set('per_page', perPage.toString())
-		} else {
-			searchParams.delete('per_page')
-		}
-
-		let newPath = path ? `/${path}` : ''
-
-		let newUrl = `${base}/runs${newPath}?${searchParams.toString()}`
-		if (
-			page.url.searchParams.toString() != searchParams.toString() ||
-			page.url.pathname != newUrl.split('?')[0]
-		) {
-			// replaceState(newUrl.toString(), $page.state)
-			goto(newUrl.toString(), { replaceState: replaceState, keepFocus: true })
-		}
-	}
-
 	function reloadJobsWithoutFilterError() {
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
@@ -378,7 +218,6 @@
 	}
 
 	function reset() {
-		path = page.params.path ?? null
 		minTs = undefined
 		maxTs = undefined
 		jobs = undefined
@@ -410,93 +249,93 @@
 	}
 
 	function filterByPath(e: CustomEvent<string>) {
-		path = e.detail
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = null
-		tag = null
+		filters.path = e.detail
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = null
 		schedulePath = undefined
-		worker = null
 	}
 
 	function filterByUser(e: CustomEvent<string>) {
-		path = null
-		folder = null
-		user = e.detail
-		label = null
-		concurrencyKey = null
-		tag = null
+		filters.path = null
+		filters.folder = null
+		filters.user = e.detail
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
 		schedulePath = undefined
 	}
 
 	function filterByFolder(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = e.detail
-		label = null
-		concurrencyKey = null
-		tag = null
+		filters.path = null
+		filters.user = null
+		filters.folder = e.detail
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = null
 		schedulePath = undefined
-		worker = null
 	}
 
 	function filterByLabel(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = null
-		label = e.detail
-		concurrencyKey = null
-		tag = null
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = e.detail
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = null
+		filters.allow_wildcards = false
 		schedulePath = undefined
-		worker = null
-		allowWildcards = false
 	}
 
 	function filterByConcurrencyKey(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = e.detail
-		tag = null
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = e.detail
+		filters.tag = null
+		filters.worker = null
 		schedulePath = undefined
-		worker = null
 	}
 
 	function filterByTag(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = null
-		tag = e.detail
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = e.detail
+		filters.worker = null
+		filters.allow_wildcards = false
 		schedulePath = undefined
-		worker = null
-		allowWildcards = false
 	}
 
 	function filterBySchedule(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = null
-		tag = null
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = null
 		schedulePath = e.detail
-		worker = null
 	}
 
 	function filterByWorker(e: CustomEvent<string>) {
-		path = null
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = null
-		tag = null
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = e.detail
+		filters.allow_wildcards = false
 		schedulePath = undefined
-		worker = e.detail
-		allowWildcards = false
 	}
 
 	let calendarChangeTimeout: number | undefined = $state(undefined)
@@ -539,9 +378,9 @@
 			startedBefore: maxTs,
 			startedAfter: minTs,
 			schedulePath,
-			scriptPathExact: path === null || path === '' ? undefined : path,
-			createdBy: user === null || user === '' ? undefined : user,
-			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
+			scriptPathExact: filters.path === null || filters.path === '' ? undefined : filters.path,
+			createdBy: filters.user || undefined,
+			scriptPathStart: filters.folder ? `f/${filters.folder}/` : undefined,
 			jobKinds: jobKinds == '' ? undefined : jobKinds,
 			success: success == 'success' ? true : success == 'failure' ? false : undefined,
 			running:
@@ -553,13 +392,15 @@
 			isSkipped: showSkipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
-				path != undefined || path != undefined || jobKindsCat != 'all' ? true : undefined,
-			label: label === null || label === '' ? undefined : label,
-			tag: tag === null || tag === '' ? undefined : tag,
+				filters.path != undefined || filters.path != undefined || jobKindsCat != 'all'
+					? true
+					: undefined,
+			label: filters.label || undefined,
+			tag: filters.tag || undefined,
 			isNotSchedule: showSchedules == false ? true : undefined,
 			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
 			scheduledForBeforeNow:
-				showFutureJobs == false || success == 'waiting' || success == 'suspended'
+				filters.show_future_jobs == false || success == 'waiting' || success == 'suspended'
 					? true
 					: undefined,
 			args:
@@ -569,8 +410,8 @@
 					? resultFilter
 					: undefined,
 			jobTriggerKind,
-			allWorkspaces: allWorkspaces ? true : undefined,
-			allowWildcards: allowWildcards ? true : undefined
+			allWorkspaces: allWorkspaces || undefined,
+			allowWildcards: filters.allow_wildcards || undefined
 		}
 	}
 
@@ -736,15 +577,14 @@
 	}
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
-		path = null
-		user = null
-		folder = null
-		label = null
-		concurrencyKey = null
+		filters.path = null
+		filters.user = null
+		filters.folder = null
+		filters.label = null
+		filters.concurrency_key = null
+		filters.tag = null
+		filters.worker = null
 		schedulePath = undefined
-		path = null
-		tag = null
-		worker = null
 		if (success == f) {
 			success = undefined
 		} else {
@@ -755,41 +595,6 @@
 
 	$effect(() => {
 		loadingSelectedIds && selectedIds.length && setTimeout(() => (loadingSelectedIds = false), 250)
-	})
-	$effect(() => {
-		;[
-			user,
-			worker,
-			label,
-			folder,
-			path,
-			success !== undefined,
-			showSkipped,
-			showSchedules,
-			showFutureJobs,
-			argFilter,
-			resultFilter,
-			jobTriggerKind,
-			schedulePath,
-			jobKindsCat,
-			concurrencyKey,
-			tag,
-			graph,
-			maxTs,
-			minTs,
-			allWorkspaces,
-			allowWildcards,
-			$workspaceStore,
-			perPage
-		]
-
-		untrack(() => setQuery(false))
-	})
-	$effect(() => {
-		minTs || untrack(() => setQuery(true))
-	})
-	$effect(() => {
-		maxTs || untrack(() => setQuery(true))
 	})
 	$effect(() => {
 		if ($workspaceStore) {
@@ -844,21 +649,23 @@
 </script>
 
 <JobsLoader
-	{allowWildcards}
+	allowWildcards={filters.allow_wildcards}
 	{allWorkspaces}
 	bind:jobs
-	{user}
-	{folder}
-	{path}
-	{worker}
-	{label}
+	user={filters.user}
+	folder={filters.folder}
+	worker={filters.worker}
+	label={filters.label}
+	concurrencyKey={filters.concurrency_key}
+	tag={filters.tag}
+	path={filters.path}
 	{success}
 	{showSkipped}
 	{argFilter}
 	{resultFilter}
 	{jobTriggerKind}
 	{showSchedules}
-	{showFutureJobs}
+	showFutureJobs={filters.show_future_jobs}
 	{schedulePath}
 	{jobKindsCat}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
@@ -871,10 +678,8 @@
 	bind:completedJobs
 	bind:externalJobs
 	bind:extendedJobs
-	{concurrencyKey}
 	{argError}
 	{resultError}
-	{tag}
 	bind:perPage
 	bind:loading
 	bind:this={jobsLoader}
@@ -1061,15 +866,15 @@
 				<!-- Filters 1 -->
 				<div class="flex flex-row gap-2">
 					<RunsFilter
-						bind:allowWildcards
+						bind:allowWildcards={filters.allow_wildcards}
+						bind:user={filters.user}
+						bind:folder={filters.folder}
+						bind:label={filters.label}
+						bind:concurrencyKey={filters.concurrency_key}
+						bind:tag={filters.tag}
+						bind:worker={filters.worker}
 						bind:showSkipped
-						bind:user
-						bind:folder
-						bind:label
-						bind:concurrencyKey
-						bind:tag
-						bind:worker
-						bind:path
+						bind:path={filters.path}
 						bind:success
 						bind:argFilter
 						bind:resultFilter
@@ -1266,10 +1071,7 @@
 								<div class="flex flex-row gap-1 items-center">
 									<Toggle
 										size="sm"
-										bind:checked={showFutureJobs}
-										on:change={() => {
-											localStorage.setItem('show_future_jobs', showFutureJobs ? 'true' : 'false')
-										}}
+										bind:checked={filters.show_future_jobs}
 										id="planned-later"
 										options={tableTopBarWidth < 800 || selectionMode
 											? {}
@@ -1313,7 +1115,7 @@
 									externalJobs={externalJobs ?? []}
 									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 									showExternalJobs={!graphIsRunsChart}
-									activeLabel={label}
+									activeLabel={filters.label}
 									{selectionMode}
 									bind:selectedIds
 									bind:selectedWorkspace
