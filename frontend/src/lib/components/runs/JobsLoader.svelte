@@ -26,7 +26,7 @@
 		worker?: string | null
 		folder: string | null
 		path: string | null
-		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined
+		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | null
 		showSchedules?: boolean
 		showFutureJobs?: boolean
 		argFilter: string | undefined
@@ -96,7 +96,7 @@
 		perPage = $bindable(1000),
 		allowWildcards = false
 	}: Props = $props()
-	let intervalId: number | undefined = $state()
+	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
 
 	function onParamChanges() {

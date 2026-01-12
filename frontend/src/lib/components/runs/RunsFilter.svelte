@@ -27,7 +27,7 @@
 		concurrencyKey?: string | null
 		worker?: string | null
 		tag?: string | null
-		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
+		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | null
 		showSkipped?: boolean | undefined
 		argFilter: string
 		argError: string
@@ -64,8 +64,8 @@
 		concurrencyKey = $bindable(),
 		worker = $bindable(),
 		tag = $bindable(),
-		success = $bindable(undefined),
-		showSkipped = $bindable(undefined),
+		success = $bindable(),
+		showSkipped = $bindable(),
 		argFilter = $bindable(),
 		argError = $bindable(),
 		resultFilter = $bindable(),
@@ -76,12 +76,12 @@
 		folder = $bindable(),
 		mobile = false,
 		schedulePath = $bindable(),
-		allowWildcards = $bindable(false),
+		allowWildcards = $bindable(),
 		paths = [],
 		usernames = [],
 		folders = [],
-		allWorkspaces = $bindable(false),
-		filterBy = $bindable('path'),
+		allWorkspaces = $bindable(),
+		filterBy = $bindable(),
 		small = false,
 		calendarSmall = false
 	}: Props = $props()
@@ -111,10 +111,10 @@
 		}
 	}
 
-	let labelTimeout: number | undefined = $state(undefined)
-	let concurrencyKeyTimeout: number | undefined = $state(undefined)
-	let tagTimeout: number | undefined = $state(undefined)
-	let workerTimeout: number | undefined = $state(undefined)
+	let labelTimeout: ReturnType<typeof setInterval> | undefined = $state()
+	let concurrencyKeyTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
+	let tagTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
+	let workerTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
 
 	let allWorkspacesValue = $state(allWorkspaces ? 'all' : 'admins')
 	let displayedLabel = $derived(label)

@@ -67,7 +67,13 @@
 			concurrency_key: z.string().nullable().default(null),
 			tag: z.string().nullable().default(null),
 			allow_wildcards: z.boolean().default(false),
-			show_future_jobs: z.boolean().default(true)
+			show_future_jobs: z.boolean().default(true),
+			success: z
+				.enum(['running', 'suspended', 'waiting', 'success', 'failure'])
+				.nullable()
+				.default(null),
+			show_skipped: z.boolean().default(false),
+			show_schedules: z.boolean().default(true)
 		})
 	)
 	let jobs: Job[] | undefined = $state()
@@ -76,28 +82,6 @@
 	let selectedWorkspace: string | undefined = $state(undefined)
 
 	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
-
-	// Rest of filters handled by RunsFilter
-	let success: 'running' | 'suspended' | 'waiting' | 'success' | 'failure' | undefined = $state(
-		(page.url.searchParams.get('success') ?? undefined) as
-			| 'running'
-			| 'success'
-			| 'failure'
-			| undefined
-	)
-	let showSkipped: boolean | undefined = $state(
-		page.url.searchParams.get('show_skipped') != undefined
-			? page.url.searchParams.get('show_skipped') == 'true'
-			: false
-	)
-
-	let showSchedules: boolean = $state(
-		page.url.searchParams.get('show_schedules') != undefined
-			? page.url.searchParams.get('show_schedules') == 'true'
-			: localStorage.getItem('show_schedules_in_run') == 'false'
-				? false
-				: true
-	)
 
 	let argFilter: any = $state(
 		page.url.searchParams.get('arg')
@@ -123,24 +107,6 @@
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
-		// Rest of filters handled by RunsFilter
-		success = (page.url.searchParams.get('success') ?? undefined) as
-			| 'running'
-			| 'success'
-			| 'failure'
-			| undefined
-		showSkipped =
-			page.url.searchParams.get('show_skipped') != undefined
-				? page.url.searchParams.get('show_skipped') == 'true'
-				: false
-
-		showSchedules =
-			page.url.searchParams.get('show_schedules') != undefined
-				? page.url.searchParams.get('show_schedules') == 'true'
-				: localStorage.getItem('show_schedules_in_run') == 'false'
-					? false
-					: true
-
 		argFilter = page.url.searchParams.get('arg')
 			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
 			: undefined
@@ -170,7 +136,7 @@
 	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
 	let argError = $state('')
 	let resultError = $state('')
-	let filterTimeout: number | undefined = undefined
+	let filterTimeout: ReturnType<typeof setInterval> | undefined = undefined
 	let selectedManualDate = $state(0)
 	let autoRefresh: boolean = $state(getAutoRefresh())
 	let runDrawer: Drawer | undefined = $state(undefined)
@@ -338,7 +304,7 @@
 		schedulePath = undefined
 	}
 
-	let calendarChangeTimeout: number | undefined = $state(undefined)
+	let calendarChangeTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
 
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
@@ -382,14 +348,15 @@
 			createdBy: filters.user || undefined,
 			scriptPathStart: filters.folder ? `f/${filters.folder}/` : undefined,
 			jobKinds: jobKinds == '' ? undefined : jobKinds,
-			success: success == 'success' ? true : success == 'failure' ? false : undefined,
+			success:
+				filters.success == 'success' ? true : filters.success == 'failure' ? false : undefined,
 			running:
-				success == 'running' || success == 'suspended'
+				filters.success == 'running' || filters.success == 'suspended'
 					? true
-					: success == 'waiting'
+					: filters.success == 'waiting'
 						? false
 						: undefined,
-			isSkipped: showSkipped ? undefined : false,
+			isSkipped: filters.show_skipped ? undefined : false,
 			// isFlowStep: jobKindsCat != 'all' ? false : undefined,
 			hasNullParent:
 				filters.path != undefined || filters.path != undefined || jobKindsCat != 'all'
@@ -397,10 +364,13 @@
 					: undefined,
 			label: filters.label || undefined,
 			tag: filters.tag || undefined,
-			isNotSchedule: showSchedules == false ? true : undefined,
-			suspended: success == 'waiting' ? false : success == 'suspended' ? true : undefined,
+			isNotSchedule: filters.show_schedules == false ? true : undefined,
+			suspended:
+				filters.success == 'waiting' ? false : filters.success == 'suspended' ? true : undefined,
 			scheduledForBeforeNow:
-				filters.show_future_jobs == false || success == 'waiting' || success == 'suspended'
+				filters.show_future_jobs == false ||
+				filters.success == 'waiting' ||
+				filters.success == 'suspended'
 					? true
 					: undefined,
 			args:
@@ -416,8 +386,8 @@
 	}
 
 	$effect(() => {
-		if (jobTriggerKind === 'schedule' && !showSchedules) {
-			showSchedules = true
+		if (jobTriggerKind === 'schedule' && !filters.show_schedules) {
+			filters.show_schedules = true
 		}
 	})
 
@@ -585,10 +555,10 @@
 		filters.tag = null
 		filters.worker = null
 		schedulePath = undefined
-		if (success == f) {
-			success = undefined
+		if (filters.success == f) {
+			filters.success = null
 		} else {
-			success = f
+			filters.success = f
 		}
 		jobKindsCat = 'all'
 	}
@@ -659,12 +629,12 @@
 	concurrencyKey={filters.concurrency_key}
 	tag={filters.tag}
 	path={filters.path}
-	{success}
-	{showSkipped}
+	success={filters.success}
+	showSkipped={filters.show_skipped}
 	{argFilter}
 	{resultFilter}
 	{jobTriggerKind}
-	{showSchedules}
+	showSchedules={filters.show_schedules}
 	showFutureJobs={filters.show_future_jobs}
 	{schedulePath}
 	{jobKindsCat}
@@ -776,7 +746,7 @@
 
 				<!-- Queue -->
 				<RunsQueue
-					{success}
+					success={filters.success}
 					{queue_count}
 					{suspended_count}
 					onJobsWaiting={() => {
@@ -873,9 +843,9 @@
 						bind:concurrencyKey={filters.concurrency_key}
 						bind:tag={filters.tag}
 						bind:worker={filters.worker}
-						bind:showSkipped
+						bind:showSkipped={filters.show_skipped}
 						bind:path={filters.path}
-						bind:success
+						bind:success={filters.success}
 						bind:argFilter
 						bind:resultFilter
 						bind:jobTriggerKind
@@ -1051,13 +1021,7 @@
 									<div class="flex flex-row gap-1 items-center">
 										<Toggle
 											id="cron-schedules"
-											bind:checked={showSchedules}
-											on:change={() => {
-												localStorage.setItem(
-													'show_schedules_in_run',
-													showSchedules ? 'true' : 'false'
-												)
-											}}
+											bind:checked={filters.show_schedules}
 											options={tableTopBarWidth < 800 || selectionMode
 												? {}
 												: { right: 'Schedules' }}
