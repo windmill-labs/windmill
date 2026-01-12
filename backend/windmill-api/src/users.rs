@@ -929,6 +929,59 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
     }
 }
 
+/// Checks that a user has at least read access to the path for preview jobs.
+/// This prevents privilege escalation where a user could run preview code
+/// under a path they don't have access to.
+pub fn require_path_read_access_for_preview(authed: &ApiAuthed, path: &Option<String>) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+
+    if authed.is_admin {
+        return Ok(());
+    }
+
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let splitted: Vec<&str> = path.split('/').collect();
+    if splitted.len() < 2 {
+        return Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}",
+            path
+        )));
+    }
+
+    match splitted[0] {
+        "u" => {
+            if splitted[1] == authed.username {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You can only run preview jobs in your own namespace (u/{}) or in folders you have read access to",
+                    authed.username
+                )))
+            }
+        }
+        "f" => {
+            let folder = splitted[1];
+            if authed.folders.iter().any(|(f, _, _)| f == folder) {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You do not have read access to folder '{}'. Preview jobs require at least read access to the target folder.",
+                    folder
+                )))
+            }
+        }
+        _ => Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
+            path
+        ))),
+    }
+}
+
 pub fn get_perm_in_extra_perms_for_authed(
     v: serde_json::Value,
     authed: &ApiAuthed,
