@@ -10,10 +10,14 @@
 		Palette,
 		Pencil,
 		Trash2,
-		Lock
+		Lock,
+		Ellipsis
 	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import { Button } from '../common'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface TreeNode {
 		name: string
@@ -54,7 +58,8 @@
 	let isHovered = $state(false)
 	let isEditing = $state(false)
 	let editValue = $state(node.name)
-	let inputElement: HTMLInputElement | undefined = $state()
+	let textInputElement: TextInput | undefined = $state()
+	let dropdownOpen = $state(false)
 
 	const isSelected = $derived(selectedPath === node.path)
 
@@ -106,9 +111,9 @@
 	}
 
 	$effect(() => {
-		if (isEditing && inputElement) {
-			inputElement.focus()
-			inputElement.select()
+		if (isEditing && textInputElement) {
+			textInputElement.focus()
+			textInputElement.select()
 		}
 	})
 
@@ -204,7 +209,7 @@
 	>
 		{#if isEditing}
 			<div
-				class="w-full flex items-center gap-1 px-2 py-1 text-xs rounded {isSelected
+				class="w-full flex items-center gap-1 px-2 min-h-6 text-xs rounded {isSelected
 					? 'bg-blue-100 dark:bg-blue-900/30'
 					: ''}"
 				style="padding-left: {level * 12}px"
@@ -224,13 +229,15 @@
 					<span class="flex-shrink-0"></span>
 					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
 				{/if}
-				<input
-					bind:this={inputElement}
+				<TextInput
+					bind:this={textInputElement}
 					bind:value={editValue}
-					onkeydown={handleInputKeydown}
-					onblur={handleInputBlur}
-					class="flex-1 min-w-0 bg-surface border border-blue-500 rounded px-1 text-primary font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-					type="text"
+					inputProps={{
+						onkeydown: handleInputKeydown,
+						onblur: handleInputBlur,
+						type: 'text'
+					}}
+					size="xs"
 				/>
 			</div>
 		{:else}
@@ -261,29 +268,39 @@
 				>
 			</button>
 
-			{#if isHovered && !isEditing}
-				<div
-					class="absolute right-1 top-1 flex gap-0.5 bg-surface rounded shadow-sm border border-gray-200 dark:border-gray-700"
-				>
-					{#if !noEdit}
-						<button
-							onclick={handleEdit}
-							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
-							title="Rename"
-						>
-							<Pencil size={12} class="text-secondary" />
-						</button>
-						<button
-							onclick={handleDelete}
-							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
-							title="Delete"
-						>
-							<Trash2 size={12} class="text-red-500" />
-						</button>
-					{:else}
-						<Lock size={12} class="text-secondary" />
-					{/if}
-				</div>
+			{#if isHovered || dropdownOpen}
+				{#if !noEdit}
+					<DropdownV2
+						items={[
+							{
+								displayName: 'Rename',
+								icon: Pencil,
+								action: handleEdit
+							},
+							{
+								displayName: 'Delete',
+								icon: Trash2,
+								action: handleDelete,
+								type: 'delete'
+							}
+						]}
+						placement="bottom-end"
+						class="absolute -translate-y-1/2 top-1/2 right-1"
+						bind:open={dropdownOpen}
+					>
+						{#snippet buttonReplacement()}
+							<Button
+								iconOnly
+								unifiedSize="xs"
+								variant="subtle"
+								nonCaptureEvent
+								startIcon={{ icon: Ellipsis }}
+							></Button>
+						{/snippet}
+					</DropdownV2>
+				{:else}
+					<Lock size={12} class="text-secondary absolute -translate-y-1/2 top-1/2 right-2" />
+				{/if}
 			{/if}
 		{/if}
 	</div>
