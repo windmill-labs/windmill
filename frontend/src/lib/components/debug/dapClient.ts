@@ -165,8 +165,6 @@ export class DAPClient {
 		}
 
 		return new Promise((resolve, reject) => {
-			this.pendingRequests.set(seq, { resolve, reject })
-
 			const timeout = setTimeout(() => {
 				this.pendingRequests.delete(seq)
 				reject(new Error(`Request timeout: ${command}`))

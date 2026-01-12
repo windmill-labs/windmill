@@ -142,12 +142,15 @@ fn parse_python_imports(code: &str) -> Vec<String> {
     packages.into_iter().collect()
 }
 
-/// Get common environment variables for UV processes
-fn get_simple_uv_proc_envs() -> HashMap<String, String> {
+/// Get common environment variables for external processes (UV, Bun, etc.)
+fn get_proc_envs(cache_env: Option<(&str, &str)>) -> HashMap<String, String> {
     let mut envs = HashMap::new();
     envs.insert("PATH".to_string(), PATH_ENV.to_string());
     envs.insert("HOME".to_string(), HOME_ENV.to_string());
-    envs.insert("UV_CACHE_DIR".to_string(), UV_CACHE_DIR.to_string());
+
+    if let Some((key, value)) = cache_env {
+        envs.insert(key.to_string(), value.to_string());
+    }
 
     // Add proxy envs
     for (k, v) in PROXY_ENVS.iter() {
@@ -189,7 +192,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
         };
     }
 
-    let common_uv_envs = get_simple_uv_proc_envs();
+    let common_uv_envs = get_proc_envs(Some(("UV_CACHE_DIR", &UV_CACHE_DIR)));
 
     // Step 1: Create virtual environment using uv
     let output = Command::new(UV_PATH.as_str())
@@ -294,17 +297,7 @@ async fn prepare_python_deps_standalone(code: &str) -> PrepareResponse {
 
 /// Get common environment variables for Bun processes
 pub fn get_simple_bun_proc_envs() -> HashMap<String, String> {
-    let mut envs = HashMap::new();
-    envs.insert("PATH".to_string(), PATH_ENV.to_string());
-    envs.insert("HOME".to_string(), HOME_ENV.to_string());
-    envs.insert("BUN_INSTALL_CACHE_DIR".to_string(), BUN_CACHE_DIR.to_string());
-
-    // Add proxy envs
-    for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.clone());
-    }
-
-    envs
+    get_proc_envs(Some(("BUN_INSTALL_CACHE_DIR", &BUN_CACHE_DIR)))
 }
 
 /// Prepare dependencies for a script without requiring database access.
