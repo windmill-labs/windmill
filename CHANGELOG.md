@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.603.4](https://github.com/windmill-labs/windmill/compare/v1.603.3...v1.603.4) (2026-01-12)
+
+
+### Bug Fixes
+
+* tighten preview path ([#7541](https://github.com/windmill-labs/windmill/issues/7541)) ([dca7e16](https://github.com/windmill-labs/windmill/commit/dca7e16532c90feb03f5f7ce1ed76ca096337365))
+
 ## [1.603.3](https://github.com/windmill-labs/windmill/compare/v1.603.2...v1.603.3) (2026-01-11)
 
 
