@@ -272,26 +272,30 @@
 	}
 </script>
 
-<PanelSection size="lg" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
+<PanelSection size="sm" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
 	{#snippet action()}
 		<div class="flex gap-1">
-			<div class="flex gap-0.5">
-				<button
-					onclick={handleAddRootFile}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
+			<div class="flex gap-1">
+				<Button
+					onClick={handleAddRootFile}
 					title="Add file to root"
+					unifiedSize="xs"
+					variant="subtle"
+					btnClasses="px-1 gap-0.5"
 				>
-					<Plus size={12} class="text-secondary" />
-					<File size={12} class="text-tertiary" />
-				</button>
-				<button
-					onclick={handleAddRootFolder}
-					class="p-0.5 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
+					<Plus size={12} />
+					<File size={12} />
+				</Button>
+				<Button
+					onClick={handleAddRootFolder}
 					title="Add folder to root"
+					unifiedSize="xs"
+					variant="subtle"
+					btnClasses="px-1 gap-0.5"
 				>
-					<Plus size={12} class="text-secondary" />
-					<Folder size={12} class="text-tertiary" />
-				</button>
+					<Plus size={12} />
+					<Folder size={12} />
+				</Button>
 			</div>
 		</div>
 	{/snippet}
@@ -348,7 +352,7 @@
 
 {#if historyManager && onHistorySelect && onManualSnapshot}
 	<div class="py-4"></div>
-	<PanelSection fullHeight={false} size="md" title="history" id="app-editor-history-panel">
+	<PanelSection fullHeight={false} size="sm" title="history" id="app-editor-history-panel">
 		{#snippet action()}
 			<div class="flex items-center gap-2">
 				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>

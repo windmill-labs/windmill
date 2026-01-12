@@ -13,6 +13,7 @@
 		Lock
 	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface TreeNode {
 		name: string
@@ -236,7 +237,7 @@
 			<button
 				onclick={handleClick}
 				class="w-full flex items-center gap-1 px-2 py-1 text-xs hover:bg-surface-hover transition-colors rounded text-left {isSelected
-					? 'bg-blue-100 dark:bg-blue-900/30'
+					? 'bg-surface-accent-selected'
 					: ''}"
 				style="padding-left: {level * 12}px"
 			>
@@ -255,7 +256,9 @@
 					<span class="flex-shrink-0"></span>
 					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
 				{/if}
-				<span class="truncate text-primary font-mono">{node.name}</span>
+				<span class={twMerge('truncate text-primary font-normal', isSelected ? 'text-accent' : '')}
+					>{node.name}</span
+				>
 			</button>
 
 			{#if isHovered && !isEditing}

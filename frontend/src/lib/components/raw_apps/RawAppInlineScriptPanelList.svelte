@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Badge, Button } from '$lib/components/common'
-	import { Plus, AlertCircle, AlertTriangle } from 'lucide-svelte'
+	import { Plus, File, AlertCircle, AlertTriangle } from 'lucide-svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import Popover from '../Popover.svelte'
 
@@ -45,19 +45,20 @@
 	}
 </script>
 
-<PanelSection size="lg" fullHeight={false} title="backend" id="app-editor-runnable-panel">
+<PanelSection size="sm" fullHeight={false} title="backend" id="app-editor-runnable-panel">
 	{#snippet action()}
 		<div class="flex flex-row gap-1">
 			<Button
-				size="xs"
-				variant="default"
-				btnClasses="!rounded-full !p-1"
+				unifiedSize="xs"
+				variant="subtle"
 				title="Create a new background runnable"
 				aria-label="Create a new background runnable"
 				on:click={createBackgroundScript}
 				id="create-background-runnable"
+				btnClasses="gap-0.5 px-1"
 			>
-				<Plus size={14} class="!text-primary" />
+				<Plus size={12} />
+				<File size={12} />
 			</Button>
 		</div>
 	{/snippet}
@@ -69,7 +70,7 @@
 						{#if runnable}
 							<button
 								{id}
-								class="panel-item
+								class="panel-item rounded-md
 								{selectedRunnable === id
 									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
 									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Loader2 } from 'lucide-svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	export type Modules = {
 		installed: Record<string, string>
@@ -45,22 +46,22 @@
 	title="packages ({Object.keys(props.modules?.installed ?? {}).length})"
 	id="app-editor-frontend-panel-modules"
 >
-	<input type="text" class="w-full max-w-sm" placeholder="Search packages" bind:value={search} />
+	<TextInput inputProps={{ placeholder: 'Search packages' }} size="sm" bind:value={search} />
 	<div class="mt-2 flex flex-col gap-4 w-full">
 		{#each ['direct', 'indirect', 'dev'] as type}
 			{@const typeModules = filteredModules[type]}
 			{#if typeModules.length > 0}
 				<div class="flex flex-col gap-1">
-					<div class="text-sm px-2 text-secondary font-mono uppercase"
+					<div class="text-xs px-2 text-hint text-2xs"
 						>{type}
-						<span class="text-2xs text-tertiary">({typeModules.length})</span></div
+						<span>({typeModules.length})</span></div
 					>
 					{#each typeModules as mod (mod)}
-						<div class="text-xs px-2 text-secondary font-mono flex justify-between w-full"
+						<div class="text-xs px-2 text-primary font-mono flex justify-between w-full"
 							><div class="truncate">{mod}</div>
 							<div class="flex items-center gap-1">
 								{#if props.modules?.installed?.[mod]}
-									<span class="text-2xs px-2 text-tertiary font-mono">
+									<span class="text-2xs px-2 text-hint">
 										{props.modules?.installed?.[mod]}
 									</span>
 								{:else}
