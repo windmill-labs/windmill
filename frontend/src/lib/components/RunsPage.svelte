@@ -190,74 +190,7 @@
 		paths = npaths_scripts.concat(npaths_flows).sort()
 	}
 
-	function filterByPath(e: CustomEvent<string>) {
-		filters.path = e.detail
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = null
-		filters.schedule_path = null
-	}
-
-	function filterByUser(e: CustomEvent<string>) {
-		filters.path = null
-		filters.folder = null
-		filters.user = e.detail
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.schedule_path = null
-	}
-
-	function filterByFolder(e: CustomEvent<string>) {
-		filters.path = null
-		filters.user = null
-		filters.folder = e.detail
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = null
-		filters.schedule_path = null
-	}
-
-	function filterByLabel(e: CustomEvent<string>) {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = e.detail
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = null
-		filters.allow_wildcards = false
-		filters.schedule_path = null
-	}
-
-	function filterByConcurrencyKey(e: CustomEvent<string>) {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = e.detail
-		filters.tag = null
-		filters.worker = null
-		filters.schedule_path = null
-	}
-
-	function filterByTag(e: CustomEvent<string>) {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = e.detail
-		filters.worker = null
-		filters.allow_wildcards = false
-		filters.schedule_path = null
-	}
-
-	function filterBySchedule(e: CustomEvent<string>) {
+	function resetAndFilterBy(setter: (string) => void) {
 		filters.path = null
 		filters.user = null
 		filters.folder = null
@@ -265,20 +198,18 @@
 		filters.concurrency_key = null
 		filters.tag = null
 		filters.worker = null
-		filters.schedule_path = e.detail
+		filters.schedule_path = null
+		return (e: CustomEvent<string>) => setter(e.detail)
 	}
 
-	function filterByWorker(e: CustomEvent<string>) {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = e.detail
-		filters.allow_wildcards = false
-		filters.schedule_path = null
-	}
+	const filterByPath = resetAndFilterBy((s) => (filters.path = s))
+	const filterByUser = resetAndFilterBy((s) => (filters.user = s))
+	const filterByFolder = resetAndFilterBy((s) => (filters.folder = s))
+	const filterByLabel = resetAndFilterBy((s) => (filters.label = s))
+	const filterByConcurrencyKey = resetAndFilterBy((s) => (filters.concurrency_key = s))
+	const filterByTag = resetAndFilterBy((s) => (filters.tag = s))
+	const filterBySchedule = resetAndFilterBy((s) => (filters.schedule_path = s))
+	const filterByWorker = resetAndFilterBy((s) => (filters.worker = s))
 
 	let calendarChangeTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
 
