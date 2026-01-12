@@ -943,7 +943,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="DAP WebSocket Server for Python debugging")
     parser.add_argument("--host", default="localhost", help="Host to bind to")
     parser.add_argument("--port", type=int, default=5679, help="Port to listen on")
-    parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation")
+    parser.add_argument("--windmill", help="Path to windmill binary for dependency preparation (or set WINDMILL_PATH env var)")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -953,7 +953,10 @@ if __name__ == "__main__":
         logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled")
 
+    # Use --windmill arg, or fall back to WINDMILL_PATH env var
+    windmill_path = args.windmill or os.environ.get("WINDMILL_PATH")
+
     try:
-        asyncio.run(main(args.host, args.port, args.windmill))
+        asyncio.run(main(args.host, args.port, windmill_path))
     except KeyboardInterrupt:
         logger.info("Server stopped")
