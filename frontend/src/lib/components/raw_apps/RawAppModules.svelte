@@ -38,10 +38,10 @@
 </script>
 
 <PanelSection
-	size="sm"
+	size="xs"
 	collapsible
 	initiallyCollapsed
-	titlePadding="pl-1 !text-tertiary"
+	titlePadding="!text-tertiary"
 	fullHeight={false}
 	title="packages ({Object.keys(props.modules?.installed ?? {}).length})"
 	id="app-editor-frontend-panel-modules"

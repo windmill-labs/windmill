@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Badge, Button } from '$lib/components/common'
+	import { Button } from '$lib/components/common'
 	import { Plus, File, AlertCircle, AlertTriangle } from 'lucide-svelte'
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import Popover from '../Popover.svelte'
@@ -7,6 +7,7 @@
 	import type { Runnable } from '../apps/inputType'
 	import { getNextId } from '$lib/components/flows/idUtils'
 	import { rawAppLintStore } from './lintStore'
+	import RunnableRow from './RunnableRow.svelte'
 
 	interface Props {
 		selectedRunnable: string | undefined
@@ -68,16 +69,18 @@
 				{#if Object.keys(runnables ?? {}).length > 0}
 					{#each Object.entries(runnables ?? {}) as [id, runnable]}
 						{#if runnable}
-							{@const isSelected = selectedRunnable === id}
-							<button
+							<RunnableRow
 								{id}
-								class="w-full gap-1 flex items-center h-6 rounded-md px-1
-								{isSelected ? 'bg-surface-accent-selected text-accent' : 'hover:bg-surface-hover'}"
-								onclick={() => (selectedRunnable = id)}
-							>
-								<Badge color="indigo" class={isSelected ? 'bg-surface-tertiary' : ''}>{id}</Badge>
-								<span class="text-xs truncate font-normal">{runnable?.name}</span>
-							</button>
+								{runnable}
+								isSelected={selectedRunnable === id}
+								onSelect={() => (selectedRunnable = id)}
+								onDelete={() => {
+									delete runnables[id]
+									if (selectedRunnable === id) {
+										selectedRunnable = undefined
+									}
+								}}
+							/>
 						{/if}
 					{/each}
 				{:else}
