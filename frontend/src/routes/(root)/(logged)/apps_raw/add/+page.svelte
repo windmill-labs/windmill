@@ -387,9 +387,9 @@
 								: ''} hover:bg-surface-hover border rounded-lg transition-all"
 						>
 							<div class="w-full flex items-center justify-center">
-								<FileEditorIcon file={'.' + t.icon} />
+								<FileEditorIcon file={'.' + t.icon} size={32} />
 							</div>
-							<div class="center-center w-full text-sm">{t.name}</div>
+							<div class="center-center w-full text-sm text-secondary">{t.name}</div>
 						</button>
 					{/each}
 				</div>

@@ -357,12 +357,14 @@
 			<div class="flex items-center gap-2">
 				<span class="text-2xs text-tertiary">{historyManager.allEntries.length}/50</span>
 				<Button
-					size="xs2"
-					color="dark"
-					variant="border"
-					startIcon={{ icon: Camera }}
+					unifiedSize="xs"
+					variant="subtle"
 					on:click={onManualSnapshot}
-				></Button>
+					btnClasses="px-1"
+					title="Create a new snapshot"
+				>
+					<Camera size={12} />
+				</Button>
 			</div>
 		{/snippet}
 		<RawAppHistoryList

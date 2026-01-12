@@ -4,7 +4,6 @@
 		ChevronDown,
 		File,
 		Folder,
-		FileJson,
 		FileCode,
 		ImageIcon,
 		Palette,
@@ -18,6 +17,12 @@
 	import DropdownV2 from '../DropdownV2.svelte'
 	import { Button } from '../common'
 	import TextInput from '../text_input/TextInput.svelte'
+	import TypeScript from '../common/languageIcons/TypeScript.svelte'
+	import JavaScriptIcon from '../icons/JavaScriptIcon.svelte'
+	import JsonIcon from '../icons/JsonIcon.svelte'
+	import ReactIcon from '../icons/ReactIcon.svelte'
+	import SvelteIcon from '../icons/SvelteIcon.svelte'
+	import VueIcon from '../icons/VueIcon.svelte'
 
 	interface TreeNode {
 		name: string
@@ -170,17 +175,19 @@
 
 		switch (ext) {
 			case 'json':
-				return { icon: FileJson, className: 'text-yellow-500' }
+				return { icon: JsonIcon }
 			case 'tsx':
+				return { icon: ReactIcon }
 			case 'jsx':
 				return { icon: FileCode, className: 'text-blue-500' }
 			case 'ts':
+				return { icon: TypeScript }
 			case 'js':
-				return { icon: FileCode, className: 'text-blue-400' }
+				return { icon: JavaScriptIcon }
 			case 'svelte':
-				return { icon: FileCode, className: 'text-orange-500' }
+				return { icon: SvelteIcon }
 			case 'vue':
-				return { icon: FileCode, className: 'text-green-500' }
+				return { icon: VueIcon }
 			case 'css':
 			case 'scss':
 			case 'sass':
@@ -223,11 +230,11 @@
 							<ChevronRight size={12} />
 						{/if}
 					</span>
-					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+					<IconComponent size={14} class="flex-shrink-0 {fileIcon.className}" />
 				{:else}
 					{@const IconComponent = fileIcon.icon}
 					<span class="flex-shrink-0"></span>
-					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+					<IconComponent size={14} class="flex-shrink-0 {fileIcon.className}" />
 				{/if}
 				<TextInput
 					bind:this={textInputElement}
