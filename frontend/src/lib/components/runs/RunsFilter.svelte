@@ -32,7 +32,7 @@
 		argFilter: string
 		argError: string
 		resultFilter: string
-		jobTriggerKind: JobTriggerKind | undefined
+		jobTriggerKind: JobTriggerKind | null
 		resultError: string
 		jobKindsCat: string
 		user?: string | null
@@ -969,7 +969,7 @@
 								label: triggerDisplayNamesMap[value],
 								value
 							}))}
-							bind:value={jobTriggerKind}
+							bind:value={() => jobTriggerKind ?? undefined, (v) => (jobTriggerKind = v ?? null)}
 							clearable
 						/>
 					</Label>

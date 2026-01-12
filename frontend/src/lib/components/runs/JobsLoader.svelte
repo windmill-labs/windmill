@@ -31,7 +31,7 @@
 		showFutureJobs?: boolean
 		argFilter: string | undefined
 		resultFilter?: string | undefined
-		jobTriggerKind?: JobTriggerKind | undefined
+		jobTriggerKind?: JobTriggerKind | null
 		schedulePath?: string | null
 		jobKindsCat?: string | null
 		minTs: string | null
@@ -71,7 +71,7 @@
 		showFutureJobs = true,
 		argFilter,
 		resultFilter = undefined,
-		jobTriggerKind = undefined,
+		jobTriggerKind = null,
 		schedulePath = undefined,
 		jobKindsCat = null,
 		minTs = $bindable(),
@@ -87,7 +87,7 @@
 		extendedJobs = $bindable(),
 		argError = '',
 		resultError = '',
-		loading = $bindable(false),
+		loading = $bindable(),
 		refreshRate = 5000,
 		syncQueuedRunsCount = true,
 		allWorkspaces = false,
@@ -234,7 +234,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			triggerKind: jobTriggerKind,
+			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards: allowWildcards ? true : undefined
@@ -285,7 +285,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			triggerKind: jobTriggerKind,
+			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards

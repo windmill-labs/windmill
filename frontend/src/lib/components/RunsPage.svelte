@@ -78,7 +78,22 @@
 			max_ts: z.string().nullable().default(null),
 			schedule_path: z.string().nullable().default(null),
 			job_kinds: z.string().default('runs'),
-			all_workspaces: z.boolean().default(false)
+			all_workspaces: z.boolean().default(false),
+			arg: z
+				.string()
+				.transform((s) => JSON.parse(s ?? '{}'))
+				.nullable()
+				.default(null),
+			result: z
+				.string()
+				.transform((s) => JSON.parse(s ?? '{}'))
+				.nullable()
+				.default(null),
+			job_trigger_kind: z
+				.string()
+				.transform((s) => s as JobTriggerKind)
+				.nullable()
+				.default(null)
 		})
 	)
 	let jobs: Job[] | undefined = $state()
@@ -88,31 +103,9 @@
 
 	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
-	let argFilter: any = $state(
-		page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
-			: undefined
-	)
-	let resultFilter: any = $state(
-		page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
-			: undefined
-	)
-	let jobTriggerKind: JobTriggerKind | undefined = $state(
-		(page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
-	)
-
 	let lastFetchWentToEnd = $state(false)
 
 	function loadFromQuery() {
-		argFilter = page.url.searchParams.get('arg')
-			? JSON.parse(decodeURIComponent(page.url.searchParams.get('arg') ?? '{}'))
-			: undefined
-		resultFilter = page.url.searchParams.get('result')
-			? JSON.parse(decodeURIComponent(page.url.searchParams.get('result') ?? '{}'))
-			: undefined
-		jobTriggerKind = (page.url.searchParams.get('job_trigger_kind') as JobTriggerKind) ?? undefined
-
 		perPage = parseInt(page.url.searchParams.get('per_page') ?? DEFAULT_RUNS_PER_PAGE.toString())
 	}
 
@@ -365,20 +358,19 @@
 				filters.success == 'suspended'
 					? true
 					: undefined,
-			args:
-				argFilter && argFilter != '{}' && argFilter != '' && argError == '' ? argFilter : undefined,
+			args: filters.arg && Object.keys(filters.arg).length && !argError ? filters.arg : undefined,
 			result:
-				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
-					? resultFilter
+				filters.result && Object.keys(filters.result).length && !resultError
+					? filters.result
 					: undefined,
-			jobTriggerKind,
+			jobTriggerKind: filters.job_trigger_kind || undefined,
 			allWorkspaces: filters.all_workspaces || undefined,
 			allowWildcards: filters.allow_wildcards || undefined
 		}
 	}
 
 	$effect(() => {
-		if (jobTriggerKind === 'schedule' && !filters.show_schedules) {
+		if (filters.job_trigger_kind === 'schedule' && !filters.show_schedules) {
 			filters.show_schedules = true
 		}
 	})
@@ -623,9 +615,9 @@
 	path={filters.path}
 	success={filters.success}
 	showSkipped={filters.show_skipped}
-	{argFilter}
-	{resultFilter}
-	{jobTriggerKind}
+	argFilter={filters.arg}
+	resultFilter={filters.result}
+	jobTriggerKind={filters.job_trigger_kind}
 	showSchedules={filters.show_schedules}
 	showFutureJobs={filters.show_future_jobs}
 	schedulePath={filters.schedule_path}
@@ -846,9 +838,9 @@
 						bind:showSkipped={filters.show_skipped}
 						bind:path={filters.path}
 						bind:success={filters.success}
-						bind:argFilter
-						bind:resultFilter
-						bind:jobTriggerKind
+						bind:argFilter={filters.arg}
+						bind:resultFilter={filters.result}
+						bind:jobTriggerKind={filters.job_trigger_kind}
 						bind:argError
 						bind:resultError
 						bind:jobKindsCat={filters.job_kinds}
@@ -1017,7 +1009,7 @@
 							</div>
 
 							<div class="flex flex-row gap-4 items-center">
-								{#if !jobTriggerKind}
+								{#if !filters.job_trigger_kind}
 									<div class="flex flex-row gap-1 items-center">
 										<Toggle
 											id="cron-schedules"
