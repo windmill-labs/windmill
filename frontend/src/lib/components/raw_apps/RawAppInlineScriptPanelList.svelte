@@ -68,16 +68,15 @@
 				{#if Object.keys(runnables ?? {}).length > 0}
 					{#each Object.entries(runnables ?? {}) as [id, runnable]}
 						{#if runnable}
+							{@const isSelected = selectedRunnable === id}
 							<button
 								{id}
-								class="panel-item rounded-md
-								{selectedRunnable === id
-									? 'border-blue-500 bg-blue-100 dark:bg-frost-900/50'
-									: 'hover:bg-blue-50 dark:hover:bg-frost-900/50'}"
+								class="w-full gap-1 flex items-center h-6 rounded-md px-1
+								{isSelected ? 'bg-surface-accent-selected text-accent' : 'hover:bg-surface-hover'}"
 								onclick={() => (selectedRunnable = id)}
 							>
-								<span class="text-2xs truncate">{runnable?.name}</span>
-								<Badge color="indigo">{id}</Badge>
+								<Badge color="indigo" class={isSelected ? 'bg-surface-tertiary' : ''}>{id}</Badge>
+								<span class="text-xs truncate font-normal">{runnable?.name}</span>
 							</button>
 						{/if}
 					{/each}

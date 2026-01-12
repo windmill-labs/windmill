@@ -61,7 +61,7 @@
 	</svelte:fragment>
 	<svelte:fragment slot="content">
 		<div class="flex flex-col gap-3 p-4 min-w-64 max-w-80">
-			<div class="text-xs font-medium text-primary">Default Datatable & Schemass</div>
+			<div class="text-xs font-medium text-primary">Default Datatable & Schema</div>
 
 			<p class="text-2xs text-tertiary leading-relaxed">
 				{description}
