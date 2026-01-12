@@ -340,6 +340,8 @@ export class DAPClient {
 		cwd?: string
 		callMain?: boolean
 		env?: Record<string, string>
+		// JWT token for audit/authorization (signed by backend)
+		token?: string
 	}): Promise<void> {
 		await this.sendRequest('launch', {
 			program: options.program,
@@ -347,7 +349,9 @@ export class DAPClient {
 			args: options.args || {},
 			cwd: options.cwd || '.',
 			callMain: options.callMain || false,
-			env: options.env || {}
+			env: options.env || {},
+			// Pass JWT token to debugger for verification
+			token: options.token
 		})
 		debugState.update((s) => ({ ...s, running: true }))
 	}
@@ -460,16 +464,22 @@ export class DAPClient {
 
 	/**
 	 * Evaluate an expression.
+	 * @param expression The expression to evaluate
+	 * @param frameId Optional frame ID to evaluate in
+	 * @param context The evaluation context
+	 * @param token Optional JWT token for signed expression (audit logging)
 	 */
 	async evaluate(
 		expression: string,
 		frameId?: number,
-		context: 'watch' | 'repl' | 'hover' = 'repl'
+		context: 'watch' | 'repl' | 'hover' = 'repl',
+		token?: string
 	): Promise<{ result: string; variablesReference: number }> {
 		const response = await this.sendRequest('evaluate', {
 			expression,
 			frameId,
-			context
+			context,
+			token
 		})
 		return {
 			result: response.body?.result as string,

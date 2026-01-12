@@ -274,6 +274,68 @@
 		}
 	}
 
+	async function signDebugRequest(codeToSign: string, lang: string): Promise<{
+		token: string
+		code: string
+	}> {
+		if (!workspace) {
+			throw new Error('No workspace selected')
+		}
+
+		const response = await fetch(`/api/w/${workspace}/debug/sign`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ code: codeToSign, language: lang })
+		})
+
+		if (!response.ok) {
+			const errorText = await response.text()
+			// Parse specific error cases for better user messages
+			if (errorText.includes('not initialized')) {
+				throw new Error('Debug signing is not configured on the server. Please contact your administrator.')
+			}
+			throw new Error(errorText || 'Failed to authorize debug session')
+		}
+
+		return await response.json()
+	}
+
+	function getDebugErrorMessage(error: unknown): string {
+		const message = error instanceof Error ? error.message : String(error)
+
+		// Handle token verification errors from debugger
+		if (message.includes('Token verification failed') || message.includes('Debug token required')) {
+			if (message.includes('expired')) {
+				return 'Debug session expired. Please try again.'
+			}
+			if (message.includes('Invalid JWT signature')) {
+				return 'Debug authorization failed. The signing key may be misconfigured.'
+			}
+			if (message.includes('Code hash mismatch')) {
+				return 'Code was modified after signing. Please try again.'
+			}
+			if (message.includes('Public key not available')) {
+				return 'Debug server cannot verify tokens. Please check WINDMILL_BASE_URL configuration.'
+			}
+			if (message.includes('Debug token required')) {
+				return 'Debug authorization required. The debug session must be signed by the backend.'
+			}
+			return 'Debug authorization failed. Please try again.'
+		}
+
+		// Handle connection errors
+		if (message.includes('WebSocket') || message.includes('connection failed')) {
+			return 'Could not connect to debug server. Make sure the DAP server is running.'
+		}
+
+		// Handle signing errors
+		if (message.includes('not configured on the server')) {
+			return message
+		}
+
+		return message || 'An unexpected error occurred while starting the debugger.'
+	}
+
 	async function startDebugging(): Promise<void> {
 		// Always reset and create a fresh client with the current server URL
 		// This ensures we connect to the correct endpoint for the current language
@@ -285,14 +347,30 @@
 			const env = await fetchContextualVariables()
 			console.log('[DAP] Starting debug with env vars:', Object.keys(env), env)
 
+			// Sign the debug request (creates audit log entry)
+			let signedPayload
+			try {
+				signedPayload = await signDebugRequest(code ?? '', language)
+				console.log('[DAP] Got signed payload from backend')
+			} catch (signError) {
+				console.error('[DAP] Signing failed:', getDebugErrorMessage(signError))
+				return
+			}
+
 			await client.connect()
 			await client.initialize()
 			await client.setBreakpoints(effectiveFilePath, Array.from(breakpoints))
 			await client.configurationDone()
-			await client.launch({ code, cwd: '/tmp', env })
+			await client.launch({
+				code,
+				cwd: '/tmp',
+				env,
+				// JWT token for verification by the debugger
+				token: signedPayload.token
+			})
 			console.log('[DAP] Launch completed with env')
 		} catch (error) {
-			console.error('Failed to start debugging:', error)
+			console.error('[DAP] Failed to start debugging:', getDebugErrorMessage(error))
 		}
 	}
 

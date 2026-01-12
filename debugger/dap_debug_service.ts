@@ -141,6 +141,190 @@ const logger = {
 }
 
 // ============================================================================
+// JWT Token Verification
+// ============================================================================
+
+// JWT verification for debug requests
+// The debugger fetches the public key from the Windmill backend's JWKS endpoint
+const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
+const REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== 'false'
+
+interface JWK {
+	kty: string
+	crv: string
+	x: string
+	kid: string
+	use: string
+	alg: string
+}
+
+interface JWKS {
+	keys: JWK[]
+}
+
+interface DebugTokenClaims {
+	code_hash: string
+	language: string
+	workspace_id: string
+	email: string
+	iat: number
+	exp: number
+	job_id: string
+}
+
+// Cached public key
+let cachedPublicKey: CryptoKey | null = null
+let publicKeyFetchPromise: Promise<CryptoKey | null> | null = null
+
+/**
+ * Fetch and cache the Ed25519 public key from the JWKS endpoint.
+ */
+async function getPublicKey(): Promise<CryptoKey | null> {
+	if (cachedPublicKey) {
+		return cachedPublicKey
+	}
+
+	if (publicKeyFetchPromise) {
+		return publicKeyFetchPromise
+	}
+
+	if (!WINDMILL_BASE_URL) {
+		logger.warn('WINDMILL_BASE_URL not set - cannot fetch public key')
+		return null
+	}
+
+	publicKeyFetchPromise = (async () => {
+		try {
+			const jwksUrl = `${WINDMILL_BASE_URL.replace(/\/$/, '')}/api/debug/jwks`
+			logger.info(`Fetching JWKS from ${jwksUrl}`)
+			const response = await fetch(jwksUrl)
+			if (!response.ok) {
+				throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`)
+			}
+
+			const jwks: JWKS = await response.json()
+			if (!jwks.keys || jwks.keys.length === 0) {
+				throw new Error('No keys in JWKS')
+			}
+
+			const jwk = jwks.keys[0]
+			if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+				throw new Error(`Unsupported key type: ${jwk.kty}/${jwk.crv}`)
+			}
+
+			// Decode the public key from base64url
+			const publicKeyBytes = Uint8Array.from(atob(jwk.x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+
+			// Import as Ed25519 public key
+			const key = await crypto.subtle.importKey(
+				'raw',
+				publicKeyBytes,
+				{ name: 'Ed25519' },
+				true,
+				['verify']
+			)
+
+			cachedPublicKey = key
+			logger.info('Successfully loaded Ed25519 public key from JWKS')
+			return key
+		} catch (error) {
+			logger.error(`Failed to fetch/parse JWKS: ${error}`)
+			return null
+		} finally {
+			publicKeyFetchPromise = null
+		}
+	})()
+
+	return publicKeyFetchPromise
+}
+
+/**
+ * Compute SHA-256 hash of code and return first 16 bytes as hex.
+ */
+async function computeCodeHash(code: string): Promise<string> {
+	const encoder = new TextEncoder()
+	const data = encoder.encode(code)
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+	const hashArray = new Uint8Array(hashBuffer)
+	return Array.from(hashArray.slice(0, 16))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('')
+}
+
+/**
+ * Base64url decode
+ */
+function base64urlDecode(str: string): Uint8Array {
+	// Add padding if needed
+	const padding = '='.repeat((4 - str.length % 4) % 4)
+	const base64 = str.replace(/-/g, '+').replace(/_/g, '/') + padding
+	const binary = atob(base64)
+	return Uint8Array.from(binary, c => c.charCodeAt(0))
+}
+
+/**
+ * Verify a JWT debug token.
+ * Returns null if valid, or an error message if invalid.
+ */
+async function verifyDebugToken(token: string, code: string): Promise<string | null> {
+	const publicKey = await getPublicKey()
+
+	if (!publicKey) {
+		if (REQUIRE_SIGNED_REQUESTS) {
+			return 'Public key not available but signed requests are required. Set WINDMILL_BASE_URL.'
+		}
+		logger.warn('Public key not available - signature verification disabled')
+		return null
+	}
+
+	// Parse JWT
+	const parts = token.split('.')
+	if (parts.length !== 3) {
+		return 'Invalid JWT format'
+	}
+
+	const [headerB64, claimsB64, signatureB64] = parts
+
+	try {
+		// Verify signature
+		const message = new TextEncoder().encode(`${headerB64}.${claimsB64}`)
+		const signature = base64urlDecode(signatureB64)
+
+		const isValid = await crypto.subtle.verify(
+			{ name: 'Ed25519' },
+			publicKey,
+			signature,
+			message
+		)
+
+		if (!isValid) {
+			return 'Invalid JWT signature'
+		}
+
+		// Parse and validate claims
+		const claimsJson = new TextDecoder().decode(base64urlDecode(claimsB64))
+		const claims: DebugTokenClaims = JSON.parse(claimsJson)
+
+		// Check expiration
+		const now = Math.floor(Date.now() / 1000)
+		if (now > claims.exp) {
+			return `Token expired: ${now - claims.exp} seconds ago`
+		}
+
+		// Verify code hash
+		const expectedHash = await computeCodeHash(code)
+		if (claims.code_hash !== expectedHash) {
+			return 'Code hash mismatch - code was modified after signing'
+		}
+
+		logger.info(`Verified debug token from ${claims.email} in workspace ${claims.workspace_id} (job: ${claims.job_id})`)
+		return null
+	} catch (error) {
+		return `JWT verification error: ${error}`
+	}
+}
+
+// ============================================================================
 // Process Spawning with nsjail Support
 // ============================================================================
 
@@ -712,6 +896,24 @@ class PythonDebugSession extends BaseDebugSession {
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
+
+		// Verify JWT token if code is provided (signed debug request)
+		// The token is passed in the launch arguments
+		if (code && REQUIRE_SIGNED_REQUESTS) {
+			const token = args.token as string | undefined
+			if (!token) {
+				logger.error('No debug token provided but signed requests are required')
+				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
+				return
+			}
+
+			const verificationError = await verifyDebugToken(token, code)
+			if (verificationError) {
+				logger.error(`Token verification failed: ${verificationError}`)
+				this.sendResponse(request, false, {}, `Token verification failed: ${verificationError}`)
+				return
+			}
+		}
 
 		// If BASE_INTERNAL_URL is set on the server, use it to override WM_BASE_URL
 		if (process.env.BASE_INTERNAL_URL) {

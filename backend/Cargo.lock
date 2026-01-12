@@ -15288,6 +15288,7 @@ dependencies = [
  "datafusion",
  "deno_core",
  "deno_error",
+ "ed25519-dalek",
  "futures",
  "git-version",
  "google-cloud-googleapis",

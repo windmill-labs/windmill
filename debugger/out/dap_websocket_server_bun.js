@@ -3,7 +3,7 @@
 
 // dap_websocket_server_bun.ts
 var {spawn } = globalThis.Bun;
-import { mkdtemp, writeFile, unlink, rmdir } from "node:fs/promises";
+import { mkdtemp, writeFile, unlink, rmdir, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 var LOG_LEVEL = process.env.LOG_LEVEL || "DEBUG";
@@ -16,6 +16,126 @@ var logger = {
   warn: (...args) => console.warn("[WARN]", new Date().toISOString(), ...args),
   error: (...args) => console.error("[ERROR]", new Date().toISOString(), ...args)
 };
+var WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL;
+var REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== "false";
+var cachedPublicKey = null;
+var publicKeyFetchPromise = null;
+async function getPublicKey() {
+  if (cachedPublicKey) {
+    return cachedPublicKey;
+  }
+  if (publicKeyFetchPromise) {
+    return publicKeyFetchPromise;
+  }
+  if (!WINDMILL_BASE_URL) {
+    logger.warn("WINDMILL_BASE_URL not set - cannot fetch public key");
+    return null;
+  }
+  publicKeyFetchPromise = (async () => {
+    try {
+      const jwksUrl = `${WINDMILL_BASE_URL.replace(/\/$/, "")}/api/debug/jwks`;
+      logger.info(`Fetching JWKS from ${jwksUrl}`);
+      const response = await fetch(jwksUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`);
+      }
+      const jwks = await response.json();
+      if (!jwks.keys || jwks.keys.length === 0) {
+        throw new Error("No keys in JWKS");
+      }
+      const jwk = jwks.keys[0];
+      if (jwk.kty !== "OKP" || jwk.crv !== "Ed25519") {
+        throw new Error(`Unsupported key type: ${jwk.kty}/${jwk.crv}`);
+      }
+      const publicKeyBytes = Uint8Array.from(atob(jwk.x.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+      const key = await crypto.subtle.importKey("raw", publicKeyBytes, { name: "Ed25519" }, true, ["verify"]);
+      cachedPublicKey = key;
+      logger.info("Successfully loaded Ed25519 public key from JWKS");
+      return key;
+    } catch (error) {
+      logger.error(`Failed to fetch/parse JWKS: ${error}`);
+      return null;
+    } finally {
+      publicKeyFetchPromise = null;
+    }
+  })();
+  return publicKeyFetchPromise;
+}
+async function computeCodeHash(code) {
+  const encoder = new TextEncoder;
+  const data = encoder.encode(code);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray.slice(0, 16)).map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function base64urlDecode(str) {
+  const padding = "=".repeat((4 - str.length % 4) % 4);
+  const base64 = str.replace(/-/g, "+").replace(/_/g, "/") + padding;
+  const binary = atob(base64);
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+}
+async function verifyDebugToken(token, code) {
+  const publicKey = await getPublicKey();
+  if (!publicKey) {
+    if (REQUIRE_SIGNED_REQUESTS) {
+      return "Public key not available but signed requests are required. Set WINDMILL_BASE_URL.";
+    }
+    logger.warn("Public key not available - signature verification disabled");
+    return null;
+  }
+  const parts = token.split(".");
+  if (parts.length !== 3) {
+    return "Invalid JWT format";
+  }
+  const [headerB64, claimsB64, signatureB64] = parts;
+  try {
+    const message = new TextEncoder().encode(`${headerB64}.${claimsB64}`);
+    const signature = base64urlDecode(signatureB64);
+    const isValid = await crypto.subtle.verify({ name: "Ed25519" }, publicKey, signature, message);
+    if (!isValid) {
+      return "Invalid JWT signature";
+    }
+    const claimsJson = new TextDecoder().decode(base64urlDecode(claimsB64));
+    const claims = JSON.parse(claimsJson);
+    const now = Math.floor(Date.now() / 1000);
+    if (now > claims.exp) {
+      return `Token expired: ${now - claims.exp} seconds ago`;
+    }
+    const expectedHash = await computeCodeHash(code);
+    if (claims.code_hash !== expectedHash) {
+      return "Code hash mismatch - code was modified after signing";
+    }
+    logger.info(`Verified debug token from ${claims.email} in workspace ${claims.workspace_id} (job: ${claims.job_id})`);
+    return null;
+  } catch (error) {
+    return `JWT verification error: ${error}`;
+  }
+}
+function removePinnedImports(code) {
+  const IMPORTS_VERSION = /^((?:@[^/@]+\/[^/@]+)|(?:[^/@]+))(?:@[^/]+)?(.*)$/;
+  const importRegex = /(?:import|export).*?from\s+['"]([^'"]+)['"]/g;
+  let result = code;
+  let match;
+  const imports = [];
+  while ((match = importRegex.exec(code)) !== null) {
+    imports.push(match[1]);
+  }
+  imports.sort((a, b) => b.length - a.length);
+  for (const importPath of imports) {
+    const versionMatch = IMPORTS_VERSION.exec(importPath);
+    if (versionMatch) {
+      const packageName = versionMatch[1];
+      const pathSuffix = versionMatch[2] || "";
+      const newImportPath = packageName + pathSuffix;
+      if (newImportPath !== importPath) {
+        result = result.split(`"${importPath}"`).join(`"${newImportPath}"`);
+        result = result.split(`'${importPath}'`).join(`'${newImportPath}'`);
+        logger.debug(`Removed version from import: "${importPath}" -> "${newImportPath}"`);
+      }
+    }
+  }
+  return result;
+}
 function decodeVLQ(encoded) {
   const VLQ_BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   const values = [];
@@ -573,6 +693,20 @@ class DebugSession {
     this.callMain = args.callMain || false;
     this.mainArgs = args.args || {};
     this.envVars = args.env || {};
+    if (code && REQUIRE_SIGNED_REQUESTS) {
+      const token = args.token;
+      if (!token) {
+        logger.error("No debug token provided but signed requests are required");
+        this.sendResponse(request, false, {}, "Debug token required. Ensure the debug session was signed by the backend.");
+        return;
+      }
+      const verificationError = await verifyDebugToken(token, code);
+      if (verificationError) {
+        logger.error(`Token verification failed: ${verificationError}`);
+        this.sendResponse(request, false, {}, `Token verification failed: ${verificationError}`);
+        return;
+      }
+    }
     if (process.env.BASE_INTERNAL_URL) {
       this.envVars.WM_BASE_URL = process.env.BASE_INTERNAL_URL;
     }
@@ -585,6 +719,7 @@ class DebugSession {
     }
     if (code) {
       this.nodeModulesPath = await this.prepareDependencies(code) || undefined;
+      code = removePinnedImports(code);
     }
     this.initialPauseDone = false;
     code = `debugger; // Auto-injected by Windmill debugger
@@ -613,6 +748,15 @@ ${code || ""}`;
         for (let i = 24;i < Math.min(30, lines.length); i++) {
           logger.info(`  Line ${i} (0-idx) / ${i + 1} (1-idx): ${lines[i]?.substring(0, 80)}`);
         }
+        if (this.nodeModulesPath) {
+          const targetPath = join(this.tempDir, "node_modules");
+          try {
+            await symlink(this.nodeModulesPath, targetPath);
+            logger.info(`Symlinked ${this.nodeModulesPath} -> ${targetPath}`);
+          } catch (symlinkError) {
+            logger.warn(`Failed to symlink node_modules: ${symlinkError}`);
+          }
+        }
       } catch (error) {
         this.sendResponse(request, false, {}, `Failed to create temp file: ${error}`);
         return;
@@ -636,18 +780,19 @@ ${code || ""}`;
     }
     logger.info(`Preparing dependencies using ${this.windmillPath}`);
     try {
-      const input = JSON.stringify({ code, language });
+      const input = JSON.stringify({ code, language }) + `
+`;
+      logger.info(`prepare-deps input length: ${input.length}`);
       const proc = spawn({
         cmd: [this.windmillPath, "prepare-deps"],
-        stdin: "pipe",
+        stdin: new Blob([input]),
         stdout: "pipe",
         stderr: "pipe"
       });
-      const writer = proc.stdin.getWriter();
-      await writer.write(new TextEncoder().encode(input));
-      await writer.close();
       const output = await new Response(proc.stdout).text();
       const stderr = await new Response(proc.stderr).text();
+      logger.info(`prepare-deps output: ${output.substring(0, 200)}`);
+      logger.info(`prepare-deps stderr: ${stderr.substring(0, 200)}`);
       if (stderr) {
         const filteredStderr = stderr.split(`
 `).filter((line) => !line.includes("Running in standalone mode")).join(`
@@ -1106,39 +1251,85 @@ ${code || ""}`;
   }
   async handleEvaluate(request) {
     const args = request.arguments || {};
-    const expression = args.expression || "";
+    let expression = args.expression || "";
     const frameId = args.frameId;
+    const shouldAwait = /^\s*await\s+/.test(expression);
+    if (shouldAwait) {
+      expression = expression.replace(/^\s*await\s+/, "");
+    }
     try {
       let result;
       let varRef = 0;
+      const formatResult = async (evalResult) => {
+        let result2 = "undefined";
+        let varRef2 = 0;
+        if (!evalResult)
+          return { result: result2, varRef: varRef2 };
+        if (evalResult.subtype === "promise" || evalResult.className === "Promise") {
+          if (evalResult.preview?.properties) {
+            const props = evalResult.preview.properties;
+            const statusProp = props.find((p) => p.name === "status");
+            const resultProp = props.find((p) => p.name === "result");
+            if (statusProp?.value === "fulfilled" && resultProp) {
+              if (resultProp.value !== undefined) {
+                return { result: resultProp.value, varRef: 0 };
+              }
+              if (resultProp.type === "object") {
+                if (resultProp.valuePreview?.properties) {
+                  const objProps = resultProp.valuePreview.properties.map((p) => `${p.name}: ${p.value ?? "..."}`).join(", ");
+                  return { result: `{${objProps}}`, varRef: 0 };
+                }
+                return { result: resultProp.subtype || "[Object]", varRef: 0 };
+              }
+              return { result: resultProp.type || "undefined", varRef: 0 };
+            } else if (statusProp?.value === "rejected" && resultProp) {
+              return { result: `Rejected: ${resultProp.value ?? resultProp.type}`, varRef: 0 };
+            }
+            if (statusProp?.value === "pending") {
+              return { result: "Promise { <pending> }", varRef: 0 };
+            }
+          }
+        }
+        if (evalResult.type === "undefined") {
+          result2 = "undefined";
+        } else if (evalResult.value !== undefined) {
+          result2 = JSON.stringify(evalResult.value);
+        } else if (evalResult.objectId) {
+          varRef2 = this.nextVarRef();
+          this.objectsMap.set(varRef2, evalResult.objectId);
+          if (evalResult.preview?.properties) {
+            const props = evalResult.preview.properties.map((p) => `${p.name}: ${p.value}`).join(", ");
+            result2 = `{${props}}`;
+          } else {
+            result2 = evalResult.description || "[Object]";
+          }
+        } else {
+          result2 = evalResult.description || String(evalResult.type);
+        }
+        return { result: result2, varRef: varRef2 };
+      };
       if (frameId !== undefined && this.callFrames[frameId - 1]) {
         const frame = this.callFrames[frameId - 1];
         const response = await this.sendInspectorCommand("Debugger.evaluateOnCallFrame", {
           callFrameId: frame.callFrameId,
           expression,
-          returnByValue: true
+          returnByValue: false,
+          generatePreview: true
         });
         const evalResult = response.result?.result;
-        if (evalResult) {
-          if (evalResult.value !== undefined) {
-            result = JSON.stringify(evalResult.value);
-          } else if (evalResult.objectId) {
-            varRef = this.nextVarRef();
-            this.objectsMap.set(varRef, evalResult.objectId);
-            result = evalResult.description || "[Object]";
-          } else {
-            result = evalResult.description || String(evalResult.type);
-          }
-        } else {
-          result = "undefined";
-        }
+        const formatted = await formatResult(evalResult);
+        result = formatted.result;
+        varRef = formatted.varRef;
       } else {
         const response = await this.sendInspectorCommand("Runtime.evaluate", {
           expression,
-          returnByValue: true
+          returnByValue: false,
+          generatePreview: true
         });
         const evalResult = response.result?.result;
-        result = evalResult?.value !== undefined ? JSON.stringify(evalResult.value) : evalResult?.description || "undefined";
+        const formatted = await formatResult(evalResult);
+        result = formatted.result;
+        varRef = formatted.varRef;
       }
       this.sendResponse(request, true, { result, variablesReference: varRef });
     } catch (error) {

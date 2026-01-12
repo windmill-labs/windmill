@@ -31,11 +31,13 @@
 		GitBranch,
 		Play,
 		PlayIcon,
+		Terminal,
 		WandSparkles
 	} from 'lucide-svelte'
 	import {
 		DebugToolbar,
 		DebugPanel,
+		DebugConsole,
 		getDAPClient,
 		debugState,
 		resetDAPClient,
@@ -252,6 +254,18 @@
 	)
 	// Derived: debug has a result (script completed)
 	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
+	// Show debug console at bottom of editor when debugging is active
+	let showDebugConsole = $state(true)
+	const debugConsoleVisible = $derived(showDebugPanel && showDebugConsole)
+	// Selected stack frame ID - shared between DebugPanel and DebugConsole
+	let selectedDebugFrameId: number | null = $state(null)
+	// Use selected frame or first frame for console context
+	const currentDebugFrameId = $derived(selectedDebugFrameId ?? $debugState.stackFrames[0]?.id)
+	// Job ID of the current debug session (for expression signing/audit logging)
+	let debugSessionJobId: string | null = $state(null)
+	// Pane sizes for editor/console split (percentage)
+	let editorPaneSize = $state(75)
+	let consolePaneSize = $state(25)
 
 	// Breakpoint decoration options
 	// stickiness: 1 = NeverGrowsWhenTypingAtEdges - decorations track their position when code changes
@@ -546,8 +560,77 @@
 		}
 	}
 
+	async function signDebugRequest(codeToSign: string, language: string): Promise<{
+		token: string
+		code: string
+		job_id: string
+	}> {
+		const workspace = $workspaceStore
+		if (!workspace) {
+			throw new Error('No workspace selected')
+		}
+
+		const response = await fetch(`/api/w/${workspace}/debug/sign`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ code: codeToSign, language })
+		})
+
+		if (!response.ok) {
+			const errorText = await response.text()
+			// Parse specific error cases for better user messages
+			if (errorText.includes('not initialized')) {
+				throw new Error('Debug signing is not configured on the server. Please contact your administrator.')
+			}
+			throw new Error(errorText || 'Failed to authorize debug session')
+		}
+
+		return await response.json()
+	}
+
+	function getDebugErrorMessage(error: unknown): string {
+		const message = error instanceof Error ? error.message : String(error)
+
+		// Handle token verification errors from debugger
+		if (message.includes('Token verification failed') || message.includes('Debug token required')) {
+			if (message.includes('expired')) {
+				return 'Debug session expired. Please try again.'
+			}
+			if (message.includes('Invalid JWT signature')) {
+				return 'Debug authorization failed. The signing key may be misconfigured.'
+			}
+			if (message.includes('Code hash mismatch')) {
+				return 'Code was modified after signing. Please try again.'
+			}
+			if (message.includes('Public key not available')) {
+				return 'Debug server cannot verify tokens. Please check WINDMILL_BASE_URL configuration.'
+			}
+			if (message.includes('Debug token required')) {
+				return 'Debug authorization required. The debug session must be signed by the backend.'
+			}
+			return 'Debug authorization failed. Please try again.'
+		}
+
+		// Handle connection errors
+		if (message.includes('WebSocket') || message.includes('connection failed')) {
+			return 'Could not connect to debug server. Make sure the DAP server is running.'
+		}
+
+		// Handle signing errors
+		if (message.includes('not configured on the server')) {
+			return message
+		}
+
+		return message || 'An unexpected error occurred while starting the debugger.'
+	}
+
 	async function startDebugging(): Promise<void> {
 		try {
+			// Show console when starting a debug session
+			showDebugConsole = true
+			// Reset selected frame when starting new session
+			selectedDebugFrameId = null
+
 			// Always reset and create a fresh DAP client with the correct URL for the current language
 			// This ensures we connect to the correct endpoint even if language changed
 			resetDAPClient()
@@ -563,21 +646,35 @@
 			console.log(`[DEBUG] Breakpoints:`, Array.from(debugBreakpoints))
 			console.log(`[DEBUG] Env vars:`, Object.keys(env))
 
+			// Sign the debug request (creates audit log entry)
+			let signedPayload
+			try {
+				signedPayload = await signDebugRequest(code ?? '', lang ?? 'python3')
+				// Store the job ID for expression signing in the debug console
+				debugSessionJobId = signedPayload.job_id
+				console.log(`[DEBUG] Got signed payload from backend (job_id: ${signedPayload.job_id})`)
+			} catch (signError) {
+				sendUserToast(getDebugErrorMessage(signError), true)
+				return
+			}
+
 			await dapClient.connect()
 			await dapClient.initialize()
 			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
 			await dapClient.configurationDone()
-			// Pass the code, args from the test form, env vars, and indicate we want to call main()
+			// Pass the signed token along with other launch parameters
 			await dapClient.launch({
 				code,
 				cwd: '/tmp',
 				args: args ?? {},
 				callMain: true,
-				env
+				env,
+				// JWT token for verification by the debugger
+				token: signedPayload.token
 			})
 		} catch (error) {
 			console.error('Failed to start debugging:', error)
-			sendUserToast('Failed to start debugging. Make sure the DAP server is running.', true)
+			sendUserToast(getDebugErrorMessage(error), true)
 		}
 	}
 
@@ -588,6 +685,9 @@
 			dapClient.disconnect()
 		} catch (error) {
 			console.error('Failed to stop debugging:', error)
+		} finally {
+			// Clear the job ID when debug session ends
+			debugSessionJobId = null
 		}
 	}
 
@@ -1220,6 +1320,7 @@
 									scopes={$debugState.scopes}
 									variables={$debugState.variables}
 									client={dapClient}
+									bind:selectedFrameId={selectedDebugFrameId}
 								/>
 							{/snippet}
 						</LogPanel>
@@ -1248,6 +1349,18 @@
 					title="Toggle Debug Mode"
 				>
 					{debugMode ? 'Exit Debug' : 'Debug'}
+				</Button>
+			{/if}
+			{#if showDebugPanel && !showDebugConsole}
+				<Button
+					variant="default"
+					size="xs"
+					onclick={() => (showDebugConsole = true)}
+					startIcon={{ icon: Terminal }}
+					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+					title="Show Debug Console"
+				>
+					Console
 				</Button>
 			{/if}
 			{#if lang === 'ansible' && hasDelegateToGitRepo}
@@ -1314,73 +1427,98 @@
 			{/if}
 		</div>
 
-		{#key lang}
-			<Editor
-				lineNumbersMinChars={4}
-				folding
-				{path}
-				bind:code
-				bind:websocketAlive
-				bind:this={editor}
-				{yContent}
-				awareness={wsProvider?.awareness}
-				on:change={(e) => {
-					inferSchema(e.detail)
-					// Refresh breakpoint positions when code changes (decorations track their lines)
-					if (debugMode && breakpointDecorations.length > 0) {
-						refreshBreakpointPositions()
-					}
-				}}
-				on:saveDraft
-				on:toggleTestPanel={toggleTestPanel}
-				cmdEnterAction={async () => {
-					await inferSchema(code)
-					runTest()
-				}}
-				formatAction={async () => {
-					await inferSchema(code)
-					try {
-						localStorage.setItem(path ?? 'last_save', code)
-					} catch (e) {
-						console.error('Could not save last_save to local storage', e)
-					}
-					dispatch('format')
-				}}
-				class="flex flex-1 h-full !overflow-visible"
-				scriptLang={lang}
-				automaticLayout={true}
-				{fixedOverflowWidgets}
-				{args}
-				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={preparedSqlQueries.current}
-			/>
-			<DiffEditor
-				className="h-full"
-				bind:this={diffEditor}
-				modifiedModel={editor?.getModel() as meditor.ITextModel}
-				automaticLayout
-				defaultLang={scriptLangToEditorLang(lang)}
-				{fixedOverflowWidgets}
-				buttons={diffMode
-					? [
-							{
-								text: 'See changes history',
-								onClick: () => {
-									showHistoryDrawer = true
-								}
-							},
-							{
-								text: 'Quit diff mode',
-								onClick: () => {
-									hideDiffMode()
-								},
-								color: 'red'
-							}
-						]
-					: []}
-			/>
-		{/key}
+		{#if debugConsoleVisible}
+			<!-- Use Splitpanes when debug console is visible for resizing -->
+			<Splitpanes horizontal class="h-full !overflow-visible">
+				<Pane bind:size={editorPaneSize} minSize={20} class="!overflow-visible">
+					{@render editorPane()}
+				</Pane>
+				<Pane bind:size={consolePaneSize} minSize={10}>
+					<DebugConsole
+						client={dapClient}
+						currentFrameId={currentDebugFrameId}
+						onClose={() => (showDebugConsole = false)}
+						workspace={$workspaceStore}
+						jobId={debugSessionJobId ?? undefined}
+					/>
+				</Pane>
+			</Splitpanes>
+		{:else}
+			<!-- Normal editor without console -->
+			<div class="h-full !overflow-visible">
+				{@render editorPane()}
+			</div>
+		{/if}
 	</div>
+{/snippet}
+
+{#snippet editorPane()}
+	{#key lang}
+		<Editor
+			lineNumbersMinChars={4}
+			folding
+			{path}
+			bind:code
+			bind:websocketAlive
+			bind:this={editor}
+			{yContent}
+			awareness={wsProvider?.awareness}
+			on:change={(e) => {
+				inferSchema(e.detail)
+				// Refresh breakpoint positions when code changes (decorations track their lines)
+				if (debugMode && breakpointDecorations.length > 0) {
+					refreshBreakpointPositions()
+				}
+			}}
+			on:saveDraft
+			on:toggleTestPanel={toggleTestPanel}
+			cmdEnterAction={async () => {
+				await inferSchema(code)
+				runTest()
+			}}
+			formatAction={async () => {
+				await inferSchema(code)
+				try {
+					localStorage.setItem(path ?? 'last_save', code)
+				} catch (e) {
+					console.error('Could not save last_save to local storage', e)
+				}
+				dispatch('format')
+			}}
+			class="flex flex-1 h-full !overflow-visible"
+			scriptLang={lang}
+			automaticLayout={true}
+			{fixedOverflowWidgets}
+			{args}
+			{enablePreprocessorSnippet}
+			preparedAssetsSqlQueries={preparedSqlQueries.current}
+		/>
+		<DiffEditor
+			className="h-full"
+			bind:this={diffEditor}
+			modifiedModel={editor?.getModel() as meditor.ITextModel}
+			automaticLayout
+			defaultLang={scriptLangToEditorLang(lang)}
+			{fixedOverflowWidgets}
+			buttons={diffMode
+				? [
+						{
+							text: 'See changes history',
+							onClick: () => {
+								showHistoryDrawer = true
+							}
+						},
+						{
+							text: 'Quit diff mode',
+							onClick: () => {
+								hideDiffMode()
+							},
+							color: 'red'
+						}
+					]
+				: []}
+		/>
+	{/key}
 {/snippet}
 
 <GitRepoResourcePicker

@@ -44,6 +44,7 @@ export { default as MonacoDebugger } from './MonacoDebugger.svelte'
 export { default as DebugToolbar } from './DebugToolbar.svelte'
 export { default as DebugPanel } from './DebugPanel.svelte'
 export { default as DebugVariableViewer } from './DebugVariableViewer.svelte'
+export { default as DebugConsole } from './DebugConsole.svelte'
 export {
 	DAPClient,
 	getDAPClient,

@@ -108,6 +108,270 @@ const logger = {
 	error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args)
 }
 
+// JWT verification for debug requests
+// The debugger fetches the public key from the Windmill backend's JWKS endpoint
+const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
+const REQUIRE_SIGNED_REQUESTS = process.env.REQUIRE_SIGNED_DEBUG_REQUESTS !== 'false'
+
+interface JWK {
+	kty: string
+	crv: string
+	x: string
+	kid: string
+	use: string
+	alg: string
+}
+
+interface JWKS {
+	keys: JWK[]
+}
+
+interface DebugTokenClaims {
+	code_hash: string
+	language: string
+	workspace_id: string
+	email: string
+	iat: number
+	exp: number
+	job_id: string
+}
+
+interface ExpressionTokenClaims {
+	expression_hash: string
+	job_id: string
+	workspace_id: string
+	email: string
+	iat: number
+	exp: number
+}
+
+// Cached public key
+let cachedPublicKey: CryptoKey | null = null
+let publicKeyFetchPromise: Promise<CryptoKey | null> | null = null
+
+/**
+ * Fetch and cache the Ed25519 public key from the JWKS endpoint.
+ */
+async function getPublicKey(): Promise<CryptoKey | null> {
+	if (cachedPublicKey) {
+		return cachedPublicKey
+	}
+
+	if (publicKeyFetchPromise) {
+		return publicKeyFetchPromise
+	}
+
+	if (!WINDMILL_BASE_URL) {
+		logger.warn('WINDMILL_BASE_URL not set - cannot fetch public key')
+		return null
+	}
+
+	publicKeyFetchPromise = (async () => {
+		try {
+			const jwksUrl = `${WINDMILL_BASE_URL.replace(/\/$/, '')}/api/debug/jwks`
+			logger.info(`Fetching JWKS from ${jwksUrl}`)
+			const response = await fetch(jwksUrl)
+			if (!response.ok) {
+				throw new Error(`Failed to fetch JWKS: ${response.status} ${response.statusText}`)
+			}
+
+			const jwks: JWKS = await response.json()
+			if (!jwks.keys || jwks.keys.length === 0) {
+				throw new Error('No keys in JWKS')
+			}
+
+			const jwk = jwks.keys[0]
+			if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+				throw new Error(`Unsupported key type: ${jwk.kty}/${jwk.crv}`)
+			}
+
+			// Decode the public key from base64url
+			const publicKeyBytes = Uint8Array.from(atob(jwk.x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+
+			// Import as Ed25519 public key
+			const key = await crypto.subtle.importKey(
+				'raw',
+				publicKeyBytes,
+				{ name: 'Ed25519' },
+				true,
+				['verify']
+			)
+
+			cachedPublicKey = key
+			logger.info('Successfully loaded Ed25519 public key from JWKS')
+			return key
+		} catch (error) {
+			logger.error(`Failed to fetch/parse JWKS: ${error}`)
+			return null
+		} finally {
+			publicKeyFetchPromise = null
+		}
+	})()
+
+	return publicKeyFetchPromise
+}
+
+/**
+ * Compute SHA-256 hash of code and return first 16 bytes as hex.
+ */
+async function computeCodeHash(code: string): Promise<string> {
+	const encoder = new TextEncoder()
+	const data = encoder.encode(code)
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+	const hashArray = new Uint8Array(hashBuffer)
+	return Array.from(hashArray.slice(0, 16))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('')
+}
+
+/**
+ * Base64url decode
+ */
+function base64urlDecode(str: string): Uint8Array {
+	// Add padding if needed
+	const padding = '='.repeat((4 - str.length % 4) % 4)
+	const base64 = str.replace(/-/g, '+').replace(/_/g, '/') + padding
+	const binary = atob(base64)
+	return Uint8Array.from(binary, c => c.charCodeAt(0))
+}
+
+/**
+ * Verify a JWT debug token.
+ * Returns null if valid, or an error message if invalid.
+ */
+async function verifyDebugToken(token: string, code: string): Promise<string | null> {
+	const publicKey = await getPublicKey()
+
+	if (!publicKey) {
+		if (REQUIRE_SIGNED_REQUESTS) {
+			return 'Public key not available but signed requests are required. Set WINDMILL_BASE_URL.'
+		}
+		logger.warn('Public key not available - signature verification disabled')
+		return null
+	}
+
+	// Parse JWT
+	const parts = token.split('.')
+	if (parts.length !== 3) {
+		return 'Invalid JWT format'
+	}
+
+	const [headerB64, claimsB64, signatureB64] = parts
+
+	try {
+		// Verify signature
+		const message = new TextEncoder().encode(`${headerB64}.${claimsB64}`)
+		const signature = base64urlDecode(signatureB64)
+
+		const isValid = await crypto.subtle.verify(
+			{ name: 'Ed25519' },
+			publicKey,
+			signature,
+			message
+		)
+
+		if (!isValid) {
+			return 'Invalid JWT signature'
+		}
+
+		// Parse and validate claims
+		const claimsJson = new TextDecoder().decode(base64urlDecode(claimsB64))
+		const claims: DebugTokenClaims = JSON.parse(claimsJson)
+
+		// Check expiration
+		const now = Math.floor(Date.now() / 1000)
+		if (now > claims.exp) {
+			return `Token expired: ${now - claims.exp} seconds ago`
+		}
+
+		// Verify code hash
+		const expectedHash = await computeCodeHash(code)
+		if (claims.code_hash !== expectedHash) {
+			return 'Code hash mismatch - code was modified after signing'
+		}
+
+		logger.info(`Verified debug token from ${claims.email} in workspace ${claims.workspace_id} (job: ${claims.job_id})`)
+		return null
+	} catch (error) {
+		return `JWT verification error: ${error}`
+	}
+}
+
+/**
+ * Compute SHA-256 hash of an expression and return first 16 bytes as hex.
+ */
+async function computeExpressionHash(expression: string): Promise<string> {
+	const encoder = new TextEncoder()
+	const data = encoder.encode(expression)
+	const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+	const hashArray = new Uint8Array(hashBuffer)
+	return Array.from(hashArray.slice(0, 16))
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join('')
+}
+
+/**
+ * Verify a JWT expression token.
+ * Returns null if valid, or an error message if invalid.
+ * Note: Expression tokens are optional - if not provided, the expression is still evaluated
+ * but just not audit logged. This maintains backwards compatibility.
+ */
+async function verifyExpressionToken(token: string, expression: string): Promise<string | null> {
+	const publicKey = await getPublicKey()
+
+	if (!publicKey) {
+		// Expression tokens are optional - don't block if public key unavailable
+		logger.debug('Public key not available - skipping expression token verification')
+		return null
+	}
+
+	// Parse JWT
+	const parts = token.split('.')
+	if (parts.length !== 3) {
+		return 'Invalid JWT format'
+	}
+
+	const [headerB64, claimsB64, signatureB64] = parts
+
+	try {
+		// Verify signature
+		const message = new TextEncoder().encode(`${headerB64}.${claimsB64}`)
+		const signature = base64urlDecode(signatureB64)
+
+		const isValid = await crypto.subtle.verify(
+			{ name: 'Ed25519' },
+			publicKey,
+			signature,
+			message
+		)
+
+		if (!isValid) {
+			return 'Invalid expression token signature'
+		}
+
+		// Parse and validate claims
+		const claimsJson = new TextDecoder().decode(base64urlDecode(claimsB64))
+		const claims: ExpressionTokenClaims = JSON.parse(claimsJson)
+
+		// Check expiration
+		const now = Math.floor(Date.now() / 1000)
+		if (now > claims.exp) {
+			return `Expression token expired: ${now - claims.exp} seconds ago`
+		}
+
+		// Verify expression hash
+		const expectedHash = await computeExpressionHash(expression)
+		if (claims.expression_hash !== expectedHash) {
+			return 'Expression hash mismatch - expression was modified after signing'
+		}
+
+		logger.info(`Verified expression token from ${claims.email} in workspace ${claims.workspace_id} (job: ${claims.job_id})`)
+		return null
+	} catch (error) {
+		return `Expression token verification error: ${error}`
+	}
+}
+
 /**
  * Remove version specifiers from import statements.
  * Transforms `import x from "package@1.2.3"` to `import x from "package"`
@@ -1055,6 +1319,24 @@ export class DebugSession {
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
 
+		// Verify JWT token if code is provided (signed debug request)
+		// The token is passed in the launch arguments
+		if (code && REQUIRE_SIGNED_REQUESTS) {
+			const token = args.token as string | undefined
+			if (!token) {
+				logger.error('No debug token provided but signed requests are required')
+				this.sendResponse(request, false, {}, 'Debug token required. Ensure the debug session was signed by the backend.')
+				return
+			}
+
+			const verificationError = await verifyDebugToken(token, code)
+			if (verificationError) {
+				logger.error(`Token verification failed: ${verificationError}`)
+				this.sendResponse(request, false, {}, `Token verification failed: ${verificationError}`)
+				return
+			}
+		}
+
 		// If BASE_INTERNAL_URL is set on the server, use it to override WM_BASE_URL
 		if (process.env.BASE_INTERNAL_URL) {
 			this.envVars.WM_BASE_URL = process.env.BASE_INTERNAL_URL
@@ -1768,56 +2050,154 @@ export class DebugSession {
 	 */
 	async handleEvaluate(request: DAPMessage): Promise<void> {
 		const args = request.arguments || {}
-		const expression = (args.expression as string) || ''
+		let expression = (args.expression as string) || ''
 		const frameId = args.frameId as number | undefined
+		const token = args.token as string | undefined
+
+		// Verify expression token if provided (optional - for audit logging)
+		// Expression tokens are signed by the backend to create audit logs
+		if (token) {
+			const verificationError = await verifyExpressionToken(token, expression)
+			if (verificationError) {
+				// Log the error but don't block evaluation
+				// Expression signing is for audit logging, not security enforcement
+				logger.warn(`Expression token verification failed: ${verificationError}`)
+			}
+		}
+
+		// If expression starts with 'await ', strip it and we'll await the promise result
+		// This preserves the scope context unlike wrapping in an async IIFE
+		const shouldAwait = /^\s*await\s+/.test(expression)
+		if (shouldAwait) {
+			expression = expression.replace(/^\s*await\s+/, '')
+		}
 
 		try {
 			let result: string
 			let varRef = 0
+
+			// Helper to format evaluation result
+			const formatResult = async (evalResult: {
+				type: string
+				subtype?: string
+				className?: string
+				value?: unknown
+				description?: string
+				objectId?: string
+				preview?: { properties?: Array<{ name: string; value: string }> }
+			} | undefined): Promise<{ result: string; varRef: number }> => {
+				let result = 'undefined'
+				let varRef = 0
+
+				if (!evalResult) return { result, varRef }
+
+				// Check if result is a Promise - extract value from preview if already settled
+				// (Runtime.awaitPromise doesn't work reliably in Bun's inspector)
+				if (evalResult.subtype === 'promise' || evalResult.className === 'Promise') {
+					if (evalResult.preview?.properties) {
+						const props = evalResult.preview.properties as Array<{
+							name: string
+							type?: string
+							value?: string
+							subtype?: string
+							valuePreview?: { properties?: Array<{ name: string; value?: string }> }
+						}>
+						const statusProp = props.find(p => p.name === 'status')
+						const resultProp = props.find(p => p.name === 'result')
+
+						if (statusProp?.value === 'fulfilled' && resultProp) {
+							// Promise is already fulfilled - return the result directly
+							// For primitives, value is directly available
+							if (resultProp.value !== undefined) {
+								return { result: resultProp.value, varRef: 0 }
+							}
+							// For objects, format from valuePreview or show type
+							if (resultProp.type === 'object') {
+								if (resultProp.valuePreview?.properties) {
+									const objProps = resultProp.valuePreview.properties
+										.map(p => `${p.name}: ${p.value ?? '...'}`)
+										.join(', ')
+									return { result: `{${objProps}}`, varRef: 0 }
+								}
+								// Fallback: show the subtype or generic object
+								return { result: resultProp.subtype || '[Object]', varRef: 0 }
+							}
+							// For other types (function, symbol, etc)
+							return { result: resultProp.type || 'undefined', varRef: 0 }
+						} else if (statusProp?.value === 'rejected' && resultProp) {
+							// Promise was rejected - show the error
+							return { result: `Rejected: ${resultProp.value ?? resultProp.type}`, varRef: 0 }
+						}
+						// For pending promises, show that it's pending
+						if (statusProp?.value === 'pending') {
+							return { result: 'Promise { <pending> }', varRef: 0 }
+						}
+					}
+				}
+
+				if (evalResult.type === 'undefined') {
+					result = 'undefined'
+				} else if (evalResult.value !== undefined) {
+					result = JSON.stringify(evalResult.value)
+				} else if (evalResult.objectId) {
+					varRef = this.nextVarRef()
+					this.objectsMap.set(varRef, evalResult.objectId)
+					// Use preview if available for better display
+					if (evalResult.preview?.properties) {
+						const props = evalResult.preview.properties.map(p => `${p.name}: ${p.value}`).join(', ')
+						result = `{${props}}`
+					} else {
+						result = evalResult.description || '[Object]'
+					}
+				} else {
+					result = evalResult.description || String(evalResult.type)
+				}
+
+				return { result, varRef }
+			}
 
 			if (frameId !== undefined && this.callFrames[frameId - 1]) {
 				const frame = this.callFrames[frameId - 1]
 				const response = await this.sendInspectorCommand('Debugger.evaluateOnCallFrame', {
 					callFrameId: frame.callFrameId,
 					expression,
-					returnByValue: true
+					returnByValue: false,
+					generatePreview: true
 				})
 
 				const evalResult = response.result?.result as {
 					type: string
+					subtype?: string
+					className?: string
 					value?: unknown
 					description?: string
 					objectId?: string
+					preview?: { properties?: Array<{ name: string; value: string }> }
 				}
 
-				if (evalResult) {
-					if (evalResult.value !== undefined) {
-						result = JSON.stringify(evalResult.value)
-					} else if (evalResult.objectId) {
-						varRef = this.nextVarRef()
-						this.objectsMap.set(varRef, evalResult.objectId)
-						result = evalResult.description || '[Object]'
-					} else {
-						result = evalResult.description || String(evalResult.type)
-					}
-				} else {
-					result = 'undefined'
-				}
+				const formatted = await formatResult(evalResult)
+				result = formatted.result
+				varRef = formatted.varRef
 			} else {
 				const response = await this.sendInspectorCommand('Runtime.evaluate', {
 					expression,
-					returnByValue: true
+					returnByValue: false,
+					generatePreview: true
 				})
 
 				const evalResult = response.result?.result as {
 					type: string
+					subtype?: string
+					className?: string
 					value?: unknown
 					description?: string
+					objectId?: string
+					preview?: { properties?: Array<{ name: string; value: string }> }
 				}
-				result =
-					evalResult?.value !== undefined
-						? JSON.stringify(evalResult.value)
-						: evalResult?.description || 'undefined'
+
+				const formatted = await formatResult(evalResult)
+				result = formatted.result
+				varRef = formatted.varRef
 			}
 
 			this.sendResponse(request, true, { result, variablesReference: varRef })

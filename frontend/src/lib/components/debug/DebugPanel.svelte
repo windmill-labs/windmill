@@ -8,11 +8,12 @@
 		scopes: Scope[]
 		variables: Map<number, VariableType[]>
 		client: DAPClient | null
+		selectedFrameId?: number | null
 	}
 
-	let { stackFrames, scopes, variables, client }: Props = $props()
+	let { stackFrames, scopes, variables, client, selectedFrameId = $bindable(null) }: Props =
+		$props()
 
-	let selectedFrameId: number | null = $state(null)
 	let searchQuery = $state('')
 
 	// Auto-expand scopes when they become available
@@ -42,7 +43,7 @@
 	}
 
 	// Get all variables from all scopes, filtered by search query
-	const filteredVariables = $derived(() => {
+	const filteredVariables = $derived.by(() => {
 		const allVars: { scope: string; variable: VariableType }[] = []
 		for (const scope of scopes) {
 			const scopeVars = variables.get(scope.variablesReference) || []
@@ -81,10 +82,10 @@
 		<div class="flex-1 overflow-auto p-1">
 			{#if scopes.length === 0}
 				<div class="text-xs text-tertiary italic px-1">No variables</div>
-			{:else if filteredVariables().length === 0}
+			{:else if filteredVariables.length === 0}
 				<div class="text-xs text-tertiary italic px-1">No matches</div>
 			{:else}
-				{#each filteredVariables() as { scope, variable } (scope + variable.name)}
+				{#each filteredVariables as { scope, variable } (scope + variable.name)}
 					<DebugVariableViewer {variable} {client} />
 				{/each}
 			{/if}
