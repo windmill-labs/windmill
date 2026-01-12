@@ -4,13 +4,11 @@
 		ChevronDown,
 		File,
 		Folder,
-		FileCode,
-		ImageIcon,
-		Palette,
 		Pencil,
 		Trash2,
 		Lock,
-		Ellipsis
+		Ellipsis,
+		ImageIcon
 	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
 	import { twMerge } from 'tailwind-merge'
@@ -23,6 +21,12 @@
 	import ReactIcon from '../icons/ReactIcon.svelte'
 	import SvelteIcon from '../icons/SvelteIcon.svelte'
 	import VueIcon from '../icons/VueIcon.svelte'
+	import CssIcon from '../icons/CssIcon.svelte'
+	import SassIcon from '../icons/SassIcon.svelte'
+	import LessIcon from '../icons/LessIcon.svelte'
+	import HtmlIcon from '../icons/HtmlIcon.svelte'
+	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
+	import YamlIcon from '../icons/YamlIcon.svelte'
 
 	interface TreeNode {
 		name: string
@@ -179,7 +183,7 @@
 			case 'tsx':
 				return { icon: ReactIcon }
 			case 'jsx':
-				return { icon: FileCode, className: 'text-blue-500' }
+				return { icon: ReactIcon }
 			case 'ts':
 				return { icon: TypeScript }
 			case 'js':
@@ -189,10 +193,12 @@
 			case 'vue':
 				return { icon: VueIcon }
 			case 'css':
+				return { icon: CssIcon }
 			case 'scss':
 			case 'sass':
+				return { icon: SassIcon }
 			case 'less':
-				return { icon: Palette, className: 'text-pink-500' }
+				return { icon: LessIcon }
 			case 'png':
 			case 'jpg':
 			case 'jpeg':
@@ -201,6 +207,15 @@
 			case 'webp':
 			case 'ico':
 				return { icon: ImageIcon, className: 'text-purple-500' }
+			case 'html':
+			case 'htm':
+				return { icon: HtmlIcon }
+			case 'md':
+			case 'markdown':
+				return { icon: MarkdownIcon }
+			case 'yaml':
+			case 'yml':
+				return { icon: YamlIcon }
 			default:
 				return { icon: File, className: 'text-tertiary' }
 		}
