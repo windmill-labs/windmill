@@ -1,22 +1,26 @@
 use std::collections::HashMap;
-use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::{db::UserDB, error::Result, DB};
+use windmill_common::error::Result;
+use windmill_common::DB;
 
 use serde::Serialize;
 
-use crate::{
-    native_triggers::{
-        decrypt_oauth_data, delete_native_trigger, list_native_triggers, External, ServiceName,
-    },
-    users::fetch_api_authed,
+use crate::native_triggers::{
+    decrypt_oauth_data, list_native_triggers, update_native_trigger_error,
+    update_native_trigger_service_config, External, ServiceName,
 };
 
 #[derive(Debug, Serialize)]
-pub struct DeletedTriggerInfo {
-    pub internal_id: i64,
+pub struct TriggerSyncInfo {
     pub external_id: String,
-    pub runnable_path: String,
-    pub reason: String,
+    pub script_path: String,
+    pub action: SyncAction,
+}
+
+#[derive(Debug, Serialize)]
+pub enum SyncAction {
+    ErrorSet(String),
+    ErrorCleared,
+    ConfigUpdated,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,18 +33,56 @@ pub struct SyncError {
 #[derive(Debug)]
 pub struct BackgroundSyncResult {
     pub workspaces_processed: usize,
-    pub total_deleted: usize,
+    pub total_synced: usize,
     pub total_errors: usize,
     pub service_results: HashMap<ServiceName, ServiceSyncResult>,
 }
 
 #[derive(Debug)]
 pub struct ServiceSyncResult {
-    pub deleted_triggers: Vec<DeletedTriggerInfo>,
+    pub synced_triggers: Vec<TriggerSyncInfo>,
     pub errors: Vec<SyncError>,
 }
 
-pub const SYNC_INTERVAL: u64 = 10 * 60;
+pub const SYNC_INTERVAL: u64 = 5 * 60;
+
+/// Macro helper to sync a single service
+macro_rules! sync_service {
+    ($db:expr, $workspaces:expr, $service_results:expr, $total_synced:expr, $total_errors:expr,
+     $service_name:ident, $service_variant:ident, $handler_path:path) => {{
+        use $handler_path as Handler;
+        match sync_service_triggers::<Handler>($db, $workspaces, Handler).await {
+            Ok(result) => {
+                $total_synced += result.synced_triggers.len();
+                $total_errors += result.errors.len();
+                $service_results.insert(ServiceName::$service_variant, result);
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Error syncing {} triggers: {:#}",
+                    stringify!($service_variant),
+                    e
+                );
+                $service_results.insert(
+                    ServiceName::$service_variant,
+                    ServiceSyncResult {
+                        synced_triggers: Vec::new(),
+                        errors: vec![SyncError {
+                            resource_path: "background_sync".to_string(),
+                            error_message: format!(
+                                "Failed to sync {} triggers: {}",
+                                stringify!($service_variant),
+                                e
+                            ),
+                            error_type: "service_sync_error".to_string(),
+                        }],
+                    },
+                );
+                $total_errors += 1;
+            }
+        }
+    }};
+}
 
 pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     tracing::debug!("Starting native triggers sync");
@@ -56,56 +98,51 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     .await?;
 
     let mut service_results: HashMap<ServiceName, ServiceSyncResult> = HashMap::new();
-    let mut total_deleted = 0;
+    let mut total_synced = 0;
     let mut total_errors = 0;
 
-    use crate::native_triggers::nextcloud::NextCloud;
-
-    match sync_service_triggers::<NextCloud>(db, &workspaces, NextCloud).await {
-        Ok(result) => {
-            total_deleted += result.deleted_triggers.len();
-            total_errors += result.errors.len();
-            service_results.insert(ServiceName::Nextcloud, result);
-        }
-        Err(e) => {
-            tracing::error!("Error syncing NextCloud triggers: {:#}", e);
-            service_results.insert(
-                ServiceName::Nextcloud,
-                ServiceSyncResult {
-                    deleted_triggers: Vec::new(),
-                    errors: vec![SyncError {
-                        resource_path: "background_sync".to_string(),
-                        error_message: format!("Failed to sync NextCloud triggers: {}", e),
-                        error_type: "service_sync_error".to_string(),
-                    }],
-                },
-            );
-            total_errors += 1;
-        }
+    // Sync all registered services
+    // When adding a new service, add a new sync_service! call here
+    #[cfg(feature = "native_triggers")]
+    {
+        sync_service!(
+            db,
+            &workspaces,
+            service_results,
+            total_synced,
+            total_errors,
+            nextcloud,
+            Nextcloud,
+            crate::native_triggers::nextcloud::NextCloud
+        );
+        // Add new services here:
+        // sync_service!(db, &workspaces, service_results, total_synced, total_errors,
+        //     newservice, NewService, crate::native_triggers::newservice::NewServiceHandler);
     }
 
     let result = BackgroundSyncResult {
         workspaces_processed: workspaces.len(),
-        total_deleted,
+        total_synced,
         total_errors,
         service_results,
     };
 
     tracing::debug!(
-        "Completed native triggers sync: {} workspaces, {} deleted, {} errors",
+        "Completed native triggers sync: {} workspaces, {} synced, {} errors",
         result.workspaces_processed,
-        result.total_deleted,
+        result.total_synced,
         result.total_errors
     );
 
     Ok(result)
 }
+
 async fn sync_service_triggers<T: External>(
     db: &DB,
     workspaces: &[String],
     handler: T,
 ) -> Result<ServiceSyncResult> {
-    let mut all_deleted_triggers = Vec::new();
+    let mut all_synced_triggers = Vec::new();
     let mut all_errors = Vec::new();
 
     for workspace_id in workspaces {
@@ -117,8 +154,8 @@ async fn sync_service_triggers<T: External>(
         let sync_result = sync_workspace_triggers::<T>(db, workspace_id, &handler).await;
 
         match sync_result {
-            Ok((deleted_triggers, errors)) => {
-                all_deleted_triggers.extend(deleted_triggers);
+            Ok((synced_triggers, errors)) => {
+                all_synced_triggers.extend(synced_triggers);
                 all_errors.extend(errors);
             }
             Err(e) => {
@@ -137,7 +174,7 @@ async fn sync_service_triggers<T: External>(
         }
     }
 
-    Ok(ServiceSyncResult { deleted_triggers: all_deleted_triggers, errors: all_errors })
+    Ok(ServiceSyncResult { synced_triggers: all_synced_triggers, errors: all_errors })
 }
 
 #[cfg(feature = "native_triggers")]
@@ -145,7 +182,7 @@ pub async fn sync_workspace_triggers<T: External>(
     db: &DB,
     workspace_id: &str,
     handler: &T,
-) -> Result<(Vec<DeletedTriggerInfo>, Vec<SyncError>)> {
+) -> Result<(Vec<TriggerSyncInfo>, Vec<SyncError>)> {
     tracing::debug!(
         "Syncing {} triggers for workspace '{}'",
         T::SERVICE_NAME.as_str(),
@@ -164,13 +201,17 @@ pub async fn sync_workspace_triggers<T: External>(
         return Ok((Vec::new(), Vec::new()));
     }
 
-    let mut all_deleted_triggers = Vec::new();
+    let mut all_synced_triggers = Vec::new();
     let mut all_sync_errors = Vec::new();
 
     let oauth_data = {
         match decrypt_oauth_data(db, db, workspace_id, T::SERVICE_NAME).await {
             Ok(oauth_data) => oauth_data,
             Err(e) => {
+                tracing::error!(
+                    "Failed to get workspace integration OAuth data for {}: {}",
+                    workspace_id, e
+                );
                 all_sync_errors.push(SyncError {
                     resource_path: format!("workspace:{}", workspace_id),
                     error_message: format!("Failed to get workspace integration OAuth data: {}", e),
@@ -188,6 +229,10 @@ pub async fn sync_workspace_triggers<T: External>(
     {
         Ok(triggers) => triggers,
         Err(e) => {
+            tracing::error!(
+                "Failed to fetch external triggers for {}: {}",
+                workspace_id, e
+            );
             all_sync_errors.push(SyncError {
                 resource_path: format!("workspace:{}", workspace_id),
                 error_message: format!("Failed to fetch external triggers: {}", e),
@@ -196,107 +241,167 @@ pub async fn sync_workspace_triggers<T: External>(
             return Ok((Vec::new(), all_sync_errors));
         }
     };
+    tx.commit().await?;
 
-    let mut external_trigger_ids: HashMap<String, bool> = HashMap::new();
+    // Build a map of external trigger IDs to their data
+    let mut external_trigger_map: HashMap<String, &T::TriggerData> = HashMap::new();
     for external_trigger in &external_triggers {
         let external_id = handler.get_external_id_from_trigger_data(external_trigger);
-        external_trigger_ids.insert(external_id, true);
+        external_trigger_map.insert(external_id, external_trigger);
     }
 
     for trigger in &windmill_triggers {
-        if !external_trigger_ids.contains_key(&trigger.external_id) {
-            tracing::info!(
-                "Trigger '{}' (external_id: '{}') no longer exists in external service, deleting",
-                trigger.runnable_path,
-                trigger.external_id
-            );
+        if !external_trigger_map.contains_key(&trigger.external_id) {
+            // Trigger no longer exists on external service - set error
+            let error_msg = "Trigger no longer exists on external service".to_string();
 
-            let authed = match fetch_api_authed(
-                trigger.edited_by.clone(),
-                trigger.email.clone(),
-                workspace_id,
-                db,
-                Some("background-sync".to_string()),
-            )
-            .await
-            {
-                Ok(authed) => authed,
-                Err(e) => {
-                    all_sync_errors.push(SyncError {
-                        resource_path: format!("workspace:{}", workspace_id),
-                        error_message: format!(
-                            "Failed to get authentication for trigger {}: {}",
-                            trigger.id, e
-                        ),
-                        error_type: "authentication_error".to_string(),
-                    });
-                    continue;
-                }
-            };
+            if trigger.error.as_deref() != Some(&error_msg) {
+                tracing::info!(
+                    "Trigger (external_id: '{}', script_path: '{}') no longer exists in external service, setting error",
+                    trigger.external_id,
+                    trigger.script_path
+                );
 
-            let user_db = UserDB::new(db.clone());
-            let mut tx = user_db.begin(&authed).await?;
-
-            match delete_native_trigger(&mut *tx, workspace_id, trigger.id, T::SERVICE_NAME).await {
-                Ok(true) => {
-                    if let Err(audit_err) = audit_log(
-                        &mut *tx,
-                        &authed,
-                        &format!("native_triggers.{}.background_sync_auto_delete", T::SERVICE_NAME.as_str()),
-                        ActionKind::Delete,
-                        workspace_id,
-                        Some(&format!(
-                            "Auto-deleted trigger '{}' (external_id: '{}') during background sync because it no longer exists in external service",
-                            trigger.runnable_path,
-                            trigger.external_id
-                        )),
-                        None,
-                    ).await {
-                        tracing::warn!(
-                            "Failed to log audit for auto-deleted trigger {}: {}",
-                            trigger.id,
-                            audit_err
-                        );
+                match update_native_trigger_error(
+                    db,
+                    workspace_id,
+                    T::SERVICE_NAME,
+                    &trigger.external_id,
+                    Some(&error_msg),
+                )
+                .await
+                {
+                    Ok(()) => {
+                        all_synced_triggers.push(TriggerSyncInfo {
+                            external_id: trigger.external_id.clone(),
+                            script_path: trigger.script_path.clone(),
+                            action: SyncAction::ErrorSet(error_msg),
+                        });
                     }
-
-                    tx.commit().await?;
-
-                    all_deleted_triggers.push(DeletedTriggerInfo {
-                        internal_id: trigger.id,
-                        external_id: trigger.external_id.clone(),
-                        runnable_path: trigger.runnable_path.clone(),
-                        reason: "Trigger no longer exists in external service (background sync)"
-                            .to_string(),
-                    });
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update error for trigger (external_id: '{}'): {}",
+                            trigger.external_id, e
+                        );
+                        all_sync_errors.push(SyncError {
+                            resource_path: format!("workspace:{}", workspace_id),
+                            error_message: format!(
+                                "Failed to update error for trigger (external_id: '{}'): {}",
+                                trigger.external_id, e
+                            ),
+                            error_type: "database_update_error".to_string(),
+                        });
+                    }
                 }
-                Ok(false) => {
-                    tracing::warn!(
-                        "Trigger {} (external_id: '{}') was not found in database during deletion",
-                        trigger.id,
-                        trigger.external_id
-                    );
+            }
+        } else {
+            // Trigger exists on external service
+            let external_trigger_data = external_trigger_map.get(&trigger.external_id).unwrap();
+
+            // Clear error if it was set
+            if trigger.error.is_some() {
+                tracing::info!(
+                    "Trigger (external_id: '{}', script_path: '{}') exists on external service, clearing error",
+                    trigger.external_id,
+                    trigger.script_path
+                );
+
+                match update_native_trigger_error(
+                    db,
+                    workspace_id,
+                    T::SERVICE_NAME,
+                    &trigger.external_id,
+                    None,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        all_synced_triggers.push(TriggerSyncInfo {
+                            external_id: trigger.external_id.clone(),
+                            script_path: trigger.script_path.clone(),
+                            action: SyncAction::ErrorCleared,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to clear error for trigger (external_id: '{}'): {}",
+                            trigger.external_id, e
+                        );
+                        all_sync_errors.push(SyncError {
+                            resource_path: format!("workspace:{}", workspace_id),
+                            error_message: format!(
+                                "Failed to clear error for trigger (external_id: '{}'): {}",
+                                trigger.external_id, e
+                            ),
+                            error_type: "database_update_error".to_string(),
+                        });
+                    }
                 }
-                Err(e) => {
-                    all_sync_errors.push(SyncError {
-                        resource_path: format!("workspace:{}", workspace_id),
-                        error_message: format!(
-                            "Failed to delete trigger '{}' (external_id: '{}'): {}",
-                            trigger.runnable_path, trigger.external_id, e
-                        ),
-                        error_type: "database_deletion_error".to_string(),
-                    });
+            }
+
+            // Compare service_config and update if different
+            let external_service_config =
+                handler.extract_service_config_from_trigger_data(external_trigger_data);
+            let stored_service_config = trigger
+                .config
+                .get("service_config")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+
+            // Parse external_service_config to Value for semantic comparison
+            let external_config_value: serde_json::Value =
+                serde_json::from_str(external_service_config.get())
+                    .unwrap_or(serde_json::Value::Null);
+
+            if external_config_value != stored_service_config {
+                tracing::info!(
+                    "Trigger (external_id: '{}', script_path: '{}') config differs from external service, updating local config",
+                    trigger.external_id,
+                    trigger.script_path
+                );
+
+                match update_native_trigger_service_config(
+                    db,
+                    workspace_id,
+                    T::SERVICE_NAME,
+                    &trigger.external_id,
+                    &*external_service_config,
+                )
+                .await
+                {
+                    Ok(()) => {
+                        all_synced_triggers.push(TriggerSyncInfo {
+                            external_id: trigger.external_id.clone(),
+                            script_path: trigger.script_path.clone(),
+                            action: SyncAction::ConfigUpdated,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to update config for trigger (external_id: '{}'): {}",
+                            trigger.external_id, e
+                        );
+                        all_sync_errors.push(SyncError {
+                            resource_path: format!("workspace:{}", workspace_id),
+                            error_message: format!(
+                                "Failed to update config for trigger (external_id: '{}'): {}",
+                                trigger.external_id, e
+                            ),
+                            error_type: "database_update_error".to_string(),
+                        });
+                    }
                 }
             }
         }
     }
 
-    tracing::debug!(
-        "Sync completed for {} in workspace '{}'. Deleted: {}, Errors: {}",
+    tracing::info!(
+        "Sync completed for {} in workspace '{}'. Synced: {}, Errors: {}",
         T::SERVICE_NAME.as_str(),
         workspace_id,
-        all_deleted_triggers.len(),
+        all_synced_triggers.len(),
         all_sync_errors.len()
     );
 
-    Ok((all_deleted_triggers, all_sync_errors))
+    Ok((all_synced_triggers, all_sync_errors))
 }

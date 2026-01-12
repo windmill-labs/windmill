@@ -1738,16 +1738,17 @@ pub async fn monitor_db(
         windmill_common::worker::update_min_version(conn).await;
     };
 
+    // Run every 5 minutes (10 iterations * 30s = 5 minutes)
     let native_triggers_sync_f = async {
         #[cfg(feature = "native_triggers")]
-        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(20) {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {
                 match sync_all_triggers(db).await {
                     Ok(result) => {
                         tracing::debug!(
-                            "Native triggers sync completed: {} workspaces, {} deleted, {} errors",
+                            "Native triggers sync completed: {} workspaces, {} synced, {} errors",
                             result.workspaces_processed,
-                            result.total_deleted,
+                            result.total_synced,
                             result.total_errors
                         );
                         if result.total_errors > 0 {

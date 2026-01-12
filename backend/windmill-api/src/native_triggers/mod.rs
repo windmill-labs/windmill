@@ -1,4 +1,37 @@
-use crate::db::ApiAuthed;
+//! Native Triggers Module
+//!
+//! This module provides integration with external services (like Nextcloud) that can
+//! trigger Windmill scripts/flows via webhooks.
+//!
+//! ## Adding a New Native Trigger Service
+//!
+//! When adding a new service (e.g., "NewService"), you need to update the following locations:
+//!
+//! ### 1. This file (mod.rs):
+//! - Add `pub mod newservice;` under the `#[cfg(feature = "native_triggers")]` block
+//! - Add `NewService` variant to `ServiceName` enum
+//! - Update `ServiceName::as_str()` - add match arm returning `"newservice"`
+//! - Update `TryFrom<String> for ServiceName` - add match arm for `"newservice"`
+//! - Update `ServiceName::as_trigger_kind()` - add match arm (requires TriggerKind::NewService in windmill_common)
+//! - Update `ServiceName::fmt()` (Display impl) - add match arm
+//! - Add match arm in `dispatch_webhook_args()` function
+//!
+//! ### 2. sync.rs:
+//! - Add `sync_service!()` macro call in `sync_all_triggers()`
+//!
+//! ### 3. handler.rs:
+//! - Add `.nest("/newservice", service_routes(NewServiceHandler))` in `generate_native_trigger_routers()`
+//!
+//! ### 4. Database migration:
+//! - Add `'newservice'` to the `native_trigger_service` enum type
+//!
+//! ### 5. windmill_common (if needed):
+//! - Add `NewService` variant to `TriggerKind` enum
+//! - Add `'newservice'` to `job_trigger_kind` enum type in migration
+//!
+//! The generic code (trait definitions, route handlers, database operations) does NOT
+//! need modification when adding new services.
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use http::StatusCode;
@@ -6,6 +39,7 @@ use itertools::Itertools;
 use reqwest::{Client, Method};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
+use serde_json::value::RawValue;
 use sqlx::{FromRow, PgConnection, Postgres};
 use std::{collections::HashMap, fmt::Debug};
 use strum::{EnumIter, IntoEnumIterator};
@@ -13,31 +47,40 @@ use tokio::task;
 use windmill_common::{
     error::{to_anyhow, Error, Result},
     triggers::TriggerKind,
-    utils::RunnableKind,
     variables::{build_crypt, decrypt, encrypt},
     DB,
 };
 use windmill_queue::PushArgsOwned;
+
+use crate::db::ApiAuthed;
 pub mod handler;
 pub mod sync;
 pub mod workspace_integrations;
 
+// Service modules - add new services here:
 #[cfg(feature = "native_triggers")]
 pub mod nextcloud;
+// #[cfg(feature = "native_triggers")]
+// pub mod newservice;
 
+/// Enum of all supported native trigger services.
+/// When adding a new service, add a variant here (e.g., `NewService`).
 #[derive(EnumIter, sqlx::Type, Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[sqlx(type_name = "native_trigger_service", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
-
 pub enum ServiceName {
     Nextcloud,
+    // Add new services here:
+    // NewService,
 }
 
 impl TryFrom<String> for ServiceName {
     type Error = Error;
     fn try_from(value: String) -> std::result::Result<Self, Self::Error> {
+        // Add new service match arms here:
         let service = match value.as_str() {
             "nextcloud" => ServiceName::Nextcloud,
+            // "newservice" => ServiceName::NewService,
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unknown service, currently supported services are: [{}]",
@@ -52,42 +95,40 @@ impl TryFrom<String> for ServiceName {
 }
 
 impl ServiceName {
+    /// Returns the lowercase string identifier for this service.
+    /// Add new service match arms here.
     pub fn as_str(&self) -> &'static str {
         match self {
             ServiceName::Nextcloud => "nextcloud",
+            // ServiceName::NewService => "newservice",
         }
     }
+
+    /// Returns the corresponding TriggerKind for this service.
+    /// Requires adding the variant to TriggerKind in windmill_common.
     pub fn as_trigger_kind(&self) -> TriggerKind {
         match self {
             ServiceName::Nextcloud => TriggerKind::Nextcloud,
+            // ServiceName::NewService => TriggerKind::NewService,
         }
     }
 }
 
 impl std::fmt::Display for ServiceName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let service_name = match self {
-            ServiceName::Nextcloud => "nextcloud",
-        };
-
-        write!(f, "{}", service_name)
+        write!(f, "{}", self.as_str())
     }
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct NativeTrigger {
-    pub id: i64,
-    pub service_name: ServiceName,
     pub external_id: String,
     pub workspace_id: String,
-    pub runnable_path: String,
-    pub runnable_kind: RunnableKind,
-    pub event_type: sqlx::types::Json<EventType>,
-    pub summary: Option<String>,
-    pub metadata: Option<serde_json::Value>,
-    pub edited_by: String,
-    pub email: String,
-    pub edited_at: DateTime<Utc>,
+    pub service_name: ServiceName,
+    pub script_path: String,
+    pub is_flow: bool,
+    pub config: serde_json::Value,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,12 +151,17 @@ pub enum EventType {
     Webhook(WebhookConfig),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeTriggerConfig {
+    pub script_path: String,
+    pub is_flow: bool,
+    pub event_type: EventType,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct NativeTriggerData<P> {
-    pub external_id: String,
-    pub runnable_path: String,
-    pub runnable_kind: RunnableKind,
-    pub summary: Option<String>,
+    pub script_path: String,
+    pub is_flow: bool,
     pub event_type: EventType,
     pub payload: P,
 }
@@ -146,7 +192,6 @@ pub trait External: Send + Sync + 'static {
     async fn create(
         &self,
         w_id: &str,
-        internal_id: i64,
         oauth_data: &Self::OAuthData,
         data: &NativeTriggerData<Self::Payload>,
         db: &DB,
@@ -156,7 +201,6 @@ pub trait External: Send + Sync + 'static {
     async fn update(
         &self,
         w_id: &str,
-        internal_id: i64,
         oauth_data: &Self::OAuthData,
         external_id: &str,
         data: &NativeTriggerData<Self::Payload>,
@@ -210,7 +254,7 @@ pub trait External: Send + Sync + 'static {
         _w_id: &str,
         _header: HashMap<String, String>,
         _body: String,
-        _runnable_path: &str,
+        _script_path: &str,
         _is_flow: bool,
     ) -> Result<PushArgsOwned> {
         Ok(PushArgsOwned { extra: None, args: HashMap::new() })
@@ -222,6 +266,14 @@ pub trait External: Send + Sync + 'static {
     ) -> (String, Option<serde_json::Value>);
 
     fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
+
+    /// Extracts the service-specific config from the payload (for storage).
+    /// This should include fields like event, event_filter, user_id_filter, etc.
+    fn extract_service_config_from_payload(&self, payload: &Self::Payload) -> Box<RawValue>;
+
+    /// Extracts the service-specific config from trigger data (from external service).
+    /// Used for comparison during sync to detect config drift.
+    fn extract_service_config_from_trigger_data(&self, data: &Self::TriggerData) -> Box<RawValue>;
 
     fn additional_routes(&self) -> axum::Router {
         axum::Router::new()
@@ -525,83 +577,88 @@ async fn update_workspace_integration_tokens_helper(
     }
 }
 
-pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>, P>(
+pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
-    authed: &ApiAuthed,
     workspace_id: &str,
     service_name: ServiceName,
-    native_trigger_data: &NativeTriggerData<P>,
-) -> Result<i64> {
-    let row = sqlx::query!(
-        r#"
-        INSERT INTO native_triggers (
-            service_name,
-            event_type,
-            external_id,
-            runnable_path,
-            runnable_kind,
-            workspace_id,
-            summary,
-            metadata,
-            edited_by,
-            email,
-            edited_at
-        ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now()
-        )
-        RETURNING id
-        "#,
-        service_name as ServiceName,
-        serde_json::to_value(native_trigger_data.event_type.clone()).unwrap(),
-        &native_trigger_data.external_id,
-        &native_trigger_data.runnable_path,
-        native_trigger_data.runnable_kind as RunnableKind,
-        workspace_id,
-        native_trigger_data.summary.as_ref(),
-        Some(serde_json::Value::Null),
-        authed.username,
-        authed.email,
-    )
-    .fetch_one(db)
-    .await?;
-
-    Ok(row.id)
-}
-
-pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>, P>(
-    db: E,
-    authed: &ApiAuthed,
-    workspace_id: &str,
-    id: i64,
-    service_name: ServiceName,
-    native_trigger_data: &NativeTriggerData<P>,
+    external_id: &str,
+    config: &NativeTriggerConfig,
+    service_config: Option<&RawValue>,
 ) -> Result<()> {
+    let event_type_str = serde_json::to_string(&config.event_type)
+        .map_err(|e| Error::InternalErr(format!("Failed to serialize event_type: {}", e)))?;
+
+    // Build the combined config JSON string, embedding the RawValue directly
+    let service_config_str = service_config.map(|v| v.get()).unwrap_or("null");
+    let config_str = format!(
+        r#"{{"event_type": {}, "service_config": {}}}"#,
+        event_type_str, service_config_str
+    );
+    let config_json: serde_json::Value = serde_json::from_str(&config_str)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse config JSON: {}", e)))?;
+
     sqlx::query!(
         r#"
-        UPDATE 
-            native_triggers
-        SET
-            runnable_path = $1,
-            runnable_kind = $2,
-            summary = $3,
-            metadata = $4,
-            edited_by = $5,
-            email = $6,
-            edited_at = now()
-        WHERE
-            workspace_id = $7
-            AND id = $8
-            AND service_name = $9
+        INSERT INTO native_triggers (
+            external_id,
+            workspace_id,
+            service_name,
+            script_path,
+            is_flow,
+            config
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6
+        )
+        ON CONFLICT (external_id, workspace_id, service_name)
+        DO UPDATE SET script_path = $4, is_flow = $5, config = $6, error = NULL
         "#,
-        native_trigger_data.runnable_path,
-        native_trigger_data.runnable_kind as RunnableKind,
-        native_trigger_data.summary,
-        Some(serde_json::Value::Null),
-        authed.username,
-        authed.email,
+        external_id,
         workspace_id,
-        id,
-        service_name as ServiceName
+        service_name as ServiceName,
+        config.script_path,
+        config.is_flow,
+        config_json,
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    config: &NativeTriggerConfig,
+    service_config: Option<&RawValue>,
+) -> Result<()> {
+    let event_type_str = serde_json::to_string(&config.event_type)
+        .map_err(|e| Error::InternalErr(format!("Failed to serialize event_type: {}", e)))?;
+
+    let service_config_str = service_config.map(|v| v.get()).unwrap_or("null");
+    let config_str = format!(
+        r#"{{"event_type": {}, "service_config": {}}}"#,
+        event_type_str, service_config_str
+    );
+    let config_json: serde_json::Value = serde_json::from_str(&config_str)
+        .map_err(|e| Error::InternalErr(format!("Failed to parse config JSON: {}", e)))?;
+
+    sqlx::query!(
+        r#"
+        UPDATE native_triggers
+        SET script_path = $1, is_flow = $2, config = $3, error = NULL
+        WHERE
+            workspace_id = $4
+            AND service_name = $5
+            AND external_id = $6
+        "#,
+        config.script_path,
+        config.is_flow,
+        config_json,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
     )
     .execute(db)
     .await?;
@@ -612,21 +669,20 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
 pub async fn delete_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
     db: E,
     workspace_id: &str,
-    id: i64,
     service_name: ServiceName,
+    external_id: &str,
 ) -> Result<bool> {
     let deleted = sqlx::query!(
         r#"
-        DELETE 
-            FROM native_triggers
+        DELETE FROM native_triggers
         WHERE
             workspace_id = $1
-            AND id = $2
-            AND service_name = $3
+            AND service_name = $2
+            AND external_id = $3
         "#,
         workspace_id,
-        id,
-        service_name as ServiceName
+        service_name as ServiceName,
+        external_id,
     )
     .execute(db)
     .await?
@@ -634,9 +690,8 @@ pub async fn delete_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
 
     Ok(deleted > 0)
 }
-#[allow(unused)]
-pub async fn get_native_trigger_by_external_id(
-    tx: &mut PgConnection,
+pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
     workspace_id: &str,
     service_name: ServiceName,
     external_id: &str,
@@ -645,18 +700,13 @@ pub async fn get_native_trigger_by_external_id(
         NativeTrigger,
         r#"
         SELECT
-            id,
-            event_type AS "event_type!: sqlx::types::Json<EventType>",
-            runnable_path,
-            runnable_kind AS "runnable_kind!: RunnableKind",
-            service_name AS "service_name!: ServiceName",
             external_id,
             workspace_id,
-            summary,
-            metadata,
-            edited_by,
-            email,
-            edited_at
+            service_name AS "service_name!: ServiceName",
+            script_path,
+            is_flow,
+            config,
+            error
         FROM
             native_triggers
         WHERE
@@ -668,7 +718,45 @@ pub async fn get_native_trigger_by_external_id(
         service_name as ServiceName,
         external_id
     )
-    .fetch_optional(tx)
+    .fetch_optional(db)
+    .await?;
+
+    Ok(trigger)
+}
+
+pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    script_path: &str,
+    is_flow: bool,
+) -> Result<Option<NativeTrigger>> {
+    let trigger = sqlx::query_as!(
+        NativeTrigger,
+        r#"
+        SELECT
+            external_id,
+            workspace_id,
+            service_name AS "service_name!: ServiceName",
+            script_path,
+            is_flow,
+            config,
+            error
+        FROM
+            native_triggers
+        WHERE
+            workspace_id = $1
+            AND service_name = $2
+            AND script_path = $3
+            AND is_flow = $4
+        LIMIT 1
+        "#,
+        workspace_id,
+        service_name as ServiceName,
+        script_path,
+        is_flow
+    )
+    .fetch_optional(db)
     .await?;
 
     Ok(trigger)
@@ -687,31 +775,22 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
     let triggers = sqlx::query_as!(
         NativeTrigger,
         r#"
-            SELECT
-                id,
-                runnable_path,
-                event_type AS "event_type!: sqlx::types::Json<EventType>",
-                runnable_kind AS "runnable_kind!: RunnableKind",
-                service_name AS "service_name!: ServiceName",
-                external_id,
-                workspace_id,
-                summary,
-                metadata,
-                edited_by,
-                email,
-                edited_at
-            FROM
-                native_triggers
-            WHERE
-                workspace_id = $1 AND 
-                service_name = $2
-            ORDER BY 
-                edited_at DESC
-            LIMIT 
-                $3 
-            OFFSET 
-                $4
-            "#,
+        SELECT
+            external_id,
+            workspace_id,
+            service_name AS "service_name!: ServiceName",
+            script_path,
+            is_flow,
+            config,
+            error
+        FROM
+            native_triggers
+        WHERE
+            workspace_id = $1 AND
+            service_name = $2
+        LIMIT $3
+        OFFSET $4
+        "#,
         workspace_id,
         service_name as ServiceName,
         limit,
@@ -721,6 +800,64 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
     .await?;
 
     Ok(triggers)
+}
+
+pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    error: Option<&str>,
+) -> Result<()> {
+    sqlx::query!(
+        r#"
+        UPDATE native_triggers
+        SET error = $1
+        WHERE
+            workspace_id = $2
+            AND service_name = $3
+            AND external_id = $4
+        "#,
+        error,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn update_native_trigger_service_config<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    workspace_id: &str,
+    service_name: ServiceName,
+    external_id: &str,
+    service_config: &RawValue,
+) -> Result<()> {
+    // Parse the RawValue to Value for SQLx
+    let service_config_value: serde_json::Value = serde_json::from_str(service_config.get())
+        .map_err(|e| Error::InternalErr(format!("Failed to parse service_config: {}", e)))?;
+
+    sqlx::query!(
+        r#"
+        UPDATE native_triggers
+        SET config = jsonb_set(config, '{service_config}', $1::jsonb)
+        WHERE
+            workspace_id = $2
+            AND service_name = $3
+            AND external_id = $4
+        "#,
+        service_config_value,
+        workspace_id,
+        service_name as ServiceName,
+        external_id,
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
 }
 
 pub async fn store_workspace_integration(
@@ -810,12 +947,16 @@ pub async fn delete_workspace_integration(
     Ok(deleted > 0)
 }
 
+/// Generates the webhook URL that external services will call.
+///
+/// `external_id` is optional because during CREATE we don't have it yet
+/// (it's returned by the external service). During UPDATE, we have it.
 pub fn generate_webhook_service_url(
     base_url: &str,
     w_id: &str,
-    runnable_path: &str,
-    runnable_kind: RunnableKind,
-    internal_id: &str,
+    script_path: &str,
+    is_flow: bool,
+    external_id: Option<&str>,
     service_name: ServiceName,
     webhook_config: &WebhookConfig,
 ) -> String {
@@ -824,22 +965,88 @@ pub fn generate_webhook_service_url(
         WebhookRequestType::Sync => "run_wait_result",
     };
 
-    let runnable_prefix = match runnable_kind {
-        RunnableKind::Script => "p",
-        RunnableKind::Flow => "f",
-    };
+    let runnable_prefix = if is_flow { "f" } else { "p" };
 
-    let url = format!(
-        "{}/api/w/{}/jobs/{}/{}/{}?token={}&internal_id={}&service_name={}",
+    let mut url = format!(
+        "{}/api/w/{}/jobs/{}/{}/{}?token={}&service_name={}",
         base_url,
         w_id,
         endpoint_base,
         runnable_prefix,
-        runnable_path,
+        script_path,
         &webhook_config.token,
-        internal_id,
         service_name.as_str()
     );
 
+    // Add trigger_id if we have it (for updates, not initial creation)
+    if let Some(id) = external_id {
+        url.push_str(&format!("&trigger_id={}", id));
+    }
+
     url
+}
+
+/// Macro to register all native trigger services.
+/// This is the single place where new services need to be added.
+/// When adding a new service:
+/// 1. Add the variant to ServiceName enum
+/// 2. Add the service module (like `pub mod newservice;`)
+/// 3. Add the service to this macro invocation
+#[cfg(feature = "native_triggers")]
+#[macro_export]
+macro_rules! for_each_native_service {
+    ($macro_name:ident) => {
+        $macro_name!(nextcloud, NextCloud, crate::native_triggers::nextcloud::NextCloud);
+        // Add new services here:
+        // $macro_name!(servicename, ServiceVariant, path::to::Handler);
+    };
+}
+
+#[cfg(not(feature = "native_triggers"))]
+#[macro_export]
+macro_rules! for_each_native_service {
+    ($macro_name:ident) => {
+        // No services when feature is disabled
+    };
+}
+
+/// Dispatches webhook argument building to the appropriate service handler.
+/// This is the centralized place for webhook dispatch logic.
+/// When adding a new service, add a new match arm here.
+#[cfg(feature = "native_triggers")]
+pub async fn dispatch_webhook_args(
+    service_name: ServiceName,
+    db: &DB,
+    w_id: &str,
+    script_path: &str,
+    is_flow: bool,
+    body: Box<serde_json::value::RawValue>,
+    headers: HashMap<String, Box<serde_json::value::RawValue>>,
+) -> Result<PushArgsOwned> {
+    use crate::triggers::trigger_helpers::TriggerJobArgs;
+
+    match service_name {
+        ServiceName::Nextcloud => {
+            use nextcloud::NextCloud;
+            NextCloud::build_job_args(script_path, is_flow, w_id, db, body, headers).await
+        }
+        // Add new services here:
+        // ServiceName::NewService => {
+        //     use newservice::NewServiceHandler;
+        //     NewServiceHandler::build_job_args(script_path, is_flow, w_id, db, body, headers).await
+        // }
+    }
+}
+
+#[cfg(not(feature = "native_triggers"))]
+pub async fn dispatch_webhook_args(
+    _service_name: ServiceName,
+    _db: &DB,
+    _w_id: &str,
+    _script_path: &str,
+    _is_flow: bool,
+    _body: Box<serde_json::value::RawValue>,
+    _headers: HashMap<String, Box<serde_json::value::RawValue>>,
+) -> Result<PushArgsOwned> {
+    Err(Error::BadRequest("Native triggers feature is not enabled".to_string()))
 }

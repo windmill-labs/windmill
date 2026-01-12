@@ -1784,7 +1784,7 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
-    pub internal_id: Option<String>,
+    pub trigger_id: Option<String>,
     pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,
 }
@@ -4539,61 +4539,50 @@ pub async fn generate_args_runnable(
     is_flow: bool,
 ) -> error::Result<PushArgsOwned> {
     #[cfg(feature = "native_triggers")]
-    if let (Some(service_name), Some(internal_id)) =
-        (&run_query.service_name, &run_query.internal_id)
+    if let (Some(service_name_str), Some(trigger_id)) =
+        (&run_query.service_name, &run_query.trigger_id)
     {
-        use crate::native_triggers::{handler::get_native_trigger, ServiceName};
+        use crate::native_triggers::{dispatch_webhook_args, get_native_trigger, ServiceName};
 
-        let service_name = ServiceName::try_from(service_name.to_owned())?;
-        let id = internal_id
-            .parse::<i64>()
-            .map_err(|_| Error::BadRequest("Invalid native trigger id".to_string()))?;
-        let mut tx = user_db.begin(authed).await?;
-        let native_trigger = get_native_trigger(&mut *tx, &w_id, id, service_name).await?;
-        tx.commit().await?;
-        if native_trigger.runnable_path != runnable_path {
-            return Err(Error::BadRequest(format!(
-                "Expected to run runnable: {} not: {}",
-                &native_trigger.runnable_path, runnable_path
-            )));
-        }
+        let service_name = ServiceName::try_from(service_name_str.to_owned())?;
 
-        let args = match service_name {
-            ServiceName::Nextcloud => {
-                use crate::{
-                    native_triggers::{
-                        decrypt_oauth_data, nextcloud::NextCloud, nextcloud::NextCloudOAuthData,
-                    },
-                    triggers::trigger_helpers::TriggerJobArgs,
-                };
+        let _native_trigger = get_native_trigger(db, w_id, service_name, trigger_id)
+            .await?
+            .ok_or_else(|| {
+                Error::NotFound(format!(
+                    "Native trigger with id {} not found in workspace {}",
+                    trigger_id, w_id
+                ))
+            })?;
 
-                let mut webhook_payload = args.process_args(authed, db, w_id, None).await?;
+        // Process the raw webhook args to get headers and body
+        let webhook_payload = args.process_args(authed, db, w_id, None).await?;
 
-                let oauth_data: NextCloudOAuthData =
-                    decrypt_oauth_data(db, &db, &w_id, service_name).await?;
+        // Convert headers to RawValue map
+        let headers: std::collections::HashMap<String, Box<serde_json::value::RawValue>> =
+            webhook_payload
+                .metadata
+                .headers
+                .iter()
+                .map(|(k, v)| (k.to_string(), to_raw_value(&v.to_str().unwrap_or(""))))
+                .collect();
 
-                //Uncomment once nextcloud integrate the ephemeral token in the webhook payload
-                /*webhook_payload
-                    .metadata
-                    .headers
-                    .insert("base_url".to_string(), to_raw_value(&oauth_data.base_url));
-                webhook_payload.metadata.headers.insert(
-                    "access_token".to_string(),
-                    to_raw_value(&oauth_data.access_token),
-                );*/
+        // Get body as RawValue
+        let body = to_raw_value(&webhook_payload.body);
 
-                let args = NextCloud::build_job_args(
-                    runnable_path,
-                    is_flow,
-                    w_id,
-                    db,
-                    to_raw_value(&webhook_payload.body),
-                    webhook_payload.metadata.headers,
-                )
-                .await?;
-                args
-            }
-        };
+        // Dispatch to the appropriate service handler
+        // This is the centralized dispatch - adding new services only requires
+        // updating dispatch_webhook_args in native_triggers/mod.rs
+        let args = dispatch_webhook_args(
+            service_name,
+            db,
+            w_id,
+            runnable_path,
+            is_flow,
+            body,
+            headers,
+        )
+        .await?;
 
         return Ok(args);
     }

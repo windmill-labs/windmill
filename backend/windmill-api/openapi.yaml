@@ -11770,6 +11770,9 @@ paths:
   /w/{workspace}/native_triggers/{service_name}/create:
     post:
       summary: create native trigger
+      description: |
+        Creates a new native trigger for the specified service.
+        Requires write access to the script or flow that the trigger will be associated with.
       operationId: createNativeTrigger
       tags:
         - native_trigger
@@ -11781,7 +11784,7 @@ paths:
           schema:
             $ref: "#/components/schemas/NativeServiceName"
       requestBody:
-        description: new native trigger
+        description: new native trigger configuration
         required: true
         content:
           application/json:
@@ -11795,9 +11798,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/CreateTriggerResponse"
 
-  /w/{workspace}/native_triggers/{service_name}/update/{id}:
+  /w/{workspace}/native_triggers/{service_name}/update/{external_id}:
     post:
       summary: update native trigger
+      description: |
+        Updates an existing native trigger.
+        Requires write access to the script or flow that the trigger is associated with.
       operationId: updateNativeTrigger
       tags:
         - native_trigger
@@ -11808,14 +11814,14 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - name: id
+        - name: external_id
           in: path
           required: true
+          description: The external ID of the trigger from the external service
           schema:
-            type: integer
-            format: int64
+            type: string
       requestBody:
-        description: updated native trigger
+        description: updated native trigger configuration
         required: true
         content:
           application/json:
@@ -11829,9 +11835,12 @@ paths:
               schema:
                 type: string
 
-  /w/{workspace}/native_triggers/{service_name}/get/{id}/{path}:
+  /w/{workspace}/native_triggers/{service_name}/get/{external_id}:
     get:
       summary: get native trigger
+      description: |
+        Retrieves a native trigger by its external ID.
+        Requires write access to the script or flow that the trigger is associated with.
       operationId: getNativeTrigger
       tags:
         - native_trigger
@@ -11842,13 +11851,12 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-        - name: id
+        - name: external_id
           in: path
           required: true
+          description: The external ID of the trigger from the external service
           schema:
-            type: integer
-            format: int64
-        - $ref: "#/components/parameters/Path"
+            type: string
       responses:
         "200":
           description: native trigger with external configuration
@@ -11857,9 +11865,12 @@ paths:
               schema:
                 $ref: "#/components/schemas/FullTriggerResponse"
 
-  /w/{workspace}/native_triggers/{service_name}/delete:
+  /w/{workspace}/native_triggers/{service_name}/delete/{external_id}:
     delete:
       summary: delete native trigger
+      description: |
+        Deletes a native trigger by its external ID.
+        Requires write access to the script or flow that the trigger is associated with.
       operationId: deleteNativeTrigger
       tags:
         - native_trigger
@@ -11870,13 +11881,12 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-      requestBody:
-        description: trigger id and runnable path
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/IdAndRunnablePath"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
       responses:
         "200":
           description: native trigger deleted
@@ -11888,12 +11898,12 @@ paths:
   /w/{workspace}/native_triggers/{service_name}/list:
     get:
       summary: list native triggers
+      description: Lists all native triggers for the specified service in the workspace.
       operationId: listNativeTriggers
       tags:
         - native_trigger
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-          required: true
         - name: service_name
           in: path
           required: true
@@ -11911,9 +11921,10 @@ paths:
                 items:
                   $ref: "#/components/schemas/NativeTrigger"
 
-  /w/{workspace}/native_triggers/{service_name}/exists:
-    post:
-      summary: does native trigger exist
+  /w/{workspace}/native_triggers/{service_name}/exists/{external_id}:
+    get:
+      summary: check if native trigger exists
+      description: Checks if a native trigger with the given external ID exists.
       operationId: existsNativeTrigger
       tags:
         - native_trigger
@@ -11924,16 +11935,15 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/NativeServiceName"
-      requestBody:
-        description: trigger id and runnable path
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/IdAndRunnablePath"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
       responses:
         "200":
-          description: native trigger exists
+          description: whether the native trigger exists
           content:
             application/json:
               schema:
@@ -21826,59 +21836,76 @@ components:
 
     NativeTrigger:
       type: object
+      description: A native trigger stored in Windmill
       properties:
-        id:
-          type: integer
-          format: int64
-        service_name:
-          $ref: "#/components/schemas/NativeServiceName"
         external_id:
           type: string
+          description: The unique identifier from the external service
         workspace_id:
           type: string
-        resource_path:
+          description: The workspace this trigger belongs to
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        script_path:
           type: string
-        runnable_path:
-          type: string
-        runnable_kind:
-          $ref: "#/components/schemas/RunnableKind"
-        summary:
-          type: string
-        metadata:
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
+        config:
           type: object
-        edited_by:
+          description: Configuration for the trigger including event_type and service_config
+          additionalProperties: true
+        error:
           type: string
-        email:
-          type: string
-        edited_at:
-          type: string
-          format: date-time
+          nullable: true
+          description: Error message if the trigger is in an error state
       required:
-        - id
-        - service_name
         - external_id
         - workspace_id
-        - resource_path
-        - runnable_path
-        - runnable_kind
-        - summary
-        - edited_by
-        - email
-        - edited_at
+        - service_name
+        - script_path
+        - is_flow
+        - config
 
     FullTriggerResponse:
       type: object
       description: Full trigger response containing both Windmill data and external service data
-      allOf:
-        - $ref: "#/components/schemas/NativeTrigger"
-        - type: object
-          properties:
-            external_data:
-              type: object
-              description: Configuration data from the external service
-              additionalProperties: true
-          required:
-            - external_data
+      properties:
+        external_id:
+          type: string
+          description: The unique identifier from the external service
+        workspace_id:
+          type: string
+          description: The workspace this trigger belongs to
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        script_path:
+          type: string
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
+        config:
+          type: object
+          description: Configuration for the trigger including event_type and service_config
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the trigger is in an error state
+        external_data:
+          type: object
+          description: Configuration data from the external service
+          additionalProperties: true
+      required:
+        - external_id
+        - workspace_id
+        - service_name
+        - script_path
+        - is_flow
+        - config
+        - external_data
 
     WorkspaceIntegrations:
       type: object
@@ -21954,50 +21981,35 @@ components:
 
     NativeTriggerData:
       type: object
+      description: Data for creating or updating a native trigger
       properties:
-        runnable_path:
+        script_path:
           type: string
-        runnable_kind:
-          $ref: "#/components/schemas/RunnableKind"
-        summary:
-          type: string
-        external_id:
-          type: string
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
         event_type:
           $ref: "#/components/schemas/EventType"
         payload:
           type: object
-          description: Service-specific configuration payload
+          description: Service-specific configuration payload (e.g., event types, filters)
           additionalProperties: true
       required:
-        - runnable_path
-        - runnable_kind
-        - resource_path
-        - external_id
-        - payload
+        - script_path
+        - is_flow
         - event_type
+        - payload
 
     CreateTriggerResponse:
       type: object
+      description: Response returned when a native trigger is created
       properties:
-        id:
-          type: integer
-          format: int64
-          description: The internal database ID of the created trigger
-      required:
-        - id
-
-    IdAndRunnablePath:
-      type: object
-      properties:
-        id:
-          type: integer
-          format: int64
-        runnable_path:
+        external_id:
           type: string
+          description: The external ID of the created trigger from the external service
       required:
-        - id
-        - runnable_path
+        - external_id
 
     SyncResult:
       type: object
