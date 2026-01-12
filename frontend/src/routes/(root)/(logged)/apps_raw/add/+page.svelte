@@ -24,15 +24,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import {
-		AlertTriangle,
-		Sparkles,
-		ArrowRight,
-		Plus,
-		List,
-		Ban,
-		ExternalLinkIcon
-	} from 'lucide-svelte'
+	import { AlertTriangle, Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
@@ -41,6 +33,7 @@
 	import { copilotInfo } from '$lib/aiStore'
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import { Alert } from '$lib/components/common'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -366,7 +359,7 @@
 		<div class="flex flex-col gap-6 min-w-sm">
 			<!-- Summary -->
 			<div>
-				<h2 class="text-sm font-medium text-primary mb-2">Summary</h2>
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Summary</h2>
 				<TextInput
 					bind:value={appSummary}
 					inputProps={{
@@ -376,14 +369,14 @@
 			</div>
 
 			<!-- Template Selection -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-2">Framework</h2>
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Framework</h2>
 				<div class="flex flex-wrap gap-3">
 					{#each templates as t, i}
 						<button
 							onclick={() => (selectedTemplateIndex = i)}
 							class="w-24 h-24 flex justify-between py-5 flex-col {selectedTemplateIndex === i
-								? 'bg-surface-selected ring-2 ring-blue-500'
+								? 'bg-surface-accent-selected border border-accent'
 								: ''} hover:bg-surface-hover border rounded-lg transition-all"
 						>
 							<div class="w-full flex items-center justify-center">
@@ -396,36 +389,28 @@
 			</div>
 
 			<!-- Data Configuration -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-3">Data Configuration</h2>
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Data Configuration</h2>
 
 				{#if hasNoDatatables}
-					<div
-						class="flex items-center gap-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800"
-					>
-						<AlertTriangle size={16} class="text-yellow-600 dark:text-yellow-400 shrink-0" />
-						<div class="text-sm text-yellow-800 dark:text-yellow-200">
-							<span class="font-medium">No datatables configured.</span>
-							You can still create an app, but for data storage you won't be able to use data tables
-							which are <b>HIGHLY RECOMMENDED</b>.
-							<br />
+					<Alert type="warning" title="No datatables configured.">
+						You can still create an app, but for data storage you won't be able to use data tables
+						which are <b>highly recommended</b>.
+						<br />
 
-							{#if $userStore?.is_admin}
-								Configure datatables in
-								<a
-									href="/workspace/settings?tab=windmill_data_tables"
-									target="_blank"
-									class="inline-flex items-center gap-1"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a> to enable this feature.
-							{:else}
-								<b>
-									Ask your workspace admin to configure datatables in workspace settings to enable
-									this feature.
-								</b>
-							{/if}
-						</div>
-					</div>
+						{#if $userStore?.is_admin}
+							Configure datatables in
+							<a
+								href="/workspace/settings?tab=windmill_data_tables"
+								target="_blank"
+								class="inline-flex items-center gap-1"
+								>workspace settings <ExternalLinkIcon size={16} />
+							</a> to enable this feature.
+						{:else}
+							Ask your workspace admin to configure datatables in workspace settings to enable this
+							feature.
+						{/if}
+					</Alert>
 				{:else}
 					<div class="flex flex-col gap-4">
 						<!-- Default Datatable & Schema -->
@@ -520,9 +505,9 @@
 			</div>
 
 			<!-- AI Prompt (Optional) -->
-			<div class="border-t pt-4">
-				<h2 class="text-sm font-medium text-primary mb-2 flex items-center gap-2">
-					<Sparkles size={16} class="text-blue-500" />
+			<div class="pt-6">
+				<h2 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2">
+					<Sparkles size={16} class="text-ai" />
 					Start with AI
 					<span class="text-xs font-normal text-tertiary">(optional)</span>
 				</h2>
@@ -572,9 +557,9 @@
 			</div>
 
 			<!-- Actions -->
-			<div class="border-t pt-4 flex justify-end gap-3">
+			<div class="pt-6 flex justify-end gap-3">
 				<Button
-					color="light"
+					variant="default"
 					size="sm"
 					on:click={() => startApp(false)}
 					disabled={!templates[selectedTemplateIndex] || newSchemaAlreadyExists}
@@ -583,14 +568,13 @@
 				</Button>
 				{#if isAiEnabled}
 					<Button
-						color="blue"
-						size="sm"
+						variant="accent"
 						on:click={() => startApp(true)}
 						disabled={!templates[selectedTemplateIndex] ||
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
-						endIcon={{ icon: ArrowRight }}
+						btnClasses="bg-ai text-white"
 					>
 						Start with AI
 					</Button>
