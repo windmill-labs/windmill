@@ -476,24 +476,20 @@ async fn refresh_token_if_expired(
     .await?;
 
     let Some(token_info) = token_info else {
-        tracing::debug!("Token variable {} not found, skipping refresh check", token_path);
         return Ok(());
     };
 
     let Some(account_id) = token_info.account_id else {
-        tracing::debug!("Token variable {} is not linked to an OAuth account", token_path);
         return Ok(());
     };
 
     if !token_info.is_expired.unwrap_or(false) {
-        tracing::debug!("Token variable {} is not expired", token_path);
         return Ok(());
     }
 
-    tracing::info!(
-        "Token variable {} is expired, triggering refresh for account {}",
-        token_path,
-        account_id
+    tracing::debug!(
+        "Token variable {} is expired, triggering refresh",
+        token_path
     );
 
     // Call the API refresh endpoint
@@ -514,7 +510,9 @@ async fn refresh_token_if_expired(
         .json(&RefreshRequest { path: token_path.to_string() })
         .send()
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to call token refresh endpoint: {}", e)))?;
+        .map_err(|e| {
+            Error::internal_err(format!("Failed to call token refresh endpoint: {}", e))
+        })?;
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
@@ -523,8 +521,6 @@ async fn refresh_token_if_expired(
             error_text
         )));
     }
-
-    tracing::info!("Successfully refreshed token for variable {}", token_path);
     Ok(())
 }
 
@@ -565,7 +561,9 @@ pub async fn load_mcp_tools(
         // Check if token needs refresh before creating MCP client
         if let Some(ref token_path) = mcp_resource.token {
             let token_var_path = token_path.trim_start_matches("$var:");
-            if let Err(e) = refresh_token_if_expired(db, workspace_id, token_var_path, auth_token).await {
+            if let Err(e) =
+                refresh_token_if_expired(db, workspace_id, token_var_path, auth_token).await
+            {
                 tracing::warn!(
                     "Failed to refresh token for MCP resource {}: {}. Proceeding with possibly expired token.",
                     resource_name, e

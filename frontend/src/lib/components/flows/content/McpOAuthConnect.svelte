@@ -1,6 +1,12 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { OauthService, ResourceService, VariableService } from '$lib/gen'
+	import {
+		McpOauthService,
+		OauthService,
+		ResourceService,
+		VariableService,
+		type DiscoverMcpOauthResponse
+	} from '$lib/gen'
 	import { Button } from '$lib/components/common'
 	import Label from '$lib/components/Label.svelte'
 	import Path from '$lib/components/Path.svelte'
@@ -16,13 +22,7 @@
 	let { onConnected, onCancel }: Props = $props()
 
 	let serverUrl = $state('')
-	let discoveryResult = $state<{
-		scopes_supported?: string[]
-		authorization_endpoint: string
-		token_endpoint: string
-		registration_endpoint?: string
-		supports_dynamic_registration: boolean
-	} | null>(null)
+	let discoveryResult = $state<DiscoverMcpOauthResponse | null>(null)
 	let selectedScopes = $state<string[]>([])
 	let resourceName = $state('')
 	let resourcePath = $state('')
@@ -34,16 +34,9 @@
 		status = 'discovering'
 		error = null
 		try {
-			const response = await fetch(`/api/mcp/oauth/discover`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ mcp_server_url: serverUrl })
+			discoveryResult = await McpOauthService.discoverMcpOauth({
+				requestBody: { mcp_server_url: serverUrl }
 			})
-			if (!response.ok) {
-				const err = await response.json()
-				throw new Error(err.message || 'Discovery failed')
-			}
-			discoveryResult = await response.json()
 			selectedScopes = discoveryResult?.scopes_supported ?? []
 			try {
 				const urlObj = new URL(serverUrl)
@@ -53,7 +46,7 @@
 			}
 			status = 'discovered'
 		} catch (e: any) {
-			error = e.message || 'Failed to discover OAuth settings'
+			error = e.body?.message || e.message || 'Failed to discover OAuth settings'
 			status = 'idle'
 		}
 	}
