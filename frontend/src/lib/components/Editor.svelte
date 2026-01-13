@@ -466,6 +466,10 @@
 		return scriptLang
 	}
 
+	export function getEditor(): meditor.IStandaloneCodeEditor | null {
+		return editor
+	}
+
 	/** Get lint errors and warnings from the Monaco editor */
 	export function getLintErrors(): ScriptLintResult {
 		if (!model) {

@@ -433,6 +433,12 @@ async fn windmill_main() -> anyhow::Result<()> {
             println!("Windmill {}", GIT_VERSION);
             return Ok(());
         }
+        "prepare-deps" => {
+            // CLI command for preparing dependencies without database access
+            // Used by the debugger to install dependencies for scripts
+            windmill_worker::run_prepare_deps_cli().await?;
+            return Ok(());
+        }
         _ => {}
     }
 
