@@ -73,5 +73,10 @@
 				</div>
 			{/if}
 		{/each}
+		{#if filteredModules.direct.length === 0 && filteredModules.indirect.length === 0 && filteredModules.dev.length === 0}
+			<span class="text-xs px-2 text-hint text-2xs"
+				>No packages found. Edit <b>package.json</b> to add them.</span
+			>
+		{/if}
 	</div>
 </PanelSection>
