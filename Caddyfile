@@ -10,9 +10,26 @@
 
 {$BASE_URL} {
         bind {$ADDRESS}
-        reverse_proxy /ws/* http://lsp:3001
-        # reverse_proxy /ws_mp/* http://multiplayer:3002
+
+        # LSP - Language Server Protocol for code intelligence (windmill_extra:3001)
+        reverse_proxy /ws/* http://windmill_extra:3001
+
+        # Multiplayer - Real-time collaboration, Enterprise Edition (windmill_extra:3002)
+        # Uncomment and set ENABLE_MULTIPLAYER=true in docker-compose.yml
+        # reverse_proxy /ws_mp/* http://windmill_extra:3002
+
+        # Debugger - Interactive debugging via DAP WebSocket (windmill_extra:5679)
+        # Set ENABLE_DEBUGGER=true in docker-compose.yml to enable
+        handle_path /ws_debug/* {
+                reverse_proxy http://windmill_extra:5679
+        }
+
+        # Search indexer, Enterprise Edition (windmill_indexer:8002)
         # reverse_proxy /api/srch/* http://windmill_indexer:8002
+
+        # Default: Windmill server
         reverse_proxy /* http://windmill_server:8000
+
+        # TLS with custom certificates
         # tls /certs/cert.pem /certs/key.pem
 }

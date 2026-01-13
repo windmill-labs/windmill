@@ -28,6 +28,7 @@
 	const hubPath = $page.url.searchParams.get('hub')
 	const showMeta = /true|1/i.test($page.url.searchParams.get('show_meta') ?? '0')
 	const urlArgs = $page.url.searchParams.get('initial_args')
+	const collabLang = $page.url.searchParams.get('lang') as ScriptLang | null
 
 	let initialArgs = urlArgs ? decodeState(urlArgs) : (get(initialArgsStore) ?? {})
 	if (get(initialArgsStore)) $initialArgsStore = undefined
@@ -58,7 +59,7 @@
 			schema: schema,
 			is_template: false,
 			extra_perms: {},
-			language: ($defaultScripts?.order?.filter(
+			language: collabLang ?? ($defaultScripts?.order?.filter(
 				(x) => $defaultScripts?.hidden == undefined || !$defaultScripts.hidden.includes(x)
 			)?.[0] ?? 'bun') as ScriptLang,
 			kind: 'script'

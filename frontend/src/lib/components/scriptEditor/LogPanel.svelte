@@ -46,6 +46,8 @@
 		customUi?: PreviewPanelUi | undefined
 		children?: import('svelte').Snippet
 		capturesTab?: import('svelte').Snippet
+		customResultPanel?: import('svelte').Snippet
+		showCustomResultPanel?: boolean
 	}
 
 	let {
@@ -60,7 +62,9 @@
 		showCaptures = false,
 		customUi = undefined,
 		children,
-		capturesTab
+		capturesTab,
+		customResultPanel,
+		showCustomResultPanel = false
 	}: Props = $props()
 
 	type DContent = {
@@ -151,7 +155,11 @@
 							</Pane>
 							<Pane>
 								{@render children?.()}
-								{#if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
+								{#if showCustomResultPanel && customResultPanel}
+									<div class="h-full">
+										{@render customResultPanel()}
+									</div>
+								{:else if previewJob != undefined && (previewJob.result_stream || previewJob.result)}
 									<div class="relative w-full h-full p-2">
 										<div class="relative h-full">
 											<DisplayResult

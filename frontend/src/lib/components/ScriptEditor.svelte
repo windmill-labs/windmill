@@ -4,7 +4,7 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
+	import { copyToClipboard, emptySchema, getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -23,6 +23,8 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
+		AlertTriangle,
+		Bug,
 		Copy,
 		CornerDownLeft,
 		ExternalLink,
@@ -30,8 +32,25 @@
 		GitBranch,
 		Play,
 		PlayIcon,
+		Terminal,
 		WandSparkles
 	} from 'lucide-svelte'
+	import {
+		DebugToolbar,
+		DebugPanel,
+		DebugConsole,
+		getDAPClient,
+		debugState,
+		resetDAPClient,
+		getDebugServerUrl,
+		type DebugLanguage,
+		isDebuggable,
+		getDebugFileExtension,
+		fetchContextualVariables,
+		signDebugRequest,
+		getDebugErrorMessage
+	} from '$lib/components/debug'
+	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
 	import type { ScriptEditorWhitelabelCustomUi } from './custom_ui'
 	import Tabs from './common/tabs/Tabs.svelte'
@@ -222,6 +241,53 @@
 	>()
 	let ansibleGitSshIdentity = $state<string[]>([])
 
+	// Debug mode state
+	const DEBUG_BETA_WARNING_KEY = 'debug_beta_warning_confirmed'
+	let showDebugBetaWarning = $state(false)
+	let debugMode = $state(false)
+	let debugBreakpoints = new SvelteSet<number>()
+	let breakpointDecorations: string[] = $state([])
+	let currentLineDecoration: string[] = $state([])
+	// Get the DAP server URL based on language
+	const dapServerUrl = $derived(
+		getDebugServerUrl((lang || 'python3') as DebugLanguage)
+	)
+	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
+	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
+	const isDebuggableScript = $derived(isDebuggable(lang || ''))
+	// Derived: show debug panel when connected and (running or stopped, but not terminated)
+	const showDebugPanel = $derived(
+		debugMode && $debugState.connected && ($debugState.running || $debugState.stopped)
+	)
+	// Derived: debug has a result (script completed)
+	const hasDebugResult = $derived(debugMode && $debugState.result !== undefined)
+	// Show debug console at bottom of editor when debugging is active
+	let showDebugConsole = $state(true)
+	const debugConsoleVisible = $derived(showDebugPanel && showDebugConsole)
+	// Selected stack frame ID - shared between DebugPanel and DebugConsole
+	let selectedDebugFrameId: number | null = $state(null)
+	// Use selected frame or first frame for console context
+	const currentDebugFrameId = $derived(selectedDebugFrameId ?? $debugState.stackFrames[0]?.id)
+	// Job ID of the current debug session (for expression signing/audit logging)
+	let debugSessionJobId: string | null = $state(null)
+	// Pane sizes for editor/console split (percentage)
+	let editorPaneSize = $state(75)
+	let consolePaneSize = $state(25)
+
+	// Breakpoint decoration options
+	// stickiness: 1 = NeverGrowsWhenTypingAtEdges - decorations track their position when code changes
+	const breakpointDecorationType: meditor.IModelDecorationOptions = {
+		glyphMarginClassName: 'debug-breakpoint-glyph',
+		glyphMarginHoverMessage: { value: 'Breakpoint (click to remove)' },
+		stickiness: 1
+	}
+
+	const currentLineDecorationType = {
+		isWholeLine: true,
+		className: 'debug-current-line',
+		glyphMarginClassName: 'debug-current-line-glyph'
+	}
+
 	const url = new URL(window.location.toString())
 	let initialCollab = /true|1/i.test(url.searchParams.get('collab') ?? '0')
 
@@ -366,6 +432,304 @@
 		inferSchema(newCode)
 	}
 
+	// Debug functions
+	function toggleBreakpoint(line: number): void {
+		if (debugBreakpoints.has(line)) {
+			debugBreakpoints.delete(line)
+		} else {
+			debugBreakpoints.add(line)
+		}
+		updateBreakpointDecorations()
+	}
+
+	function updateBreakpointDecorations(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		const decorations = Array.from(debugBreakpoints).map((line) => ({
+			range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+			options: breakpointDecorationType
+		}))
+
+		// Use untrack to prevent reactive loop when reading the old decorations
+		const oldDecorations = untrack(() => breakpointDecorations)
+		breakpointDecorations = monacoEditor.deltaDecorations(oldDecorations, decorations)
+	}
+
+	// Refresh breakpoint line numbers from decoration positions after code edits
+	function refreshBreakpointPositions(): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor || breakpointDecorations.length === 0) return
+
+		const model = monacoEditor.getModel()
+		if (!model) return
+
+		// Get current line numbers from decorations (Monaco tracks positions when code changes)
+		const newLines = new Set<number>()
+		for (const decorationId of breakpointDecorations) {
+			const range = model.getDecorationRange(decorationId)
+			if (range) {
+				newLines.add(range.startLineNumber)
+			}
+		}
+
+		// Check if positions changed
+		const oldLines = Array.from(debugBreakpoints).sort((a, b) => a - b)
+		const updatedLines = Array.from(newLines).sort((a, b) => a - b)
+
+		const positionsChanged =
+			oldLines.length !== updatedLines.length ||
+			oldLines.some((line, i) => line !== updatedLines[i])
+
+		if (positionsChanged) {
+			// Update breakpoints set with new positions
+			debugBreakpoints.clear()
+			for (const line of newLines) {
+				debugBreakpoints.add(line)
+			}
+			// Sync updated positions with server if connected
+			syncBreakpointsWithServer()
+		}
+	}
+
+	// Sync breakpoints with DAP server when connected
+	async function syncBreakpointsWithServer(): Promise<void> {
+		if (!dapClient || !dapClient.isConnected()) return
+
+		try {
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+		} catch (error) {
+			console.error('Failed to sync breakpoints:', error)
+		}
+	}
+
+	function updateCurrentLineDecoration(line: number | undefined): void {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		// Use untrack to prevent reactive loop when reading the old decorations
+		const oldDecorations = untrack(() => currentLineDecoration)
+
+		if (!line) {
+			currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, [])
+			return
+		}
+
+		const decorations = [
+			{
+				range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+				options: currentLineDecorationType
+			}
+		]
+
+		currentLineDecoration = monacoEditor.deltaDecorations(oldDecorations, decorations)
+		monacoEditor.revealLineInCenter(line)
+	}
+
+	async function startDebugging(): Promise<void> {
+		try {
+			// Show console when starting a debug session
+			showDebugConsole = true
+			// Reset selected frame when starting new session
+			selectedDebugFrameId = null
+
+			// Always reset and create a fresh DAP client with the correct URL for the current language
+			// This ensures we connect to the correct endpoint even if language changed
+			resetDAPClient()
+			dapClient = getDAPClient(dapServerUrl)
+
+			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
+			const env = await fetchContextualVariables($workspaceStore ?? '')
+
+			// Sign the debug request (creates audit log entry)
+			let signedPayload
+			try {
+				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', lang ?? 'python3')
+				debugSessionJobId = signedPayload.job_id
+			} catch (signError) {
+				sendUserToast(getDebugErrorMessage(signError), true)
+				return
+			}
+
+			await dapClient.connect()
+			await dapClient.initialize()
+			await dapClient.setBreakpoints(debugFilePath, Array.from(debugBreakpoints))
+			await dapClient.configurationDone()
+			// Pass the signed token along with other launch parameters
+			await dapClient.launch({
+				code,
+				cwd: '/tmp',
+				args: args ?? {},
+				callMain: true,
+				env,
+				// JWT token for verification by the debugger
+				token: signedPayload.token
+			})
+		} catch (error) {
+			console.error('Failed to start debugging:', error)
+			sendUserToast(getDebugErrorMessage(error), true)
+		}
+	}
+
+	async function stopDebugging(): Promise<void> {
+		if (!dapClient) return
+		try {
+			await dapClient.terminate()
+			dapClient.disconnect()
+		} catch (error) {
+			console.error('Failed to stop debugging:', error)
+		} finally {
+			// Clear the job ID when debug session ends
+			debugSessionJobId = null
+		}
+	}
+
+	async function continueExecution(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.continue_()
+	}
+
+	async function stepOver(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepOver()
+	}
+
+	async function stepIn(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepIn()
+	}
+
+	async function stepOut(): Promise<void> {
+		if (!dapClient) return
+		await dapClient.stepOut()
+	}
+
+	function clearAllBreakpoints(): void {
+		debugBreakpoints.clear()
+		updateBreakpointDecorations()
+	}
+
+	function toggleDebugMode(): void {
+		if (debugMode) {
+			// Exiting debug mode - clean up
+			debugMode = false
+			stopDebugging()
+			clearAllBreakpoints()
+			updateCurrentLineDecoration(undefined)
+		} else {
+			// Entering debug mode - check if beta warning was confirmed
+			if (getLocalSetting(DEBUG_BETA_WARNING_KEY) !== 'true') {
+				showDebugBetaWarning = true
+			} else {
+				debugMode = true
+			}
+		}
+	}
+
+	function confirmDebugBetaWarning(): void {
+		storeLocalSetting(DEBUG_BETA_WARNING_KEY, 'true')
+		showDebugBetaWarning = false
+		debugMode = true
+	}
+
+	// Subscribe to debug state changes for current line highlighting
+	$effect(() => {
+		const currentLine = $debugState.currentLine
+		if (debugMode) {
+			untrack(() => updateCurrentLineDecoration(currentLine))
+		}
+	})
+
+	// Watch for language changes - exit debug mode and reset client when language changes
+	let lastDebugLang: typeof lang | undefined = undefined
+	$effect(() => {
+		const currentLang = lang
+		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
+			// Language changed while in debug mode - exit debug mode
+			untrack(() => {
+				// Stop any running debug session
+				if (dapClient) {
+					dapClient
+						.terminate()
+						.catch(() => {})
+						.finally(() => {
+							dapClient?.disconnect()
+						})
+				}
+				// Reset the singleton
+				resetDAPClient()
+				dapClient = null
+				// Exit debug mode
+				debugMode = false
+				// Clear decorations
+				clearAllBreakpoints()
+				updateCurrentLineDecoration(undefined)
+			})
+		}
+		lastDebugLang = currentLang
+	})
+
+	// Set up glyph margin click handler for breakpoints when debug mode is enabled
+	$effect(() => {
+		const monacoEditor = editor?.getEditor?.()
+		if (!monacoEditor) return
+
+		if (debugMode && isDebuggableScript) {
+			// Enable glyph margin for breakpoints
+			monacoEditor.updateOptions({ glyphMargin: true })
+
+			// Add click handler for glyph margin (breakpoint toggle)
+			const mouseDownDisposable = monacoEditor.onMouseDown((e) => {
+				// MouseTargetType.GUTTER_GLYPH_MARGIN = 2
+				if (e.target.type === 2) {
+					const line = e.target.position?.lineNumber
+					if (line) {
+						toggleBreakpoint(line)
+					}
+				}
+			})
+
+			// Add F9 keyboard shortcut for toggling breakpoint at cursor
+			monacoEditor.addCommand(120, () => {
+				// KeyCode.F9 = 120
+				const position = monacoEditor.getPosition()
+				if (position) {
+					toggleBreakpoint(position.lineNumber)
+				}
+			})
+
+			// Debug stepping keyboard shortcuts (only active when stopped)
+			// F8 = Continue (KeyCode.F8 = 119)
+			monacoEditor.addCommand(119, () => {
+				if ($debugState.stopped) continueExecution()
+			})
+
+			// F6 = Step Over (KeyCode.F6 = 117)
+			monacoEditor.addCommand(117, () => {
+				if ($debugState.stopped) stepOver()
+			})
+
+			// F7 = Step Into (KeyCode.F7 = 118)
+			monacoEditor.addCommand(118, () => {
+				if ($debugState.stopped) stepIn()
+			})
+
+			// Shift+F8 = Step Out (KeyMod.Shift | KeyCode.F8 = 1024 | 119 = 1143)
+			monacoEditor.addCommand(1143, () => {
+				if ($debugState.stopped) stepOut()
+			})
+
+			return () => {
+				mouseDownDisposable.dispose()
+				// Disable glyph margin when exiting debug mode
+				monacoEditor.updateOptions({ glyphMargin: false })
+			}
+		} else {
+			// Ensure glyph margin is disabled when not in debug mode
+			monacoEditor.updateOptions({ glyphMargin: false })
+		}
+	})
+
 	onMount(() => {
 		inferSchema(code, { applyInitialArgs: true })
 		loadPastTests()
@@ -436,7 +800,6 @@
 	export function disableCollaboration() {
 		if (!wsProvider?.shouldConnect) return
 		peers = []
-		console.log('collab mode disabled')
 		wsProvider?.disconnect()
 		wsProvider.destroy()
 		wsProvider = undefined
@@ -450,6 +813,11 @@
 		aiChatManager.scriptEditorOptions = undefined
 		aiChatManager.saveAndClear()
 		aiChatManager.changeMode(AIMode.NAVIGATOR)
+		// Clean up debug mode
+		if (debugMode) {
+			stopDebugging()
+			resetDAPClient()
+		}
 	})
 
 	function asKind(str: string | undefined) {
@@ -459,7 +827,7 @@
 	function collabUrl() {
 		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
-		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
+		return `${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` + (edit ? '' : `&path=${path}`)
 	}
 
 	let showTabs = $derived(hasPreprocessor)
@@ -537,7 +905,9 @@
 			}
 			aiChatManager.scriptEditorShowDiffMode = showDiffMode
 			aiChatManager.scriptEditorGetLintErrors = () => {
-				return editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+				return (
+					editor?.getLintErrors() ?? { errorCount: 0, warningCount: 0, errors: [], warnings: [] }
+				)
 			}
 		})
 	})
@@ -575,6 +945,24 @@
 		/>
 	</div>
 </Modal>
+
+<Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
+	<div class="flex items-start gap-3">
+		<div class="flex-shrink-0">
+			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50">
+				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+			</div>
+		</div>
+		<div class="text-secondary text-sm">
+			<p>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected behavior or limitations.</p>
+			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
+		</div>
+	</div>
+	{#snippet actions()}
+		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+	{/snippet}
+</Modal>
+
 <div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		{#if args}
@@ -678,6 +1066,24 @@
 					</div>
 				{/if}
 
+				{#if debugMode && isDebuggableScript}
+					<div transition:slide={{ duration: 200 }}>
+						<DebugToolbar
+							connected={$debugState.connected}
+							running={$debugState.running}
+							stopped={$debugState.stopped}
+							breakpointCount={debugBreakpoints.size}
+							onStart={startDebugging}
+							onStop={stopDebugging}
+							onContinue={continueExecution}
+							onStepOver={stepOver}
+							onStepIn={stepIn}
+							onStepOut={stepOut}
+							onClearBreakpoints={clearAllBreakpoints}
+						/>
+					</div>
+				{/if}
+
 				<div class="flex justify-center pt-1 relative">
 					<div class="absolute top-2 left-2">
 						<HideButton
@@ -691,44 +1097,51 @@
 							}}
 						/>
 					</div>
-					{#if testIsLoading}
-						<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
-							<WindmillIcon
-								white={true}
-								class="mr-2 text-white"
-								height="16px"
-								width="20px"
-								spin="fast"
-							/>
-							Cancel
-						</Button>
-					{:else}
-						{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
-						<div class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch">
-							<Button
-								on:click={() => runTest()}
-								btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
-								size="xs"
-								variant="accent-secondary"
-								startIcon={{ icon: Play, classes: 'animate-none' }}
-								shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
-							>
-								{#if testIsLoading}
-									Running
-								{:else}
-									Test
-								{/if}
+					{#if !(debugMode && isDebuggableScript)}
+						{#if testIsLoading}
+							<Button on:click={jobLoader?.cancelJob} btnClasses="w-full" color="red" size="xs">
+								<WindmillIcon
+									white={true}
+									class="mr-2 text-white"
+									height="16px"
+									width="20px"
+									spin="fast"
+								/>
+								Cancel
 							</Button>
-							{#if !disableTriggerButton}
-								<CaptureButton on:openTriggers />
-							{/if}
-						</div>
+						{:else}
+							{@const disableTriggerButton = customUi?.previewPanel?.disableTriggerButton === true}
+							<div
+								class="flex flex-row divide-x divide-gray-800 dark:divide-gray-300 items-stretch"
+							>
+								<Button
+									on:click={() => runTest()}
+									btnClasses="w-full {!disableTriggerButton ? 'rounded-r-none' : ''}"
+									size="xs"
+									variant="accent-secondary"
+									startIcon={{ icon: Play, classes: 'animate-none' }}
+									shortCut={{ Icon: CornerDownLeft, hide: testIsLoading }}
+								>
+									{#if testIsLoading}
+										Running
+									{:else}
+										Test
+									{/if}
+								</Button>
+								{#if !disableTriggerButton}
+									<CaptureButton on:openTriggers />
+								{/if}
+							</div>
+						{/if}
 					{/if}
 					<div class="absolute top-2 right-2"
 						><Toggle size="2xs" bind:checked={jsonView} options={{ right: 'JSON' }} /></div
 					>
 				</div>
-				<Splitpanes horizontal class="!max-h-[calc(100%-43px)]">
+				<Splitpanes
+					horizontal
+					class="!max-h-[calc(100%-{debugMode && isDebuggableScript ? '83' : '43'}px)]"
+				>
 					<Pane size={33}>
 						{#if jsonView}
 							<div
@@ -773,16 +1186,27 @@
 						<LogPanel
 							bind:this={logPanel}
 							{lang}
-							previewJob={testJob}
+							previewJob={debugMode
+								? ({
+										id: 'debug',
+										logs: $debugState.logs,
+										result: $debugState.result,
+										success: !$debugState.error,
+										type: hasDebugResult ? 'CompletedJob' : 'QueuedJob'
+									} as any)
+								: testJob}
 							{pastPreviews}
-							previewIsLoading={testIsLoading}
+							previewIsLoading={debugMode
+								? $debugState.running && !$debugState.stopped
+								: testIsLoading}
 							{editor}
 							{diffEditor}
 							{args}
 							{showCaptures}
 							customUi={customUi?.previewPanel}
+							showCustomResultPanel={showDebugPanel}
 						>
-							{#if scriptProgress}
+							{#if scriptProgress && !debugMode}
 								<!-- Put to the slot in logpanel -->
 								<JobProgressBar
 									job={testJob}
@@ -806,6 +1230,15 @@
 									/>
 								</div>
 							{/snippet}
+							{#snippet customResultPanel()}
+								<DebugPanel
+									stackFrames={$debugState.stackFrames}
+									scopes={$debugState.scopes}
+									variables={$debugState.variables}
+									client={dapClient}
+									bind:selectedFrameId={selectedDebugFrameId}
+								/>
+							{/snippet}
 						</LogPanel>
 					</Pane>
 				</Splitpanes>
@@ -820,11 +1253,37 @@
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
+			{#if isDebuggableScript}
+				<Button
+					variant={debugMode ? 'accent' : 'default'}
+					size="xs"
+					onclick={toggleDebugMode}
+					startIcon={{ icon: Bug }}
+					btnClasses={debugMode
+						? ''
+						: 'bg-surface hover:bg-surface-hover border border-tertiary/30'}
+					title="Toggle Debug Mode"
+				>
+					{debugMode ? 'Exit Debug' : 'Debug'}
+				</Button>
+			{/if}
+			{#if showDebugPanel && !showDebugConsole}
+				<Button
+					variant="default"
+					size="xs"
+					onclick={() => (showDebugConsole = true)}
+					startIcon={{ icon: Terminal }}
+					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
+					title="Show Debug Console"
+				>
+					Console
+				</Button>
+			{/if}
 			{#if lang === 'ansible' && hasDelegateToGitRepo}
 				<Button
 					variant="default"
 					size="xs"
-					on:click={() => (gitRepoResourcePickerOpen = true)}
+					onclick={() => (gitRepoResourcePickerOpen = true)}
 					startIcon={{ icon: GitBranch }}
 					btnClasses="bg-surface hover:bg-surface-hover border border-tertiary/30"
 				>
@@ -884,69 +1343,98 @@
 			{/if}
 		</div>
 
-		{#key lang}
-			<Editor
-				lineNumbersMinChars={4}
-				folding
-				{path}
-				bind:code
-				bind:websocketAlive
-				bind:this={editor}
-				{yContent}
-				awareness={wsProvider?.awareness}
-				on:change={(e) => {
-					inferSchema(e.detail)
-				}}
-				on:saveDraft
-				on:toggleTestPanel={toggleTestPanel}
-				cmdEnterAction={async () => {
-					await inferSchema(code)
-					runTest()
-				}}
-				formatAction={async () => {
-					await inferSchema(code)
-					try {
-						localStorage.setItem(path ?? 'last_save', code)
-					} catch (e) {
-						console.error('Could not save last_save to local storage', e)
-					}
-					dispatch('format')
-				}}
-				class="flex flex-1 h-full !overflow-visible"
-				scriptLang={lang}
-				automaticLayout={true}
-				{fixedOverflowWidgets}
-				{args}
-				{enablePreprocessorSnippet}
-				preparedAssetsSqlQueries={preparedSqlQueries.current}
-			/>
-			<DiffEditor
-				className="h-full"
-				bind:this={diffEditor}
-				modifiedModel={editor?.getModel() as meditor.ITextModel}
-				automaticLayout
-				defaultLang={scriptLangToEditorLang(lang)}
-				{fixedOverflowWidgets}
-				buttons={diffMode
-					? [
-							{
-								text: 'See changes history',
-								onClick: () => {
-									showHistoryDrawer = true
-								}
-							},
-							{
-								text: 'Quit diff mode',
-								onClick: () => {
-									hideDiffMode()
-								},
-								color: 'red'
-							}
-						]
-					: []}
-			/>
-		{/key}
+		{#if debugConsoleVisible}
+			<!-- Use Splitpanes when debug console is visible for resizing -->
+			<Splitpanes horizontal class="h-full !overflow-visible">
+				<Pane bind:size={editorPaneSize} minSize={20} class="!overflow-visible">
+					{@render editorPane()}
+				</Pane>
+				<Pane bind:size={consolePaneSize} minSize={10}>
+					<DebugConsole
+						client={dapClient}
+						currentFrameId={currentDebugFrameId}
+						onClose={() => (showDebugConsole = false)}
+						workspace={$workspaceStore}
+						jobId={debugSessionJobId ?? undefined}
+					/>
+				</Pane>
+			</Splitpanes>
+		{:else}
+			<!-- Normal editor without console -->
+			<div class="h-full !overflow-visible">
+				{@render editorPane()}
+			</div>
+		{/if}
 	</div>
+{/snippet}
+
+{#snippet editorPane()}
+	{#key lang}
+		<Editor
+			lineNumbersMinChars={4}
+			folding
+			{path}
+			bind:code
+			bind:websocketAlive
+			bind:this={editor}
+			{yContent}
+			awareness={wsProvider?.awareness}
+			on:change={(e) => {
+				inferSchema(e.detail)
+				// Refresh breakpoint positions when code changes (decorations track their lines)
+				if (debugMode && breakpointDecorations.length > 0) {
+					refreshBreakpointPositions()
+				}
+			}}
+			on:saveDraft
+			on:toggleTestPanel={toggleTestPanel}
+			cmdEnterAction={async () => {
+				await inferSchema(code)
+				runTest()
+			}}
+			formatAction={async () => {
+				await inferSchema(code)
+				try {
+					localStorage.setItem(path ?? 'last_save', code)
+				} catch (e) {
+					console.error('Could not save last_save to local storage', e)
+				}
+				dispatch('format')
+			}}
+			class="flex flex-1 h-full !overflow-visible"
+			scriptLang={lang}
+			automaticLayout={true}
+			{fixedOverflowWidgets}
+			{args}
+			{enablePreprocessorSnippet}
+			preparedAssetsSqlQueries={preparedSqlQueries.current}
+		/>
+		<DiffEditor
+			className="h-full"
+			bind:this={diffEditor}
+			modifiedModel={editor?.getModel() as meditor.ITextModel}
+			automaticLayout
+			defaultLang={scriptLangToEditorLang(lang)}
+			{fixedOverflowWidgets}
+			buttons={diffMode
+				? [
+						{
+							text: 'See changes history',
+							onClick: () => {
+								showHistoryDrawer = true
+							}
+						},
+						{
+							text: 'Quit diff mode',
+							onClick: () => {
+								hideDiffMode()
+							},
+							color: 'red'
+						}
+					]
+				: []}
+		/>
+	{/key}
 {/snippet}
 
 <GitRepoResourcePicker
@@ -959,3 +1447,30 @@
 	on:selected={handleDelegateConfigUpdate}
 	on:addInventories={handleAddInventories}
 />
+
+<style global>
+	/* Debug breakpoint glyph - red circle in the glyph margin */
+	.debug-breakpoint-glyph {
+		background-color: #e51400;
+		border-radius: 50%;
+		width: 10px !important;
+		height: 10px !important;
+		margin-left: 5px;
+		margin-top: 4px;
+	}
+
+	/* Current execution line - yellow background */
+	.debug-current-line {
+		background-color: rgba(255, 238, 0, 0.2);
+	}
+
+	/* Current execution line glyph - yellow arrow in the glyph margin */
+	.debug-current-line-glyph {
+		background-color: #ffcc00;
+		clip-path: polygon(0 0, 100% 50%, 0 100%);
+		width: 10px !important;
+		height: 14px !important;
+		margin-left: 5px;
+		margin-top: 2px;
+	}
+</style>

@@ -1,0 +1,31 @@
+# Test files
+test_*.ts
+test_*.py
+
+# Build output
+out/
+
+# Documentation
+README.md
+*.md
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Node/Bun
+node_modules/
+bun.lockb
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Docker
+Dockerfile
+.dockerignore

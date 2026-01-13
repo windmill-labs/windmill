@@ -67,6 +67,7 @@ mod schema;
 pub mod scoped_dependency_map;
 pub mod sql_utils;
 mod universal_pkg_installer;
+mod prepare_deps;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
@@ -85,6 +86,7 @@ pub use bun_executor::{
     prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
+pub use prepare_deps::run_prepare_deps_cli;
 
 #[cfg(feature = "python")]
 pub use python_versions::PyV;

@@ -1,0 +1,16 @@
+{
+  "name": "windmill-multiplayer",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node server.mjs"
+  },
+  "dependencies": {
+    "lib0": "^0.2.117",
+    "ws": "^8.18.0",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.0"
+  }
+}
