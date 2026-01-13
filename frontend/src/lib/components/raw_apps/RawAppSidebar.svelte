@@ -133,7 +133,10 @@
 	function handleFileClick(path: string) {
 		console.log('File clicked:', path)
 		selectedDocument = path
-		onSelectFile?.(path)
+		// Only open files in the editor, not folders
+		if (!path.endsWith('/')) {
+			onSelectFile?.(path)
+		}
 	}
 
 	function handleAddFile(folderPath: string) {
