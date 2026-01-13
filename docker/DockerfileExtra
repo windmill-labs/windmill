@@ -24,7 +24,7 @@ FROM ghcr.io/windmill-labs/windmill-ee-nsjail:main AS nsjail-source
 # ============================================================================
 # Stage 2: Build final extra services image from windmill-slim
 # ============================================================================
-FROM ghcr.io/windmill-labs/windmill-slim:latest AS final
+FROM ghcr.io/windmill-labs/windmill-ee-slim:latest AS final
 
 ARG APP=/usr/src/app
 
