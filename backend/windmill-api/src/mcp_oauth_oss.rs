@@ -20,6 +20,26 @@ mod oss_impl {
             .route("/discover", post(discover_mcp_oauth))
             .route("/start", get(start_mcp_oauth))
             .route("/callback", get(mcp_oauth_callback))
+            .route("/client-metadata.json", get(get_client_metadata))
+    }
+
+    #[derive(Serialize)]
+    pub struct ClientMetadata {
+        pub client_name: &'static str,
+        pub redirect_uris: Vec<String>,
+        pub grant_types: Vec<&'static str>,
+        pub response_types: Vec<&'static str>,
+        pub token_endpoint_auth_method: &'static str,
+    }
+
+    pub async fn get_client_metadata() -> Json<ClientMetadata> {
+        Json(ClientMetadata {
+            client_name: "Windmill",
+            redirect_uris: vec![],
+            grant_types: vec!["authorization_code", "refresh_token"],
+            response_types: vec!["code"],
+            token_endpoint_auth_method: "none",
+        })
     }
 
     #[derive(Deserialize)]

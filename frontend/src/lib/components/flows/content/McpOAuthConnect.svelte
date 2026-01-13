@@ -89,8 +89,8 @@
 				if (data.type === 'MCP_CONNECTED') {
 					createMcpResource(data)
 				}
-			} catch {
-				// Silently ignore invalid callback data
+			} catch (e) {
+				console.error('Error parsing MCP OAuth callback', e)
 			}
 		}
 	}
