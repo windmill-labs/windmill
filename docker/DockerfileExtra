@@ -83,8 +83,7 @@ ENV XDG_CACHE_HOME=/pyls/.cache
 RUN pip install pipenv
 
 # Install Node-based language servers
-# Note: y-websocket@1 is required for the server binary (removed in v3)
-RUN npm install -g diagnostic-languageserver pyright y-websocket@1
+RUN npm install -g diagnostic-languageserver pyright
 
 # Install Python packages for LSP
 RUN pip3 install tornado python-lsp-jsonrpc ruff
@@ -114,6 +113,19 @@ COPY debugger/dap_websocket_server.py .
 
 # Install Python debugger dependencies
 RUN pip3 install --break-system-packages websockets debugpy
+
+# ============================================================================
+# Multiplayer Setup (y-websocket with connection logging)
+# ============================================================================
+
+WORKDIR /multiplayer
+
+# Copy multiplayer server files
+COPY multiplayer/package.json .
+COPY multiplayer/server.mjs .
+
+# Install dependencies
+RUN npm install
 
 # ============================================================================
 # Entrypoint Setup

@@ -32,7 +32,8 @@
 		getDAPClient,
 		debugState,
 		resetDAPClient,
-		DAP_SERVER_URLS,
+		getDebugServerUrl,
+		type DebugLanguage,
 		isDebuggable,
 		getDebugFileExtension
 	} from '$lib/components/debug'
@@ -165,10 +166,7 @@
 
 	// Get the DAP server URL based on language
 	const dapServerUrl = $derived(
-		inlineScript?.language
-			? (DAP_SERVER_URLS[inlineScript.language as keyof typeof DAP_SERVER_URLS] ??
-					DAP_SERVER_URLS.python3)
-			: DAP_SERVER_URLS.python3
+		getDebugServerUrl((inlineScript?.language || 'python3') as DebugLanguage)
 	)
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(inlineScript?.language ?? '')}`)
 	const isDebuggableScript = $derived(isDebuggable(inlineScript?.language ?? ''))

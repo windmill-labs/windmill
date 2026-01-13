@@ -1068,7 +1068,10 @@ JsonNode ${windmillPathToCamelCaseName(path)} = JsonNode.Parse(await client.GetS
 						<button
 							title="Show invite link"
 							class="p-1 rounded hover:bg-gray-400 mx-1 border"
-							onclick={() => dispatch('collabPopup')}><Link size={14} /></button
+							onclick={() => {
+								console.log('collabPopup button clicked')
+								dispatch('collabPopup')
+							}}><Link size={14} /></button
 						>
 						<div class="isolate flex -space-x-2 pl-2">
 							{#each collabUsers as user}

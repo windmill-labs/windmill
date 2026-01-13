@@ -1,0 +1,71 @@
+{
+  "name": "y-websocket",
+  "version": "3.0.0",
+  "description": "Websockets provider for Yjs",
+  "main": "./dist/y-websocket.cjs",
+  "module": "./src/y-websocket.js",
+  "types": "./dist/src/y-websocket.d.ts",
+  "type": "module",
+  "sideEffects": false,
+  "funding": {
+    "type": "GitHub Sponsors ❤",
+    "url": "https://github.com/sponsors/dmonad"
+  },
+  "scripts": {
+    "dist": "rm -rf dist && rollup -c && tsc",
+    "lint": "standard && tsc",
+    "test": "npm run lint",
+    "preversion": "npm run lint && npm run dist && test -e dist/src/y-websocket.d.ts && test -e dist/y-websocket.cjs"
+  },
+  "files": [
+    "dist/*",
+    "src/*"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "module": "./src/y-websocket.js",
+      "import": "./src/y-websocket.js",
+      "require": "./dist/y-websocket.cjs",
+      "types": "./dist/src/y-websocket.d.ts",
+      "default": "./src/y-websocket.js"
+    }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yjs/y-websocket.git"
+  },
+  "keywords": [
+    "Yjs"
+  ],
+  "author": "Kevin Jahns <kevin.jahns@protonmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/yjs/y-websocket/issues"
+  },
+  "homepage": "https://github.com/yjs/y-websocket#readme",
+  "standard": {
+    "ignore": [
+      "/dist",
+      "/node_modules"
+    ]
+  },
+  "dependencies": {
+    "lib0": "^0.2.102",
+    "y-protocols": "^1.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "rollup": "^3.19.1",
+    "standard": "^12.0.1",
+    "typescript": "^4.9.5",
+    "yjs": "^13.5.0"
+  },
+  "peerDependencies": {
+    "yjs": "^13.5.6"
+  },
+  "engines": {
+    "npm": ">=8.0.0",
+    "node": ">=16.0.0"
+  }
+}

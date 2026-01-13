@@ -58,8 +58,42 @@ export {
 } from './dapClient'
 
 /**
- * Default server URLs for each language.
+ * Language to debug endpoint path mapping.
  * Uses the unified DAP Debug Service with path-based routing.
+ */
+export const DAP_ENDPOINT_PATHS = {
+	python3: '/python',
+	bun: '/bun',
+	typescript: '/typescript',
+	nativets: '/typescript',
+	deno: '/typescript'
+} as const
+
+/**
+ * Supported debug languages
+ */
+export type DebugLanguage = keyof typeof DAP_ENDPOINT_PATHS
+
+/**
+ * Get the WebSocket URL for the DAP debug server.
+ * Routes through the reverse proxy at /ws_debug/* in production.
+ *
+ * @param language - The script language (python3, bun, typescript, etc.)
+ * @returns The full WebSocket URL for the debug server
+ */
+export function getDebugServerUrl(language: DebugLanguage): string {
+	const path = DAP_ENDPOINT_PATHS[language] || DAP_ENDPOINT_PATHS.python3
+	if (typeof window === 'undefined') {
+		// SSR fallback
+		return `ws://localhost:5679${path}`
+	}
+	const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+	return `${wsProtocol}://${window.location.host}/ws_debug${path}`
+}
+
+/**
+ * @deprecated Use getDebugServerUrl() instead. Kept for backwards compatibility.
+ * These hardcoded URLs only work in local development.
  */
 export const DAP_SERVER_URLS = {
 	python3: 'ws://localhost:5679/python',
@@ -68,11 +102,6 @@ export const DAP_SERVER_URLS = {
 	nativets: 'ws://localhost:5679/typescript',
 	deno: 'ws://localhost:5679/typescript'
 } as const
-
-/**
- * Supported debug languages
- */
-export type DebugLanguage = keyof typeof DAP_SERVER_URLS
 
 /**
  * Get the appropriate file extension for a language

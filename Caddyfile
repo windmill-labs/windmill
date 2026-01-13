@@ -19,10 +19,10 @@
         # reverse_proxy /ws_mp/* http://windmill_extra:3002
 
         # Debugger - Interactive debugging via DAP WebSocket (windmill_extra:5679)
-        # Uncomment and set ENABLE_DEBUGGER=true in docker-compose.yml
-        # handle_path /ws_debug/* {
-        #         reverse_proxy http://windmill_extra:5679
-        # }
+        # Set ENABLE_DEBUGGER=true in docker-compose.yml to enable
+        handle_path /ws_debug/* {
+                reverse_proxy http://windmill_extra:5679
+        }
 
         # Search indexer, Enterprise Edition (windmill_indexer:8002)
         # reverse_proxy /api/srch/* http://windmill_indexer:8002

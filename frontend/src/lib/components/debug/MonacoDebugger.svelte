@@ -5,7 +5,7 @@
 	import { debugState, getDAPClient, resetDAPClient, type DAPClient } from './dapClient'
 	import DebugToolbar from './DebugToolbar.svelte'
 	import DebugPanel from './DebugPanel.svelte'
-	import { DAP_SERVER_URLS, getDebugFileExtension, type DebugLanguage } from './index'
+	import { getDebugServerUrl, getDebugFileExtension, type DebugLanguage } from './index'
 	import { VariableService } from '$lib/gen'
 
 	interface Props {
@@ -20,7 +20,7 @@
 	let { editor, code, language = 'bun', filePath, dapServerUrl, workspace }: Props = $props()
 
 	// Derive the server URL from language if not explicitly provided
-	const effectiveServerUrl = $derived(dapServerUrl ?? DAP_SERVER_URLS[language])
+	const effectiveServerUrl = $derived(dapServerUrl ?? getDebugServerUrl(language))
 	// Derive file path from language if not explicitly provided
 	const effectiveFilePath = $derived(filePath ?? `/tmp/script${getDebugFileExtension(language)}`)
 

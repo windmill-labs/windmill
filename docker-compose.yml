@@ -184,7 +184,8 @@ services:
     environment:
       - ENABLE_LSP=true
       - ENABLE_MULTIPLAYER=false  # Set to true to enable multiplayer (Enterprise Edition)
-      - ENABLE_DEBUGGER=false     # Set to true to enable debugger
+      - ENABLE_DEBUGGER=true      # Set to true to enable debugger
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=false  # Set to true to require JWT tokens for debug sessions
       - BASE_INTERNAL_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache

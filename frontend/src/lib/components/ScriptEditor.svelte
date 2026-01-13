@@ -42,7 +42,8 @@
 		getDAPClient,
 		debugState,
 		resetDAPClient,
-		DAP_SERVER_URLS,
+		getDebugServerUrl,
+		type DebugLanguage,
 		isDebuggable,
 		getDebugFileExtension
 	} from '$lib/components/debug'
@@ -246,7 +247,7 @@
 	let currentLineDecoration: string[] = $state([])
 	// Get the DAP server URL based on language
 	const dapServerUrl = $derived(
-		DAP_SERVER_URLS[(lang || '') as keyof typeof DAP_SERVER_URLS] || DAP_SERVER_URLS.python3
+		getDebugServerUrl((lang || 'python3') as DebugLanguage)
 	)
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(lang || '')}`)
 	let dapClient = $state<ReturnType<typeof getDAPClient> | null>(null)
@@ -945,7 +946,7 @@
 	function collabUrl() {
 		let url = new URL(window.location.toString().split('#')[0])
 		url.search = ''
-		return `${url}?collab=1` + (edit ? '' : `&path=${path}`)
+		return `${url}?collab=1&workspace=${encodeURIComponent($workspaceStore ?? '')}&lang=${encodeURIComponent(lang ?? '')}` + (edit ? '' : `&path=${path}`)
 	}
 
 	let showTabs = $derived(hasPreprocessor)
@@ -1100,7 +1101,10 @@
 				{collabMode}
 				{validCode}
 				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
-				on:collabPopup={() => (showCollabPopup = true)}
+				on:collabPopup={() => {
+					console.log('collabPopup event received')
+					showCollabPopup = true
+				}}
 				{editor}
 				{lang}
 				on:createScriptFromInlineScript

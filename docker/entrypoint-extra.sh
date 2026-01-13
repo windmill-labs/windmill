@@ -53,10 +53,11 @@ if [ "${ENABLE_LSP:-true}" = "true" ]; then
     echo "[entrypoint] LSP started (PID: ${PIDS[-1]})"
 fi
 
-# Start Multiplayer service (y-websocket)
+# Start Multiplayer service (custom y-websocket with logging)
 if [ "${ENABLE_MULTIPLAYER:-true}" = "true" ]; then
     echo "[entrypoint] Starting Multiplayer on port ${MULTIPLAYER_PORT:-3002}..."
-    PORT=${MULTIPLAYER_PORT:-3002} HOST=${HOST:-0.0.0.0} npx y-websocket &
+    cd /multiplayer
+    PORT=${MULTIPLAYER_PORT:-3002} HOST=${HOST:-0.0.0.0} node server.mjs &
     PIDS+=($!)
     echo "[entrypoint] Multiplayer started (PID: ${PIDS[-1]})"
 fi
