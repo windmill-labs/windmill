@@ -4,15 +4,30 @@
 		ChevronDown,
 		File,
 		Folder,
-		FileJson,
-		FileCode,
-		ImageIcon,
-		Palette,
 		Pencil,
 		Trash2,
-		Lock
+		Lock,
+		Ellipsis,
+		ImageIcon
 	} from 'lucide-svelte'
 	import Self from './FileTreeNode.svelte'
+	import { twMerge } from 'tailwind-merge'
+	import DropdownV2 from '../DropdownV2.svelte'
+	import { Button } from '../common'
+	import TextInput from '../text_input/TextInput.svelte'
+	import TypeScript from '../common/languageIcons/TypeScript.svelte'
+	import JavaScriptIcon from '../icons/JavaScriptIcon.svelte'
+	import JsonIcon from '../icons/JsonIcon.svelte'
+	import ReactIcon from '../icons/ReactIcon.svelte'
+	import SvelteIcon from '../icons/SvelteIcon.svelte'
+	import VueIcon from '../icons/VueIcon.svelte'
+	import CssIcon from '../icons/CssIcon.svelte'
+	import SassIcon from '../icons/SassIcon.svelte'
+	import LessIcon from '../icons/LessIcon.svelte'
+	import HtmlIcon from '../icons/HtmlIcon.svelte'
+	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
+	import YamlIcon from '../icons/YamlIcon.svelte'
+	import { tick } from 'svelte'
 
 	interface TreeNode {
 		name: string
@@ -28,9 +43,10 @@
 		onAddFolder?: (folderPath: string) => void
 		onRename?: (oldPath: string, newName: string) => void
 		onDelete?: (path: string) => void
+		onRequestEdit?: (path: string) => void
+		onCancelEdit?: () => void
 		selectedPath?: string
-		pathToRename?: string
-		pathToExpand?: string
+		pathToEdit?: string
 		noEdit?: boolean
 		level?: number
 	}
@@ -42,24 +58,34 @@
 		onAddFolder,
 		onRename,
 		onDelete,
+		onRequestEdit,
+		onCancelEdit,
 		selectedPath,
-		pathToRename,
-		pathToExpand,
+		pathToEdit,
 		noEdit = false,
 		level = 0
 	}: Props = $props()
 
-	let expanded = $state(level === 0) // Root folders start expanded
+	let userExpanded = $state<boolean | null>(null) // null = not set by user
 	let isHovered = $state(false)
-	let isEditing = $state(false)
 	let editValue = $state(node.name)
-	let inputElement: HTMLInputElement | undefined = $state()
+	let textInputElement: TextInput | undefined = $state()
+	let dropdownOpen = $state(false)
 
 	const isSelected = $derived(selectedPath === node.path)
+	const isEditing = $derived(pathToEdit === node.path)
+	const expanded = $derived(
+		// Auto-expand for editing nested paths takes priority
+		pathToEdit && node.isFolder && pathToEdit.startsWith(node.path)
+			? true
+			: userExpanded !== null
+				? userExpanded
+				: level === 0 // Default: root expanded
+	)
 
 	function toggleExpanded() {
 		if (node.isFolder) {
-			expanded = !expanded
+			userExpanded = !expanded
 		}
 	}
 
@@ -75,8 +101,7 @@
 
 	function handleEdit(e: MouseEvent) {
 		e.stopPropagation()
-		isEditing = true
-		editValue = node.name
+		onRequestEdit?.(node.path)
 	}
 
 	function handleDelete(e: MouseEvent) {
@@ -85,58 +110,37 @@
 	}
 
 	function finishEdit() {
-		if (isEditing && editValue.trim() && editValue !== node.name) {
+		if (isEditing && editValue.trim()) {
+			// Always call onRename - parent handles whether it's a new file or actual rename
 			onRename?.(node.path, editValue.trim())
+		} else {
+			onCancelEdit?.()
 		}
-		isEditing = false
 	}
 
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			finishEdit()
 		} else if (e.key === 'Escape') {
-			isEditing = false
-			editValue = node.name
+			editValue = node.name // Reset to original
+			onCancelEdit?.()
 		}
 	}
 
-	function handleInputBlur() {
+	function handleInputBlur(e: FocusEvent) {
 		finishEdit()
 	}
 
+	// Single effect for DOM operations only
 	$effect(() => {
-		if (isEditing && inputElement) {
-			inputElement.focus()
-			inputElement.select()
-		}
-	})
-
-	// Automatically enter edit mode for newly created files
-	$effect(() => {
-		if (pathToRename === node.path && !isEditing) {
-			isEditing = true
+		if (isEditing && textInputElement) {
+			// Reset edit value when entering edit mode
 			editValue = node.name
-			// If this is a folder, expand it
-			if (node.isFolder) {
-				expanded = true
-			}
-		}
-	})
-
-	// Expand parent folders when a child needs to be renamed
-	$effect(() => {
-		if (pathToRename && node.isFolder && pathToRename.startsWith(node.path + '/')) {
-			expanded = true
-		}
-	})
-
-	// Expand folder when pathToExpand matches this node or a parent of pathToExpand
-	$effect(() => {
-		if (pathToExpand && node.isFolder) {
-			// Expand if this folder is the target or an ancestor of the target
-			if (node.path === pathToExpand || pathToExpand.startsWith(node.path + '/')) {
-				expanded = true
-			}
+			// Focus and select input (DOM side effects)
+			tick().then(() => {
+				textInputElement?.focus()
+				textInputElement?.select()
+			})
 		}
 	})
 
@@ -164,22 +168,26 @@
 
 		switch (ext) {
 			case 'json':
-				return { icon: FileJson, className: 'text-yellow-500' }
+				return { icon: JsonIcon }
 			case 'tsx':
+				return { icon: ReactIcon }
 			case 'jsx':
-				return { icon: FileCode, className: 'text-blue-500' }
+				return { icon: ReactIcon }
 			case 'ts':
+				return { icon: TypeScript }
 			case 'js':
-				return { icon: FileCode, className: 'text-blue-400' }
+				return { icon: JavaScriptIcon }
 			case 'svelte':
-				return { icon: FileCode, className: 'text-orange-500' }
+				return { icon: SvelteIcon }
 			case 'vue':
-				return { icon: FileCode, className: 'text-green-500' }
+				return { icon: VueIcon }
 			case 'css':
+				return { icon: CssIcon }
 			case 'scss':
 			case 'sass':
+				return { icon: SassIcon }
 			case 'less':
-				return { icon: Palette, className: 'text-pink-500' }
+				return { icon: LessIcon }
 			case 'png':
 			case 'jpg':
 			case 'jpeg':
@@ -188,6 +196,15 @@
 			case 'webp':
 			case 'ico':
 				return { icon: ImageIcon, className: 'text-purple-500' }
+			case 'html':
+			case 'htm':
+				return { icon: HtmlIcon }
+			case 'md':
+			case 'markdown':
+				return { icon: MarkdownIcon }
+			case 'yaml':
+			case 'yml':
+				return { icon: YamlIcon }
 			default:
 				return { icon: File, className: 'text-tertiary' }
 		}
@@ -203,7 +220,7 @@
 	>
 		{#if isEditing}
 			<div
-				class="w-full flex items-center gap-1 px-2 py-1 text-xs rounded {isSelected
+				class="w-full flex items-center gap-1 px-2 min-h-6 text-xs rounded {isSelected
 					? 'bg-blue-100 dark:bg-blue-900/30'
 					: ''}"
 				style="padding-left: {level * 12}px"
@@ -217,26 +234,28 @@
 							<ChevronRight size={12} />
 						{/if}
 					</span>
-					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+					<IconComponent size={14} class="flex-shrink-0 {fileIcon.className}" />
 				{:else}
 					{@const IconComponent = fileIcon.icon}
 					<span class="flex-shrink-0"></span>
-					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
+					<IconComponent size={14} class="flex-shrink-0 {fileIcon.className}" />
 				{/if}
-				<input
-					bind:this={inputElement}
+				<TextInput
+					bind:this={textInputElement}
 					bind:value={editValue}
-					onkeydown={handleInputKeydown}
-					onblur={handleInputBlur}
-					class="flex-1 min-w-0 bg-surface border border-blue-500 rounded px-1 text-primary font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
-					type="text"
+					inputProps={{
+						onkeydown: handleInputKeydown,
+						onblur: (e) => handleInputBlur(e),
+						type: 'text'
+					}}
+					size="xs"
 				/>
 			</div>
 		{:else}
 			<button
 				onclick={handleClick}
 				class="w-full flex items-center gap-1 px-2 py-1 text-xs hover:bg-surface-hover transition-colors rounded text-left {isSelected
-					? 'bg-blue-100 dark:bg-blue-900/30'
+					? 'bg-surface-accent-selected'
 					: ''}"
 				style="padding-left: {level * 12}px"
 			>
@@ -255,32 +274,44 @@
 					<span class="flex-shrink-0"></span>
 					<IconComponent size={12} class="flex-shrink-0 {fileIcon.className}" />
 				{/if}
-				<span class="truncate text-primary font-mono">{node.name}</span>
+				<span class={twMerge('truncate text-primary font-normal', isSelected ? 'text-accent' : '')}
+					>{node.name}</span
+				>
 			</button>
 
-			{#if isHovered && !isEditing}
-				<div
-					class="absolute right-1 top-1 flex gap-0.5 bg-surface rounded shadow-sm border border-gray-200 dark:border-gray-700"
-				>
-					{#if !noEdit}
-						<button
-							onclick={handleEdit}
-							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
-							title="Rename"
-						>
-							<Pencil size={12} class="text-secondary" />
-						</button>
-						<button
-							onclick={handleDelete}
-							class="p-0.5 hover:bg-surface-hover rounded transition-colors"
-							title="Delete"
-						>
-							<Trash2 size={12} class="text-red-500" />
-						</button>
-					{:else}
-						<Lock size={12} class="text-secondary" />
-					{/if}
-				</div>
+			{#if isHovered || dropdownOpen}
+				{#if !noEdit}
+					<DropdownV2
+						items={[
+							{
+								displayName: 'Rename',
+								icon: Pencil,
+								action: handleEdit
+							},
+							{
+								displayName: 'Delete',
+								icon: Trash2,
+								action: handleDelete,
+								type: 'delete'
+							}
+						]}
+						placement="bottom-end"
+						class="absolute -translate-y-1/2 top-1/2 right-1"
+						bind:open={dropdownOpen}
+					>
+						{#snippet buttonReplacement()}
+							<Button
+								iconOnly
+								unifiedSize="xs"
+								variant="subtle"
+								nonCaptureEvent
+								startIcon={{ icon: Ellipsis }}
+							></Button>
+						{/snippet}
+					</DropdownV2>
+				{:else}
+					<Lock size={12} class="text-secondary absolute -translate-y-1/2 top-1/2 right-2" />
+				{/if}
 			{/if}
 		{/if}
 	</div>
@@ -294,9 +325,10 @@
 				{onAddFolder}
 				{onRename}
 				{onDelete}
+				{onRequestEdit}
+				{onCancelEdit}
 				{selectedPath}
-				{pathToRename}
-				{pathToExpand}
+				{pathToEdit}
 				level={level + 1}
 			/>
 		{/each}
