@@ -93,22 +93,22 @@
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
-		if (path !== null && path !== '') {
-			if (filterBy !== 'path') filterBy = 'path'
-		} else if (user !== null && user !== '') {
-			if (filterBy !== 'user') filterBy = 'user'
-		} else if (folder !== null && folder !== '') {
-			if (filterBy !== 'folder') filterBy = 'folder'
-		} else if (label !== null && label !== '') {
-			if (filterBy !== 'label') filterBy = 'label'
-		} else if (concurrencyKey !== null && concurrencyKey !== '') {
-			if (filterBy !== 'concurrencyKey') filterBy = 'concurrencyKey'
-		} else if (tag !== null && tag !== '') {
-			if (filterBy !== 'tag') filterBy = 'tag'
-		} else if (schedulePath !== undefined && schedulePath !== '') {
-			if (filterBy !== 'schedulePath') filterBy = 'schedulePath'
-		} else if (worker !== null && worker !== '') {
-			if (filterBy !== 'worker') filterBy = 'worker'
+		if (path && filterBy !== 'path') {
+			filterBy = 'path'
+		} else if (user && filterBy !== 'user') {
+			filterBy = 'user'
+		} else if (folder && filterBy !== 'folder') {
+			filterBy = 'folder'
+		} else if (label && filterBy !== 'label') {
+			filterBy = 'label'
+		} else if (concurrencyKey && filterBy !== 'concurrencyKey') {
+			filterBy = 'concurrencyKey'
+		} else if (tag && filterBy !== 'tag') {
+			filterBy = 'tag'
+		} else if (schedulePath && filterBy !== 'schedulePath') {
+			filterBy = 'schedulePath'
+		} else if (worker && filterBy !== 'worker') {
+			filterBy = 'worker'
 		}
 	}
 
