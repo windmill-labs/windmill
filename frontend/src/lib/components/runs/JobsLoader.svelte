@@ -29,8 +29,8 @@
 		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | null
 		showSchedules?: boolean
 		showFutureJobs?: boolean
-		argFilter: string | undefined
-		resultFilter?: string | undefined
+		argFilter: string | null
+		resultFilter?: string | null
 		jobTriggerKind?: JobTriggerKind | null
 		schedulePath?: string | null
 		jobKindsCat?: string | null

@@ -128,6 +128,21 @@
 		autosetFilter()
 	})
 
+	watch(
+		() => copyArgFilter,
+		() => {
+			if (!copyArgFilter) argFilter = ''
+			else if (copyArgFilter !== argFilter && !argError) argFilter = copyArgFilter
+		}
+	)
+	watch(
+		() => copyResultFilter,
+		() => {
+			if (!copyResultFilter) resultFilter = ''
+			else if (copyResultFilter !== resultFilter && !resultError) resultFilter = copyResultFilter
+		}
+	)
+
 	function resetFilter() {
 		path = null
 		user = null
@@ -975,44 +990,18 @@
 						/>
 					</Label>
 
-					<div class="flex flex-col gap-6">
-						<Label label="Filter by args">
-							<span class="text-2xs text-secondary">
-								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-							</span>
-							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
-						</Label>
-						<Label label="Filter by result">
-							<span class="text-2xs text-secondary">
-								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-							</span>
-							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
-						</Label>
-					</div>
-
-					<div class="flex flex-row gap-2 justify-between">
-						<Button
-							unifiedSize="md"
-							variant="default"
-							on:click={() => {
-								argFilter = ''
-								resultFilter = ''
-							}}
-						>
-							Clear
-						</Button>
-
-						<Button
-							unifiedSize="md"
-							variant="accent"
-							on:click={() => {
-								argFilter = copyArgFilter
-								resultFilter = copyResultFilter
-							}}
-						>
-							Set args/result filter
-						</Button>
-					</div>
+					<Label label="Filter by args">
+						<span class="text-2xs text-secondary">
+							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+						</span>
+						<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
+					</Label>
+					<Label label="Filter by result">
+						<span class="text-2xs text-secondary">
+							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+						</span>
+						<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
+					</Label>
 				</div>
 			</Section>
 		{/snippet}

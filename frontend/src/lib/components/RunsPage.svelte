@@ -73,16 +73,8 @@
 			schedule_path: z.string().nullable().default(null),
 			job_kinds: z.string().default('runs'),
 			all_workspaces: z.boolean().default(false),
-			arg: z
-				.string()
-				.transform((s) => JSON.parse(s ?? '{}'))
-				.nullable()
-				.default(null),
-			result: z
-				.string()
-				.transform((s) => JSON.parse(s ?? '{}'))
-				.nullable()
-				.default(null),
+			arg: z.string().default(''),
+			result: z.string().default(''),
 			job_trigger_kind: z
 				.string()
 				.transform((s) => s as JobTriggerKind)
@@ -91,6 +83,7 @@
 			per_page: z.number().default(1000)
 		})
 	)
+
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
@@ -246,6 +239,8 @@
 	}
 
 	function getSelectedFilters() {
+		const argFilter = filters.arg && JSON.parse(filters.arg)
+		const resultFilter = filters.result && JSON.parse(filters.result)
 		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: filters.max_ts ?? undefined,
@@ -280,11 +275,9 @@
 				filters.success == 'suspended'
 					? true
 					: undefined,
-			args: filters.arg && Object.keys(filters.arg).length && !argError ? filters.arg : undefined,
+			args: argFilter && Object.keys(argFilter).length && !argError ? argFilter : undefined,
 			result:
-				filters.result && Object.keys(filters.result).length && !resultError
-					? filters.result
-					: undefined,
+				resultFilter && Object.keys(resultFilter).length && !resultError ? resultFilter : undefined,
 			jobTriggerKind: filters.job_trigger_kind || undefined,
 			allWorkspaces: filters.all_workspaces || undefined,
 			allowWildcards: filters.allow_wildcards || undefined

@@ -203,7 +203,9 @@ export function useSearchParams<S extends z.ZodType>(
 		let derivedVal = $derived(params[key])
 		Object.defineProperty(obj, key, {
 			get: () => derivedVal,
-			set: (v) => (params[key] = v)
+			set: (v) => {
+				params[key] = v
+			}
 		})
 	}
 	return obj
