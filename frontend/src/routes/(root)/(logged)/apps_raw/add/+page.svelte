@@ -390,7 +390,7 @@
 
 			<!-- Data Configuration -->
 			<div class="pt-6">
-				<h2 class="text-xs font-semibold text-emphasis mb-1">Data Configuration</h2>
+				<h2 class="text-xs font-semibold text-emphasis mb-1">Data configuration</h2>
 
 				{#if hasNoDatatables}
 					<Alert type="warning" title="No datatables configured.">
@@ -414,65 +414,72 @@
 				{:else}
 					<div class="flex flex-col gap-4">
 						<!-- Default Datatable & Schema -->
-						<div>
-							<span class="text-xs text-tertiary mb-1 block">Default settings for new tables</span>
-							<div class="flex flex-col gap-1">
-								<div class="flex gap-2 items-center">
-									<Select
-										transformInputSelectedText={(text) => 'datatable: ' + text}
-										disablePortal
-										items={datatableItems}
-										bind:value={selectedDatatable}
-										placeholder="Datatable"
-										size="sm"
-										class="w-40"
-									/>
-								</div>
-								<div>
-									<span class="text-2xs text-tertiary">Schema</span>
+						<div class="flex flex-col gap-1">
+							<span class="text-xs text-secondary mb-1 block">Default settings for new tables</span>
+							<div class="flex flex-col gap-4 rounded-md p-4 border">
+								<div class="flex flex-col gap-4">
+									<div class="flex flex-col gap-1">
+										<label class="text-xs text-emphasis font-semibold" for="datatable"
+											>Datatable</label
+										>
+										<Select
+											id="datatable"
+											disablePortal
+											items={datatableItems}
+											bind:value={selectedDatatable}
+											placeholder="Datatable"
+											size="sm"
+											class="w-40"
+										/>
+									</div>
+									<div>
+										<span class="text-xs text-emphasis font-semibold">Schema</span>
 
-									<div class="flex flex-row gap-1 w-full items-center">
-										<div>
-											<ToggleButtonGroup bind:selected={schemaMode} noWFull>
-												{#snippet children({ item })}
-													<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
-													<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
-													<ToggleButton
-														value="existing"
-														label="Existing"
-														icon={List}
-														{item}
-														size="sm"
-													/>
-												{/snippet}
-											</ToggleButtonGroup>
-										</div>
-										{#if schemaMode === 'new'}
-											<TextInput
-												bind:value={newSchemaName}
-												inputProps={{
-													placeholder: 'Schema name',
-													oninput: () => (userEditedSchemaName = true)
-												}}
-												class="flex-1"
-												error={newSchemaAlreadyExists}
-											/>
-										{:else if schemaMode === 'existing'}
-											<div class="flex-1">
-												<Select
-													disablePortal
-													items={schemaItems}
-													bind:value={selectedSchema}
-													placeholder="Schema"
+										<div class="flex flex-row gap-1 w-full items-center">
+											<div>
+												<ToggleButtonGroup bind:selected={schemaMode} noWFull>
+													{#snippet children({ item })}
+														<ToggleButton value="none" label="None" icon={Ban} {item} size="sm" />
+														<ToggleButton value="new" label="New" icon={Plus} {item} size="sm" />
+														<ToggleButton
+															value="existing"
+															label="Existing"
+															icon={List}
+															{item}
+															size="sm"
+														/>
+													{/snippet}
+												</ToggleButtonGroup>
+											</div>
+											{#if schemaMode === 'new'}
+												<TextInput
+													bind:value={newSchemaName}
+													inputProps={{
+														placeholder: 'Schema name',
+														oninput: () => (userEditedSchemaName = true)
+													}}
+													class="flex-1"
+													error={newSchemaAlreadyExists}
 													size="sm"
 												/>
-											</div>
+											{:else if schemaMode === 'existing'}
+												<div class="flex-1">
+													<Select
+														disablePortal
+														items={schemaItems}
+														bind:value={selectedSchema}
+														placeholder="Schema"
+														size="sm"
+													/>
+												</div>
+											{/if}
+										</div>
+										{#if newSchemaAlreadyExists}
+											<span class="text-xs text-red-500"
+												>Schema "{newSchemaName}" already exists</span
+											>
 										{/if}
 									</div>
-									{#if newSchemaAlreadyExists}
-										<span class="text-xs text-red-500">Schema "{newSchemaName}" already exists</span
-										>
-									{/if}
 								</div>
 							</div>
 						</div>
@@ -487,7 +494,7 @@
 						</div>
 
 						<!-- Pre-whitelisted Tables -->
-						<div class="border-t pt-3">
+						<div class="pt-6">
 							<RawAppDataTableList
 								dataTableRefs={preWhitelistedTables}
 								defaultDatatable={selectedDatatable}
