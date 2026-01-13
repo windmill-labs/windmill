@@ -179,10 +179,10 @@
 	const displayTitle = $derived(
 		variant === 'primary-sync'
 			? mode === 'sync'
-				? 'Sync mode'
-				: 'Promotion mode'
+				? 'Git Sync'
+				: 'Git Promotion'
 			: variant === 'primary-promotion'
-				? 'Promotion mode'
+				? 'Git Promotion'
 				: isLegacy
 					? 'Legacy promotion repository'
 					: isSecondary
@@ -206,7 +206,7 @@
 			? mode === 'sync'
 				? `Changes will be committed directly to the ${targetOrDefaultBranch} branch`
 				: mode === 'promotion'
-					? `Changes will be made to new branches whose promotion target is the ${targetOrDefaultBranch} branch`
+					? `Changes will be made to new branches whose promotion target is the ${targetOrDefaultBranch} branch of the repo to promote to. Remember to also setup Git Sync between the promotion workspace and repo for changes to be deployed when these branches are merged.`
 					: null
 			: null
 	)
@@ -393,7 +393,9 @@
 				{:else if resourceInfo?.url}
 					<div class="flex items-center gap-2 text-secondary">
 						<span class="font-medium">Git URL:</span>
-						<code class="bg-surface-secondary px-2 py-1 rounded text-primary">{resourceInfo.url}</code>
+						<code class="bg-surface-secondary px-2 py-1 rounded text-primary"
+							>{resourceInfo.url}</code
+						>
 					</div>
 				{:else if resourceInfo?.error}
 					<div class="text-red-600">{resourceInfo.error}</div>
@@ -542,7 +544,13 @@
 			<div class="flex flex-col">
 				<h3 class="text-xs font-semibold text-emphasis">{displayTitle}</h3>
 				{#if displayDescription}
-					<p class="text-2xs text-secondary">{displayDescription}</p>
+					<p class="text-2xs text-secondary">{displayDescription}
+					{#if mode === 'promotion'}
+						<a target="_blank" href="https://www.windmill.dev/docs/advanced/deploy_gh_gl"
+							>Learn more about Git Promotion</a
+						>
+					{/if}
+					</p>
 				{/if}
 			</div>
 		</div>
@@ -553,9 +561,9 @@
 			<div class="text-center mb-4">
 				<p class="text-primary text-xs font-normal mb-2">
 					{#if mode === 'sync'}
-						No sync repository configured. Add one to enable direct synchronization.
+						No Git Sync repository configured. Add one to enable direct synchronization.
 					{:else if mode === 'promotion'}
-						No promotion repository configured. Add one to enable branch-based workflows.
+						No Git Promotion repository configured. Add one to enable branch-based workflows.
 					{:else}
 						No repository configured.
 					{/if}
