@@ -20,7 +20,12 @@
 		) => void
 	}
 
-	let { runnables, selectedRunnable = $bindable(), appPath, onSelectionChange }: Props = $props()
+	let {
+		runnables = $bindable(),
+		selectedRunnable = $bindable(),
+		appPath,
+		onSelectionChange
+	}: Props = $props()
 </script>
 
 {#if !selectedRunnable}

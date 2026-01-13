@@ -878,7 +878,7 @@
 							appPath={path}
 							{selectedRunnable}
 							{initRunnablesContent}
-							{runnables}
+							bind:runnables
 							onSelectionChange={(selection) => {
 								console.log('handle selection', selection)
 
