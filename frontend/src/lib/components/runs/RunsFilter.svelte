@@ -8,7 +8,7 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '../select/Select.svelte'
@@ -125,16 +125,6 @@
 	let displayedWorker = $derived(worker)
 
 	watch([() => [path, user, folder, label, worker, concurrencyKey, tag, schedulePath]], () => {
-		console.log('RunsFilter: autosetFilter triggered', {
-			path,
-			user,
-			folder,
-			label,
-			worker,
-			concurrencyKey,
-			tag,
-			schedulePath
-		})
 		autosetFilter()
 	})
 
