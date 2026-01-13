@@ -401,7 +401,7 @@
 						{#if $userStore?.is_admin}
 							Configure datatables in
 							<a
-								href="/workspace/settings?tab=windmill_data_tables"
+								href="/workspace_settings?tab=windmill_data_tables"
 								target="_blank"
 								class="inline-flex items-center gap-1"
 								>workspace settings <ExternalLinkIcon size={16} />
@@ -532,7 +532,7 @@
 							{#if $userStore?.is_admin}
 								Configure AI in
 								<a
-									href="/workspace/settings?tab=ai"
+									href="/workspace_settings?tab=ai"
 									target="_blank"
 									class="inline-flex items-center gap-1"
 									>workspace settings <ExternalLinkIcon size={16} />
