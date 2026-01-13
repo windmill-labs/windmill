@@ -22,11 +22,11 @@
 		onkeydown={(e) => {
 			e.stopPropagation()
 		}}
-		bind:value={$summary}
+		bind:value={summary}
 		onkeyup={() => {
-			if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
+			if (appPath == '' && summary?.length > 0 && !dirtyPath) {
 				path?.setName(
-					$summary
+					summary
 						.toLowerCase()
 						.replace(/[^a-z0-9_]/g, '_')
 						.replace(/-+/g, '_')

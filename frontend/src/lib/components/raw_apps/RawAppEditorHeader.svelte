@@ -620,6 +620,8 @@
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' || app == undefined}
 						on:click={() => saveInitialDraft()}
+						unifiedSize="md"
+						variant="accent"
 					>
 						Save initial draft
 					</Button>
