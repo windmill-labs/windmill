@@ -13,7 +13,6 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
-	import { tick } from 'svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -75,7 +74,15 @@
 		}
 	}
 
-	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
+	// Track pending new file/folder that hasn't been confirmed yet
+	let pendingNewFilePath = $state<string | undefined>(undefined)
+
+	const fileTree = $derived(
+		buildFileTree([
+			...Object.keys(files ?? {}),
+			...(pendingNewFilePath ? [pendingNewFilePath] : [])
+		])
+	)
 
 	let pathToEdit = $state<string | undefined>(undefined)
 
@@ -87,35 +94,48 @@
 
 	function handleAddFile(folderPath: string) {
 		console.log('Add file to:', folderPath)
-		if (files) {
-			const nfiles = { ...files }
-			// Ensure folderPath ends with /
-			const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
-			const newPath = normalizedFolder + 'newfile.txt'
-			nfiles[newPath] = ''
-			files = nfiles
-			tick().then(() => {
-				pathToEdit = newPath
-			})
-		}
+		// Ensure folderPath ends with /
+		const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
+		const newPath = normalizedFolder + 'newfile.txt'
+		// Don't update files yet - just mark as pending and enter edit mode
+		pendingNewFilePath = newPath
+		pathToEdit = newPath
 	}
 
 	function handleRename(oldPath: string, newName: string) {
-		if (files) {
-			const nfiles = { ...files }
-			const pathParts = oldPath.split('/').filter(Boolean)
-			const parentPath = '/' + pathParts.slice(0, -1).join('/')
-			let newPath = parentPath === '/' ? '/' + newName : parentPath + '/' + newName
+		const pathParts = oldPath.split('/').filter(Boolean)
+		const parentPath = '/' + pathParts.slice(0, -1).join('/')
+		let newPath = parentPath === '/' ? '/' + newName : parentPath + '/' + newName
 
-			// Check if this is a folder (ends with /)
-			const isFolder = oldPath.endsWith('/')
+		// Check if this is a folder (ends with /)
+		const isFolder = oldPath.endsWith('/')
 
-			if (isFolder) {
-				// For folders, ensure new path also ends with /
-				if (!newPath.endsWith('/')) {
-					newPath = newPath + '/'
-				}
+		// For folders, ensure new path also ends with /
+		if (isFolder && !newPath.endsWith('/')) {
+			newPath = newPath + '/'
+		}
 
+		// Check if this is a pending new file/folder being created
+		const isPendingNew = pendingNewFilePath === oldPath
+
+		// For existing items, skip if name didn't change
+		if (!isPendingNew && oldPath === newPath) {
+			pathToEdit = undefined
+			return
+		}
+
+		if (!files) {
+			files = {}
+		}
+		const nfiles = { ...files }
+
+		if (isFolder) {
+			if (isPendingNew) {
+				// Creating a new folder - just add it with the final name
+				nfiles[newPath] = ''
+				pendingNewFilePath = undefined
+			} else {
+				// Renaming existing folder
 				const oldFolderPath = oldPath
 				const newFolderPath = newPath
 
@@ -139,99 +159,96 @@
 					nfiles[newPath] = nfiles[old]
 					delete nfiles[old]
 				})
-
-				selectedDocument = newFolderPath
-			} else {
-				// For files, simple rename
-				nfiles[newPath] = nfiles[oldPath]
-				delete nfiles[oldPath]
-				selectedDocument = newPath
 			}
 
-			files = nfiles
-			pathToEdit = undefined
+			selectedDocument = newPath
+		} else {
+			if (isPendingNew) {
+				// Creating a new file - just add it with the final name
+				nfiles[newPath] = ''
+				pendingNewFilePath = undefined
+			} else {
+				// Renaming existing file
+				nfiles[newPath] = nfiles[oldPath]
+				delete nfiles[oldPath]
+			}
+			selectedDocument = newPath
+		}
+
+		files = nfiles
+		pathToEdit = undefined
+
+		// Select the new file in the editor (only for files, not folders)
+		if (!isFolder) {
+			onSelectFile?.(newPath)
 		}
 	}
 
 	function handleAddFolder(folderPath: string) {
 		console.log('Add folder to:', folderPath)
-		if (files) {
-			const nfiles = { ...files }
-			// Ensure folderPath ends with /
-			const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
-			const newPath = normalizedFolder + 'newfolder/'
-			nfiles[newPath] = ''
-			files = nfiles
-			pathToEdit = newPath
-		}
+		// Ensure folderPath ends with /
+		const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
+		const newPath = normalizedFolder + 'newfolder/'
+		// Don't update files yet - just mark as pending and enter edit mode
+		pendingNewFilePath = newPath
+		pathToEdit = newPath
 	}
 
 	function handleAddRootFile() {
 		console.log('Add file to root or selected folder')
-		if (files) {
-			const nfiles = { ...files }
-			let newPath: string
+		let newPath: string
 
-			if (selectedDocument) {
-				// If a folder is selected, add the file inside it
-				if (selectedDocument.endsWith('/')) {
-					newPath = selectedDocument + 'newfile.txt'
-				} else {
-					// If a file is selected, add the new file in the same folder
-					const pathParts = selectedDocument.split('/').filter(Boolean)
-					if (pathParts.length > 1) {
-						// File is in a subfolder
-						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
-						newPath = parentPath + 'newfile.txt'
-					} else {
-						// File is at root
-						newPath = '/newfile.txt'
-					}
-				}
+		if (selectedDocument) {
+			// If a folder is selected, add the file inside it
+			if (selectedDocument.endsWith('/')) {
+				newPath = selectedDocument + 'newfile.txt'
 			} else {
-				newPath = '/newfile.txt'
+				// If a file is selected, add the new file in the same folder
+				const pathParts = selectedDocument.split('/').filter(Boolean)
+				if (pathParts.length > 1) {
+					// File is in a subfolder
+					const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
+					newPath = parentPath + 'newfile.txt'
+				} else {
+					// File is at root
+					newPath = '/newfile.txt'
+				}
 			}
-
-			nfiles[newPath] = ''
-			files = nfiles
-			console.log('dbg add root file', newPath)
-			tick().then(() => {
-				pathToEdit = newPath
-			})
+		} else {
+			newPath = '/newfile.txt'
 		}
+
+		// Don't update files yet - just mark as pending and enter edit mode
+		pendingNewFilePath = newPath
+		pathToEdit = newPath
 	}
 
 	function handleAddRootFolder() {
-		if (files) {
-			const nfiles = { ...files }
-			let newPath: string
+		let newPath: string
 
-			if (selectedDocument) {
-				// If a folder is selected, add the folder inside it
-				if (selectedDocument.endsWith('/')) {
-					newPath = selectedDocument + 'newfolder/'
-				} else {
-					// If a file is selected, add the new folder in the same folder
-					const pathParts = selectedDocument.split('/').filter(Boolean)
-					if (pathParts.length > 1) {
-						// File is in a subfolder
-						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
-						newPath = parentPath + 'newfolder/'
-					} else {
-						// File is at root
-						newPath = '/newfolder/'
-					}
-				}
+		if (selectedDocument) {
+			// If a folder is selected, add the folder inside it
+			if (selectedDocument.endsWith('/')) {
+				newPath = selectedDocument + 'newfolder/'
 			} else {
-				newPath = '/newfolder/'
+				// If a file is selected, add the new folder in the same folder
+				const pathParts = selectedDocument.split('/').filter(Boolean)
+				if (pathParts.length > 1) {
+					// File is in a subfolder
+					const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
+					newPath = parentPath + 'newfolder/'
+				} else {
+					// File is at root
+					newPath = '/newfolder/'
+				}
 			}
-
-			nfiles[newPath] = ''
-			files = nfiles
-			tick().then(() => {
-				pathToEdit = newPath
-			})
+		} else {
+			newPath = '/newfolder/'
 		}
+
+		// Don't update files yet - just mark as pending and enter edit mode
+		pendingNewFilePath = newPath
+		pathToEdit = newPath
 	}
 
 	function handleDelete(path: string) {
@@ -263,8 +280,6 @@
 			}
 		}
 	}
-
-	$inspect('dbg pathToEdit', pathToEdit)
 </script>
 
 <PanelSection size="sm" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
@@ -306,7 +321,10 @@
 				selectedPath={selectedDocument}
 				{pathToEdit}
 				onRequestEdit={(path) => (pathToEdit = path)}
-				onCancelEdit={() => (pathToEdit = undefined)}
+				onCancelEdit={() => {
+					pathToEdit = undefined
+					pendingNewFilePath = undefined
+				}}
 			/>
 		{/each}
 		<FileTreeNode

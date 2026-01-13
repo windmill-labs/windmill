@@ -108,11 +108,12 @@
 	}
 
 	function finishEdit() {
-		console.log('dbg finishEdit', isEditing, editValue, node.name)
-		if (isEditing && editValue.trim() && editValue !== node.name) {
+		if (isEditing && editValue.trim()) {
+			// Always call onRename - parent handles whether it's a new file or actual rename
 			onRename?.(node.path, editValue.trim())
+		} else {
+			onCancelEdit?.()
 		}
-		onCancelEdit?.()
 	}
 
 	function handleInputKeydown(e: KeyboardEvent) {
@@ -125,8 +126,6 @@
 	}
 
 	function handleInputBlur(e: FocusEvent) {
-		console.log('dbg input blur', e)
-		return
 		finishEdit()
 	}
 
