@@ -75,10 +75,12 @@
 	const isSelected = $derived(selectedPath === node.path)
 	const isEditing = $derived(pathToEdit === node.path)
 	const expanded = $derived(
-		userExpanded !== null
-			? userExpanded // User preference takes priority
-			: level === 0 || // Default: root expanded
-					(pathToEdit && pathToEdit.startsWith(node.path + '/')) // Auto-expand for editing nested paths
+		// Auto-expand for editing nested paths takes priority
+		pathToEdit && node.isFolder && pathToEdit.startsWith(node.path)
+			? true
+			: userExpanded !== null
+				? userExpanded
+				: level === 0 // Default: root expanded
 	)
 
 	function toggleExpanded() {
