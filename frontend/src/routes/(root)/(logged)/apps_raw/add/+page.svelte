@@ -24,7 +24,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { AlertTriangle, Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
+	import { Sparkles, Plus, List, Ban, ExternalLinkIcon } from 'lucide-svelte'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import RawAppDataTableList from '$lib/components/raw_apps/RawAppDataTableList.svelte'
@@ -520,30 +520,22 @@
 				</h2>
 
 				{#if !isAiEnabled}
-					<div
-						class="flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
-					>
-						<AlertTriangle size={16} class="text-gray-500 shrink-0" />
-						<div class="text-sm text-tertiary">
-							AI is not configured for this workspace. You can still create an app manually but <b
-								>using AI is highly recommended</b
-							>.
-							<br />
-							{#if $userStore?.is_admin}
-								Configure AI in
-								<a
-									href="/workspace_settings?tab=ai"
-									target="_blank"
-									class="inline-flex items-center gap-1"
-									>workspace settings <ExternalLinkIcon size={16} />
-								</a>
-								to enable this feature.
-							{:else}
-								Ask your workspace admin to configure AI in workspace settings to enable this
-								feature.
-							{/if}
-						</div>
-					</div>
+					<Alert type="info" title="AI is not configured for this workspace.">
+						You can still create an app manually but using AI is highly recommended.
+						<br />
+						{#if $userStore?.is_admin}
+							Configure AI in
+							<a
+								href="/workspace_settings?tab=ai"
+								target="_blank"
+								class="inline-flex items-center gap-1 font-semibold"
+								>workspace settings <ExternalLinkIcon size={16} />
+							</a>
+							to enable this feature.
+						{:else}
+							Ask your workspace admin to configure AI in workspace settings to enable this feature.
+						{/if}
+					</Alert>
 				{:else}
 					<div class="flex flex-col gap-2">
 						<TextInput
