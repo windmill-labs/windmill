@@ -45,8 +45,10 @@
 				resourceName = 'mcp_server'
 			}
 			status = 'discovered'
-		} catch (e: any) {
-			error = e.body?.message || e.message || 'Failed to discover OAuth settings'
+		} catch (e) {
+			console.error('Error discovering OAuth settings', e)
+			const errorMessage = e instanceof Error ? e.message : 'Unknown error'
+			error = `Failed to discover OAuth settings: ${errorMessage}`
 			status = 'idle'
 		}
 	}
