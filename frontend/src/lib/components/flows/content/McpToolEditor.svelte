@@ -51,6 +51,7 @@
 
 	let toolOptions = $derived(safeSelectItems((tools.value ?? []).map((t) => t.name)))
 	let resourcePath = $derived(tool.value.resource_path)
+	let error = $derived(tools.error?.body?.message || tools.error?.message)
 
 	$effect(() => {
 		resourcePath
@@ -144,23 +145,22 @@
 				</Button>
 			{/snippet}
 			<div class="w-full flex flex-col gap-2">
-				{#if tools.error}
-					<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
-						{tools.error?.body?.message ||
-							tools.error?.message ||
-							'Failed to load tools from MCP server'}
-					</div>
-				{/if}
-				<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
-					{#if tools.status === 'loading'}
+				{#if error}
+					<div class="text-xs text-red-600 dark:text-red-400 mb-4"
+						>{`Failed to load tools from MCP server: ${error}`}</div
+					>
+				{:else if tools.status === 'loading'}
+					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
 						<div class="text-xs text-secondary italic">Loading tools...</div>
-					{:else if (tools.value ?? []).length === 0}
+					</div>
+				{:else if (tools.value ?? []).length === 0 && !error}
+					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
 						<div class="text-xs text-secondary italic">
-							{tools.error
-								? 'Failed to load tools. Please check the resource path and try again.'
-								: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
+							No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.
 						</div>
-					{:else}
+					</div>
+				{:else if (tools.value ?? []).length > 0}
+					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
 						<div class="flex flex-col gap-1">
 							{#each tools.value ?? [] as mcpTool}
 								<div class="text-xs">
@@ -171,8 +171,8 @@
 								</div>
 							{/each}
 						</div>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 		</Section>
 
