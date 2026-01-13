@@ -1,0 +1,14 @@
+version: "3.7"
+
+services:
+  windmill_server:
+    environment:
+      - NPM_CONFIG_REGISTRY=http://host.docker.internal:4873/
+
+  windmill_worker:
+    environment:
+      - NPM_CONFIG_REGISTRY=http://host.docker.internal:4873/
+
+  windmill_worker_native:
+    environment:
+      - NPM_CONFIG_REGISTRY=http://host.docker.internal:4873/
