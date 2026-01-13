@@ -45,6 +45,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5Utils.svelte'
+	import { Debounced } from 'runed'
 
 	let filters = useSearchParams(runsFiltersSchema)
 
@@ -107,10 +108,13 @@
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
 	let loading = $derived(jobsLoader.loading)
-	let completedJobs = $derived(jobsLoader.completedJobs)
 	let externalJobs = $derived(jobsLoader.externalJobs)
 	let extendedJobs = $derived(jobsLoader.extendedJobs)
-	let jobs = $derived(jobsLoader.jobs)
+	// Avoid flicker, but still show empty if loading takes too long
+	let debouncedCompletedJobs = new Debounced(() => jobsLoader.completedJobs, 500)
+	let debouncedJobs = new Debounced(() => jobsLoader.jobs, 500)
+	let completedJobs = $derived(jobsLoader.completedJobs ?? debouncedCompletedJobs.current)
+	let jobs = $derived(jobsLoader.jobs ?? debouncedJobs.current)
 
 	let runsTable: RunsTable | undefined = $state(undefined)
 
@@ -126,8 +130,6 @@
 	function reset() {
 		filters.min_ts = null
 		filters.max_ts = null
-		jobs = undefined
-		completedJobs = undefined
 		selectedManualDate = 0
 		selectedIds = []
 		filters.schedule_path = null
