@@ -47,7 +47,7 @@
 			status = 'discovered'
 		} catch (e) {
 			console.error('Error discovering OAuth settings', e)
-			const errorMessage = e instanceof Error ? e.message : 'Unknown error'
+			const errorMessage = e.body?.message || e.body || e.message || 'Unknown error'
 			error = `Failed to discover OAuth settings: ${errorMessage}`
 			status = 'idle'
 		}

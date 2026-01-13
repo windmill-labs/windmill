@@ -43,6 +43,7 @@ mod oss_impl {
     }
 
     #[derive(Deserialize)]
+    #[allow(dead_code)]
     pub struct DiscoverRequest {
         pub mcp_server_url: String,
     }
@@ -65,6 +66,7 @@ mod oss_impl {
     }
 
     #[derive(Deserialize)]
+    #[allow(dead_code)]
     pub struct StartPopupParams {
         pub mcp_server_url: String,
         #[serde(default)]
@@ -80,6 +82,7 @@ mod oss_impl {
     }
 
     #[derive(Deserialize)]
+    #[allow(dead_code)]
     pub struct CallbackParams {
         pub code: String,
         pub state: String,

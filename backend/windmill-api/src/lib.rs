@@ -665,7 +665,15 @@ pub async fn run_server(
                     #[cfg(not(feature = "oauth2"))]
                     Router::new()
                 })
-                .nest("/mcp/oauth", mcp_oauth_oss::global_service())
+                .nest("/mcp/oauth", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp_oauth_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
                 .nest("/r", {
                     #[cfg(feature = "http_trigger")]
                     {

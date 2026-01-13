@@ -452,6 +452,7 @@ fn apply_tool_filters(
 }
 
 /// Check if a token variable is expired and refresh it if needed via API call
+#[cfg(feature = "mcp")]
 async fn refresh_token_if_expired(
     db: &DB,
     workspace_id: &str,
