@@ -1,8 +1,6 @@
 <script lang="ts">
 	import {
 		JobService,
-		type Job,
-		type CompletedJob,
 		UserService,
 		FolderService,
 		ScriptService,
@@ -25,11 +23,10 @@
 	import RunsFilter, { runsFiltersSchema } from '$lib/components/runs/RunsFilter.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
-	import type { Tweened } from 'svelte/motion'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
-	import JobsLoader, { computeJobKinds } from '$lib/components/runs/JobsLoader.svelte'
+	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
@@ -51,7 +48,6 @@
 
 	let filters = useSearchParams(runsFiltersSchema)
 
-	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
@@ -60,16 +56,10 @@
 
 	let lastFetchWentToEnd = $state(false)
 
-	let queue_count: Tweened<number> | undefined = $state(undefined)
-	let suspended_count: Tweened<number> | undefined = $state(undefined)
-
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
-	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
 	let folders: string[] = $state([])
-	let completedJobs: CompletedJob[] | undefined = $state(undefined)
-	let extendedJobs: ExtendedJobs | undefined = $state(undefined)
 	let argError = $state('')
 	let resultError = $state('')
 	let filterTimeout: ReturnType<typeof setInterval> | undefined = undefined
@@ -97,16 +87,31 @@
 		}
 	}
 
-	let innerWidth = $state(window.innerWidth)
-	let jobsLoader: JobsLoader | undefined = $state(undefined)
-	let externalJobs: Job[] | undefined = $state(undefined)
-
+	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart(page.url.searchParams.get('graph'))
 	)
 	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
-
-	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
+	let innerWidth = $state(window.innerWidth)
+	let jobsLoader = useJobsLoader(() => ({
+		filters,
+		computeMinAndMax: manualDatePicker?.computeMinMax,
+		jobKinds,
+		autoRefresh,
+		argError,
+		resultError,
+		lookback: graphIsRunsChart ? 0 : lookback,
+		onSetPerPage: (p) => (filters.per_page = p),
+		onSetMinMaxTs: (minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs)),
+		currentWorkspace: $workspaceStore ?? ''
+	}))
+	let queue_count = $derived(jobsLoader.queue_count)
+	let suspended_count = $derived(jobsLoader.suspended_count)
+	let loading = $derived(jobsLoader.loading)
+	let completedJobs = $derived(jobsLoader.completedJobs)
+	let externalJobs = $derived(jobsLoader.externalJobs)
+	let extendedJobs = $derived(jobsLoader.extendedJobs)
+	let jobs = $derived(jobsLoader.jobs)
 
 	let runsTable: RunsTable | undefined = $state(undefined)
 
@@ -483,26 +488,6 @@
 		`The exact number of concurrent jobs at the beginning of the time range may be incorrect as only the last ${filters.per_page} jobs are taken into account: a job that was started earlier than this limit will not be taken into account`
 	)
 </script>
-
-<JobsLoader
-	bind:jobs
-	{filters}
-	computeMinAndMax={manualDatePicker?.computeMinMax}
-	{jobKinds}
-	bind:queue_count
-	bind:suspended_count
-	{autoRefresh}
-	bind:completedJobs
-	bind:externalJobs
-	bind:extendedJobs
-	{argError}
-	{resultError}
-	bind:loading
-	bind:this={jobsLoader}
-	lookback={graphIsRunsChart ? 0 : lookback}
-	onSetPerPage={(p) => (filters.per_page = p)}
-	onSetMinMaxTs={(minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs))}
-/>
 
 <ConfirmationModal
 	title={askingForConfirmation?.title ?? ''}

@@ -1,120 +1,111 @@
-<script module lang="ts">
-	export function computeJobKinds(jobKindsCat: string | null): string {
-		if (jobKindsCat == 'all') {
-			return ''
-		} else if (jobKindsCat == 'dependencies') {
-			let kinds: CompletedJob['job_kind'][] = [
-				'dependencies',
-				'flowdependencies',
-				'appdependencies'
-			]
-			return kinds.join(',')
-		} else if (jobKindsCat == 'previews') {
-			let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']
-			return kinds.join(',')
-		} else if (jobKindsCat == 'deploymentcallbacks') {
-			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
-			return kinds.join(',')
-		} else if (jobKindsCat == 'runs') {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
-			return kinds.join(',')
-		} else {
-			let kinds: CompletedJob['job_kind'][] = [
-				'script',
-				'flow',
-				'flowscript',
-				'flownode',
-				'appscript'
-			]
-			return kinds.join(',')
-		}
+import { onDestroy, onMount, untrack } from 'svelte'
+import {
+	JobService,
+	type Job,
+	type CompletedJob,
+	type ExtendedJobs,
+	ConcurrencyGroupsService,
+	type ObscuredJob,
+	CancelablePromise,
+	CancelError
+} from '$lib/gen'
+
+import { sendUserToast } from '$lib/toast'
+
+import { tweened, type Tweened } from 'svelte/motion'
+import { subtractDaysFromDateString } from '$lib/utils'
+import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+import type { RunsFilters } from './RunsFilter.svelte'
+
+export function computeJobKinds(jobKindsCat: string | null): string {
+	if (jobKindsCat == 'all') {
+		return ''
+	} else if (jobKindsCat == 'dependencies') {
+		let kinds: CompletedJob['job_kind'][] = ['dependencies', 'flowdependencies', 'appdependencies']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'previews') {
+		let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'deploymentcallbacks') {
+		let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'runs') {
+		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
+		return kinds.join(',')
+	} else {
+		let kinds: CompletedJob['job_kind'][] = [
+			'script',
+			'flow',
+			'flowscript',
+			'flownode',
+			'appscript'
+		]
+		return kinds.join(',')
 	}
-</script>
+}
 
-<script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte'
-	import {
-		JobService,
-		type Job,
-		type CompletedJob,
-		type ExtendedJobs,
-		ConcurrencyGroupsService,
-		type ObscuredJob,
-		CancelablePromise,
-		CancelError
-	} from '$lib/gen'
+export interface UseJobLoaderArgs {
+	currentWorkspace: string
+	filters?: Partial<RunsFilters>
+	jobKinds?: string
+	autoRefresh?: boolean
+	argError?: string
+	resultError?: string
+	refreshRate?: number
+	syncQueuedRunsCount?: boolean
+	skip?: boolean
+	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
+	lookback?: number
+	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
+	onSetPerPage?: (perPage: number) => void
+}
 
-	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+export function useJobsLoader(args: () => UseJobLoaderArgs) {
+	let _args = $derived(args())
 
-	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
-	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-	import type { RunsFilters } from './RunsFilter.svelte'
+	let currentWorkspace = $derived(_args.currentWorkspace)
+	let filters = $derived(_args.filters)
+	let jobKinds = $derived(_args.jobKinds)
+	let autoRefresh = $derived(_args.autoRefresh ?? true)
+	let argError = $derived(_args.argError ?? '')
+	let resultError = $derived(_args.resultError ?? '')
+	let refreshRate = $derived(_args.refreshRate ?? 5000)
+	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
+	let computeMinAndMax = $derived(_args.computeMinAndMax)
+	let lookback = $derived(_args.lookback ?? 0)
+	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
+	let onSetPerPage = $derived(_args.onSetPerPage)
 
-	interface Props {
-		jobs: Job[] | undefined
-		filters: RunsFilters
-		jobKinds?: string
-		queue_count?: Tweened<number> | undefined
-		suspended_count?: Tweened<number> | undefined
-		autoRefresh?: boolean
-		completedJobs?: CompletedJob[] | undefined
-		externalJobs?: Job[] | undefined
-		extendedJobs?: ExtendedJobs | undefined
-		argError?: string
-		resultError?: string
-		loading?: boolean
-		refreshRate?: number
-		syncQueuedRunsCount?: boolean
-		computeMinAndMax: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
-		lookback?: number
-		onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
-		onSetPerPage?: (perPage: number) => void
-	}
+	let label = $derived(filters?.label ?? null)
+	let worker = $derived(filters?.worker ?? null)
+	let success = $derived(filters?.success ?? null)
+	let showSkipped = $derived(filters?.show_skipped ?? false)
+	let showSchedules = $derived(filters?.show_schedules ?? true)
+	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
+	let resultFilter = $derived(filters?.result)
+	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
+	let schedulePath = $derived(filters?.schedule_path ?? null)
+	let jobKindsCat = $derived(filters?.job_kinds ?? null)
+	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
+	let allowWildcards = $derived(filters?.allow_wildcards ?? false)
+	let concurrencyKey = $derived(filters?.concurrency_key)
+	let tag = $derived(filters?.tag)
+	let user = $derived(filters?.user)
+	let folder = $derived(filters?.folder)
+	let path = $derived(filters?.path)
+	let argFilter = $derived(filters?.arg)
+	let minTs = $derived(filters?.min_ts ?? null)
+	let maxTs = $derived(filters?.max_ts ?? null)
+	let perPage = $derived(filters?.per_page ?? 100)
 
-	let {
-		jobs = $bindable(),
-		filters,
-		jobKinds,
-		queue_count = $bindable(),
-		suspended_count = $bindable(),
-		autoRefresh = true,
-		completedJobs = $bindable(),
-		externalJobs = $bindable(),
-		extendedJobs = $bindable(),
-		argError = '',
-		resultError = '',
-		loading = $bindable(),
-		refreshRate = 5000,
-		syncQueuedRunsCount = true,
-		computeMinAndMax,
-		lookback = 0,
-		onSetMinMaxTs,
-		onSetPerPage
-	}: Props = $props()
+	let queue_count: Tweened<number> | undefined = $state()
+	let suspended_count: Tweened<number> | undefined = $state()
+	let loading = $state(false)
 
-	let label = $derived(filters.label)
-	let worker = $derived(filters.worker)
-	let success = $derived(filters.success)
-	let showSkipped = $derived(filters.show_skipped)
-	let showSchedules = $derived(filters.show_schedules)
-	let showFutureJobs = $derived(filters.show_future_jobs)
-	let resultFilter = $derived(filters.result)
-	let jobTriggerKind = $derived(filters.job_trigger_kind)
-	let schedulePath = $derived(filters.schedule_path)
-	let jobKindsCat = $derived(filters.job_kinds)
-	let allWorkspaces = $derived(filters.all_workspaces)
-	let allowWildcards = $derived(filters.allow_wildcards)
-	let concurrencyKey = $derived(filters.concurrency_key) //
-	let tag = $derived(filters.tag)
-	let user = $derived(filters.user)
-	let folder = $derived(filters.folder)
-	let path = $derived(filters.path)
-	let argFilter = $derived(filters.arg)
-	let minTs = $derived(filters.min_ts)
-	let maxTs = $derived(filters.max_ts)
-	let perPage = $derived(filters.per_page)
+	let completedJobs: CompletedJob[] | undefined = $state()
+	let externalJobs: Job[] | undefined = $state()
+	let extendedJobs: ExtendedJobs | undefined = $state()
+	let jobs: Job[] | undefined = $state()
 
 	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
@@ -142,7 +133,7 @@
 
 	let loadingFetch = false
 
-	export async function loadExtraJobs(): Promise<boolean> {
+	async function loadExtraJobs(): Promise<boolean> {
 		if (jobs && jobs.length > 0) {
 			let minQueueTs: string | undefined = undefined
 			let minCompletedTs: string | undefined = undefined
@@ -182,11 +173,12 @@
 		completedAfter: string | null,
 		createdAfterQueue: string | undefined
 	): CancelablePromise<Job[]> {
+		if (_args.skip) new Promise((r) => r([]))
 		loadingFetch = true
 		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path === null || path === '' ? undefined : path
 		let promise = JobService.listJobs({
-			workspace: $workspaceStore!,
+			workspace: currentWorkspace,
 			completedBefore: completedBefore ?? undefined,
 			completedAfter: completedAfter ?? undefined,
 			createdAfterQueue,
@@ -242,11 +234,12 @@
 		createdBeforeQueue: string | null,
 		completedAfter: string | null
 	): CancelablePromise<ExtendedJobs> {
+		if (_args.skip) new Promise((r) => r({ jobs: [], obscured_jobs: [] } as ExtendedJobs))
 		loadingFetch = true
 		let promise = ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: perPage,
 			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
-			workspace: $workspaceStore!,
+			workspace: currentWorkspace,
 			completedAfter: completedAfter ?? undefined,
 			createdBeforeQueue: createdBeforeQueue ?? undefined,
 			// createdOrStartedBefore: startedBefore,
@@ -287,7 +280,7 @@
 		return promise
 	}
 
-	export async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
+	async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
 		if (reset) resetJobs()
 		await loadJobsIntern(shouldGetCount)
 	}
@@ -355,8 +348,9 @@
 	}
 
 	async function getCount() {
+		if (_args.skip) return
 		const { database_length, suspended } = await JobService.getQueueCount({
-			workspace: $workspaceStore!,
+			workspace: currentWorkspace,
 			allWorkspaces
 		})
 
@@ -533,7 +527,7 @@
 	})
 	$effect(() => {
 		;[
-			$workspaceStore,
+			currentWorkspace,
 			path,
 			label,
 			success,
@@ -575,4 +569,30 @@
 			}
 		})
 	})
-</script>
+
+	return {
+		loadExtraJobs,
+		loadJobs,
+		get queue_count() {
+			return queue_count
+		},
+		get suspended_count() {
+			return suspended_count
+		},
+		get loading() {
+			return loading
+		},
+		get completedJobs() {
+			return completedJobs
+		},
+		get externalJobs() {
+			return externalJobs
+		},
+		get extendedJobs() {
+			return extendedJobs
+		},
+		get jobs() {
+			return jobs
+		}
+	}
+}

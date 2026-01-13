@@ -1,12 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import {
-		InputService,
-		type Input,
-		type RunnableType,
-		type Job,
-		JobService
-	} from '$lib/gen/index.js'
+	import { InputService, type Input, type RunnableType, JobService } from '$lib/gen/index.js'
 	import { userStore, workspaceStore } from '$lib/stores.js'
 	import { base } from '$lib/base'
 	import { classNames, displayDateOnly, sendUserToast } from '$lib/utils.js'
@@ -17,9 +11,9 @@
 	import Toggle from './Toggle.svelte'
 	import Tooltip from './Tooltip.svelte'
 	import TimeAgo from './TimeAgo.svelte'
-	import JobsLoader from './runs/JobsLoader.svelte'
 	import Skeleton from './common/skeleton/Skeleton.svelte'
 	import SaveInputsButton from './SaveInputsButton.svelte'
+	import { useJobsLoader, type UseJobLoaderArgs } from './runs/useJobsLoader.svelte'
 
 	interface Props {
 		scriptHash?: string | null
@@ -48,8 +42,6 @@
 	let previousInputs: Input[] | undefined = $state(undefined)
 	let savedInputs: EditableInput[] | undefined = $state(undefined)
 	let selectedInput = $state() as Input | null
-	let jobs: Job[] = $state([])
-	let loading: boolean = $state(false)
 	const dispatch = createEventDispatcher()
 
 	let runnableId = $derived(scriptHash || scriptPath || flowPath || undefined)
@@ -148,28 +140,26 @@
 			allowLarge
 		})
 	}
-</script>
 
-{#if runnableId}
-	<JobsLoader
-		bind:jobs
-		path={runnableId}
-		showSkipped={false}
-		jobKindsCat="all"
-		user={null}
-		label={null}
-		folder={null}
-		concurrencyKey={null}
-		tag={null}
-		success="running"
-		argFilter={undefined}
-		bind:loading
-		syncQueuedRunsCount={false}
-		refreshRate={10000}
-		computeMinAndMax={undefined}
-		perPage={5}
-	/>
-{/if}
+	let jobsLoader = useJobsLoader(
+		() =>
+			({
+				filters: {
+					path: runnableId,
+					show_skipped: false,
+					job_kinds: 'all',
+					success: 'running',
+					per_page: 5
+				},
+				syncQueuedRunsCount: false,
+				refreshRate: 10000,
+				skip: !runnableId,
+				currentWorkspace: $workspaceStore!
+			}) satisfies UseJobLoaderArgs
+	)
+	let jobs = $derived(jobsLoader.jobs ?? [])
+	let loading = $derived(jobsLoader.loading)
+</script>
 
 <div class="min-w-[300px] h-full">
 	<Splitpanes horizontal={true}>
