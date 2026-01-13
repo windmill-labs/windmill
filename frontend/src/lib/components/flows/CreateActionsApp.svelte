@@ -154,16 +154,18 @@
 
 		<div class="flex justify-end gap-3 pt-2">
 			<Button
-				color="light"
-				size="sm"
-				on:click={() => {
+				variant="default"
+				unifiedSize="md"
+				onClick={() => {
 					featurePreviewModalOpen = false
 					appTypeModalOpen = true
 				}}
 			>
 				Go back
 			</Button>
-			<Button color="blue" size="sm" on:click={confirmFullCode}>I understand, continue</Button>
+			<Button unifiedSize="md" variant="accent" on:click={confirmFullCode}
+				>I understand, continue</Button
+			>
 		</div>
 	</div>
 </Modal>

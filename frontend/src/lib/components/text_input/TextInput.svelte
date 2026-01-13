@@ -57,6 +57,10 @@
 		inputEl?.focus()
 	}
 
+	export function select() {
+		inputEl?.select()
+	}
+
 	let inputEl: HTMLInputElement | HTMLTextAreaElement | undefined = $state()
 
 	let {

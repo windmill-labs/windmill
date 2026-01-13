@@ -1,16 +1,20 @@
 <script lang="ts">
 	interface Props {
-		width?: number;
-		height?: number;
+		width?: number
+		height?: number
+		size?: number
 		[key: string]: any
 	}
 
-	let { width = 16, height = 16, ...rest }: Props = $props();
+	let { width = 16, height = 16, size = undefined, ...rest }: Props = $props()
+
+	const derivedWidth = $derived(size ? size : width)
+	const derivedHeight = $derived(size ? size : height)
 </script>
 
 <svg
-	{width}
-	{height}
+	width={derivedWidth}
+	height={derivedHeight}
 	{...rest}
 	viewBox="0 0 17 16"
 	fill="none"
