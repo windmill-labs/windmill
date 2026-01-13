@@ -187,7 +187,7 @@ services:
       - ENABLE_DEBUGGER=true      # Set to true to enable debugger
       - ENABLE_NSJAIL=false       # Set to true for nsjail sandboxing (requires privileged: true)
       - REQUIRE_SIGNED_DEBUG_REQUESTS=false  # Set to true to require JWT tokens for debug sessions
-      - BASE_INTERNAL_URL=http://windmill_server:8000
+      - WINDMILL_BASE_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache
     logging: *default-logging
