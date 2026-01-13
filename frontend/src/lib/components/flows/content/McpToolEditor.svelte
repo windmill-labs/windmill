@@ -50,13 +50,14 @@
 	)
 
 	let toolOptions = $derived(safeSelectItems((tools.value ?? []).map((t) => t.name)))
+	let resourcePath = $derived(tool.value.resource_path)
 
 	$effect(() => {
-		tool.value.resource_path
+		resourcePath
 		$workspaceStore
 		refreshCount
 		untrack(() => {
-			if (tool.value.resource_path?.length > 0) {
+			if (resourcePath?.length > 0) {
 				tools.refresh()
 			}
 		})
@@ -72,7 +73,7 @@
 	})
 
 	$effect(() => {
-		if (tool.value.resource_path?.length > 0 && tool.summary?.length === 0) {
+		if (resourcePath?.length > 0 && tool.summary?.length === 0) {
 			tool.summary = `MCP: ${tool.value.resource_path}`
 		}
 	})
@@ -105,15 +106,20 @@
 		</Label>
 	</div>
 
-	{#if !showOAuthForm}
-		<Button size="xs" color="light" on:click={() => (showOAuthForm = true)}>
-			Connect with OAuth
-		</Button>
-	{:else}
-		<McpOAuthConnect onConnected={handleOAuthConnected} onCancel={() => (showOAuthForm = false)} />
+	{#if !resourcePath}
+		{#if !showOAuthForm}
+			<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
+				Connect with OAuth
+			</Button>
+		{:else}
+			<McpOAuthConnect
+				onConnected={handleOAuthConnected}
+				onCancel={() => (showOAuthForm = false)}
+			/>
+		{/if}
 	{/if}
 
-	{#if tool.value.resource_path?.length > 0}
+	{#if resourcePath?.length > 0}
 		<div class="w-full">
 			<Label label="Summary">
 				<input
@@ -130,7 +136,7 @@
 				<Button
 					size="xs"
 					color="light"
-					on:click={() => (refreshCount += 1)}
+					onClick={() => (refreshCount += 1)}
 					startIcon={{ icon: RefreshCw }}
 					disabled={tools.status === 'loading'}
 				>
