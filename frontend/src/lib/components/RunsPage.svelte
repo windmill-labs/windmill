@@ -8,8 +8,7 @@
 		ScriptService,
 		FlowService,
 		type ExtendedJobs,
-		OpenAPI,
-		type JobTriggerKind
+		OpenAPI
 	} from '$lib/gen'
 
 	import { sendUserToast } from '$lib/toast'
@@ -23,14 +22,14 @@
 
 	import RunsTable from '$lib/components/runs/RunsTable.svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import RunsFilter from '$lib/components/runs/RunsFilter.svelte'
+	import RunsFilter, { runsFiltersSchema } from '$lib/components/runs/RunsFilter.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import type { Tweened } from 'svelte/motion'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
-	import JobsLoader from '$lib/components/runs/JobsLoader.svelte'
+	import JobsLoader, { computeJobKinds } from '$lib/components/runs/JobsLoader.svelte'
 	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
@@ -48,41 +47,9 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import z from 'zod'
 	import { useSearchParams } from '$lib/svelte5Utils.svelte'
 
-	let filters = useSearchParams(
-		z.object({
-			path: z.string().nullable().default(null),
-			worker: z.string().nullable().default(null),
-			user: z.string().nullable().default(null),
-			folder: z.string().nullable().default(null),
-			label: z.string().nullable().default(null),
-			concurrency_key: z.string().nullable().default(null),
-			tag: z.string().nullable().default(null),
-			allow_wildcards: z.boolean().default(false),
-			show_future_jobs: z.boolean().default(true),
-			success: z
-				.enum(['running', 'suspended', 'waiting', 'success', 'failure'])
-				.nullable()
-				.default(null),
-			show_skipped: z.boolean().default(false),
-			show_schedules: z.boolean().default(true),
-			min_ts: z.string().nullable().default(null),
-			max_ts: z.string().nullable().default(null),
-			schedule_path: z.string().nullable().default(null),
-			job_kinds: z.string().default('runs'),
-			all_workspaces: z.boolean().default(false),
-			arg: z.string().default(''),
-			result: z.string().default(''),
-			job_trigger_kind: z
-				.string()
-				.transform((s) => s as JobTriggerKind)
-				.nullable()
-				.default(null),
-			per_page: z.number().default(1000)
-		})
-	)
+	let filters = useSearchParams(runsFiltersSchema)
 
 	let jobs: Job[] | undefined = $state()
 	let selectedIds: string[] = $state([])
@@ -96,7 +63,7 @@
 	let queue_count: Tweened<number> | undefined = $state(undefined)
 	let suspended_count: Tweened<number> | undefined = $state(undefined)
 
-	let jobKinds: string | undefined = $state(undefined)
+	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
 	let loading: boolean = $state(false)
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -147,7 +114,7 @@
 		if (resultError == '' && argError == '') {
 			filterTimeout && clearTimeout(filterTimeout)
 			filterTimeout = setTimeout(() => {
-				jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+				jobsLoader?.loadJobs(true)
 			}, 2000)
 		}
 	}
@@ -164,7 +131,7 @@
 		batchReRunOptions = { flow: {}, script: {} }
 		selectionMode = false
 		selectedWorkspace = undefined
-		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+		jobsLoader?.loadJobs(true)
 	}
 
 	async function loadUsernames(): Promise<void> {
@@ -297,7 +264,7 @@
 			forceCancel: forceCancel
 		})
 		selectedIds = []
-		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true, true)
+		jobsLoader?.loadJobs(true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
 		selectionMode = false
 	}
@@ -404,7 +371,7 @@
 
 		selectedIds = []
 		batchReRunOptions = { flow: {}, script: {} }
-		jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true, true)
+		jobsLoader?.loadJobs(true, true)
 		selectionMode = false
 	}
 
@@ -518,29 +485,10 @@
 </script>
 
 <JobsLoader
-	allowWildcards={filters.allow_wildcards}
-	allWorkspaces={filters.all_workspaces}
 	bind:jobs
-	user={filters.user}
-	folder={filters.folder}
-	worker={filters.worker}
-	label={filters.label}
-	concurrencyKey={filters.concurrency_key}
-	tag={filters.tag}
-	path={filters.path}
-	success={filters.success}
-	showSkipped={filters.show_skipped}
-	argFilter={filters.arg}
-	resultFilter={filters.result}
-	jobTriggerKind={filters.job_trigger_kind}
-	showSchedules={filters.show_schedules}
-	showFutureJobs={filters.show_future_jobs}
-	schedulePath={filters.schedule_path}
-	jobKindsCat={filters.job_kinds}
+	{filters}
 	computeMinAndMax={manualDatePicker?.computeMinMax}
-	bind:minTs={filters.min_ts}
-	bind:maxTs={filters.max_ts}
-	bind:jobKinds
+	{jobKinds}
 	bind:queue_count
 	bind:suspended_count
 	{autoRefresh}
@@ -549,10 +497,11 @@
 	bind:extendedJobs
 	{argError}
 	{resultError}
-	bind:perPage={filters.per_page}
 	bind:loading
 	bind:this={jobsLoader}
 	lookback={graphIsRunsChart ? 0 : lookback}
+	onSetPerPage={(p) => (filters.per_page = p)}
+	onSetMinMaxTs={(minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs))}
 />
 
 <ConfirmationModal
@@ -683,14 +632,14 @@
 								filters.min_ts = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+									jobsLoader?.loadJobs(true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								filters.min_ts = null
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+									jobsLoader?.loadJobs(true)
 								}, 1000)
 							}}
 						/>
@@ -719,14 +668,14 @@
 								filters.max_ts = new Date(detail).toISOString()
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+									jobsLoader?.loadJobs(true)
 								}, 1000)
 							}}
 							on:clear={async () => {
 								filters.max_ts = null
 								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
 								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+									jobsLoader?.loadJobs(true)
 								}, 1000)
 							}}
 						/>
@@ -855,7 +804,7 @@
 						filters.min_ts = zoom.min.toISOString()
 						filters.max_ts = zoom.max.toISOString()
 						manualDatePicker?.resetChoice()
-						jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
 						runsTable?.scrollToRun(ids)
@@ -870,7 +819,7 @@
 					onZoom={async (zoom) => {
 						filters.min_ts = zoom.min.toISOString()
 						filters.max_ts = zoom.max.toISOString()
-						jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+						jobsLoader?.loadJobs(true)
 					}}
 				/>
 			{/if}
@@ -955,7 +904,7 @@
 									<ManuelDatePicker
 										on:loadJobs={() => {
 											lastFetchWentToEnd = false
-											jobsLoader?.loadJobs(filters.min_ts, filters.max_ts, true)
+											jobsLoader?.loadJobs(true)
 										}}
 										bind:minTs={filters.min_ts}
 										bind:maxTs={filters.max_ts}

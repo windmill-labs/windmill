@@ -1,129 +1,5 @@
-<script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte'
-	import {
-		JobService,
-		type Job,
-		type CompletedJob,
-		type ExtendedJobs,
-		ConcurrencyGroupsService,
-		type ObscuredJob,
-		CancelablePromise,
-		CancelError,
-		type JobTriggerKind
-	} from '$lib/gen'
-
-	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
-
-	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
-	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
-
-	interface Props {
-		jobs: Job[] | undefined
-		user: string | null
-		label?: string | null
-		worker?: string | null
-		folder: string | null
-		path: string | null
-		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | null
-		showSchedules?: boolean
-		showFutureJobs?: boolean
-		argFilter: string | null
-		resultFilter?: string | null
-		jobTriggerKind?: JobTriggerKind | null
-		schedulePath?: string | null
-		jobKindsCat?: string | null
-		minTs: string | null
-		maxTs: string | null
-		jobKinds?: string
-		queue_count?: Tweened<number> | undefined
-		suspended_count?: Tweened<number> | undefined
-		autoRefresh?: boolean
-		completedJobs?: CompletedJob[] | undefined
-		externalJobs?: Job[] | undefined
-		concurrencyKey: string | null
-		tag: string | null
-		showSkipped?: boolean
-		extendedJobs?: ExtendedJobs | undefined
-		argError?: string
-		resultError?: string
-		loading?: boolean
-		refreshRate?: number
-		syncQueuedRunsCount?: boolean
-		allWorkspaces?: boolean
-		computeMinAndMax: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
-		lookback?: number
-		perPage: number
-		allowWildcards?: boolean
-	}
-
-	let {
-		jobs = $bindable(),
-		user,
-		label = null,
-		worker = null,
-		folder,
-		path,
-		success = undefined,
-		showSkipped = false,
-		showSchedules = true,
-		showFutureJobs = true,
-		argFilter,
-		resultFilter = undefined,
-		jobTriggerKind = null,
-		schedulePath = undefined,
-		jobKindsCat = null,
-		minTs = $bindable(),
-		maxTs = $bindable(),
-		jobKinds = $bindable(),
-		queue_count = $bindable(),
-		suspended_count = $bindable(),
-		autoRefresh = true,
-		completedJobs = $bindable(),
-		externalJobs = $bindable(),
-		concurrencyKey,
-		tag,
-		extendedJobs = $bindable(),
-		argError = '',
-		resultError = '',
-		loading = $bindable(),
-		refreshRate = 5000,
-		syncQueuedRunsCount = true,
-		allWorkspaces = false,
-		computeMinAndMax,
-		lookback = 0,
-		perPage = $bindable(),
-		allowWildcards = false
-	}: Props = $props()
-	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
-	let sync = true
-
-	function onParamChanges() {
-		resetJobs()
-		let promise = loadJobsIntern(true)
-		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
-			sendUserToast(
-				'Loading jobs is taking longer than expected...',
-				true,
-				perPage > 25
-					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
-					: []
-			)
-		})
-		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
-			if (e instanceof CancelError) {
-				return CancelablePromiseUtils.pure<void>(undefined)
-			}
-			return CancelablePromiseUtils.err(e)
-		})
-		return promise
-	}
-
-	function computeJobKinds(jobKindsCat: string | null): string {
-		if (jobKindsCat == null && jobKinds != null) {
-			return jobKinds
-		}
+<script module lang="ts">
+	export function computeJobKinds(jobKindsCat: string | null): string {
 		if (jobKindsCat == 'all') {
 			return ''
 		} else if (jobKindsCat == 'dependencies') {
@@ -152,6 +28,116 @@
 			]
 			return kinds.join(',')
 		}
+	}
+</script>
+
+<script lang="ts">
+	import { onDestroy, onMount, untrack } from 'svelte'
+	import {
+		JobService,
+		type Job,
+		type CompletedJob,
+		type ExtendedJobs,
+		ConcurrencyGroupsService,
+		type ObscuredJob,
+		CancelablePromise,
+		CancelError
+	} from '$lib/gen'
+
+	import { sendUserToast } from '$lib/toast'
+	import { workspaceStore } from '$lib/stores'
+
+	import { tweened, type Tweened } from 'svelte/motion'
+	import { subtractDaysFromDateString } from '$lib/utils'
+	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+	import type { RunsFilters } from './RunsFilter.svelte'
+
+	interface Props {
+		jobs: Job[] | undefined
+		filters: RunsFilters
+		jobKinds?: string
+		queue_count?: Tweened<number> | undefined
+		suspended_count?: Tweened<number> | undefined
+		autoRefresh?: boolean
+		completedJobs?: CompletedJob[] | undefined
+		externalJobs?: Job[] | undefined
+		extendedJobs?: ExtendedJobs | undefined
+		argError?: string
+		resultError?: string
+		loading?: boolean
+		refreshRate?: number
+		syncQueuedRunsCount?: boolean
+		computeMinAndMax: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
+		lookback?: number
+		onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
+		onSetPerPage?: (perPage: number) => void
+	}
+
+	let {
+		jobs = $bindable(),
+		filters,
+		jobKinds,
+		queue_count = $bindable(),
+		suspended_count = $bindable(),
+		autoRefresh = true,
+		completedJobs = $bindable(),
+		externalJobs = $bindable(),
+		extendedJobs = $bindable(),
+		argError = '',
+		resultError = '',
+		loading = $bindable(),
+		refreshRate = 5000,
+		syncQueuedRunsCount = true,
+		computeMinAndMax,
+		lookback = 0,
+		onSetMinMaxTs,
+		onSetPerPage
+	}: Props = $props()
+
+	let label = $derived(filters.label)
+	let worker = $derived(filters.worker)
+	let success = $derived(filters.success)
+	let showSkipped = $derived(filters.show_skipped)
+	let showSchedules = $derived(filters.show_schedules)
+	let showFutureJobs = $derived(filters.show_future_jobs)
+	let resultFilter = $derived(filters.result)
+	let jobTriggerKind = $derived(filters.job_trigger_kind)
+	let schedulePath = $derived(filters.schedule_path)
+	let jobKindsCat = $derived(filters.job_kinds)
+	let allWorkspaces = $derived(filters.all_workspaces)
+	let allowWildcards = $derived(filters.allow_wildcards)
+	let concurrencyKey = $derived(filters.concurrency_key) //
+	let tag = $derived(filters.tag)
+	let user = $derived(filters.user)
+	let folder = $derived(filters.folder)
+	let path = $derived(filters.path)
+	let argFilter = $derived(filters.arg)
+	let minTs = $derived(filters.min_ts)
+	let maxTs = $derived(filters.max_ts)
+	let perPage = $derived(filters.per_page)
+
+	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
+	let sync = true
+
+	function onParamChanges() {
+		resetJobs()
+		let promise = loadJobsIntern(true)
+		promise = CancelablePromiseUtils.onTimeout(promise, 4000, () => {
+			sendUserToast(
+				'Loading jobs is taking longer than expected...',
+				true,
+				perPage > 25 && onSetPerPage
+					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
+					: []
+			)
+		})
+		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
+			if (e instanceof CancelError) {
+				return CancelablePromiseUtils.pure<void>(undefined)
+			}
+			return CancelablePromiseUtils.err(e)
+		})
+		return promise
 	}
 
 	let loadingFetch = false
@@ -301,17 +287,8 @@
 		return promise
 	}
 
-	export async function loadJobs(
-		nMinTs: string | null,
-		nMaxTs: string | null,
-		reset: boolean,
-		shouldGetCount?: boolean
-	): Promise<void> {
-		minTs = nMinTs
-		maxTs = nMaxTs
-		if (reset) {
-			resetJobs()
-		}
+	export async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
+		if (reset) resetJobs()
 		await loadJobsIntern(shouldGetCount)
 	}
 
@@ -399,8 +376,7 @@
 
 	async function syncer() {
 		if (success == 'waiting') {
-			minTs = null
-			maxTs = null
+			onSetMinMaxTs?.(null, null)
 		}
 		if (loadingFetch) {
 			return
@@ -410,14 +386,11 @@
 				getCount()
 			}
 
-			if (computeMinAndMax) {
-				const ts = computeMinAndMax()
-				if (ts) {
-					minTs = ts.minTs
-					maxTs = ts.maxTs
-					if (maxTs != undefined) {
-						loadJobsIntern(false)
-					}
+			const ts = computeMinAndMax?.()
+			if (ts) {
+				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
+				if (maxTs != undefined) {
+					loadJobsIntern(false)
 				}
 			}
 
@@ -557,9 +530,6 @@
 		if (intervalId) {
 			clearInterval(intervalId)
 		}
-	})
-	$effect(() => {
-		jobKinds = computeJobKinds(jobKindsCat)
 	})
 	$effect(() => {
 		;[
