@@ -8,7 +8,7 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher } from 'svelte'
+	import { createEventDispatcher, untrack } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '../select/Select.svelte'
@@ -976,12 +976,10 @@
 							{`Filter by what kind of trigger started the run.`}
 						</span>
 						<Select
-							items={jobTriggerKinds
-								.map((value) => ({
-									label: triggerDisplayNamesMap[value],
-									value
-								}))
-								.filter((d) => d.value !== 'default_email')}
+							items={jobTriggerKinds.map((value) => ({
+								label: triggerDisplayNamesMap[value],
+								value
+							}))}
 							bind:value={() => jobTriggerKind ?? undefined, (v) => (jobTriggerKind = v ?? null)}
 							clearable
 						/>
