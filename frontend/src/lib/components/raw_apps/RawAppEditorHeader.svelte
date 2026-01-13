@@ -627,7 +627,12 @@
 					</Button>
 				</div>
 			{/snippet}
-			<AppEditorHeaderDeployInitialDraft {summary} {appPath} bind:pathError bind:newEditedPath />
+			<AppEditorHeaderDeployInitialDraft
+				bind:summary
+				bind:appPath
+				bind:pathError
+				bind:newEditedPath
+			/>
 		</DrawerContent>
 	</Drawer>
 {/if}
