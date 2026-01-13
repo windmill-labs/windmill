@@ -632,7 +632,7 @@
 <Drawer bind:open={saveDrawerOpen} size="800px">
 	<DrawerContent title="Deploy" on:close={() => closeSaveDrawer()}>
 		{#snippet actions()}
-			<div class="flex flex-row gap-4">
+			<div class="flex flex-row gap-2">
 				<Button
 					variant="default"
 					disabled={!savedApp || savedApp.draft_only}
@@ -675,6 +675,8 @@
 					</div>
 				</Button>
 				<Button
+					variant="accent"
+					unifiedSize="md"
 					startIcon={{ icon: Save }}
 					disabled={pathError != '' || customPathError != '' || app == undefined}
 					on:click={() => {
