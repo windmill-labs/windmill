@@ -192,6 +192,7 @@ mod workspaces_oss;
 mod mcp;
 #[cfg(all(feature = "mcp", feature = "private"))]
 mod mcp_oauth_ee;
+#[cfg(feature = "mcp")]
 mod mcp_oauth_oss;
 
 pub use apps::EditApp;
