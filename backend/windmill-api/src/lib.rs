@@ -106,6 +106,7 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
+mod npm_proxy;
 #[cfg(feature = "http_trigger")]
 mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
@@ -491,6 +492,7 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/npm_proxy", npm_proxy::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
