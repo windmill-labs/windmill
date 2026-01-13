@@ -86,6 +86,50 @@
 
 	let pathToEdit = $state<string | undefined>(undefined)
 
+	// Helper to find a unique path by appending numbers if needed
+	function getUniquePath(basePath: string): string {
+		const existingPaths = new Set([...Object.keys(files ?? {}), pendingNewFilePath].filter(Boolean))
+
+		if (!existingPaths.has(basePath)) {
+			return basePath
+		}
+
+		// Split path into name and extension (for files) or handle folders
+		const isFolder = basePath.endsWith('/')
+		let pathWithoutTrailing = isFolder ? basePath.slice(0, -1) : basePath
+		const lastSlash = pathWithoutTrailing.lastIndexOf('/')
+		const parentPath = pathWithoutTrailing.substring(0, lastSlash + 1)
+		const fileName = pathWithoutTrailing.substring(lastSlash + 1)
+
+		let nameWithoutExt: string
+		let ext: string
+
+		if (isFolder) {
+			nameWithoutExt = fileName
+			ext = ''
+		} else {
+			const dotIndex = fileName.lastIndexOf('.')
+			if (dotIndex > 0) {
+				nameWithoutExt = fileName.substring(0, dotIndex)
+				ext = fileName.substring(dotIndex)
+			} else {
+				nameWithoutExt = fileName
+				ext = ''
+			}
+		}
+
+		// Try incrementing numbers until we find a unique path
+		let counter = 1
+		let candidatePath: string
+		do {
+			const newName = `${nameWithoutExt} (${counter})${ext}`
+			candidatePath = isFolder ? `${parentPath}${newName}/` : `${parentPath}${newName}`
+			counter++
+		} while (existingPaths.has(candidatePath))
+
+		return candidatePath
+	}
+
 	function handleFileClick(path: string) {
 		console.log('File clicked:', path)
 		selectedDocument = path
@@ -96,7 +140,8 @@
 		console.log('Add file to:', folderPath)
 		// Ensure folderPath ends with /
 		const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
-		const newPath = normalizedFolder + 'newfile.txt'
+		const basePath = normalizedFolder + 'newfile.txt'
+		const newPath = getUniquePath(basePath)
 		// Don't update files yet - just mark as pending and enter edit mode
 		pendingNewFilePath = newPath
 		pathToEdit = newPath
@@ -188,7 +233,8 @@
 		console.log('Add folder to:', folderPath)
 		// Ensure folderPath ends with /
 		const normalizedFolder = folderPath.endsWith('/') ? folderPath : folderPath + '/'
-		const newPath = normalizedFolder + 'newfolder/'
+		const basePath = normalizedFolder + 'newfolder/'
+		const newPath = getUniquePath(basePath)
 		// Don't update files yet - just mark as pending and enter edit mode
 		pendingNewFilePath = newPath
 		pathToEdit = newPath
@@ -196,56 +242,58 @@
 
 	function handleAddRootFile() {
 		console.log('Add file to root or selected folder')
-		let newPath: string
+		let basePath: string
 
 		if (selectedDocument) {
 			// If a folder is selected, add the file inside it
 			if (selectedDocument.endsWith('/')) {
-				newPath = selectedDocument + 'newfile.txt'
+				basePath = selectedDocument + 'newfile.txt'
 			} else {
 				// If a file is selected, add the new file in the same folder
 				const pathParts = selectedDocument.split('/').filter(Boolean)
 				if (pathParts.length > 1) {
 					// File is in a subfolder
 					const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
-					newPath = parentPath + 'newfile.txt'
+					basePath = parentPath + 'newfile.txt'
 				} else {
 					// File is at root
-					newPath = '/newfile.txt'
+					basePath = '/newfile.txt'
 				}
 			}
 		} else {
-			newPath = '/newfile.txt'
+			basePath = '/newfile.txt'
 		}
 
+		const newPath = getUniquePath(basePath)
 		// Don't update files yet - just mark as pending and enter edit mode
 		pendingNewFilePath = newPath
 		pathToEdit = newPath
 	}
 
 	function handleAddRootFolder() {
-		let newPath: string
+		let basePath: string
 
 		if (selectedDocument) {
 			// If a folder is selected, add the folder inside it
 			if (selectedDocument.endsWith('/')) {
-				newPath = selectedDocument + 'newfolder/'
+				basePath = selectedDocument + 'newfolder/'
 			} else {
 				// If a file is selected, add the new folder in the same folder
 				const pathParts = selectedDocument.split('/').filter(Boolean)
 				if (pathParts.length > 1) {
 					// File is in a subfolder
 					const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
-					newPath = parentPath + 'newfolder/'
+					basePath = parentPath + 'newfolder/'
 				} else {
 					// File is at root
-					newPath = '/newfolder/'
+					basePath = '/newfolder/'
 				}
 			}
 		} else {
-			newPath = '/newfolder/'
+			basePath = '/newfolder/'
 		}
 
+		const newPath = getUniquePath(basePath)
 		// Don't update files yet - just mark as pending and enter edit mode
 		pendingNewFilePath = newPath
 		pathToEdit = newPath
