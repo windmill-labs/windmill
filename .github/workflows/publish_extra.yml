@@ -1,0 +1,124 @@
+env:
+  REGISTRY: ghcr.io
+  ECR_REGISTRY: 976079455550.dkr.ecr.us-east-1.amazonaws.com
+  IMAGE_NAME: ${{ github.repository }}-extra
+
+name: Publish windmill-extra
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions: write-all
+
+jobs:
+  sleep:
+    runs-on: ubicloud
+    steps:
+      - name: Sleep for 1200 seconds waiting for pypi to update index
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: sleep 1200
+        shell: bash
+
+  # Build and test the image before publishing
+  test_extra:
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build test image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/DockerfileExtra
+          load: true
+          tags: windmill-extra:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Start container
+        run: |
+          docker run -d --name windmill-extra-test \
+            -p 3001:3001 -p 3002:3002 -p 5679:5679 \
+            -e ENABLE_LSP=true \
+            -e ENABLE_MULTIPLAYER=true \
+            -e ENABLE_DEBUGGER=true \
+            -e REQUIRE_SIGNED_DEBUG_REQUESTS=false \
+            windmill-extra:test
+
+          # Wait for container to start
+          echo "Waiting for container to initialize..."
+          sleep 10
+
+          # Show container logs for debugging
+          docker logs windmill-extra-test
+
+      - name: Run integration tests
+        run: |
+          bun run docker/test_windmill_extra.ts
+
+      - name: Show container logs on failure
+        if: failure()
+        run: |
+          echo "=== Container logs ==="
+          docker logs windmill-extra-test
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop windmill-extra-test || true
+          docker rm windmill-extra-test || true
+
+  publish_extra:
+    needs: [sleep, test_extra]
+    runs-on: ubicloud-standard-8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: depot/setup-action@v1
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push publicly
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          file: ./docker/DockerfileExtra
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ steps.meta.outputs.tags }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.licenses=AGPLv3

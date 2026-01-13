@@ -83,6 +83,7 @@ mod capture;
 mod concurrency_groups;
 mod configs;
 mod db;
+pub mod debug;
 mod drafts;
 #[cfg(feature = "private")]
 pub mod ee;
@@ -295,6 +296,9 @@ pub async fn run_server(
     ));
     let argon2 = Arc::new(Argon2::default());
 
+    // Initialize debug signing key for debugger authentication
+    debug::init_debug_signing_key().await;
+
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()
         .map(|x| x == "true")
@@ -476,6 +480,7 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest("/debug", debug::workspaced_service())
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -539,6 +544,7 @@ pub async fn run_server(
                 )
                 .nest("/srch/index", indexer_oss::global_service())
                 .nest("/oidc", oidc_oss::global_service())
+                .nest("/debug", debug::global_service())
                 .nest(
                     "/saml",
                     saml_oss::global_service().layer(Extension(Arc::clone(&sp_extension))),
