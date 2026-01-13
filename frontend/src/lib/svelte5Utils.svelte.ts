@@ -200,11 +200,14 @@ export function useSearchParams<S extends z.ZodType>(
 	let keys = Object.keys((schema as any).shape ?? {})
 	let obj = { ...params }
 	for (const key of keys) {
-		let derivedVal = $derived(params[key])
+		// Somehow using $derived does not trigger reactivity sometimes ...
+		// (e.g: filters.arg in RunsPage.svelte updates in the URL but does not trigger reactivity)
+		let derivedVal = $state(params[key])
 		Object.defineProperty(obj, key, {
 			get: () => derivedVal,
 			set: (v) => {
 				params[key] = v
+				derivedVal = v
 			}
 		})
 	}
