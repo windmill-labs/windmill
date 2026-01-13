@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.605.0](https://github.com/windmill-labs/windmill/compare/v1.604.0...v1.605.0) (2026-01-13)
+
+
+### Features
+
+* enable debouncing for sync jobs ([#7551](https://github.com/windmill-labs/windmill/issues/7551)) ([3135a8b](https://github.com/windmill-labs/windmill/commit/3135a8b0957889f484bf16499e24c9168c8caba8))
+
+
+### Bug Fixes
+
+* **frontend:** update raw app editor to brand guidelines ([#7545](https://github.com/windmill-labs/windmill/issues/7545)) ([c210853](https://github.com/windmill-labs/windmill/commit/c2108530335e74c47f1acb071ae7abac93d4dac6))
+
+## [1.604.0](https://github.com/windmill-labs/windmill/compare/v1.603.4...v1.604.0) (2026-01-13)
+
+
+### Features
+
+* debuggers for python and bun v0 ([#7546](https://github.com/windmill-labs/windmill/issues/7546)) ([4451a37](https://github.com/windmill-labs/windmill/commit/4451a379990acbf80c160861c164667302e0ee08))
+
+
+### Bug Fixes
+
+* use write-all permissions for publish_extra workflow ([0db87e4](https://github.com/windmill-labs/windmill/commit/0db87e4036d6baa26eff4d109f6fb4a2584d0a16))
+
+## [1.603.4](https://github.com/windmill-labs/windmill/compare/v1.603.3...v1.603.4) (2026-01-12)
+
+
+### Bug Fixes
+
+* tighten preview path ([#7541](https://github.com/windmill-labs/windmill/issues/7541)) ([dca7e16](https://github.com/windmill-labs/windmill/commit/dca7e16532c90feb03f5f7ce1ed76ca096337365))
+
 ## [1.603.3](https://github.com/windmill-labs/windmill/compare/v1.603.2...v1.603.3) (2026-01-11)
 
 
