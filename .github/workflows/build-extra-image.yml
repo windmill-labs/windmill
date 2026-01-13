@@ -16,6 +16,13 @@ on:
 permissions: write-all
 
 jobs:
+  sleep:
+    runs-on: ubicloud
+    steps:
+      - name: Sleep for 900 seconds waiting for pypi to update index
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: sleep 900
+        shell: bash
   build_extra:
     runs-on: ubicloud
     steps:
