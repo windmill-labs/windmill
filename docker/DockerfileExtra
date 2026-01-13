@@ -1,0 +1,155 @@
+# DockerfileExtra - Combined Windmill Extra Services
+#
+# This image combines three optional Windmill services:
+# - LSP (Language Server Protocol) - Port 3001
+# - Multiplayer (y-websocket) - Port 3002
+# - Debugger (DAP WebSocket) - Port 5679
+#
+# Each service can be enabled/disabled via environment variables:
+# - ENABLE_LSP=true (default: true)
+# - ENABLE_MULTIPLAYER=true (default: true)
+# - ENABLE_DEBUGGER=true (default: true)
+#
+# Build:
+#   docker build -f docker/DockerfileExtra -t windmill-extra .
+#
+# Run:
+#   docker run -p 3001:3001 -p 3002:3002 -p 5679:5679 windmill-extra
+
+# Stage 1: Get nsjail and windmill from the official windmill image
+FROM ghcr.io/windmill-labs/windmill-ee-nsjail:main AS windmill-source
+
+# Stage 2: Build combined image
+FROM python:3.12-slim AS base
+
+# Install Node.js 22 and unzip (needed for Bun)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    gnupg \
+    unzip \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
+ENV PATH="/root/.bun/bin:${PATH}"
+
+# Install system dependencies needed by all services
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    shellcheck \
+    wget \
+    git \
+    libprotobuf-dev \
+    libnl-route-3-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Go for gopls (LSP)
+RUN set -eux; \
+    arch="$(dpkg --print-architecture)"; arch="${arch##*-}"; \
+    case "$arch" in \
+    'amd64') targz='go1.25.0.linux-amd64.tar.gz' ;; \
+    'arm64') targz='go1.25.0.linux-arm64.tar.gz' ;; \
+    'armhf') targz='go1.25.0.linux-armv6l.tar.gz' ;; \
+    *) echo >&2 "error: unsupported architecture '$arch'"; exit 1 ;; \
+    esac; \
+    wget "https://golang.org/dl/$targz" -nv && tar -C /usr/local -xzf "$targz" && rm "$targz"
+
+ENV PATH="${PATH}:/usr/local/go/bin"
+ENV GOBIN=/usr/local/go/bin
+
+# Install gopls for Go LSP
+RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
+
+# Copy Deno for Deno LSP
+COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
+
+# Copy nsjail and windmill from windmill image (for debugger)
+COPY --from=windmill-source /bin/nsjail /bin/nsjail
+COPY --from=windmill-source /usr/src/app/windmill /usr/local/bin/windmill
+
+# ============================================================================
+# LSP Setup
+# ============================================================================
+
+ENV PIPENV_VENV_IN_PROJECT=1
+ENV XDG_CACHE_HOME=/pyls/.cache
+
+RUN pip install pipenv
+
+# Install Node-based language servers
+# Note: y-websocket@1 is required for the server binary (removed in v3)
+RUN npm install -g diagnostic-languageserver pyright y-websocket@1
+
+# Install Python packages for LSP
+RUN pip3 install tornado python-lsp-jsonrpc ruff
+
+# Setup LSP working directory
+WORKDIR /pyls
+COPY lsp/Pipfile .
+RUN pip install Cython && pipenv install
+COPY lsp/pyls_launcher.py .
+
+# Setup Monaco temp directory for LSP
+RUN mkdir -p /tmp/monaco && chmod -R 777 /tmp/monaco
+RUN cd /tmp/monaco && npm install --save-dev windmill-client
+
+RUN mkdir -p /pyls/.cache
+
+# ============================================================================
+# Debugger Setup
+# ============================================================================
+
+WORKDIR /debugger
+
+# Copy debugger files
+COPY debugger/dap_debug_service.ts .
+COPY debugger/dap_websocket_server_bun.ts .
+COPY debugger/dap_websocket_server.py .
+
+# Install Python debugger dependencies
+RUN pip3 install --break-system-packages websockets debugpy
+
+# ============================================================================
+# Entrypoint Setup
+# ============================================================================
+
+WORKDIR /app
+
+# Copy entrypoint script
+COPY docker/entrypoint-extra.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Set permissions
+RUN chmod -R a+rX /usr/local && \
+    chmod -R a+rX /pyls && \
+    chmod -R a+rX /debugger
+
+# Expose all service ports
+EXPOSE 3001 3002 5679
+
+# Environment variables for service control
+ENV ENABLE_LSP=true
+ENV ENABLE_MULTIPLAYER=true
+ENV ENABLE_DEBUGGER=true
+
+# LSP port
+ENV LSP_PORT=3001
+
+# Multiplayer port and host
+ENV MULTIPLAYER_PORT=3002
+ENV HOST=0.0.0.0
+
+# Debugger port
+ENV DEBUGGER_PORT=5679
+
+# Windmill base URL for debugger token verification
+ENV WINDMILL_BASE_URL=""
+ENV BASE_INTERNAL_URL=""
+
+ENTRYPOINT ["/entrypoint.sh"]

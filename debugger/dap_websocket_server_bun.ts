@@ -2400,60 +2400,63 @@ for (let i = 0; i < args.length; i++) {
 	}
 }
 
-if (windmillPath) {
-	logger.info(`Windmill binary path: ${windmillPath}`)
-}
-
-// Start the server
-logger.info(`Starting DAP WebSocket server on ws://${host}:${port}`)
-
-const server = Bun.serve({
-	hostname: host,
-	port,
-	fetch(req, server) {
-		// Upgrade to WebSocket
-		if (server.upgrade(req)) {
-			return undefined as unknown as Response
-		}
-		return new Response('DAP WebSocket Server for Bun/TypeScript', { status: 200 })
-	},
-	websocket: {
-		open(ws) {
-			logger.info('New client connected')
-			// Create a wrapper that implements the WebSocket interface expected by DebugSession
-			const wsWrapper: WebSocket = {
-				send: (data: string) => ws.send(data),
-				close: () => ws.close(),
-				readyState: WebSocket.OPEN,
-				CONNECTING: WebSocket.CONNECTING,
-				OPEN: WebSocket.OPEN,
-				CLOSING: WebSocket.CLOSING,
-				CLOSED: WebSocket.CLOSED
-			} as unknown as WebSocket
-
-			const session = new DebugSession(wsWrapper, { windmillPath })
-			sessions.set(ws, session)
-		},
-		async message(ws, message) {
-			const session = sessions.get(ws)
-			if (!session) return
-
-			try {
-				const data = JSON.parse(message as string) as DAPMessage
-				logger.debug('Received:', JSON.stringify(data))
-
-				if (data.type === 'request') {
-					await session.handleRequest(data)
-				}
-			} catch (error) {
-				logger.error('Error handling message:', error)
-			}
-		},
-		close(ws) {
-			logger.info('Client disconnected')
-			sessions.delete(ws)
-		}
+// Only start the standalone server when run directly (not when imported)
+if (import.meta.main) {
+	if (windmillPath) {
+		logger.info(`Windmill binary path: ${windmillPath}`)
 	}
-})
 
-logger.info(`Server started on ${server.url}`)
+	// Start the server
+	logger.info(`Starting DAP WebSocket server on ws://${host}:${port}`)
+
+	const server = Bun.serve({
+		hostname: host,
+		port,
+		fetch(req, server) {
+			// Upgrade to WebSocket
+			if (server.upgrade(req)) {
+				return undefined as unknown as Response
+			}
+			return new Response('DAP WebSocket Server for Bun/TypeScript', { status: 200 })
+		},
+		websocket: {
+			open(ws) {
+				logger.info('New client connected')
+				// Create a wrapper that implements the WebSocket interface expected by DebugSession
+				const wsWrapper: WebSocket = {
+					send: (data: string) => ws.send(data),
+					close: () => ws.close(),
+					readyState: WebSocket.OPEN,
+					CONNECTING: WebSocket.CONNECTING,
+					OPEN: WebSocket.OPEN,
+					CLOSING: WebSocket.CLOSING,
+					CLOSED: WebSocket.CLOSED
+				} as unknown as WebSocket
+
+				const session = new DebugSession(wsWrapper, { windmillPath })
+				sessions.set(ws, session)
+			},
+			async message(ws, message) {
+				const session = sessions.get(ws)
+				if (!session) return
+
+				try {
+					const data = JSON.parse(message as string) as DAPMessage
+					logger.debug('Received:', JSON.stringify(data))
+
+					if (data.type === 'request') {
+						await session.handleRequest(data)
+					}
+				} catch (error) {
+					logger.error('Error handling message:', error)
+				}
+			},
+			close(ws) {
+				logger.info('Client disconnected')
+				sessions.delete(ws)
+			}
+		}
+	})
+
+	logger.info(`Server started on ${server.url}`)
+}

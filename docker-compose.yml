@@ -168,23 +168,26 @@ services:
       - worker_logs:/tmp/windmill/logs
     logging: *default-logging
 
-  lsp:
-    image: ghcr.io/windmill-labs/windmill-lsp:latest
+  # Combined extra services: LSP, Multiplayer, and Debugger
+  # Each service can be enabled/disabled via environment variables:
+  #   - ENABLE_LSP=true (default) - Language Server Protocol for code intelligence
+  #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
+  #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
+  windmill_extra:
+    image: ghcr.io/windmill-labs/windmill-extra:latest
     pull_policy: always
     restart: unless-stopped
     expose:
-      - 3001
+      - 3001  # LSP
+      - 3002  # Multiplayer
+      - 5679  # Debugger
+    environment:
+      - ENABLE_LSP=true
+      - ENABLE_MULTIPLAYER=false  # Set to true to enable multiplayer (Enterprise Edition)
+      - ENABLE_DEBUGGER=false     # Set to true to enable debugger
+      - BASE_INTERNAL_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache
-    logging: *default-logging
-
-  multiplayer:
-    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
-    deploy:
-      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
-    restart: unless-stopped
-    expose:
-      - 3002
     logging: *default-logging
 
   caddy:
