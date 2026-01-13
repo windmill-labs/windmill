@@ -25,7 +25,7 @@
 	onclick={onSelect}
 >
 	<Badge color="indigo" class={isSelected ? 'bg-surface-tertiary' : ''}>{id}</Badge>
-	<span class="text-xs truncate font-normal">{runnable?.name}</span>
+	<span class="text-xs truncate font-normal pr-6">{runnable?.name}</span>
 	<DropdownV2
 		items={[
 			{

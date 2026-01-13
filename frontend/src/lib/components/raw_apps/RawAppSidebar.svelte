@@ -360,9 +360,10 @@
 					unifiedSize="xs"
 					variant="subtle"
 					on:click={onManualSnapshot}
-					btnClasses="px-1"
+					btnClasses="px-1 gap-0.5"
 					title="Create a new snapshot"
 				>
+					<Plus size={12} />
 					<Camera size={12} />
 				</Button>
 			</div>

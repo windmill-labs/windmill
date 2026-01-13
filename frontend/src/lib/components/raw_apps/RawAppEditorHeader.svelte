@@ -8,10 +8,10 @@
 	import {
 		Bug,
 		DiffIcon,
+		EllipsisVertical,
 		FileJson,
 		FileUp,
 		History,
-		MoreVertical,
 		Pen,
 		Save,
 		WandSparkles
@@ -48,7 +48,7 @@
 	import { aiChatManager } from '../copilot/chat/AIChatManager.svelte'
 	import { AIBtnClasses } from '../copilot/chat/AIButtonStyle'
 	import type { RawAppData } from './dataTableRefUtils'
-	
+
 	// async function hash(message) {
 	// 	try {
 	// 		const msgUint8 = new TextEncoder().encode(message) // encode as (utf-8) Uint8Array
@@ -781,11 +781,13 @@
 	<div class="flex flex-row gap-2 justify-end items-center overflow-visible">
 		<DropdownV2 items={moreItems} class="h-auto">
 			{#snippet buttonReplacement()}
-				<Button nonCaptureEvent size="xs" color="light">
-					<div class="flex flex-row items-center">
-						<MoreVertical size={14} />
-					</div>
-				</Button>
+				<Button
+					nonCaptureEvent
+					unifiedSize="md"
+					variant="subtle"
+					startIcon={{ icon: EllipsisVertical }}
+					iconOnly
+				></Button>
 			{/snippet}
 		</DropdownV2>
 
@@ -795,8 +797,8 @@
 					jobsDrawerOpen = true
 				}}
 				color="light"
-				size="xs"
-				variant="border"
+				unifiedSize="md"
+				variant="default"
 				btnClasses="relative"
 			>
 				<div class="flex flex-row gap-1 items-center">
@@ -811,8 +813,7 @@
 		</div>
 		<AppExportButton bind:this={appExport} />
 		<Button
-			unifiedSized="sm"
-			color="light"
+			unifiedSize="md"
 			variant="default"
 			onClick={() => aiChatManager.toggleOpen()}
 			startIcon={{ icon: WandSparkles }}
@@ -825,7 +826,8 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={() => saveDraft()}
-			size="xs"
+			unifiedSize="md"
+			variant="default"
 			disabled={!newApp && !savedApp}
 			shortCut={{ key: 'S' }}
 		>
@@ -835,7 +837,8 @@
 			loading={loading.save}
 			startIcon={{ icon: Save }}
 			on:click={save}
-			size="xs"
+			unifiedSize="md"
+			variant="accent"
 			dropdownItems={appPath != ''
 				? () => [
 						{
