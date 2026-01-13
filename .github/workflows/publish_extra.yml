@@ -50,10 +50,11 @@ jobs:
       - name: Start container
         run: |
           docker run -d --name windmill-extra-test \
-            -p 3001:3001 -p 3002:3002 -p 5679:5679 \
+            -p 3001:3001 -p 3002:3002 -p 3003:3003 \
             -e ENABLE_LSP=true \
             -e ENABLE_MULTIPLAYER=true \
             -e ENABLE_DEBUGGER=true \
+            -e DEBUGGER_PORT=3003 \
             -e REQUIRE_SIGNED_DEBUG_REQUESTS=false \
             windmill-extra:test
 

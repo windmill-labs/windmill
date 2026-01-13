@@ -64,11 +64,11 @@ fi
 
 # Start Debugger service
 if [ "${ENABLE_DEBUGGER:-true}" = "true" ]; then
-    echo "[entrypoint] Starting Debugger on port ${DEBUGGER_PORT:-5679}..."
+    echo "[entrypoint] Starting Debugger on port ${DEBUGGER_PORT:-3003}..."
     cd /debugger
 
     # Build debugger arguments
-    DEBUGGER_ARGS="--host ${HOST:-0.0.0.0} --port ${DEBUGGER_PORT:-5679}"
+    DEBUGGER_ARGS="--host ${HOST:-0.0.0.0} --port ${DEBUGGER_PORT:-3003}"
     DEBUGGER_ARGS="$DEBUGGER_ARGS --windmill /usr/local/bin/windmill"
 
     # Enable nsjail if requested

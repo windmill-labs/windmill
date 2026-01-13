@@ -180,11 +180,12 @@ services:
     expose:
       - 3001  # LSP
       - 3002  # Multiplayer
-      - 5679  # Debugger
+      - 3003  # Debugger
     environment:
       - ENABLE_LSP=true
       - ENABLE_MULTIPLAYER=false  # Set to true to enable multiplayer (Enterprise Edition)
       - ENABLE_DEBUGGER=true      # Set to true to enable debugger
+      - DEBUGGER_PORT=3003        # Debugger service port
       - ENABLE_NSJAIL=false       # Set to true for nsjail sandboxing (requires privileged: true)
       - REQUIRE_SIGNED_DEBUG_REQUESTS=false  # Set to true to require JWT tokens for debug sessions
       - WINDMILL_BASE_URL=http://windmill_server:8000

@@ -21,7 +21,7 @@
 
 import { spawn } from 'bun'
 
-const SERVICE_URL = 'ws://localhost:5679'
+const SERVICE_URL = 'ws://localhost:3003'
 const TEST_NSJAIL = process.argv.includes('--nsjail')
 const TEST_AUTOINSTALL = process.argv.includes('--test-autoinstall')
 
@@ -810,7 +810,7 @@ async function testHealthEndpoint(): Promise<boolean> {
 	console.log('\n=== Testing Health Endpoint ===')
 
 	try {
-		const response = await fetch(`http://localhost:5679/health`)
+		const response = await fetch(`http://localhost:3003/health`)
 		const data = await response.json()
 
 		console.log(`  Health response: ${JSON.stringify(data)}`)
