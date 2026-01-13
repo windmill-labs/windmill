@@ -213,7 +213,7 @@ async function getPublicKey(): Promise<CryptoKey | null> {
 			}
 
 			// Decode the public key from base64url
-			const publicKeyBytes = Uint8Array.from(atob(jwk.x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+			const publicKeyBytes = base64urlDecode(jwk.x)
 
 			// Import as Ed25519 public key
 			const key = await crypto.subtle.importKey(
