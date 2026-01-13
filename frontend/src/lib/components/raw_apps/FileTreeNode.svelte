@@ -27,6 +27,7 @@
 	import HtmlIcon from '../icons/HtmlIcon.svelte'
 	import MarkdownIcon from '../icons/MarkdownIcon.svelte'
 	import YamlIcon from '../icons/YamlIcon.svelte'
+	import { tick } from 'svelte'
 
 	interface TreeNode {
 		name: string
@@ -42,9 +43,10 @@
 		onAddFolder?: (folderPath: string) => void
 		onRename?: (oldPath: string, newName: string) => void
 		onDelete?: (path: string) => void
+		onRequestEdit?: (path: string) => void
+		onCancelEdit?: () => void
 		selectedPath?: string
-		pathToRename?: string
-		pathToExpand?: string
+		pathToEdit?: string
 		noEdit?: boolean
 		level?: number
 	}
@@ -56,25 +58,32 @@
 		onAddFolder,
 		onRename,
 		onDelete,
+		onRequestEdit,
+		onCancelEdit,
 		selectedPath,
-		pathToRename,
-		pathToExpand,
+		pathToEdit,
 		noEdit = false,
 		level = 0
 	}: Props = $props()
 
-	let expanded = $state(level === 0) // Root folders start expanded
+	let userExpanded = $state<boolean | null>(null) // null = not set by user
 	let isHovered = $state(false)
-	let isEditing = $state(false)
 	let editValue = $state(node.name)
 	let textInputElement: TextInput | undefined = $state()
 	let dropdownOpen = $state(false)
 
 	const isSelected = $derived(selectedPath === node.path)
+	const isEditing = $derived(pathToEdit === node.path)
+	const expanded = $derived(
+		userExpanded !== null
+			? userExpanded // User preference takes priority
+			: level === 0 || // Default: root expanded
+					(pathToEdit && pathToEdit.startsWith(node.path + '/')) // Auto-expand for editing nested paths
+	)
 
 	function toggleExpanded() {
 		if (node.isFolder) {
-			expanded = !expanded
+			userExpanded = !expanded
 		}
 	}
 
@@ -90,8 +99,7 @@
 
 	function handleEdit(e: MouseEvent) {
 		e.stopPropagation()
-		isEditing = true
-		editValue = node.name
+		onRequestEdit?.(node.path)
 	}
 
 	function handleDelete(e: MouseEvent) {
@@ -100,58 +108,38 @@
 	}
 
 	function finishEdit() {
+		console.log('dbg finishEdit', isEditing, editValue, node.name)
 		if (isEditing && editValue.trim() && editValue !== node.name) {
 			onRename?.(node.path, editValue.trim())
 		}
-		isEditing = false
+		onCancelEdit?.()
 	}
 
 	function handleInputKeydown(e: KeyboardEvent) {
 		if (e.key === 'Enter') {
 			finishEdit()
 		} else if (e.key === 'Escape') {
-			isEditing = false
-			editValue = node.name
+			editValue = node.name // Reset to original
+			onCancelEdit?.()
 		}
 	}
 
-	function handleInputBlur() {
+	function handleInputBlur(e: FocusEvent) {
+		console.log('dbg input blur', e)
+		return
 		finishEdit()
 	}
 
+	// Single effect for DOM operations only
 	$effect(() => {
 		if (isEditing && textInputElement) {
-			textInputElement.focus()
-			textInputElement.select()
-		}
-	})
-
-	// Automatically enter edit mode for newly created files
-	$effect(() => {
-		if (pathToRename === node.path && !isEditing) {
-			isEditing = true
+			// Reset edit value when entering edit mode
 			editValue = node.name
-			// If this is a folder, expand it
-			if (node.isFolder) {
-				expanded = true
-			}
-		}
-	})
-
-	// Expand parent folders when a child needs to be renamed
-	$effect(() => {
-		if (pathToRename && node.isFolder && pathToRename.startsWith(node.path + '/')) {
-			expanded = true
-		}
-	})
-
-	// Expand folder when pathToExpand matches this node or a parent of pathToExpand
-	$effect(() => {
-		if (pathToExpand && node.isFolder) {
-			// Expand if this folder is the target or an ancestor of the target
-			if (node.path === pathToExpand || pathToExpand.startsWith(node.path + '/')) {
-				expanded = true
-			}
+			// Focus and select input (DOM side effects)
+			tick().then(() => {
+				textInputElement?.focus()
+				textInputElement?.select()
+			})
 		}
 	})
 
@@ -256,7 +244,7 @@
 					bind:value={editValue}
 					inputProps={{
 						onkeydown: handleInputKeydown,
-						onblur: handleInputBlur,
+						onblur: (e) => handleInputBlur(e),
 						type: 'text'
 					}}
 					size="xs"
@@ -336,9 +324,10 @@
 				{onAddFolder}
 				{onRename}
 				{onDelete}
+				{onRequestEdit}
+				{onCancelEdit}
 				{selectedPath}
-				{pathToRename}
-				{pathToExpand}
+				{pathToEdit}
 				level={level + 1}
 			/>
 		{/each}

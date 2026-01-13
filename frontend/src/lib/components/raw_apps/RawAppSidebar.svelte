@@ -13,6 +13,7 @@
 	import RawAppDataTableList from './RawAppDataTableList.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import RawAppDataTableDrawer from './RawAppDataTableDrawer.svelte'
+	import { tick } from 'svelte'
 
 	interface Props {
 		runnables: Record<string, Runnable>
@@ -76,8 +77,7 @@
 
 	const fileTree = $derived(buildFileTree(Object.keys(files ?? {})))
 
-	let pathToRename = $state<string | undefined>(undefined)
-	let pathToExpand = $state<string | undefined>(undefined)
+	let pathToEdit = $state<string | undefined>(undefined)
 
 	function handleFileClick(path: string) {
 		console.log('File clicked:', path)
@@ -94,8 +94,9 @@
 			const newPath = normalizedFolder + 'newfile.txt'
 			nfiles[newPath] = ''
 			files = nfiles
-			pathToRename = newPath
-			pathToExpand = normalizedFolder
+			tick().then(() => {
+				pathToEdit = newPath
+			})
 		}
 	}
 
@@ -148,7 +149,7 @@
 			}
 
 			files = nfiles
-			pathToRename = undefined
+			pathToEdit = undefined
 		}
 	}
 
@@ -161,8 +162,7 @@
 			const newPath = normalizedFolder + 'newfolder/'
 			nfiles[newPath] = ''
 			files = nfiles
-			pathToRename = newPath
-			pathToExpand = normalizedFolder
+			pathToEdit = newPath
 		}
 	}
 
@@ -171,13 +171,11 @@
 		if (files) {
 			const nfiles = { ...files }
 			let newPath: string
-			let targetFolder: string | undefined
 
 			if (selectedDocument) {
 				// If a folder is selected, add the file inside it
 				if (selectedDocument.endsWith('/')) {
 					newPath = selectedDocument + 'newfile.txt'
-					targetFolder = selectedDocument
 				} else {
 					// If a file is selected, add the new file in the same folder
 					const pathParts = selectedDocument.split('/').filter(Boolean)
@@ -185,7 +183,6 @@
 						// File is in a subfolder
 						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
 						newPath = parentPath + 'newfile.txt'
-						targetFolder = parentPath
 					} else {
 						// File is at root
 						newPath = '/newfile.txt'
@@ -197,10 +194,10 @@
 
 			nfiles[newPath] = ''
 			files = nfiles
-			pathToRename = newPath
-			if (targetFolder) {
-				pathToExpand = targetFolder
-			}
+			console.log('dbg add root file', newPath)
+			tick().then(() => {
+				pathToEdit = newPath
+			})
 		}
 	}
 
@@ -208,13 +205,11 @@
 		if (files) {
 			const nfiles = { ...files }
 			let newPath: string
-			let targetFolder: string | undefined
 
 			if (selectedDocument) {
 				// If a folder is selected, add the folder inside it
 				if (selectedDocument.endsWith('/')) {
 					newPath = selectedDocument + 'newfolder/'
-					targetFolder = selectedDocument
 				} else {
 					// If a file is selected, add the new folder in the same folder
 					const pathParts = selectedDocument.split('/').filter(Boolean)
@@ -222,7 +217,6 @@
 						// File is in a subfolder
 						const parentPath = '/' + pathParts.slice(0, -1).join('/') + '/'
 						newPath = parentPath + 'newfolder/'
-						targetFolder = parentPath
 					} else {
 						// File is at root
 						newPath = '/newfolder/'
@@ -234,10 +228,9 @@
 
 			nfiles[newPath] = ''
 			files = nfiles
-			pathToRename = newPath
-			if (targetFolder) {
-				pathToExpand = targetFolder
-			}
+			tick().then(() => {
+				pathToEdit = newPath
+			})
 		}
 	}
 
@@ -270,6 +263,8 @@
 			}
 		}
 	}
+
+	$inspect('dbg pathToEdit', pathToEdit)
 </script>
 
 <PanelSection size="sm" fullHeight={false} title="frontend" id="app-editor-frontend-panel">
@@ -309,8 +304,9 @@
 				onRename={handleRename}
 				onDelete={handleDelete}
 				selectedPath={selectedDocument}
-				{pathToRename}
-				{pathToExpand}
+				{pathToEdit}
+				onRequestEdit={(path) => (pathToEdit = path)}
+				onCancelEdit={() => (pathToEdit = undefined)}
 			/>
 		{/each}
 		<FileTreeNode
