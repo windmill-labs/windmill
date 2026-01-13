@@ -101,6 +101,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let queue_count: Tweened<number> | undefined = $state()
 	let suspended_count: Tweened<number> | undefined = $state()
 	let loading = $state(false)
+	let lastFetchWentToEnd = $state(false)
 
 	let completedJobs: CompletedJob[] | undefined = $state()
 	let externalJobs: Job[] | undefined = $state()
@@ -133,7 +134,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 	let loadingFetch = false
 
-	async function loadExtraJobs(): Promise<boolean> {
+	async function loadExtraJobs(): Promise<void> {
 		if (jobs && jobs.length > 0) {
 			let minQueueTs: string | undefined = undefined
 			let minCompletedTs: string | undefined = undefined
@@ -155,7 +156,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 
 			if (!ts) {
 				sendUserToast('No jobs to load from')
-				return false
+				lastFetchWentToEnd = false
+				return
 			}
 			// const minCreated = lastJob?.created_at
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
@@ -163,9 +165,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
 			jobs = jobs?.concat(olderJobs)
 			computeCompletedJobs()
-			return olderJobs?.length < perPage
+			lastFetchWentToEnd = olderJobs?.length < perPage
+		} else {
+			lastFetchWentToEnd = false
 		}
-		return false
 	}
 
 	function fetchJobs(
@@ -290,6 +293,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		completedJobs = undefined
 		externalJobs = undefined
 		extendedJobs = undefined
+		lastFetchWentToEnd = false
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
@@ -593,6 +597,9 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		},
 		get jobs() {
 			return jobs
+		},
+		get lastFetchWentToEnd() {
+			return lastFetchWentToEnd
 		}
 	}
 }

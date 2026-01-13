@@ -54,8 +54,6 @@
 
 	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
 
-	let lastFetchWentToEnd = $state(false)
-
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
 	let paths: string[] = $state([])
 	let usernames: string[] = $state([])
@@ -105,6 +103,7 @@
 		onSetMinMaxTs: (minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs)),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
+	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
 	let loading = $derived(jobsLoader.loading)
@@ -129,7 +128,6 @@
 		filters.max_ts = null
 		jobs = undefined
 		completedJobs = undefined
-		lastFetchWentToEnd = false
 		selectedManualDate = 0
 		selectedIds = []
 		filters.schedule_path = null
@@ -412,9 +410,7 @@
 	}
 
 	async function loadExtra() {
-		if (jobsLoader) {
-			lastFetchWentToEnd = await jobsLoader.loadExtraJobs()
-		}
+		await jobsLoader?.loadExtraJobs()
 	}
 
 	function jobsFilter(f: 'waiting' | 'suspended') {
@@ -888,7 +884,6 @@
 								<div class="flex flex-row gap-2 items-center">
 									<ManuelDatePicker
 										on:loadJobs={() => {
-											lastFetchWentToEnd = false
 											jobsLoader?.loadJobs(true)
 										}}
 										bind:minTs={filters.min_ts}
@@ -921,9 +916,9 @@
 									showExternalJobs={!graphIsRunsChart}
 									activeLabel={filters.label}
 									{selectionMode}
+									{lastFetchWentToEnd}
 									bind:selectedIds
 									bind:selectedWorkspace
-									bind:lastFetchWentToEnd
 									on:loadExtra={loadExtra}
 									on:filterByPath={filterByPath}
 									on:filterByUser={filterByUser}
