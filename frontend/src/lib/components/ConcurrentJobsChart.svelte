@@ -235,7 +235,8 @@
 					display: false
 				},
 				min: minMaxTimes.min,
-				max: minMaxTimes.max
+				max: minMaxTimes.max,
+				ticks: { maxRotation: 0, minRotation: 0 }
 			},
 			y: {
 				grid: {
