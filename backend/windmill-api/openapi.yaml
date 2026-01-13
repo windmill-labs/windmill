@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.601.1
+  version: 1.603.4
   title: Windmill API
 
   contact:
@@ -229,6 +229,83 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /auth/is_smtp_configured:
+    get:
+      security: []
+      summary: check if SMTP is configured for password reset
+      operationId: isSmtpConfigured
+      tags:
+        - user
+      responses:
+        "200":
+          description: returns true if SMTP is configured
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /auth/request_password_reset:
+    post:
+      security: []
+      summary: request password reset email
+      operationId: requestPasswordReset
+      tags:
+        - user
+      requestBody:
+        description: email to send password reset link to
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: password reset email sent (if user exists)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetResponse"
+        "400":
+          description: SMTP not configured
+
+  /auth/reset_password:
+    post:
+      security: []
+      summary: reset password using token
+      operationId: resetPassword
+      tags:
+        - user
+      requestBody:
+        description: token and new password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - new_password
+              properties:
+                token:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        "200":
+          description: password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetResponse"
+        "400":
+          description: invalid or expired token
 
   /w/{workspace}/users/get/{username}:
     get:
@@ -13458,6 +13535,12 @@ paths:
           description: comma separated list of tags
           schema:
             type: string
+        - name: workspace
+          in: query
+          required: false
+          description: workspace to filter tags visibility (required when TAGS_ARE_SENSITIVE is enabled for non-superadmins)
+          schema:
+            type: string
       responses:
         "200":
           description: map of tags to whether at least one worker with the tag exists
@@ -17551,6 +17634,14 @@ components:
       required:
         - email
         - password
+
+    PasswordResetResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
 
     EditWorkspaceUser:
       type: object

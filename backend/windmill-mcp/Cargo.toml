@@ -1,0 +1,23 @@
+[package]
+name = "windmill-mcp"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_mcp"
+path = "src/lib.rs"
+
+[features]
+default = []
+server = ["rmcp/transport-streamable-http-server", "rmcp/transport-streamable-http-server-session", "rmcp/transport-worker"]
+auth = ["rmcp/auth"]
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+anyhow.workspace = true
+reqwest = { version = "=0.12", features = ["json", "stream", "gzip"] }
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+rmcp.workspace = true

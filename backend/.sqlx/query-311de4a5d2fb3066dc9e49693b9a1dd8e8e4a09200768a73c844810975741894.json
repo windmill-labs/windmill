@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT \n                path \n            FROM \n                flow_version \n            WHERE \n                id = $1 AND \n                workspace_id = $2\n            ",
+  "query": "\n            SELECT\n                path\n            FROM\n                flow_version\n            WHERE\n                id = $1 AND\n                workspace_id = $2\n            ",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       false
     ]
   },
-  "hash": "0188214a2d01b11e441b6bec56f62c97a821d50f0be73df88f735978ae2ea0ae"
+  "hash": "311de4a5d2fb3066dc9e49693b9a1dd8e8e4a09200768a73c844810975741894"
 }

@@ -216,6 +216,7 @@
 				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
 			return await dbSchemaOps.onFetchTableEditorDefinition({
 				table: table,
+				schema: selected.schemaKey,
 				getColDefs: () => getColDefs(tableKey2)
 			})
 		}

@@ -3,7 +3,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
 use uuid::Uuid;
-use windmill_common::mcp_client::McpToolSource;
+#[cfg(feature = "mcp")]
+pub use windmill_mcp::McpToolSource;
+
+/// Stub type when mcp feature is not enabled
+#[cfg(not(feature = "mcp"))]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct McpToolSource {
+    pub name: String,
+    pub tool_name: String,
+    pub resource_path: String,
+}
 use windmill_common::{
     ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
     s3_helpers::S3Object,

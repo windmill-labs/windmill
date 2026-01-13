@@ -11,7 +11,6 @@ private = ["dep:aws-sdk-rds"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
 prometheus = ["dep:prometheus"]
-loki = ["dep:tracing-loki"]
 benchmark = []
 parquet = ["dep:object_store", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
 aws_auth = ["dep:aws-sdk-sts"]
@@ -59,7 +58,6 @@ itertools.workspace = true
 regex.workspace = true
 git-version.workspace = true
 cron.workspace = true
-tracing-loki = { version = "^0", optional = true }
 magic-crypt.workspace = true
 object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
@@ -100,7 +98,7 @@ async-recursion.workspace = true
 pep440_rs.workspace = true
 
 semver.workspace = true
-croner = "2.2.0"
+croner.workspace = true
 quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
@@ -108,7 +106,6 @@ tempfile.workspace = true
 systemstat.workspace = true
 size.workspace = true
 globset.workspace = true
-rmcp = { version = "0.12.0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest", "auth"] }
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
