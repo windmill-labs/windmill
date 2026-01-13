@@ -91,7 +91,7 @@ export class DAPClient {
 	> = new Map()
 	private url: string
 
-	constructor(url: string = 'ws://localhost:5679') {
+	constructor(url: string = 'ws://localhost:3003') {
 		this.url = url
 	}
 
