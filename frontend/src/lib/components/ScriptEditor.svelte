@@ -4,7 +4,7 @@
 	import type { Schema, SupportedLanguage } from '$lib/common'
 	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang, VariableService, UserService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { copyToClipboard, emptySchema, sendUserToast } from '$lib/utils'
+	import { copyToClipboard, emptySchema, getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
 	import Editor from './Editor.svelte'
 	import { inferArgs, inferAssets, inferAnsibleExecutionMode } from '$lib/infer'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -23,6 +23,7 @@
 	import Modal from './common/modal/Modal.svelte'
 	import DiffEditor from './DiffEditor.svelte'
 	import {
+		AlertTriangle,
 		Bug,
 		Copy,
 		CornerDownLeft,
@@ -237,6 +238,8 @@
 	let ansibleGitSshIdentity = $state<string[]>([])
 
 	// Debug mode state
+	const DEBUG_BETA_WARNING_KEY = 'debug_beta_warning_confirmed'
+	let showDebugBetaWarning = $state(false)
 	let debugMode = $state(false)
 	let debugBreakpoints = new SvelteSet<number>()
 	let breakpointDecorations: string[] = $state([])
@@ -717,13 +720,26 @@
 	}
 
 	function toggleDebugMode(): void {
-		debugMode = !debugMode
-		if (!debugMode) {
-			// Clean up when exiting debug mode
+		if (debugMode) {
+			// Exiting debug mode - clean up
+			debugMode = false
 			stopDebugging()
 			clearAllBreakpoints()
 			updateCurrentLineDecoration(undefined)
+		} else {
+			// Entering debug mode - check if beta warning was confirmed
+			if (getLocalSetting(DEBUG_BETA_WARNING_KEY) !== 'true') {
+				showDebugBetaWarning = true
+			} else {
+				debugMode = true
+			}
 		}
+	}
+
+	function confirmDebugBetaWarning(): void {
+		storeLocalSetting(DEBUG_BETA_WARNING_KEY, 'true')
+		showDebugBetaWarning = false
+		debugMode = true
 	}
 
 	// Subscribe to debug state changes for current line highlighting
@@ -1047,6 +1063,24 @@
 		/>
 	</div>
 </Modal>
+
+<Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
+	<div class="flex items-start gap-3">
+		<div class="flex-shrink-0">
+			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50">
+				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
+			</div>
+		</div>
+		<div class="text-secondary text-sm">
+			<p>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected behavior or limitations.</p>
+			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
+		</div>
+	</div>
+	{#snippet actions()}
+		<Button size="sm" on:click={confirmDebugBetaWarning}>Continue</Button>
+	{/snippet}
+</Modal>
+
 <div class="border-b shadow-sm px-1 pr-4" bind:clientWidth={width}>
 	<div class="flex justify-between space-x-2">
 		{#if args}
