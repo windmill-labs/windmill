@@ -149,6 +149,8 @@ EXPOSE 3001 3002 5679
 ENV ENABLE_LSP=true
 ENV ENABLE_MULTIPLAYER=true
 ENV ENABLE_DEBUGGER=true
+# nsjail sandboxing for debugger (requires --privileged, off by default)
+ENV ENABLE_NSJAIL=false
 
 # LSP port
 ENV LSP_PORT=3001
