@@ -479,7 +479,6 @@
 			oldLines.some((line, i) => line !== updatedLines[i])
 
 		if (positionsChanged) {
-			console.log('[DAP] Breakpoint positions changed:', oldLines, '->', updatedLines)
 			// Update breakpoints set with new positions
 			debugBreakpoints.clear()
 			for (const line of newLines) {
@@ -527,12 +526,10 @@
 	async function fetchContextualVariables(): Promise<Record<string, string>> {
 		const workspace = $workspaceStore
 		if (!workspace) {
-			console.log('[DEBUG] No workspace, skipping contextual variables')
 			return {}
 		}
 
 		try {
-			console.log('[DEBUG] Fetching contextual variables for workspace:', workspace)
 			const variables = await VariableService.listContextualVariables({ workspace })
 			const envVars: Record<string, string> = {}
 			for (const v of variables) {
@@ -541,7 +538,7 @@
 
 			// Create a fresh token with 15-minute expiration for the debugger
 			try {
-				const expirationDate = new Date(Date.now() + 15 * 60 * 1000) // 15 minutes from now
+				const expirationDate = new Date(Date.now() + 15 * 60 * 1000)
 				const freshToken = await UserService.createToken({
 					requestBody: {
 						label: 'debugger-token',
@@ -550,13 +547,10 @@
 					}
 				})
 				envVars['WM_TOKEN'] = freshToken
-				console.log('[DEBUG] Created fresh debugger token (expires in 15 mins)')
 			} catch (tokenError) {
 				console.error('Failed to create debugger token:', tokenError)
-				// Keep the original WM_TOKEN if token creation fails
 			}
 
-			console.log('[DEBUG] Got env vars:', Object.keys(envVars))
 			return envVars
 		} catch (error) {
 			console.error('Failed to fetch contextual variables:', error)
@@ -643,20 +637,11 @@
 			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
 			const env = await fetchContextualVariables()
 
-			// Debug: log the code being sent
-			const codeLines = code?.split('\n').length ?? 0
-			console.log(`[DEBUG] Starting debug session with ${codeLines} lines of code`)
-			console.log(`[DEBUG] Code preview (first 500 chars):`, code?.substring(0, 500))
-			console.log(`[DEBUG] Breakpoints:`, Array.from(debugBreakpoints))
-			console.log(`[DEBUG] Env vars:`, Object.keys(env))
-
 			// Sign the debug request (creates audit log entry)
 			let signedPayload
 			try {
 				signedPayload = await signDebugRequest(code ?? '', lang ?? 'python3')
-				// Store the job ID for expression signing in the debug console
 				debugSessionJobId = signedPayload.job_id
-				console.log(`[DEBUG] Got signed payload from backend (job_id: ${signedPayload.job_id})`)
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
 				return
@@ -757,13 +742,6 @@
 		const currentLang = lang
 		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
 			// Language changed while in debug mode - exit debug mode
-			console.log(
-				'[DAP] Language changed from',
-				lastDebugLang,
-				'to',
-				currentLang,
-				'- exiting debug mode'
-			)
 			untrack(() => {
 				// Stop any running debug session
 				if (dapClient) {
@@ -918,7 +896,6 @@
 	export function disableCollaboration() {
 		if (!wsProvider?.shouldConnect) return
 		peers = []
-		console.log('collab mode disabled')
 		wsProvider?.disconnect()
 		wsProvider.destroy()
 		wsProvider = undefined
@@ -1101,10 +1078,7 @@
 				{collabMode}
 				{validCode}
 				iconOnly={width < EDITOR_BAR_WIDTH_THRESHOLD}
-				on:collabPopup={() => {
-					console.log('collabPopup event received')
-					showCollabPopup = true
-				}}
+				on:collabPopup={() => (showCollabPopup = true)}
 				{editor}
 				{lang}
 				on:createScriptFromInlineScript

@@ -92,18 +92,6 @@ export function getDebugServerUrl(language: DebugLanguage): string {
 }
 
 /**
- * @deprecated Use getDebugServerUrl() instead. Kept for backwards compatibility.
- * These hardcoded URLs only work in local development.
- */
-export const DAP_SERVER_URLS = {
-	python3: 'ws://localhost:5679/python',
-	bun: 'ws://localhost:5679/bun',
-	typescript: 'ws://localhost:5679/typescript',
-	nativets: 'ws://localhost:5679/typescript',
-	deno: 'ws://localhost:5679/typescript'
-} as const
-
-/**
  * Get the appropriate file extension for a language
  */
 export function getDebugFileExtension(language: string): string {
