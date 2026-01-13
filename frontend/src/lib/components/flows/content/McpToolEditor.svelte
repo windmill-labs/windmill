@@ -38,6 +38,7 @@
 
 	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
+	let resourcePicker: ResourcePicker | undefined = $state()
 
 	let tools = usePromise(
 		async () =>
@@ -79,7 +80,8 @@
 		}
 	})
 
-	function handleOAuthConnected(resourcePath: string, resourceName: string) {
+	async function handleOAuthConnected(resourcePath: string, resourceName: string) {
+		await resourcePicker?.refreshResources()
 		tool.value.resource_path = resourcePath
 		tool.summary = `MCP: ${resourceName}`
 		showOAuthForm = false
@@ -103,7 +105,7 @@
 
 	<div class="w-full">
 		<Label label="MCP Resource">
-			<ResourcePicker resourceType="mcp" bind:value={tool.value.resource_path} />
+			<ResourcePicker bind:this={resourcePicker} resourceType="mcp" bind:value={tool.value.resource_path} />
 		</Label>
 	</div>
 
