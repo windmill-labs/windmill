@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.604.0](https://github.com/windmill-labs/windmill/compare/v1.603.4...v1.604.0) (2026-01-13)
+
+
+### Features
+
+* debuggers for python and bun v0 ([#7546](https://github.com/windmill-labs/windmill/issues/7546)) ([4451a37](https://github.com/windmill-labs/windmill/commit/4451a379990acbf80c160861c164667302e0ee08))
+
+
+### Bug Fixes
+
+* use write-all permissions for publish_extra workflow ([0db87e4](https://github.com/windmill-labs/windmill/commit/0db87e4036d6baa26eff4d109f6fb4a2584d0a16))
+
 ## [1.603.4](https://github.com/windmill-labs/windmill/compare/v1.603.3...v1.603.4) (2026-01-12)
 
 
