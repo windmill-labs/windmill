@@ -1,5 +1,3 @@
--- Cache MCP OAuth dynamic client registrations globally (one per MCP server URL)
--- CSRF and PKCE state is stored in cookies during the OAuth flow
 CREATE TABLE mcp_oauth_client (
     mcp_server_url TEXT PRIMARY KEY,
     client_id TEXT NOT NULL,
@@ -11,6 +9,5 @@ CREATE TABLE mcp_oauth_client (
 
 CREATE INDEX idx_mcp_oauth_client_expires ON mcp_oauth_client(client_secret_expires_at);
 
--- Add mcp_server_url column to account table for MCP OAuth token refresh
 ALTER TABLE account ADD COLUMN mcp_server_url TEXT;
 CREATE INDEX idx_account_mcp_server_url ON account(mcp_server_url) WHERE mcp_server_url IS NOT NULL;
