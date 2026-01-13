@@ -10,10 +10,7 @@ on:
       - "v*"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-  packages: write
+permissions: write-all
 
 jobs:
   sleep:
