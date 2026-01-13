@@ -57,6 +57,15 @@ export {
 	type Scope
 } from './dapClient'
 
+// Re-export shared utilities
+export {
+	fetchContextualVariables,
+	signDebugRequest,
+	getDebugErrorMessage,
+	isDebuggableLanguage,
+	getDebugFileExtension
+} from './debugUtils'
+
 /**
  * Language to debug endpoint path mapping.
  * Uses the unified DAP Debug Service with path-based routing.
@@ -92,24 +101,7 @@ export function getDebugServerUrl(language: DebugLanguage): string {
 }
 
 /**
- * Get the appropriate file extension for a language
- */
-export function getDebugFileExtension(language: string): string {
-	switch (language) {
-		case 'python3':
-			return '.py'
-		case 'bun':
-		case 'typescript':
-		case 'deno':
-		case 'nativets':
-			return '.ts'
-		default:
-			return '.txt'
-	}
-}
-
-/**
- * Check if a language supports debugging
+ * @deprecated Use isDebuggableLanguage instead
  */
 export function isDebuggable(language: string): boolean {
 	return ['python3', 'bun', 'typescript', 'deno', 'nativets'].includes(language)

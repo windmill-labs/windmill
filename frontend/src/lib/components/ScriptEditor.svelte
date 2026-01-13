@@ -2,7 +2,7 @@
 	import { BROWSER } from 'esm-env'
 
 	import type { Schema, SupportedLanguage } from '$lib/common'
-	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang, VariableService, UserService } from '$lib/gen'
+	import { type CompletedJob, type Job, JobService, type Preview, type ScriptLang } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
 	import { copyToClipboard, emptySchema, getLocalSetting, sendUserToast, storeLocalSetting } from '$lib/utils'
 	import Editor from './Editor.svelte'
@@ -45,7 +45,10 @@
 		getDebugServerUrl,
 		type DebugLanguage,
 		isDebuggable,
-		getDebugFileExtension
+		getDebugFileExtension,
+		fetchContextualVariables,
+		signDebugRequest,
+		getDebugErrorMessage
 	} from '$lib/components/debug'
 	import { SvelteSet } from 'svelte/reactivity'
 	import { setLicense } from '$lib/enterpriseUtils'
@@ -523,105 +526,6 @@
 		monacoEditor.revealLineInCenter(line)
 	}
 
-	async function fetchContextualVariables(): Promise<Record<string, string>> {
-		const workspace = $workspaceStore
-		if (!workspace) {
-			return {}
-		}
-
-		try {
-			const variables = await VariableService.listContextualVariables({ workspace })
-			const envVars: Record<string, string> = {}
-			for (const v of variables) {
-				envVars[v.name] = v.value
-			}
-
-			// Create a fresh token with 15-minute expiration for the debugger
-			try {
-				const expirationDate = new Date(Date.now() + 15 * 60 * 1000)
-				const freshToken = await UserService.createToken({
-					requestBody: {
-						label: 'debugger-token',
-						expiration: expirationDate.toISOString(),
-						workspace_id: workspace
-					}
-				})
-				envVars['WM_TOKEN'] = freshToken
-			} catch (tokenError) {
-				console.error('Failed to create debugger token:', tokenError)
-			}
-
-			return envVars
-		} catch (error) {
-			console.error('Failed to fetch contextual variables:', error)
-			return {}
-		}
-	}
-
-	async function signDebugRequest(codeToSign: string, language: string): Promise<{
-		token: string
-		code: string
-		job_id: string
-	}> {
-		const workspace = $workspaceStore
-		if (!workspace) {
-			throw new Error('No workspace selected')
-		}
-
-		const response = await fetch(`/api/w/${workspace}/debug/sign`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ code: codeToSign, language })
-		})
-
-		if (!response.ok) {
-			const errorText = await response.text()
-			// Parse specific error cases for better user messages
-			if (errorText.includes('not initialized')) {
-				throw new Error('Debug signing is not configured on the server. Please contact your administrator.')
-			}
-			throw new Error(errorText || 'Failed to authorize debug session')
-		}
-
-		return await response.json()
-	}
-
-	function getDebugErrorMessage(error: unknown): string {
-		const message = error instanceof Error ? error.message : String(error)
-
-		// Handle token verification errors from debugger
-		if (message.includes('Token verification failed') || message.includes('Debug token required')) {
-			if (message.includes('expired')) {
-				return 'Debug session expired. Please try again.'
-			}
-			if (message.includes('Invalid JWT signature')) {
-				return 'Debug authorization failed. The signing key may be misconfigured.'
-			}
-			if (message.includes('Code hash mismatch')) {
-				return 'Code was modified after signing. Please try again.'
-			}
-			if (message.includes('Public key not available')) {
-				return 'Debug server cannot verify tokens. Please check WINDMILL_BASE_URL configuration.'
-			}
-			if (message.includes('Debug token required')) {
-				return 'Debug authorization required. The debug session must be signed by the backend.'
-			}
-			return 'Debug authorization failed. Please try again.'
-		}
-
-		// Handle connection errors
-		if (message.includes('WebSocket') || message.includes('connection failed')) {
-			return 'Could not connect to debug server. Make sure the DAP server is running.'
-		}
-
-		// Handle signing errors
-		if (message.includes('not configured on the server')) {
-			return message
-		}
-
-		return message || 'An unexpected error occurred while starting the debugger.'
-	}
-
 	async function startDebugging(): Promise<void> {
 		try {
 			// Show console when starting a debug session
@@ -635,12 +539,12 @@
 			dapClient = getDAPClient(dapServerUrl)
 
 			// Fetch contextual variables (WM_WORKSPACE, WM_TOKEN, etc.) from backend
-			const env = await fetchContextualVariables()
+			const env = await fetchContextualVariables($workspaceStore ?? '')
 
 			// Sign the debug request (creates audit log entry)
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest(code ?? '', lang ?? 'python3')
+				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', lang ?? 'python3')
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
