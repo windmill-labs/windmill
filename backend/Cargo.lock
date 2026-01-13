@@ -15310,7 +15310,6 @@ dependencies = [
  "mime_guess",
  "native-tls",
  "nkeys",
- "oauth2",
  "object_store",
  "openidconnect",
  "openssl",
@@ -15572,6 +15571,7 @@ name = "windmill-mcp"
 version = "1.603.4"
 dependencies = [
  "anyhow",
+ "oauth2",
  "reqwest 0.12.28",
  "rmcp",
  "serde",

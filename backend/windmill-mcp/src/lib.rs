@@ -50,9 +50,15 @@ pub mod server {
 // Re-export rmcp auth types when auth feature is enabled
 #[cfg(feature = "auth")]
 pub mod oauth {
-    //! Re-exports of rmcp auth types for MCP OAuth implementations
+    //! Re-exports of rmcp auth and oauth2 types for MCP OAuth implementations
 
     pub use rmcp::transport::auth::AuthorizationManager;
+
+    // Re-export oauth2 types needed for MCP OAuth flow
+    pub use oauth2::{
+        basic::BasicClient, AuthUrl, ClientId, ClientSecret, CsrfToken, PkceCodeChallenge,
+        RedirectUrl, Scope, TokenUrl,
+    };
 }
 
 use std::collections::HashMap;
