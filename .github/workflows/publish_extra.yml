@@ -16,9 +16,9 @@ jobs:
   sleep:
     runs-on: ubicloud
     steps:
-      - name: Sleep for 900 seconds waiting for pypi to update index
+      - name: Sleep for 1200 seconds waiting for pypi to update index
         if: startsWith(github.ref, 'refs/tags/v')
-        run: sleep 900
+        run: sleep 1200
         shell: bash
 
   # Build and test the image before publishing
