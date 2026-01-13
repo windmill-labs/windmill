@@ -331,7 +331,13 @@
 <RawAppModules {modules} />
 
 <div class="py-4"></div>
-<RawAppInlineScriptPanelList bind:selectedRunnable {runnables} />
+<RawAppInlineScriptPanelList
+	bind:selectedRunnable
+	{runnables}
+	onSelect={() => {
+		selectedDocument = undefined
+	}}
+/>
 
 <div class="py-4"></div>
 <RawAppDataTableList

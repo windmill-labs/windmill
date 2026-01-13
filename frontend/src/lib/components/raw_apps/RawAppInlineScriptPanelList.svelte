@@ -12,9 +12,10 @@
 	interface Props {
 		selectedRunnable: string | undefined
 		runnables: Record<string, Runnable>
+		onSelect?: (id: string) => void
 	}
 
-	let { selectedRunnable = $bindable(), runnables }: Props = $props()
+	let { selectedRunnable = $bindable(), runnables, onSelect }: Props = $props()
 
 	// Subscribe to lint store for reactive updates
 	let lintSnapshot = $state(rawAppLintStore.getSnapshot())
@@ -43,6 +44,7 @@
 		}
 
 		selectedRunnable = nid
+		onSelect?.(nid)
 	}
 </script>
 
@@ -73,7 +75,10 @@
 								{id}
 								{runnable}
 								isSelected={selectedRunnable === id}
-								onSelect={() => (selectedRunnable = id)}
+								onSelect={() => {
+									selectedRunnable = id
+									onSelect?.(id)
+								}}
 								onDelete={() => {
 									delete runnables[id]
 									if (selectedRunnable === id) {
