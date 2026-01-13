@@ -1473,13 +1473,26 @@ export class DebugSession {
 			}
 
 			// Parse the JSON response
-			const response = JSON.parse(output.trim().split('\n').pop() || '{}')
-
-			if (!response.success) {
-				logger.error(`prepare-deps failed: ${response.error}`)
+			const lastLine = output.trim().split('\n').pop() || ''
+			if (!lastLine || !lastLine.startsWith('{')) {
+				// If output is empty or not JSON, the windmill binary likely failed to start
+				const errorMsg = stderr.trim() || 'windmill binary failed (no output)'
+				logger.error(`prepare-deps failed: ${errorMsg}`)
 				this.sendEvent('output', {
 					category: 'console',
-					output: `Warning: Failed to prepare dependencies: ${response.error}\n`
+					output: `Warning: Failed to prepare dependencies: ${errorMsg}\n`
+				})
+				return null
+			}
+
+			const response = JSON.parse(lastLine)
+
+			if (!response.success) {
+				const errorMsg = response.error || 'unknown error'
+				logger.error(`prepare-deps failed: ${errorMsg}`)
+				this.sendEvent('output', {
+					category: 'console',
+					output: `Warning: Failed to prepare dependencies: ${errorMsg}\n`
 				})
 				return null
 			}
