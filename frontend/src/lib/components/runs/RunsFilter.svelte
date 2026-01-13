@@ -19,6 +19,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
 	import type { JobTriggerKind } from '$lib/gen'
+	import { watch } from 'runed'
 
 	interface Props {
 		// Filters
@@ -92,22 +93,22 @@
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
-		if (path !== null && path !== '' && filterBy !== 'path') {
-			filterBy = 'path'
-		} else if (user !== null && user !== '' && filterBy !== 'user') {
-			filterBy = 'user'
-		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
-			filterBy = 'folder'
-		} else if (label !== null && label !== '' && filterBy !== 'label') {
-			filterBy = 'label'
-		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
-			filterBy = 'concurrencyKey'
-		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
-			filterBy = 'tag'
-		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
-			filterBy = 'schedulePath'
-		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
-			filterBy = 'worker'
+		if (path !== null && path !== '') {
+			if (filterBy !== 'path') filterBy = 'path'
+		} else if (user !== null && user !== '') {
+			if (filterBy !== 'user') filterBy = 'user'
+		} else if (folder !== null && folder !== '') {
+			if (filterBy !== 'folder') filterBy = 'folder'
+		} else if (label !== null && label !== '') {
+			if (filterBy !== 'label') filterBy = 'label'
+		} else if (concurrencyKey !== null && concurrencyKey !== '') {
+			if (filterBy !== 'concurrencyKey') filterBy = 'concurrencyKey'
+		} else if (tag !== null && tag !== '') {
+			if (filterBy !== 'tag') filterBy = 'tag'
+		} else if (schedulePath !== undefined && schedulePath !== '') {
+			if (filterBy !== 'schedulePath') filterBy = 'schedulePath'
+		} else if (worker !== null && worker !== '') {
+			if (filterBy !== 'worker') filterBy = 'worker'
 		}
 	}
 
@@ -122,9 +123,19 @@
 	let displayedTag = $derived(tag)
 	let displayedSchedule = $derived(schedulePath ?? undefined)
 	let displayedWorker = $derived(worker)
-	$effect(() => {
-		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
-			untrack(() => autosetFilter())
+
+	watch([() => [path, user, folder, label, worker, concurrencyKey, tag, schedulePath]], () => {
+		console.log('RunsFilter: autosetFilter triggered', {
+			path,
+			user,
+			folder,
+			label,
+			worker,
+			concurrencyKey,
+			tag,
+			schedulePath
+		})
+		autosetFilter()
 	})
 
 	function resetFilter() {
