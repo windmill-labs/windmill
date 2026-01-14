@@ -101,14 +101,12 @@
 		</TabContent>
 		{#if compareFlow}
 			<TabContent value="diff">
-				<div class="flex flex-col gap-4 h-full mt-4">
-					<div class="flex-1 min-h-[400px]">
-						{#await import('$lib/components/FlowYamlGraphDiff.svelte')}
-							<Loader2 class="animate-spin" />
-						{:then Module}
-							<Module.default {beforeYaml} {afterYaml} />
-						{/await}
-					</div>
+				<div class="h-[calc(100vh-300px)] min-h-[400px] mt-4">
+					{#await import('$lib/components/FlowYamlGraphDiff.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default {beforeYaml} {afterYaml} />
+					{/await}
 				</div>
 			</TabContent>
 		{/if}
