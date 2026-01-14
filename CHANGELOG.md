@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.606.1](https://github.com/windmill-labs/windmill/compare/v1.606.0...v1.606.1) (2026-01-14)
+
+
+### Bug Fixes
+
+* bump uv 0.6.2 -&gt; 0.9.24 ([#7559](https://github.com/windmill-labs/windmill/issues/7559)) ([e74dc02](https://github.com/windmill-labs/windmill/commit/e74dc02804d0bd720963d571f58fd3aa97eb2396))
+* Fix number ordering in postgres' db manager ([#7570](https://github.com/windmill-labs/windmill/issues/7570)) ([a7335d6](https://github.com/windmill-labs/windmill/commit/a7335d6914ce0e331f2309368d7c947986159e77))
+* **frontend:** improve context for ai chat in raw app builder ([#7566](https://github.com/windmill-labs/windmill/issues/7566)) ([da54a67](https://github.com/windmill-labs/windmill/commit/da54a678221b7851625eb4ba52504099eb69b100))
+* improve debugger behavior ([40d0073](https://github.com/windmill-labs/windmill/commit/40d00734f33b3aa7cef31f6abc29c40e975f48f8))
+
 ## [1.606.0](https://github.com/windmill-labs/windmill/compare/v1.605.0...v1.606.0) (2026-01-14)
 
 
