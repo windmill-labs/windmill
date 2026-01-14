@@ -505,13 +505,16 @@
 
 	let jobMissingStartedAt: Record<string, number | 'P'> = {}
 
-	let setSelectedLoopSwitch = useThrottle((lastStarted: string, mod: FlowStatusModule) => {
+	let setSelectedLoopSwitch = useThrottle(async (lastStarted: string, mod: FlowStatusModule) => {
 		let position = mod.flow_jobs?.indexOf(lastStarted)
 		if (!position) return
-		let prevState = mod.id ? getTopModuleStates?.[buildSubflowKey(mod.id, prefix)] : undefined
-		if (prevState?.selectedForloop && suspendStatus.val[prevState.selectedForloop]) {
-			console.log('setSelectedLoopSwitch found previous iteration suspend hanging, deleting')
-			delete suspendStatus.val[prevState.selectedForloop]
+		for (const flow_job of mod.flow_jobs ?? []) {
+			if (flow_job === lastStarted) {
+				break
+			} else if (flow_job !== lastStarted && suspendStatus.val[flow_job]) {
+				console.log('setSelectedLoopSwitch deleting suspend for', flow_job)
+				delete suspendStatus.val[flow_job]
+			}
 		}
 		console.log('setSelectedLoopSwitch', position, lastStarted, mod.id, suspendStatus)
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
