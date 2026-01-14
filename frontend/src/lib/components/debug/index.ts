@@ -34,7 +34,7 @@
  * <MonacoDebugger
  *   {editor}
  *   {code}
- *   dapServerUrl="ws://localhost:5679/typescript"
+ *   dapServerUrl="ws://localhost:3003/typescript"
  *   filePath="/tmp/script.ts"
  * />
  * ```
@@ -94,7 +94,7 @@ export function getDebugServerUrl(language: DebugLanguage): string {
 	const path = DAP_ENDPOINT_PATHS[language] || DAP_ENDPOINT_PATHS.python3
 	if (typeof window === 'undefined') {
 		// SSR fallback
-		return `ws://localhost:5679${path}`
+		return `ws://localhost:3003${path}`
 	}
 	const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
 	return `${wsProtocol}://${window.location.host}/ws_debug${path}`
