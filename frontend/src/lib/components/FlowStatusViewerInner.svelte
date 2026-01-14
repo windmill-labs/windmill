@@ -508,8 +508,12 @@
 	let setSelectedLoopSwitch = useThrottle((lastStarted: string, mod: FlowStatusModule) => {
 		let position = mod.flow_jobs?.indexOf(lastStarted)
 		if (!position) return
-		// we wait a bit for suspended steps, to make sure the current iteration is updated
-		// when resumed before going forward. This avoid the duplicate resume forms bug.
+		let prevState = mod.id ? getTopModuleStates?.[buildSubflowKey(mod.id, prefix)] : undefined
+		if (prevState?.selectedForloop && suspendStatus.val[prevState.selectedForloop]) {
+			console.log('setSelectedLoopSwitch found previous iteration suspend hanging, deleting')
+			delete suspendStatus.val[prevState.selectedForloop]
+		}
+		console.log('setSelectedLoopSwitch', position, lastStarted, mod.id, suspendStatus)
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
 
