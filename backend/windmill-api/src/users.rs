@@ -53,6 +53,7 @@ use windmill_common::users::COOKIE_NAME;
 use windmill_common::users::{truncate_token, username_to_permissioned_as};
 use windmill_common::utils::paginate;
 use windmill_common::worker::CLOUD_HOSTED;
+use windmill_common::BASE_URL;
 use windmill_common::{
     auth::{get_folders_for_user, get_groups_for_user},
     db::UserDB,
@@ -125,6 +126,9 @@ pub fn make_unauthed_service() -> Router {
         .route("/login", post(login))
         .route("/logout", post(logout).get(logout))
         .route("/is_first_time_setup", get(is_first_time_setup))
+        .route("/request_password_reset", post(request_password_reset))
+        .route("/reset_password", post(reset_password))
+        .route("/is_smtp_configured", get(is_smtp_configured))
 }
 
 pub async fn maybe_refresh_folders(
@@ -935,6 +939,59 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
         Err(Error::BadRequest(format!(
             "Cannot be owner of an empty path"
         )))
+    }
+}
+
+/// Checks that a user has at least read access to the path for preview jobs.
+/// This prevents privilege escalation where a user could run preview code
+/// under a path they don't have access to.
+pub fn require_path_read_access_for_preview(authed: &ApiAuthed, path: &Option<String>) -> Result<()> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+
+    if authed.is_admin {
+        return Ok(());
+    }
+
+    if path.is_empty() {
+        return Ok(());
+    }
+
+    let splitted: Vec<&str> = path.split('/').collect();
+    if splitted.len() < 2 {
+        return Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}",
+            path
+        )));
+    }
+
+    match splitted[0] {
+        "u" => {
+            if splitted[1] == authed.username {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You can only run preview jobs in your own namespace (u/{}) or in folders you have read access to",
+                    authed.username
+                )))
+            }
+        }
+        "f" => {
+            let folder = splitted[1];
+            if authed.folders.iter().any(|(f, _, _)| f == folder) {
+                Ok(())
+            } else {
+                Err(Error::BadRequest(format!(
+                    "You do not have read access to folder '{}'. Preview jobs require at least read access to the target folder.",
+                    folder
+                )))
+            }
+        }
+        _ => Err(Error::BadRequest(format!(
+            "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
+            path
+        ))),
     }
 }
 
@@ -3106,4 +3163,198 @@ async fn update_username_in_workpsace<'c>(
     .await?;
 
     Ok(())
+}
+
+// Password Reset Types
+#[derive(Deserialize)]
+pub struct RequestPasswordReset {
+    pub email: String,
+}
+
+#[derive(Deserialize)]
+pub struct ResetPassword {
+    pub token: String,
+    pub new_password: String,
+}
+
+#[derive(Serialize)]
+pub struct PasswordResetResponse {
+    pub message: String,
+}
+
+// Password Reset Functions
+
+/// Check if SMTP is configured
+async fn is_smtp_configured(Extension(db): Extension<DB>) -> JsonResult<bool> {
+    let smtp = windmill_common::server::load_smtp_config(&db).await?;
+    Ok(Json(smtp.is_some()))
+}
+
+/// Request a password reset email
+async fn request_password_reset(
+    Extension(db): Extension<DB>,
+    Json(req): Json<RequestPasswordReset>,
+) -> Result<Json<PasswordResetResponse>> {
+    let email = req.email.to_lowercase();
+
+    // Check if SMTP is configured
+    let smtp = windmill_common::server::load_smtp_config(&db).await?;
+    let smtp = smtp.ok_or_else(|| {
+        Error::BadRequest("SMTP is not configured. Password reset is not available.".to_string())
+    })?;
+
+    // Check if user exists with password login type
+    let user_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM password WHERE email = $1 AND login_type = 'password')",
+        &email
+    )
+    .fetch_one(&db)
+    .await?
+    .unwrap_or(false);
+
+    // Always return success to prevent email enumeration
+    // But only send email if user exists
+    if user_exists {
+        // Generate a secure token
+        let token = rd_string(32);
+
+        // Delete any existing tokens for this email
+        sqlx::query!("DELETE FROM magic_link WHERE email = $1", &email)
+            .execute(&db)
+            .await?;
+
+        // Insert new token with 1 hour expiration
+        sqlx::query!(
+            "INSERT INTO magic_link (email, token, expiration) VALUES ($1, $2, NOW() + INTERVAL '1 hour')",
+            &email,
+            &token
+        )
+        .execute(&db)
+        .await?;
+
+        // Get the base URL for the reset link
+        let base_url = BASE_URL.read().await.clone();
+        let base_url = if base_url.is_empty() {
+            std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost".to_string())
+        } else {
+            base_url
+        };
+
+        let reset_link = format!("{}/user/reset-password?token={}", base_url, token);
+
+        // Send the email
+        let subject = "Windmill Password Reset";
+        let content = format!(
+            "You have requested a password reset for your Windmill account.\n\n\
+            Click the link below to reset your password:\n\
+            {}\n\n\
+            This link will expire in 1 hour.\n\n\
+            If you did not request this password reset, you can safely ignore this email.",
+            reset_link
+        );
+
+        // Send the email - don't fail the request if email fails
+        if let Err(e) = windmill_common::email_oss::send_email_plain_text(
+            subject,
+            &content,
+            vec![email.clone()],
+            smtp,
+            Some(Duration::from_secs(10)),
+        )
+        .await
+        {
+            tracing::error!("Failed to send password reset email to {}: {:?}", email, e);
+        }
+    }
+
+    // Always return success to prevent email enumeration
+    Ok(Json(PasswordResetResponse {
+        message: "If an account with that email exists, a password reset link has been sent."
+            .to_string(),
+    }))
+}
+
+/// Reset password using a token
+async fn reset_password(
+    Extension(db): Extension<DB>,
+    Extension(argon2): Extension<Arc<Argon2<'_>>>,
+    Json(req): Json<ResetPassword>,
+) -> Result<Json<PasswordResetResponse>> {
+    let mut tx = db.begin().await?;
+
+    // Find the token and verify it's not expired
+    let magic_link = sqlx::query!(
+        "SELECT email FROM magic_link WHERE token = $1 AND expiration > NOW()",
+        &req.token
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let email = match magic_link {
+        Some(link) => link.email,
+        None => {
+            return Err(Error::BadRequest(
+                "Invalid or expired password reset token".to_string(),
+            ))
+        }
+    };
+
+    // Hash the new password
+    let password_hash = crate::users_oss::hash_password(argon2, req.new_password)?;
+
+    // Update the password
+    let rows_updated = sqlx::query!(
+        "UPDATE password SET password_hash = $1 WHERE email = $2 AND login_type = 'password'",
+        &password_hash,
+        &email
+    )
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    if rows_updated == 0 {
+        return Err(Error::BadRequest(
+            "Unable to update password. User may not exist or may use a different login method."
+                .to_string(),
+        ));
+    }
+
+    // Delete the used token and any other tokens for this email
+    sqlx::query!("DELETE FROM magic_link WHERE email = $1", &email)
+        .execute(&mut *tx)
+        .await?;
+
+    // Invalidate all existing sessions for this user
+    sqlx::query!(
+        "DELETE FROM token WHERE email = $1 AND label = 'session'",
+        &email
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Audit log
+    let audit_author = AuditAuthor {
+        email: email.clone(),
+        username: email.clone(),
+        username_override: None,
+        token_prefix: None,
+    };
+
+    audit_log(
+        &mut *tx,
+        &audit_author,
+        "users.password_reset",
+        ActionKind::Update,
+        "global",
+        Some(&email),
+        None,
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(PasswordResetResponse {
+        message: "Password has been reset successfully. You can now log in with your new password."
+            .to_string(),
+    }))
 }

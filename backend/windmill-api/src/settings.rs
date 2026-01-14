@@ -709,11 +709,31 @@ async fn setup_custom_instance_pg_database_inner(
     // Validate name to ensure it only contains alphanumeric characters
     // Prevents SQL injection on the instance database
     lazy_static::lazy_static! {
-        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z0-9_]+$").unwrap();
+        // Must start with a letter, then alphanumeric/underscore
+        static ref VALID_NAME: regex::Regex = regex::Regex::new(r"^[a-zA-Z][a-zA-Z0-9_]*$").unwrap();
+    }
+    let dbname = dbname.trim();
+    if dbname.is_empty() {
+        return Err(error::Error::BadRequest(
+            "Database name cannot be empty".to_string(),
+        ));
+    }
+    // PostgreSQL identifier limit is 63 bytes
+    if dbname.len() > 63 {
+        return Err(error::Error::BadRequest(
+            "Database name cannot exceed 63 characters".to_string(),
+        ));
     }
     if !VALID_NAME.is_match(dbname) {
         return Err(error::Error::BadRequest(
-            "Catalog name must be alphanumeric, underscores allowed".to_string(),
+            "Database name must start with a letter and contain only alphanumeric characters or underscores".to_string(),
+        ));
+    }
+    // Additional check: block PostgreSQL reserved/special names
+    let lower = dbname.to_lowercase();
+    if lower == "template0" || lower == "template1" || lower == "postgres" {
+        return Err(error::Error::BadRequest(
+            "Cannot use reserved PostgreSQL database names".to_string(),
         ));
     }
     if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {

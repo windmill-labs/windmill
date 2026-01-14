@@ -56,6 +56,7 @@ lazy_static::lazy_static! {
                     (20251105100125, include_str!(
                         "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
                     ).replace("✅", "")),
+                    (20260107133344, "".to_string()),
                     ].into_iter().collect();
 }
 

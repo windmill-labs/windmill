@@ -85,6 +85,7 @@ rust-embed = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 quick_cache.workspace = true
 rand.workspace = true
+ed25519-dalek.workspace = true
 time.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
