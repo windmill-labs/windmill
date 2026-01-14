@@ -65,7 +65,7 @@
 					}
 	}
 
-	let selectedTab = $state('inputs')
+	let selectedTab = $state('test')
 	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
@@ -198,8 +198,8 @@
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
-				<Tab value="inputs" label="Inputs" />
 				<Tab value="test" label="Test" />
+				<Tab value="inputs" label="Inputs" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}

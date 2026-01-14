@@ -40,6 +40,7 @@
 		signDebugRequest,
 		getDebugErrorMessage
 	} from '$lib/components/debug'
+	import TextInput from '../text_input/TextInput.svelte'
 
 	interface Props {
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
@@ -597,19 +598,21 @@
 			</div>
 			{#if name !== undefined}
 				<div class="flex flex-row gap-2 w-full items-center">
-					<input
-						onkeydown={stopPropagation(bubble('keydown'))}
+					<TextInput
+						inputProps={{
+							onkeydown: () => stopPropagation(bubble('keydown')),
+							placeholder: 'Inline script name'
+						}}
 						bind:value={name}
-						placeholder="Inline script name"
-						class="!text-xs !rounded-sm !shadow-none"
+						size="sm"
 					/>
 				</div>
 				<Button
 					title="Clear script"
-					size="xs2"
-					color="light"
-					variant="contained"
+					variant="subtle"
 					aria-label="Clear script"
+					destructive
+					unifiedSize="sm"
 					on:click={() => dispatch('delete')}
 					endIcon={{ icon: Trash2 }}
 					iconOnly
@@ -639,7 +642,7 @@
 				{editor}
 				lang={inlineScript.language}
 				{websocketAlive}
-				iconOnly={width < 950}
+				iconOnly={width < 1250}
 				kind={'script'}
 				template={'script'}
 				on:showDiffMode={showDiffMode}
