@@ -1414,7 +1414,7 @@ async fn get_mcp_tools(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     // Fetch the MCP resource from database
     let resource_value_o = sqlx::query_scalar!(
@@ -1435,9 +1435,53 @@ async fn get_mcp_tools(
         .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
 
     // Parse MCP resource
-    let mcp_resource =
-        serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
-            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+    let mcp_resource = serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
+        .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+
+    // Check if token needs refresh before creating MCP client
+    #[cfg(feature = "oauth2")]
+    {
+        tracing::info!("Checking if token needs refresh before creating MCP client");
+        if let Some(ref token_path) = mcp_resource.token {
+            let token_var_path = token_path.trim_start_matches("$var:");
+
+            // Query to check if token is expired
+            let token_info = sqlx::query!(
+                r#"
+            SELECT
+                variable.account as account_id,
+                (now() > account.expires_at) as "is_expired: bool"
+            FROM variable
+            LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+            WHERE variable.path = $1 AND variable.workspace_id = $2
+            "#,
+                token_var_path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+
+            if let Some(info) = token_info {
+                if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
+                    let refresh_tx = user_db.begin(&authed).await?;
+                    if let Err(e) = crate::oauth2_oss::_refresh_token(
+                        refresh_tx,
+                        token_var_path,
+                        &w_id,
+                        account_id,
+                        &db,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                        "Failed to refresh token for MCP resource: {}. Proceeding with possibly expired token.",
+                        e
+                    );
+                    }
+                }
+            }
+        }
+    }
 
     // Create MCP client connection
     let client = windmill_mcp::McpClient::from_resource(mcp_resource, &db, &w_id)
