@@ -73,7 +73,7 @@ if [ "${ENABLE_DEBUGGER:-true}" = "true" ]; then
 
     # Enable nsjail if requested
     if [ "${ENABLE_NSJAIL:-false}" = "true" ]; then
-        DEBUGGER_ARGS="$DEBUGGER_ARGS --nsjail"
+        DEBUGGER_ARGS="$DEBUGGER_ARGS --nsjail --nsjail-config /debugger/nsjail.debug.config.proto"
     fi
 
     bun run dap_debug_service.ts $DEBUGGER_ARGS &

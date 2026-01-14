@@ -88,6 +88,7 @@ The `resource()` utility:
 
 ### UI Components
 
+- Use frontend/src/lib/components/common/button/Button.svelte for all buttons
 - Use the component TextInput for all text inputs
 - Form components (TextInputs, ToggleButtons, Select ...) should all use the same size when put together, using the unified size system.
 - Read carefully components props JSDoc before using them

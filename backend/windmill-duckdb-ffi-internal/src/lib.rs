@@ -267,7 +267,11 @@ fn do_duckdb_inner(
                             (0..stmt.column_count())
                                 .map(|i| {
                                     let logical_type = stmt.column_logical_type(i);
-                                    logical_type.get_alias()
+                                    if logical_type.is_invalid() {
+                                        None
+                                    } else {
+                                        logical_type.get_alias()
+                                    }
                                 })
                                 .collect::<Vec<_>>(),
                         );

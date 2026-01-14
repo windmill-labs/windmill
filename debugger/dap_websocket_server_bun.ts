@@ -619,7 +619,7 @@ export class DebugSession {
 	private nsjailConfig?: NsjailConfig
 
 	// Custom bun binary path (can be overridden)
-	private bunPath: string = 'bun'
+	private bunPath: string = '/usr/bin/bun'
 
 	// Windmill binary path for prepare-deps CLI (optional, for dependency installation)
 	private windmillPath?: string
@@ -630,7 +630,7 @@ export class DebugSession {
 	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string; windmillPath?: string }) {
 		this.ws = ws
 		this.nsjailConfig = options?.nsjailConfig
-		this.bunPath = options?.bunPath || 'bun'
+		this.bunPath = options?.bunPath || '/usr/bin/bun'
 		this.windmillPath = options?.windmillPath
 	}
 
@@ -1314,7 +1314,7 @@ export class DebugSession {
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
-		const cwd = (args.cwd as string) || process.cwd()
+		let cwd = (args.cwd as string) || process.cwd()
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
@@ -1393,7 +1393,9 @@ export class DebugSession {
 				this.tempFile = join(this.tempDir, 'script.ts')
 				await writeFile(this.tempFile, code)
 				this.scriptPath = this.tempFile
-				logger.info(`Wrote code to ${this.tempFile}`)
+				// Use temp directory as cwd so bun can find the script and node_modules
+				cwd = this.tempDir
+				logger.info(`Wrote code to ${this.tempFile}, cwd=${cwd}`)
 				// Log lines around breakpoint for debugging
 				const lines = code.split('\n')
 				for (let i = 24; i < Math.min(30, lines.length); i++) {
