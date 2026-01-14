@@ -277,7 +277,7 @@
 									{isConnecting ? 'Connecting...' : 'Connect'}
 								</Button>
 								<Button
-									desctructive
+									destructive
 									onclick={() => deleteIntegration(serviceName)}
 									startIcon={{ icon: X }}
 								>
