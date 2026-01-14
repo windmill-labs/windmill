@@ -1,32 +1,30 @@
 <script lang="ts">
-	import { Button } from '$lib/components/common'
+	import { Button, ButtonType } from '$lib/components/common'
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 
-	export let isLoading
-	export let hideShortcut = false
-	export let onRun: () => Promise<void>
-	export let onCancel: () => Promise<void>
+	interface Props {
+		isLoading: any
+		hideShortcut?: boolean
+		onRun: () => Promise<void>
+		onCancel: () => Promise<void>
+		size?: ButtonType.UnifiedSize
+	}
+
+	let { isLoading, hideShortcut = false, onRun, onCancel, size = 'sm' }: Props = $props()
 </script>
 
 {#if !isLoading}
 	<Button
 		loading={isLoading}
-		size="sm"
+		unifiedSize={size}
 		variant="accent"
-		btnClasses="!px-2 !py-1"
-		on:click={() => onRun()}
+		onClick={() => onRun()}
 		shortCut={{ Icon: CornerDownLeft, hide: hideShortcut }}
 	>
 		Run
 	</Button>
 {:else}
-	<Button
-		size="sm"
-		variant="accent"
-		destructive
-		btnClasses="!px-2 !py-1"
-		on:click={() => onCancel()}
-	>
+	<Button unifiedSize={size} variant="accent" destructive onClick={() => onCancel()}>
 		<Loader2 size={14} class="animate-spin mr-2" />
 		Cancel
 	</Button>

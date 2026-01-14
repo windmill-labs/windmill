@@ -16,7 +16,6 @@
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
 	import type { AppInput, InlineScript } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
-	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
 	import EditorBar from '../EditorBar.svelte'
 	import { LanguageIcon } from '../common/languageIcons'
@@ -48,9 +47,7 @@
 		id: string
 		fields?: Record<string, AppInput>
 		path: string
-		isLoading?: boolean
 		onRun: () => Promise<void>
-		onCancel: () => Promise<void>
 		editor?: Editor | undefined
 		lastDeployedCode?: string | undefined
 		/** Called when code is selected in the editor */
@@ -71,9 +68,7 @@
 		id,
 		fields = $bindable(undefined),
 		path,
-		isLoading = false,
 		onRun,
-		onCancel,
 		editor = $bindable(undefined),
 		lastDeployedCode,
 		onSelectionChange
@@ -171,7 +166,9 @@
 	const dapServerUrl = $derived(
 		getDebugServerUrl((inlineScript?.language || 'python3') as DebugLanguage)
 	)
-	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(inlineScript?.language ?? '')}`)
+	const debugFilePath = $derived(
+		`/tmp/script${getDebugFileExtension(inlineScript?.language ?? '')}`
+	)
 	const isDebuggableScript = $derived(isDebuggable(inlineScript?.language ?? ''))
 	const showDebugPanel = $derived(
 		debugMode && $debugState.connected && ($debugState.running || $debugState.stopped)
@@ -307,7 +304,11 @@
 
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', inlineScript.language ?? 'python3')
+				signedPayload = await signDebugRequest(
+					$workspaceStore ?? '',
+					code ?? '',
+					inlineScript.language ?? 'python3'
+				)
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -315,12 +316,15 @@
 			}
 
 			// Get static args from fields
-			const args = Object.entries(fields ?? {}).reduce<Record<string, unknown>>((acc, [key, obj]) => {
-				if (obj.type === 'static') {
-					acc[key] = obj.value
-				}
-				return acc
-			}, {})
+			const args = Object.entries(fields ?? {}).reduce<Record<string, unknown>>(
+				(acc, [key, obj]) => {
+					if (obj.type === 'static') {
+						acc[key] = obj.value
+					}
+					return acc
+				},
+				{}
+			)
 
 			await dapClient.connect()
 			await dapClient.initialize()
@@ -625,14 +629,13 @@
 
 				<Button
 					variant="default"
-					size="xs2"
+					unifiedSize="sm"
 					on:click={async () => {
 						editor?.format()
 					}}
 				>
 					Format
 				</Button>
-				<RunButton {isLoading} {onRun} {onCancel} />
 			</div>
 		</div>
 
@@ -708,7 +711,11 @@
 									if (inlineScript.schema == undefined) {
 										inlineScript.schema = emptySchema()
 									}
-									await inferInlineScriptSchema(inlineScript?.language, e.detail, inlineScript.schema)
+									await inferInlineScriptSchema(
+										inlineScript?.language,
+										e.detail,
+										inlineScript.schema
+									)
 									if (JSON.stringify(inlineScript.schema) != oldSchema) {
 										inlineScript = inlineScript
 										syncFields()
@@ -789,12 +796,17 @@
 <Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
 	<div class="flex items-start gap-3">
 		<div class="flex-shrink-0">
-			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
+			>
 				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
 			</div>
 		</div>
 		<div class="text-secondary text-sm">
-			<p>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected behavior or limitations.</p>
+			<p
+				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
+				behavior or limitations.</p
+			>
 			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
 		</div>
 	</div>
