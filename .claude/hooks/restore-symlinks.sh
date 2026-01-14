@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Restore _ee.rs symlinks after Claude finishes processing
 # This script runs when Claude stops
 # IMPORTANT: Copies any modifications back to the target before restoring symlinks
