@@ -44,8 +44,6 @@ pub struct ServiceSyncResult {
     pub errors: Vec<SyncError>,
 }
 
-pub const SYNC_INTERVAL: u64 = 5 * 60;
-
 pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
     tracing::info!("Starting native triggers sync");
 
@@ -177,7 +175,10 @@ async fn sync_service_triggers<T: External>(
         }
     }
 
-    (T::SERVICE_NAME, ServiceSyncResult { synced_triggers: all_synced_triggers, errors: all_errors })
+    (
+        T::SERVICE_NAME,
+        ServiceSyncResult { synced_triggers: all_synced_triggers, errors: all_errors },
+    )
 }
 
 #[cfg(feature = "native_trigger")]
