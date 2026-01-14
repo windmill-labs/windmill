@@ -76,8 +76,8 @@ function parseConfig(): ServiceConfig {
 			binaryPath: process.env.DAP_NSJAIL_PATH || 'nsjail',
 			extraArgs: []
 		},
-		pythonPath: process.env.DAP_PYTHON_PATH || 'python3',
-		bunPath: process.env.DAP_BUN_PATH || 'bun',
+		pythonPath: process.env.DAP_PYTHON_PATH || '/usr/bin/python3',
+		bunPath: process.env.DAP_BUN_PATH || '/usr/bin/bun',
 		windmillPath: process.env.DAP_WINDMILL_PATH,
 		debug: process.env.DAP_DEBUG === 'true'
 	}
@@ -355,7 +355,7 @@ function spawnProcess(options: SpawnOptions): Subprocess {
 		// Add any extra nsjail arguments
 		nsjailCmd.push(...config.nsjail.extraArgs)
 
-		// Add working directory binding if specified
+		// Add working directory if specified
 		if (options.cwd) {
 			nsjailCmd.push('--cwd', options.cwd)
 		}
@@ -892,7 +892,7 @@ class PythonDebugSession extends BaseDebugSession {
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
-		const cwd = (args.cwd as string) || process.cwd()
+		let cwd = (args.cwd as string) || process.cwd()
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
@@ -950,6 +950,9 @@ sys.stdout.flush()
 				this.tempFile = join(this.tempDir, 'script.py')
 				await writeFile(this.tempFile, code)
 				this.scriptPath = this.tempFile
+				// Use temp directory as cwd so debugger can find the script
+				cwd = this.tempDir
+				logger.info(`Wrote Python code to ${this.tempFile}, cwd=${cwd}`)
 			} catch (error) {
 				this.sendResponse(request, false, {}, `Failed to create temp file: ${error}`)
 				return
