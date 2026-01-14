@@ -1089,7 +1089,13 @@ const server = Bun.serve({
 	},
 	websocket: {
 		open(ws) {
-			const path = (ws.data as { path: string }).path
+			let path = (ws.data as { path: string }).path
+
+			// Trim /ws_debug prefix if present (for direct access without reverse proxy stripping)
+			if (path.startsWith('/ws_debug/')) {
+				path = path.slice('/ws_debug'.length)
+			}
+
 			logger.info(`New client connected: ${path}`)
 
 			// Create appropriate session based on path
