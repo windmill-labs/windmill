@@ -726,13 +726,12 @@
 					label="Data Tables"
 				/>
 				<Tab
-					size="xs"
+					small
 					value="native_triggers"
 					aiId="workspace-settings-integrations"
 					aiDescription="Workspace integrations for native triggers"
-				>
-					<div class="flex gap-2 items-center my-1">Native Triggers</div>
-				</Tab>
+					label="Native Triggers"
+				/>
 				<Tab
 					small
 					value="windmill_lfs"

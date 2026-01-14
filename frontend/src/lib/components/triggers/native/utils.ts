@@ -1,6 +1,8 @@
-import type { NativeServiceName, NativeTrigger } from '$lib/gen/types.gen'
+import type { NativeServiceName, NativeTrigger, NativeTriggerData } from '$lib/gen/types.gen'
 import { isCloudHosted } from '$lib/cloud'
-import { WorkspaceIntegrationService } from '$lib/gen'
+import { NativeTriggerService, WorkspaceIntegrationService } from '$lib/gen'
+import { get, type Writable } from 'svelte/store'
+import { sendUserToast } from '$lib/toast'
 
 export interface NativeTriggerConfig {
 	readonly serviceDisplayName: string
@@ -22,7 +24,7 @@ export const NATIVE_TRIGGER_SERVICES: Record<NativeServiceName, NativeTriggerCon
 		supportsFetchConfig: true,
 		isCloudCompatible: true,
 		templates: {
-			script: '/scripts/add?hub=hub%2F28045',
+			script: '/scripts/add?hub=hub%2F28115',
 			flow: '/flows/add?hub=73'
 		}
 	}
@@ -76,13 +78,9 @@ export function getServiceConfig(service: NativeServiceName): NativeTriggerConfi
 	return NATIVE_TRIGGER_SERVICES[service]
 }
 
-export type EventTypeVal = 'webhook'
-
-export interface ExtendedNativeTrigger extends NativeTrigger {
-	id: number
-	runnable_path: string
-	runnable_kind: 'script' | 'flow'
-}
+// NativeTrigger now has script_path and is_flow directly
+// This type adds the marked property for search highlighting
+export type ExtendedNativeTrigger = NativeTrigger & { marked?: string }
 
 export interface ServiceFormProps {
 	config: Record<string, any>
@@ -96,17 +94,15 @@ export interface ServiceFormProps {
 export function validateCommonFields(config: Record<string, any>): Record<string, string> {
 	const errors: Record<string, string> = {}
 
-	if (!config.runnable_path?.trim()) {
-		errors.runnable_path = 'Script/Flow path is required'
+	if (!config.script_path?.trim()) {
+		errors.script_path = 'Script/Flow path is required'
 	}
 
 	return errors
 }
 
 export function formatTriggerDisplayName(trigger: NativeTrigger): string {
-	const serviceConfig = getServiceConfig(trigger.service_name)
-	const serviceName = serviceConfig?.serviceDisplayName || trigger.service_name
-	return `${serviceName} - ${trigger.summary || trigger.external_id}`
+	return `${trigger.script_path} (external id: ${trigger.external_id})`
 }
 
 export function getTriggerIconName(service: NativeServiceName): string {
@@ -114,7 +110,7 @@ export function getTriggerIconName(service: NativeServiceName): string {
 		case 'nextcloud':
 			return 'NextcloudIcon'
 		default:
-			return 'Database'
+			return 'NextcloudIcon'
 	}
 }
 
@@ -138,4 +134,88 @@ export function getTemplatePath(
 ): string | undefined {
 	const templates = getServiceTemplates(service)
 	return templates?.[type]
+}
+
+export interface NextcloudEvent {
+	path: string
+	description?: string
+}
+
+export function getNextcloudSchema(availableEvents: NextcloudEvent[]) {
+	return {
+		type: 'object',
+		properties: {
+			event: {
+				type: 'string',
+				title: 'Event',
+				description: 'The type of Nextcloud event to listen for',
+				enum: availableEvents.map((e) => e.path),
+				enumLabels: availableEvents.reduce(
+					(acc, cur) => ({ ...acc, [cur.path]: cur.description ?? cur.path }),
+					{} as Record<string, string>
+				)
+			},
+			eventFilter: {
+				type: 'object',
+				title: 'Event filter',
+				description: 'Optional filter criteria for the event (JSON object)'
+			},
+			userIdFilter: {
+				type: 'string',
+				title: 'User ID filter',
+				description: 'Filter events by specific user ID'
+			},
+			headers: {
+				type: 'object',
+				title: 'Headers',
+				description: 'Optional HTTP headers to include (JSON object)'
+			}
+		},
+		required: ['event']
+	}
+}
+
+export async function saveNativeTriggerFromCfg(
+	service: NativeServiceName,
+	initialExternalId: string,
+	triggerCfg: Record<string, any>,
+	edit: boolean,
+	workspace: string,
+	usedTriggerKinds: Writable<string[]>
+): Promise<string | null> {
+	const requestBody: NativeTriggerData = {
+		script_path: triggerCfg.script_path,
+		is_flow: triggerCfg.is_flow,
+		service_config: triggerCfg.service_config
+	}
+
+	const serviceName = NATIVE_TRIGGER_SERVICES[service].serviceDisplayName
+
+	try {
+		let externalId = initialExternalId
+		if (edit) {
+			await NativeTriggerService.updateNativeTrigger({
+				workspace: workspace,
+				serviceName: service,
+				externalId: initialExternalId,
+				requestBody
+			})
+			sendUserToast(`${serviceName} trigger ${externalId} updated`)
+		} else {
+			const response = await NativeTriggerService.createNativeTrigger({
+				workspace: workspace,
+				serviceName: service,
+				requestBody
+			})
+			externalId = response.external_id
+			sendUserToast(`${serviceName} trigger ${externalId} created`)
+		}
+		if (!get(usedTriggerKinds).includes(service)) {
+			usedTriggerKinds.update((t) => [...t, service])
+		}
+		return externalId
+	} catch (error) {
+		sendUserToast(error.body || error.message, true)
+		return null
+	}
 }

@@ -11863,7 +11863,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/FullTriggerResponse"
+                $ref: "#/components/schemas/NativeTriggerWithExternal"
 
   /w/{workspace}/native_triggers/{service_name}/delete/{external_id}:
     delete:
@@ -21854,7 +21854,7 @@ components:
         is_flow:
           type: boolean
           description: Whether the trigger targets a flow (true) or a script (false)
-        config:
+        service_config:
           type: object
           description: Configuration for the trigger including event_type and service_config
           additionalProperties: true
@@ -21868,9 +21868,9 @@ components:
         - service_name
         - script_path
         - is_flow
-        - config
+        - service_config
 
-    FullTriggerResponse:
+    NativeTriggerWithExternal:
       type: object
       description: Full trigger response containing both Windmill data and external service data
       properties:
@@ -21888,7 +21888,7 @@ components:
         is_flow:
           type: boolean
           description: Whether the trigger targets a flow (true) or a script (false)
-        config:
+        service_config:
           type: object
           description: Configuration for the trigger including event_type and service_config
           additionalProperties: true
@@ -21906,7 +21906,7 @@ components:
         - service_name
         - script_path
         - is_flow
-        - config
+        - service_config
         - external_data
 
     WorkspaceIntegrations:
@@ -21943,14 +21943,6 @@ components:
         - client_secret
         - base_url
         - redirect_uri
-
-    EventType:
-      oneOf:
-        - $ref: '#/components/schemas/WebhookEvent'
-      discriminator:
-        propertyName: type
-        mapping:
-          webhook: '#/components/schemas/WebhookEvent'
 
     WebhookEvent:
       type: object
@@ -21991,17 +21983,14 @@ components:
         is_flow:
           type: boolean
           description: Whether the trigger targets a flow (true) or a script (false)
-        event_type:
-          $ref: "#/components/schemas/EventType"
-        payload:
+        service_config:
           type: object
-          description: Service-specific configuration payload (e.g., event types, filters)
+          description: Service-specific configuration (e.g., event types, filters)
           additionalProperties: true
       required:
         - script_path
         - is_flow
-        - event_type
-        - payload
+        - service_config
 
     CreateTriggerResponse:
       type: object

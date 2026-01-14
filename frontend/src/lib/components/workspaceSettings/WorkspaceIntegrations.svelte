@@ -4,11 +4,12 @@
 	import { Button, Alert } from '$lib/components/common'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Description from '$lib/components/Description.svelte'
-	import { Plus, Check, X, ExternalLink, Cog, AlertCircle } from 'lucide-svelte'
+	import { Check, X, ExternalLink, Cog, Plug } from 'lucide-svelte'
 	import { NextcloudIcon } from '$lib/components/icons'
 	import { WorkspaceIntegrationService, type NativeServiceName } from '$lib/gen'
 	import OAuthClientConfig from './OAuthClientConfig.svelte'
 	import { page } from '$app/stores'
+	import { goto } from '$app/navigation'
 
 	interface WorkspaceIntegration {
 		service_name: string
@@ -158,7 +159,7 @@
 					workspace,
 					code,
 					state,
-					requestBody: { redirect_uri: redirectUri }
+					requestBody: { redirect_uri: $page.url.toString() }
 				})
 				sendUserToast(`${supportedServices[serviceName]?.displayName} connected successfully!`)
 				await loadIntegrations()
@@ -168,13 +169,13 @@
 		} catch (err: any) {
 			sendUserToast(`Failed to complete OAuth connection: ${err.message}`, true)
 		} finally {
-			const url = new URL(window.location.href)
+			const url = new URL($page.url)
 			url.searchParams.delete('code')
 			url.searchParams.delete('state')
 			url.searchParams.delete('service')
 			url.searchParams.delete('workspace')
-			window.history.replaceState({}, '', url.toString())
 			processingCallback = false
+			goto(url.toString(), { replaceState: true, noScroll: true, keepFocus: true })
 		}
 	}
 
@@ -203,7 +204,8 @@
 </script>
 
 <div class="flex flex-col gap-6 my-8">
-	<div class="flex flex-col gap-2">
+	<div class="flex flex-col gap-1">
+		<div class="text-sm font-semibold text-emphasis">Native Triggers</div>
 		<Description>
 			Connect your workspace to external services for native triggers and enhanced functionality.
 			These connections are shared across all workspace members and are required for native triggers
@@ -215,8 +217,8 @@
 	</div>
 
 	{#if processingCallback}
-		<Alert type="info" title="Processing OAuth Connection">
-			<p class="text-sm"> Completing your OAuth connection... Please wait. </p>
+		<Alert type="info" title="Processing OAuth connection">
+			<p class="text-sm">Completing your OAuth connection, please wait...</p>
 		</Alert>
 	{:else if loading}
 		<div class="space-y-4">
@@ -240,68 +242,50 @@
 								<config.icon class="w-6 h-6" />
 							</div>
 							<div class="flex flex-col">
-								<div class="text-primary font-medium">{config.displayName}</div>
-								<div class="text-tertiary text-sm">{config.description}</div>
+								<div class="text-sm font-semibold text-emphasis">{config.displayName}</div>
+								<div class="text-xs font-normal text-primary">{config.description}</div>
 							</div>
 						</div>
 
 						<div class="flex items-center gap-2">
 							{#if isServiceConnected}
-								<div class="flex items-center gap-1 text-green-600 text-sm">
+								<div class="flex items-center gap-1 text-green-600 text-xs">
 									<Check size={16} />
-									<span class="font-medium">Connected</span>
+									<span class="font-semibold">Connected</span>
 								</div>
 								<Button
-									size="xs"
-									color="blue"
-									variant="border"
 									onclick={() => connectService(serviceName, redirectUri)}
 									disabled={isConnecting}
-									startIcon={{ icon: Plus }}
+									startIcon={{ icon: Plug }}
 								>
 									{isConnecting ? 'Reconnecting...' : 'Reconnect'}
 								</Button>
 								<Button
-									size="xs"
-									color="red"
-									variant="border"
+									destructive
 									onclick={() => deleteIntegration(serviceName)}
 									startIcon={{ icon: X }}
 								>
 									Delete
 								</Button>
 							{:else if isOAuthConfigured}
-								<div class="flex items-center gap-1 text-orange-500 text-sm">
-									<AlertCircle size={16} />
-									Configured, Not Connected
-								</div>
 								<Button
-									size="xs"
-									color="blue"
+									variant="accent"
 									onclick={() => connectService(serviceName, redirectUri)}
 									disabled={isConnecting}
-									startIcon={{ icon: Plus }}
+									startIcon={{ icon: Plug }}
 								>
 									{isConnecting ? 'Connecting...' : 'Connect'}
 								</Button>
 								<Button
-									size="xs"
-									color="red"
-									variant="border"
+									desctructive
 									onclick={() => deleteIntegration(serviceName)}
 									startIcon={{ icon: X }}
 								>
 									Delete
 								</Button>
 							{:else}
-								<div class="flex items-center gap-1 text-gray-500 text-sm">
-									<X size={16} />
-									Not Configured
-								</div>
 								<Button
-									size="xs"
-									color="blue"
-									variant="border"
+									variant="accent"
 									onclick={() =>
 										(showingConfig = showingConfig === serviceName ? null : serviceName)}
 									startIcon={{ icon: Cog }}
@@ -311,14 +295,7 @@
 							{/if}
 
 							{#if config.docsUrl}
-								<Button
-									size="xs"
-									color="light"
-									variant="border"
-									href={config.docsUrl}
-									target="_blank"
-									startIcon={{ icon: ExternalLink }}
-								>
+								<Button href={config.docsUrl} target="_blank" startIcon={{ icon: ExternalLink }}>
 									Docs
 								</Button>
 							{/if}
@@ -342,21 +319,6 @@
 				</div>
 			{/each}
 		</div>
-
-		<Alert type="info" title="Native Trigger Requirements">
-			<div class="space-y-2">
-				<p>To use native triggers, you need:</p>
-				<ol class="list-decimal list-inside space-y-1 text-sm">
-					<li>Configure OAuth client credentials for the desired service (workspace level)</li>
-					<li>Connect your workspace to the external service using the configured OAuth client</li>
-					<li>Appropriate permissions to create and manage triggers</li>
-				</ol>
-				<p class="text-xs text-tertiary mt-2">
-					OAuth client configuration is required before you can connect to external services. This
-					ensures secure authentication between your workspace and the external service.
-				</p>
-			</div>
-		</Alert>
 
 		{#if integrations.length === 0}
 			<Alert type="warning" title="No Integrations Connected">

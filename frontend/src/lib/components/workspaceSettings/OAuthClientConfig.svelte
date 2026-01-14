@@ -84,24 +84,19 @@
 	<div class="flex justify-between items-center">
 		<h4 class="text-md font-medium text-primary">{serviceDisplayName} OAuth Client Configuration</h4
 		>
-		{#if existingConfig}
-			<div class="text-green-600 text-sm flex items-center gap-1">
-				<span class="w-2 h-2 bg-green-500 rounded-full"></span>
-				Configured
-			</div>
-		{:else}
-			<div class="text-gray-500 text-sm">Not Configured</div>
-		{/if}
 	</div>
 
 	{#if !existingConfig}
-		<Alert type="warning" title="OAuth Client Required">
+		<Alert type="warning" title="OAuth client required">
 			<p class="text-sm mb-2">
 				Before you can connect to {serviceDisplayName}, you need to configure an OAuth client. This
 				requires:
 			</p>
 			<ol class="list-decimal list-inside space-y-1 text-sm">
-				<li>Create an OAuth2 application in your {serviceDisplayName} instance</li>
+				<li
+					>Create an OAuth2 application in your {serviceDisplayName} instance (Administration settings
+					-> Security -> OAuth 2.0 clients)</li
+				>
 				<li
 					>Configure the redirect URI: <code
 						class="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded"
@@ -116,8 +111,11 @@
 
 	<div class="space-y-4">
 		<div class="space-y-4">
-			<div>
-				<Label label="Nextcloud Base URL" />
+			<div class="flex flex-col gap-1">
+				<Label label="Nextcloud base URL" />
+				<p class="text-xs font-normal text-secondary"
+					>The base URL of your Nextcloud instance (without trailing slash)</p
+				>
 				<input
 					type="url"
 					bind:value={baseUrl}
@@ -125,13 +123,23 @@
 					class="windmill-input"
 					disabled={saving}
 				/>
-				<p class="text-xs text-tertiary mt-1"
-					>The base URL of your Nextcloud instance (without trailing slash)</p
-				>
+				{#if baseUrl}
+					<Button
+						wrapperClasses="self-start"
+						href={`${baseUrl}/settings/admin/security`}
+						target="_blank"
+						startIcon={{ icon: ExternalLink }}
+					>
+						{serviceDisplayName} OAuth Settings
+					</Button>
+				{/if}
 			</div>
 
-			<div>
+			<div class="flex flex-col gap-1">
 				<Label label="Redirect URI" />
+				<p class="text-xs font-normal text-secondary"
+					>Use this URL when creating the OAuth app in {serviceDisplayName}</p
+				>
 				<div class="flex gap-2">
 					<input
 						type="url"
@@ -148,12 +156,9 @@
 						Copy
 					</Button>
 				</div>
-				<p class="text-xs text-tertiary mt-1"
-					>Use this URL when creating the OAuth app in {serviceDisplayName}</p
-				>
 			</div>
 
-			<div>
+			<div class="flex flex-col gap-1">
 				<Label label="Client ID" />
 				<input
 					type="text"
@@ -164,8 +169,8 @@
 				/>
 			</div>
 
-			<div>
-				<Label label="Client Secret" />
+			<div class="flex flex-col gap-1">
+				<Label label="Client secret" />
 				<input
 					type="password"
 					bind:value={clientSecret}
@@ -182,27 +187,14 @@
 					disabled={saving || !clientId.trim() || !clientSecret.trim() || !baseUrl.trim()}
 					startIcon={{ icon: Save }}
 				>
-					{saving ? 'Saving...' : 'Save Configuration'}
+					{saving ? 'Saving...' : 'Save configuration'}
 				</Button>
-
-				{#if baseUrl}
-					<Button
-						size="sm"
-						color="light"
-						variant="border"
-						href={`${baseUrl}/settings/admin/security`}
-						target="_blank"
-						startIcon={{ icon: ExternalLink }}
-					>
-						{serviceDisplayName} OAuth Settings
-					</Button>
-				{/if}
 			</div>
 		</div>
 	</div>
 
 	{#if existingConfig}
-		<Alert type="success" title="OAuth Client Configured">
+		<Alert type="success" title="OAuth client configured">
 			<p class="text-sm">
 				OAuth client is configured for {serviceDisplayName}. You can now connect this workspace to
 				your {serviceDisplayName} instance.

@@ -1,26 +1,61 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen/services.gen'
-	import type { EventType, NativeServiceName, RunnableKind } from '$lib/gen/types.gen'
-	import type { EventTypeVal, ExtendedNativeTrigger } from './utils'
-	import { validateCommonFields, getServiceConfig, getTemplatePath } from './utils'
-	import { workspaceStore } from '$lib/stores'
-	import { sendUserToast } from '$lib/utils'
-	import { Button, Drawer } from '$lib/components/common'
-	import { Save, Pipette } from 'lucide-svelte'
-	import Label from '$lib/components/Label.svelte'
+	import type { NativeServiceName } from '$lib/gen/types.gen'
+	import type { ExtendedNativeTrigger } from './utils'
+	import {
+		validateCommonFields,
+		getServiceConfig,
+		getTemplatePath,
+		saveNativeTriggerFromCfg
+	} from './utils'
+	import { usedTriggerKinds, userStore, workspaceStore } from '$lib/stores'
+	import { canWrite, emptyString, sendUserToast } from '$lib/utils'
+	import { Button } from '$lib/components/common'
+	import Drawer from '$lib/components/common/drawer/Drawer.svelte'
+	import DrawerContent from '$lib/components/common/drawer/DrawerContent.svelte'
+	import { Loader2, Save } from 'lucide-svelte'
 	import ScriptPicker from '$lib/components/ScriptPicker.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Required from '$lib/components/Required.svelte'
 	import NextcloudTriggerForm from './services/nextcloud/NextcloudTriggerForm.svelte'
+	import TriggerEditorToolbar from '$lib/components/triggers/TriggerEditorToolbar.svelte'
+	import { handleConfigChange, type Trigger } from '$lib/components/triggers/utils'
+	import { deepEqual } from 'fast-equals'
+	import type { Snippet } from 'svelte'
 
 	interface Props {
 		service: NativeServiceName
-		onUpdate?: () => void
+		onUpdate?: (path?: string) => void
+		useDrawer?: boolean
+		hideTarget?: boolean
+		allowDraft?: boolean
+		trigger?: Trigger
+		customLabel?: Snippet
+		isDeployed?: boolean
+		cloudDisabled?: boolean
+		description?: Snippet
+		onConfigChange?: (cfg: Record<string, any>, saveDisabled: boolean, updated: boolean) => void
+		onDelete?: () => void
+		onReset?: () => void
 	}
 
-	let { service, onUpdate }: Props = $props()
+	let {
+		service,
+		onUpdate,
+		useDrawer = true,
+		hideTarget = false,
+		allowDraft = false,
+		trigger = undefined,
+		customLabel,
+		isDeployed = false,
+		cloudDisabled = false,
+		description,
+		onConfigChange,
+		onDelete,
+		onReset
+	}: Props = $props()
 
-	const serviceConfig = $derived(getServiceConfig(service))
+	const serviceInfo = $derived(getServiceConfig(service))
 	const scriptTemplateUrl = $derived.by(() => {
 		const templateId = getTemplatePath(service, 'script')
 		return templateId
@@ -41,91 +76,149 @@
 		}
 	})
 
-	let isOpen = $state(false)
+	let drawer: Drawer | undefined = $state()
 	let isNew = $state(false)
+	let isRecreate = $state(false)
+	let oldExternalIdToDelete = $state<string | null>(null)
 	let loading = $state(false)
 	let loadingConfig = $state(false)
-	let config = $state<Record<string, any>>({})
+	let loadingForm = $state(false)
+	let showLoading = $state(false)
+	let serviceConfig = $state<Record<string, any>>({})
 	let externalData = $state<any>(null)
 	let errors = $state<Record<string, string>>({})
-	let showCustomRawEditor = $state(false)
-	let customRawConfig = $state('')
-	let request_type: 'async' | 'sync' = $state('async')
-	let event_type: EventTypeVal = $state('webhook')
-	let runnablePath = $state('')
-	let runnableKind = $state<RunnableKind>('script')
-	let summary = $state('')
-	let triggerId = $state<number | null>(null)
+	let scriptPath = $state('')
+	let initialScriptPath = $state('')
+	let fixedScriptPath = $state('')
+	let isFlow = $state(false)
+	let externalId = $state<string | null>(null)
+	let can_write = $state(true)
+	let originalConfig = $state<Record<string, any> | undefined>(undefined)
+	let initialConfig: Record<string, any> | undefined = undefined
 
-	export function openNew() {
+	$effect(() => {
+		console.log('diff', getSaveCfg(), originalConfig)
+	})
+
+	$effect(() => {
+		console.log('serviceConfig', serviceConfig)
+		console.log('externalData', externalData)
+		console.log('save config', getSaveCfg().service_config)
+	})
+
+	export function openNew(
+		nis_flow?: boolean,
+		fixedScriptPath_?: string,
+		defaultValues?: Record<string, any>
+	) {
+		if (useDrawer) {
+			drawer?.openDrawer()
+		}
 		isNew = true
-		config = {}
-		externalData = null
-		event_type = 'webhook'
+		isRecreate = false
+		oldExternalIdToDelete = null
+		serviceConfig = defaultValues ? { ...defaultValues } : {}
+		externalData = defaultValues ? { ...defaultValues } : null
 		errors = {}
-		runnablePath = ''
-		runnableKind = 'script'
-		summary = ''
-		triggerId = null
-		showCustomRawEditor = false
-		customRawConfig = ''
+		fixedScriptPath = fixedScriptPath_ ?? ''
+		scriptPath = fixedScriptPath
+		initialScriptPath = ''
+		isFlow = nis_flow ?? false
+		externalId = null
 		loadingConfig = false
-		isOpen = true
+		can_write = true
+		originalConfig = undefined
+		initialConfig = undefined
 	}
 
-	export async function openEdit(trigger: ExtendedNativeTrigger) {
+	export function openRecreate(nativeTrigger: ExtendedNativeTrigger) {
+		if (useDrawer) {
+			drawer?.openDrawer()
+		}
+		isNew = true
+		isRecreate = true
+		oldExternalIdToDelete = nativeTrigger.external_id
+		const cachedConfig = (nativeTrigger.service_config as Record<string, any>) || {}
+		serviceConfig = { ...cachedConfig }
+		// Pass cached config as externalData so the form applies it after loading events
+		externalData = { ...cachedConfig }
+		errors = {}
+		scriptPath = nativeTrigger.script_path
+		initialScriptPath = nativeTrigger.script_path
+		isFlow = nativeTrigger.is_flow
+		externalId = null
+		loadingConfig = false
+		loadingForm = false
+		can_write = true
+		originalConfig = undefined
+		initialConfig = undefined
+	}
+
+	export async function openEdit(
+		externalIdOrPath: string,
+		nis_flow?: boolean,
+		defaultValues?: Record<string, any>
+	) {
+		let loadingTimeout = setTimeout(() => {
+			showLoading = true
+		}, 100)
+		if (useDrawer) {
+			drawer?.openDrawer()
+		}
 		isNew = false
-		config = trigger.metadata || {}
+		isRecreate = false
+		oldExternalIdToDelete = null
 		externalData = null
 		errors = {}
-		runnablePath = trigger.runnable_path
-		runnableKind = trigger.runnable_kind === 'flow' ? 'flow' : 'script'
-		summary = trigger.summary
-		triggerId = trigger.id
-		showCustomRawEditor = false
-		customRawConfig = JSON.stringify(config, null, 2)
+		externalId = externalIdOrPath
 		loadingConfig = true
-		isOpen = true
+		loadingForm = true
+		initialConfig = undefined
 
 		try {
 			const fullTrigger = await NativeTriggerService.getNativeTrigger({
 				workspace: $workspaceStore!,
 				serviceName: service,
-				path: trigger.runnable_path,
-				id: trigger.id
+				externalId: externalIdOrPath
 			})
 
-			console.log({ fullTrigger })
-
+			serviceConfig = (fullTrigger.service_config as Record<string, any>) || {}
+			scriptPath = fullTrigger.script_path
+			initialScriptPath = fullTrigger.script_path
+			isFlow = nis_flow ?? fullTrigger.is_flow
+			can_write = canWrite(fullTrigger.script_path, {}, $userStore)
 			externalData = fullTrigger.external_data
 
-			if (fullTrigger.external_data) {
-				customRawConfig = JSON.stringify(fullTrigger.external_data, null, 2)
+			// Apply default values if provided (for draft triggers)
+			if (defaultValues) {
+				serviceConfig = { ...serviceConfig, ...defaultValues }
+				externalData = { ...externalData, ...defaultValues }
 			}
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
 		} catch (err: any) {
-			const errorMessage = err.body || err.message || ''
-
-			if (
-				errorMessage.includes('no longer exists on external service') &&
-				errorMessage.includes('automatically deleted')
-			) {
-				sendUserToast(
-					`Trigger was automatically deleted because it no longer exists on ${serviceConfig?.serviceDisplayName}. The editor will close.`,
-					true
-				)
-				close()
-				onUpdate?.()
-			} else {
-				sendUserToast(`Failed to load trigger configuration: ${errorMessage}`, true)
-				externalData = null
-			}
+			sendUserToast(`Failed to load trigger configuration: ${err}`, true)
+			externalData = null
 		} finally {
+			// For drawer mode, set initialConfig here; for inline mode, the effect handles it after form settles
+			if (!defaultValues) {
+				initialConfig = structuredClone($state.snapshot(getSaveCfg()))
+			}
+			clearTimeout(loadingTimeout)
 			loadingConfig = false
+			showLoading = false
+		}
+	}
+
+	function getSaveCfg(): Record<string, any> {
+		return {
+			script_path: scriptPath,
+			is_flow: isFlow,
+			service_config: serviceConfig
 		}
 	}
 
 	function close() {
-		isOpen = false
+		drawer?.closeDrawer()
 	}
 
 	let validationErrors = $derived.by(() => {
@@ -134,7 +227,7 @@
 		}
 
 		const commonErrors = validateCommonFields({
-			runnable_path: runnablePath
+			script_path: scriptPath
 		})
 
 		let serviceErrors: Record<string, string> = {}
@@ -146,198 +239,231 @@
 	})
 
 	let isValid = $derived.by(() => Object.keys(validationErrors).length === 0)
+	let hasChanged = $derived(!deepEqual(getSaveCfg(), originalConfig ?? {}))
 
-	async function save() {
-		loading = true
-		try {
-			let event_type: EventType = { request_type, type: 'webhook' }
-			const payload = {
-				external_id: '',
-				runnable_path: runnablePath,
-				runnable_kind: runnableKind,
-				summary: summary || undefined,
-				payload: config,
-				event_type
-			}
+	$effect(() => {
+		console.log('loading', getSaveCfg(), originalConfig)
+	})
+	let saveDisabled = $derived(
+		loading ||
+			!isValid ||
+			emptyString(scriptPath) ||
+			loadingConfig ||
+			loadingForm ||
+			!can_write ||
+			!hasChanged
+	)
+	const saveCfg = $derived.by(getSaveCfg)
 
-			console.log('Sending payload:', JSON.stringify(payload, null, 2))
-
-			if (isNew) {
-				await NativeTriggerService.createNativeTrigger({
-					workspace: $workspaceStore!,
-					serviceName: service,
-					requestBody: payload
-				})
-				sendUserToast(`${serviceConfig?.serviceDisplayName} trigger created`)
-			} else {
-				if (!triggerId) {
-					sendUserToast('No trigger ID available for update', true)
-					return
-				}
-
-				await NativeTriggerService.updateNativeTrigger({
-					workspace: $workspaceStore!,
-					serviceName: service,
-					id: triggerId,
-					requestBody: payload
-				})
-				sendUserToast(`${serviceConfig?.serviceDisplayName} trigger updated`)
-			}
-
-			close()
-			onUpdate?.()
-		} catch (err: any) {
-			sendUserToast(`Failed to save trigger: ${err.body || err.message}`, true)
-		} finally {
-			loading = false
+	$effect(() => {
+		if (!loadingConfig && !loadingForm) {
+			handleConfigChange(saveCfg, initialConfig, saveDisabled, !isNew, onConfigChange)
 		}
+	})
+
+	async function save(): Promise<void> {
+		loading = true
+		const saveCfg = getSaveCfg()
+		const newExternalId = await saveNativeTriggerFromCfg(
+			service,
+			externalId ?? '',
+			saveCfg,
+			!isNew,
+			$workspaceStore!,
+			usedTriggerKinds
+		)
+		if (newExternalId) {
+			if (isNew) {
+				externalId = newExternalId
+				isNew = false
+				if (isRecreate && oldExternalIdToDelete) {
+					try {
+						await NativeTriggerService.deleteNativeTrigger({
+							workspace: $workspaceStore!,
+							serviceName: service,
+							externalId: oldExternalIdToDelete
+						})
+						sendUserToast(
+							`${serviceInfo?.serviceDisplayName} trigger recreated (old trigger deleted)`
+						)
+					} catch (deleteErr: any) {
+						// Still show success for creation, but warn about deletion failure
+						sendUserToast(
+							`${serviceInfo?.serviceDisplayName} trigger created, but failed to delete old trigger: ${deleteErr.body || deleteErr.message}`,
+							true
+						)
+					}
+				}
+			}
+
+			onUpdate?.(saveCfg.path)
+			originalConfig = structuredClone($state.snapshot(getSaveCfg()))
+			initialScriptPath = saveCfg.script_path
+			if (useDrawer) {
+				close()
+			}
+		}
+		loading = false
 	}
-	let templateUrl = $derived(runnableKind === 'script' ? scriptTemplateUrl : flowTemplateUrl)
+	let templateUrl = $derived(isFlow ? flowTemplateUrl : scriptTemplateUrl)
+	let itemKind: 'flow' | 'script' = $derived(isFlow ? 'flow' : 'script')
 </script>
 
-<Drawer bind:open={isOpen} size="900px">
-	<div class="flex flex-col h-full">
-		<div
-			class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700"
+{#if useDrawer}
+	<Drawer size="800px" bind:this={drawer}>
+		<DrawerContent
+			title={isRecreate
+				? `Recreate ${serviceInfo?.serviceDisplayName} trigger`
+				: isNew
+					? `New ${serviceInfo?.serviceDisplayName} trigger`
+					: `Edit ${serviceInfo?.serviceDisplayName} trigger`}
+			on:close={drawer?.closeDrawer}
 		>
-			<h2 class="text-lg font-semibold">
-				{isNew ? 'Create' : 'Edit'}
-				{serviceConfig?.serviceDisplayName} Trigger
-			</h2>
+			{#snippet actions()}
+				{@render drawerActions()}
+			{/snippet}
+			{@render content()}
+		</DrawerContent>
+	</Drawer>
+{:else}
+	<Section
+		label={!customLabel ? `${serviceInfo?.serviceDisplayName} trigger` : ''}
+		headerClass="grow min-w-0 h-[30px]"
+	>
+		{#snippet header()}
+			{#if customLabel}
+				{@render customLabel()}
+			{/if}
+		{/snippet}
+		{#snippet action()}
+			{@render inlineActions()}
+		{/snippet}
+		{@render content()}
+	</Section>
+{/if}
 
-			<Button
-				color="blue"
-				startIcon={{ icon: Save }}
-				on:click={save}
-				disabled={loading || !isValid}
-			>
-				{isNew ? 'Create' : 'Update'} Trigger
-			</Button>
+{#snippet drawerActions()}
+	<Button
+		size="sm"
+		startIcon={{ icon: Save }}
+		variant="accent"
+		on:click={save}
+		disabled={saveDisabled}
+		{loading}
+	>
+		Save
+	</Button>
+{/snippet}
+
+{#snippet inlineActions()}
+	{#if !loadingConfig}
+		<TriggerEditorToolbar
+			{trigger}
+			permissions={loadingConfig || !can_write ? 'none' : 'create'}
+			mode="enabled"
+			{allowDraft}
+			edit={!isNew}
+			isLoading={loading}
+			{isDeployed}
+			{saveDisabled}
+			onUpdate={save}
+			{onReset}
+			{onDelete}
+			{cloudDisabled}
+			onToggleMode={() => {}}
+			disableSuspendedMode={true}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet content()}
+	{#if loadingConfig && showLoading}
+		<Loader2 class="animate-spin" />
+	{:else}
+		<div class="flex flex-col gap-4">
+			{#if description}
+				{@render description()}
+			{/if}
 		</div>
-
-		<div class="flex-1 overflow-y-auto p-4">
-			<div class="space-y-4">
-				<div class="rounded-md p-4 space-y-4">
-					<Section label="Runnable">
-						<p class="text-xs text-tertiary">
-							Pick a script or flow to be triggered <Required required={true} />
-						</p>
-						<div class="flex gap-2 items-end">
-							<ScriptPicker
-								bind:scriptPath={runnablePath}
-								allowRefresh={true}
-								bind:itemKind={runnableKind}
-								kinds={['script']}
-								allowFlow={true}
-								clearable
-							/>
+		<div class="flex flex-col gap-12 mt-6">
+			{#if !hideTarget}
+				<Section label="Runnable">
+					<p class="text-xs mb-1 text-primary">
+						Pick a script or flow to be triggered<Required required={true} />
+					</p>
+					<div class="flex flex-row mb-2">
+						<ScriptPicker
+							disabled={fixedScriptPath != '' || !can_write}
+							initialPath={fixedScriptPath || initialScriptPath}
+							bind:scriptPath
+							allowRefresh={can_write}
+							bind:itemKind
+							on:select={(e) => {
+								isFlow = e.detail.itemKind === 'flow'
+							}}
+							kinds={['script']}
+							allowFlow={true}
+							allowEdit={!$userStore?.operator}
+							clearable
+						/>
+						{#if emptyString(scriptPath)}
 							<Button
+								btnClasses="ml-4"
+								variant="accent"
 								size="xs"
 								href={templateUrl}
 								target="_blank"
-								startIcon={{ icon: Pipette }}
-								disabled={loading}
+								disabled={!can_write}
 							>
 								Create from template
 							</Button>
-						</div>
-						{#if errors.runnable_path}
-							<div class="text-red-500 text-xs mt-1">{errors.runnable_path}</div>
 						{/if}
-					</Section>
-
-					<div>
-						<Label label="Summary" />
-						<input
-							bind:value={summary}
-							placeholder="Brief description of this trigger"
-							class="windmill-input"
-						/>
 					</div>
-
-					<!-- Uncomment if new config are now supported
-						<Tabs bind:selected={event_type}>
-							<Tab value="webhook">Webhook configuration</Tab>
-						</Tabs> 
-
-					{#if event_type === 'webhook'}
-						<Label label="Request type" class="w-full">
-							{#snippet action()}
-								<ToggleButtonGroup class="w-auto h-full" bind:selected={request_type}>
-									{#snippet children({ item, disabled })}
-										<ToggleButton
-											label="Async"
-											value="async"
-											tooltip="The returning value is the uuid of the job assigned to execute the job."
-											{item}
-											{disabled}
-										/>
-										<ToggleButton
-											label="Sync"
-											value="sync"
-											tooltip="Triggers the execution, wait for the job to complete and return it as a response."
-											{item}
-											{disabled}
-										/>
-									{/snippet}
-								</ToggleButtonGroup>
-							{/snippet}
-						</Label>
+					{#if errors.runnable_path}
+						<div class="text-red-500 text-xs mt-1">{errors.runnable_path}</div>
 					{/if}
+				</Section>
+			{/if}
 
-					-->
-				</div>
-
-				{#if loadingConfig}
-					<div class="rounded-md p-4 space-y-4">
-						<h3 class="text-md font-medium text-primary">
-							{serviceConfig?.serviceDisplayName} Configuration
-						</h3>
-						<div class="flex items-center gap-2 text-tertiary">
-							<div
-								class="animate-spin h-4 w-4 border-2 border-gray-300 border-t-gray-600 rounded-full"
-							></div>
-							Loading configuration from {serviceConfig?.serviceDisplayName}...
-						</div>
+			{#if loadingConfig}
+				<Section label="{serviceInfo?.serviceDisplayName} configuration">
+					<div class="flex items-center gap-2 text-secondary text-xs">
+						<Loader2 class="animate-spin" size={16} />
+						Loading configuration from {serviceInfo?.serviceDisplayName}...
 					</div>
-				{:else if ServiceFormComponent}
-					<ServiceFormComponent
-						bind:this={serviceFormRef}
-						bind:config
-						bind:errors
-						bind:showCustomRawEditor
-						bind:customRawConfig
-						{externalData}
-						disabled={loading || loadingConfig}
-						path={runnablePath}
-						isFlow={runnableKind === 'flow'}
-						token=""
-						triggerTokens={undefined}
-						scopes={[]}
-					/>
-				{:else}
-					<div class="rounded-md p-4 space-y-4">
-						<h3 class="text-md font-medium text-primary">
-							{serviceConfig?.serviceDisplayName} Configuration
-						</h3>
-						<div class="text-red-500 text-sm space-y-2">
-							<div>Failed to load service configuration component for {service}.</div>
-							<div class="text-xs text-tertiary">
-								Ensure your workspace has a connected {serviceConfig?.serviceDisplayName} integration.
-							</div>
-							<Button
-								size="xs"
-								color="light"
-								variant="border"
-								href="/workspace_settings?tab=native_triggers"
-								target="_blank"
-							>
-								Manage Native Triggers
-							</Button>
+				</Section>
+			{:else if ServiceFormComponent}
+				<ServiceFormComponent
+					bind:loading={loadingForm}
+					bind:this={serviceFormRef}
+					bind:serviceConfig
+					bind:errors
+					{externalData}
+					disabled={loading || loadingConfig || !can_write}
+					path={scriptPath}
+					{isFlow}
+					token=""
+					triggerTokens={undefined}
+					scopes={[]}
+				/>
+			{:else}
+				<Section label="{serviceInfo?.serviceDisplayName} configuration">
+					<div class="text-red-500 text-xs space-y-2">
+						<div>Failed to load service configuration component for {service}.</div>
+						<div class="text-secondary">
+							Ensure your workspace has a connected {serviceInfo?.serviceDisplayName} integration.
 						</div>
+						<Button
+							unifiedSize="xs"
+							variant="default"
+							href="/workspace_settings?tab=integrations"
+							target="_blank"
+						>
+							Manage integrations
+						</Button>
 					</div>
-				{/if}
-			</div>
+				</Section>
+			{/if}
 		</div>
-	</div>
-</Drawer>
+	{/if}
+{/snippet}

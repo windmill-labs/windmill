@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { NativeTriggerService } from '$lib/gen'
-	import type { NativeServiceName, NativeTrigger } from '$lib/gen'
+	import type { NativeServiceName } from '$lib/gen'
 	import type { ExtendedNativeTrigger } from '$lib/components/triggers/native/utils'
 	import {
 		isServiceAvailable,
@@ -9,29 +9,86 @@
 	} from '$lib/components/triggers/native/utils'
 	import NativeTriggerTable from '$lib/components/triggers/native/NativeTriggerTable.svelte'
 	import NativeTriggerEditor from '$lib/components/triggers/native/NativeTriggerEditor.svelte'
-	import { sendUserToast, removeTriggerKindIfUnused } from '$lib/utils'
+	import {
+		sendUserToast,
+		removeTriggerKindIfUnused,
+		getLocalSetting,
+		storeLocalSetting
+	} from '$lib/utils'
 	import { userStore, workspaceStore, userWorkspaces, usedTriggerKinds } from '$lib/stores'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
-	import { Button, Alert } from '$lib/components/common'
-	import { Loader2, Plus } from 'lucide-svelte'
+	import { Button, Alert, Skeleton } from '$lib/components/common'
+	import { LoaderCircle, Plus } from 'lucide-svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
 	import NoItemFound from '$lib/components/home/NoItemFound.svelte'
-	import ShareModal from '$lib/components/ShareModal.svelte'
-	import { page } from '$app/stores'
+	import { page } from '$app/state'
+	import Toggle from '$lib/components/Toggle.svelte'
+	import ListFilters from '$lib/components/home/ListFilters.svelte'
 
-	const serviceName = $derived($page.params.service_name as NativeServiceName)
+	type TriggerW = ExtendedNativeTrigger & { marked?: any }
+
+	const serviceName = $derived(page.params.service_name as NativeServiceName)
 	const serviceConfig = $derived(getServiceConfig(serviceName))
 
-	let triggers: NativeTrigger[] = $state([])
+	let triggers: TriggerW[] = $state([])
 	let loading = $state(true)
 	let serviceAvailable: boolean | undefined = $state(undefined)
 	let serviceSupported = $state(true)
 	let editor: NativeTriggerEditor
-	let shareModal: ShareModal | undefined = $state()
 
-	let filteredItems: ExtendedNativeTrigger[] = $state([])
+	let filteredItems: TriggerW[] = $state([])
+	let items: TriggerW[] = $state([])
+	let preFilteredItems: TriggerW[] = $state([])
 	let filter = $state('')
+	let ownerFilter: string | undefined = $state(undefined)
+	let nbDisplayed = $state(15)
+
+	const FILTER_USER_FOLDER_SETTING_NAME = 'native_trigger_user_and_folders_only'
+	let filterUserFolders = $state(getLocalSetting(FILTER_USER_FOLDER_SETTING_NAME) == 'true')
+
+	$effect(() => {
+		storeLocalSetting(FILTER_USER_FOLDER_SETTING_NAME, filterUserFolders ? 'true' : undefined)
+	})
+
+	function filterItemsPathsBaseOnUserFilters(item: TriggerW, filterUserFolders: boolean) {
+		if ($workspaceStore == 'admins') return true
+		if (filterUserFolders) {
+			return (
+				!item.script_path.startsWith('u/') ||
+				item.script_path.startsWith('u/' + $userStore?.username + '/')
+			)
+		} else {
+			return true
+		}
+	}
+
+	$effect(() => {
+		preFilteredItems =
+			ownerFilter != undefined
+				? triggers?.filter(
+						(x) =>
+							x.script_path.startsWith(ownerFilter + '/') &&
+							filterItemsPathsBaseOnUserFilters(x, filterUserFolders)
+					)
+				: triggers?.filter((x) => filterItemsPathsBaseOnUserFilters(x, filterUserFolders))
+	})
+
+	$effect(() => {
+		if ($workspaceStore) {
+			ownerFilter = undefined
+		}
+	})
+
+	let owners = $derived(
+		Array.from(
+			new Set(filteredItems?.map((x) => x.script_path.split('/').slice(0, 2).join('/')) ?? [])
+		).sort()
+	)
+
+	$effect(() => {
+		items = filter !== '' ? filteredItems : preFilteredItems
+	})
 
 	async function checkServiceAvailability() {
 		if (!serviceConfig) {
@@ -60,7 +117,7 @@
 				serviceName: serviceName
 			})
 
-			triggers = triggerList
+			triggers = triggerList as TriggerW[]
 
 			$usedTriggerKinds = removeTriggerKindIfUnused(triggers.length, serviceName, $usedTriggerKinds)
 		} catch (err: any) {
@@ -114,13 +171,12 @@
 </script>
 
 <NativeTriggerEditor bind:this={editor} service={serviceName} onUpdate={loadTriggers} />
-<ShareModal bind:this={shareModal} on:change={loadTriggers} />
 
 <SearchItems
 	{filter}
-	items={triggers}
+	items={preFilteredItems}
 	bind:filteredItems
-	f={(trigger) => `${formatTriggerDisplayName(trigger)} ${trigger.path} ${trigger.runnable_path}`}
+	f={(trigger) => `${formatTriggerDisplayName(trigger)}`}
 />
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.triggers}
@@ -131,66 +187,44 @@
 {:else if !serviceSupported}
 	<CenteredPage>
 		<div class="max-w-md mx-auto text-center py-12">
-			<h2 class="text-lg font-semibold text-primary mb-2"> Service Not Supported </h2>
-			<p class="text-secondary mb-4">
+			<h2 class="text-lg font-semibold text-emphasis mb-2">Service not supported</h2>
+			<p class="text-secondary text-xs mb-4">
 				The service "{serviceName}" is not supported for native triggers.
 			</p>
-			<p class="text-sm text-tertiary"> Supported services: nextcloud </p>
+			<p class="text-xs text-secondary">Supported services: nextcloud</p>
 		</div>
 	</CenteredPage>
 {:else}
 	<CenteredPage>
 		<PageHeader
-			title="{serviceConfig?.serviceDisplayName || serviceName} Triggers"
+			title="{serviceConfig?.serviceDisplayName || serviceName} triggers"
 			tooltip="Native triggers managed externally by {serviceConfig?.serviceDisplayName ||
 				serviceName}. These are more efficient than regular triggers as they're handled directly by the service provider."
 		>
-			{#if serviceAvailable}
-				<Button
-					size="md"
-					color="blue"
-					startIcon={{ icon: Plus }}
-					on:click={() => editor?.openNew()}
-				>
-					New {serviceConfig?.serviceDisplayName || serviceName} Trigger
-				</Button>
-			{/if}
+			<Button
+				unifiedSize="md"
+				variant="accent"
+				startIcon={{ icon: Plus }}
+				on:click={() => editor?.openNew()}
+				disabled={!serviceAvailable}
+			>
+				New&nbsp;{serviceConfig?.serviceDisplayName || serviceName} trigger
+			</Button>
 		</PageHeader>
 
 		{#if serviceAvailable === false}
 			<Alert
-				title="{serviceConfig?.serviceDisplayName || serviceName} Integration Not Available"
+				title="{serviceConfig?.serviceDisplayName || serviceName} triggers are not available"
 				type="warning"
 			>
-				<div class="flex items-start gap-3">
-					<div>
-						<p class="mb-2">
-							{serviceConfig?.serviceDisplayName || serviceName} triggers are not available. This could
-							be because:
-						</p>
-						<ul class="list-disc list-inside space-y-1 text-sm mb-3">
-							<li
-								>The workspace doesn't have a {serviceConfig?.serviceDisplayName || serviceName} integration
-								connected</li
-							>
-							<li
-								>The {serviceConfig?.serviceDisplayName || serviceName} OAuth2 integration is not configured
-								in the instance settings</li
-							>
-						</ul>
-						<div class="flex gap-2">
-							<Button size="xs" color="blue" href="/workspace_settings?tab=native_triggers">
-								Manage Native Triggers
-							</Button>
-							<Button
-								size="xs"
-								color="light"
-								variant="border"
-								onclick={() => checkServiceAvailability()}
-							>
-								Retry Check
-							</Button>
-						</div>
+				<div class="flex flex-col gap-2 mt-2">
+					The workspace doesn't have a {serviceConfig?.serviceDisplayName || serviceName} integration
+					connected
+					<div class="flex gap-2">
+						<Button variant="accent" href="/workspace_settings?tab=native_triggers">
+							Manage native triggers
+						</Button>
+						<Button variant="subtle" onclick={() => checkServiceAvailability()}>Retry check</Button>
 					</div>
 				</div>
 			</Alert>
@@ -201,47 +235,55 @@
 						type="text"
 						placeholder="Search {serviceConfig?.serviceDisplayName || serviceName} triggers"
 						bind:value={filter}
-						class="search-item"
+						class="search-item mb-2"
 					/>
+					<ListFilters syncQuery bind:selectedFilter={ownerFilter} filters={owners} />
+					<div class="flex flex-row items-center justify-end gap-4">
+						{#if $userStore?.is_super_admin && $userStore.username.includes('@')}
+							<Toggle size="xs" bind:checked={filterUserFolders} options={{ right: 'Only f/*' }} />
+						{:else if $userStore?.is_admin || $userStore?.is_super_admin}
+							<Toggle
+								size="xs"
+								bind:checked={filterUserFolders}
+								options={{ right: `Only u/${$userStore.username} and f/*` }}
+							/>
+						{/if}
+					</div>
 				</div>
 
 				{#if loading}
-					<div class="text-center py-8">
-						<div class="text-tertiary"
-							>Loading {serviceConfig?.serviceDisplayName || serviceName} triggers...</div
-						>
-					</div>
+					{#each new Array(6) as _}
+						<Skeleton layout={[[6], 0.4]} />
+					{/each}
 				{:else if !triggers?.length}
-					<div class="text-center py-8">
-						<div class="text-tertiary mb-4"
-							>No {serviceConfig?.serviceDisplayName || serviceName} triggers found</div
-						>
-						<Button
-							size="md"
-							color="blue"
-							startIcon={{ icon: Plus }}
-							on:click={() => editor?.openNew()}
-						>
-							Create your first {serviceConfig?.serviceDisplayName || serviceName} trigger
-						</Button>
+					<div class="text-center text-sm font-semibold text-emphasis mt-2">
+						No {serviceConfig?.serviceDisplayName || serviceName} triggers
 					</div>
-				{:else if filteredItems?.length}
+				{:else if items?.length}
 					<NativeTriggerTable
 						service={serviceName}
-						triggers={filteredItems}
+						triggers={items.slice(0, nbDisplayed)}
 						{loading}
-						onEdit={(trigger) => editor?.openEdit(trigger)}
+						onEdit={(trigger) => editor?.openEdit(trigger.external_id, trigger.is_flow)}
+						onRecreate={(trigger) => editor?.openRecreate(trigger)}
 						onSync={syncTriggers}
-						{shareModal}
 					/>
 				{:else}
 					<NoItemFound />
 				{/if}
 			</div>
+			{#if items && items?.length > 15 && nbDisplayed < items.length}
+				<span class="text-xs font-normal text-primary"
+					>{nbDisplayed} items out of {items.length}
+					<button class="ml-4 font-semibold text-emphasis" onclick={() => (nbDisplayed += 30)}
+						>load 30 more</button
+					></span
+				>
+			{/if}
 		{:else}
 			<div class="flex flex-col items-center justify-center h-64 gap-3">
-				<Loader2 class="animate-spin text-blue-500" size="32" />
-				<div class="text-secondary"
+				<LoaderCircle class="animate-spin text-accent-primary" size={32} />
+				<div class="text-secondary text-xs"
 					>Checking {serviceConfig?.serviceDisplayName || serviceName} availability...</div
 				>
 			</div>

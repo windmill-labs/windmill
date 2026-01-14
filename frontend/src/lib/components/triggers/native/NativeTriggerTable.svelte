@@ -3,27 +3,29 @@
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import type { ExtendedNativeTrigger } from './utils'
 	import { getServiceConfig } from './utils'
-	import { displayDate, sendUserToast } from '$lib/utils'
+	import { sendUserToast } from '$lib/utils'
 	import { workspaceStore } from '$lib/stores'
 	import Skeleton from '$lib/components/common/skeleton/Skeleton.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 	import RowIcon from '$lib/components/common/table/RowIcon.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
-	import { Eye, Pen, Trash } from 'lucide-svelte'
-	import { base } from '$app/paths'
-	import { NextcloudIcon } from '$lib/components/icons'
+	import { Eye, Pen, RefreshCw, Trash } from 'lucide-svelte'
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
+	import { goto } from '$lib/navigation'
+	import Alert from '$lib/components/common/alert/Alert.svelte'
+
+	type TriggerW = ExtendedNativeTrigger & { marked?: any }
 
 	interface Props {
 		service: NativeServiceName
-		triggers: ExtendedNativeTrigger[]
+		triggers: TriggerW[]
 		loading?: boolean
-		onEdit?: (trigger: ExtendedNativeTrigger) => void
+		onEdit?: (trigger: TriggerW) => void
+		onRecreate?: (trigger: TriggerW) => void
 		onSync?: () => Promise<void>
-		shareModal?: any
 	}
 
-	let { service, triggers = [], loading = false, onEdit }: Props = $props()
+	let { service, triggers = [], loading = false, onEdit, onRecreate }: Props = $props()
 
 	const serviceConfig = $derived(getServiceConfig(service))
 	let deleteConfirmationOpen = $state(false)
@@ -49,13 +51,12 @@
 			await NativeTriggerService.deleteNativeTrigger({
 				workspace: $workspaceStore!,
 				serviceName: service,
-				requestBody: {
-					id: triggerToDelete.id,
-					runnable_path: triggerToDelete.runnable_path
-				}
+				externalId: triggerToDelete.external_id
 			})
 			sendUserToast(`${serviceConfig?.serviceDisplayName} trigger deleted`)
-			triggers = triggers.filter((native_trigger) => native_trigger.id !== triggerToDelete?.id)
+			triggers = triggers.filter(
+				(native_trigger) => native_trigger.external_id !== triggerToDelete?.external_id
+			)
 			closeDeleteConfirmation()
 		} catch (err: any) {
 			sendUserToast(`Failed to delete trigger: ${err.body || err.message}`, true)
@@ -70,73 +71,83 @@
 			<Skeleton layout={[[6], 0.4]} />
 		{/each}
 	{:else if !triggers?.length}
-		<div class="text-center text-sm text-tertiary mt-2">
-			No {serviceConfig?.serviceDisplayName} triggers found
+		<div class="text-center text-sm font-semibold text-emphasis mt-2">
+			No {serviceConfig?.serviceDisplayName} triggers
 		</div>
 	{:else}
 		<div class="border rounded-md divide-y">
-			{#each triggers as trigger}
-				{@const isFlow = trigger.runnable_path.includes('/flows/')}
-				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.runnable_path}`}
+			{#each triggers as trigger (trigger.external_id)}
+				{@const isFlow = trigger.is_flow}
+				{@const href = `${isFlow ? '/flows/get' : '/scripts/get'}/${trigger.script_path}`}
 				<div
 					class="hover:bg-surface-hover w-full items-center px-4 py-2 gap-4 first-of-type:!border-t-0 first-of-type:rounded-t-md last-of-type:rounded-b-md flex flex-col"
 				>
 					<div class="w-full flex gap-5 items-center">
-						{#if service === 'nextcloud'}
-							<NextcloudIcon size={24} />
-						{:else}
-							<RowIcon kind={isFlow ? 'flow' : 'script'} />
-						{/if}
+						<RowIcon kind={isFlow ? 'flow' : 'script'} />
 
 						<a
 							href="#{trigger.external_id}"
 							onclick={() => onEdit?.(trigger)}
 							class="min-w-0 grow hover:underline decoration-gray-400"
 						>
-							<div class="text-primary flex-wrap text-left text-md font-semibold mb-1 truncate">
-								{trigger.summary || trigger.external_id}
+							<div class="text-emphasis flex-wrap text-left text-xs font-semibold mb-1 truncate">
+								{#if trigger.marked}
+									<span class="text-xs">
+										{@html trigger.marked}
+									</span>
+								{:else}
+									{trigger.script_path}
+								{/if}
 							</div>
-							<div class="text-secondary text-xs truncate text-left font-light">
-								external_id: {trigger.external_id}
-							</div>
-							<div class="text-tertiary text-2xs truncate text-left font-light">
-								runnable: {trigger.runnable_path}
+							<div class="text-secondary text-xs truncate text-left font-normal">
+								external ID: {trigger.external_id}
 							</div>
 						</a>
 
 						<div class="flex gap-2 items-center justify-end">
-							<Button {href} size="xs" startIcon={{ icon: Eye }} color="light" variant="border">
-								View {isFlow ? 'Flow' : 'Script'}
-							</Button>
 							<Button
-								size="xs"
-								startIcon={{ icon: Pen }}
-								color="dark"
 								on:click={() => onEdit?.(trigger)}
+								unifiedSize="md"
+								startIcon={{ icon: Pen }}
+								variant="subtle"
 							>
 								Edit
 							</Button>
 							<Dropdown
+								size="md"
 								items={[
+									{
+										displayName: `View ${isFlow ? 'Flow' : 'Script'}`,
+										icon: Eye,
+										action: () => {
+											goto(href)
+										}
+									},
 									{
 										displayName: 'Delete',
 										type: 'delete' as const,
 										icon: Trash,
 										action: () => openDeleteConfirmation(trigger)
-									},
-									{
-										displayName: 'Audit logs',
-										icon: Eye,
-										href: `${base}/audit_logs?resource=${trigger.external_id}`
 									}
 								]}
 							/>
 						</div>
 					</div>
-
-					<div class="text-2xs text-tertiary text-left w-full flex justify-between items-center">
-						<span>edited by {trigger.edited_by} • {displayDate(trigger.edited_at)}</span>
-					</div>
+					{#if trigger.error}
+						<div class="w-full flex justify-between items-center gap-2">
+							<div class="text-2xs font-normal text-red-500 truncate">
+								Error: {trigger.error}
+							</div>
+							<Button
+								size="xs"
+								variant="subtle"
+								startIcon={{ icon: RefreshCw }}
+								on:click={() => onRecreate?.(trigger)}
+							>
+								Recreate
+							</Button>
+						</div>
+					{/if}
 				</div>
 			{/each}
 		</div>
@@ -153,20 +164,12 @@
 >
 	<div class="flex flex-col w-full space-y-4">
 		<span>Are you sure you want to delete this trigger?</span>
-		<div
-			class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-700 rounded-md"
-		>
-			<div class="flex">
-				<div class="text-yellow-800 dark:text-yellow-200 text-sm">
-					<strong>Warning:</strong> This will permanently delete the trigger from both Windmill and {serviceConfig?.serviceDisplayName}.
-					This action cannot be undone.
-				</div>
-			</div>
-		</div>
-		{#if triggerToDelete}
-			<div class="text-sm text-tertiary">
-				<div><strong>External ID:</strong> {triggerToDelete.external_id}</div>
-			</div>
+		{#if triggerToDelete?.external_id}
+			<span>External ID: {triggerToDelete.external_id}</span>
 		{/if}
+		<Alert type="warning" title="Warning">
+			This will permanently delete the trigger from both Windmill and {serviceConfig?.serviceDisplayName}.
+			This action cannot be undone.
+		</Alert>
 	</div>
 </ConfirmationModal>

@@ -4,16 +4,16 @@
 	import { Route } from 'lucide-svelte'
 	import { getContext } from 'svelte'
 	import { type TriggerContext } from '$lib/components/triggers'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { enterpriseLicense } from '$lib/stores'
 	import { MqttIcon, NatsIcon, KafkaIcon, AwsIcon, GoogleCloudIcon } from '$lib/components/icons'
 	import { type Trigger, type TriggerType } from '$lib/components/triggers/utils'
 	import { Menu, Menubar, MeltButton, MenuItem, Tooltip } from '$lib/components/meltComponents'
 	import { twMerge } from 'tailwind-merge'
 	import SchedulePollIcon from '$lib/components/icons/SchedulePollIcon.svelte'
-	import { getAvailableNativeTriggerServices, getServiceConfig, getServiceIcon } from '$lib/components/triggers/native/utils'
 	import type { NativeServiceName } from '$lib/gen/types.gen'
 	import TriggerLabel from '$lib/components/triggers/TriggerLabel.svelte'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
+	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
 
 	const { triggersState, triggersCount } = getContext<TriggerContext>('TriggerContext')
 
@@ -44,27 +44,9 @@
 	}: Props = $props()
 
 	let menuOpen = $state(false)
-	let availableNativeServices = $state<Array<{ service: NativeServiceName; icon: any; config: any }>>([])
-
-	// Load available native trigger services
-	async function loadAvailableNativeTriggers() {
-		try {
-			const services = await getAvailableNativeTriggerServices($workspaceStore!)
-			const serviceData = await Promise.all(
-				services.map(async (service) => ({
-					service,
-					icon: await getServiceIcon(service),
-					config: getServiceConfig(service)
-				}))
-			)
-			availableNativeServices = serviceData
-		} catch (err) {
-			console.error('Failed to load available native trigger services:', err)
-			availableNativeServices = []
-		}
-	}
-
-	loadAvailableNativeTriggers()
+	let availableNativeServices = $state<
+		Array<{ service: NativeServiceName; icon: any; config: any }>
+	>([])
 
 	let triggerTypeConfig = $derived(() => {
 		const baseConfig: {
@@ -87,7 +69,8 @@
 			sqs: { icon: AwsIcon, countKey: 'sqs_count', disabled: !$enterpriseLicense },
 			gcp: { icon: GoogleCloudIcon, countKey: 'gcp_count', disabled: !$enterpriseLicense },
 			poll: { icon: SchedulePollIcon },
-			cli: { icon: Terminal }
+			cli: { icon: Terminal },
+			nextcloud: { icon: NextcloudIcon, countKey: 'nextcloud_count' }
 		}
 
 		// Add native trigger services that are available
@@ -119,7 +102,7 @@
 		'email',
 		'poll',
 		'cli',
-		...availableNativeServices.map(({ service }) => service)
+		'nextcloud'
 	])
 
 	function camelCaseToWords(s: string) {
@@ -279,7 +262,10 @@
 </Menubar>
 
 {#snippet triggerButton({ type, isSelected, meltElement = undefined, singleItem = false })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || { icon: Database, countKey: undefined }}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || {
+		icon: Database,
+		countKey: undefined
+	}}
 
 	<MeltButton
 		aiId={`trigger-button-${type}`}
@@ -320,7 +306,10 @@
 {/snippet}
 
 {#snippet simpleTriggerItem({ item, type })}
-	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || { icon: Database, countKey: undefined }}
+	{@const { icon: SvelteComponent, countKey } = triggerTypeConfig()[type] || {
+		icon: Database,
+		countKey: undefined
+	}}
 	<MenuItem {item} class={itemClass}>
 		<div class="flex flex-row items-center gap-2">
 			<SvelteComponent size={14} />
