@@ -4,7 +4,7 @@
 UPDATE script SET content = 'import * as wmill from "windmill-cli@1.393.2"
 
 export async function main() {
-  await wmill.hubPull({ workspace: "admins", token: process.env["WM_TOKEN"], baseUrl: process.env["BASE_URL"] });
+  await wmill.hubPull({ workspace: "admins", token: process.env["WM_TOKEN"], baseUrl: process.env["WM_BASE_URL"] });
 }
 ', language = 'bun',
 lock = '{

@@ -3,7 +3,7 @@
 UPDATE script SET content = 'import * as wmill from "windmill-cli@1.393.2"
 
 export async function main(x: string) {
-  await wmill.hubPull({ workspace: "admins", token: process.env["WM_TOKEN"], baseUrl: process.env["BASE_URL"] })
+  await wmill.hubPull({ workspace: "admins", token: process.env["WM_TOKEN"], baseUrl: process.env["WM_BASE_URL"] })
   return x
 }
 ', language = 'bun',
