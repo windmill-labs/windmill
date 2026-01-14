@@ -1293,6 +1293,10 @@
 			tabsHeight.graphHeight
 		)
 	)
+
+	let totalEventsWaiting = $derived(
+		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
+	)
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1744,13 +1748,11 @@
 									</span>
 								{/if}
 							{/each}
-							{#each Object.values(suspendStatus?.val ?? {}) as count}
-								{#if count.nb}
-									<span class="text-sm">
-										Flow suspended, waiting for {count.nb} events
-									</span>
-								{/if}
-							{/each}
+							{#if totalEventsWaiting}
+								<span class="text-sm">
+									Flow suspended, waiting for {totalEventsWaiting} events
+								</span>
+							{/if}
 						</div>
 						<FlowGraphV2
 							{selectionManager}
