@@ -16,7 +16,7 @@
  *   bun run dap_debug_service.ts [options]
  *
  * Options:
- *   --port PORT           Server port (default: 5679)
+ *   --port PORT           Server port (default: 3003)
  *   --host HOST           Server host (default: 0.0.0.0)
  *   --nsjail              Enable nsjail wrapping
  *   --nsjail-config PATH  Path to nsjail config file
@@ -68,7 +68,7 @@ interface ServiceConfig {
 function parseConfig(): ServiceConfig {
 	const args = process.argv.slice(2)
 	const config: ServiceConfig = {
-		port: parseInt(process.env.DAP_PORT || '5679', 10),
+		port: parseInt(process.env.DAP_PORT || '3003', 10),
 		host: process.env.DAP_HOST || '0.0.0.0',
 		nsjail: {
 			enabled: process.env.DAP_NSJAIL_ENABLED === 'true',
@@ -213,7 +213,7 @@ async function getPublicKey(): Promise<CryptoKey | null> {
 			}
 
 			// Decode the public key from base64url
-			const publicKeyBytes = Uint8Array.from(atob(jwk.x.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0))
+			const publicKeyBytes = base64urlDecode(jwk.x)
 
 			// Import as Ed25519 public key
 			const key = await crypto.subtle.importKey(

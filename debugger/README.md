@@ -49,7 +49,7 @@ bun run debug/dap_debug_service.ts
 ```
 
 Options:
-- `--port PORT` - Server port (default: 5679)
+- `--port PORT` - Server port (default: 3003)
 - `--host HOST` - Server host (default: 0.0.0.0)
 - `--python-path PATH` - Python binary path (default: python3)
 - `--bun-path PATH` - Bun binary path (default: bun)
@@ -67,7 +67,7 @@ Options:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DAP_PORT` | Server port | 5679 |
+| `DAP_PORT` | Server port | 3003 |
 | `DAP_HOST` | Server host | 0.0.0.0 |
 | `DAP_PYTHON_PATH` | Python binary path | python3 |
 | `DAP_BUN_PATH` | Bun binary path | bun |

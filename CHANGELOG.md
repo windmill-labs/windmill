@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.605.0](https://github.com/windmill-labs/windmill/compare/v1.604.0...v1.605.0) (2026-01-13)
+
+
+### Features
+
+* enable debouncing for sync jobs ([#7551](https://github.com/windmill-labs/windmill/issues/7551)) ([3135a8b](https://github.com/windmill-labs/windmill/commit/3135a8b0957889f484bf16499e24c9168c8caba8))
+
+
+### Bug Fixes
+
+* **frontend:** update raw app editor to brand guidelines ([#7545](https://github.com/windmill-labs/windmill/issues/7545)) ([c210853](https://github.com/windmill-labs/windmill/commit/c2108530335e74c47f1acb071ae7abac93d4dac6))
+
 ## [1.604.0](https://github.com/windmill-labs/windmill/compare/v1.603.4...v1.604.0) (2026-01-13)
 
 

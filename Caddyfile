@@ -18,10 +18,10 @@
         # Uncomment and set ENABLE_MULTIPLAYER=true in docker-compose.yml
         # reverse_proxy /ws_mp/* http://windmill_extra:3002
 
-        # Debugger - Interactive debugging via DAP WebSocket (windmill_extra:5679)
+        # Debugger - Interactive debugging via DAP WebSocket (windmill_extra:3003)
         # Set ENABLE_DEBUGGER=true in docker-compose.yml to enable
         handle_path /ws_debug/* {
-                reverse_proxy http://windmill_extra:5679
+                reverse_proxy http://windmill_extra:3003
         }
 
         # Search indexer, Enterprise Edition (windmill_indexer:8002)
