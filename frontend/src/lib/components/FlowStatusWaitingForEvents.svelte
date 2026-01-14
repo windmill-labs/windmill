@@ -56,7 +56,9 @@
 		)
 	}
 
+	let loading = false
 	async function continu(approve: boolean) {
+		loading = true
 		if ((resumeUrl && approve) || (cancelUrl && !approve)) {
 			let split = (approve ? resumeUrl : cancelUrl)!.split('/')
 			let signatureUrl = split.pop() ?? ''
@@ -130,6 +132,7 @@
 					<div>
 						<Button
 							title="Cancel the step"
+							{loading}
 							iconOnly
 							startIcon={{ icon: X }}
 							variant="default"
@@ -139,12 +142,13 @@
 					</div>
 				{/if}
 				<div>
-					<Button variant="accent" on:click={() => continu(true)}
-						>Resume <Tooltip class="text-white"
-							>Since you are an owner of this flow, you can send resume events without necessarily
-							knowing the resume id sent by the approval step</Tooltip
-						></Button
-					>
+					<Button variant="accent" on:click={() => continu(true)} {loading}>
+						Resume
+						<Tooltip class="text-white">
+							Since you are an owner of this flow, you can send resume events without necessarily
+							knowing the resume id sent by the approval step
+						</Tooltip>
+					</Button>
 				</div>
 
 				{#if job?.raw_flow?.modules?.[approvalStep]?.suspend?.resume_form?.schema}
@@ -157,9 +161,9 @@
 						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
 					</div>
 				{/if}
-				<Tooltip
-					>The payload is optional, it is passed to the following step through the `resume` variable</Tooltip
-				>
+				<Tooltip>
+					The payload is optional, it is passed to the following step through the `resume` variable
+				</Tooltip>
 			</div>
 		{:else}
 			You cannot resume the flow yourself without receiving the resume secret since you are not an
