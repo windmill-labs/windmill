@@ -191,10 +191,6 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
-#[cfg(all(feature = "mcp", feature = "private"))]
-mod mcp_oauth_ee;
-#[cfg(feature = "mcp")]
-mod mcp_oauth_oss;
 
 pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
@@ -670,15 +666,6 @@ pub async fn run_server(
                     }
 
                     #[cfg(not(feature = "oauth2"))]
-                    Router::new()
-                })
-                .nest("/mcp/oauth", {
-                    #[cfg(feature = "mcp")]
-                    {
-                        mcp_oauth_oss::global_service()
-                    }
-
-                    #[cfg(not(feature = "mcp"))]
                     Router::new()
                 })
                 .nest("/r", {
