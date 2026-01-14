@@ -99,7 +99,7 @@ mod oss_impl {
         if (window.opener) {
             window.opener.postMessage({
                 type: 'MCP_ERROR',
-                error: 'Not implemented in Windmill's Open Source repository'
+                error: "Not implemented in Windmill's Open Source repository"
             }, window.location.origin);
         }
         window.close();

@@ -163,7 +163,7 @@
 <div class="border rounded p-4 bg-surface-secondary flex flex-col gap-4">
 	<div class="flex justify-between items-center">
 		<span class="font-semibold text-sm">Connect MCP Server with OAuth</span>
-		<Button size="xs" color="light" on:click={onCancel}>Cancel</Button>
+		<Button size="xs" color="light" onClick={onCancel}>Cancel</Button>
 	</div>
 
 	<Label label="MCP Server URL">
@@ -177,9 +177,7 @@
 	</Label>
 
 	{#if status === 'idle'}
-		<Button size="sm" on:click={discoverOAuth} disabled={!serverUrl}>
-			Discover OAuth Settings
-		</Button>
+		<Button size="sm" onClick={discoverOAuth} disabled={!serverUrl}>Discover OAuth Settings</Button>
 	{:else if status === 'discovering'}
 		<div class="text-sm text-secondary">Discovering OAuth settings...</div>
 	{:else if status === 'discovered' && discoveryResult}
@@ -232,7 +230,7 @@
 			kind="resource"
 		/>
 
-		<Button size="sm" on:click={startOAuth} disabled={!resourcePath || pathError !== ''}>
+		<Button size="sm" onClick={startOAuth} disabled={!resourcePath || pathError !== ''}>
 			Connect with OAuth
 		</Button>
 	{:else if status === 'connecting'}
