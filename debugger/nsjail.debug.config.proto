@@ -55,12 +55,19 @@ mount {
     mandatory: false
 }
 
-# Temporary filesystem for /tmp (writable)
+# Bind-mount /tmp from host (job directories are created here)
 mount {
+    src: "/tmp"
     dst: "/tmp"
-    fstype: "tmpfs"
+    is_bind: true
     rw: true
-    options: "size=500000000"
+}
+
+# Debugger scripts directory (for Python debugger server)
+mount {
+    src: "/debugger"
+    dst: "/debugger"
+    is_bind: true
 }
 
 # Device nodes
@@ -94,3 +101,4 @@ iface_no_lo: true
 
 envar: "HOME=/root"
 envar: "TMPDIR=/tmp"
+envar: "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
