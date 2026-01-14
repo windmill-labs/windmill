@@ -86,7 +86,11 @@ export function makeSelectQuery(
 	columnDefs: ColumnDef[],
 	whereClause: string | undefined,
 	dbType: DbType,
-	options?: { limit?: number; offset?: number }
+	options?: { limit?: number; offset?: number },
+	breakingFeatures?: {
+		// These will break existing app policies
+		fixPgIntTypes?: boolean // Everything is casted to text which leads to wrong sorting of numbers
+	}
 ) {
 	if (!table) throw new Error('Table name is required')
 	let quicksearchCondition = ''
@@ -130,14 +134,39 @@ CASE WHEN :order_by = '${column.field}' AND :is_desc IS true THEN \`${column.fie
 		}
 
 		case 'postgresql': {
+			function buildOrderBy({
+				field,
+				is_desc = false,
+				text_cast = false,
+				check_is_number
+			}: {
+				field: string
+				is_desc?: boolean
+				text_cast?: boolean
+				check_is_number?: boolean
+			}): string {
+				const numberCheckExpr =
+					check_is_number === true
+						? ` pg_typeof("${field}")::text IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND`
+						: check_is_number === false
+							? ` pg_typeof("${field}")::text NOT IN ('integer', 'bigint', 'smallint', 'numeric', 'real', 'double precision') AND`
+							: ''
+				return `(CASE WHEN${numberCheckExpr} $4 = '${field}' AND $5 IS ${is_desc} THEN "${field}"${text_cast ? '::text' : ''} END)${is_desc ? ' DESC' : ''}`
+			}
 			const orderBy = `
       ${columnDefs
-				.map(
-					(column) =>
-						`
-      (CASE WHEN $4 = '${column.field}' AND $5 IS false THEN "${column.field}"::text END),
-      (CASE WHEN $4 = '${column.field}' AND $5 IS true THEN "${column.field}"::text END) DESC`
-				)
+				.map((column) => {
+					if (breakingFeatures?.fixPgIntTypes) {
+						return `
+      ${buildOrderBy({ field: column.field, is_desc: false, text_cast: true, check_is_number: false })},
+      ${buildOrderBy({ field: column.field, is_desc: false, text_cast: false, check_is_number: true })},
+      ${buildOrderBy({ field: column.field, is_desc: true, text_cast: true, check_is_number: false })},
+      ${buildOrderBy({ field: column.field, is_desc: true, text_cast: false, check_is_number: true })}`
+					}
+					return `
+      ${buildOrderBy({ field: column.field, is_desc: false, text_cast: true })},
+      ${buildOrderBy({ field: column.field, is_desc: true, text_cast: true })}`
+				})
 				.join(',\n')}`
 
 			quicksearchCondition = `($3 = '' OR CONCAT(${filteredColumns.join(
