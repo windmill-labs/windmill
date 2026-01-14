@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, stopPropagation, createBubbler } from 'svelte/legacy'
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -17,6 +17,7 @@
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
+	import { watch } from 'runed'
 
 	interface Props {
 		path: string
@@ -45,6 +46,7 @@
 	}
 
 	async function loadPreviousFlow(version: number) {
+		console.log('loadPreviousFlow', version)
 		previousFlow = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
 			version
@@ -96,11 +98,11 @@
 
 	loadVersions()
 
-	run(() => {
+	$effect.pre(() => {
 		selectedVersion !== undefined && loadFlow(selectedVersion.id)
 	})
 
-	run(() => {
+	$effect.pre(() => {
 		if (previousVersionId !== undefined) {
 			loadPreviousFlow(previousVersionId)
 		} else {
@@ -120,9 +122,9 @@
 		return orderedYamlStringify(metadata)
 	})
 
-	// Auto-select first available previous version
-	$effect(() => {
-		if (availableVersions.length > 0 && !previousVersionId) {
+	// Auto-select last available previous version
+	watch([() => selectedVersion, () => availableVersions], () => {
+		if (availableVersions.length > 0) {
 			previousVersionId = availableVersions[0].id
 		}
 	})
