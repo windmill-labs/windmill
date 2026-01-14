@@ -10944,7 +10944,6 @@ dependencies = [
  "http 1.4.0",
  "http-body 1.0.1",
  "http-body-util",
- "oauth2",
  "pastey",
  "pin-project-lite",
  "rand 0.9.0",
@@ -10960,7 +10959,6 @@ dependencies = [
  "tokio-util",
  "tower-service",
  "tracing",
- "url",
  "uuid",
 ]
 
@@ -15563,7 +15561,6 @@ name = "windmill-mcp"
 version = "1.605.0"
 dependencies = [
  "anyhow",
- "oauth2",
  "reqwest 0.12.28",
  "rmcp",
  "serde",

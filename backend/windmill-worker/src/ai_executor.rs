@@ -315,7 +315,7 @@ pub async fn handle_ai_agent_job(
     let mut tools = tools;
 
     let mcp_clients = if !mcp_configs.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
         tools.extend(mcp_tools);
         clients
     } else {

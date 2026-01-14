@@ -89,10 +89,6 @@
 		appConnect?.open?.(resourceType)
 	}
 
-	export async function refreshResources() {
-		await loadResources(resourceType)
-	}
-
 	let loading = $state(true)
 	async function loadResources(resourceType: string | undefined) {
 		loading = true

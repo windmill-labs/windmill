@@ -394,7 +394,7 @@
 </script>
 
 <div>
-	<div class="flex flex-col flex-wrap sm:flex-row sm:items-center gap-2 pb-0 mb-1">
+	<div class="flex flex-col sm:flex-row sm:items-center gap-2 pb-0 mb-1">
 		{#if meta != undefined}
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			{#if !hideUser}
@@ -462,7 +462,7 @@
 				{/if}
 			</div>
 			<div class="text-sm text-secondary">/</div>
-			<label class="block grow min-w-32 max-w-md">
+			<label class="block grow w-full max-w-md">
 				<!-- svelte-ignore a11y_autofocus -->
 				<TextInput
 					bind:this={inputP}

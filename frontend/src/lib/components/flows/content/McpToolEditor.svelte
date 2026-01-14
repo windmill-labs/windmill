@@ -12,7 +12,7 @@
 		{
 			initial: { workspace: get(workspaceStore), path: undefined, refreshCount: 0 },
 			invalidateMs: 1000 * 60
-		}
+		} // Cache for 60 seconds
 	)
 </script>
 
@@ -28,17 +28,15 @@
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { untrack } from 'svelte'
 	import Alert from '$lib/components/common/alert/Alert.svelte'
-	import McpOAuthConnect from './McpOAuthConnect.svelte'
 
 	interface Props {
 		tool: McpTool
+		noEditor: boolean
 	}
 
 	let { tool = $bindable() }: Props = $props()
 
-	let showOAuthForm = $state(false)
 	let refreshCount = $state(0)
-	let resourcePicker: ResourcePicker | undefined = $state()
 
 	let tools = usePromise(
 		async () =>
@@ -50,16 +48,18 @@
 		{ loadInit: false, clearValueOnRefresh: false }
 	)
 
+	// Options for the multiselect
 	let toolOptions = $derived(safeSelectItems((tools.value ?? []).map((t) => t.name)))
-	let resourcePath = $derived(tool.value.resource_path)
-	let error = $derived(tools.error?.body?.message || tools.error?.message)
 
+	// Watch for resource_path changes and refresh tools
 	$effect(() => {
-		resourcePath
+		// Track reactive dependencies
+		tool.value.resource_path
 		$workspaceStore
 		refreshCount
+		// Trigger refresh when resource_path or workspace changes
 		untrack(() => {
-			if (resourcePath?.length > 0) {
+			if (tool.value.resource_path?.length > 0) {
 				tools.refresh()
 			}
 		})
@@ -75,20 +75,14 @@
 	})
 
 	$effect(() => {
-		if (resourcePath?.length > 0 && tool.summary?.length === 0) {
+		if (tool.value.resource_path?.length > 0 && tool.summary?.length === 0) {
 			tool.summary = `MCP: ${tool.value.resource_path}`
 		}
 	})
-
-	async function handleOAuthConnected(resourcePath: string, resourceName: string) {
-		await resourcePicker?.refreshResources()
-		tool.value.resource_path = resourcePath
-		tool.summary = `MCP: ${resourceName}`
-		showOAuthForm = false
-	}
 </script>
 
 <div class="flex flex-col gap-4 p-4">
+	<!-- Explanatory Section -->
 	<Alert type="info" title="MCP Client Configuration">
 		{#snippet children()}
 			<p class="mb-2 text-sm">
@@ -103,26 +97,15 @@
 		{/snippet}
 	</Alert>
 
+	<!-- Resource Path Section -->
 	<div class="w-full">
 		<Label label="MCP Resource">
-			<ResourcePicker bind:this={resourcePicker} resourceType="mcp" bind:value={tool.value.resource_path} />
+			<ResourcePicker resourceType="mcp" bind:value={tool.value.resource_path} />
 		</Label>
 	</div>
 
-	{#if !resourcePath}
-		{#if !showOAuthForm}
-			<Button size="xs" color="light" onClick={() => (showOAuthForm = true)}>
-				Connect with OAuth
-			</Button>
-		{:else}
-			<McpOAuthConnect
-				onConnected={handleOAuthConnected}
-				onCancel={() => (showOAuthForm = false)}
-			/>
-		{/if}
-	{/if}
-
-	{#if resourcePath?.length > 0}
+	{#if tool.value.resource_path?.length > 0}
+		<!-- Summary Section -->
 		<div class="w-full">
 			<Label label="Summary">
 				<input
@@ -134,12 +117,13 @@
 			</Label>
 		</div>
 
+		<!-- Available Tools Section -->
 		<Section label="Available Tools">
 			{#snippet action()}
 				<Button
 					size="xs"
 					color="light"
-					onClick={() => (refreshCount += 1)}
+					on:click={() => (refreshCount += 1)}
 					startIcon={{ icon: RefreshCw }}
 					disabled={tools.status === 'loading'}
 				>
@@ -147,37 +131,39 @@
 				</Button>
 			{/snippet}
 			<div class="w-full flex flex-col gap-2">
-				{#if error}
-					<div class="text-xs text-red-600 dark:text-red-400 mb-4"
-						>{`Failed to load tools from MCP server: ${error}`}</div
-					>
-				{:else if tools.status === 'loading'}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+				{#if tools.error}
+					<div class="text-xs text-red-600 p-2 border border-red-300 rounded bg-red-50">
+						{tools.error?.body?.message ||
+							tools.error?.message ||
+							'Failed to load tools from MCP server'}
+					</div>
+				{/if}
+				<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+					{#if tools.status === 'loading'}
 						<div class="text-xs text-secondary italic">Loading tools...</div>
-					</div>
-				{:else if (tools.value ?? []).length === 0 && !error}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+					{:else if (tools.value ?? []).length === 0}
 						<div class="text-xs text-secondary italic">
-							No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.
+							{tools.error
+								? 'Failed to load tools. Please check the resource path and try again.'
+								: 'No tools loaded yet. Click "Refresh Tools" to fetch tools from the MCP server.'}
 						</div>
-					</div>
-				{:else if (tools.value ?? []).length > 0}
-					<div class="max-h-48 overflow-y-auto border rounded p-2 bg-surface-secondary">
+					{:else}
 						<div class="flex flex-col gap-1">
-							{#each tools.value ?? [] as mcpTool}
+							{#each tools.value ?? [] as tool}
 								<div class="text-xs">
-									<span class="font-semibold">{mcpTool.name}</span>
-									{#if mcpTool.description}
-										<span class="text-secondary">— {mcpTool.description}</span>
+									<span class="font-semibold">{tool.name}</span>
+									{#if tool.description}
+										<span class="text-secondary">— {tool.description}</span>
 									{/if}
 								</div>
 							{/each}
 						</div>
-					</div>
-				{/if}
+					{/if}
+				</div>
 			</div>
 		</Section>
 
+		<!-- Tool Filtering Section -->
 		{#if tool.value.include_tools && tool.value.exclude_tools}
 			<Section label="Tool Filtering">
 				<div class="w-full flex flex-col gap-3">
