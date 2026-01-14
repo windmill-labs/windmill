@@ -176,7 +176,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		completedAfter: string | null,
 		createdAfterQueue: string | undefined
 	): CancelablePromise<Job[]> {
-		if (_args.skip) new Promise((r) => r([]))
+		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		loadingFetch = true
 		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path === null || path === '' ? undefined : path
@@ -224,7 +224,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
-			return CancelablePromiseUtils.pure([] as Job[])
+			return CancelablePromiseUtils.pure<Job[]>([])
 		})
 		CancelablePromiseUtils.pipe(promise, () => {
 			loadingFetch = false
@@ -237,7 +237,8 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		createdBeforeQueue: string | null,
 		completedAfter: string | null
 	): CancelablePromise<ExtendedJobs> {
-		if (_args.skip) new Promise((r) => r({ jobs: [], obscured_jobs: [] } as ExtendedJobs))
+		if (_args.skip)
+			return CancelablePromiseUtils.pure<ExtendedJobs>({ jobs: [], obscured_jobs: [] })
 		loadingFetch = true
 		let promise = ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: perPage,
