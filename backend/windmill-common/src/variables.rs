@@ -93,9 +93,9 @@ pub async fn build_crypt(db: &DB, w_id: &str) -> crate::error::Result<MagicCrypt
     } else {
         let key = get_workspace_key(w_id, db).await?;
         tracing::info!(
-            "crypt for workspace {} with key {} expired, refetching",
+            "crypt for workspace {} with key {}*** expired, refetching",
             w_id,
-            key
+            &key[..key.len().min(8)]
         );
         let crypt_key = if let Some(ref salt) = SECRET_SALT.as_ref() {
             format!("{}{}", key, salt)

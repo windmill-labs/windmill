@@ -154,6 +154,7 @@
 			| 'windmill_lfs'
 			| 'git_sync'
 			| 'default_app'
+			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
@@ -726,6 +727,13 @@
 				/>
 				<Tab
 					small
+					value="native_triggers"
+					aiId="workspace-settings-integrations"
+					aiDescription="Workspace integrations for native triggers"
+					label="Native Triggers"
+				/>
+				<Tab
+					small
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
@@ -1259,6 +1267,16 @@
 					/>
 				{/key}
 			</div>
+		{:else if tab == 'native_triggers'}
+			{#if $workspaceStore}
+				{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}
+					<WorkspaceIntegrations />
+				{/await}
+			{:else}
+				<div class="flex items-center justify-center p-8">
+					<div class="text-sm text-secondary">Loading workspace...</div>
+				</div>
+			{/if}
 		{:else if tab == 'encryption'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
