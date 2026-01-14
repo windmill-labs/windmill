@@ -163,7 +163,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
-			jobs = jobs?.concat(olderJobs)
+			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 			computeCompletedJobs()
 			lastFetchWentToEnd = olderJobs?.length < perPage
 		} else {
