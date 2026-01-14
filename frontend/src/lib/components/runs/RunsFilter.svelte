@@ -161,7 +161,7 @@
 	})
 
 	let [copyArgFilter, copyResultFilter] = $state([argFilter, resultFilter])
-	let debouncedArgAndResultFilters = new Debounced(() => [copyArgFilter, copyResultFilter], 800)
+	let debouncedArgAndResultFilters = new Debounced(() => [copyArgFilter, copyResultFilter], 500)
 	watch(
 		() => debouncedArgAndResultFilters.current,
 		() => {

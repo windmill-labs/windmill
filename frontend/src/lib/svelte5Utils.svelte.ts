@@ -208,7 +208,9 @@ export function useSearchParams<S extends z.ZodType>(
 			set: (v) => {
 				params[key] = v
 				derivedVal = v
-			}
+			},
+			enumerable: true,
+			configurable: true
 		})
 	}
 	return obj

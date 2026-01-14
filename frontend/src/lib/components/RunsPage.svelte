@@ -93,7 +93,11 @@
 	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
-		filters,
+		filters: {
+			...filters,
+			arg: filters.arg && decodeURIComponent(filters.arg),
+			result: filters.result && decodeURIComponent(filters.result)
+		},
 		computeMinAndMax: manualDatePicker?.computeMinMax,
 		jobKinds,
 		autoRefresh,
@@ -213,8 +217,8 @@
 	}
 
 	function getSelectedFilters() {
-		const argFilter = filters.arg && JSON.parse(filters.arg)
-		const resultFilter = filters.result && JSON.parse(filters.result)
+		const argFilter = filters.arg && JSON.parse(decodeURIComponent(filters.arg))
+		const resultFilter = filters.result && JSON.parse(decodeURIComponent(filters.result))
 		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: filters.max_ts ?? undefined,
@@ -686,14 +690,19 @@
 						bind:showSkipped={filters.show_skipped}
 						bind:path={filters.path}
 						bind:success={filters.success}
-						bind:argFilter={filters.arg}
-						bind:resultFilter={filters.result}
 						bind:jobTriggerKind={filters.job_trigger_kind}
 						bind:argError
 						bind:resultError
 						bind:jobKindsCat={filters.job_kinds}
 						bind:allWorkspaces={filters.all_workspaces}
 						bind:schedulePath={filters.schedule_path}
+						bind:argFilter={
+							() => decodeURIComponent(filters.arg), (v) => (filters.arg = encodeURIComponent(v))
+						}
+						bind:resultFilter={
+							() => decodeURIComponent(filters.result),
+							(v) => (filters.result = encodeURIComponent(v))
+						}
 						on:change={reloadJobsWithoutFilterError}
 						on:successChange={(e) => {
 							if (e.detail == 'running' && filters.max_ts != undefined) {
