@@ -49,6 +49,7 @@
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { useThrottle } from 'runed'
 
 	let {
 		flowState: flowStateStore,
@@ -503,8 +504,14 @@
 	}
 
 	let jobMissingStartedAt: Record<string, number | 'P'> = {}
-	let lastSelectedLoopSwitch: number | undefined
-	let selectedLoopSwitchTimeout: number | undefined = undefined
+
+	let setSelectedLoopSwitch = useThrottle((lastStarted: string, mod: FlowStatusModule) => {
+		let position = mod.flow_jobs?.indexOf(lastStarted)
+		if (!position) return
+		// we wait a bit for suspended steps, to make sure the current iteration is updated
+		// when resumed before going forward. This avoid the duplicate resume forms bug.
+		setIteration(position, lastStarted, false, mod.id ?? '', true)
+	}, 2000)
 
 	function updateInnerModules() {
 		if (localModuleStates) {
@@ -641,29 +648,7 @@
 								})
 								if (anySet) {
 									updateDurationStatuses(key, nDurationStatuses)
-									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
-									function setSelectedLoopSwitch() {
-										if (lastStarted) {
-											let position = mod.flow_jobs?.indexOf(lastStarted)
-											if (position != undefined) {
-												lastSelectedLoopSwitch = new Date().getTime()
-												console.log('setSelectedLoopSwitch', position, lastStarted)
-												setIteration(position, lastStarted, false, mod.id ?? '', true)
-											}
-										}
-									}
-
-									if (
-										lastSelectedLoopSwitch &&
-										new Date().getTime() - lastSelectedLoopSwitch < 3000
-									) {
-										selectedLoopSwitchTimeout = setTimeout(() => {
-											setSelectedLoopSwitch()
-										}, 2000)
-									} else {
-										console.log('setSelectedLoopSwitch')
-										setSelectedLoopSwitch()
-									}
+									if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
 								}
 							})
 							.catch((e) => {
