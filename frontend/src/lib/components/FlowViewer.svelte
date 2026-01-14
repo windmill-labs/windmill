@@ -62,15 +62,20 @@
 	let previousFlowCache: Record<number, PreviousFlow> = {}
 
 	async function loadPreviousFlow(version: number) {
-		if (previousFlowCache[version]) {
-			previousFlow = previousFlowCache[version]
-			return
+		try {
+			if (previousFlowCache[version]) {
+				previousFlow = previousFlowCache[version]
+				return
+			}
+			previousFlow = await FlowService.getFlowVersion({
+				workspace: $workspaceStore!,
+				version
+			})
+			previousFlowCache[version] = previousFlow
+		} catch (e) {
+			console.error(e)
+			previousFlow = undefined
 		}
-		previousFlow = await FlowService.getFlowVersion({
-			workspace: $workspaceStore!,
-			version
-		})
-		previousFlowCache[version] = previousFlow
 	}
 
 	// Load previous flow when previousVersionId changes
