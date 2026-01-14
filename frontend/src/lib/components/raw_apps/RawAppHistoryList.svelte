@@ -36,8 +36,8 @@
 	</div>
 {:else}
 	<div class="relative w-full">
-		<!-- Timeline line -->
-		<div class="absolute left-[0.95rem] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
+		<!-- Timeline line at 5px from left, centered on 6px dot -->
+		<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
 
 		{#each reversedEntries as entry, i (entry.id)}
 			{@const isSelected = selectedId === entry.id}
@@ -91,15 +91,15 @@
 			<button
 				onclick={() => onSelect(entry.id)}
 				class={classNames(
-					'relative flex items-center gap-2 py-1 pr-1 pl-3 w-full text-left rounded transition-colors',
+					'relative flex items-center gap-2 py-1 pr-1 pl-5 w-full text-left rounded transition-colors',
 					'hover:bg-surface-hover',
 					isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
 				)}
 			>
-				<!-- Timeline dot -->
+				<!-- Timeline dot - 6px wide (w-1.5), left edge at 2px so center aligns with line at 5px -->
 				<div
 					class={classNames(
-						'absolute left-0 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
+						'absolute left-[2px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
 						isSelected
 							? 'border-blue-500 dark:border-blue-400'
 							: 'border-gray-300 dark:border-gray-600'
