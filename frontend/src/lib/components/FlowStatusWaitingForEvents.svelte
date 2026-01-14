@@ -129,7 +129,7 @@
 				{#if cancelUrl && !hide_cancel}
 					<div>
 						<Button
-							title="Cancel the flow"
+							title="Cancel the step"
 							iconOnly
 							startIcon={{ icon: X }}
 							variant="default"
