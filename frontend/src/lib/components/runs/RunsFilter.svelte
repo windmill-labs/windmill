@@ -623,7 +623,7 @@
 		<ToggleButtonGroup
 			selected={success ?? 'all'}
 			on:selected={({ detail }) => {
-				success = detail === 'all' ? undefined : detail
+				success = detail === 'all' ? null : detail
 				dispatch('successChange', success)
 			}}
 			id="status"
@@ -967,7 +967,7 @@
 						<Label label="Status">
 							<ToggleButtonGroup
 								selected={success ?? 'all'}
-								on:selected={({ detail }) => (success = detail === 'all' ? undefined : detail)}
+								on:selected={({ detail }) => (success = detail === 'all' ? null : detail)}
 							>
 								{#snippet children({ item })}
 									<ToggleButton value={'all'} label="All" {item} />
