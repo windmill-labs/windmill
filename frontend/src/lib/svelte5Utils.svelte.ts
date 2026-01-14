@@ -3,7 +3,7 @@
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { type StateStore } from './utils'
-import { resource, type ResourceReturn } from 'runed'
+import { resource, watch, type ResourceReturn } from 'runed'
 import * as runed from 'runed/kit'
 import type z from 'zod'
 
@@ -214,4 +214,25 @@ export function useSearchParams<S extends z.ZodType>(
 		})
 	}
 	return obj
+}
+
+// Prevents flickering when data is unloaded (undefined) then reloaded quickly
+// But still becomes undefined if data is not reloaded within the timeout
+// so the user has feedback that the data is not available anymore.
+export class StaleWhileLoading<T> {
+	private _current: T | undefined = $state()
+	private _currentTimeout: ReturnType<typeof setTimeout> | undefined
+	constructor(getter: () => T, timeout = 400) {
+		watch(getter, (value) => {
+			if (this._currentTimeout) clearTimeout(this._currentTimeout)
+			if (value === undefined) {
+				this._currentTimeout = setTimeout(() => (this._current = undefined), timeout)
+			} else {
+				this._current = value
+			}
+		})
+	}
+	get current(): T | undefined {
+		return this._current
+	}
 }

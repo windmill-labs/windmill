@@ -44,8 +44,7 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import { useSearchParams } from '$lib/svelte5Utils.svelte'
-	import { Debounced } from 'runed'
+	import { useSearchParams, StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 
 	let filters = useSearchParams(runsFiltersSchema)
 
@@ -115,8 +114,8 @@
 	let externalJobs = $derived(jobsLoader.externalJobs)
 	let extendedJobs = $derived(jobsLoader.extendedJobs)
 	// Avoid flicker, but still show empty if loading takes too long
-	let debouncedCompletedJobs = new Debounced(() => jobsLoader.completedJobs, 500)
-	let debouncedJobs = new Debounced(() => jobsLoader.jobs, 500)
+	let debouncedCompletedJobs = new StaleWhileLoading(() => jobsLoader.completedJobs)
+	let debouncedJobs = new StaleWhileLoading(() => jobsLoader.jobs)
 	let completedJobs = $derived(jobsLoader.completedJobs ?? debouncedCompletedJobs.current)
 	let jobs = $derived(jobsLoader.jobs ?? debouncedJobs.current)
 
