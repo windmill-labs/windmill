@@ -181,6 +181,13 @@
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
+		console.log('[SEND] Sending files to iframe', {
+			fileCount: Object.keys(files).length,
+			paths: Object.keys(files),
+			fileSizes: Object.fromEntries(
+				Object.entries(files).map(([path, content]) => [path, content.length])
+			)
+		})
 		iframe?.contentWindow?.postMessage(
 			{
 				type: 'setFiles',
@@ -294,15 +301,25 @@
 				return frontendFiles
 			},
 			setFrontendFile: (path, content): LintResult => {
-				console.log('setting frontend file', path, content)
+				console.log('[AI] setFrontendFile called', {
+					path,
+					contentLength: content.length,
+					contentHash: content.split('').reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)
+				})
 				if (!files) {
 					files = {}
 				}
 				files[path] = content
+				console.log('[AI] Setting ignoreNextIframeEcho flag')
+				ignoreNextIframeEcho = true
 				setFilesInIframe(files)
 				selectedDocument = path
 				handleSelectFile(path)
-				console.log('files after setting', files)
+				console.log('[AI] File set complete', {
+					path,
+					currentLength: files[path]?.length,
+					currentHash: files[path]?.split('').reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)
+				})
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
@@ -582,6 +599,7 @@
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
 	let selectionExcludedFromPrompt: boolean = $state(false)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
+	let ignoreNextIframeEcho: boolean = false
 
 	function toggleSelectionExcluded() {
 		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
@@ -601,12 +619,25 @@
 
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
+			console.log('[IFRAME] Received setFiles message', {
+				fileCount: Object.keys(e.data.files || {}).length,
+				ignoreFlag: ignoreNextIframeEcho
+			})
+			// Prevent corruption from iframe echo after AI sets file
+			if (ignoreNextIframeEcho) {
+				console.log('[IFRAME] Ignoring iframe echo to prevent corruption')
+				ignoreNextIframeEcho = false
+				return
+			}
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
 			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
+				console.log('[IFRAME] Files changed, updating from iframe')
 				files = normalizedFiles
 				historyManager.markPendingChanges()
+			} else {
+				console.log('[IFRAME] Files unchanged, skipping update')
 			}
 		} else if (e.data.type === 'getBundle') {
 			getBundleResolve?.(e.data.bundle)
