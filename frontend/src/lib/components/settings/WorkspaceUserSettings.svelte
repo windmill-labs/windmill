@@ -32,7 +32,7 @@
 	let userFilter = $state('')
 	let auto_invite_domain: string | undefined = $state()
 	let operatorOnly: boolean | undefined = $state(undefined)
-	let autoAdd: boolean | undefined = $state(undefined)
+	let autoAdd: boolean | undefined = $state(false)
 	let nbDisplayed = $state(30)
 
 	// Instance group auto-add settings
@@ -359,7 +359,14 @@
 		listUsers()
 	}
 
+	const debugEnableInvite = $state(true)
+
 	const autoInviteOrAddEnabled = $derived(auto_invite_domain != undefined)
+
+	// for legacy support we show auto invite mode when it was enabled already or in the cloud hosted case
+	const showAutoInviteToggle = $derived(
+		isCloudHosted() || (autoInviteOrAddEnabled && !autoAdd) || debugEnableInvite
+	)
 </script>
 
 <SearchItems
@@ -409,27 +416,29 @@
 				{/snippet}
 				{#snippet content()}
 					<div class="flex flex-col items-start p-4">
-						<div class="text-xs mb-1 text-primary"
-							>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
-						</div>
-						<ToggleButtonGroup
-							selected={autoAdd ? 'add' : 'invite'}
-							on:selected={async (e) => {
-								autoAdd = e.detail === 'add'
-								if (autoInviteOrAddEnabled) {
-									await updateAutoInvite(true)
-								}
-							}}
-						>
-							{#snippet children({ item })}
-								<ToggleButton value="invite" small label="Auto-invite" {item} />
-								<ToggleButton value="add" small label="Auto-add" {item} />
-							{/snippet}
-						</ToggleButtonGroup>
+						{#if showAutoInviteToggle}
+							<div class="text-xs mb-1 text-primary"
+								>Mode <Tooltip>Whether to invite or add users directly to the workspace.</Tooltip>
+							</div>
+							<ToggleButtonGroup
+								selected={autoAdd ? 'add' : 'invite'}
+								on:selected={async (e) => {
+									autoAdd = e.detail === 'add'
+									if (autoInviteOrAddEnabled) {
+										await updateAutoInvite(true)
+									}
+								}}
+							>
+								{#snippet children({ item })}
+									<ToggleButton value="invite" small label="Auto-invite" {item} />
+									<ToggleButton value="add" small label="Auto-add" {item} />
+								{/snippet}
+							</ToggleButtonGroup>
 
-						<span class="text-xs mb-1 mt-6"
-							>Role <Tooltip>Role of the auto-added users</Tooltip></span
-						>
+							<div class="mt-6"></div>
+						{/if}
+
+						<span class="text-xs mb-1">Role <Tooltip>Role of the auto-added users</Tooltip></span>
 						<ToggleButtonGroup
 							selected={operatorOnly ? 'operator' : 'developer'}
 							on:selected={async (e) => {
@@ -648,7 +657,9 @@
 				</Popover>
 			{/if}
 
-			<InviteUser {inviteUser} />
+			{#if showAutoInviteToggle}
+				<InviteUser {inviteUser} />
+			{/if}
 
 			<AddUser
 				on:new={() => {
@@ -890,9 +901,11 @@
 		documentationLink="https://www.windmill.dev/docs/core_concepts/authentification#adding-users-to-a-workspace"
 	>
 		{#snippet action()}
-			<div class="flex gap-2 items-center">
-				<InviteUser {inviteUser} />
-			</div>
+			{#if showAutoInviteToggle}
+				<div class="flex gap-2 items-center">
+					<InviteUser {inviteUser} />
+				</div>
+			{/if}
 		{/snippet}
 		<DataTable>
 			<Head>
