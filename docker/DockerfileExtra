@@ -3,7 +3,7 @@
 # This image extends windmill-slim with three optional Windmill services:
 # - LSP (Language Server Protocol) - Port 3001
 # - Multiplayer (y-websocket) - Port 3002
-# - Debugger (DAP WebSocket) - Port 5679
+# - Debugger (DAP WebSocket) - Port 3003
 #
 # Each service can be enabled/disabled via environment variables:
 # - ENABLE_LSP=true (default: true)
@@ -14,7 +14,7 @@
 #   docker build -f docker/DockerfileExtra -t windmill-extra .
 #
 # Run:
-#   docker run -p 3001:3001 -p 3002:3002 -p 5679:5679 windmill-extra
+#   docker run -p 3001:3001 -p 3002:3002 -p 3003:3003 windmill-extra
 
 # ============================================================================
 # Stage 1: Get nsjail from the nsjail image
@@ -106,6 +106,7 @@ WORKDIR /debugger
 COPY debugger/dap_debug_service.ts .
 COPY debugger/dap_websocket_server_bun.ts .
 COPY debugger/dap_websocket_server.py .
+COPY debugger/nsjail.debug.config.proto .
 
 # Install Python debugger dependencies using uv
 RUN uv pip install --system --break-system-packages websockets debugpy
@@ -139,7 +140,7 @@ RUN chmod -R a+rX /usr/local && \
     chmod -R a+rX /debugger
 
 # Expose all service ports
-EXPOSE 3001 3002 5679
+EXPOSE 3001 3002 3003
 
 # Environment variables for service control
 ENV ENABLE_LSP=true
@@ -160,6 +161,5 @@ ENV DEBUGGER_PORT=3003
 
 # Windmill base URL for debugger token verification
 ENV WINDMILL_BASE_URL=""
-ENV BASE_INTERNAL_URL=""
 
 ENTRYPOINT ["/entrypoint.sh"]

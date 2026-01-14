@@ -97,7 +97,6 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           allowed_bots: "windmill-internal-app[bot]"
           trigger_phrase: "/ai"
-          plugins: "rust-analyzer-lsp@claude-plugins-official\ntypescript-lsp@claude-plugins-official"
           settings: |
             {
               "env": {
