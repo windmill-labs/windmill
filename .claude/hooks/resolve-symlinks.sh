@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Resolve _ee.rs symlinks to actual files so Claude can read them
 # This script runs before each user prompt is processed
 
