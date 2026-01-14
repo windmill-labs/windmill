@@ -9,24 +9,26 @@
 	import { Button } from './common'
 	import SchemaForm from './SchemaForm.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import { untrack } from 'svelte'
 
-	export let isOwner: boolean
-	export let workspaceId: string | undefined
-	export let job: Job
-	export let light: boolean = false
+	interface Props {
+		isOwner: boolean
+		workspaceId: string | undefined
+		job: Job
+		light?: boolean
+	}
 
-	let default_payload: object = {}
-	let resumeUrl: string | undefined = undefined
-	let cancelUrl: string | undefined = undefined
-	let description: any = undefined
-	let hide_cancel = false
+	let { isOwner, workspaceId, job, light = false }: Props = $props()
 
-	$: approvalStep = (job?.flow_status?.step ?? 1) - 1
+	let default_payload: object = $state({})
+	let resumeUrl: string | undefined = $state(undefined)
+	let cancelUrl: string | undefined = $state(undefined)
+	let description: any = $state(undefined)
+	let hide_cancel = $state(false)
 
-	let defaultValues = {}
-	$: job && getDefaultArgs()
+	let defaultValues = $state({})
 
-	let schema = {}
+	let schema = $state({})
 	let lastJobId: string | undefined = undefined
 	async function getDefaultArgs() {
 		let jobId = job?.flow_status?.modules?.[approvalStep]?.job
@@ -56,7 +58,7 @@
 		)
 	}
 
-	let loading = false
+	let loading = $state(false)
 	async function continu(approve: boolean) {
 		loading = true
 		if ((resumeUrl && approve) || (cancelUrl && !approve)) {
@@ -116,6 +118,10 @@
 			}
 		}
 	}
+	let approvalStep = $derived((job?.flow_status?.step ?? 1) - 1)
+	$effect(() => {
+		job && untrack(() => getDefaultArgs())
+	})
 </script>
 
 <div class="w-full h-full mt-2 text-xs text-primary">
