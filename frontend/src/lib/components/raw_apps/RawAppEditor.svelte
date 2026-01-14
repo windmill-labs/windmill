@@ -173,6 +173,8 @@
 	}
 
 	let iframeLoaded = $state(false) // @hmr:keep
+	let lastFilesSentHash = $state(0)
+	let sendFilesTimeout: ReturnType<typeof setTimeout> | undefined
 
 	function populateFiles() {
 		setFilesInIframe(initFiles)
@@ -181,20 +183,46 @@
 		const files = Object.fromEntries(
 			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
 		)
-		console.log('[SEND] Sending files to iframe', {
-			fileCount: Object.keys(files).length,
-			paths: Object.keys(files),
-			fileSizes: Object.fromEntries(
-				Object.entries(files).map(([path, content]) => [path, content.length])
-			)
-		})
-		iframe?.contentWindow?.postMessage(
-			{
-				type: 'setFiles',
-				files: files
-			},
-			'*'
+
+		// Calculate hash to detect if content actually changed
+		const contentHash = JSON.stringify(
+			Object.entries(files)
+				.sort(([a], [b]) => a.localeCompare(b))
+				.map(([path, content]) => [path, content.length, content.slice(0, 100)])
 		)
+			.split('')
+			.reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)
+
+		// Clear any pending send
+		if (sendFilesTimeout) {
+			clearTimeout(sendFilesTimeout)
+		}
+
+		// Debounce: only send after 50ms of no changes
+		sendFilesTimeout = setTimeout(() => {
+			if (contentHash === lastFilesSentHash) {
+				console.log('[SEND] Skipping duplicate send (hash:', contentHash, ')')
+				return
+			}
+
+			lastFilesSentHash = contentHash
+			console.log('[SEND] Sending files to iframe', {
+				fileCount: Object.keys(files).length,
+				hash: contentHash,
+				paths: Object.keys(files),
+				fileSizes: Object.fromEntries(
+					Object.entries(files).map(([path, content]) => [path, content.length])
+				)
+			})
+
+			iframe?.contentWindow?.postMessage(
+				{
+					type: 'setFiles',
+					files: files
+				},
+				'*'
+			)
+		}, 50)
 	}
 
 	function populateRunnables() {
@@ -310,15 +338,15 @@
 					files = {}
 				}
 				files[path] = content
-				console.log('[AI] Setting ignoreNextIframeEcho flag')
-				ignoreNextIframeEcho = true
 				setFilesInIframe(files)
 				selectedDocument = path
 				handleSelectFile(path)
 				console.log('[AI] File set complete', {
 					path,
 					currentLength: files[path]?.length,
-					currentHash: files[path]?.split('').reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)
+					currentHash: files[path]
+						?.split('')
+						.reduce((a, b) => ((a << 5) - a + b.charCodeAt(0)) | 0, 0)
 				})
 				return lint()
 			},
@@ -599,7 +627,6 @@
 	let inspectorElement: InspectorElementInfo | undefined = $state(undefined)
 	let selectionExcludedFromPrompt: boolean = $state(false)
 	let codeSelection: AppCodeSelectionElement | undefined = $state(undefined)
-	let ignoreNextIframeEcho: boolean = false
 
 	function toggleSelectionExcluded() {
 		selectionExcludedFromPrompt = !selectionExcludedFromPrompt
@@ -620,18 +647,11 @@
 	function listener(e: MessageEvent) {
 		if (e.data.type === 'setFiles') {
 			console.log('[IFRAME] Received setFiles message', {
-				fileCount: Object.keys(e.data.files || {}).length,
-				ignoreFlag: ignoreNextIframeEcho
+				fileCount: Object.keys(e.data.files || {}).length
 			})
 			// Prevent corruption from iframe echo after AI sets file
-			if (ignoreNextIframeEcho) {
-				console.log('[IFRAME] Ignoring iframe echo to prevent corruption')
-				ignoreNextIframeEcho = false
-				return
-			}
 			// Normalize Windows-style path separators to Linux-style
 			const normalizedFiles = normalizeFilePaths(e.data.files)
-			// Only mark pending changes if files actually changed (ignore echo from setFilesInIframe)
 			if (!deepEqual(files, normalizedFiles)) {
 				console.log('[IFRAME] Files changed, updating from iframe')
 				files = normalizedFiles
@@ -700,6 +720,7 @@
 		})
 	})
 	$effect(() => {
+		console.log('dbg populateFiles')
 		iframe && iframeLoaded && initFiles && populateFiles()
 	})
 	$effect(() => {
