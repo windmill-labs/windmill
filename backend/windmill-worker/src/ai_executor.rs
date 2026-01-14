@@ -13,7 +13,11 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
-use windmill_common::mcp_client::McpClient;
+#[cfg(feature = "mcp")]
+use windmill_mcp::McpClient;
+
+#[cfg(not(feature = "mcp"))]
+use crate::ai::tools::McpClientStub as McpClient;
 use windmill_common::{
     ai_providers::AIProvider,
     cache,
@@ -149,24 +153,34 @@ pub async fn handle_ai_agent_job(
 
     // Separate Windmill tools from MCP tools, websearch, and extract MCP resource configs
     let mut windmill_modules: Vec<FlowModule> = Vec::new();
+    #[allow(unused_mut)]
     let mut mcp_configs: Vec<crate::ai::utils::McpResourceConfig> = Vec::new();
     let mut has_websearch = false;
 
     for tool in tools {
         match &tool.value {
+            #[allow(unused_variables)]
             ToolValue::Mcp(mcp_config) => {
-                // This is an MCP tool - extract config
-                tracing::debug!(
-                    "MCP server module: path={}, include={:?}, exclude={:?}",
-                    mcp_config.resource_path,
-                    mcp_config.include_tools,
-                    mcp_config.exclude_tools
-                );
-                mcp_configs.push(crate::ai::utils::McpResourceConfig {
-                    resource_path: mcp_config.resource_path.clone(),
-                    include_tools: Some(mcp_config.include_tools.clone()),
-                    exclude_tools: Some(mcp_config.exclude_tools.clone()),
-                });
+                #[cfg(feature = "mcp")]
+                {
+                    // This is an MCP tool - extract config
+                    tracing::debug!(
+                        "MCP server module: path={}, include={:?}, exclude={:?}",
+                        mcp_config.resource_path,
+                        mcp_config.include_tools,
+                        mcp_config.exclude_tools
+                    );
+                    mcp_configs.push(crate::ai::utils::McpResourceConfig {
+                        resource_path: mcp_config.resource_path.clone(),
+                        include_tools: Some(mcp_config.include_tools.clone()),
+                        exclude_tools: Some(mcp_config.exclude_tools.clone()),
+                    });
+                }
+
+                #[cfg(not(feature = "mcp"))]
+                {
+                    tracing::warn!("MCP tool detected but MCP feature is not enabled");
+                }
             }
             ToolValue::FlowModule(_) => {
                 // Regular Windmill flow module (script, flow, etc.) - convert to FlowModule
@@ -299,8 +313,9 @@ pub async fn handle_ai_agent_job(
 
     // Load MCP tools if configured
     let mut tools = tools;
+
     let mcp_clients = if !mcp_configs.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs).await?;
+        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
         tools.extend(mcp_tools);
         clients
     } else {

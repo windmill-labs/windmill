@@ -553,6 +553,7 @@
 								}, 3001)
 							}
 						}}
+						title={`Cancel the ${job?.job_kind === 'script' ? 'script' : job?.job_kind === 'flow' ? 'flow' : 'job'}`}
 					>
 						Cancel
 					</Button>

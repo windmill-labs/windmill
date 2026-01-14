@@ -3,6 +3,7 @@ import { wrapDucklakeQuery } from '$lib/components/ducklake'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { ScriptLang } from '$lib/gen'
 import type { TableEditorForeignKey } from '../tableEditor'
+import type { TableMetadata } from '../utils'
 
 /**
  * Raw foreign key result from database queries
@@ -399,67 +400,77 @@ export async function fetchTableRelationalKeys(
 	input: DbInput,
 	dbType: DbType,
 	table: string,
+	schema: string | undefined,
 	workspace: string,
 	dbArg: Record<string, any>,
-	language: ScriptLang
-): Promise<{ foreignKeys: TableEditorForeignKey[]; pk_constraint_name?: string }> {
-	let foreignKeys: TableEditorForeignKey[] = []
-	let pk_constraint_name: string | undefined = undefined
-	try {
-		if (dbType !== 'bigquery') {
-			let fkQuery = makeForeignKeysQuery(
-				dbType,
-				table,
-				input.type === 'database' ? input.specificSchema : undefined
-			)
-			if (input.type === 'ducklake') fkQuery = wrapDucklakeQuery(fkQuery, input.ducklake)
+	language: ScriptLang,
+	getColDefs: () => Promise<TableMetadata>
+): Promise<{
+	foreignKeys: TableEditorForeignKey[]
+	pk_constraint_name?: string
+	colDefs: TableMetadata
+}> {
+	let fkPromise = async () => {
+		try {
+			if (dbType !== 'bigquery') {
+				let fkQuery = makeForeignKeysQuery(dbType, table, schema)
+				if (input.type === 'ducklake') fkQuery = wrapDucklakeQuery(fkQuery, input.ducklake)
 
-			const fkResult = await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content: fkQuery, language }
-			})
-
-			let rawForeignKeys = fkResult as RawForeignKey[]
-
-			if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
-				// Lowercase keys for consistency
-				rawForeignKeys = rawForeignKeys.map((fk) => {
-					const lowerFk: any = {}
-					Object.keys(fk).forEach((key) => {
-						lowerFk[key.toLowerCase()] = fk[key]
-					})
-					return lowerFk
+				const fkResult = await runScriptAndPollResult({
+					workspace,
+					requestBody: { args: dbArg, content: fkQuery, language }
 				})
-				foreignKeys = transformForeignKeys(rawForeignKeys)
+
+				let rawForeignKeys = fkResult as RawForeignKey[]
+
+				if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+					// Lowercase keys for consistency
+					rawForeignKeys = rawForeignKeys.map((fk) => {
+						const lowerFk: any = {}
+						Object.keys(fk).forEach((key) => {
+							lowerFk[key.toLowerCase()] = fk[key]
+						})
+						return lowerFk
+					})
+					return transformForeignKeys(rawForeignKeys)
+				}
 			}
+		} catch (e) {
+			console.warn('Failed to fetch foreign keys:', e)
 		}
-	} catch (e) {
-		console.warn('Failed to fetch foreign keys:', e)
+		return []
 	}
 
-	try {
-		if (dbType !== 'bigquery' && dbType !== 'mysql') {
-			let pkQuery = makePrimaryKeyConstraintQuery(
-				dbType,
-				table,
-				input.type === 'database' ? input.specificSchema : undefined
-			)
-			if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
+	let pkPromise = async () => {
+		try {
+			if (dbType !== 'bigquery' && dbType !== 'mysql') {
+				let pkQuery = makePrimaryKeyConstraintQuery(dbType, table, schema)
+				if (input.type === 'ducklake') pkQuery = wrapDucklakeQuery(pkQuery, input.ducklake)
 
-			const pkResult = await runScriptAndPollResult({
-				workspace,
-				requestBody: { args: dbArg, content: pkQuery, language }
-			})
+				const pkResult = await runScriptAndPollResult({
+					workspace,
+					requestBody: { args: dbArg, content: pkQuery, language }
+				})
 
-			let rawPkResult = pkResult as RawPrimaryKeyConstraint[]
+				let rawPkResult = pkResult as RawPrimaryKeyConstraint[]
 
-			if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
-				const pkRecord: any = rawPkResult[0]
-				pk_constraint_name = pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+				if (rawPkResult && Array.isArray(rawPkResult) && rawPkResult.length > 0) {
+					const pkRecord: any = rawPkResult[0]
+					const pk_constraint_name: string =
+						pkRecord?.constraint_name || pkRecord?.CONSTRAINT_NAME || ''
+					return pk_constraint_name
+				}
 			}
+		} catch (e) {
+			console.warn('Failed to fetch primary key constraint:', e)
 		}
-	} catch (e) {
-		console.warn('Failed to fetch primary key constraint:', e)
 	}
-	return { foreignKeys, pk_constraint_name }
+
+	const [foreignKeys, pk_constraint_name, colDefs] = await Promise.all([
+		fkPromise(),
+		pkPromise(),
+		getColDefs()
+	])
+
+	return { foreignKeys, pk_constraint_name, colDefs }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.602.0"
+version = "1.606.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -11,11 +11,13 @@ members = [
     "./windmill-queue",
     "./windmill-worker",
     "./windmill-common",
+    "./windmill-mcp",
     "./windmill-audit",
     "./windmill-git-sync",
     "./windmill-autoscaling",
     "./windmill-indexer",
     "./windmill-macros",
+    "./windmill-oauth",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-go",
@@ -33,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.602.0"
+version = "1.606.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -56,7 +58,6 @@ enterprise = ["windmill-worker/enterprise", "windmill-queue/enterprise", "windmi
 enterprise_saml = ["windmill-api/enterprise_saml", "oauth2"]
 stripe = ["windmill-api/stripe"]
 benchmark = ["windmill-api/benchmark", "windmill-worker/benchmark", "windmill-queue/benchmark", "windmill-common/benchmark"]
-loki = ["windmill-common/loki"]
 embedding = ["windmill-api/embedding"]
 parquet = ["windmill-api/parquet", "windmill-common/parquet", "windmill-worker/parquet", "dep:object_store"]
 prometheus = ["windmill-common/prometheus", "windmill-api/prometheus", "windmill-worker/prometheus", "windmill-queue/prometheus", "dep:prometheus"]
@@ -75,7 +76,7 @@ dind = ["windmill-worker/dind"]
 websocket = ["windmill-api/websocket"]
 http_trigger = ["windmill-api/http_trigger"]
 postgres_trigger = ["windmill-api/postgres_trigger"]
-mcp = ["windmill-api/mcp"]
+mcp = ["windmill-api/mcp", "windmill-worker/mcp"]
 mqtt_trigger = ["windmill-api/mqtt_trigger"]
 sqs_trigger = ["windmill-api/sqs_trigger", "windmill-common/aws_auth", "windmill-api/openidconnect"]
 gcp_trigger = ["windmill-api/gcp_trigger"]
@@ -102,7 +103,7 @@ ruby = ["windmill-worker/ruby"]
 all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
-all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "loki", "embedding", "parquet", "prometheus", "flow_testing",
+all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
    "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server"]
@@ -193,6 +194,8 @@ windmill-audit = { path = "./windmill-audit" }
 windmill-git-sync = { path = "./windmill-git-sync" }
 windmill-autoscaling = { path = "./windmill-autoscaling" }
 windmill-indexer = {path = "./windmill-indexer"}
+windmill-mcp = {path = "./windmill-mcp"}
+windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
@@ -247,6 +250,7 @@ argon2 = "^0"
 quick_cache = "^0"
 rand = "=0.9.0"
 rand_core = { version = "^0", features = ["std"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 magic-crypt = "^3"
 git-version = "^0"
 malachite = "=0.4.18"
@@ -259,13 +263,13 @@ mail-send = { version = "0.4.0", features = ["builder"], default-features=false 
 urlencoding = "^2"
 url = { version = "^2" , features = ["serde"]}
 async-oauth2 = "0.5.1"
-reqwest = { version = "=0.12.24", features = ["json", "stream", "gzip", "multipart"] }
+reqwest = { version = "^0.13", features = ["json", "stream", "gzip", "multipart", "query", "form"] }
 eventsource-stream = "0.2.3"
 time = "^0"
 serde_urlencoded = "^0"
 astral-tokio-tar = "^0.5.6"
 tempfile = "^3"
-tokio-util = { version = "^0", features = ["io"] }
+tokio-util = { version = "=0.7.17", features = ["io"] }
 json-pointer = "^0"
 itertools = "^0.14.0"
 regex = "^1"
@@ -382,7 +386,8 @@ async-nats = "0.38.0"
 nkeys = "0.4.4"
 nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
-
+croner = "2.2.0"
+rmcp = { version = "^0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 datafusion = "47.0.0"

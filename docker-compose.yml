@@ -68,6 +68,8 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - MODE=worker
       - WORKER_GROUP=default
+      # If running with non-root/non-windmill UID (e.g., user: "1001:1001"),
+      # add: - HOME=/tmp
       # Uncomment to enable PID namespace isolation (requires privileged: true above)
       # - ENABLE_UNSHARE_PID=true
     depends_on:
@@ -166,23 +168,29 @@ services:
       - worker_logs:/tmp/windmill/logs
     logging: *default-logging
 
-  lsp:
-    image: ghcr.io/windmill-labs/windmill-lsp:latest
+  # Combined extra services: LSP, Multiplayer, and Debugger
+  # Each service can be enabled/disabled via environment variables:
+  #   - ENABLE_LSP=true (default) - Language Server Protocol for code intelligence
+  #   - ENABLE_MULTIPLAYER=false - Real-time collaboration (Enterprise Edition)
+  #   - ENABLE_DEBUGGER=false - Interactive debugging via DAP WebSocket
+  windmill_extra:
+    image: ghcr.io/windmill-labs/windmill-extra:latest
     pull_policy: always
     restart: unless-stopped
     expose:
-      - 3001
+      - 3001  # LSP
+      - 3002  # Multiplayer
+      - 3003  # Debugger
+    environment:
+      - ENABLE_LSP=true
+      - ENABLE_MULTIPLAYER=false  # Set to true to enable multiplayer (Enterprise Edition)
+      - ENABLE_DEBUGGER=true      # Set to true to enable debugger
+      - DEBUGGER_PORT=3003        # Debugger service port
+      - ENABLE_NSJAIL=false       # Set to true for nsjail sandboxing (requires privileged: true)
+      - REQUIRE_SIGNED_DEBUG_REQUESTS=false  # Set to true to require JWT tokens for debug sessions
+      - WINDMILL_BASE_URL=http://windmill_server:8000
     volumes:
       - lsp_cache:/pyls/.cache
-    logging: *default-logging
-
-  multiplayer:
-    image: ghcr.io/windmill-labs/windmill-multiplayer:latest
-    deploy:
-      replicas: 0 # Set to 1 to enable multiplayer, only available on Enterprise Edition
-    restart: unless-stopped
-    expose:
-      - 3002
     logging: *default-logging
 
   caddy:

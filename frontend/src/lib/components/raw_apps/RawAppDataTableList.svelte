@@ -3,6 +3,7 @@
 	import PanelSection from '../apps/editor/settingsPanel/common/PanelSection.svelte'
 	import type { DataTableRef } from './dataTableRefUtils'
 	import DefaultDatabaseSelector from './DefaultDatabaseSelector.svelte'
+	import { Button } from '../common'
 
 	// Re-export for backwards compatibility
 	export type { DataTableRef } from './dataTableRefUtils'
@@ -86,7 +87,7 @@
 </script>
 
 {#snippet actionButtons()}
-	<div class="flex items-center">
+	<div class="flex items-center gap-1">
 		<!-- Settings popover for default database/schema -->
 		{#if !hideDefaultSelector}
 			<DefaultDatabaseSelector
@@ -97,14 +98,16 @@
 		{/if}
 
 		<!-- Add datatable button -->
-		<button
-			onclick={() => onAdd?.()}
-			class="pt-1.5 pb-0.5 px-1 hover:bg-surface-hover rounded transition-colors flex items-center gap-0.5"
+		<Button
+			onClick={() => onAdd?.()}
 			title="Add datatable reference"
+			unifiedSize="xs"
+			variant="subtle"
+			btnClasses="px-1 gap-0.5"
 		>
-			<Plus size={12} class="text-secondary" />
-			<Database size={12} class="text-tertiary" />
-		</button>
+			<Plus size={12} />
+			<Database size={12} />
+		</Button>
 	</div>
 {/snippet}
 
@@ -180,7 +183,7 @@
 {#if standalone}
 	<div class="flex flex-col gap-2">
 		<div class="flex items-center justify-between">
-			<span class="text-sm text-primary">Existing tables to use</span>
+			<span class="text-xs text-emphasis font-semibold">Existing tables to use</span>
 			{@render actionButtons()}
 		</div>
 		{@render tableList()}
@@ -188,7 +191,7 @@
 {:else}
 	<PanelSection
 		fullHeight={false}
-		size="lg"
+		size="sm"
 		title="data"
 		id="app-editor-data-panel"
 		tooltip="Data tables to use in the app. Adding some here does not change the behavior of the app, since they can be used in code directly regardless. But it allows AI to always keep their schema in context as well as allowing quick access and clear view of the app's data layer."

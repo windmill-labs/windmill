@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.602.0
+  version: 1.606.0
   title: Windmill API
 
   contact:
@@ -229,6 +229,83 @@ paths:
             text/plain:
               schema:
                 type: string
+
+  /auth/is_smtp_configured:
+    get:
+      security: []
+      summary: check if SMTP is configured for password reset
+      operationId: isSmtpConfigured
+      tags:
+        - user
+      responses:
+        "200":
+          description: returns true if SMTP is configured
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /auth/request_password_reset:
+    post:
+      security: []
+      summary: request password reset email
+      operationId: requestPasswordReset
+      tags:
+        - user
+      requestBody:
+        description: email to send password reset link to
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        "200":
+          description: password reset email sent (if user exists)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetResponse"
+        "400":
+          description: SMTP not configured
+
+  /auth/reset_password:
+    post:
+      security: []
+      summary: reset password using token
+      operationId: resetPassword
+      tags:
+        - user
+      requestBody:
+        description: token and new password
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+                - new_password
+              properties:
+                token:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        "200":
+          description: password reset successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PasswordResetResponse"
+        "400":
+          description: invalid or expired token
 
   /w/{workspace}/users/get/{username}:
     get:
@@ -4147,6 +4224,9 @@ paths:
                 cc_token_url:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                mcp_server_url:
+                  type: string
+                  description: "MCP server URL for MCP OAuth token refresh"
               required:
                 - refresh_token
                 - expires_in
@@ -13474,6 +13554,12 @@ paths:
           description: comma separated list of tags
           schema:
             type: string
+        - name: workspace
+          in: query
+          required: false
+          description: workspace to filter tags visibility (required when TAGS_ARE_SENSITIVE is enabled for non-superadmins)
+          schema:
+            type: string
       responses:
         "200":
           description: map of tags to whether at least one worker with the tag exists
@@ -15778,6 +15864,98 @@ paths:
                 items:
                   $ref: "#/components/schemas/EndpointTool"
 
+  /mcp/oauth/discover:
+    post:
+      summary: discover MCP server OAuth metadata
+      operationId: discoverMcpOAuth
+      tags:
+        - mcp_oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mcp_server_url
+              properties:
+                mcp_server_url:
+                  type: string
+                  description: URL of the MCP server to discover OAuth metadata from
+      responses:
+        "200":
+          description: OAuth metadata from MCP server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scopes_supported:
+                    type: array
+                    items:
+                      type: string
+                  authorization_endpoint:
+                    type: string
+                  token_endpoint:
+                    type: string
+                  registration_endpoint:
+                    type: string
+                  supports_dynamic_registration:
+                    type: boolean
+
+  /mcp/oauth/start:
+    get:
+      summary: start MCP OAuth popup flow
+      description: Opens in a popup, discovers OAuth metadata, registers client, and redirects to OAuth provider
+      operationId: startMcpOAuthPopup
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: mcp_server_url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: URL of the MCP server to connect to
+        - name: scopes
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of OAuth scopes to request
+      responses:
+        "302":
+          description: Redirect to OAuth provider authorization URL
+
+  /mcp/oauth/callback:
+    get:
+      security: []
+      summary: MCP OAuth callback
+      description: Handles OAuth callback, exchanges code for tokens, returns HTML that posts message to opener
+      operationId: mcpOAuthCallback
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth authorization code
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state token
+      responses:
+        "200":
+          description: HTML page with JavaScript that posts tokens to opener window and closes
+          content:
+            text/html:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     bearerAuth:
@@ -17476,6 +17654,14 @@ components:
       required:
         - email
         - password
+
+    PasswordResetResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
 
     EditWorkspaceUser:
       type: object

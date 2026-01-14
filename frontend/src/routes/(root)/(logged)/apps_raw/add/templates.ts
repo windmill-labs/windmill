@@ -37,21 +37,35 @@ const App = () => {
 };
 
 export default App;
-`;
+`
 
-const appSvelte = `<style>
-  h1 {
-    font-size: 1.5rem;
+const appSvelte = `<script lang="ts">
+  import { backend } from "./wmill";
+
+  let name = "world";
+  let result = "";
+
+  async function callScript() {
+    result = await backend.a({ x: name });
   }
-</style>
+</script>
 
 <main>
   <h1>Hello {name}</h1>
+
+  <input type="text" bind:value={name} placeholder="Enter a name" />
+  <button on:click={callScript}>Call runnable 'a'</button>
+
+  {#if result}
+    <p>Result: {result}</p>
+  {/if}
 </main>
 
-<script>
-  let name = 'world';
-</script>`
+<style>
+  h1 {
+    font-size: 1.5rem;
+  }
+</style>`
 
 const indexSvelte = `
 import { mount } from 'svelte';
@@ -81,13 +95,13 @@ createApp(App).mount('#root')`
 const indexCss = `.myclass {
     border: 1px solid gray;
     padding: 2px;
-}`;
+}`
 
 export const react19Template = {
-  '/index.tsx': reactIndex,
-  '/App.tsx': appTsx,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "19.0.0",
         "react-dom": "19.0.0",
@@ -97,14 +111,14 @@ export const react19Template = {
         "@types/react-dom": "^19.0.0",
         "@types/react": "^19.0.0"
     }
-}`,
+}`
 }
 
 export const react18Template = {
-  '/index.tsx': reactIndex,
-  '/App.tsx': appTsx,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.tsx': reactIndex,
+	'/App.tsx': appTsx,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "react": "18.3.1",
         "react-dom": "18.3.1"
@@ -113,31 +127,31 @@ export const react18Template = {
         "@types/react-dom": "^19.0.0",
         "@types/react": "^19.0.0"
     }
-}`,
+}`
 }
 
 export const svelte5Template = {
-  '/index.ts': indexSvelte,
-  '/App.svelte': appSvelte,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.ts': indexSvelte,
+	'/App.svelte': appSvelte,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "svelte": "5.45.2",
         "windmill-client": "^1"
     }
-}`,
+}`
 }
 
 export const vueTemplate = {
-  '/index.ts': indexVue,
-  '/App.vue': appVue,
-  '/index.css': indexCss,
-  '/package.json': `{
+	'/index.ts': indexVue,
+	'/App.vue': appVue,
+	'/index.css': indexCss,
+	'/package.json': `{
     "dependencies": {
         "core-js": "3.26.1",
         "vue": "3.5.13"
     }
-}`,
+}`
 }
 
 export const appVueRouter = `

@@ -433,6 +433,12 @@ async fn windmill_main() -> anyhow::Result<()> {
             println!("Windmill {}", GIT_VERSION);
             return Ok(());
         }
+        "prepare-deps" => {
+            // CLI command for preparing dependencies without database access
+            // Used by the debugger to install dependencies for scripts
+            windmill_worker::run_prepare_deps_cli().await?;
+            return Ok(());
+        }
         _ => {}
     }
 
@@ -796,16 +802,9 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
-        let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
         let server_f = async {
             if !is_agent {
                 if let Some(db) = conn.as_sql() {
-                    if worker_mode {
-                        init_worker_internal_server_inline_utils(
-                            worker_internal_server_killpill_rx,
-                            base_internal_url.clone(),
-                        )?;
-                    }
                     windmill_api::run_server(
                         db.clone(),
                         index_reader,
@@ -836,6 +835,11 @@ Windmill Community Edition {GIT_VERSION}
             if !killpill_rx.try_recv().is_ok() {
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
+                    let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
+                    init_worker_internal_server_inline_utils(
+                        worker_internal_server_killpill_rx,
+                        base_internal_url.clone(),
+                    )?;
                     let mut workers = vec![];
 
                     for i in 0..num_workers {

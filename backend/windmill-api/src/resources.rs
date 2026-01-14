@@ -48,7 +48,7 @@ use windmill_common::{
 };
 
 pub fn workspaced_service() -> Router {
-    Router::new()
+    let router = Router::new()
         .route("/list", get(list_resources))
         .route("/list_search", get(list_search_resources))
         .route("/list_names/:type", get(list_names))
@@ -75,8 +75,12 @@ pub fn workspaced_service() -> Router {
             "/file_resource_type_to_file_ext_map",
             get(file_resource_ext_to_resource_type),
         )
-        .route("/type/create", post(create_resource_type))
-        .route("/mcp_tools/*path", get(get_mcp_tools))
+        .route("/type/create", post(create_resource_type));
+
+    #[cfg(feature = "mcp")]
+    let router = router.route("/mcp_tools/*path", get(get_mcp_tools));
+
+    router
 }
 
 pub fn public_service() -> Router {
@@ -1400,6 +1404,7 @@ where
 }
 
 /// Get list of tools from an MCP resource
+#[cfg(feature = "mcp")]
 async fn get_mcp_tools(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -1409,7 +1414,7 @@ async fn get_mcp_tools(
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:read:{}", path))?;
 
-    let mut tx = user_db.begin(&authed).await?;
+    let mut tx = user_db.clone().begin(&authed).await?;
 
     // Fetch the MCP resource from database
     let resource_value_o = sqlx::query_scalar!(
@@ -1430,12 +1435,56 @@ async fn get_mcp_tools(
         .ok_or_else(|| Error::BadRequest(format!("Empty resource value for {}", path)))?;
 
     // Parse MCP resource
-    let mcp_resource =
-        serde_json::from_str::<windmill_common::mcp_client::McpResource>(resource_value.0.get())
-            .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+    let mcp_resource = serde_json::from_str::<windmill_mcp::McpResource>(resource_value.0.get())
+        .map_err(|e| Error::BadRequest(format!("Failed to parse MCP resource: {}", e)))?;
+
+    // Check if token needs refresh before creating MCP client
+    #[cfg(feature = "oauth2")]
+    {
+        tracing::info!("Checking if token needs refresh before creating MCP client");
+        if let Some(ref token_path) = mcp_resource.token {
+            let token_var_path = token_path.trim_start_matches("$var:");
+
+            // Query to check if token is expired
+            let token_info = sqlx::query!(
+                r#"
+            SELECT
+                variable.account as account_id,
+                (now() > account.expires_at) as "is_expired: bool"
+            FROM variable
+            LEFT JOIN account ON variable.account = account.id AND account.workspace_id = $2
+            WHERE variable.path = $1 AND variable.workspace_id = $2
+            "#,
+                token_var_path,
+                &w_id
+            )
+            .fetch_optional(&db)
+            .await?;
+
+            if let Some(info) = token_info {
+                if let (Some(account_id), Some(true)) = (info.account_id, info.is_expired) {
+                    let refresh_tx = user_db.begin(&authed).await?;
+                    if let Err(e) = crate::oauth2_oss::_refresh_token(
+                        refresh_tx,
+                        token_var_path,
+                        &w_id,
+                        account_id,
+                        &db,
+                    )
+                    .await
+                    {
+                        tracing::warn!(
+                        "Failed to refresh token for MCP resource: {}. Proceeding with possibly expired token.",
+                        e
+                    );
+                    }
+                }
+            }
+        }
+    }
 
     // Create MCP client connection
-    let client = windmill_common::mcp_client::McpClient::from_resource(mcp_resource, &db, &w_id)
+    let client = windmill_mcp::McpClient::from_resource(mcp_resource, &db, &w_id)
         .await
         .map_err(|e| Error::ExecutionErr(format!("Failed to connect to MCP server: {}", e)))?;
 
@@ -1462,6 +1511,55 @@ struct GitRepositoryResource {
     url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<String>,
+}
+
+/// Validates a git URL to prevent git option injection attacks.
+/// Git URLs starting with '-' could be interpreted as command-line options.
+fn validate_git_url(url: &str) -> Result<()> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(Error::BadRequest("Git URL cannot be empty".to_string()));
+    }
+    if url.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git URL cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    // Block other potentially dangerous patterns
+    if url.contains('\0') || url.contains('\n') || url.contains('\r') {
+        return Err(Error::BadRequest(
+            "Git URL contains invalid characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+/// Validates a git branch/ref name to prevent injection attacks.
+fn validate_git_ref(ref_name: &str) -> Result<()> {
+    let ref_name = ref_name.trim();
+    if ref_name.is_empty() {
+        return Err(Error::BadRequest("Git ref cannot be empty".to_string()));
+    }
+    if ref_name.starts_with('-') {
+        return Err(Error::BadRequest(
+            "Git ref cannot start with '-' (potential option injection)".to_string(),
+        ));
+    }
+    // Git ref names have specific rules - block dangerous characters
+    if ref_name.contains('\0')
+        || ref_name.contains('\n')
+        || ref_name.contains('\r')
+        || ref_name.contains("..")
+        || ref_name.contains("@{")
+        || ref_name.ends_with('.')
+        || ref_name.ends_with('/')
+        || ref_name.contains("//")
+    {
+        return Err(Error::BadRequest(
+            "Git ref contains invalid characters or patterns".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -1624,7 +1722,8 @@ async fn get_repo_latest_commit_hash(
     git_resource: &GitRepositoryResource,
     git_ssh_command: Option<String>,
 ) -> Result<String> {
-    let mut git_cmd = Command::new("git");
+    // Validate URL and branch to prevent option injection attacks
+    validate_git_url(&git_resource.url)?;
 
     let ref_spec = git_resource
         .branch
@@ -1632,6 +1731,12 @@ async fn get_repo_latest_commit_hash(
         .filter(|s| !s.is_empty())
         .unwrap_or("HEAD");
 
+    // Validate ref_spec if it's not the default HEAD
+    if ref_spec != "HEAD" {
+        validate_git_ref(ref_spec)?;
+    }
+
+    let mut git_cmd = Command::new("git");
     git_cmd.args(["ls-remote", &git_resource.url, ref_spec]);
     if let Some(git_ssh_command) = git_ssh_command {
         git_cmd.env("GIT_SSH_COMMAND", git_ssh_command);

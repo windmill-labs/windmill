@@ -22,7 +22,16 @@ use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
-use windmill_common::mcp_client::{McpClient, McpToolSource};
+use crate::ai::types::McpToolSource;
+
+#[cfg(feature = "mcp")]
+use windmill_mcp::McpClient;
+
+#[cfg(not(feature = "mcp"))]
+pub struct McpClientStub;
+
+#[cfg(not(feature = "mcp"))]
+type McpClient = McpClientStub;
 use windmill_common::{
     client::AuthedClient,
     db::DB,
