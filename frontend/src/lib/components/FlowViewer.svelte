@@ -7,24 +7,35 @@
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
 	import FlowInputViewer from './FlowInputViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import {
+		cleanValueProperties,
+		orderedYamlStringify,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
+
+	type FlowType = {
+		summary: string
+		description?: string
+		value: FlowValue
+		schema?: any
+	}
 
 	interface Props {
-		flow: {
-			summary: string
-			description?: string
-			value: FlowValue
-			schema?: any
-		}
+		flow: FlowType
+		/** Flow to compare against (for diff view) */
+		compareFlow?: FlowType
 		initialOpen?: number | undefined
 		noSide?: boolean
 		noGraph?: boolean
-		tab?: 'ui' | 'raw' | 'schema'
+		tab?: 'ui' | 'raw' | 'schema' | 'diff'
 		noSummary?: boolean
 		noGraphDownload?: boolean
 	}
 
 	let {
 		flow,
+		compareFlow = undefined,
 		initialOpen = undefined,
 		noSide = false,
 		noGraph = false,
@@ -32,6 +43,18 @@
 		noSummary = false,
 		noGraphDownload = false
 	}: Props = $props()
+
+	let diffMode: 'yaml' | 'graph' = $state('yaml')
+
+	function flowToYaml(flowData: FlowType): string {
+		const cleaned = structuredClone(
+			cleanValueProperties(replaceFalseWithUndefined(flowData))
+		)
+		return orderedYamlStringify(cleaned)
+	}
+
+	const beforeYaml = $derived(compareFlow ? flowToYaml(compareFlow) : '')
+	const afterYaml = $derived(flowToYaml(flow))
 
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
@@ -47,6 +70,9 @@
 	{/if}
 	<Tab value="raw" label="Raw" />
 	<Tab value="schema" label="Input Schema" />
+	{#if compareFlow}
+		<Tab value="diff" label="Diff" />
+	{/if}
 
 	{#snippet content()}
 		<TabContent value="ui">
@@ -75,5 +101,38 @@
 			<div class="my-4"></div>
 			<SchemaViewer schema={flow.schema} />
 		</TabContent>
+		{#if compareFlow}
+			<TabContent value="diff">
+				<div class="flex flex-col gap-4 h-full mt-4">
+					<Tabs bind:selected={diffMode}>
+						<Tab value="yaml" label="YAML" />
+						<Tab value="graph" label="Graph" />
+					</Tabs>
+					<div class="flex-1 min-h-[400px]">
+						{#if diffMode === 'yaml'}
+							{#await import('$lib/components/DiffEditor.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default
+									open={true}
+									automaticLayout
+									className="h-full"
+									defaultLang="yaml"
+									defaultOriginal={beforeYaml}
+									defaultModified={afterYaml}
+									readOnly
+								/>
+							{/await}
+						{:else if diffMode === 'graph'}
+							{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default beforeYaml={beforeYaml} afterYaml={afterYaml} />
+							{/await}
+						{/if}
+					</div>
+				</div>
+			</TabContent>
+		{/if}
 	{/snippet}
 </Tabs>

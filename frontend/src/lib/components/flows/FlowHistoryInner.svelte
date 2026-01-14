@@ -23,6 +23,7 @@
 
 	let selectedVersion: FlowVersion | undefined = $state(undefined)
 	let selected: Flow | undefined = $state(undefined)
+	let currentFlow: Flow | undefined = $state(undefined)
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state(undefined)
 
@@ -31,6 +32,18 @@
 			workspace: $workspaceStore!,
 			version
 		})
+	}
+
+	async function loadCurrentFlow() {
+		try {
+			currentFlow = await FlowService.getFlowByPath({
+				workspace: $workspaceStore!,
+				path
+			})
+		} catch {
+			// Current flow might not exist (e.g., deleted), ignore
+			currentFlow = undefined
+		}
 	}
 
 	async function loadVersions() {
@@ -77,6 +90,7 @@
 	}
 
 	loadVersions()
+	loadCurrentFlow()
 
 	run(() => {
 		selectedVersion !== undefined && loadFlow(selectedVersion.id)
@@ -208,7 +222,7 @@
 						{#await import('$lib/components/FlowViewer.svelte')}
 							<Loader2 class="animate-spin" />
 						{:then Module}
-							<Module.default flow={selected} />
+							<Module.default flow={selected} compareFlow={currentFlow} />
 						{/await}
 					</div>
 				{:else}
