@@ -20,7 +20,6 @@
 	}
 
 	let diffType: 'draft' | 'deployed' | 'custom' | undefined = $state(undefined)
-	let flowdiffMode: 'yaml' | 'graph' = $state('yaml')
 
 	let contentType = $derived.by(() => {
 		if (!data || !diffType) return undefined
@@ -232,34 +231,14 @@
 									{/await}
 								{:else if contentType === 'metadata'}
 									{#if isFlow}
-										<Tabs bind:selected={flowdiffMode}>
-											<Tab value="yaml" label={`YAML`} />
-											<Tab value="graph" label={`Graph`} />
-										</Tabs>
-										{#if flowdiffMode === 'yaml'}
-											{#await import('$lib/components/DiffEditor.svelte')}
-												<Loader2 class="animate-spin" />
-											{:then Module}
-												<Module.default
-													open={true}
-													automaticLayout
-													className="h-full"
-													defaultLang="yaml"
-													defaultOriginal={metadata}
-													defaultModified={data.current.metadata}
-													readOnly
-												/>
-											{/await}
-										{:else if flowdiffMode === 'graph'}
-											{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
-												<Loader2 class="animate-spin" />
-											{:then Module}
-												<Module.default
-													beforeYaml={metadata ?? ''}
-													afterYaml={data.current.metadata}
-												/>
-											{/await}
-										{/if}
+										{#await import('$lib/components/FlowYamlGraphDiff.svelte')}
+											<Loader2 class="animate-spin" />
+										{:then Module}
+											<Module.default
+												beforeYaml={metadata ?? ''}
+												afterYaml={data.current.metadata}
+											/>
+										{/await}
 									{:else}
 										{#await import('$lib/components/DiffEditor.svelte')}
 											<Loader2 class="animate-spin" />

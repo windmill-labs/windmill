@@ -44,8 +44,6 @@
 		noGraphDownload = false
 	}: Props = $props()
 
-	let diffMode: 'yaml' | 'graph' = $state('yaml')
-
 	function flowToYaml(flowData: FlowType): string {
 		const cleaned = structuredClone(
 			cleanValueProperties(replaceFalseWithUndefined(flowData))
@@ -104,32 +102,12 @@
 		{#if compareFlow}
 			<TabContent value="diff">
 				<div class="flex flex-col gap-4 h-full mt-4">
-					<Tabs bind:selected={diffMode}>
-						<Tab value="yaml" label="YAML" />
-						<Tab value="graph" label="Graph" />
-					</Tabs>
 					<div class="flex-1 min-h-[400px]">
-						{#if diffMode === 'yaml'}
-							{#await import('$lib/components/DiffEditor.svelte')}
-								<Loader2 class="animate-spin" />
-							{:then Module}
-								<Module.default
-									open={true}
-									automaticLayout
-									className="h-full"
-									defaultLang="yaml"
-									defaultOriginal={beforeYaml}
-									defaultModified={afterYaml}
-									readOnly
-								/>
-							{/await}
-						{:else if diffMode === 'graph'}
-							{#await import('$lib/components/FlowGraphDiffViewer.svelte')}
-								<Loader2 class="animate-spin" />
-							{:then Module}
-								<Module.default beforeYaml={beforeYaml} afterYaml={afterYaml} />
-							{/await}
-						{/if}
+						{#await import('$lib/components/FlowYamlGraphDiff.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default {beforeYaml} {afterYaml} />
+						{/await}
 					</div>
 				</div>
 			</TabContent>
