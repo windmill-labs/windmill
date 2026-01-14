@@ -4,11 +4,7 @@
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import { Loader2 } from 'lucide-svelte'
-	import {
-		orderedYamlStringify,
-		cleanValueProperties,
-		replaceFalseWithUndefined
-	} from '$lib/utils'
+	import { orderedYamlStringify, cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
 
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
@@ -110,11 +106,13 @@
 					</div>
 
 					{#if previousFlowYaml}
-						{#await import('$lib/components/FlowDiffViewer.svelte')}
-							<Loader2 class="animate-spin" />
-						{:then Module}
-							<Module.default beforeYaml={previousFlowYaml} afterYaml={currentFlowYaml} />
-						{/await}
+						<div class="h-[calc(100vh-150px)] min-h-[400px]">
+							{#await import('$lib/components/FlowDiffViewer.svelte')}
+								<Loader2 class="animate-spin" />
+							{:then Module}
+								<Module.default beforeYaml={previousFlowYaml} afterYaml={currentFlowYaml} />
+							{/await}
+						</div>
 					{:else}
 						<Loader2 class="animate-spin" />
 					{/if}
