@@ -462,7 +462,6 @@
 		if (status.preprocessor_module) {
 			innerModules.unshift(status.preprocessor_module)
 		}
-		updateInnerModules()
 
 		let count = status.retry?.fail_count
 		if (count) {
@@ -477,6 +476,8 @@
 		} else if (suspendStatus.val[jobId ?? ''] != undefined) {
 			delete suspendStatus.val[jobId ?? '']
 		}
+
+		updateInnerModules()
 	}
 
 	function updateDurationStatuses(
@@ -512,188 +513,184 @@
 		// when resumed before going forward. This avoid the duplicate resume forms bug.
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
-
-	function updateInnerModules() {
-		if (localModuleStates) {
-			innerModules?.forEach((mod, i) => {
-				if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
-					setModuleState(mod.id ?? '', {
-						type: mod.type,
-						args: job?.args,
-						tag: job?.tag,
-						script_hash: job?.script_hash
-					})
-				} else if (
-					mod.type === 'WaitingForExecutor' &&
-					localModuleStates[mod.id ?? '']?.scheduled_for == undefined
-				) {
-					JobService.getJob({
+	async function updateInnerModules() {
+		if (!localModuleStates) return
+		let promises = (innerModules ?? []).map(async (mod, i) => {
+			if (mod.type === 'WaitingForEvents' && innerModules?.[i - 1]?.type === 'Success') {
+				setModuleState(mod.id ?? '', {
+					type: mod.type,
+					args: job?.args,
+					tag: job?.tag,
+					script_hash: job?.script_hash
+				})
+			} else if (
+				mod.type === 'WaitingForExecutor' &&
+				localModuleStates[mod.id ?? '']?.scheduled_for == undefined
+			) {
+				try {
+					const job = await JobService.getJob({
 						workspace: workspaceId ?? $workspaceStore ?? '',
 						id: mod.job ?? '',
 						noLogs: true,
 						noCode: true
 					})
-						.then((job) => {
-							const newState = {
-								type: mod.type,
-								scheduled_for: job?.['scheduled_for'],
-								job_id: job?.id,
-								parent_module: mod['parent_module'],
-								args: job?.args,
-								tag: job?.tag,
-								script_hash: job?.script_hash
-							}
+					const newState = {
+						type: mod.type,
+						scheduled_for: job?.['scheduled_for'],
+						job_id: job?.id,
+						parent_module: mod['parent_module'],
+						args: job?.args,
+						tag: job?.tag,
+						script_hash: job?.script_hash
+					}
 
-							setModuleState(mod.id ?? '', newState)
-						})
-						.catch((e) => {
-							console.error(`Could not load inner module for job ${mod.job}`, e)
-						})
-				} else if (
-					(mod.flow_jobs || mod.branch_chosen) &&
-					(mod.type == 'Success' || mod.type == 'Failure') &&
-					!['Success', 'Failure'].includes(localModuleStates?.[mod.id ?? '']?.type)
-				) {
-					let branchChosen = mod.branch_chosen
-						? {
-								branchChosen:
-									mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
-							}
-						: {}
-					// console.debug('updateInnerModules', mod.id, mod.type, branchChosen)
-					setModuleState(
-						mod.id ?? '',
-						{
-							type: mod.type,
-							...branchChosen
-						},
-						true
-					)
-				} else if (isForloopSelected) {
-					setModuleState(mod.id ?? '', {}, true)
+					setModuleState(mod.id ?? '', newState)
+				} catch (e) {
+					console.error(`Could not load inner module for job ${mod.job}`, e)
 				}
+			} else if (
+				(mod.flow_jobs || mod.branch_chosen) &&
+				(mod.type == 'Success' || mod.type == 'Failure') &&
+				!['Success', 'Failure'].includes(localModuleStates?.[mod.id ?? '']?.type)
+			) {
+				let branchChosen = mod.branch_chosen
+					? {
+							branchChosen:
+								mod.branch_chosen.type == 'default' ? 0 : (mod.branch_chosen.branch ?? 0) + 1
+						}
+					: {}
+				setModuleState(
+					mod.id ?? '',
+					{
+						type: mod.type,
+						...branchChosen
+					},
+					true
+				)
+			} else if (isForloopSelected) {
+				setModuleState(mod.id ?? '', {}, true)
+			}
 
-				if (mod.flow_jobs_success || mod.flow_jobs_duration || mod.flow_jobs) {
-					setModuleState(mod.id ?? '', {
-						flow_jobs_success: mod.flow_jobs_success,
-						flow_jobs_duration: mod.flow_jobs_duration,
-						flow_jobs: mod.flow_jobs,
-						iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
+			if (mod.flow_jobs_success || mod.flow_jobs_duration || mod.flow_jobs) {
+				setModuleState(mod.id ?? '', {
+					flow_jobs_success: mod.flow_jobs_success,
+					flow_jobs_duration: mod.flow_jobs_duration,
+					flow_jobs: mod.flow_jobs,
+					iteration_total: mod.iterator?.itered_len ?? mod.flow_jobs?.length
+				})
+			}
+
+			if (mod.flow_jobs_duration && mod.flow_jobs) {
+				let key = buildSubflowKey(mod.id ?? '', prefix)
+				let durationStatuses = Object.fromEntries(
+					mod.flow_jobs.map((flowJobId, idx) => {
+						let started_at_str = mod.flow_jobs_duration?.started_at?.[idx]
+						let started_at = started_at_str ? new Date(started_at_str).getTime() : undefined
+						let duration_ms = mod.flow_jobs_duration?.duration_ms?.[idx]
+						if (started_at == undefined) {
+							let missingStartedAt = jobMissingStartedAt[flowJobId]
+							if (missingStartedAt != 'P') {
+								started_at = missingStartedAt
+							}
+						} else {
+							delete jobMissingStartedAt[flowJobId]
+						}
+						return [
+							flowJobId,
+							{
+								created_at: started_at,
+								started_at: started_at,
+								duration_ms: duration_ms
+							}
+						]
 					})
-				}
-
-				if (mod.flow_jobs_duration && mod.flow_jobs) {
-					let key = buildSubflowKey(mod.id ?? '', prefix)
-					let durationStatuses = Object.fromEntries(
-						mod.flow_jobs.map((flowJobId, idx) => {
-							let started_at_str = mod.flow_jobs_duration?.started_at?.[idx]
-							let started_at = started_at_str ? new Date(started_at_str).getTime() : undefined
-							let duration_ms = mod.flow_jobs_duration?.duration_ms?.[idx]
-							if (started_at == undefined) {
-								let missingStartedAt = jobMissingStartedAt[flowJobId]
-								if (missingStartedAt != 'P') {
-									started_at = missingStartedAt
-								}
-							} else {
-								delete jobMissingStartedAt[flowJobId]
-							}
-							return [
-								flowJobId,
-								{
-									created_at: started_at,
-									started_at: started_at,
-									duration_ms: duration_ms
-								}
-							]
-						})
+				)
+				let missingStartedAtIds = Object.keys(durationStatuses)
+					.filter(
+						(id) => durationStatuses[id].created_at == undefined && jobMissingStartedAt[id] != 'P'
 					)
-					let missingStartedAtIds = Object.keys(durationStatuses)
-						.filter(
-							(id) => durationStatuses[id].created_at == undefined && jobMissingStartedAt[id] != 'P'
-						)
-						.slice(0, 100)
+					.slice(0, 100)
 
-					updateDurationStatuses(key, durationStatuses)
+				updateDurationStatuses(key, durationStatuses)
 
-					if (missingStartedAtIds.length > 0) {
-						missingStartedAtIds.forEach((id) => {
-							jobMissingStartedAt[id] = 'P'
-						})
-						JobService.getStartedAtByIds({
+				if (missingStartedAtIds.length > 0) {
+					missingStartedAtIds.forEach((id) => {
+						jobMissingStartedAt[id] = 'P'
+					})
+					try {
+						const jobs = await JobService.getStartedAtByIds({
 							workspace: workspaceId ?? $workspaceStore ?? '',
 							requestBody: missingStartedAtIds
 						})
-							.then((jobs) => {
-								let lastStarted: string | undefined = undefined
-								let anySet = false
-								let nDurationStatuses = localDurationStatuses[key]?.byJob
-								missingStartedAtIds.forEach((id, idx) => {
-									const startedAt = jobs[idx]
-									const time = startedAt ? new Date(startedAt).getTime() : undefined
-									if (time) {
-										jobMissingStartedAt[id] = time
-									} else {
-										delete jobMissingStartedAt[id]
-									}
-									if (nDurationStatuses && time) {
-										if (!nDurationStatuses[id]?.duration_ms) {
-											anySet = true
-											lastStarted = id
-											nDurationStatuses[id] = {
-												created_at: time,
-												started_at: time
-											}
-										}
-									}
-								})
-								if (anySet) {
-									updateDurationStatuses(key, nDurationStatuses)
-									if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
-								}
-							})
-							.catch((e) => {
-								console.error(`Could not load inner module duration status for job ${mod.job}`, e)
-							})
-					} else {
-						setIteration(0, mod.flow_jobs?.[0] ?? '', false, mod.id ?? '', true)
-					}
-				}
-
-				if (mod.agent_actions && mod.id) {
-					setModuleState(mod.id, {
-						agent_actions: mod.agent_actions
-					})
-					mod.agent_actions.forEach((action, idx) => {
-						if (mod.id) {
-							if (action.type == 'tool_call') {
-								const toolCallId = getToolCallId(idx, mod.id, action.module_id)
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(toolCallId, {
-									job_id: action.job_id,
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'mcp_tool_call') {
-								const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
-								const success = mod.agent_actions_success?.[idx]
-								setModuleState(mcpToolCallId, {
-									type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
-								})
-							} else if (action.type == 'web_search') {
-								const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
-								setModuleState(websearchId, {
-									type: 'Success'
-								})
-							} else if (action.type == 'message') {
-								const toolCallId = getToolCallId(idx, mod.id)
-								setModuleState(toolCallId, {
-									type: 'Success'
-								})
+						let lastStarted: string | undefined = undefined
+						let anySet = false
+						let nDurationStatuses = localDurationStatuses[key]?.byJob
+						missingStartedAtIds.forEach((id, idx) => {
+							const startedAt = jobs[idx]
+							const time = startedAt ? new Date(startedAt).getTime() : undefined
+							if (time) {
+								jobMissingStartedAt[id] = time
+							} else {
+								delete jobMissingStartedAt[id]
 							}
+							if (nDurationStatuses && time) {
+								if (!nDurationStatuses[id]?.duration_ms) {
+									anySet = true
+									lastStarted = id
+									nDurationStatuses[id] = {
+										created_at: time,
+										started_at: time
+									}
+								}
+							}
+						})
+						if (anySet) {
+							updateDurationStatuses(key, nDurationStatuses)
+							if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
 						}
-					})
+					} catch (e) {
+						console.error(`Could not load inner module duration status for job ${mod.job}`, e)
+					}
+				} else {
+					setIteration(0, mod.flow_jobs?.[0] ?? '', false, mod.id ?? '', true)
 				}
-			})
-		}
+			}
+
+			if (mod.agent_actions && mod.id) {
+				setModuleState(mod.id, {
+					agent_actions: mod.agent_actions
+				})
+				mod.agent_actions.forEach((action, idx) => {
+					if (mod.id) {
+						if (action.type == 'tool_call') {
+							const toolCallId = getToolCallId(idx, mod.id, action.module_id)
+							const success = mod.agent_actions_success?.[idx]
+							setModuleState(toolCallId, {
+								job_id: action.job_id,
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else if (action.type == 'mcp_tool_call') {
+							const mcpToolCallId = AI_MCP_TOOL_CALL_PREFIX + '-' + mod.id + '-' + idx
+							const success = mod.agent_actions_success?.[idx]
+							setModuleState(mcpToolCallId, {
+								type: success != undefined ? (success ? 'Success' : 'Failure') : 'InProgress'
+							})
+						} else if (action.type == 'web_search') {
+							const websearchId = AI_WEBSEARCH_PREFIX + '-' + mod.id + '-' + idx
+							setModuleState(websearchId, {
+								type: 'Success'
+							})
+						} else if (action.type == 'message') {
+							const toolCallId = getToolCallId(idx, mod.id)
+							setModuleState(toolCallId, {
+								type: 'Success'
+							})
+						}
+					}
+				})
+			}
+		})
+		await Promise.all(promises)
 	}
 
 	let debounceJobId: string | undefined = undefined
