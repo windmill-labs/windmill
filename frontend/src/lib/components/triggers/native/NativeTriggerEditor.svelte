@@ -96,16 +96,6 @@
 	let originalConfig = $state<Record<string, any> | undefined>(undefined)
 	let initialConfig: Record<string, any> | undefined = undefined
 
-	$effect(() => {
-		console.log('diff', getSaveCfg(), originalConfig)
-	})
-
-	$effect(() => {
-		console.log('serviceConfig', serviceConfig)
-		console.log('externalData', externalData)
-		console.log('save config', getSaveCfg().service_config)
-	})
-
 	export function openNew(
 		nis_flow?: boolean,
 		fixedScriptPath_?: string,
