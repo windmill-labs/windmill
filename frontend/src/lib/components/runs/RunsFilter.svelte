@@ -53,7 +53,7 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
 	import type { JobTriggerKind } from '$lib/gen'
-	import { watch } from 'runed'
+	import { Debounced, watch } from 'runed'
 	import z from 'zod'
 
 	interface Props {
@@ -122,9 +122,6 @@
 		calendarSmall = false
 	}: Props = $props()
 
-	let copyArgFilter = $state(argFilter)
-	let copyResultFilter = $state(resultFilter)
-
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
@@ -163,18 +160,13 @@
 		autosetFilter()
 	})
 
+	let [copyArgFilter, copyResultFilter] = $state([argFilter, resultFilter])
+	let debouncedArgAndResultFilters = new Debounced(() => [copyArgFilter, copyResultFilter], 800)
 	watch(
-		() => copyArgFilter,
+		() => debouncedArgAndResultFilters.current,
 		() => {
-			if (!copyArgFilter) argFilter = ''
-			else if (copyArgFilter !== argFilter && !argError) argFilter = copyArgFilter
-		}
-	)
-	watch(
-		() => copyResultFilter,
-		() => {
-			if (!copyResultFilter) resultFilter = ''
-			else if (copyResultFilter !== resultFilter && !resultError) resultFilter = copyResultFilter
+			if (!argError) argFilter = copyArgFilter || ''
+			if (!resultError) resultFilter = copyResultFilter || ''
 		}
 	)
 
