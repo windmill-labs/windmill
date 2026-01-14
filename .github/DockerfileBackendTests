@@ -28,7 +28,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.4.18/uv-installer.sh | sh && mv /usr/local/cargo/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /usr/local/cargo/bin/uv /usr/local/bin/uv
 
 ENV TZ=Etc/UTC
 

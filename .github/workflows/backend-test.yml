@@ -47,7 +47,7 @@ jobs:
           bun-version: 1.1.43
       - uses: astral-sh/setup-uv@v6.2.1
         with:
-          version: "0.6.2"
+          version: "0.9.24"
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           cache-workspaces: backend
