@@ -44,7 +44,7 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, OTEL_TRACING_PROXY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
@@ -99,9 +99,9 @@ use crate::monitor::{
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
-    reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_worker_config, MonitorIteration,
+    reload_jwt_secret_setting, reload_license_key, reload_otel_tracing_proxy_setting,
+    reload_npm_config_registry_setting, reload_pip_index_url_setting, reload_retention_period_setting,
+    reload_scim_token_setting, reload_smtp_config, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -1152,6 +1152,9 @@ Windmill Community Edition {GIT_VERSION}
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;
                                                         },
+                                                        OTEL_TRACING_PROXY_SETTING => {
+                                                            reload_otel_tracing_proxy_setting(&conn).await;
+                                                        },
                                                         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                                                             load_require_preexisting_user(&db).await;
                                                         },
@@ -1360,6 +1363,26 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
+        let otel_tracing_proxy_f = async {
+            #[cfg(all(feature = "private", feature = "enterprise"))]
+            {
+                // Start OTEL tracing proxy for HTTP request interception
+                // Only enabled when: setting is on, worker mode (not server), and single worker (to avoid race conditions)
+                if worker_mode && num_workers == 1 && windmill_worker::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
+                    if let Some(db) = conn.as_sql() {
+                        tracing::info!("Starting OTEL tracing proxy (port will be dynamically assigned)");
+                        if let Err(e) = windmill_worker::start_otel_tracing_proxy(db.clone()).await {
+                            tracing::error!("OTEL tracing proxy error: {}", e);
+                        }
+                    }
+                } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled && num_workers > 1 {
+                    tracing::warn!("OTEL tracing proxy is enabled but num_workers > 1. Disabling to avoid race conditions. Set NUM_WORKERS=1 to enable.");
+                }
+            }
+
+            Ok(()) as anyhow::Result<()>
+        };
+
         if server_mode {
             if let Some(db) = conn.as_sql() {
                 schedule_stats(&db, &HTTP_CLIENT).await;
@@ -1374,6 +1397,7 @@ Windmill Community Edition {GIT_VERSION}
                 monitor_f,
                 server_f,
                 metrics_f,
+                otel_tracing_proxy_f,
                 indexer_f,
                 log_indexer_f
             )?;

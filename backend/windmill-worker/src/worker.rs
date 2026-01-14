@@ -55,7 +55,7 @@ use windmill_common::METRICS_ENABLED;
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
         atomic::{AtomicBool, AtomicU16, Ordering},
@@ -247,6 +247,25 @@ const VACUUM_PERIOD: u32 = 50000;
 // const DROP_CACHE_PERIOD: u32 = 1000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
+
+/// Per-language OTEL tracing proxy configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OtelTracingProxySettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_tracing_proxy_languages")]
+    pub enabled_languages: HashSet<ScriptLang>,
+}
+
+fn default_tracing_proxy_languages() -> HashSet<ScriptLang> {
+    HashSet::from([ScriptLang::Python3, ScriptLang::Bun])
+}
+
+impl Default for OtelTracingProxySettings {
+    fn default() -> Self {
+        Self { enabled: false, enabled_languages: default_tracing_proxy_languages() }
+    }
+}
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
@@ -505,6 +524,7 @@ lazy_static::lazy_static! {
     pub static ref HTTP_PROXY: Option<String> = std::env::var("http_proxy").ok().or(std::env::var("HTTP_PROXY").ok());
     pub static ref HTTPS_PROXY: Option<String> = std::env::var("https_proxy").ok().or(std::env::var("HTTPS_PROXY").ok());
 
+    /// Static proxy environment variables from env vars (for languages not using dynamic OTEL tracing proxy config)
     pub static ref PROXY_ENVS: Vec<(&'static str, String)> = {
         let mut proxy_env = Vec::new();
         if let Some(no_proxy) = NO_PROXY.as_ref() {
@@ -520,6 +540,9 @@ lazy_static::lazy_static! {
         }
         proxy_env
     };
+
+    /// Per-language OTEL tracing proxy settings (configured via instance settings)
+    pub static ref OTEL_TRACING_PROXY_SETTINGS: Arc<RwLock<OtelTracingProxySettings>> = Arc::new(RwLock::new(OtelTracingProxySettings::default()));
     pub static ref WHITELIST_ENVS: HashMap<String, String> = {
         windmill_common::worker::load_env_vars(
             windmill_common::worker::load_whitelist_env_vars_from_env(),
@@ -608,6 +631,45 @@ lazy_static::lazy_static! {
 }
 
 type Envs = Vec<(String, String)>;
+
+/// Check if OTEL tracing proxy is enabled for a specific language (EE only)
+pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
+    cfg!(all(feature = "private", feature = "enterprise")) && {
+        let settings = OTEL_TRACING_PROXY_SETTINGS.read().await;
+        settings.enabled && settings.enabled_languages.contains(lang)
+    }
+}
+
+/// Get proxy environment variables for job execution for a specific language.
+/// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
+/// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
+pub async fn get_proxy_envs_for_lang(lang: &ScriptLang) -> anyhow::Result<Vec<(&'static str, String)>> {
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if is_otel_tracing_proxy_enabled_for_lang(lang).await {
+        return get_otel_tracing_proxy_envs().await;
+    }
+    let _ = lang;
+    Ok(PROXY_ENVS.clone())
+}
+
+#[cfg(all(feature = "private", feature = "enterprise"))]
+async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, String)>> {
+    let port = crate::otel_tracing_proxy_ee::TRACING_PROXY_PORT
+        .read()
+        .await
+        .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
+    let proxy_url = format!("http://127.0.0.1:{}", port);
+    Ok(vec![
+        ("HTTP_PROXY", proxy_url.clone()),
+        ("HTTPS_PROXY", proxy_url),
+        ("NO_PROXY", "".to_string()),
+        // CA cert for various runtimes to trust the tracing proxy
+        ("SSL_CERT_FILE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("REQUESTS_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("NODE_EXTRA_CA_CERTS", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("CURL_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+    ])
+}
 
 #[cfg(windows)]
 lazy_static::lazy_static! {
@@ -2689,7 +2751,11 @@ pub async fn handle_queued_job(
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
-    // Extract the active span from the context
+    // Set OTEL tracing proxy job context for HTTP request attribution (only if enabled)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
+        crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
+    }
 
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -3136,7 +3202,7 @@ pub fn build_envs(
     };
 
     for (k, v) in PROXY_ENVS.iter() {
-        envs.insert(k.to_string(), v.to_string());
+        envs.insert(k.to_string(), v.clone());
     }
 
     Ok(envs)

@@ -341,6 +341,7 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
+        .route("/get_otel_traces/:id", get(get_otel_traces))
 }
 
 pub fn workspace_unauthed_service() -> Router {
@@ -8657,4 +8658,32 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+async fn get_otel_traces(
+    Extension(db): Extension<DB>,
+    Path((_w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Json<Vec<serde_json::Value>>> {
+    let traces = sqlx::query_scalar!(
+        r#"SELECT json_build_object(
+            'trace_id', t.trace_id,
+            'span_id', t.span_id,
+            'parent_span_id', t.parent_span_id,
+            'name', t.name,
+            'kind', t.kind,
+            'start_time_unix_nano', t.start_time_unix_nano,
+            'end_time_unix_nano', t.end_time_unix_nano,
+            'status', t.status,
+            'attributes', t.attributes
+        ) as "span!"
+        FROM job_trace jt
+        INNER JOIN otel_traces t ON t.trace_id = jt.trace_id
+        WHERE jt.job_id = $1
+        ORDER BY t.start_time_unix_nano ASC"#,
+        id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(traces))
 }

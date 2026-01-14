@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
         copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
@@ -132,7 +133,7 @@ use crate::{
     handle_child::handle_child,
     worker_utils::ping_job_status,
     PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    PIP_INDEX_URL, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR, get_proxy_envs_for_lang,
 };
 use windmill_common::client::AuthedClient;
 
@@ -326,7 +327,7 @@ pub async fn uv_pip_compile(
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .env("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR.to_string())
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
             .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -822,7 +823,7 @@ mount {{
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1380,7 +1381,7 @@ async fn spawn_uv_install(
             .current_dir(job_dir)
             .env_clear()
             .envs(vars)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
             .args(vec!["--config", &nsjail_proto])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -1462,7 +1463,7 @@ async fn spawn_uv_install(
         {
             let mut cmd = Command::new(command_args[0]);
             cmd.env_clear()
-                .envs(PROXY_ENVS.clone())
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
                 .envs(envs)
                 .args(&command_args[1..])
                 .stdout(Stdio::piped())
@@ -1475,7 +1476,7 @@ async fn spawn_uv_install(
             let mut cmd: Command = Command::new("uv");
             cmd.env_clear()
                 .envs(envs)
-                .envs(PROXY_ENVS.clone())
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
                 .env("SystemRoot", SYSTEM_ROOT.as_str())
                 .env("USERPROFILE", crate::USERPROFILE_ENV.as_str())
                 .env("HOME", HOME_ENV.as_str())

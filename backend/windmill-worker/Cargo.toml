@@ -134,9 +134,16 @@ process-wrap.workspace = true
 async-once-cell.workspace = true
 libloading = { workspace = true, optional = true }
 
+opentelemetry-proto.workspace = true
+prost.workspace = true
+axum.workspace = true
+tonic.workspace = true
 opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
+pingora-proxy.workspace = true
+hudsucker.workspace = true
+rcgen.workspace = true
 
 [build-dependencies]
 deno_fetch = { workspace = true, optional = true }

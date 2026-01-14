@@ -43,6 +43,13 @@
 	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
 
+	const OTEL_TRACING_PROXY_LANGUAGES = [
+		{ value: 'python3', label: 'Python' },
+		{ value: 'bun', label: 'TypeScript (Bun)' },
+		{ value: 'deno', label: 'TypeScript (Deno)' },
+		{ value: 'nu', label: 'Nushell' }
+	] as const
+
 	if (
 		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
 		$values[setting.key] == undefined
@@ -828,6 +835,48 @@
 								bind:value={$values[setting.key].otel_exporter_otlp_compression}
 							/>
 						</div> -->
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'otel_tracing_proxy'}
+					{@const defaultTracingProxy = { enabled: false, enabled_languages: ['python3', 'bun'] }}
+					{@const tracingProxyVal = typeof $values[setting.key] === 'object' && $values[setting.key] !== null
+						? $values[setting.key]
+						: defaultTracingProxy}
+					<div class="flex flex-col gap-2 border rounded p-4">
+						<div class="flex gap-8">
+							<Toggle
+								id="otel_tracing_proxy_enabled"
+								checked={tracingProxyVal.enabled ?? false}
+								on:change={(e) => {
+									$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
+								}}
+								options={{ right: 'Enabled' }}
+							/>
+						</div>
+						{#if tracingProxyVal.enabled}
+							<details class="mt-2">
+								<summary class="cursor-pointer text-xs font-semibold text-secondary hover:text-primary">
+									Language Settings
+								</summary>
+								<div class="flex flex-col gap-2 mt-3 ml-2">
+									{#each OTEL_TRACING_PROXY_LANGUAGES as lang}
+										<Toggle
+											id="otel_tracing_proxy_{lang.value}"
+											size="xs"
+											checked={(tracingProxyVal.enabled_languages ?? []).includes(lang.value)}
+											on:change={(e) => {
+												const enabled = e.detail
+												const current = tracingProxyVal.enabled_languages ?? []
+												const newLangs = enabled && !current.includes(lang.value)
+													? [...current, lang.value]
+													: current.filter((l) => l !== lang.value)
+												$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
+											}}
+											options={{ right: lang.label }}
+										/>
+									{/each}
+								</div>
+							</details>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}

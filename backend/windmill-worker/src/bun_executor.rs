@@ -21,12 +21,12 @@ use crate::{
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV, get_proxy_envs_for_lang,
 };
 use windmill_common::{
     client::AuthedClient,
     s3_helpers::BundleFormat,
-    scripts::{id_to_codebase_info, CodebaseInfo},
+    scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
@@ -41,7 +41,6 @@ use tokio::io::AsyncReadExt;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
@@ -296,7 +295,7 @@ pub async fn install_bun_lockfile(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
-        .envs(PROXY_ENVS.clone())
+        .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
         .envs(common_bun_proc_envs)
         .envs(&*crate::worker::WHITELIST_ENVS)
         .args(args)

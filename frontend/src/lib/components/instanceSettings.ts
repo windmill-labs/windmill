@@ -16,24 +16,25 @@ export interface Setting {
 		value?: string
 	}[]
 	fieldType:
-		| 'text'
-		| 'number'
-		| 'boolean'
-		| 'password'
-		| 'select'
-		| 'select_python'
-		| 'textarea'
-		| 'codearea'
-		| 'seconds'
-		| 'email'
-		| 'license_key'
-		| 'object_store_config'
-		| 'critical_error_channels'
-		| 'critical_alerts_on_db_oversize'
-		| 'slack_connect'
-		| 'smtp_connect'
-		| 'indexer_rates'
-		| 'otel'
+	| 'text'
+	| 'number'
+	| 'boolean'
+	| 'password'
+	| 'select'
+	| 'select_python'
+	| 'textarea'
+	| 'codearea'
+	| 'seconds'
+	| 'email'
+	| 'license_key'
+	| 'object_store_config'
+	| 'critical_error_channels'
+	| 'critical_alerts_on_db_oversize'
+	| 'slack_connect'
+	| 'smtp_connect'
+	| 'indexer_rates'
+	| 'otel'
+	| 'otel_tracing_proxy'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -445,7 +446,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
+		{
+			label: 'OTel',
+			description:
+				'Intercept and trace all HTTP/HTTPS requests made by job scripts. This feature runs a transparent proxy that captures outgoing network calls and records them as OpenTelemetry spans, visible in the job details panel. Useful for debugging API integrations, monitoring external service calls, and understanding script network behavior. Supports per-language configuration. Note: Only works with NUM_WORKERS=1 to avoid race conditions with request attribution. Requires worker restart after enabling.',
+			key: 'otel_tracing_proxy',
+			fieldType: 'otel_tracing_proxy',
+			storage: 'setting',
+			ee_only: 'OTel is an EE feature',
+			defaultValue: () => ({ enabled: false, enabled_languages: ['python3', 'bun'] })
+		},
 		{
 			label: 'Prometheus',
 			description:
