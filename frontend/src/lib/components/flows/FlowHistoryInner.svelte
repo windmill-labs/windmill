@@ -3,7 +3,15 @@
 
 	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
+	import {
+		classNames,
+		displayDate,
+		emptyString,
+		sendUserToast,
+		orderedYamlStringify,
+		cleanValueProperties,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
@@ -25,9 +33,19 @@
 	let selected: Flow | undefined = $state(undefined)
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state(undefined)
+	let previousVersionId: number | undefined = $state(undefined)
+	let selectedVersionIndex: number | undefined = $state(undefined)
+	let previousFlow: Flow | undefined = $state(undefined)
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
+			workspace: $workspaceStore!,
+			version
+		})
+	}
+
+	async function loadPreviousFlow(version: number) {
+		previousFlow = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
 			version
 		})
@@ -81,6 +99,33 @@
 	run(() => {
 		selectedVersion !== undefined && loadFlow(selectedVersion.id)
 	})
+
+	run(() => {
+		if (previousVersionId !== undefined) {
+			loadPreviousFlow(previousVersionId)
+		} else {
+			previousFlow = undefined
+		}
+	})
+
+	// Get available versions for comparison (versions after selected one)
+	let availableVersions = $derived(
+		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
+	)
+
+	// Prepare YAML string for previous flow
+	let previousFlowYaml = $derived.by(() => {
+		if (!previousFlow) return undefined
+		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(previousFlow)))
+		return orderedYamlStringify(metadata)
+	})
+
+	// Auto-select first available previous version
+	$effect(() => {
+		if (availableVersions.length > 0 && !previousVersionId) {
+			previousVersionId = availableVersions[0].id
+		}
+	})
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -89,7 +134,7 @@
 			{#if !loading}
 				{#if versions.length > 0}
 					<div class="flex gap-2 flex-col">
-						{#each versions ?? [] as version}
+						{#each versions ?? [] as version (version.id)}
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<div
 								class={classNames(
@@ -99,7 +144,18 @@
 								role="button"
 								tabindex="0"
 								onclick={() => {
+									const versionIndex = versions.findIndex((v) => v.id === version.id)
 									selectedVersion = version
+									selectedVersionIndex = versionIndex
+
+									// Update previousVersionId if current one is no longer valid
+									const available = versions.slice(versionIndex + 1)
+									if (previousVersionId && !available.find((v) => v.id === previousVersionId)) {
+										previousVersionId = available[0]?.id
+									}
+
+									deploymentMsgUpdate = undefined
+									deploymentMsgUpdateMode = false
 								}}
 							>
 								<span class="text-xs truncate">
@@ -208,7 +264,12 @@
 						{#await import('$lib/components/FlowViewer.svelte')}
 							<Loader2 class="animate-spin" />
 						{:then Module}
-							<Module.default flow={selected} />
+							<Module.default
+								flow={selected}
+								{availableVersions}
+								bind:previousVersionId
+								{previousFlowYaml}
+							/>
 						{/await}
 					</div>
 				{:else}

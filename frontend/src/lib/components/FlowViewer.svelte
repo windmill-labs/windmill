@@ -3,6 +3,12 @@
 	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
+	import { Loader2 } from 'lucide-svelte'
+	import {
+		orderedYamlStringify,
+		cleanValueProperties,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
 
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
@@ -18,9 +24,12 @@
 		initialOpen?: number | undefined
 		noSide?: boolean
 		noGraph?: boolean
-		tab?: 'ui' | 'raw' | 'schema'
+		tab?: 'ui' | 'raw' | 'schema' | 'diff'
 		noSummary?: boolean
 		noGraphDownload?: boolean
+		availableVersions?: Array<{ id: number; deployment_msg?: string }>
+		previousVersionId?: number
+		previousFlowYaml?: string
 	}
 
 	let {
@@ -30,13 +39,21 @@
 		noGraph = false,
 		tab = $bindable(noGraph ? 'schema' : 'ui'),
 		noSummary = false,
-		noGraphDownload = false
+		noGraphDownload = false,
+		availableVersions = undefined,
+		previousVersionId = $bindable(undefined),
+		previousFlowYaml = undefined
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
 	if (initialOpen) {
 		open[initialOpen] = true
 	}
+
+	let currentFlowYaml = $derived.by(() => {
+		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(flow)))
+		return orderedYamlStringify(metadata)
+	})
 </script>
 
 <HighlightTheme />
@@ -47,6 +64,9 @@
 	{/if}
 	<Tab value="raw" label="Raw" />
 	<Tab value="schema" label="Input Schema" />
+	{#if availableVersions && availableVersions.length > 0}
+		<Tab value="diff" label="Diff" />
+	{/if}
 
 	{#snippet content()}
 		<TabContent value="ui">
@@ -75,5 +95,31 @@
 			<div class="my-4"></div>
 			<SchemaViewer schema={flow.schema} />
 		</TabContent>
+		{#if availableVersions && availableVersions.length > 0}
+			<TabContent value="diff">
+				<div class="flex flex-col gap-2 h-full">
+					<div class="flex flex-row items-center gap-2 py-2">
+						<div class="text-xs">Compare with:</div>
+						<select bind:value={previousVersionId} class="!text-xs !w-40">
+							{#each availableVersions as version (version.id)}
+								<option value={version.id} class="!text-xs">
+									{version.deployment_msg ?? `Version ${version.id}`}
+								</option>
+							{/each}
+						</select>
+					</div>
+
+					{#if previousFlowYaml}
+						{#await import('$lib/components/FlowDiffViewer.svelte')}
+							<Loader2 class="animate-spin" />
+						{:then Module}
+							<Module.default beforeYaml={previousFlowYaml} afterYaml={currentFlowYaml} />
+						{/await}
+					{:else}
+						<Loader2 class="animate-spin" />
+					{/if}
+				</div>
+			</TabContent>
+		{/if}
 	{/snippet}
 </Tabs>
