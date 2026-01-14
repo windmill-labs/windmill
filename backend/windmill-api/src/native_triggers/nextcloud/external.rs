@@ -1,24 +1,20 @@
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::value::{to_raw_value, RawValue};
+use serde_json::value::to_raw_value;
 use sqlx::PgConnection;
 use std::collections::HashMap;
 use windmill_common::{
     error::{Error, Result},
-    triggers::TriggerKind,
     BASE_URL, DB,
 };
 
-use crate::{
-    native_triggers::{
-        generate_webhook_service_url,
-        nextcloud::{
-            routes, NextCloud, NextCloudOAuthData, NextCloudPayload, NextCloudTriggerData,
-            OcsResponse,
-        },
-        EventType, External, NativeTriggerData, ServiceName,
+use crate::native_triggers::{
+    generate_webhook_service_url,
+    nextcloud::{
+        routes, NextCloud, NextCloudOAuthData, NextCloudTriggerData, NextcloudServiceConfig,
+        OcsResponse,
     },
-    triggers::trigger_helpers::TriggerJobArgs,
+    External, NativeTriggerData, ServiceName,
 };
 
 lazy_static::lazy_static! {
@@ -27,33 +23,23 @@ lazy_static::lazy_static! {
     })).unwrap();
 }
 
-#[allow(unused)]
-#[derive(Debug, Serialize)]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-enum AuthMethod {
-    Null,
-    None,
-    Header,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FullNextCloudPayload {
+struct FullNextcloudPayload {
     pub http_method: String,
     pub uri: String,
-    pub auth_method: AuthMethod,
     pub token_needed: Box<serde_json::value::RawValue>,
     #[serde(flatten)]
-    payload: NextCloudPayload,
+    service_config: NextcloudServiceConfig,
 }
 
-impl FullNextCloudPayload {
+impl FullNextcloudPayload {
     async fn new(
         w_id: &str,
         external_id: Option<&str>,
-        data: &NativeTriggerData<NextCloudPayload>,
-    ) -> FullNextCloudPayload {
-        let EventType::Webhook(webhook_config) = &data.event_type;
+        webhook_token: &str,
+        data: &NativeTriggerData<NextcloudServiceConfig>,
+    ) -> FullNextcloudPayload {
         let base_url = &*BASE_URL.read().await;
         let uri = generate_webhook_service_url(
             base_url,
@@ -62,15 +48,14 @@ impl FullNextCloudPayload {
             data.is_flow,
             external_id,
             ServiceName::Nextcloud,
-            webhook_config,
+            webhook_token,
         );
 
-        FullNextCloudPayload {
+        FullNextcloudPayload {
             http_method: http::Method::POST.to_string().to_uppercase(),
-            auth_method: AuthMethod::None,
             uri,
             token_needed: TOKEN_NEEDED.clone(),
-            payload: data.payload.clone(),
+            service_config: data.service_config.clone(),
         }
     }
 }
@@ -106,22 +91,14 @@ pub struct Node {
     pub path: String,
 }
 
-impl TriggerJobArgs for NextCloud {
-    const TRIGGER_KIND: TriggerKind = TriggerKind::Nextcloud;
-    type Payload = Box<RawValue>;
-    fn v1_payload_fn(payload: &Self::Payload) -> HashMap<String, Box<RawValue>> {
-        HashMap::from([("payload".to_owned(), payload.to_owned())])
-    }
-}
-
 #[async_trait::async_trait]
 impl External for NextCloud {
-    type Payload = NextCloudPayload;
+    type ServiceConfig = NextcloudServiceConfig;
     type TriggerData = NextCloudTriggerData;
     type OAuthData = NextCloudOAuthData;
     type CreateResponse = RegisterWebhookResponse;
     const SERVICE_NAME: ServiceName = ServiceName::Nextcloud;
-    const DISPLAY_NAME: &'static str = "NextCloud";
+    const DISPLAY_NAME: &'static str = "Nextcloud";
     const SUPPORT_WEBHOOK: bool = true;
     const TOKEN_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
     const REFRESH_ENDPOINT: &'static str = "/apps/oauth2/api/v1/token";
@@ -130,12 +107,14 @@ impl External for NextCloud {
         &self,
         w_id: &str,
         oauth_data: &Self::OAuthData,
-        data: &NativeTriggerData<Self::Payload>,
+        webhook_token: &str,
+        data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse> {
         // During create, we don't have external_id yet (it comes from NextCloud's response)
-        let full_nextcloud_payload = FullNextCloudPayload::new(w_id, None, data).await;
+        let full_nextcloud_payload =
+            FullNextcloudPayload::new(w_id, None, webhook_token, data).await;
 
         let url = format!(
             "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks",
@@ -165,12 +144,14 @@ impl External for NextCloud {
         w_id: &str,
         oauth_data: &Self::OAuthData,
         external_id: &str,
-        data: &NativeTriggerData<Self::Payload>,
+        webhook_token: &str,
+        data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<()> {
         // During update, we have the external_id so include it in the webhook URL
-        let full_nextcloud_payload = FullNextCloudPayload::new(w_id, Some(external_id), data).await;
+        let full_nextcloud_payload =
+            FullNextcloudPayload::new(w_id, Some(external_id), webhook_token, data).await;
 
         let url = format!(
             "{}/ocs/v2.php/apps/webhook_listeners/api/v1/webhooks/{}",
@@ -193,17 +174,6 @@ impl External for NextCloud {
             .await?;
 
         Ok(())
-    }
-
-    async fn validate_data_config(&self, data: &NativeTriggerData<Self::Payload>) -> Result<()> {
-        let event_type = &data.event_type;
-        if !matches!(event_type, &EventType::Webhook(_)) {
-            return Err(Error::BadRequest(
-                "Nextcloud native trigger only support webhook event".to_string(),
-            ));
-        }
-
-        return Ok(());
     }
 
     async fn get(
@@ -326,24 +296,6 @@ impl External for NextCloud {
 
     fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String {
         data.id.to_string()
-    }
-
-    fn extract_service_config_from_payload(&self, payload: &Self::Payload) -> Box<RawValue> {
-        to_raw_value(&serde_json::json!({
-            "event": payload.event,
-            "event_filter": payload.event_filter.as_ref().map(|v| v.get()),
-            "user_id_filter": payload.user_id_filter,
-        }))
-        .unwrap()
-    }
-
-    fn extract_service_config_from_trigger_data(&self, data: &Self::TriggerData) -> Box<RawValue> {
-        to_raw_value(&serde_json::json!({
-            "event": data.event,
-            "event_filter": data.event_filter.as_ref().map(|v| v.get()),
-            "user_id_filter": data.user_id_filter,
-        }))
-        .unwrap()
     }
 
     fn additional_routes(&self) -> axum::Router {

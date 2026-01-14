@@ -46,90 +46,48 @@ pub struct ServiceSyncResult {
 
 pub const SYNC_INTERVAL: u64 = 5 * 60;
 
-/// Macro helper to sync a single service
-macro_rules! sync_service {
-    ($db:expr, $workspaces:expr, $service_results:expr, $total_synced:expr, $total_errors:expr,
-     $service_name:ident, $service_variant:ident, $handler_path:path) => {{
-        use $handler_path as Handler;
-        match sync_service_triggers::<Handler>($db, $workspaces, Handler).await {
-            Ok(result) => {
-                $total_synced += result.synced_triggers.len();
-                $total_errors += result.errors.len();
-                $service_results.insert(ServiceName::$service_variant, result);
-            }
-            Err(e) => {
-                tracing::error!(
-                    "Error syncing {} triggers: {:#}",
-                    stringify!($service_variant),
-                    e
-                );
-                $service_results.insert(
-                    ServiceName::$service_variant,
-                    ServiceSyncResult {
-                        synced_triggers: Vec::new(),
-                        errors: vec![SyncError {
-                            resource_path: "background_sync".to_string(),
-                            error_message: format!(
-                                "Failed to sync {} triggers: {}",
-                                stringify!($service_variant),
-                                e
-                            ),
-                            error_type: "service_sync_error".to_string(),
-                        }],
-                    },
-                );
-                $total_errors += 1;
-            }
-        }
-    }};
-}
-
 pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
-    tracing::debug!("Starting native triggers sync");
-
-    let workspaces = sqlx::query_scalar!(
-        r#"
-        SELECT id
-        FROM workspace
-        WHERE deleted = false
-        "#
-    )
-    .fetch_all(db)
-    .await?;
+    tracing::info!("Starting native triggers sync");
 
     let mut service_results: HashMap<ServiceName, ServiceSyncResult> = HashMap::new();
     let mut total_synced = 0;
     let mut total_errors = 0;
+    let mut workspaces_processed = 0;
 
     // Sync all registered services
-    // When adding a new service, add a new sync_service! call here
-    #[cfg(feature = "native_triggers")]
+    // Each service only syncs workspaces that have the corresponding integration configured
+    #[cfg(feature = "native_trigger")]
     {
-        sync_service!(
-            db,
-            &workspaces,
-            service_results,
-            total_synced,
-            total_errors,
-            nextcloud,
-            Nextcloud,
-            crate::native_triggers::nextcloud::NextCloud
-        );
+        use crate::native_triggers::nextcloud::NextCloud;
+
+        let (service_name, result) = sync_service_triggers(db, NextCloud).await;
+        total_synced += result.synced_triggers.len();
+        total_errors += result.errors.len();
+        service_results.insert(service_name, result);
+
         // Add new services here:
-        // sync_service!(db, &workspaces, service_results, total_synced, total_errors,
-        //     newservice, NewService, crate::native_triggers::newservice::NewServiceHandler);
+        // use crate::native_triggers::newservice::NewService;
+        // let (service_name, result) = sync_service_triggers(db, NewService).await;
+        // total_synced += result.synced_triggers.len();
+        // total_errors += result.errors.len();
+        // service_results.insert(service_name, result);
     }
 
-    let result = BackgroundSyncResult {
-        workspaces_processed: workspaces.len(),
-        total_synced,
-        total_errors,
-        service_results,
-    };
+    // Count unique workspaces processed across all services
+    for result in service_results.values() {
+        workspaces_processed += result
+            .synced_triggers
+            .iter()
+            .map(|t| &t.external_id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+    }
 
-    tracing::debug!(
-        "Completed native triggers sync: {} workspaces, {} synced, {} errors",
-        result.workspaces_processed,
+    let result =
+        BackgroundSyncResult { workspaces_processed, total_synced, total_errors, service_results };
+
+    tracing::info!(
+        "Completed native triggers sync: {} updated, {} errors",
         result.total_synced,
         result.total_errors
     );
@@ -139,19 +97,64 @@ pub async fn sync_all_triggers(db: &DB) -> Result<BackgroundSyncResult> {
 
 async fn sync_service_triggers<T: External>(
     db: &DB,
-    workspaces: &[String],
     handler: T,
-) -> Result<ServiceSyncResult> {
+) -> (ServiceName, ServiceSyncResult) {
     let mut all_synced_triggers = Vec::new();
     let mut all_errors = Vec::new();
 
-    for workspace_id in workspaces {
+    // Only sync workspaces that have the corresponding integration configured
+    let workspaces_with_integration = match sqlx::query_scalar!(
+        r#"
+        SELECT wi.workspace_id
+        FROM workspace_integrations wi
+        JOIN workspace w ON w.id = wi.workspace_id
+        WHERE wi.service_name = $1
+          AND wi.oauth_data IS NOT NULL
+          AND w.deleted = false
+        "#,
+        T::SERVICE_NAME as ServiceName
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(workspaces) => workspaces,
+        Err(e) => {
+            tracing::error!(
+                "Error querying workspaces with {} integration: {:#}",
+                T::SERVICE_NAME.as_str(),
+                e
+            );
+            all_errors.push(SyncError {
+                resource_path: "database".to_string(),
+                error_message: format!("Failed to query workspaces: {}", e),
+                error_type: "database_error".to_string(),
+            });
+            return (
+                T::SERVICE_NAME,
+                ServiceSyncResult { synced_triggers: Vec::new(), errors: all_errors },
+            );
+        }
+    };
+
+    if workspaces_with_integration.is_empty() {
         tracing::debug!(
-            "Syncing {} triggers for workspace {}",
-            T::SERVICE_NAME.as_str(),
-            workspace_id
+            "No workspaces with {} integration configured, skipping sync",
+            T::SERVICE_NAME.as_str()
         );
-        let sync_result = sync_workspace_triggers::<T>(db, workspace_id, &handler).await;
+        return (
+            T::SERVICE_NAME,
+            ServiceSyncResult { synced_triggers: Vec::new(), errors: Vec::new() },
+        );
+    }
+
+    tracing::info!(
+        "Found {} workspaces with {} integration configured",
+        workspaces_with_integration.len(),
+        T::SERVICE_NAME.as_str()
+    );
+
+    for workspace_id in workspaces_with_integration {
+        let sync_result = sync_workspace_triggers::<T>(db, &workspace_id, &handler).await;
 
         match sync_result {
             Ok((synced_triggers, errors)) => {
@@ -174,16 +177,16 @@ async fn sync_service_triggers<T: External>(
         }
     }
 
-    Ok(ServiceSyncResult { synced_triggers: all_synced_triggers, errors: all_errors })
+    (T::SERVICE_NAME, ServiceSyncResult { synced_triggers: all_synced_triggers, errors: all_errors })
 }
 
-#[cfg(feature = "native_triggers")]
+#[cfg(feature = "native_trigger")]
 pub async fn sync_workspace_triggers<T: External>(
     db: &DB,
     workspace_id: &str,
     handler: &T,
 ) -> Result<(Vec<TriggerSyncInfo>, Vec<SyncError>)> {
-    tracing::debug!(
+    tracing::info!(
         "Syncing {} triggers for workspace '{}'",
         T::SERVICE_NAME.as_str(),
         workspace_id
@@ -193,7 +196,7 @@ pub async fn sync_workspace_triggers<T: External>(
         list_native_triggers(db, workspace_id, T::SERVICE_NAME, None, None).await?;
 
     if windmill_triggers.is_empty() {
-        tracing::debug!(
+        tracing::info!(
             "No {} triggers found for workspace '{}'",
             T::SERVICE_NAME.as_str(),
             workspace_id
@@ -210,7 +213,8 @@ pub async fn sync_workspace_triggers<T: External>(
             Err(e) => {
                 tracing::error!(
                     "Failed to get workspace integration OAuth data for {}: {}",
-                    workspace_id, e
+                    workspace_id,
+                    e
                 );
                 all_sync_errors.push(SyncError {
                     resource_path: format!("workspace:{}", workspace_id),
@@ -231,7 +235,8 @@ pub async fn sync_workspace_triggers<T: External>(
         Err(e) => {
             tracing::error!(
                 "Failed to fetch external triggers for {}: {}",
-                workspace_id, e
+                workspace_id,
+                e
             );
             all_sync_errors.push(SyncError {
                 resource_path: format!("workspace:{}", workspace_id),
@@ -281,7 +286,8 @@ pub async fn sync_workspace_triggers<T: External>(
                     Err(e) => {
                         tracing::error!(
                             "Failed to update error for trigger (external_id: '{}'): {}",
-                            trigger.external_id, e
+                            trigger.external_id,
+                            e
                         );
                         all_sync_errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
@@ -325,7 +331,8 @@ pub async fn sync_workspace_triggers<T: External>(
                     Err(e) => {
                         tracing::error!(
                             "Failed to clear error for trigger (external_id: '{}'): {}",
-                            trigger.external_id, e
+                            trigger.external_id,
+                            e
                         );
                         all_sync_errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
@@ -341,19 +348,13 @@ pub async fn sync_workspace_triggers<T: External>(
 
             // Compare service_config and update if different
             let external_service_config =
-                handler.extract_service_config_from_trigger_data(external_trigger_data);
+                handler.extract_service_config_from_trigger_data(external_trigger_data)?;
             let stored_service_config = trigger
-                .config
-                .get("service_config")
-                .cloned()
+                .service_config
+                .clone()
                 .unwrap_or(serde_json::Value::Null);
 
-            // Parse external_service_config to Value for semantic comparison
-            let external_config_value: serde_json::Value =
-                serde_json::from_str(external_service_config.get())
-                    .unwrap_or(serde_json::Value::Null);
-
-            if external_config_value != stored_service_config {
+            if external_service_config != stored_service_config {
                 tracing::info!(
                     "Trigger (external_id: '{}', script_path: '{}') config differs from external service, updating local config",
                     trigger.external_id,
@@ -365,7 +366,7 @@ pub async fn sync_workspace_triggers<T: External>(
                     workspace_id,
                     T::SERVICE_NAME,
                     &trigger.external_id,
-                    &*external_service_config,
+                    &external_service_config,
                 )
                 .await
                 {
@@ -379,7 +380,8 @@ pub async fn sync_workspace_triggers<T: External>(
                     Err(e) => {
                         tracing::error!(
                             "Failed to update config for trigger (external_id: '{}'): {}",
-                            trigger.external_id, e
+                            trigger.external_id,
+                            e
                         );
                         all_sync_errors.push(SyncError {
                             resource_path: format!("workspace:{}", workspace_id),
@@ -391,12 +393,18 @@ pub async fn sync_workspace_triggers<T: External>(
                         });
                     }
                 }
+            } else {
+                tracing::info!(
+                    "Trigger (external_id: '{}', script_path: '{}') config is the same as external service, no update needed",
+                    trigger.external_id,
+                    trigger.script_path
+                );
             }
         }
     }
 
     tracing::info!(
-        "Sync completed for {} in workspace '{}'. Synced: {}, Errors: {}",
+        "Sync completed for {} in workspace '{}'. Updated: {}, Errors: {}",
         T::SERVICE_NAME.as_str(),
         workspace_id,
         all_synced_triggers.len(),

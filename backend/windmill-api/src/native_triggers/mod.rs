@@ -8,13 +8,13 @@
 //! When adding a new service (e.g., "NewService"), you need to update the following locations:
 //!
 //! ### 1. This file (mod.rs):
-//! - Add `pub mod newservice;` under the `#[cfg(feature = "native_triggers")]` block
+//! - Add `pub mod newservice;` under the `#[cfg(feature = "native_trigger")]` block
 //! - Add `NewService` variant to `ServiceName` enum
 //! - Update `ServiceName::as_str()` - add match arm returning `"newservice"`
 //! - Update `TryFrom<String> for ServiceName` - add match arm for `"newservice"`
 //! - Update `ServiceName::as_trigger_kind()` - add match arm (requires TriggerKind::NewService in windmill_common)
+//! - Update `ServiceName::as_job_trigger_kind()` - add match arm (requires JobTriggerKind::NewService in windmill_common)
 //! - Update `ServiceName::fmt()` (Display impl) - add match arm
-//! - Add match arm in `dispatch_webhook_args()` function
 //!
 //! ### 2. sync.rs:
 //! - Add `sync_service!()` macro call in `sync_all_triggers()`
@@ -52,15 +52,18 @@ use windmill_common::{
 };
 use windmill_queue::PushArgsOwned;
 
+#[cfg(feature = "native_trigger")]
+use windmill_oauth::{OClient, RefreshToken, Url, OAUTH_HTTP_CLIENT};
+
 use crate::db::ApiAuthed;
 pub mod handler;
 pub mod sync;
 pub mod workspace_integrations;
 
 // Service modules - add new services here:
-#[cfg(feature = "native_triggers")]
+#[cfg(feature = "native_trigger")]
 pub mod nextcloud;
-// #[cfg(feature = "native_triggers")]
+// #[cfg(feature = "native_trigger")]
 // pub mod newservice;
 
 /// Enum of all supported native trigger services.
@@ -112,6 +115,33 @@ impl ServiceName {
             // ServiceName::NewService => TriggerKind::NewService,
         }
     }
+
+    /// Returns the corresponding JobTriggerKind for this service.
+    /// Requires adding the variant to JobTriggerKind in windmill_common.
+    pub fn as_job_trigger_kind(&self) -> windmill_common::jobs::JobTriggerKind {
+        match self {
+            ServiceName::Nextcloud => windmill_common::jobs::JobTriggerKind::Nextcloud,
+            // ServiceName::NewService => windmill_common::jobs::JobTriggerKind::NewService,
+        }
+    }
+
+    /// Returns the OAuth token endpoint path for this service.
+    /// Used for building OAuth clients dynamically.
+    pub fn token_endpoint(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "/apps/oauth2/api/v1/token",
+            // ServiceName::NewService => "/oauth/token",
+        }
+    }
+
+    /// Returns the OAuth authorization endpoint path for this service.
+    /// Used for building OAuth authorization URLs.
+    pub fn auth_endpoint(&self) -> &'static str {
+        match self {
+            ServiceName::Nextcloud => "/apps/oauth2/authorize",
+            // ServiceName::NewService => "/oauth/authorize",
+        }
+    }
 }
 
 impl std::fmt::Display for ServiceName {
@@ -127,43 +157,25 @@ pub struct NativeTrigger {
     pub service_name: ServiceName,
     pub script_path: String,
     pub is_flow: bool,
-    pub config: serde_json::Value,
+    pub webhook_token_prefix: String,
+    pub service_config: Option<serde_json::Value>,
     pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum WebhookRequestType {
-    Async,
-    Sync,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WebhookConfig {
-    pub request_type: WebhookRequestType,
-    #[serde(default)]
-    pub token: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum EventType {
-    Webhook(WebhookConfig),
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NativeTriggerConfig {
     pub script_path: String,
     pub is_flow: bool,
-    pub event_type: EventType,
+    pub webhook_token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct NativeTriggerData<P> {
+pub struct NativeTriggerData<C> {
     pub script_path: String,
     pub is_flow: bool,
-    pub event_type: EventType,
-    pub payload: P,
+    pub service_config: C,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -178,7 +190,7 @@ pub struct WorkspaceIntegration {
 
 #[async_trait]
 pub trait External: Send + Sync + 'static {
-    type Payload: Debug + DeserializeOwned + Serialize + Send + Sync;
+    type ServiceConfig: Debug + DeserializeOwned + Serialize + Send + Sync;
     type TriggerData: Debug + Serialize + Send + Sync;
     type OAuthData: DeserializeOwned + Serialize + Clone + Send + Sync;
     type CreateResponse: DeserializeOwned + Send + Sync;
@@ -193,7 +205,8 @@ pub trait External: Send + Sync + 'static {
         &self,
         w_id: &str,
         oauth_data: &Self::OAuthData,
-        data: &NativeTriggerData<Self::Payload>,
+        webhook_token: &str,
+        data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<Self::CreateResponse>;
@@ -203,7 +216,8 @@ pub trait External: Send + Sync + 'static {
         w_id: &str,
         oauth_data: &Self::OAuthData,
         external_id: &str,
-        data: &NativeTriggerData<Self::Payload>,
+        webhook_token: &str,
+        data: &NativeTriggerData<Self::ServiceConfig>,
         db: &DB,
         tx: &mut PgConnection,
     ) -> Result<()>;
@@ -244,10 +258,6 @@ pub trait External: Send + Sync + 'static {
         tx: &mut PgConnection,
     ) -> Result<Vec<Self::TriggerData>>;
 
-    async fn validate_data_config(&self, _data: &NativeTriggerData<Self::Payload>) -> Result<()> {
-        Ok(())
-    }
-
     async fn prepare_webhook(
         &self,
         _db: &DB,
@@ -267,13 +277,18 @@ pub trait External: Send + Sync + 'static {
 
     fn get_external_id_from_trigger_data(&self, data: &Self::TriggerData) -> String;
 
-    /// Extracts the service-specific config from the payload (for storage).
-    /// This should include fields like event, event_filter, user_id_filter, etc.
-    fn extract_service_config_from_payload(&self, payload: &Self::Payload) -> Box<RawValue>;
-
     /// Extracts the service-specific config from trigger data (from external service).
     /// Used for comparison during sync to detect config drift.
-    fn extract_service_config_from_trigger_data(&self, data: &Self::TriggerData) -> Box<RawValue>;
+    /// Default implementation converts the trigger data to a JSON value
+    /// If you need to exclude some fields, skip serializing attributes on the TriggerData struct or override this method.
+    fn extract_service_config_from_trigger_data(
+        &self,
+        data: &Self::TriggerData,
+    ) -> Result<serde_json::Value> {
+        serde_json::to_value(data).map_err(|e| {
+            Error::internal_err(format!("Failed to convert trigger data to JSON: {}", e))
+        })
+    }
 
     fn additional_routes(&self) -> axum::Router {
         axum::Router::new()
@@ -472,56 +487,62 @@ pub fn oauth_config_to_json(config: &OAuthConfig) -> serde_json::Value {
     json
 }
 
+/// Token refresh response
+#[cfg(feature = "native_trigger")]
+#[derive(Debug, Deserialize)]
+struct RefreshTokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+}
+
+/// Refresh OAuth tokens using windmill-oauth.
+#[cfg(feature = "native_trigger")]
 pub async fn refresh_oauth_tokens(
     oauth_config: &OAuthConfig,
     refresh_endpoint: &str,
 ) -> Result<OAuthConfig> {
-    let refresh_token = oauth_config
+    let refresh_token_str = oauth_config
         .refresh_token
         .as_ref()
         .ok_or_else(|| Error::InternalErr("No refresh token available".to_string()))?;
 
-    let client = Client::new();
+    // Build OAuth client for token refresh
+    // Auth URL is not used for refresh, but required by the client constructor
+    let auth_url = Url::parse(&format!("{}/oauth/authorize", oauth_config.base_url))
+        .map_err(|e| Error::InternalErr(format!("Invalid auth URL: {}", e)))?;
+    let token_url = Url::parse(&format!("{}{}", oauth_config.base_url, refresh_endpoint))
+        .map_err(|e| Error::InternalErr(format!("Invalid token URL: {}", e)))?;
 
-    let params = [
-        ("grant_type", "refresh_token"),
-        ("client_id", &oauth_config.client_id),
-        ("client_secret", &oauth_config.client_secret),
-        ("refresh_token", refresh_token),
-    ];
+    let mut client = OClient::new(oauth_config.client_id.clone(), auth_url, token_url);
+    client.set_client_secret(oauth_config.client_secret.clone());
 
-    let response = client
-        .post(format!("{}{}", oauth_config.base_url, refresh_endpoint))
-        .form(&params)
-        .send()
+    let token_response: RefreshTokenResponse = client
+        .exchange_refresh_token(&RefreshToken::from(refresh_token_str.as_str()))
+        .with_client(&*OAUTH_HTTP_CLIENT)
+        .execute()
         .await
-        .map_err(to_anyhow)?
-        .error_for_status()
-        .map_err(to_anyhow)?;
-
-    let token_data: serde_json::Value = response
-        .json()
-        .await
-        .map_err(|e| Error::InternalErr(format!("Failed to parse token response: {}", e)))?;
-
-    let new_access_token = token_data["access_token"]
-        .as_str()
-        .ok_or_else(|| Error::InternalErr("No access_token in refresh response".to_string()))?
-        .to_string();
-
-    let new_refresh_token = token_data
-        .get("refresh_token")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| oauth_config.refresh_token.clone());
+        .map_err(|e| Error::InternalErr(format!("Failed to refresh token: {:?}", e)))?;
 
     Ok(OAuthConfig {
         base_url: oauth_config.base_url.clone(),
-        access_token: new_access_token,
-        refresh_token: new_refresh_token,
+        access_token: token_response.access_token,
+        refresh_token: token_response
+            .refresh_token
+            .or_else(|| oauth_config.refresh_token.clone()),
         client_id: oauth_config.client_id.clone(),
         client_secret: oauth_config.client_secret.clone(),
     })
+}
+
+/// Fallback refresh without native_triggers feature
+#[cfg(not(feature = "native_trigger"))]
+pub async fn refresh_oauth_tokens(
+    _oauth_config: &OAuthConfig,
+    _refresh_endpoint: &str,
+) -> Result<OAuthConfig> {
+    Err(Error::InternalErr(
+        "Native triggers feature is not enabled".to_string(),
+    ))
 }
 
 async fn update_workspace_integration_tokens_helper(
@@ -577,47 +598,79 @@ async fn update_workspace_integration_tokens_helper(
     }
 }
 
-pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+/// Look up the full token from the token table using its prefix
+pub async fn get_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    token_prefix: &str,
+) -> Result<Option<String>> {
+    let token = sqlx::query_scalar!(
+        r#"
+        SELECT token
+        FROM token
+        WHERE token LIKE concat($1::text, '%')
+        LIMIT 1
+        "#,
+        token_prefix
+    )
+    .fetch_optional(db)
+    .await?;
+
+    Ok(token)
+}
+
+/// Delete a token from the token table using its prefix
+pub async fn delete_token_by_prefix<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+    db: E,
+    token_prefix: &str,
+) -> Result<bool> {
+    let deleted = sqlx::query!(
+        r#"
+        DELETE FROM token
+        WHERE token LIKE concat($1::text, '%')
+        "#,
+        token_prefix
+    )
+    .execute(db)
+    .await?
+    .rows_affected();
+
+    Ok(deleted > 0)
+}
+
+pub async fn store_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>, C: Serialize>(
     db: E,
     workspace_id: &str,
     service_name: ServiceName,
     external_id: &str,
     config: &NativeTriggerConfig,
-    service_config: Option<&RawValue>,
+    service_config: C,
 ) -> Result<()> {
-    let event_type_str = serde_json::to_string(&config.event_type)
-        .map_err(|e| Error::InternalErr(format!("Failed to serialize event_type: {}", e)))?;
-
-    // Build the combined config JSON string, embedding the RawValue directly
-    let service_config_str = service_config.map(|v| v.get()).unwrap_or("null");
-    let config_str = format!(
-        r#"{{"event_type": {}, "service_config": {}}}"#,
-        event_type_str, service_config_str
-    );
-    let config_json: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| Error::InternalErr(format!("Failed to parse config JSON: {}", e)))?;
+    // Store only the first 10 characters of the webhook token as a prefix
+    let webhook_token_prefix: String = config.webhook_token.chars().take(10).collect();
 
     sqlx::query!(
         r#"
-        INSERT INTO native_triggers (
+        INSERT INTO native_trigger (
             external_id,
             workspace_id,
             service_name,
             script_path,
             is_flow,
-            config
+            webhook_token_prefix,
+            service_config
         ) VALUES (
-            $1, $2, $3, $4, $5, $6
+            $1, $2, $3, $4, $5, $6, $7
         )
         ON CONFLICT (external_id, workspace_id, service_name)
-        DO UPDATE SET script_path = $4, is_flow = $5, config = $6, error = NULL
+        DO UPDATE SET script_path = $4, is_flow = $5, webhook_token_prefix = $6, service_config = $7, error = NULL, updated_at = NOW()
         "#,
         external_id,
         workspace_id,
         service_name as ServiceName,
         config.script_path,
         config.is_flow,
-        config_json,
+        webhook_token_prefix,
+        sqlx::types::Json(service_config) as _,
     )
     .execute(db)
     .await?;
@@ -633,29 +686,22 @@ pub async fn update_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
     config: &NativeTriggerConfig,
     service_config: Option<&RawValue>,
 ) -> Result<()> {
-    let event_type_str = serde_json::to_string(&config.event_type)
-        .map_err(|e| Error::InternalErr(format!("Failed to serialize event_type: {}", e)))?;
-
-    let service_config_str = service_config.map(|v| v.get()).unwrap_or("null");
-    let config_str = format!(
-        r#"{{"event_type": {}, "service_config": {}}}"#,
-        event_type_str, service_config_str
-    );
-    let config_json: serde_json::Value = serde_json::from_str(&config_str)
-        .map_err(|e| Error::InternalErr(format!("Failed to parse config JSON: {}", e)))?;
+    // Store only the first 10 characters of the webhook token as a prefix
+    let webhook_token_prefix: String = config.webhook_token.chars().take(10).collect();
 
     sqlx::query!(
         r#"
-        UPDATE native_triggers
-        SET script_path = $1, is_flow = $2, config = $3, error = NULL
+        UPDATE native_trigger
+        SET script_path = $1, is_flow = $2, webhook_token_prefix = $3, service_config = $4, error = NULL, updated_at = NOW()
         WHERE
-            workspace_id = $4
-            AND service_name = $5
-            AND external_id = $6
+            workspace_id = $5
+            AND service_name = $6
+            AND external_id = $7
         "#,
         config.script_path,
         config.is_flow,
-        config_json,
+        webhook_token_prefix,
+        service_config.map(sqlx::types::Json) as _,
         workspace_id,
         service_name as ServiceName,
         external_id,
@@ -674,7 +720,7 @@ pub async fn delete_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres
 ) -> Result<bool> {
     let deleted = sqlx::query!(
         r#"
-        DELETE FROM native_triggers
+        DELETE FROM native_trigger
         WHERE
             workspace_id = $1
             AND service_name = $2
@@ -705,10 +751,13 @@ pub async fn get_native_trigger<'c, E: sqlx::Executor<'c, Database = Postgres>>(
             service_name AS "service_name!: ServiceName",
             script_path,
             is_flow,
-            config,
-            error
+            webhook_token_prefix,
+            service_config,
+            error,
+            created_at,
+            updated_at
         FROM
-            native_triggers
+            native_trigger
         WHERE
             workspace_id = $1
             AND service_name = $2
@@ -740,10 +789,13 @@ pub async fn get_native_trigger_by_script<'c, E: sqlx::Executor<'c, Database = P
             service_name AS "service_name!: ServiceName",
             script_path,
             is_flow,
-            config,
-            error
+            webhook_token_prefix,
+            service_config,
+            error,
+            created_at,
+            updated_at
         FROM
-            native_triggers
+            native_trigger
         WHERE
             workspace_id = $1
             AND service_name = $2
@@ -776,18 +828,34 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
         NativeTrigger,
         r#"
         SELECT
-            external_id,
-            workspace_id,
-            service_name AS "service_name!: ServiceName",
-            script_path,
-            is_flow,
-            config,
-            error
+            nt.external_id,
+            nt.workspace_id,
+            nt.service_name AS "service_name!: ServiceName",
+            nt.script_path,
+            nt.is_flow,
+            nt.webhook_token_prefix,
+            nt.service_config,
+            nt.error,
+            nt.created_at,
+            nt.updated_at
         FROM
-            native_triggers
+            native_trigger nt
         WHERE
-            workspace_id = $1 AND
-            service_name = $2
+            nt.workspace_id = $1 AND
+            nt.service_name = $2 AND
+            (
+                (nt.is_flow = false AND EXISTS (
+                    SELECT 1 FROM script s
+                    WHERE s.workspace_id = nt.workspace_id
+                    AND s.path = nt.script_path
+                ))
+                OR
+                (nt.is_flow = true AND EXISTS (
+                    SELECT 1 FROM flow f
+                    WHERE f.workspace_id = nt.workspace_id
+                    AND f.path = nt.script_path
+                ))
+            )
         LIMIT $3
         OFFSET $4
         "#,
@@ -811,7 +879,7 @@ pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Po
 ) -> Result<()> {
     sqlx::query!(
         r#"
-        UPDATE native_triggers
+        UPDATE native_trigger
         SET error = $1
         WHERE
             workspace_id = $2
@@ -829,27 +897,26 @@ pub async fn update_native_trigger_error<'c, E: sqlx::Executor<'c, Database = Po
     Ok(())
 }
 
-pub async fn update_native_trigger_service_config<'c, E: sqlx::Executor<'c, Database = Postgres>>(
+pub async fn update_native_trigger_service_config<
+    'c,
+    E: sqlx::Executor<'c, Database = Postgres>,
+>(
     db: E,
     workspace_id: &str,
     service_name: ServiceName,
     external_id: &str,
-    service_config: &RawValue,
+    service_config: &serde_json::Value,
 ) -> Result<()> {
-    // Parse the RawValue to Value for SQLx
-    let service_config_value: serde_json::Value = serde_json::from_str(service_config.get())
-        .map_err(|e| Error::InternalErr(format!("Failed to parse service_config: {}", e)))?;
-
     sqlx::query!(
         r#"
-        UPDATE native_triggers
-        SET config = jsonb_set(config, '{service_config}', $1::jsonb)
+        UPDATE native_trigger
+        SET service_config = $1, updated_at = NOW()
         WHERE
             workspace_id = $2
             AND service_name = $3
             AND external_id = $4
         "#,
-        service_config_value,
+        service_config,
         workspace_id,
         service_name as ServiceName,
         external_id,
@@ -958,95 +1025,23 @@ pub fn generate_webhook_service_url(
     is_flow: bool,
     external_id: Option<&str>,
     service_name: ServiceName,
-    webhook_config: &WebhookConfig,
+    webhook_token: &str,
 ) -> String {
-    let endpoint_base = match webhook_config.request_type {
-        WebhookRequestType::Async => "run",
-        WebhookRequestType::Sync => "run_wait_result",
-    };
-
     let runnable_prefix = if is_flow { "f" } else { "p" };
 
     let mut url = format!(
-        "{}/api/w/{}/jobs/{}/{}/{}?token={}&service_name={}",
+        "{}/api/w/{}/jobs/run/{}/{}?token={}&service_name={}",
         base_url,
         w_id,
-        endpoint_base,
         runnable_prefix,
         script_path,
-        &webhook_config.token,
-        service_name.as_str()
+        &webhook_token,
+        service_name.as_str(),
     );
 
-    // Add trigger_id if we have it (for updates, not initial creation)
     if let Some(id) = external_id {
-        url.push_str(&format!("&trigger_id={}", id));
+        url.push_str(&format!("&trigger_external_id={}", id));
     }
 
     url
-}
-
-/// Macro to register all native trigger services.
-/// This is the single place where new services need to be added.
-/// When adding a new service:
-/// 1. Add the variant to ServiceName enum
-/// 2. Add the service module (like `pub mod newservice;`)
-/// 3. Add the service to this macro invocation
-#[cfg(feature = "native_triggers")]
-#[macro_export]
-macro_rules! for_each_native_service {
-    ($macro_name:ident) => {
-        $macro_name!(nextcloud, NextCloud, crate::native_triggers::nextcloud::NextCloud);
-        // Add new services here:
-        // $macro_name!(servicename, ServiceVariant, path::to::Handler);
-    };
-}
-
-#[cfg(not(feature = "native_triggers"))]
-#[macro_export]
-macro_rules! for_each_native_service {
-    ($macro_name:ident) => {
-        // No services when feature is disabled
-    };
-}
-
-/// Dispatches webhook argument building to the appropriate service handler.
-/// This is the centralized place for webhook dispatch logic.
-/// When adding a new service, add a new match arm here.
-#[cfg(feature = "native_triggers")]
-pub async fn dispatch_webhook_args(
-    service_name: ServiceName,
-    db: &DB,
-    w_id: &str,
-    script_path: &str,
-    is_flow: bool,
-    body: Box<serde_json::value::RawValue>,
-    headers: HashMap<String, Box<serde_json::value::RawValue>>,
-) -> Result<PushArgsOwned> {
-    use crate::triggers::trigger_helpers::TriggerJobArgs;
-
-    match service_name {
-        ServiceName::Nextcloud => {
-            use nextcloud::NextCloud;
-            NextCloud::build_job_args(script_path, is_flow, w_id, db, body, headers).await
-        }
-        // Add new services here:
-        // ServiceName::NewService => {
-        //     use newservice::NewServiceHandler;
-        //     NewServiceHandler::build_job_args(script_path, is_flow, w_id, db, body, headers).await
-        // }
-    }
-}
-
-#[cfg(not(feature = "native_triggers"))]
-pub async fn dispatch_webhook_args(
-    _service_name: ServiceName,
-    _db: &DB,
-    _w_id: &str,
-    _script_path: &str,
-    _is_flow: bool,
-    _body: Box<serde_json::value::RawValue>,
-    _headers: HashMap<String, Box<serde_json::value::RawValue>>,
-) -> Result<PushArgsOwned> {
-    Err(Error::BadRequest("Native triggers feature is not enabled".to_string()))
 }

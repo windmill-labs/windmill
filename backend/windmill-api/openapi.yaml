@@ -19186,6 +19186,8 @@ components:
           type: number
         sqs_count:
           type: number
+        nextcloud_count:
+          type: number
 
     WebsocketTrigger:
       allOf:

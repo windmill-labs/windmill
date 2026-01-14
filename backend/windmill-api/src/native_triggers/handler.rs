@@ -1,9 +1,10 @@
 use crate::{
     db::ApiAuthed,
     native_triggers::{
-        delete_native_trigger, get_native_trigger, get_workspace_integration, list_native_triggers,
-        store_native_trigger, update_native_trigger_error, EventType, External, NativeTrigger,
-        NativeTriggerConfig, NativeTriggerData, ServiceName,
+        delete_native_trigger, delete_token_by_prefix, get_native_trigger, get_token_by_prefix,
+        get_workspace_integration, list_native_triggers, store_native_trigger,
+        update_native_trigger_error, External, NativeTrigger, NativeTriggerConfig,
+        NativeTriggerData, ServiceName,
     },
     users::{create_token_internal, NewToken},
     utils::check_scopes,
@@ -68,11 +69,7 @@ async fn new_webhook_token(
     let kind = if is_flow { "flows" } else { "scripts" };
 
     let scopes = vec![format!("jobs:run:{kind}:{script_path}")];
-    let label = format!(
-        "native-triggers-webhook-{}-{}",
-        service_name.as_str(),
-        rd_string(5)
-    );
+    let label = format!("webhook-{}-{}", service_name.as_str(), rd_string(5));
     let token_config = NewToken::new(
         Some(label),
         None,
@@ -92,19 +89,23 @@ async fn create_native_trigger<T: External>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
-    Json(mut data): Json<NativeTriggerData<T::Payload>>,
+    Json(data): Json<NativeTriggerData<T::ServiceConfig>>,
 ) -> JsonResult<CreateTriggerResponse> {
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
-    require_is_writer_on_runnable(&authed, &data.script_path, data.is_flow, &workspace_id, db.clone()).await?;
+    require_is_writer_on_runnable(
+        &authed,
+        &data.script_path,
+        data.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
 
-    let _ = handler.validate_data_config(&data);
     let mut tx = user_db.begin(&authed).await?;
 
-    let EventType::Webhook(webhook) = &mut data.event_type;
-
-    webhook.token = new_webhook_token(
+    let webhook_token = new_webhook_token(
         &mut *tx,
         &db,
         &authed,
@@ -126,18 +127,42 @@ async fn create_native_trigger<T: External>(
     })?;
 
     let resp = handler
-        .create(&workspace_id, &oauth_data, &data, &db, &mut tx)
+        .create(
+            &workspace_id,
+            &oauth_data,
+            &webhook_token,
+            &data,
+            &db,
+            &mut tx,
+        )
         .await?;
 
     let (external_id, _) = handler.external_id_and_metadata_from_response(&resp);
 
+    // update the created external trigger with a new uri containing the external_id
+    handler
+        .update(
+            &workspace_id,
+            &oauth_data,
+            &external_id,
+            &webhook_token,
+            &data,
+            &db,
+            &mut tx,
+        )
+        .await?;
+
+    // Fetch the updated trigger data from the external service and extract service_config
+    let trigger_data = handler
+        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
+        .await?;
+    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
+
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
         is_flow: data.is_flow,
-        event_type: data.event_type.clone(),
+        webhook_token,
     };
-
-    let service_config = handler.extract_service_config_from_payload(&data.payload);
 
     store_native_trigger(
         &mut *tx,
@@ -145,7 +170,7 @@ async fn create_native_trigger<T: External>(
         service_name,
         &external_id,
         &config,
-        Some(&*service_config),
+        service_config,
     )
     .await?;
 
@@ -172,13 +197,19 @@ async fn update_native_trigger_handler<T: External>(
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Path((workspace_id, external_id)): Path<(String, String)>,
-    Json(mut data): Json<NativeTriggerData<T::Payload>>,
+    Json(data): Json<NativeTriggerData<T::ServiceConfig>>,
 ) -> Result<String> {
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &data.script_path)
     })?;
-    require_is_writer_on_runnable(&authed, &data.script_path, data.is_flow, &workspace_id, db.clone()).await?;
-    let _ = handler.validate_data_config(&data);
+    require_is_writer_on_runnable(
+        &authed,
+        &data.script_path,
+        data.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
 
     let mut tx = user_db.begin(&authed).await?;
 
@@ -186,12 +217,27 @@ async fn update_native_trigger_handler<T: External>(
         .await?
         .ok_or_else(|| Error::NotFound(format!("Native trigger not found: {}", external_id)))?;
 
-    let existing_event_type: EventType = serde_json::from_value(existing.config)
-        .map_err(|e| Error::InternalErr(format!("Failed to parse config: {}", e)))?;
-
-    let EventType::Webhook(webhook) = &mut data.event_type;
-    let EventType::Webhook(existing_webhook) = existing_event_type;
-    webhook.token = existing_webhook.token;
+    // Look up the full token using the stored prefix (use db, not tx, for token table)
+    let webhook_token = match get_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
+        Some(token) => token,
+        None => {
+            tracing::warn!(
+                "Webhook token not found for trigger {} (prefix: {}), recreating token",
+                external_id,
+                existing.webhook_token_prefix
+            );
+            new_webhook_token(
+                &mut *tx,
+                &db,
+                &authed,
+                &data.script_path,
+                data.is_flow,
+                &workspace_id,
+                service_name,
+            )
+            .await?
+        }
+    };
 
     let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
@@ -204,16 +250,28 @@ async fn update_native_trigger_handler<T: External>(
     })?;
 
     handler
-        .update(&workspace_id, &oauth_data, &external_id, &data, &db, &mut tx)
+        .update(
+            &workspace_id,
+            &oauth_data,
+            &external_id,
+            &webhook_token,
+            &data,
+            &db,
+            &mut tx,
+        )
         .await?;
+
+    // Fetch the updated trigger data from the external service and extract service_config
+    let trigger_data = handler
+        .get(&workspace_id, &oauth_data, &external_id, &db, &mut tx)
+        .await?;
+    let service_config = handler.extract_service_config_from_trigger_data(&trigger_data)?;
 
     let config = NativeTriggerConfig {
         script_path: data.script_path.clone(),
         is_flow: data.is_flow,
-        event_type: data.event_type.clone(),
+        webhook_token,
     };
-
-    let service_config = handler.extract_service_config_from_payload(&data.payload);
 
     store_native_trigger(
         &mut *tx,
@@ -221,7 +279,7 @@ async fn update_native_trigger_handler<T: External>(
         service_name,
         &external_id,
         &config,
-        Some(&*service_config),
+        service_config,
     )
     .await?;
 
@@ -258,7 +316,14 @@ async fn get_native_trigger_handler<T: External>(
     check_scopes(&authed, || {
         format!("native_triggers:read:{}", &windmill_trigger.script_path)
     })?;
-    require_is_writer_on_runnable(&authed, &windmill_trigger.script_path, windmill_trigger.is_flow, &workspace_id, db.clone()).await?;
+    require_is_writer_on_runnable(
+        &authed,
+        &windmill_trigger.script_path,
+        windmill_trigger.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
 
     let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
@@ -340,7 +405,14 @@ async fn delete_native_trigger_handler<T: External>(
     check_scopes(&authed, || {
         format!("native_triggers:write:{}", &existing.script_path)
     })?;
-    require_is_writer_on_runnable(&authed, &existing.script_path, existing.is_flow, &workspace_id, db.clone()).await?;
+    require_is_writer_on_runnable(
+        &authed,
+        &existing.script_path,
+        existing.is_flow,
+        &workspace_id,
+        db.clone(),
+    )
+    .await?;
 
     let integration = get_workspace_integration(&mut *tx, &workspace_id, service_name).await?;
 
@@ -361,6 +433,15 @@ async fn delete_native_trigger_handler<T: External>(
 
     if !deleted {
         return Err(Error::NotFound(format!("Native trigger not found")));
+    }
+
+    // Delete the webhook token using its prefix
+    if !delete_token_by_prefix(&db, &existing.webhook_token_prefix).await? {
+        tracing::warn!(
+            "Webhook token not found when deleting trigger {} (prefix: {})",
+            external_id,
+            existing.webhook_token_prefix
+        );
     }
 
     audit_log(
@@ -389,7 +470,7 @@ async fn exists_native_trigger_handler<T: External>(
         r#"
         SELECT EXISTS(
             SELECT 1
-            FROM native_triggers
+            FROM native_trigger
             WHERE
                 workspace_id = $1 AND
                 service_name = $2 AND
@@ -409,19 +490,21 @@ async fn exists_native_trigger_handler<T: External>(
 
 async fn list_native_triggers_handler<T: External>(
     Extension(service_name): Extension<ServiceName>,
-    _authed: ApiAuthed,
-    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Extension(user_db): Extension<UserDB>,
     Path(workspace_id): Path<String>,
     Query(query): Query<ListQuery>,
 ) -> JsonResult<Vec<NativeTrigger>> {
+    let mut tx = user_db.begin(&authed).await?;
     let triggers = list_native_triggers(
-        &db,
+        &mut *tx,
         &workspace_id,
         service_name,
         query.page,
         query.per_page,
     )
     .await?;
+    tx.commit().await?;
     Ok(Json(triggers))
 }
 
@@ -459,7 +542,7 @@ pub fn service_routes<T: External + 'static>(handler: T) -> Router {
 pub fn generate_native_trigger_routers() -> Router {
     let router = Router::new();
 
-    #[cfg(feature = "native_triggers")]
+    #[cfg(feature = "native_trigger")]
     {
         use crate::native_triggers::nextcloud::NextCloud;
 
@@ -472,7 +555,7 @@ pub fn generate_native_trigger_routers() -> Router {
         // .nest("/newservice", service_routes(NewServiceHandler))
     }
 
-    #[cfg(not(feature = "native_triggers"))]
+    #[cfg(not(feature = "native_trigger"))]
     {
         router
     }

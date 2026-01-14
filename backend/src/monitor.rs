@@ -29,7 +29,7 @@ use windmill_api::{
     SCIM_TOKEN,
 };
 
-#[cfg(feature = "native_triggers")]
+#[cfg(feature = "native_trigger")]
 use windmill_api::native_triggers::sync::sync_all_triggers;
 
 #[cfg(feature = "enterprise")]
@@ -1740,7 +1740,7 @@ pub async fn monitor_db(
 
     // Run every 5 minutes (10 iterations * 30s = 5 minutes)
     let native_triggers_sync_f = async {
-        #[cfg(feature = "native_triggers")]
+        #[cfg(feature = "native_trigger")]
         if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
             if let Some(db) = conn.as_sql() {
                 match sync_all_triggers(db).await {

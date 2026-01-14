@@ -1784,7 +1784,7 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
-    pub trigger_id: Option<String>,
+    pub trigger_external_id: Option<String>,
     pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,
 }
@@ -4092,7 +4092,7 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = generate_args_runnable(
+    let (args, trigger_metadata) = get_args_and_trigger_metadata(
         &db,
         &authed,
         user_db.clone(),
@@ -4100,12 +4100,19 @@ pub async fn run_flow_by_path(
         &run_query,
         &w_id,
         args,
-        true,
     )
     .await?;
 
     let (uuid, _, _) = push_flow_job_by_path_into_queue(
-        authed, db, None, user_db, w_id, flow_path, run_query, args, None,
+        authed,
+        db,
+        None,
+        user_db,
+        w_id,
+        flow_path,
+        run_query,
+        args,
+        trigger_metadata,
     )
     .await?;
 
@@ -4499,7 +4506,7 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = generate_args_runnable(
+    let (args, trigger_metadata) = get_args_and_trigger_metadata(
         &db,
         &authed,
         user_db.clone(),
@@ -4507,7 +4514,6 @@ pub async fn run_script_by_path(
         &run_query,
         &w_id,
         args,
-        false,
     )
     .await?;
 
@@ -4520,7 +4526,7 @@ pub async fn run_script_by_path(
         script_path,
         run_query,
         args,
-        None,
+        trigger_metadata,
     )
     .await?;
 
@@ -4528,64 +4534,32 @@ pub async fn run_script_by_path(
 }
 
 #[allow(unused)]
-pub async fn generate_args_runnable(
+pub async fn get_args_and_trigger_metadata(
     db: &DB,
     authed: &ApiAuthed,
-    user_db: UserDB,
+    _user_db: UserDB,
     runnable_path: &str,
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
-    is_flow: bool,
-) -> error::Result<PushArgsOwned> {
-    #[cfg(feature = "native_triggers")]
-    if let (Some(service_name_str), Some(trigger_id)) =
-        (&run_query.service_name, &run_query.trigger_id)
-    {
-        use crate::native_triggers::{dispatch_webhook_args, get_native_trigger, ServiceName};
+) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+    use windmill_common::triggers::TriggerMetadata;
 
+    // Build trigger metadata if this is a native trigger request
+    #[cfg(feature = "native_trigger")]
+    let trigger_metadata = if let Some(service_name_str) = &run_query.service_name {
+        use crate::native_triggers::ServiceName;
         let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        Some(TriggerMetadata::new(
+            run_query.trigger_external_id.clone(),
+            service_name.as_job_trigger_kind(),
+        ))
+    } else {
+        None
+    };
 
-        let _native_trigger = get_native_trigger(db, w_id, service_name, trigger_id)
-            .await?
-            .ok_or_else(|| {
-                Error::NotFound(format!(
-                    "Native trigger with id {} not found in workspace {}",
-                    trigger_id, w_id
-                ))
-            })?;
-
-        // Process the raw webhook args to get headers and body
-        let webhook_payload = args.process_args(authed, db, w_id, None).await?;
-
-        // Convert headers to RawValue map
-        let headers: std::collections::HashMap<String, Box<serde_json::value::RawValue>> =
-            webhook_payload
-                .metadata
-                .headers
-                .iter()
-                .map(|(k, v)| (k.to_string(), to_raw_value(&v.to_str().unwrap_or(""))))
-                .collect();
-
-        // Get body as RawValue
-        let body = to_raw_value(&webhook_payload.body);
-
-        // Dispatch to the appropriate service handler
-        // This is the centralized dispatch - adding new services only requires
-        // updating dispatch_webhook_args in native_triggers/mod.rs
-        let args = dispatch_webhook_args(
-            service_name,
-            db,
-            w_id,
-            runnable_path,
-            is_flow,
-            body,
-            headers,
-        )
-        .await?;
-
-        return Ok(args);
-    }
+    #[cfg(not(feature = "native_trigger"))]
+    let trigger_metadata: Option<TriggerMetadata> = None;
 
     let args = args
         .to_args_from_runnable(
@@ -4597,7 +4571,7 @@ pub async fn generate_args_runnable(
         )
         .await?;
 
-    Ok(args)
+    Ok((args, trigger_metadata))
 }
 
 pub async fn push_script_job_by_path_into_queue<'c>(
