@@ -149,7 +149,7 @@
 				/>
 			{/if}
 		</div>
-		<div class="flex-grow w-full">
+		<div class="flex-grow w-full min-h-0">
 			<div class="px-2">
 				{#if !$enterpriseLicense || $enterpriseLicense.endsWith('_pro')}
 					<Alert title="Redacted audit logs" type="warning">
