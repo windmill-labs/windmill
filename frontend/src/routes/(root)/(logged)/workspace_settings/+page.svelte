@@ -66,6 +66,8 @@
 		type DataTableSettingsType
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
+	import WorkspaceProtectionRules from '$lib/components/workspaceSettings/WorkspaceProtectionRules.svelte'
+	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -156,6 +158,8 @@
 			| 'default_app'
 			| 'encryption'
 			| 'dependencies'
+			| 'protection_rules'
+			| 'rulesets'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -663,6 +667,20 @@
 				/>
 				<Tab
 					small
+					value="protection_rules"
+					aiId="workspace-settings-protection-rules"
+					aiDescription="Protection rules workspace settings"
+					label="Protection Rules"
+				/>
+				<Tab
+					small
+					value="rulesets"
+					aiId="workspace-settings-rulesets"
+					aiDescription="Workspace rulesets settings"
+					label="Rulesets"
+				/>
+				<Tab
+					small
 					value="git_sync"
 					aiId="workspace-settings-git-sync"
 					aiDescription="Git sync workspace settings"
@@ -767,6 +785,10 @@
 			<Skeleton layout={[1, [40]]} />
 		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
+		{:else if tab == 'protection_rules'}
+			<WorkspaceProtectionRules />
+		{:else if tab == 'rulesets'}
+			<WorkspaceRulesets />
 		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">

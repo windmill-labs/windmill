@@ -1,0 +1,236 @@
+<script lang="ts">
+	import { Alert, Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import Dropdown from '$lib/components/DropdownV2.svelte'
+	import DataTable from '$lib/components/table/DataTable.svelte'
+	import Head from '$lib/components/table/Head.svelte'
+	import Cell from '$lib/components/table/Cell.svelte'
+	import Row from '$lib/components/table/Row.svelte'
+	import Description from '$lib/components/Description.svelte'
+	import RulesetEditor from './RulesetEditor.svelte'
+	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { sendUserToast } from '$lib/toast'
+	import { Plus, Pen, Trash } from 'lucide-svelte'
+	import { untrack } from 'svelte'
+
+	interface Rule {
+		name: string
+		rules: {
+			requireForkOrBranch: boolean
+			disableFork: boolean
+			disableMergeUI: boolean
+			disableExecution: boolean
+			adminsBypassDisabled: boolean
+		}
+		scope: {
+			groups: string[]
+			users: string[]
+		}
+	}
+
+	let rules: Rule[] | undefined = $state(undefined)
+	let selectedRule: Rule | undefined = $state(undefined)
+	let ruleDrawer: Drawer | undefined = $state(undefined)
+
+	async function loadRules() {
+		// TODO: Implement backend call
+		// rules = await WorkspaceService.listWorkspaceRules({ workspace: $workspaceStore! })
+
+		// Mock data for now
+		rules = [
+			{
+				name: 'Production Protection',
+				rules: {
+					requireForkOrBranch: true,
+					disableFork: false,
+					disableMergeUI: true,
+					disableExecution: false,
+					adminsBypassDisabled: true
+				},
+				scope: {
+					groups: ['g/developers', 'g/operators'],
+					users: []
+				}
+			},
+			{
+				name: 'Read-Only Access',
+				rules: {
+					requireForkOrBranch: false,
+					disableFork: true,
+					disableMergeUI: false,
+					disableExecution: true,
+					adminsBypassDisabled: false
+				},
+				scope: {
+					groups: [],
+					users: ['u/viewer1@example.com', 'u/auditor@example.com']
+				}
+			}
+		]
+	}
+
+	$effect(() => {
+		if ($workspaceStore) {
+			untrack(() => loadRules())
+		}
+	})
+
+	async function deleteRule(name: string) {
+		// TODO: Implement backend call
+		// await WorkspaceService.deleteWorkspaceRule({
+		//   workspace: $workspaceStore!,
+		//   name
+		// })
+
+		if (rules) {
+			rules = rules.filter((r) => r.name !== name)
+		}
+		sendUserToast('Protection rule deleted')
+	}
+
+	function getScopeSummary(scope: Rule['scope']): string {
+		const groupCount = scope.groups.length
+		const userCount = scope.users.length
+		const parts = []
+		if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`)
+		if (userCount > 0) parts.push(`${userCount} user${userCount !== 1 ? 's' : ''}`)
+		return parts.length > 0 ? `${parts.join(', ')} can bypass` : 'No bypassers'
+	}
+
+	function getEnabledRulesCount(ruleConfig: Rule['rules']): number {
+		return Object.values(ruleConfig).filter(Boolean).length
+	}
+
+	const existingRuleNames = $derived(
+		rules?.filter((r) => r.name !== selectedRule?.name).map((r) => r.name) ?? []
+	)
+</script>
+
+<Drawer bind:this={ruleDrawer}>
+	<DrawerContent
+		title={selectedRule ? `Protection Rule: ${selectedRule.name}` : 'New Protection Rule'}
+		on:close={ruleDrawer?.closeDrawer}
+	>
+		<RulesetEditor
+			rule={selectedRule}
+			existingNames={existingRuleNames}
+			on:update={() => {
+				loadRules()
+				ruleDrawer?.closeDrawer()
+			}}
+		/>
+	</DrawerContent>
+</Drawer>
+
+<div class="flex flex-col gap-4 my-8">
+	<div class="flex flex-col gap-1">
+		<div class="text-sm font-semibold text-emphasis">Workspace Protection Rules</div>
+		<Description>
+			Create and manage protection rules that define restrictions and specify which groups and
+			users can bypass those restrictions. Users not in any bypass list will be subject to the
+			configured rules. Protection rules provide fine-grained control compared to workspace-wide
+			protection rules.
+		</Description>
+	</div>
+</div>
+
+{#if !$enterpriseLicense}
+	<Alert type="warning" title="Workspace Protection Rules is an EE feature">
+		Workspace Protection Rules is a Windmill Enterprise Edition feature. It enables granular
+		governance and security policies scoped to specific groups and users.
+	</Alert>
+	<div class="pb-4"></div>
+{/if}
+
+<div class="flex flex-row justify-between items-center mb-4">
+	<div class="text-xs font-semibold text-emphasis">Protection Rules</div>
+	<Button
+		unifiedSize="md"
+		variant="accent"
+		startIcon={{ icon: Plus }}
+		on:click={() => {
+			selectedRule = undefined
+			ruleDrawer?.openDrawer()
+		}}
+	>
+		New rule
+	</Button>
+</div>
+
+<div class="relative mb-20">
+	<DataTable>
+		<Head>
+			<tr>
+				<Cell head first>Name</Cell>
+				<Cell head>Bypassers</Cell>
+				<Cell head>Rules</Cell>
+				<Cell head last />
+			</tr>
+		</Head>
+		<tbody class="divide-y">
+			{#if rules === undefined}
+				{#each new Array(3) as _}
+					<tr>
+						<td colspan="4">
+							<Skeleton layout={[[2]]} />
+						</td>
+					</tr>
+				{/each}
+			{:else if rules.length === 0}
+				<tr>
+					<Cell first last colspan={4}>
+						<div class="text-center py-8 text-secondary text-sm">
+							No protection rules created yet. Click "New rule" to create your first rule.
+						</div>
+					</Cell>
+				</tr>
+			{:else}
+				{#each rules as rule (rule.name)}
+					<Row
+						hoverable
+						on:click={() => {
+							selectedRule = rule
+							ruleDrawer?.openDrawer()
+						}}
+					>
+						<Cell first>
+							<div class="flex flex-col">
+								<span class="text-emphasis text-xs font-semibold">{rule.name}</span>
+							</div>
+						</Cell>
+						<Cell>
+							<span class="text-xs text-secondary">{getScopeSummary(rule.scope)}</span>
+						</Cell>
+						<Cell>
+							<span class="text-xs text-secondary">
+								{getEnabledRulesCount(rule.rules)}/5 enabled
+							</span>
+						</Cell>
+						<Cell last>
+							<Dropdown
+								items={[
+									{
+										displayName: 'Edit rule',
+										icon: Pen,
+										action: (e) => {
+											e?.stopPropagation()
+											selectedRule = rule
+											ruleDrawer?.openDrawer()
+										}
+									},
+									{
+										displayName: 'Delete',
+										icon: Trash,
+										type: 'delete',
+										action: async () => {
+											await deleteRule(rule.name)
+										}
+									}
+								]}
+							/>
+						</Cell>
+					</Row>
+				{/each}
+			{/if}
+		</tbody>
+	</DataTable>
+</div>
