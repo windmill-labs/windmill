@@ -5,20 +5,20 @@
  * Tests all three services:
  * - LSP (Language Server Protocol) - Port 3001
  * - Multiplayer (y-websocket) - Port 3002
- * - Debugger (DAP WebSocket) - Port 5679
+ * - Debugger (DAP WebSocket) - Port 3003
  *
  * Configuration via environment variables:
  * - WINDMILL_EXTRA_HOST: Container hostname (default: localhost)
  * - LSP_PORT: LSP service port (default: 3001)
  * - MULTIPLAYER_PORT: Multiplayer service port (default: 3002)
- * - DEBUGGER_PORT: Debugger service port (default: 5679)
+ * - DEBUGGER_PORT: Debugger service port (default: 3003)
  * - SKIP_LSP: Skip LSP tests (default: false)
  * - SKIP_MULTIPLAYER: Skip Multiplayer tests (default: false)
  * - SKIP_DEBUGGER: Skip Debugger tests (default: false)
  *
  * Usage:
  *   # Start the container first
- *   docker run -p 3001:3001 -p 3002:3002 -p 5679:5679 \
+ *   docker run -p 3001:3001 -p 3002:3002 -p 3003:3003 \
  *     -e ENABLE_LSP=true -e ENABLE_MULTIPLAYER=true -e ENABLE_DEBUGGER=true \
  *     windmill-extra
  *
@@ -33,7 +33,7 @@
 const HOST = process.env.WINDMILL_EXTRA_HOST || 'localhost'
 const LSP_PORT = parseInt(process.env.LSP_PORT || '3001')
 const MULTIPLAYER_PORT = parseInt(process.env.MULTIPLAYER_PORT || '3002')
-const DEBUGGER_PORT = parseInt(process.env.DEBUGGER_PORT || '5679')
+const DEBUGGER_PORT = parseInt(process.env.DEBUGGER_PORT || '3003')
 const SKIP_LSP = process.env.SKIP_LSP === 'true'
 const SKIP_MULTIPLAYER = process.env.SKIP_MULTIPLAYER === 'true'
 const SKIP_DEBUGGER = process.env.SKIP_DEBUGGER === 'true'
@@ -616,7 +616,7 @@ async function main() {
 	} catch (error) {
 		console.error(`\n✗ ${error instanceof Error ? error.message : error}`)
 		console.error('\nMake sure the windmill-extra container is running:')
-		console.error('  docker run -p 3001:3001 -p 3002:3002 -p 5679:5679 \\')
+		console.error('  docker run -p 3001:3001 -p 3002:3002 -p 3003:3003 \\')
 		console.error('    -e ENABLE_LSP=true -e ENABLE_MULTIPLAYER=true -e ENABLE_DEBUGGER=true \\')
 		console.error('    windmill-extra')
 		process.exit(1)

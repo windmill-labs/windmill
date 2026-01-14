@@ -156,7 +156,7 @@ ENV MULTIPLAYER_PORT=3002
 ENV HOST=0.0.0.0
 
 # Debugger port
-ENV DEBUGGER_PORT=5679
+ENV DEBUGGER_PORT=3003
 
 # Windmill base URL for debugger token verification
 ENV WINDMILL_BASE_URL=""

@@ -620,12 +620,19 @@
 						startIcon={{ icon: Save }}
 						disabled={pathError != '' || app == undefined}
 						on:click={() => saveInitialDraft()}
+						unifiedSize="md"
+						variant="accent"
 					>
 						Save initial draft
 					</Button>
 				</div>
 			{/snippet}
-			<AppEditorHeaderDeployInitialDraft {summary} {appPath} bind:pathError bind:newEditedPath />
+			<AppEditorHeaderDeployInitialDraft
+				bind:summary
+				bind:appPath
+				bind:pathError
+				bind:newEditedPath
+			/>
 		</DrawerContent>
 	</Drawer>
 {/if}
