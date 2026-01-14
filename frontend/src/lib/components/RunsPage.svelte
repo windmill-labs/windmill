@@ -156,15 +156,17 @@
 	}
 
 	function resetAndFilterBy(setter: (string) => void) {
-		filters.path = null
-		filters.user = null
-		filters.folder = null
-		filters.label = null
-		filters.concurrency_key = null
-		filters.tag = null
-		filters.worker = null
-		filters.schedule_path = null
-		return (e: CustomEvent<string>) => setter(e.detail)
+		return (e: CustomEvent<string>) => {
+			filters.path = null
+			filters.user = null
+			filters.folder = null
+			filters.label = null
+			filters.concurrency_key = null
+			filters.tag = null
+			filters.worker = null
+			filters.schedule_path = null
+			setter(e.detail)
+		}
 	}
 
 	const filterByPath = resetAndFilterBy((s) => (filters.path = s))
