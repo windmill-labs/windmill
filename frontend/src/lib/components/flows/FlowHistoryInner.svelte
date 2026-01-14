@@ -3,21 +3,12 @@
 
 	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
-	import {
-		classNames,
-		displayDate,
-		emptyString,
-		sendUserToast,
-		orderedYamlStringify,
-		cleanValueProperties,
-		replaceFalseWithUndefined
-	} from '$lib/utils'
+	import { classNames, displayDate, emptyString, sendUserToast } from '$lib/utils'
 	import { type Flow, FlowService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { Skeleton } from '$lib/components/common'
 	import Button from '../common/button/Button.svelte'
 	import { ArrowRight, Loader2, Pencil, X } from 'lucide-svelte'
-	import { watch } from 'runed'
 
 	interface Props {
 		path: string
@@ -34,20 +25,10 @@
 	let selected: Flow | undefined = $state(undefined)
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state(undefined)
-	let previousVersionId: number | undefined = $state(undefined)
 	let selectedVersionIndex: number | undefined = $state(undefined)
-	let previousFlow: Flow | undefined = $state(undefined)
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
-			workspace: $workspaceStore!,
-			version
-		})
-	}
-
-	async function loadPreviousFlow(version: number) {
-		console.log('loadPreviousFlow', version)
-		previousFlow = await FlowService.getFlowVersion({
 			workspace: $workspaceStore!,
 			version
 		})
@@ -102,32 +83,10 @@
 		selectedVersion !== undefined && loadFlow(selectedVersion.id)
 	})
 
-	$effect.pre(() => {
-		if (previousVersionId !== undefined) {
-			loadPreviousFlow(previousVersionId)
-		} else {
-			previousFlow = undefined
-		}
-	})
-
 	// Get available versions for comparison (versions after selected one)
 	let availableVersions = $derived(
 		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
 	)
-
-	// Prepare YAML string for previous flow
-	let previousFlowYaml = $derived.by(() => {
-		if (!previousFlow) return undefined
-		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(previousFlow)))
-		return orderedYamlStringify(metadata)
-	})
-
-	// Auto-select last available previous version
-	watch([() => selectedVersion, () => availableVersions], () => {
-		if (availableVersions.length > 0) {
-			previousVersionId = availableVersions[0].id
-		}
-	})
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -149,13 +108,6 @@
 									const versionIndex = versions.findIndex((v) => v.id === version.id)
 									selectedVersion = version
 									selectedVersionIndex = versionIndex
-
-									// Update previousVersionId if current one is no longer valid
-									const available = versions.slice(versionIndex + 1)
-									if (previousVersionId && !available.find((v) => v.id === previousVersionId)) {
-										previousVersionId = available[0]?.id
-									}
-
 									deploymentMsgUpdate = undefined
 									deploymentMsgUpdateMode = false
 								}}
@@ -269,8 +221,7 @@
 							<Module.default
 								flow={selected}
 								{availableVersions}
-								bind:previousVersionId
-								{previousFlowYaml}
+								selectedVersionId={selectedVersion?.id}
 							/>
 						{/await}
 					</div>

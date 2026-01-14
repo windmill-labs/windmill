@@ -1,14 +1,23 @@
 <script lang="ts">
-	import type { FlowValue } from '$lib/gen'
+	import { type FlowValue, FlowService } from '$lib/gen'
 	import { Tab, Tabs, TabContent } from './common'
 	import SchemaViewer from './SchemaViewer.svelte'
 	import FlowGraphViewer from './FlowGraphViewer.svelte'
 	import { Loader2 } from 'lucide-svelte'
 	import { orderedYamlStringify, cleanValueProperties, replaceFalseWithUndefined } from '$lib/utils'
+	import { workspaceStore } from '$lib/stores'
+	import { watch } from 'runed'
 
 	import HighlightTheme from './HighlightTheme.svelte'
 	import FlowViewerInner from './FlowViewerInner.svelte'
 	import FlowInputViewer from './FlowInputViewer.svelte'
+
+	interface PreviousFlow {
+		summary: string
+		description?: string
+		value: FlowValue
+		schema?: any
+	}
 
 	interface Props {
 		flow: {
@@ -24,8 +33,7 @@
 		noSummary?: boolean
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
-		previousVersionId?: number
-		previousFlowYaml?: string
+		selectedVersionId?: number
 	}
 
 	let {
@@ -37,8 +45,7 @@
 		noSummary = false,
 		noGraphDownload = false,
 		availableVersions = undefined,
-		previousVersionId = $bindable(undefined),
-		previousFlowYaml = undefined
+		selectedVersionId = undefined
 	}: Props = $props()
 
 	let open: { [id: number]: boolean } = {}
@@ -46,8 +53,49 @@
 		open[initialOpen] = true
 	}
 
+	let previousVersionId: number | undefined = $state(undefined)
+	let previousFlow: PreviousFlow | undefined = $state(undefined)
+
+	let previousFlowCache: Record<number, PreviousFlow> = $state({})
+
+	async function loadPreviousFlow(version: number) {
+		if (previousFlowCache[version]) {
+			previousFlow = previousFlowCache[version]
+			return
+		}
+		previousFlow = await FlowService.getFlowVersion({
+			workspace: $workspaceStore!,
+			version
+		})
+		previousFlowCache[version] = previousFlow
+	}
+
+	// Load previous flow when previousVersionId changes
+	$effect.pre(() => {
+		if (previousVersionId !== undefined) {
+			loadPreviousFlow(previousVersionId)
+		} else {
+			previousFlow = undefined
+		}
+	})
+
+	// Auto-select first available version and validate current selection
+	watch([() => availableVersions, () => selectedVersionId], () => {
+		if (availableVersions && availableVersions.length > 0) {
+			previousVersionId = availableVersions[0].id
+		} else {
+			previousVersionId = undefined
+		}
+	})
+
 	let currentFlowYaml = $derived.by(() => {
 		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(flow)))
+		return orderedYamlStringify(metadata)
+	})
+
+	let previousFlowYaml = $derived.by(() => {
+		if (!previousFlow) return undefined
+		const metadata = structuredClone(cleanValueProperties(replaceFalseWithUndefined(previousFlow)))
 		return orderedYamlStringify(metadata)
 	})
 </script>
