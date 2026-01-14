@@ -59,7 +59,7 @@
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
 	let tab: TabValue = $state(initTab ?? 'diff')
 
-	let previousFlowCache: Record<number, PreviousFlow> = $state({})
+	let previousFlowCache: Record<number, PreviousFlow> = {}
 
 	async function loadPreviousFlow(version: number) {
 		if (previousFlowCache[version]) {
