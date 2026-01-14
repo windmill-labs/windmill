@@ -225,6 +225,18 @@ const config = {
 				900: `rgb(${primitives['yellow-900']})`,
 				950: `rgb(${primitives['yellow-950']})`
 			},
+			magenta: {
+				100: `rgb(${primitives['magenta-100']})`,
+				200: `rgb(${primitives['magenta-200']})`,
+				300: `rgb(${primitives['magenta-300']})`,
+				400: `rgb(${primitives['magenta-400']})`,
+				500: `rgb(${primitives['magenta-500']})`,
+				600: `rgb(${primitives['magenta-600']})`,
+				700: `rgb(${primitives['magenta-700']})`,
+				800: `rgb(${primitives['magenta-800']})`,
+				900: `rgb(${primitives['magenta-900']})`,
+				950: `rgb(${primitives['magenta-950']})`
+			},
 			slate: {
 				50: '#f8fafc',
 				100: '#f1f5f9',
