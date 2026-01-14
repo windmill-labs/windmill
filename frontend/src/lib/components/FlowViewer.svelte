@@ -19,6 +19,8 @@
 		schema?: any
 	}
 
+	type TabValue = 'ui' | 'raw' | 'schema' | 'diff'
+
 	interface Props {
 		flow: {
 			summary: string
@@ -29,7 +31,7 @@
 		initialOpen?: number | undefined
 		noSide?: boolean
 		noGraph?: boolean
-		tab?: 'ui' | 'raw' | 'schema' | 'diff'
+		initTab?: TabValue
 		noSummary?: boolean
 		noGraphDownload?: boolean
 		availableVersions?: Array<{ id: number; deployment_msg?: string }>
@@ -42,7 +44,7 @@
 		noSide = false,
 		noGraph = false,
 		availableVersions = undefined,
-		tab = noGraph ? 'schema' : availableVersions && availableVersions.length > 0 ? 'diff' : 'ui',
+		initTab = undefined,
 		noSummary = false,
 		noGraphDownload = false,
 		selectedVersionId = undefined
@@ -55,6 +57,7 @@
 
 	let previousVersionId: number | undefined = $state(undefined)
 	let previousFlow: PreviousFlow | undefined = $state(undefined)
+	let tab: TabValue = $state(initTab ?? 'diff')
 
 	let previousFlowCache: Record<number, PreviousFlow> = $state({})
 
@@ -76,6 +79,21 @@
 			loadPreviousFlow(previousVersionId)
 		} else {
 			previousFlow = undefined
+		}
+	})
+
+	$effect.pre(() => {
+		if (initTab) {
+			return
+		}
+		if (availableVersions && availableVersions.length > 0) {
+			tab = 'diff'
+		} else {
+			if (noGraph) {
+				tab = 'schema'
+			} else {
+				tab = 'ui'
+			}
 		}
 	})
 
