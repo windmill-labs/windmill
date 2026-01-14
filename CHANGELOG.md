@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.606.0](https://github.com/windmill-labs/windmill/compare/v1.605.0...v1.606.0) (2026-01-14)
+
+
+### Features
+
+* **aiagent:** handle oauth for mcp tools ([#7564](https://github.com/windmill-labs/windmill/issues/7564)) ([5c08abe](https://github.com/windmill-labs/windmill/commit/5c08abe14163dbbab2e18f2479b74c30e2a70c2f))
+* **aiagent:** handle oauth for mcp tools [merge-ee-first] ([#7544](https://github.com/windmill-labs/windmill/issues/7544)) ([e823c95](https://github.com/windmill-labs/windmill/commit/e823c953d112ab90692b17c6ed7c33645860707e))
+
+
+### Bug Fixes
+
+* **debugger:** add nsjail config for proper sandbox mounts ([31c07d9](https://github.com/windmill-labs/windmill/commit/31c07d93529f0fdb66912b42bb2d60f92ca0c333))
+* **debugger:** fix nsjail sandbox for debugger execution ([14cfce3](https://github.com/windmill-labs/windmill/commit/14cfce3fd68224d46048bbbe2f89619637c4bed2))
+* **debugger:** properly decode base64url public key from JWKS ([8d005b0](https://github.com/windmill-labs/windmill/commit/8d005b030fd73015e860ef04beb0709a04d07c65))
+* Fix wrong base_internal_url for ducklake inline ([#7563](https://github.com/windmill-labs/windmill/issues/7563)) ([b3f68ad](https://github.com/windmill-labs/windmill/commit/b3f68ad376646d7f702ba07662e320f0eb6c7717))
+* **frontend:** fix first draft save ([#7552](https://github.com/windmill-labs/windmill/issues/7552)) ([28e25ec](https://github.com/windmill-labs/windmill/commit/28e25ec60dcd73158fa2fff61c439e67478f35a0))
+
 ## [1.605.0](https://github.com/windmill-labs/windmill/compare/v1.604.0...v1.605.0) (2026-01-13)
 
 
