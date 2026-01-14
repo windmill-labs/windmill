@@ -41,10 +41,10 @@
 		initialOpen = undefined,
 		noSide = false,
 		noGraph = false,
-		tab = $bindable(noGraph ? 'schema' : 'ui'),
+		availableVersions = undefined,
+		tab = noGraph ? 'schema' : availableVersions && availableVersions.length > 0 ? 'diff' : 'ui',
 		noSummary = false,
 		noGraphDownload = false,
-		availableVersions = undefined,
 		selectedVersionId = undefined
 	}: Props = $props()
 
@@ -103,42 +103,16 @@
 <HighlightTheme />
 
 <Tabs bind:selected={tab}>
+	{#if availableVersions && availableVersions.length > 0}
+		<Tab value="diff" label="Diff" />
+	{/if}
 	{#if !noGraph}
 		<Tab value="ui" label="Graph" />
 	{/if}
 	<Tab value="raw" label="Raw" />
 	<Tab value="schema" label="Input Schema" />
-	{#if availableVersions && availableVersions.length > 0}
-		<Tab value="diff" label="Diff" />
-	{/if}
 
 	{#snippet content()}
-		<TabContent value="ui">
-			<div class="flow-root w-full pb-4">
-				{#if !noSummary}
-					<h2 class="my-4">{flow.summary}</h2>
-					<div>{flow.description ?? ''}</div>
-				{/if}
-
-				<p class="font-black text-lg w-full my-4">
-					<span>Flow Input</span>
-				</p>
-				{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
-					<FlowInputViewer schema={flow.schema} />
-				{:else}
-					<div class="text-secondary text-xs italic mb-4">No inputs</div>
-				{/if}
-
-				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
-			</div>
-		</TabContent>
-		<TabContent value="raw">
-			<FlowViewerInner {flow} />
-		</TabContent>
-		<TabContent value="schema">
-			<div class="my-4"></div>
-			<SchemaViewer schema={flow.schema} />
-		</TabContent>
 		{#if availableVersions && availableVersions.length > 0}
 			<TabContent value="diff">
 				<div class="flex flex-col gap-2 h-full">
@@ -167,5 +141,31 @@
 				</div>
 			</TabContent>
 		{/if}
+		<TabContent value="ui">
+			<div class="flow-root w-full pb-4">
+				{#if !noSummary}
+					<h2 class="my-4">{flow.summary}</h2>
+					<div>{flow.description ?? ''}</div>
+				{/if}
+
+				<p class="font-black text-lg w-full my-4">
+					<span>Flow Input</span>
+				</p>
+				{#if flow.schema && flow.schema.properties && Object.keys(flow.schema.properties).length > 0 && flow.schema}
+					<FlowInputViewer schema={flow.schema} />
+				{:else}
+					<div class="text-secondary text-xs italic mb-4">No inputs</div>
+				{/if}
+
+				<FlowGraphViewer download={!noGraphDownload} {noSide} {flow} overflowAuto />
+			</div>
+		</TabContent>
+		<TabContent value="raw">
+			<FlowViewerInner {flow} />
+		</TabContent>
+		<TabContent value="schema">
+			<div class="my-4"></div>
+			<SchemaViewer schema={flow.schema} />
+		</TabContent>
 	{/snippet}
 </Tabs>

@@ -9,13 +9,13 @@
 	}
 
 	let { beforeYaml, afterYaml }: Props = $props()
-	let diffMode: 'yaml' | 'graph' = $state('yaml')
+	let diffMode: 'yaml' | 'graph' = $state('graph')
 </script>
 
 <div class="flex flex-col h-full min-h-[500px] gap-2">
 	<Tabs bind:selected={diffMode}>
-		<Tab value="yaml" label="YAML" />
 		<Tab value="graph" label="Graph" />
+		<Tab value="yaml" label="YAML" />
 	</Tabs>
 
 	<div class="flex-1 min-h-0">
