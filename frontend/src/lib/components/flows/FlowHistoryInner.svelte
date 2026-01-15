@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { run, stopPropagation, createBubbler } from 'svelte/legacy'
+	import { stopPropagation, createBubbler } from 'svelte/legacy'
 
 	const bubble = createBubbler()
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
@@ -25,6 +25,7 @@
 	let selected: Flow | undefined = $state(undefined)
 	let deploymentMsgUpdateMode = $state(false)
 	let deploymentMsgUpdate: string | undefined = $state(undefined)
+	let selectedVersionIndex: number | undefined = $state(undefined)
 
 	async function loadFlow(version: number) {
 		selected = await FlowService.getFlowVersion({
@@ -78,9 +79,14 @@
 
 	loadVersions()
 
-	run(() => {
+	$effect.pre(() => {
 		selectedVersion !== undefined && loadFlow(selectedVersion.id)
 	})
+
+	// Get available versions for comparison (versions after selected one)
+	let availableVersions = $derived(
+		selectedVersionIndex !== undefined ? versions.slice(selectedVersionIndex + 1) : []
+	)
 </script>
 
 <Splitpanes class="!overflow-visible">
@@ -89,7 +95,7 @@
 			{#if !loading}
 				{#if versions.length > 0}
 					<div class="flex gap-2 flex-col">
-						{#each versions ?? [] as version}
+						{#each versions ?? [] as version (version.id)}
 							<!-- svelte-ignore a11y_click_events_have_key_events -->
 							<div
 								class={classNames(
@@ -99,7 +105,11 @@
 								role="button"
 								tabindex="0"
 								onclick={() => {
+									const versionIndex = versions.findIndex((v) => v.id === version.id)
 									selectedVersion = version
+									selectedVersionIndex = versionIndex
+									deploymentMsgUpdate = undefined
+									deploymentMsgUpdateMode = false
 								}}
 							>
 								<span class="text-xs truncate">
@@ -208,7 +218,11 @@
 						{#await import('$lib/components/FlowViewer.svelte')}
 							<Loader2 class="animate-spin" />
 						{:then Module}
-							<Module.default flow={selected} />
+							<Module.default
+								flow={selected}
+								{availableVersions}
+								selectedVersionId={selectedVersion?.id}
+							/>
 						{/await}
 					</div>
 				{:else}

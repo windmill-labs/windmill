@@ -20,7 +20,7 @@
 <Drawer bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#if flow}
-			<FlowViewer flow={cleanFlow(flow)} tab="raw" />
+			<FlowViewer flow={cleanFlow(flow)} initTab="raw" />
 		{/if}
 	</DrawerContent>
 </Drawer>
