@@ -1,7 +1,7 @@
 -- OAuth server: clients that have registered with Windmill to access MCP
+-- Only public clients are supported (PKCE required, no client secrets)
 CREATE TABLE mcp_oauth_server_client (
     client_id VARCHAR(255) PRIMARY KEY,
-    client_secret_hash VARCHAR(255),  -- NULL for public clients (PKCE required)
     client_name VARCHAR(255) NOT NULL,
     redirect_uris TEXT[] NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()

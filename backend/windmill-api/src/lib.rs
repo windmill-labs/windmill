@@ -409,12 +409,13 @@ pub async fn run_server(
     let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
+            use mcp::add_www_authenticate_header;
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
-            let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
-            (
-                mcp_router.layer(mcp_middleware),
-                Some(mcp_cancellation_token),
-            )
+            // Apply middleware: first extract workspace ID, then add WWW-Authenticate header to 401s
+            let mcp_router = mcp_router
+                .layer(axum::middleware::from_fn(extract_and_store_workspace_id))
+                .layer(axum::middleware::from_fn(add_www_authenticate_header));
+            (mcp_router, Some(mcp_cancellation_token))
         } else {
             (Router::new(), None)
         }
@@ -729,6 +730,16 @@ pub async fn run_server(
             #[cfg(feature = "mcp")]
             {
                 get(mcp::oauth_server::oauth_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
+        .route("/.well-known/oauth-protected-resource", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::protected_resource_metadata)
             }
             #[cfg(not(feature = "mcp"))]
             {

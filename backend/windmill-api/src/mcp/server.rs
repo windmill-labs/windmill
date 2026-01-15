@@ -529,6 +529,41 @@ pub async fn extract_and_store_workspace_id(
     next.run(request).await
 }
 
+/// Middleware that adds WWW-Authenticate header to 401 responses
+/// This helps MCP clients discover the OAuth authorization server (RFC 9728)
+pub async fn add_www_authenticate_header(request: Request<axum::body::Body>, next: Next) -> Response {
+    use axum::http::StatusCode;
+    use windmill_common::BASE_URL;
+
+    let response = next.run(request).await;
+
+    // Only add header to 401 Unauthorized responses
+    if response.status() == StatusCode::UNAUTHORIZED {
+        let base_url = BASE_URL.read().await.clone();
+        let base_url = if base_url.is_empty() {
+            "http://localhost:8000".to_string()
+        } else {
+            base_url.trim_end_matches('/').to_string()
+        };
+
+        let resource_metadata_url = format!("{}/.well-known/oauth-protected-resource", base_url);
+        let www_authenticate = format!(
+            "Bearer resource_metadata=\"{}\"",
+            resource_metadata_url
+        );
+
+        // Reconstruct response with the new header
+        let (mut parts, body) = response.into_parts();
+        parts.headers.insert(
+            axum::http::header::WWW_AUTHENTICATE,
+            www_authenticate.parse().unwrap_or_else(|_| "Bearer".parse().unwrap()),
+        );
+        Response::from_parts(parts, body)
+    } else {
+        response
+    }
+}
+
 /// Setup the MCP server with HTTP transport
 pub async fn setup_mcp_server() -> anyhow::Result<(Router, CancellationToken)> {
     let cancellation_token = CancellationToken::new();
