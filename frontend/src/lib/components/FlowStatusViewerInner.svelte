@@ -49,6 +49,7 @@
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { useThrottle } from 'runed'
 
 	let {
 		flowState: flowStateStore,
@@ -503,8 +504,21 @@
 	}
 
 	let jobMissingStartedAt: Record<string, number | 'P'> = {}
-	let lastSelectedLoopSwitch: number | undefined
-	let selectedLoopSwitchTimeout: number | undefined = undefined
+
+	let setSelectedLoopSwitch = useThrottle(async (lastStarted: string, mod: FlowStatusModule) => {
+		let position = mod.flow_jobs?.indexOf(lastStarted)
+		if (!position) return
+		for (const flow_job of mod.flow_jobs ?? []) {
+			if (flow_job === lastStarted) {
+				break
+			} else if (flow_job !== lastStarted && suspendStatus.val[flow_job]) {
+				console.log('setSelectedLoopSwitch deleting suspend for', flow_job)
+				delete suspendStatus.val[flow_job]
+			}
+		}
+		console.log('setSelectedLoopSwitch', position, lastStarted, mod.id, suspendStatus)
+		setIteration(position, lastStarted, false, mod.id ?? '', true)
+	}, 2000)
 
 	function updateInnerModules() {
 		if (localModuleStates) {
@@ -641,29 +655,7 @@
 								})
 								if (anySet) {
 									updateDurationStatuses(key, nDurationStatuses)
-									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
-									function setSelectedLoopSwitch() {
-										if (lastStarted) {
-											let position = mod.flow_jobs?.indexOf(lastStarted)
-											if (position != undefined) {
-												lastSelectedLoopSwitch = new Date().getTime()
-												console.log('setSelectedLoopSwitch', position, lastStarted)
-												setIteration(position, lastStarted, false, mod.id ?? '', true)
-											}
-										}
-									}
-
-									if (
-										lastSelectedLoopSwitch &&
-										new Date().getTime() - lastSelectedLoopSwitch < 3000
-									) {
-										selectedLoopSwitchTimeout = setTimeout(() => {
-											setSelectedLoopSwitch()
-										}, 2000)
-									} else {
-										console.log('setSelectedLoopSwitch')
-										setSelectedLoopSwitch()
-									}
+									if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
 								}
 							})
 							.catch((e) => {
@@ -1293,6 +1285,10 @@
 			tabsHeight.graphHeight
 		)
 	)
+
+	let totalEventsWaiting = $derived(
+		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
+	)
 </script>
 
 <JobLoader workspaceOverride={workspaceId} {noLogs} noCode bind:this={jobLoader} />
@@ -1744,13 +1740,11 @@
 									</span>
 								{/if}
 							{/each}
-							{#each Object.values(suspendStatus?.val ?? {}) as count}
-								{#if count.nb}
-									<span class="text-sm">
-										Flow suspended, waiting for {count.nb} events
-									</span>
-								{/if}
-							{/each}
+							{#if totalEventsWaiting}
+								<span class="text-sm">
+									Flow suspended, waiting for {totalEventsWaiting} events
+								</span>
+							{/if}
 						</div>
 						<FlowGraphV2
 							{selectionManager}
