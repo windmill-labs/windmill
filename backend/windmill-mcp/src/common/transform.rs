@@ -1,11 +1,19 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
 //! Transformation utilities for MCP server
 //!
 //! Contains functions for transforming paths, keys, and other identifiers
 //! to make them compatible with MCP tool naming requirements.
 
-use super::models::SchemaType;
+use super::types::SchemaType;
 
-// MCP clients do not allow names longer than 60 characters
+/// MCP clients do not allow names longer than 60 characters
 const MAX_PATH_LENGTH: usize = 60;
 
 /// Transform the path for workspace scripts/flows
@@ -113,4 +121,36 @@ pub fn reverse_transform_key(transformed_key: &str, schema_obj: &Option<SchemaTy
     }
 
     transformed_key.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_transform_path() {
+        assert_eq!(transform_path("u/admin/script", "script"), "s-u_admin_script");
+        assert_eq!(transform_path("f/folder/flow", "flow"), "f-f_folder_flow");
+        assert_eq!(transform_path("my_script", "script"), "s-my__script");
+    }
+
+    #[test]
+    fn test_reverse_transform() {
+        let (type_str, path, is_hub) = reverse_transform("s-u_admin_script").unwrap();
+        assert_eq!(type_str, "script");
+        assert_eq!(path, "u/admin/script");
+        assert!(!is_hub);
+
+        let (type_str, path, is_hub) = reverse_transform("f-f_folder_flow").unwrap();
+        assert_eq!(type_str, "flow");
+        assert_eq!(path, "f/folder/flow");
+        assert!(!is_hub);
+    }
+
+    #[test]
+    fn test_apply_key_transformation() {
+        assert_eq!(apply_key_transformation("my key"), "my_key");
+        assert_eq!(apply_key_transformation("key!@#"), "key");
+        assert_eq!(apply_key_transformation("key_123"), "key_123");
+    }
 }

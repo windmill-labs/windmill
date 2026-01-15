@@ -405,7 +405,7 @@ def main():
     project_dir = backend_dir.parent
 
     openapi_file = backend_dir / "windmill-api" / "openapi.yaml"
-    rust_output_file = backend_dir / "windmill-api" / "src" / "mcp" / "tools" / "auto_generated_endpoints.rs"
+    rust_output_file = backend_dir / "windmill-api" / "src" / "mcp" / "auto_generated_endpoints.rs"
     ts_output_file = project_dir / "frontend" / "src" / "lib" / "mcpEndpointTools.ts"
 
     if not openapi_file.exists():

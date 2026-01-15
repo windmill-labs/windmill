@@ -1,9 +1,15 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
 //! MCP Scope matching utilities
 //!
 //! Contains utilities for parsing and matching MCP token scopes to determine
 //! which scripts, flows, and endpoints a token has access to.
-
-use windmill_mcp::server::ErrorData;
 
 /// Configuration for MCP scopes parsed from token scopes
 #[derive(Debug, Clone, Default)]
@@ -24,8 +30,26 @@ pub struct McpScopeConfig {
     pub hub_apps: Option<String>,
 }
 
+impl McpScopeConfig {
+    /// Check if a resource is allowed based on its type and path
+    pub fn is_allowed(&self, resource_type: &str, path: &str) -> bool {
+        if self.all {
+            return true;
+        }
+
+        let patterns = match resource_type {
+            "script" => &self.scripts,
+            "flow" => &self.flows,
+            "endpoint" => &self.endpoints,
+            _ => return false,
+        };
+
+        is_resource_allowed(path, patterns)
+    }
+}
+
 /// Parse MCP scopes from token scope strings
-pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> {
+pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, String> {
     let mut config = McpScopeConfig::default();
 
     for scope in scopes {
@@ -69,19 +93,19 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> 
 
         if let Some(resources) = scope.strip_prefix("mcp:scripts:") {
             // New granular script scope: mcp:scripts:path1,path2,f/folder/*
-            config.scripts.extend(parse_resource_list(resources)?);
+            config.scripts.extend(parse_resource_list(resources));
             continue;
         }
 
         if let Some(resources) = scope.strip_prefix("mcp:flows:") {
             // New granular flow scope: mcp:flows:path1,path2,f/folder/*
-            config.flows.extend(parse_resource_list(resources)?);
+            config.flows.extend(parse_resource_list(resources));
             continue;
         }
 
         if let Some(resources) = scope.strip_prefix("mcp:endpoints:") {
             // New granular endpoint scope: mcp:endpoints:name1,name2
-            config.endpoints.extend(parse_resource_list(resources)?);
+            config.endpoints.extend(parse_resource_list(resources));
             continue;
         }
 
@@ -94,16 +118,16 @@ pub fn parse_mcp_scopes(scopes: &[String]) -> Result<McpScopeConfig, ErrorData> 
 }
 
 /// Parse comma-separated resource list
-fn parse_resource_list(resources: &str) -> Result<Vec<String>, ErrorData> {
+fn parse_resource_list(resources: &str) -> Vec<String> {
     if resources.is_empty() {
-        return Ok(vec![]);
+        return vec![];
     }
 
-    Ok(resources
+    resources
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .collect())
+        .collect()
 }
 
 /// Check if a resource path matches any pattern in the allowed list
@@ -198,10 +222,7 @@ mod tests {
 
         // Wildcard folder match
         assert!(resource_matches_pattern("f/folder/script", "f/folder/*"));
-        assert!(resource_matches_pattern(
-            "f/folder/sub/script",
-            "f/folder/*"
-        ));
+        assert!(resource_matches_pattern("f/folder/sub/script", "f/folder/*"));
 
         // Should NOT match - prefix is not complete
         assert!(!resource_matches_pattern("u/username", "u/user/*"));
@@ -225,5 +246,17 @@ mod tests {
         // Test empty patterns
         let empty: Vec<String> = vec![];
         assert!(!is_resource_allowed("any/path", &empty));
+    }
+
+    #[test]
+    fn test_scope_config_is_allowed() {
+        let mut config = McpScopeConfig::default();
+        config.scripts.push("u/admin/*".to_string());
+        config.flows.push("f/automation/*".to_string());
+
+        assert!(config.is_allowed("script", "u/admin/test"));
+        assert!(!config.is_allowed("script", "u/other/test"));
+        assert!(config.is_allowed("flow", "f/automation/test"));
+        assert!(!config.is_allowed("flow", "f/other/test"));
     }
 }

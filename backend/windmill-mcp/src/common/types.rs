@@ -1,3 +1,11 @@
+/*
+ * Author: Ruben Fiszel
+ * Copyright: Windmill Labs, Inc 2022
+ * This file and its contents are licensed under the AGPLv3 License.
+ * Please see the included NOTICE for copyright information and
+ * LICENSE-AGPL for a copy of the license.
+ */
+
 //! Data models for MCP server
 //!
 //! Contains all the data structures used throughout the MCP implementation,
@@ -5,9 +13,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::FromRow;
 use std::collections::HashMap;
 use windmill_common::scripts::Schema;
+
+#[cfg(feature = "server")]
+use sqlx::FromRow;
 
 /// Workspace ID wrapper for Axum extensions
 #[derive(Clone, Debug)]
@@ -30,7 +40,8 @@ pub struct HubScriptInfo {
 }
 
 /// Schema type structure for JSON schemas
-#[derive(Serialize, FromRow, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct SchemaType {
     pub r#type: String,
     pub properties: HashMap<String, Value>,
@@ -48,7 +59,8 @@ impl Default for SchemaType {
 }
 
 /// Script information from database
-#[derive(Serialize, FromRow, Debug)]
+#[derive(Serialize, Debug)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct ScriptInfo {
     pub path: String,
     pub summary: Option<String>,
@@ -57,7 +69,8 @@ pub struct ScriptInfo {
 }
 
 /// Flow information from database
-#[derive(Serialize, FromRow, Debug)]
+#[derive(Serialize, Debug)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct FlowInfo {
     pub path: String,
     pub summary: Option<String>,
@@ -66,7 +79,8 @@ pub struct FlowInfo {
 }
 
 /// Resource information from database
-#[derive(Serialize, FromRow, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct ResourceInfo {
     pub path: String,
     pub description: Option<String>,
@@ -74,25 +88,34 @@ pub struct ResourceInfo {
 }
 
 /// Resource type information from database
-#[derive(Serialize, FromRow, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct ResourceType {
     pub name: String,
     pub description: Option<String>,
 }
 
 /// Schema holder for database queries
-#[derive(Serialize, FromRow)]
+#[derive(Serialize)]
+#[cfg_attr(feature = "server", derive(FromRow))]
 pub struct ItemSchema {
     pub schema: Option<Schema>,
 }
 
 /// Trait for objects that can be converted to MCP tools
 pub trait ToolableItem {
+    /// Get the path or identifier for this item (transformed for MCP compatibility)
     fn get_path_or_id(&self) -> String;
+    /// Get the summary/title of this item
     fn get_summary(&self) -> &str;
+    /// Get the description of this item
     fn get_description(&self) -> &str;
+    /// Get the JSON schema for this item's parameters
     fn get_schema(&self) -> SchemaType;
+    /// Whether this item is from the Hub
     fn is_hub(&self) -> bool;
+    /// Get the type of this item ("script" or "flow")
     fn item_type(&self) -> &'static str;
+    /// Get the integration type (for hub scripts)
     fn get_integration_type(&self) -> Option<String>;
 }

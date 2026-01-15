@@ -1,36 +1,24 @@
-//! Database operations for MCP server
+//! Utility functions for MCP server
 //!
-//! Contains all database query functions and database-related utilities
+//! Contains database query functions and HTTP request helpers
 //! used by the MCP server implementation.
 
-use windmill_mcp::server::ErrorData;
+use serde_json::Value;
 use sql_builder::prelude::*;
-use windmill_common::db::UserDB;
+use windmill_common::auth::create_jwt_token;
+use windmill_common::db::{Authed, UserDB};
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::{DB, HUB_BASE_URL};
+use windmill_mcp::server::{BackendError, BackendResult, ErrorData};
+use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
-use super::models::*;
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 
-/// Check if the user has proper MCP scopes
-pub fn check_scopes(authed: &ApiAuthed) -> Result<(), ErrorData> {
-    let scopes = authed.scopes.as_ref();
-    if scopes.is_none()
-        || scopes
-            .unwrap()
-            .iter()
-            .all(|scope| !scope.starts_with("mcp:"))
-    {
-        tracing::error!("Unauthorized: missing mcp scope");
-        return Err(ErrorData::internal_error(
-            "Unauthorized: missing mcp scope".to_string(),
-            None,
-        ));
-    }
-    Ok(())
-}
+// ============================================================================
+// Database utilities
+// ============================================================================
 
 /// Get the schema for a specific item (script or flow)
 pub async fn get_item_schema(
@@ -240,4 +228,151 @@ pub async fn get_hub_script_schema(path: &str, db: &DB) -> Result<Option<Schema>
             Ok(None)
         }
     }
+}
+
+// ============================================================================
+// HTTP request utilities for endpoint tools
+// ============================================================================
+
+/// Substitute path parameters in the URL template
+pub fn substitute_path_params(
+    path: &str,
+    workspace_id: &str,
+    args_map: &serde_json::Map<String, Value>,
+    path_schema: &Option<Value>,
+) -> BackendResult<String> {
+    let mut path_template = path.replace("{workspace}", workspace_id);
+
+    if let Some(schema) = path_schema {
+        if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+            for (param_name, _) in props {
+                let placeholder = format!("{{{}}}", param_name);
+                match args_map.get(param_name) {
+                    Some(param_value) => {
+                        if let Some(str_val) = param_value.as_str() {
+                            path_template = path_template.replace(&placeholder, str_val);
+                        }
+                    }
+                    None => {
+                        tracing::warn!("Missing required path parameter: {}", param_name);
+                        return Err(BackendError::invalid_params(format!(
+                            "Missing required path parameter: {}",
+                            param_name
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(path_template)
+}
+
+/// Build query string from arguments
+pub fn build_query_string(
+    args_map: &serde_json::Map<String, Value>,
+    query_schema: &Option<Value>,
+) -> String {
+    let Some(schema) = query_schema else {
+        return String::new();
+    };
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return String::new();
+    };
+
+    let query_params: Vec<String> = props
+        .keys()
+        .filter_map(|param_name| {
+            args_map
+                .get(param_name)
+                .filter(|v| !v.is_null())
+                .map(|value| {
+                    let value_str = value.to_string();
+                    let str_val = value_str.trim_matches('"');
+                    format!(
+                        "{}={}",
+                        urlencoding::encode(param_name),
+                        urlencoding::encode(str_val)
+                    )
+                })
+        })
+        .collect();
+
+    if query_params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query_params.join("&"))
+    }
+}
+
+/// Build request body from arguments
+pub fn build_request_body(
+    method: &str,
+    args_map: &serde_json::Map<String, Value>,
+    body_schema: &Option<Value>,
+) -> Option<Value> {
+    if method == "GET" {
+        return None;
+    }
+
+    let schema = body_schema.as_ref()?;
+    let props = schema.get("properties")?.as_object()?;
+
+    let body_map: serde_json::Map<String, Value> = props
+        .keys()
+        .filter_map(|param_name| {
+            args_map
+                .get(param_name)
+                .map(|value| (param_name.clone(), value.clone()))
+        })
+        .collect();
+
+    if body_map.is_empty() {
+        None
+    } else {
+        Some(Value::Object(body_map))
+    }
+}
+
+/// Create HTTP request with authentication
+pub async fn create_http_request(
+    method: &str,
+    url: &str,
+    workspace_id: &str,
+    api_authed: &ApiAuthed,
+    body_json: Option<Value>,
+) -> BackendResult<reqwest::Response> {
+    let client = &HTTP_CLIENT;
+    let mut request_builder = match method {
+        "GET" => client.get(url),
+        "POST" => client.post(url),
+        "PUT" => client.put(url),
+        "DELETE" => client.delete(url),
+        "PATCH" => client.patch(url),
+        _ => {
+            return Err(BackendError::invalid_params(format!(
+                "Unsupported HTTP method: {}",
+                method
+            )));
+        }
+    };
+
+    // Add authorization header
+    let authed = Authed::from(api_authed.clone());
+    let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None)
+        .await
+        .map_err(|e| BackendError::internal(e.to_string()))?;
+    request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
+
+    // Add body if present
+    if let Some(body) = body_json {
+        request_builder = request_builder
+            .header("Content-Type", "application/json")
+            .json(&body);
+    }
+
+    request_builder
+        .send()
+        .await
+        .map_err(|e| BackendError::internal(format!("Failed to execute request: {}", e)))
 }

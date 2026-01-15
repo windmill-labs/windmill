@@ -3,9 +3,10 @@
 //! This module provides the MCP server implementation that exposes Windmill scripts,
 //! flows, and API endpoints as MCP tools for AI assistants to interact with.
 
-pub mod server;
-pub mod tools;
-pub mod utils;
+mod auto_generated_endpoints;
+mod backend_impl;
+mod server;
+mod utils;
 
-// Re-export main components
+// Re-export only what's needed externally
 pub use server::{extract_and_store_workspace_id, list_tools_service, setup_mcp_server};
