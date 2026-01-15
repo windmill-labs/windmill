@@ -2518,10 +2518,13 @@ async fn push_next_flow_job(
             .await
             .context("lock flow in queue")?;
 
+            // Query for both step-level resumes (job = step_id) and flow-level resumes (job = flow_id)
+            // Flow-level resumes allow pre-approvals that can be consumed by any suspend step
             let resumes = sqlx::query_as::<_, ResumeRow>(
-                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 ORDER BY created_at ASC",
+                 "SELECT value, approver, resume_id, approved FROM resume_job WHERE job = $1 OR job = $2 ORDER BY created_at ASC",
              )
              .bind(last)
+             .bind(flow_job.id)
              .fetch_all(&mut *tx)
              .warn_after_seconds(3)
              .await
