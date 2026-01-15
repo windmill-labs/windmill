@@ -447,13 +447,13 @@ export const settings: Record<string, Setting[]> = {
 			ee_only: ''
 		},
 		{
-			label: 'OTel',
+			label: 'HTTP Request Tracing',
 			description:
-				'Intercept and trace all HTTP/HTTPS requests made by job scripts. This feature runs a transparent proxy that captures outgoing network calls and records them as OpenTelemetry spans, visible in the job details panel. Useful for debugging API integrations, monitoring external service calls, and understanding script network behavior. Supports per-language configuration. Note: Only works with NUM_WORKERS=1 to avoid race conditions with request attribution. Requires worker restart after enabling.',
+				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Requires NUM_WORKERS=1 and worker restart.',
 			key: 'otel_tracing_proxy',
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
-			ee_only: 'OTel is an EE feature',
+			ee_only: 'HTTP Request Tracing is an EE feature',
 			defaultValue: () => ({ enabled: false, enabled_languages: ['python3', 'bun'] })
 		},
 		{

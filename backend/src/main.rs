@@ -452,6 +452,8 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
+    // TODO: maybe gate behind debug_assertions?
+    // TODO: what about native?
     if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
@@ -801,6 +803,9 @@ Windmill Community Edition {GIT_VERSION}
 
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
+
+        // Resubscribe for OTEL tracing proxy before workers_f captures killpill_rx
+        let otel_killpill_rx = killpill_rx.resubscribe();
 
         let server_f = async {
             if !is_agent {
@@ -1375,7 +1380,7 @@ Windmill Community Edition {GIT_VERSION}
                 if worker_mode && num_workers == 1 && windmill_worker::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
                     if let Some(db) = conn.as_sql() {
                         tracing::info!("Starting OTEL tracing proxy (port will be dynamically assigned)");
-                        if let Err(e) = windmill_worker::start_otel_tracing_proxy(db.clone()).await {
+                        if let Err(e) = windmill_worker::start_otel_tracing_proxy(db.clone(), otel_killpill_rx).await {
                             tracing::error!("OTEL tracing proxy error: {}", e);
                         }
                     }

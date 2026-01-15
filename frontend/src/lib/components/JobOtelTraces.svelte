@@ -131,6 +131,35 @@
 		}
 	}
 
+	// Parse OTEL proto AnyValue to a simple value
+	function parseAnyValue(anyValue: any): any {
+		if (!anyValue) return null
+		if (anyValue.stringValue !== undefined) return anyValue.stringValue
+		if (anyValue.intValue !== undefined) return anyValue.intValue
+		if (anyValue.boolValue !== undefined) return anyValue.boolValue
+		if (anyValue.doubleValue !== undefined) return anyValue.doubleValue
+		if (anyValue.arrayValue?.values) {
+			return anyValue.arrayValue.values.map(parseAnyValue)
+		}
+		if (anyValue.kvlistValue?.values) {
+			return parseAttributes(anyValue.kvlistValue.values)
+		}
+		return JSON.stringify(anyValue)
+	}
+
+	// Parse OTEL proto attributes array to a simple key-value object
+	function parseAttributes(attributes: any): Record<string, any> {
+		if (!attributes) return {}
+		if (!Array.isArray(attributes)) return attributes // already parsed
+		const result: Record<string, any> = {}
+		for (const attr of attributes) {
+			if (attr.key && attr.value !== undefined) {
+				result[attr.key] = parseAnyValue(attr.value)
+			}
+		}
+		return result
+	}
+
 	// Calculate timeline metrics
 	function getTimelineMetrics(spans: OtelSpan[]) {
 		if (spans.length === 0) return { minTime: 0, maxTime: 0, totalDuration: 0 }
@@ -222,6 +251,7 @@
 							</button>
 
 							{#if expandedSpans.has(span.span_id)}
+								{@const parsedAttrs = parseAttributes(span.attributes)}
 								<div class="px-4 pb-4 bg-surface-secondary/50">
 									<div class="grid grid-cols-2 gap-4 text-sm">
 										<div>
@@ -256,10 +286,17 @@
 												<p class="text-xs">{span.status.message}</p>
 											</div>
 										{/if}
-										{#if Object.keys(span.attributes).length > 0}
+										{#if Object.keys(parsedAttrs).length > 0}
 											<div class="col-span-2">
 												<p class="text-xs text-secondary mb-1">Attributes</p>
-												<pre class="text-xs bg-surface-secondary p-2 rounded overflow-x-auto">{JSON.stringify(span.attributes, null, 2)}</pre>
+												<div class="bg-surface-secondary p-2 rounded text-xs space-y-1">
+													{#each Object.entries(parsedAttrs) as [key, value]}
+														<div class="flex gap-2">
+															<span class="text-secondary font-medium shrink-0">{key}:</span>
+															<span class="font-mono break-all">{typeof value === 'object' ? JSON.stringify(value) : value}</span>
+														</div>
+													{/each}
+												</div>
 											</div>
 										{/if}
 									</div>

@@ -24,7 +24,7 @@ sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
     "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi"]
 libffi_mac = ["dep:libffi-sys"]
-otel = ["windmill-common/otel", "dep:opentelemetry"]
+otel = ["windmill-common/otel", "dep:opentelemetry", "dep:tracing-opentelemetry"]
 dind = ["dep:bollard"]
 php = ["dep:windmill-parser-php"]
 mysql = ["dep:mysql_async"]
@@ -76,6 +76,7 @@ futures.workspace = true
 async-recursion.workspace = true
 async-trait.workspace = true
 anyhow.workspace = true
+derive_more.workspace = true
 itertools.workspace = true
 regex.workspace = true
 prometheus = { workspace = true, optional = true }
@@ -141,6 +142,7 @@ prost.workspace = true
 axum.workspace = true
 tonic.workspace = true
 opentelemetry = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 pingora-proxy.workspace = true

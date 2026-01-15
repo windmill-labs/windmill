@@ -2751,12 +2751,6 @@ pub async fn handle_queued_job(
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
 ) -> windmill_common::error::Result<bool> {
-    // Set OTEL tracing proxy job context for HTTP request attribution (only if enabled)
-    #[cfg(all(feature = "private", feature = "enterprise"))]
-    if OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
-        crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
-    }
-
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
     }

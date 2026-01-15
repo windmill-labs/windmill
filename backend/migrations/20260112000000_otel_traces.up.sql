@@ -32,15 +32,6 @@ CREATE INDEX IF NOT EXISTS otel_traces_trace_time_idx ON otel_traces (trace_id, 
 -- Time-based cleanup (retention policy)
 CREATE INDEX IF NOT EXISTS otel_traces_time_idx ON otel_traces (start_time_unix_nano);
 
-
--- Linking table to associate jobs with their trace_id.
--- This allows querying traces for a specific job via LEFT JOIN.
--- A job may have one trace, and a trace may span multiple jobs in the future
--- (e.g., upstream traces that start before job execution).
-
-CREATE TABLE IF NOT EXISTS job_trace (
-    job_id    UUID PRIMARY KEY,
-    trace_id  VARCHAR(32) NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS job_trace_trace_id_idx ON job_trace (trace_id);
+-- NOTE: No job_trace linking table needed.
+-- trace_id is deterministically derived from job_id: trace_id = hex(job_id.as_u128())
+-- To query traces for a job: SELECT * FROM otel_traces WHERE trace_id = hex_encode(job_id)

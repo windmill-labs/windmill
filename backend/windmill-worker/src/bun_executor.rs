@@ -21,7 +21,7 @@ use crate::{
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, TZ_ENV, get_proxy_envs_for_lang,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV, get_proxy_envs_for_lang,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -295,7 +295,7 @@ pub async fn install_bun_lockfile(
     child_cmd
         .current_dir(job_dir)
         .env_clear()
-        .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
+        .envs(PROXY_ENVS.clone())
         .envs(common_bun_proc_envs)
         .envs(&*crate::worker::WHITELIST_ENVS)
         .args(args)
@@ -1415,6 +1415,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
             .envs(common_bun_proc_envs)
             .env("PATH", PATH_ENV.as_str())
             .args(args)
@@ -1432,6 +1433,7 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1462,6 +1464,7 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())

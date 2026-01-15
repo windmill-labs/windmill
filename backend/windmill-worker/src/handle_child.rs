@@ -121,6 +121,12 @@ pub async fn handle_child(
 ) -> error::Result<HandleChildResult> {
     let start = Instant::now();
 
+    // Set OTEL tracing proxy context with the current span's trace_id and span_id
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if crate::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
+        crate::otel_tracing_proxy_ee::set_current_job_context().await;
+    }
+
     let pid = child.id();
     #[cfg(target_os = "linux")]
     if let Some(pid) = pid {

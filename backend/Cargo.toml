@@ -236,6 +236,7 @@ thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
 chrono-tz = "^0.10.1"
+derive_more = { version = "1", features = ["deref", "deref_mut"], default-features = false }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
