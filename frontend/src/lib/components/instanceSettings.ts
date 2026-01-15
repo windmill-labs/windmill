@@ -1,5 +1,20 @@
 import type { ButtonType } from './common/button/model'
 
+// Languages that support HTTP request tracing via OTEL proxy
+export const OTEL_TRACING_PROXY_LANGUAGES = [
+	'python3',
+	'deno',
+	'bun',
+	'go',
+	'bash',
+	'php',
+	'rust',
+	'csharp',
+	'nu',
+	'java',
+	'ruby'
+] as const
+
 export interface Setting {
 	label: string
 	description?: string
@@ -454,7 +469,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
 			ee_only: 'HTTP Request Tracing is an EE feature',
-			defaultValue: () => ({ enabled: false, enabled_languages: ['python3', 'bun'] })
+			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
 		},
 		{
 			label: 'Prometheus',

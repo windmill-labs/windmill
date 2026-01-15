@@ -30,10 +30,12 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, start_child_process,
     },
-    handle_child::handle_child,
+    handle_child::handle_child, get_proxy_envs_for_lang,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
     NUGET_CONFIG, PATH_ENV, TZ_ENV,
 };
+#[cfg(feature = "csharp")]
+use windmill_common::scripts::ScriptLang;
 
 use crate::common::OccupancyMetrics;
 use windmill_common::client::AuthedClient;
@@ -570,6 +572,7 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -600,6 +603,7 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")

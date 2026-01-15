@@ -16,8 +16,9 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    handle_child, get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV,
 };
+use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
 
 const NSJAIL_CONFIG_RUN_NU_CONTENT: &str = include_str!("../nsjail/run.nu.config.proto");
@@ -260,7 +261,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Nu).await?)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -299,7 +300,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Nu).await?)
             // TODO(v1):
             // "--plugins",
             // &format!(

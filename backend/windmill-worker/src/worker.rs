@@ -248,23 +248,14 @@ const VACUUM_PERIOD: u32 = 50000;
 
 pub const MAX_BUFFERED_DEDICATED_JOBS: usize = 3;
 
-/// Per-language OTEL tracing proxy configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Per-language OTEL tracing proxy configuration.
+/// Default languages are configured in frontend instanceSettings.ts
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OtelTracingProxySettings {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default = "default_tracing_proxy_languages")]
+    #[serde(default)]
     pub enabled_languages: HashSet<ScriptLang>,
-}
-
-fn default_tracing_proxy_languages() -> HashSet<ScriptLang> {
-    HashSet::from([ScriptLang::Python3, ScriptLang::Bun])
-}
-
-impl Default for OtelTracingProxySettings {
-    fn default() -> Self {
-        Self { enabled: false, enabled_languages: default_tracing_proxy_languages() }
-    }
 }
 
 #[cfg(feature = "prometheus")]

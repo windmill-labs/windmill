@@ -805,6 +805,7 @@ Windmill Community Edition {GIT_VERSION}
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
         // Resubscribe for OTEL tracing proxy before workers_f captures killpill_rx
+        #[cfg(all(feature = "private", feature = "enterprise"))]
         let otel_killpill_rx = killpill_rx.resubscribe();
 
         let server_f = async {

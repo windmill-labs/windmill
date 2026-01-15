@@ -24,11 +24,12 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child,
+    handle_child, get_proxy_envs_for_lang,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
     COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
     JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
+use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
 
 lazy_static::lazy_static! {
@@ -608,7 +609,7 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Java).await?)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -665,7 +666,8 @@ async fn run<'a>(
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
-            .envs(reserved_variables);
+            .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Java).await?);
         if metadata(TRUST_STORE_PATH.clone()).await.is_ok() {
             cmd.args(&[
                 &format!("-Djavax.net.ssl.trustStore={}", *TRUST_STORE_PATH),

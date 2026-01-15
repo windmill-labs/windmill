@@ -3,6 +3,8 @@
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
 	import { AlertCircle, BadgeCheck, BadgeX, Info } from 'lucide-svelte'
 	import type { Setting } from './instanceSettings'
+	import { OTEL_TRACING_PROXY_LANGUAGES } from './instanceSettings'
+	import { LanguageIcon } from './common/languageIcons'
 	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -42,13 +44,6 @@
 
 	let { setting, version, values, loading = true, openSmtpSettings, oauths }: Props = $props()
 	const dispatch = createEventDispatcher()
-
-	const OTEL_TRACING_PROXY_LANGUAGES = [
-		{ value: 'python3', label: 'Python' },
-		{ value: 'bun', label: 'TypeScript (Bun)' },
-		{ value: 'deno', label: 'TypeScript (Deno)' },
-		{ value: 'nu', label: 'Nushell' }
-	] as const
 
 	if (
 		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
@@ -838,45 +833,36 @@
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'otel_tracing_proxy'}
-					{@const defaultTracingProxy = { enabled: false, enabled_languages: ['python3', 'bun'] }}
-					{@const tracingProxyVal = typeof $values[setting.key] === 'object' && $values[setting.key] !== null
-						? $values[setting.key]
-						: defaultTracingProxy}
-					<div class="flex flex-col gap-2 border rounded p-4">
-						<div class="flex gap-8">
-							<Toggle
-								id="otel_tracing_proxy_enabled"
-								checked={tracingProxyVal.enabled ?? false}
-								on:change={(e) => {
-									$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
-								}}
-								options={{ right: 'Enabled' }}
-							/>
-						</div>
+					{@const tracingProxyVal = $values[setting.key] ?? { enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] }}
+					<div class="flex flex-col gap-4">
+						<Toggle
+							id="otel_tracing_proxy_enabled"
+							checked={tracingProxyVal.enabled ?? false}
+							on:change={(e) => {
+								$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
+							}}
+							options={{ right: 'Enabled' }}
+						/>
 						{#if tracingProxyVal.enabled}
-							<details class="mt-2">
-								<summary class="cursor-pointer text-xs font-semibold text-secondary hover:text-primary">
-									Language Settings
-								</summary>
-								<div class="flex flex-col gap-2 mt-3 ml-2">
-									{#each OTEL_TRACING_PROXY_LANGUAGES as lang}
-										<Toggle
-											id="otel_tracing_proxy_{lang.value}"
-											size="xs"
-											checked={(tracingProxyVal.enabled_languages ?? []).includes(lang.value)}
-											on:change={(e) => {
-												const enabled = e.detail
-												const current = tracingProxyVal.enabled_languages ?? []
-												const newLangs = enabled && !current.includes(lang.value)
-													? [...current, lang.value]
-													: current.filter((l) => l !== lang.value)
-												$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
-											}}
-											options={{ right: lang.label }}
-										/>
-									{/each}
-								</div>
-							</details>
+							<div class="flex flex-wrap gap-2">
+								{#each OTEL_TRACING_PROXY_LANGUAGES as lang (lang)}
+									{@const isEnabled = (tracingProxyVal.enabled_languages ?? []).includes(lang)}
+									<button
+										class="flex flex-col items-center gap-1 p-2 rounded border transition-all {isEnabled
+											? 'border-blue-500 bg-blue-500/10'
+											: 'border-gray-300 opacity-40 hover:opacity-70'}"
+										onclick={() => {
+											const current = tracingProxyVal.enabled_languages ?? []
+											const newLangs = isEnabled
+												? current.filter((l) => l !== lang)
+												: [...current, lang]
+											$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
+										}}
+									>
+										<LanguageIcon {lang} size={24} />
+									</button>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}

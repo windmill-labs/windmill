@@ -39,8 +39,9 @@ use crate::{
         OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
+    get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
+use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
 
 lazy_static::lazy_static! {
@@ -193,7 +194,7 @@ exit $exit_status
             .current_dir(job_dir)
             .env_clear()
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Bash).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(cmd_args)
@@ -219,6 +220,7 @@ exit $exit_status
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Bash).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
             .env("HOME", HOME_ENV.as_str())

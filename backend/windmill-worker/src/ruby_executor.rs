@@ -26,10 +26,11 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         read_result, start_child_process, OccupancyMetrics,
     },
-    handle_child::{self},
+    handle_child::{self}, get_proxy_envs_for_lang,
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
     DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
 };
+use windmill_common::scripts::ScriptLang;
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref RUBY_PATH: String = std::env::var("RUBY_PATH").unwrap_or_else(|_| "/usr/bin/ruby".to_string());
@@ -803,7 +804,7 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -842,7 +843,7 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
             .envs(envs);
 
         cmd.stdin(Stdio::null())
