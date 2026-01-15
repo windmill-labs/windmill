@@ -125,18 +125,12 @@ export const GLOBAL_CONFIG_OPT = { noCdToRoot: false };
 function findWmillYaml(): string | null {
   const startDir = resolve(Deno.cwd());
   const isInGitRepo = isGitRepository();
+  const gitRoot = isInGitRepo ? getGitRepoRoot() : null;
 
-  // If not in git repo, only check current directory
-  if (!isInGitRepo) {
-    const wmillYamlPath = join(startDir, "wmill.yaml");
-    return existsSync(wmillYamlPath) ? wmillYamlPath : null;
-  }
-
-  // If in git repo, search up to git repository root
-  const gitRoot = getGitRepoRoot();
   let currentDir = startDir;
   let foundPath: string | null = null;
 
+  // Search upward for wmill.yaml until we find it, reach git root, or reach filesystem root
   while (true) {
     const wmillYamlPath = join(currentDir, "wmill.yaml");
 
