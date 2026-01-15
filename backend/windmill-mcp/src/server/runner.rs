@@ -21,6 +21,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+// Re-export from http crate for extracting request parts
+use http::request::Parts as HttpParts;
+
 /// MCP Server Runner - generic over the backend implementation
 ///
 /// This struct implements the MCP ServerHandler trait and uses a McpBackend
@@ -47,7 +50,7 @@ impl<B: McpBackend> Runner<B> {
     ) -> Result<(B::Auth, String), ErrorData> {
         let http_parts = context
             .extensions
-            .get::<axum::http::request::Parts>()
+            .get::<HttpParts>()
             .ok_or_else(|| {
                 tracing::error!("http::request::Parts not found");
                 ErrorData::internal_error("http::request::Parts not found", None)

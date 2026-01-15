@@ -31,7 +31,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use windmill_mcp::server::{
-    LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+    LocalSessionManager, Runner, StreamableHttpServerConfig, StreamableHttpService,
 };
 use windmill_mcp::WorkspaceId;
 
@@ -334,7 +334,9 @@ impl McpBackend for WindmillBackend {
 
         let body_bytes = to_bytes(result.into_body(), usize::MAX)
             .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to read response body: {}", e), None))?;
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to read response body: {}", e), None)
+            })?;
 
         let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
             ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
@@ -374,7 +376,9 @@ impl McpBackend for WindmillBackend {
 
         let body_bytes = to_bytes(result.into_body(), usize::MAX)
             .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to read response body: {}", e), None))?;
+            .map_err(|e| {
+                ErrorData::internal_error(format!("Failed to read response body: {}", e), None)
+            })?;
 
         let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
             ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
@@ -393,7 +397,10 @@ impl McpBackend for WindmillBackend {
         let args_map = match &args {
             Value::Object(map) => map,
             _ => {
-                return Err(ErrorData::invalid_params("Arguments must be an object", None));
+                return Err(ErrorData::invalid_params(
+                    "Arguments must be an object",
+                    None,
+                ));
             }
         };
 
@@ -427,21 +434,23 @@ impl McpBackend for WindmillBackend {
         .await?;
 
         let status = response.status();
-        let response_text = response
-            .text()
-            .await
-            .map_err(|e| ErrorData::internal_error(format!("Failed to read response text: {}", e), None))?;
+        let response_text = response.text().await.map_err(|e| {
+            ErrorData::internal_error(format!("Failed to read response text: {}", e), None)
+        })?;
 
         if status.is_success() {
             Ok(serde_json::from_str(&response_text)
                 .unwrap_or_else(|_| Value::String(response_text)))
         } else {
-            Err(ErrorData::internal_error(format!(
-                "HTTP {} {}: {}",
-                status.as_u16(),
-                status.canonical_reason().unwrap_or(""),
-                response_text
-            ), None))
+            Err(ErrorData::internal_error(
+                format!(
+                    "HTTP {} {}: {}",
+                    status.as_u16(),
+                    status.canonical_reason().unwrap_or(""),
+                    response_text
+                ),
+                None,
+            ))
         }
     }
 
@@ -468,21 +477,20 @@ pub async fn setup_mcp_server(
 ) -> anyhow::Result<(Router, CancellationToken)> {
     let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
+
+    let backend = WindmillBackend::new(db, user_db);
+    let runner = Runner::new(backend);
+
     let service_config = StreamableHttpServerConfig {
         sse_keep_alive: Some(Duration::from_secs(15)),
         stateful_mode: false,
         cancellation_token: cancellation_token.clone(),
     };
 
-    let backend = WindmillBackend::new(db, user_db);
+    let service =
+        StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
-    let service = StreamableHttpService::new(
-        move || Ok(windmill_mcp::server::Runner::new(backend.clone())),
-        session_manager.clone(),
-        service_config,
-    );
-
-    let router = axum::Router::new().nest_service("/", service);
+    let router = Router::new().nest_service("/", service);
     Ok((router, cancellation_token))
 }
 

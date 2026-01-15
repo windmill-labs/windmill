@@ -1258,7 +1258,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "edca88bc138befd0323b20752846e6587272d3b03b0343c8ea28a6f819e6e71f"
 dependencies = [
  "async-trait",
- "axum-core 0.4.5",
+ "axum-core",
  "axum-macros",
  "bytes",
  "futures-util",
@@ -1268,7 +1268,7 @@ dependencies = [
  "hyper 1.8.1",
  "hyper-util",
  "itoa",
- "matchit 0.7.3",
+ "matchit",
  "memchr",
  "mime",
  "multer",
@@ -1285,32 +1285,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "axum"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "021e862c184ae977658b36c4500f7feac3221ca5da43e3f25bd04ab6c79a29b5"
-dependencies = [
- "axum-core 0.5.6",
- "bytes",
- "futures-util",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "itoa",
- "matchit 0.8.4",
- "memchr",
- "mime",
- "percent-encoding",
- "pin-project-lite",
- "rustversion",
- "serde",
- "sync_wrapper",
- "tower 0.5.3",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]
@@ -1332,24 +1306,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
-]
-
-[[package]]
-name = "axum-core"
-version = "0.5.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
-dependencies = [
- "bytes",
- "futures-core",
- "http 1.4.0",
- "http-body 1.0.1",
- "http-body-util",
- "mime",
- "pin-project-lite",
- "sync_wrapper",
- "tower-layer",
- "tower-service",
 ]
 
 [[package]]
@@ -8171,12 +8127,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
 
 [[package]]
-name = "matchit"
-version = "0.8.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
-
-[[package]]
 name = "md-5"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14042,7 +13992,7 @@ checksum = "877c5b330756d856ffcc4553ab34a5684481ade925ecc54bcd1bf02b1d0d4d52"
 dependencies = [
  "async-stream",
  "async-trait",
- "axum 0.7.9",
+ "axum",
  "base64 0.22.1",
  "bytes",
  "flate2",
@@ -14113,7 +14063,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fd0118512cf0b3768f7fcccf0bef1ae41d68f2b45edc1e77432b36c97c56c6d"
 dependencies = [
  "async-trait",
- "axum-core 0.4.5",
+ "axum-core",
  "cookie 0.18.1",
  "futures-util",
  "http 1.4.0",
@@ -15237,7 +15187,7 @@ dependencies = [
  "anyhow",
  "aws-sdk-config",
  "aws-sigv4",
- "axum 0.7.9",
+ "axum",
  "base64 0.22.1",
  "bitflags 2.9.4",
  "chrono",
@@ -15313,7 +15263,7 @@ dependencies = [
  "aws-sdk-ssooidc",
  "aws-sdk-sts",
  "aws-sigv4",
- "axum 0.7.9",
+ "axum",
  "backon",
  "base32",
  "base64 0.22.1",
@@ -15348,7 +15298,7 @@ dependencies = [
  "libxml",
  "magic-crypt",
  "mail-parser",
- "matchit 0.7.3",
+ "matchit",
  "mime_guess",
  "native-tls",
  "nkeys",
@@ -15445,7 +15395,7 @@ name = "windmill-autoscaling"
 version = "1.606.1"
 dependencies = [
  "anyhow",
- "axum 0.7.9",
+ "axum",
  "k8s-openapi",
  "kube",
  "serde",
@@ -15473,7 +15423,7 @@ dependencies = [
  "aws-sdk-sts",
  "aws-smithy-types",
  "aws-smithy-types-convert",
- "axum 0.7.9",
+ "axum",
  "backon",
  "base64 0.22.1",
  "bitflags 2.9.4",
@@ -15614,7 +15564,7 @@ version = "1.606.1"
 dependencies = [
  "anyhow",
  "async-trait",
- "axum 0.8.4",
+ "http 1.4.0",
  "oauth2",
  "reqwest 0.12.28",
  "rmcp",
@@ -15633,7 +15583,7 @@ version = "1.606.1"
 dependencies = [
  "anyhow",
  "async-oauth2",
- "axum 0.7.9",
+ "axum",
  "base64 0.22.1",
  "chrono",
  "hex",
@@ -15860,7 +15810,7 @@ version = "1.606.1"
 dependencies = [
  "anyhow",
  "async-recursion",
- "axum 0.7.9",
+ "axum",
  "backon",
  "chrono",
  "chrono-tz",

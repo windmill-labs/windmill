@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-server = ["rmcp/transport-streamable-http-server", "rmcp/transport-streamable-http-server-session", "rmcp/transport-worker", "dep:sqlx", "dep:async-trait", "dep:axum", "dep:tokio-util", "dep:tokio"]
+server = ["rmcp/transport-streamable-http-server", "rmcp/transport-streamable-http-server-session", "rmcp/transport-worker", "dep:sqlx", "dep:async-trait", "dep:http", "dep:tokio-util", "dep:tokio"]
 auth = ["rmcp/auth", "dep:oauth2"]
 
 [dependencies]
@@ -23,7 +23,7 @@ serde_json.workspace = true
 tracing.workspace = true
 rmcp.workspace = true
 sqlx = { workspace = true, optional = true }
-async-trait = { version = "0.1", optional = true }
-axum = { version = "0.8", default-features = false, optional = true }
-tokio-util = { version = "0.7", features = ["rt"], optional = true }
+async-trait = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["rt"], optional = true }
 tokio = { workspace = true, optional = true }
