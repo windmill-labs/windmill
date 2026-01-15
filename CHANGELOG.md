@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.607.0](https://github.com/windmill-labs/windmill/compare/v1.606.1...v1.607.0) (2026-01-15)
+
+
+### Features
+
+* allow resume urls at flow level for pre-generation ([#7582](https://github.com/windmill-labs/windmill/issues/7582)) ([86714f2](https://github.com/windmill-labs/windmill/commit/86714f2d03302a876e07d5ea3390be9fd2513387))
+* **flow:** add diff viewer in deployment history ([#7575](https://github.com/windmill-labs/windmill/issues/7575)) ([62c1fd4](https://github.com/windmill-labs/windmill/commit/62c1fd4ee749cc1677f1a050c2aa61773a727fef))
+
+
+### Bug Fixes
+
+* **frontend:** detect [windmill] log marker anywhere in content, not just at start ([#7583](https://github.com/windmill-labs/windmill/issues/7583)) ([303b673](https://github.com/windmill-labs/windmill/commit/303b673a7556d38c5aab84795e93105c90f5247b))
+* **frontend:** remove workspace invites ([#7579](https://github.com/windmill-labs/windmill/issues/7579)) ([1d5d28a](https://github.com/windmill-labs/windmill/commit/1d5d28ae7a19c03a2c5d3b2bfbc99323c2afd170))
+* remove audit logs page overflow scrollbars ([#7572](https://github.com/windmill-labs/windmill/issues/7572)) ([0c78aeb](https://github.com/windmill-labs/windmill/commit/0c78aebe6ac2bf44cf931ad833961b3911fce908))
+
 ## [1.606.1](https://github.com/windmill-labs/windmill/compare/v1.606.0...v1.606.1) (2026-01-14)
 
 
