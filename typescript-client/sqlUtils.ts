@@ -152,9 +152,9 @@ function sqlProviderImpl(
 
     let formatArgUsage = {
       datatable: (i: number) => {
-        let argType =
-          parseTypeAnnotation(strings[i], strings[i + 1]) ||
-          inferSqlType(values[i]);
+        const parsedType = parseTypeAnnotation(strings[i], strings[i + 1]);
+        if (parsedType !== undefined) return `$${i + 1}`;
+        let argType = inferSqlType(values[i]);
         return `$${i + 1}::${argType}`;
       },
       ducklake: (i: number) => `$arg${i + 1}`,

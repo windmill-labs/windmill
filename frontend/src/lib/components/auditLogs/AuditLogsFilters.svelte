@@ -295,9 +295,9 @@
 	})
 </script>
 
-<div class="flex flex-col items-center gap-10 2xl:gap-1 2xl:flex-row mt-4 xl:mt-0">
+<div class="flex flex-col items-center gap-2 2xl:flex-row mt-4 xl:mt-0 pr-2">
 	{#if $workspaceStore == 'admins'}
-		<div class="flex gap-1 relative w-full">
+		<div class="flex gap-1 relative">
 			<span class="text-xs absolute font-semibold text-emphasis -top-4">Scope</span>
 			<ToggleButtonGroup
 				selected={scope ?? 'admins'}
@@ -328,7 +328,7 @@
 			</ToggleButtonGroup>
 		</div>
 	{/if}
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">From</span>
 		<input type="text" value={after ?? 'From'} disabled />
 		<CalendarPicker
@@ -344,7 +344,7 @@
 			}}
 		/>
 	</div>
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">To</span>
 		<input type="text" value={before ?? 'To'} disabled />
 		<CalendarPicker
@@ -361,11 +361,10 @@
 		/>
 	</div>
 
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Username</span>
 		<Select
 			bind:value={username}
-			class="w-full"
 			RightIcon={ChevronDown}
 			items={usernames
 				? [
@@ -381,7 +380,7 @@
 				: []}
 		/>
 	</div>
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Resource</span>
 
 		<Select
@@ -391,11 +390,10 @@
 			items={safeSelectItems(['all', ...(resources.value ?? [])])}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
-			class="w-full"
 		/>
 	</div>
 
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Operation</span>
 
 		<Select
@@ -403,15 +401,13 @@
 			items={['all', ...Object.values(operations)].map((r) => ({ value: r, label: r }))}
 			inputClass="dark:!bg-gray-700"
 			RightIcon={ChevronDown}
-			class="w-full"
 		/>
 	</div>
 
-	<div class="flex gap-1 relative w-full">
+	<div class="flex relative">
 		<span class="text-xs absolute font-semibold text-emphasis -top-4">Action</span>
 
 		<Select
-			class="w-full"
 			bind:value={actionKind}
 			RightIcon={ChevronDown}
 			items={[
@@ -424,7 +420,7 @@
 		/>
 	</div>
 
-	<div class="flex flex-row gap-1">
+	<div class="flex flex-row">
 		<Button
 			variant="subtle"
 			on:click={() => {

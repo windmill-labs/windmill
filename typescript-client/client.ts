@@ -1043,9 +1043,11 @@ export async function getPresignedS3PublicUrl(
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
-export async function getResumeUrls(approver?: string): Promise<{
+export async function getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
   approvalPage: string;
   resume: string;
   cancel: string;
@@ -1056,6 +1058,7 @@ export async function getResumeUrls(approver?: string): Promise<{
     workspace,
     resumeId: nonce,
     approver,
+    flowLevel,
     id: getEnv("WM_JOB_ID") ?? "NO_JOB_ID",
   });
 }

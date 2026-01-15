@@ -2554,22 +2554,28 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    let parent_flow_info = get_suspended_parent_flow_info(job_id, &db).await?;
-    let parent_flow = GetQuery::new()
-        .without_logs()
-        .without_code()
-        .without_flow()
-        .fetch(&db, &parent_flow_info.id, &w_id)
-        .await?;
-    let flow_status = parent_flow
-        .flow_status()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    // Get flow info - works for both step-level (job_id is a step) and flow-level (job_id is the flow)
+    let (flow_info, is_flow_level) = get_flow_info_for_resume(job_id, &db).await?;
 
-    let trigger_email = match &parent_flow {
-        Job::CompletedJob(job) => &job.email,
-        Job::QueuedJob(job) => &job.email,
-    };
-    conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
+    // For step-level resumes, verify user auth and flow status
+    // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
+    if !is_flow_level {
+        let parent_flow = GetQuery::new()
+            .without_logs()
+            .without_code()
+            .without_flow()
+            .fetch(&db, &flow_info.id, &w_id)
+            .await?;
+        let flow_status = parent_flow
+            .flow_status()
+            .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+
+        let trigger_email = match &parent_flow {
+            Job::CompletedJob(job) => &job.email,
+            Job::QueuedJob(job) => &job.email,
+        };
+        conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
+    }
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -2585,7 +2591,7 @@ async fn resume_suspended_job_internal(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
-    let approver = if authed.as_ref().is_none()
+    let approver_value = if authed.as_ref().is_none()
         || (approver
             .approver
             .clone()
@@ -2600,9 +2606,9 @@ async fn resume_suspended_job_internal(
     insert_resume_job(
         resume_id,
         job_id,
-        &parent_flow_info,
+        &flow_info,
         value,
-        approver.clone(),
+        approver_value.clone(),
         approved,
         &mut tx,
     )
@@ -2611,15 +2617,20 @@ async fn resume_suspended_job_internal(
     if !approved {
         sqlx::query!(
             "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
-            parent_flow_info.id
+            flow_info.id
         )
         .execute(&mut *tx)
         .await?;
+    } else if is_flow_level {
+        // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
+        // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
+        resume_immediately_for_flow_level(&flow_info, &mut tx).await?;
     } else {
-        resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
+        // For step-level resumes, try to resume immediately if the step is waiting
+        resume_immediately_if_relevant(flow_info, job_id, &mut tx).await?;
     }
 
-    let approver = approver.unwrap_or_else(|| "anonymous".to_string());
+    let approver = approver_value.unwrap_or_else(|| "anonymous".to_string());
 
     let audit_author = match authed {
         Some(authed) => (&authed).into(),
@@ -2710,6 +2721,26 @@ async fn resume_immediately_if_relevant<'c>(
     )
 }
 
+/// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
+/// Unlike step-level resumes, we don't check if the job_id matches - we just need the flow
+/// to be in a suspended state.
+async fn resume_immediately_for_flow_level<'c>(
+    flow: &FlowInfo,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
+    if flow.suspend > 0 {
+        let new_suspend = flow.suspend - 1;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
+            new_suspend,
+            flow.id,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 async fn insert_resume_job<'c>(
     resume_id: u32,
     job_id: Uuid,
@@ -2746,23 +2777,46 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_parent_flow_info(job_id: Uuid, db: &DB) -> error::Result<FlowInfo> {
-    let flow = sqlx::query_as!(
-        FlowInfo,
+/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
+/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
+async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
+    // Single query that determines if job_id is a flow or step, and fetches the appropriate flow info
+    let result = sqlx::query!(
         r#"
-            SELECT q.id, f.flow_status, q.suspend, j.runnable_path AS script_path
-            FROM v2_job_queue q
-                JOIN v2_job j USING (id)
-                JOIN v2_job_status f USING (id)
-            WHERE id = ( SELECT parent_job FROM v2_job WHERE id = $1 )
-            FOR UPDATE
-            "#,
+        WITH job_info AS (
+            SELECT id, kind::text AS kind, parent_job
+            FROM v2_job
+            WHERE id = $1
+        )
+        SELECT
+            q.id AS "id!",
+            s.flow_status,
+            q.suspend AS "suspend!",
+            j.runnable_path AS script_path,
+            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
+        FROM job_info ji
+        JOIN v2_job_queue q ON q.id = CASE
+            WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
+            ELSE ji.parent_job
+        END
+        JOIN v2_job j ON j.id = q.id
+        JOIN v2_job_status s ON s.id = q.id
+        FOR UPDATE OF q
+        "#,
         job_id,
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    Ok(flow)
+    .ok_or_else(|| anyhow::anyhow!("job not found or parent flow not in queue: {}", job_id))?;
+
+    let flow_info = FlowInfo {
+        id: result.id,
+        flow_status: result.flow_status,
+        suspend: result.suspend,
+        script_path: result.script_path,
+    };
+
+    Ok((flow_info, result.is_flow_level))
 }
 
 async fn get_suspended_flow_info<'c>(
@@ -2829,6 +2883,9 @@ pub struct SuspendedJobFlow {
 #[derive(Deserialize, Debug)]
 pub struct QueryApprover {
     pub approver: Option<String>,
+    /// If true, generate/verify resume URLs for the parent flow instead of the specific step.
+    /// This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+    pub flow_level: Option<bool>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3085,8 +3142,17 @@ pub async fn get_resume_urls_internal(
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
     let key = get_workspace_key(&w_id, &db).await?;
-    let signature = create_signature(key, job_id, resume_id, approver.approver.clone())?;
-    let approver = approver
+
+    // If flow_level is true, use the parent flow ID for the signature and URLs
+    // This allows pre-approvals that can be consumed by any later suspend step
+    let target_job_id = if approver.flow_level.unwrap_or(false) {
+        get_flow_id_for_job(&db, job_id).await?
+    } else {
+        job_id
+    };
+
+    let signature = create_signature(key, target_job_id, resume_id, approver.approver.clone())?;
+    let approver_query = approver
         .approver
         .as_ref()
         .map(|x| format!("?approver={}", encode(x)))
@@ -3096,17 +3162,44 @@ pub async fn get_resume_urls_internal(
     let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
-            "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"
+            "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
         ),
         cancel: build_resume_url(
-            "cancel", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+            "cancel", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
         ),
         resume: build_resume_url(
-            "resume", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+            "resume", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
         ),
     };
 
     Ok(Json(res))
+}
+
+/// Get the flow ID for a job. If the job is a flow, returns the job_id.
+/// If the job is a step in a flow, returns the parent flow ID.
+async fn get_flow_id_for_job(db: &DB, job_id: Uuid) -> error::Result<Uuid> {
+    // First check if the job is a flow itself (kind = 'flow' or 'flowpreview')
+    let job_info = sqlx::query!(
+        r#"
+        SELECT kind::text as "kind!", parent_job
+        FROM v2_job
+        WHERE id = $1
+        "#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("job not found: {}", job_id))?;
+
+    // If it's a flow job, return the job_id itself
+    if job_info.kind == "flow" || job_info.kind == "flowpreview" {
+        return Ok(job_id);
+    }
+
+    // Otherwise, return the parent flow ID
+    job_info
+        .parent_job
+        .ok_or_else(|| anyhow::anyhow!("job {} has no parent flow", job_id).into())
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize)]
@@ -8418,7 +8511,7 @@ async fn get_completed_job_result(
                     &db,
                     suspended_job,
                     resume_id,
-                    &QueryApprover { approver },
+                    &QueryApprover { approver, flow_level: None },
                     secret,
                 )
                 .await?

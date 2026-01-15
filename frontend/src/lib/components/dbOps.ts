@@ -78,7 +78,9 @@ export function dbTableOpsWithPreviewScripts({
 			return count
 		},
 		getRows: async (params) => {
-			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType)
+			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType, undefined, {
+				fixPgIntTypes: true
+			})
 			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
