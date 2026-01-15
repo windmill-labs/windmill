@@ -531,29 +531,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 		}
 	})
 	$effect(() => {
-		;[
-			currentWorkspace,
-			path,
-			label,
-			success,
-			worker,
-			showSkipped,
-			jobKinds,
-			concurrencyKey,
-			tag,
-			lookback,
-			user,
-			folder,
-			allowWildcards,
-			schedulePath,
-			showFutureJobs,
-			showSchedules,
-			allWorkspaces,
-			argFilter,
-			resultFilter,
-			jobTriggerKind,
-			perPage
-		]
+		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})

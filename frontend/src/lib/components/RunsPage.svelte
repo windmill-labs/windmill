@@ -92,11 +92,7 @@
 	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
-		filters: {
-			...filters,
-			arg: filters.arg && decodeURIComponent(filters.arg),
-			result: filters.result && decodeURIComponent(filters.result)
-		},
+		filters,
 		computeMinAndMax: manualDatePicker?.computeMinMax,
 		jobKinds,
 		autoRefresh,
@@ -181,8 +177,6 @@
 	const filterBySchedule = resetAndFilterBy((s) => (filters.schedule_path = s))
 	const filterByWorker = resetAndFilterBy((s) => (filters.worker = s))
 
-	let calendarChangeTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
-
 	function typeOfChart(s: string | null): 'RunChart' | 'ConcurrencyChart' {
 		switch (s) {
 			case 'RunChart':
@@ -216,8 +210,8 @@
 	}
 
 	function getSelectedFilters() {
-		const argFilter = filters.arg && JSON.parse(decodeURIComponent(filters.arg))
-		const resultFilter = filters.result && JSON.parse(decodeURIComponent(filters.result))
+		const argFilter = filters.arg && JSON.parse(filters.arg)
+		const resultFilter = filters.result && JSON.parse(filters.result)
 		return {
 			workspace: $workspaceStore ?? '',
 			startedBefore: filters.max_ts ?? undefined,
@@ -611,25 +605,12 @@
 						{/if}
 						<CalendarPicker
 							clearable={true}
-							date={filters.min_ts}
+							bind:date={filters.min_ts}
+							on:clear={() => (filters.min_ts = null)}
 							label="From"
 							class={filters.min_ts || filters.max_ts
 								? ''
 								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-							on:change={async ({ detail }) => {
-								filters.min_ts = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								filters.min_ts = null
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(true)
-								}, 1000)
-							}}
 						/>
 					</RunOption>
 
@@ -647,25 +628,12 @@
 						{/if}
 						<CalendarPicker
 							clearable={true}
-							date={filters.max_ts}
+							on:clear={() => (filters.max_ts = null)}
+							bind:date={filters.max_ts}
 							label="To"
 							class={filters.min_ts || filters.max_ts
 								? ''
 								: 'relative top-0 bottom-0 left-0 right-0 h-[34px]'}
-							on:change={async ({ detail }) => {
-								filters.max_ts = new Date(detail).toISOString()
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(true)
-								}, 1000)
-							}}
-							on:clear={async () => {
-								filters.max_ts = null
-								calendarChangeTimeout && clearTimeout(calendarChangeTimeout)
-								calendarChangeTimeout = setTimeout(() => {
-									jobsLoader?.loadJobs(true)
-								}, 1000)
-							}}
 						/>
 					</RunOption>
 
@@ -695,13 +663,8 @@
 						bind:jobKindsCat={filters.job_kinds}
 						bind:allWorkspaces={filters.all_workspaces}
 						bind:schedulePath={filters.schedule_path}
-						bind:argFilter={
-							() => decodeURIComponent(filters.arg), (v) => (filters.arg = encodeURIComponent(v))
-						}
-						bind:resultFilter={
-							() => decodeURIComponent(filters.result),
-							(v) => (filters.result = encodeURIComponent(v))
-						}
+						bind:argFilter={filters.arg}
+						bind:resultFilter={filters.result}
 						on:change={reloadJobsWithoutFilterError}
 						on:successChange={(e) => {
 							if (e.detail == 'running' && filters.max_ts != undefined) {
