@@ -681,6 +681,15 @@ pub async fn run_server(
                     #[cfg(not(feature = "mcp"))]
                     Router::new()
                 })
+                .nest("/mcp/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::global_service().layer(cors.clone())
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
                 .nest("/r", {
                     #[cfg(feature = "http_trigger")]
                     {
@@ -716,6 +725,16 @@ pub async fn run_server(
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
         )
+        .route("/.well-known/oauth-authorization-server", {
+            #[cfg(feature = "mcp")]
+            {
+                get(mcp::oauth_server::oauth_metadata)
+            }
+            #[cfg(not(feature = "mcp"))]
+            {
+                get(|| async { axum::http::StatusCode::NOT_FOUND })
+            }
+        })
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 

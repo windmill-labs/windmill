@@ -3,6 +3,7 @@
 //! This module provides the MCP server implementation that exposes Windmill scripts,
 //! flows, and API endpoints as MCP tools for AI assistants to interact with.
 
+pub mod oauth_server;
 pub mod server;
 pub mod tools;
 pub mod utils;
