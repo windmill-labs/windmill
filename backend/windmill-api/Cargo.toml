@@ -36,7 +36,7 @@ sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
-mcp = ["dep:windmill-mcp", "windmill-mcp/server"]
+mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
 python = []
 
 [dependencies]
@@ -84,6 +84,7 @@ rust-embed = { workspace = true, optional = true }
 tracing-subscriber.workspace = true
 quick_cache.workspace = true
 rand.workspace = true
+ed25519-dalek.workspace = true
 time.workspace = true
 native-tls.workspace = true
 tokio-native-tls.workspace = true
@@ -157,5 +158,6 @@ tonic = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
 backon = {workspace = true, optional = true}
+
 [build-dependencies]
 deno_core = { workspace = true, optional = true }

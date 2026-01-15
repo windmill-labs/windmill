@@ -2,7 +2,12 @@
 	import { Alert } from '$lib/components/common'
 	import Path from '$lib/components/Path.svelte'
 
-	let { summary, appPath, pathError = $bindable(), newEditedPath = $bindable() } = $props()
+	let {
+		summary = $bindable(),
+		appPath = $bindable(),
+		pathError = $bindable(),
+		newEditedPath = $bindable()
+	} = $props()
 
 	let path: Path | undefined = $state(undefined)
 	let dirtyPath = $state(false)
@@ -22,11 +27,11 @@
 		onkeydown={(e) => {
 			e.stopPropagation()
 		}}
-		bind:value={$summary}
+		bind:value={summary}
 		onkeyup={() => {
-			if ($appPath == '' && $summary?.length > 0 && !dirtyPath) {
+			if (appPath == '' && summary?.length > 0 && !dirtyPath) {
 				path?.setName(
-					$summary
+					summary
 						.toLowerCase()
 						.replace(/[^a-z0-9_]/g, '_')
 						.replace(/-+/g, '_')

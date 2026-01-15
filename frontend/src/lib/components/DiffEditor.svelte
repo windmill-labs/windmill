@@ -106,7 +106,6 @@
 			})
 		}
 
-		console.log('defaultModified', defaultModified)
 		if (defaultLang !== undefined) {
 			setupModel(defaultLang, defaultOriginal, defaultModified, defaultModifiedLang)
 		}

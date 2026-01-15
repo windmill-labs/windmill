@@ -171,8 +171,8 @@
 										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
 									]}
 									bind:value={tableRow[1].resourceType}
-									class="w-28"
 									id="storage-resource-type-select"
+									class="w-40"
 								/>
 							</div>
 							<div class="flex flex-1">

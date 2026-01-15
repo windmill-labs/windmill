@@ -1,5 +1,100 @@
 # Changelog
 
+## [1.607.0](https://github.com/windmill-labs/windmill/compare/v1.606.1...v1.607.0) (2026-01-15)
+
+
+### Features
+
+* allow resume urls at flow level for pre-generation ([#7582](https://github.com/windmill-labs/windmill/issues/7582)) ([86714f2](https://github.com/windmill-labs/windmill/commit/86714f2d03302a876e07d5ea3390be9fd2513387))
+* **flow:** add diff viewer in deployment history ([#7575](https://github.com/windmill-labs/windmill/issues/7575)) ([62c1fd4](https://github.com/windmill-labs/windmill/commit/62c1fd4ee749cc1677f1a050c2aa61773a727fef))
+
+
+### Bug Fixes
+
+* **frontend:** detect [windmill] log marker anywhere in content, not just at start ([#7583](https://github.com/windmill-labs/windmill/issues/7583)) ([303b673](https://github.com/windmill-labs/windmill/commit/303b673a7556d38c5aab84795e93105c90f5247b))
+* **frontend:** remove workspace invites ([#7579](https://github.com/windmill-labs/windmill/issues/7579)) ([1d5d28a](https://github.com/windmill-labs/windmill/commit/1d5d28ae7a19c03a2c5d3b2bfbc99323c2afd170))
+* remove audit logs page overflow scrollbars ([#7572](https://github.com/windmill-labs/windmill/issues/7572)) ([0c78aeb](https://github.com/windmill-labs/windmill/commit/0c78aebe6ac2bf44cf931ad833961b3911fce908))
+
+## [1.606.1](https://github.com/windmill-labs/windmill/compare/v1.606.0...v1.606.1) (2026-01-14)
+
+
+### Bug Fixes
+
+* bump uv 0.6.2 -&gt; 0.9.24 ([#7559](https://github.com/windmill-labs/windmill/issues/7559)) ([e74dc02](https://github.com/windmill-labs/windmill/commit/e74dc02804d0bd720963d571f58fd3aa97eb2396))
+* Fix number ordering in postgres' db manager ([#7570](https://github.com/windmill-labs/windmill/issues/7570)) ([a7335d6](https://github.com/windmill-labs/windmill/commit/a7335d6914ce0e331f2309368d7c947986159e77))
+* **frontend:** improve context for ai chat in raw app builder ([#7566](https://github.com/windmill-labs/windmill/issues/7566)) ([da54a67](https://github.com/windmill-labs/windmill/commit/da54a678221b7851625eb4ba52504099eb69b100))
+* improve debugger behavior ([40d0073](https://github.com/windmill-labs/windmill/commit/40d00734f33b3aa7cef31f6abc29c40e975f48f8))
+
+## [1.606.0](https://github.com/windmill-labs/windmill/compare/v1.605.0...v1.606.0) (2026-01-14)
+
+
+### Features
+
+* **aiagent:** handle oauth for mcp tools ([#7564](https://github.com/windmill-labs/windmill/issues/7564)) ([5c08abe](https://github.com/windmill-labs/windmill/commit/5c08abe14163dbbab2e18f2479b74c30e2a70c2f))
+* **aiagent:** handle oauth for mcp tools [merge-ee-first] ([#7544](https://github.com/windmill-labs/windmill/issues/7544)) ([e823c95](https://github.com/windmill-labs/windmill/commit/e823c953d112ab90692b17c6ed7c33645860707e))
+
+
+### Bug Fixes
+
+* **debugger:** add nsjail config for proper sandbox mounts ([31c07d9](https://github.com/windmill-labs/windmill/commit/31c07d93529f0fdb66912b42bb2d60f92ca0c333))
+* **debugger:** fix nsjail sandbox for debugger execution ([14cfce3](https://github.com/windmill-labs/windmill/commit/14cfce3fd68224d46048bbbe2f89619637c4bed2))
+* **debugger:** properly decode base64url public key from JWKS ([8d005b0](https://github.com/windmill-labs/windmill/commit/8d005b030fd73015e860ef04beb0709a04d07c65))
+* Fix wrong base_internal_url for ducklake inline ([#7563](https://github.com/windmill-labs/windmill/issues/7563)) ([b3f68ad](https://github.com/windmill-labs/windmill/commit/b3f68ad376646d7f702ba07662e320f0eb6c7717))
+* **frontend:** fix first draft save ([#7552](https://github.com/windmill-labs/windmill/issues/7552)) ([28e25ec](https://github.com/windmill-labs/windmill/commit/28e25ec60dcd73158fa2fff61c439e67478f35a0))
+
+## [1.605.0](https://github.com/windmill-labs/windmill/compare/v1.604.0...v1.605.0) (2026-01-13)
+
+
+### Features
+
+* enable debouncing for sync jobs ([#7551](https://github.com/windmill-labs/windmill/issues/7551)) ([3135a8b](https://github.com/windmill-labs/windmill/commit/3135a8b0957889f484bf16499e24c9168c8caba8))
+
+
+### Bug Fixes
+
+* **frontend:** update raw app editor to brand guidelines ([#7545](https://github.com/windmill-labs/windmill/issues/7545)) ([c210853](https://github.com/windmill-labs/windmill/commit/c2108530335e74c47f1acb071ae7abac93d4dac6))
+
+## [1.604.0](https://github.com/windmill-labs/windmill/compare/v1.603.4...v1.604.0) (2026-01-13)
+
+
+### Features
+
+* debuggers for python and bun v0 ([#7546](https://github.com/windmill-labs/windmill/issues/7546)) ([4451a37](https://github.com/windmill-labs/windmill/commit/4451a379990acbf80c160861c164667302e0ee08))
+
+
+### Bug Fixes
+
+* use write-all permissions for publish_extra workflow ([0db87e4](https://github.com/windmill-labs/windmill/commit/0db87e4036d6baa26eff4d109f6fb4a2584d0a16))
+
+## [1.603.4](https://github.com/windmill-labs/windmill/compare/v1.603.3...v1.603.4) (2026-01-12)
+
+
+### Bug Fixes
+
+* tighten preview path ([#7541](https://github.com/windmill-labs/windmill/issues/7541)) ([dca7e16](https://github.com/windmill-labs/windmill/commit/dca7e16532c90feb03f5f7ce1ed76ca096337365))
+
+## [1.603.3](https://github.com/windmill-labs/windmill/compare/v1.603.2...v1.603.3) (2026-01-11)
+
+
+### Bug Fixes
+
+* various input tightening ([7a9ef14](https://github.com/windmill-labs/windmill/commit/7a9ef140b512d8d4af21f90fad79619ce33cb3fd))
+
+## [1.603.2](https://github.com/windmill-labs/windmill/compare/v1.603.1...v1.603.2) (2026-01-09)
+
+
+### Bug Fixes
+
+* windmill ee full cache permission issues for non root users ([#7536](https://github.com/windmill-labs/windmill/issues/7536)) ([35ddfc4](https://github.com/windmill-labs/windmill/commit/35ddfc428dc98e492012731f60feda64ff5ebc2c))
+
+## [1.603.1](https://github.com/windmill-labs/windmill/compare/v1.603.0...v1.603.1) (2026-01-09)
+
+
+### Bug Fixes
+
+* Better workspace storage settings ([#7533](https://github.com/windmill-labs/windmill/issues/7533)) ([17d29cd](https://github.com/windmill-labs/windmill/commit/17d29cd8c770fbe1f7503367474951e5eb6991b1))
+* Fix custom instance user migration ([#7534](https://github.com/windmill-labs/windmill/issues/7534)) ([7b19ca4](https://github.com/windmill-labs/windmill/commit/7b19ca44a3ff7e2e87d5a358873370aeb40dc7a3))
+
 ## [1.603.0](https://github.com/windmill-labs/windmill/compare/v1.602.0...v1.603.0) (2026-01-09)
 
 

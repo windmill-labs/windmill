@@ -83,6 +83,7 @@ mod capture;
 mod concurrency_groups;
 mod configs;
 mod db;
+pub mod debug;
 mod drafts;
 #[cfg(feature = "private")]
 pub mod ee;
@@ -190,6 +191,10 @@ mod workspaces_oss;
 
 #[cfg(feature = "mcp")]
 mod mcp;
+#[cfg(all(feature = "mcp", feature = "private"))]
+mod mcp_oauth_ee;
+#[cfg(feature = "mcp")]
+mod mcp_oauth_oss;
 
 pub use apps::EditApp;
 pub const DEFAULT_BODY_LIMIT: usize = 2097152 * 100; // 200MB
@@ -294,6 +299,9 @@ pub async fn run_server(
         ext_jwks,
     ));
     let argon2 = Arc::new(Argon2::default());
+
+    // Initialize debug signing key for debugger authentication
+    debug::init_debug_signing_key().await;
 
     let disable_response_logs = std::env::var("DISABLE_RESPONSE_LOGS")
         .ok()
@@ -476,6 +484,7 @@ pub async fn run_server(
                         .nest("/job_metrics", job_metrics::workspaced_service())
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
+                        .nest("/debug", debug::workspaced_service())
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -539,6 +548,7 @@ pub async fn run_server(
                 )
                 .nest("/srch/index", indexer_oss::global_service())
                 .nest("/oidc", oidc_oss::global_service())
+                .nest("/debug", debug::global_service())
                 .nest(
                     "/saml",
                     saml_oss::global_service().layer(Extension(Arc::clone(&sp_extension))),
@@ -660,6 +670,15 @@ pub async fn run_server(
                     }
 
                     #[cfg(not(feature = "oauth2"))]
+                    Router::new()
+                })
+                .nest("/mcp/oauth", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp_oauth_oss::global_service()
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
                     Router::new()
                 })
                 .nest("/r", {

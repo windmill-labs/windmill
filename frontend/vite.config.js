@@ -62,6 +62,12 @@ const config = {
 				changeOrigin: true,
 				ws: true
 			},
+			'^/ws_debug/.*': {
+				target: process.env.REMOTE_DEBUG ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				ws: true,
+				rewrite: (path) => path.replace(/^\/ws_debug/, '')
+			},
 			'^/ui_builder/.*': {
 				target: 'http://localhost:4000',
 				changeOrigin: true,
@@ -81,7 +87,6 @@ const config = {
 		exclude: [
 			'@codingame/monaco-vscode-standalone-typescript-language-features',
 			'@codingame/monaco-vscode-standalone-languages',
-			'vscode'
 		]
 	},
 	worker: { format: 'es' },

@@ -146,7 +146,7 @@ export function retrieveCommonWorkerPrefix(workerName: string): string {
 }
 
 export function subtractDaysFromDateString(
-	dateString: string | undefined,
+	dateString: string | null,
 	days: number
 ): string | undefined {
 	if (dateString == undefined) {
