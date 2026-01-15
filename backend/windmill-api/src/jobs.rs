@@ -2776,61 +2776,46 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_parent_flow_info(job_id: Uuid, db: &DB) -> error::Result<FlowInfo> {
-    let flow = sqlx::query_as!(
-        FlowInfo,
+/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
+/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
+async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
+    // Single query that determines if job_id is a flow or step, and fetches the appropriate flow info
+    let result = sqlx::query!(
         r#"
-            SELECT q.id, f.flow_status, q.suspend, j.runnable_path AS script_path
-            FROM v2_job_queue q
-                JOIN v2_job j USING (id)
-                JOIN v2_job_status f USING (id)
-            WHERE id = ( SELECT parent_job FROM v2_job WHERE id = $1 )
-            FOR UPDATE
-            "#,
+        WITH job_info AS (
+            SELECT id, kind::text AS kind, parent_job
+            FROM v2_job
+            WHERE id = $1
+        )
+        SELECT
+            q.id AS "id!",
+            s.flow_status,
+            q.suspend AS "suspend!",
+            j.runnable_path AS script_path,
+            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
+        FROM job_info ji
+        JOIN v2_job_queue q ON q.id = CASE
+            WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
+            ELSE ji.parent_job
+        END
+        JOIN v2_job j ON j.id = q.id
+        JOIN v2_job_status s ON s.id = q.id
+        FOR UPDATE OF q
+        "#,
         job_id,
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    Ok(flow)
-}
+    .ok_or_else(|| anyhow::anyhow!("job not found or parent flow not in queue: {}", job_id))?;
 
-/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
-/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
-async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
-    // First check if the job is a flow itself
-    let job_kind = sqlx::query_scalar!(
-        r#"SELECT kind::text as "kind!" FROM v2_job WHERE id = $1"#,
-        job_id
-    )
-    .fetch_optional(db)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("job not found: {}", job_id))?;
+    let flow_info = FlowInfo {
+        id: result.id,
+        flow_status: result.flow_status,
+        suspend: result.suspend,
+        script_path: result.script_path,
+    };
 
-    if job_kind == "flow" || job_kind == "flowpreview" {
-        // job_id is a flow job - get its info directly
-        // Note: We use a subquery approach to avoid FOR UPDATE on LEFT JOIN
-        let flow = sqlx::query_as!(
-            FlowInfo,
-            r#"
-            SELECT q.id, s.flow_status, q.suspend, j.runnable_path AS script_path
-            FROM v2_job_queue q
-                JOIN v2_job j USING (id)
-                JOIN v2_job_status s USING (id)
-            WHERE q.id = $1
-            FOR UPDATE OF q
-            "#,
-            job_id,
-        )
-        .fetch_optional(db)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("flow job not found in queue: {}", job_id))?;
-        Ok((flow, true))
-    } else {
-        // job_id is a step - get its parent flow info
-        let flow = get_suspended_parent_flow_info(job_id, db).await?;
-        Ok((flow, false))
-    }
+    Ok((flow_info, result.is_flow_level))
 }
 
 async fn get_suspended_flow_info<'c>(
