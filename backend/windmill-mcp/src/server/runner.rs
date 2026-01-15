@@ -1,16 +1,14 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! MCP Server Runner implementation
 //!
 //! Contains the generic Runner that implements the MCP ServerHandler trait
 //! and delegates to a McpBackend for actual functionality.
 
+use crate::common::scope::parse_mcp_scopes;
+use crate::common::transform::{reverse_transform, reverse_transform_key};
+use crate::common::types::{ResourceInfo, WorkspaceId};
+use crate::server::backend::{McpAuth, McpBackend};
+use crate::server::endpoints::endpoint_tool_to_mcp_tool;
+use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParam, CallToolResult, Content, Implementation, InitializeRequestParam,
@@ -21,14 +19,7 @@ use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::marker::PhantomData;
 use std::sync::Arc;
-use crate::common::scope::parse_mcp_scopes;
-use crate::common::transform::{reverse_transform, reverse_transform_key};
-use crate::common::types::{ResourceInfo, WorkspaceId};
-use crate::server::backend::{BackendError, McpAuth, McpBackend};
-use crate::server::endpoints::endpoint_tool_to_mcp_tool;
-use crate::server::tools::create_tool_from_item;
 
 /// MCP Server Runner - generic over the backend implementation
 ///
@@ -36,25 +27,18 @@ use crate::server::tools::create_tool_from_item;
 /// to perform the actual operations (database queries, job execution, etc.)
 pub struct Runner<B: McpBackend> {
     backend: Arc<B>,
-    _marker: PhantomData<B>,
 }
 
 impl<B: McpBackend> Clone for Runner<B> {
     fn clone(&self) -> Self {
-        Self {
-            backend: self.backend.clone(),
-            _marker: PhantomData,
-        }
+        Self { backend: self.backend.clone() }
     }
 }
 
 impl<B: McpBackend> Runner<B> {
     /// Create a new Runner with the given backend
     pub fn new(backend: B) -> Self {
-        Self {
-            backend: Arc::new(backend),
-            _marker: PhantomData,
-        }
+        Self { backend: Arc::new(backend) }
     }
 
     /// Extract authentication and workspace from request context
@@ -134,8 +118,10 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
         // Fetch all items concurrently
         let (scripts, flows, resource_types, hub_scripts) = tokio::try_join!(
-            self.backend.list_scripts(&auth, &workspace_id, favorites_only),
-            self.backend.list_flows(&auth, &workspace_id, favorites_only),
+            self.backend
+                .list_scripts(&auth, &workspace_id, favorites_only),
+            self.backend
+                .list_flows(&auth, &workspace_id, favorites_only),
             self.backend.list_resource_types(&auth, &workspace_id),
             async {
                 if let Some(ref apps) = scope_config.hub_apps {
@@ -144,8 +130,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
                     Ok(vec![])
                 }
             }
-        )
-        .map_err(|e: BackendError| ErrorData::internal_error(e.message, None))?;
+        )?;
 
         let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
         let mut tools = Vec::new();
@@ -216,11 +201,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             tools.push(endpoint_tool_to_mcp_tool(&endpoint_tool));
         }
 
-        Ok(ListToolsResult {
-            tools,
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListToolsResult { tools, next_cursor: None, meta: None })
     }
 
     async fn call_tool(
@@ -246,10 +227,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             )]));
         }
 
-        let args = request
-            .arguments
-            .map(Value::Object)
-            .unwrap_or(Value::Null);
+        let args = request.arguments.map(Value::Object).unwrap_or(Value::Null);
 
         // Check if this is an endpoint tool
         let endpoint_tools = self.backend.all_endpoint_tools();
@@ -282,8 +260,9 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         }
 
         // Not an endpoint tool - parse as script/flow
-        let (tool_type, path, is_hub) = reverse_transform(&request.name)
-            .map_err(|e| ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None))?;
+        let (tool_type, path, is_hub) = reverse_transform(&request.name).map_err(|e| {
+            ErrorData::internal_error(format!("Failed to parse tool name: {}", e), None)
+        })?;
 
         // Validate script/flow scope
         if !is_hub && scope_config.granular {
@@ -358,11 +337,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
         _request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
-        Ok(ListResourcesResult {
-            resources: vec![],
-            next_cursor: None,
-            meta: None,
-        })
+        Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
     }
 
     async fn list_prompts(

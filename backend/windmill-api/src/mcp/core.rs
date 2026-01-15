@@ -7,13 +7,12 @@ use async_trait::async_trait;
 use axum::body::to_bytes;
 use serde_json::Value;
 use std::collections::HashMap;
-use windmill_common::db::UserDB;
-use windmill_common::{utils::StripPath, worker::to_raw_value, DB};
+use windmill_common::{db::UserDB, utils::StripPath, worker::to_raw_value, DB};
 use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
 };
-use windmill_mcp::server::{BackendError, BackendResult, EndpointTool, McpAuth, McpBackend};
+use windmill_mcp::server::{BackendResult, EndpointTool, ErrorData, McpAuth, McpBackend};
 
 use crate::db::ApiAuthed;
 use crate::jobs::{
@@ -26,6 +25,20 @@ use super::utils::{
     get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
     substitute_path_params,
 };
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use tokio_util::sync::CancellationToken;
+use windmill_mcp::server::{
+    LocalSessionManager, StreamableHttpServerConfig, StreamableHttpService,
+};
+use windmill_mcp::WorkspaceId;
+
+use axum::{
+    extract::Path, http::Request, middleware::Next, response::Response, routing::get, Json, Router,
+};
+use windmill_common::error::JsonResult;
 
 /// Implement McpAuth for ApiAuthed
 impl McpAuth for ApiAuthed {
@@ -84,7 +97,7 @@ impl McpBackend for WindmillBackend {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<ScriptInfo>(&self.user_db, auth, workspace_id, scope_type, "script")
             .await
-            .map_err(|e| BackendError::internal(e.message))
+            .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn list_flows(
@@ -96,7 +109,7 @@ impl McpBackend for WindmillBackend {
         let scope_type = if favorites_only { "favorites" } else { "all" };
         get_items::<FlowInfo>(&self.user_db, auth, workspace_id, scope_type, "flow")
             .await
-            .map_err(|e| BackendError::internal(e.message))
+            .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn list_resource_types(
@@ -106,7 +119,7 @@ impl McpBackend for WindmillBackend {
     ) -> BackendResult<Vec<ResourceType>> {
         get_resources_types(&self.user_db, auth, workspace_id)
             .await
-            .map_err(|e| BackendError::internal(e.message))
+            .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn list_resources(
@@ -117,13 +130,16 @@ impl McpBackend for WindmillBackend {
     ) -> BackendResult<Vec<ResourceInfo>> {
         get_resources(&self.user_db, auth, workspace_id, resource_type)
             .await
-            .map_err(|e| BackendError::internal(e.message))
+            .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
-    async fn list_hub_scripts(&self, app_filter: Option<&str>) -> BackendResult<Vec<HubScriptInfo>> {
+    async fn list_hub_scripts(
+        &self,
+        app_filter: Option<&str>,
+    ) -> BackendResult<Vec<HubScriptInfo>> {
         get_scripts_from_hub(&self.db, app_filter)
             .await
-            .map_err(|e| BackendError::internal(e.message))
+            .map_err(|e| ErrorData::internal_error(e.message, None))
     }
 
     async fn get_item_schema(
@@ -135,7 +151,7 @@ impl McpBackend for WindmillBackend {
     ) -> BackendResult<Option<SchemaType>> {
         let schema = get_item_schema(path, &self.user_db, auth, workspace_id, item_type)
             .await
-            .map_err(|e| BackendError::internal(e.message))?;
+            .map_err(|e| ErrorData::internal_error(e.message, None))?;
 
         if let Some(ref s) = schema {
             match serde_json::from_str::<SchemaType>(s.0.get()) {
@@ -153,7 +169,7 @@ impl McpBackend for WindmillBackend {
     async fn get_hub_script_schema(&self, path: &str) -> BackendResult<Option<SchemaType>> {
         let schema = get_hub_script_schema(path, &self.db)
             .await
-            .map_err(|e| BackendError::internal(e.message))?;
+            .map_err(|e| ErrorData::internal_error(e.message, None))?;
 
         if let Some(ref s) = schema {
             match serde_json::from_str::<SchemaType>(s.0.get()) {
@@ -216,7 +232,8 @@ impl McpBackend for WindmillBackend {
 
                                 match available_resources {
                                     Ok(cache_data) => {
-                                        resources_cache.insert(resource_type_key.clone(), cache_data);
+                                        resources_cache
+                                            .insert(resource_type_key.clone(), cache_data);
                                     }
                                     Err(e) => {
                                         tracing::error!(
@@ -245,16 +262,22 @@ impl McpBackend for WindmillBackend {
                                     ),
                                     None => "An object parameter.".to_string(),
                                 };
+                                prop_map.insert(
+                                    "type".to_string(),
+                                    Value::String("string".to_string()),
+                                );
                                 prop_map
-                                    .insert("type".to_string(), Value::String("string".to_string()));
-                                prop_map.insert("description".to_string(), Value::String(description));
+                                    .insert("description".to_string(), Value::String(description));
                                 if resources_count > 0 {
                                     let resources_description = resource_cache
                                         .iter()
                                         .map(|resource| {
                                             format!(
                                                 "{}: $res:{}",
-                                                resource.description.as_deref().unwrap_or("No title"),
+                                                resource
+                                                    .description
+                                                    .as_deref()
+                                                    .unwrap_or("No title"),
                                                 resource.path
                                             )
                                         })
@@ -292,10 +315,7 @@ impl McpBackend for WindmillBackend {
             for (k, v) in map {
                 args_hash.insert(k, to_raw_value(&v));
             }
-            windmill_queue::PushArgsOwned {
-                extra: None,
-                args: args_hash,
-            }
+            windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
             windmill_queue::PushArgsOwned::default()
         };
@@ -310,14 +330,15 @@ impl McpBackend for WindmillBackend {
             push_args,
         )
         .await
-        .map_err(|e| BackendError::internal(e.to_string()))?;
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let body_bytes = to_bytes(result.into_body(), usize::MAX)
             .await
-            .map_err(|e| BackendError::internal(format!("Failed to read response body: {}", e)))?;
+            .map_err(|e| ErrorData::internal_error(format!("Failed to read response body: {}", e), None))?;
 
-        let body_str = String::from_utf8(body_bytes.to_vec())
-            .map_err(|e| BackendError::internal(format!("Failed to decode response body: {}", e)))?;
+        let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+            ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
+        })?;
 
         Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
     }
@@ -334,10 +355,7 @@ impl McpBackend for WindmillBackend {
             for (k, v) in map {
                 args_hash.insert(k, to_raw_value(&v));
             }
-            windmill_queue::PushArgsOwned {
-                extra: None,
-                args: args_hash,
-            }
+            windmill_queue::PushArgsOwned { extra: None, args: args_hash }
         } else {
             windmill_queue::PushArgsOwned::default()
         };
@@ -352,14 +370,15 @@ impl McpBackend for WindmillBackend {
             workspace_id.to_string(),
         )
         .await
-        .map_err(|e| BackendError::internal(e.to_string()))?;
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
         let body_bytes = to_bytes(result.into_body(), usize::MAX)
             .await
-            .map_err(|e| BackendError::internal(format!("Failed to read response body: {}", e)))?;
+            .map_err(|e| ErrorData::internal_error(format!("Failed to read response body: {}", e), None))?;
 
-        let body_str = String::from_utf8(body_bytes.to_vec())
-            .map_err(|e| BackendError::internal(format!("Failed to decode response body: {}", e)))?;
+        let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+            ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
+        })?;
 
         Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
     }
@@ -374,7 +393,7 @@ impl McpBackend for WindmillBackend {
         let args_map = match &args {
             Value::Object(map) => map,
             _ => {
-                return Err(BackendError::invalid_params("Arguments must be an object"));
+                return Err(ErrorData::invalid_params("Arguments must be an object", None));
             }
         };
 
@@ -394,45 +413,86 @@ impl McpBackend for WindmillBackend {
         );
 
         // Prepare request body
-        let body_json = build_request_body(&endpoint_tool.method, args_map, &endpoint_tool.body_schema);
+        let body_json =
+            build_request_body(&endpoint_tool.method, args_map, &endpoint_tool.body_schema);
 
         // Create and execute request
-        let response = create_http_request(&endpoint_tool.method, &full_url, workspace_id, auth, body_json)
-            .await?;
+        let response = create_http_request(
+            &endpoint_tool.method,
+            &full_url,
+            workspace_id,
+            auth,
+            body_json,
+        )
+        .await?;
 
         let status = response.status();
         let response_text = response
             .text()
             .await
-            .map_err(|e| BackendError::internal(format!("Failed to read response text: {}", e)))?;
+            .map_err(|e| ErrorData::internal_error(format!("Failed to read response text: {}", e), None))?;
 
         if status.is_success() {
             Ok(serde_json::from_str(&response_text)
                 .unwrap_or_else(|_| Value::String(response_text)))
         } else {
-            Err(BackendError::internal(format!(
+            Err(ErrorData::internal_error(format!(
                 "HTTP {} {}: {}",
                 status.as_u16(),
                 status.canonical_reason().unwrap_or(""),
                 response_text
-            )))
+            ), None))
         }
     }
 
     fn all_endpoint_tools(&self) -> Vec<EndpointTool> {
-        // Convert from auto_generated EndpointTool to windmill_mcp EndpointTool
         all_tools()
-            .into_iter()
-            .map(|t| EndpointTool {
-                name: t.name,
-                description: t.description,
-                instructions: t.instructions,
-                path: t.path,
-                method: t.method,
-                path_params_schema: t.path_params_schema,
-                query_params_schema: t.query_params_schema,
-                body_schema: t.body_schema,
-            })
-            .collect()
     }
+}
+
+/// Extract workspace ID from path and store it in request extensions
+pub async fn extract_and_store_workspace_id(
+    Path(params): Path<String>,
+    mut request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
+    let workspace_id = params;
+    request.extensions_mut().insert(WorkspaceId(workspace_id));
+    next.run(request).await
+}
+
+/// Setup the MCP server with HTTP transport
+pub async fn setup_mcp_server(
+    db: DB,
+    user_db: UserDB,
+) -> anyhow::Result<(Router, CancellationToken)> {
+    let cancellation_token = CancellationToken::new();
+    let session_manager = Arc::new(LocalSessionManager::default());
+    let service_config = StreamableHttpServerConfig {
+        sse_keep_alive: Some(Duration::from_secs(15)),
+        stateful_mode: false,
+        cancellation_token: cancellation_token.clone(),
+    };
+
+    let backend = WindmillBackend::new(db, user_db);
+
+    let service = StreamableHttpService::new(
+        move || Ok(windmill_mcp::server::Runner::new(backend.clone())),
+        session_manager.clone(),
+        service_config,
+    );
+
+    let router = axum::Router::new().nest_service("/", service);
+    Ok((router, cancellation_token))
+}
+
+/// HTTP handler to list MCP tools as JSON
+async fn list_mcp_tools_handler() -> JsonResult<Vec<EndpointTool>> {
+    let endpoint_tools = all_tools();
+    Ok(Json(endpoint_tools))
+}
+
+/// Creates a router service for listing MCP tools
+pub fn list_tools_service() -> Router {
+    Router::new().route("/", get(list_mcp_tools_handler))
 }

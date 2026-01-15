@@ -1,11 +1,3 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! Tool creation utilities for MCP server
 //!
 //! Contains functionality for converting Windmill items (scripts, flows, hub scripts)
@@ -151,7 +143,13 @@ pub async fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
 
     let schema = item.get_schema();
     let schema_obj = backend
-        .transform_schema_for_resources(&schema, auth, workspace_id, resources_cache, resources_types)
+        .transform_schema_for_resources(
+            &schema,
+            auth,
+            workspace_id,
+            resources_cache,
+            resources_types,
+        )
         .await?;
 
     let input_schema_map = match serde_json::to_value(schema_obj) {

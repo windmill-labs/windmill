@@ -1,11 +1,3 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! MCP Server module
 //!
 //! This module provides the MCP server implementation including:
@@ -20,8 +12,8 @@ pub mod runner;
 pub mod tools;
 
 // Re-export main types
-pub use backend::{BackendError, BackendResult, McpAuth, McpBackend};
-pub use endpoints::{endpoint_tool_to_mcp_tool, endpoint_tools_to_mcp_tools, EndpointTool};
+pub use backend::{BackendResult, McpAuth, McpBackend};
+pub use endpoints::{endpoint_tool_to_mcp_tool, EndpointTool};
 pub use runner::Runner;
 pub use tools::create_tool_from_item;
 
@@ -71,11 +63,8 @@ pub async fn setup_mcp_server<B: McpBackend>(
         cancellation_token: cancellation_token.clone(),
     };
 
-    let service = StreamableHttpService::new(
-        move || Ok(runner.clone()),
-        session_manager,
-        service_config,
-    );
+    let service =
+        StreamableHttpService::new(move || Ok(runner.clone()), session_manager, service_config);
 
     let router = Router::new().nest_service("/", service);
     Ok((router, cancellation_token))

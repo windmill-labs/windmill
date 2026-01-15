@@ -1,17 +1,10 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! MCP Backend trait definitions
 //!
 //! This module defines the traits that must be implemented by the backend
 //! (typically windmill-api) to provide the actual functionality for the MCP server.
 
 use async_trait::async_trait;
+use rmcp::ErrorData;
 use serde_json::Value;
 use std::collections::HashMap;
 
@@ -20,56 +13,8 @@ use crate::common::types::{
 };
 use crate::server::endpoints::EndpointTool;
 
-/// Error type for backend operations
-#[derive(Debug)]
-pub struct BackendError {
-    pub message: String,
-    pub code: Option<String>,
-}
-
-impl BackendError {
-    pub fn internal(msg: impl Into<String>) -> Self {
-        Self {
-            message: msg.into(),
-            code: Some("internal".into()),
-        }
-    }
-
-    pub fn not_found(msg: impl Into<String>) -> Self {
-        Self {
-            message: msg.into(),
-            code: Some("not_found".into()),
-        }
-    }
-
-    pub fn unauthorized(msg: impl Into<String>) -> Self {
-        Self {
-            message: msg.into(),
-            code: Some("unauthorized".into()),
-        }
-    }
-
-    pub fn invalid_params(msg: impl Into<String>) -> Self {
-        Self {
-            message: msg.into(),
-            code: Some("invalid_params".into()),
-        }
-    }
-}
-
-impl std::fmt::Display for BackendError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for BackendError {}
-
-impl From<BackendError> for rmcp::ErrorData {
-    fn from(e: BackendError) -> Self {
-        rmcp::ErrorData::internal_error(e.message, None)
-    }
-}
+/// Result type for backend operations using rmcp's ErrorData directly
+pub type BackendResult<T> = Result<T, ErrorData>;
 
 /// Authentication context required by the MCP server
 pub trait McpAuth: Send + Sync + Clone + 'static {
@@ -95,9 +40,6 @@ pub trait McpAuth: Send + Sync + Clone + 'static {
             .unwrap_or(false)
     }
 }
-
-/// Result type for backend operations
-pub type BackendResult<T> = Result<T, BackendError>;
 
 /// The core backend trait that windmill-api implements
 ///
@@ -145,10 +87,8 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     ) -> BackendResult<Vec<ResourceInfo>>;
 
     /// List hub scripts, optionally filtered by app integrations
-    async fn list_hub_scripts(
-        &self,
-        app_filter: Option<&str>,
-    ) -> BackendResult<Vec<HubScriptInfo>>;
+    async fn list_hub_scripts(&self, app_filter: Option<&str>)
+        -> BackendResult<Vec<HubScriptInfo>>;
 
     // ─────────────────────────────────────────────────────────────────
     // Schema Operations

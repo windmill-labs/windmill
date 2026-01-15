@@ -1,11 +1,3 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! Endpoint tools for MCP server
 //!
 //! Contains the EndpointTool structure and utilities for converting
@@ -27,14 +19,6 @@ pub struct EndpointTool {
     pub path_params_schema: Option<serde_json::Value>,
     pub query_params_schema: Option<serde_json::Value>,
     pub body_schema: Option<serde_json::Value>,
-}
-
-/// Convert endpoint tools to MCP tools
-pub fn endpoint_tools_to_mcp_tools(endpoint_tools: Vec<EndpointTool>) -> Vec<Tool> {
-    endpoint_tools
-        .into_iter()
-        .map(|tool| endpoint_tool_to_mcp_tool(&tool))
-        .collect()
 }
 
 /// Convert a single endpoint tool to MCP tool
@@ -82,12 +66,12 @@ fn create_endpoint_annotations(tool: &EndpointTool) -> ToolAnnotations {
 
     // Determine characteristics based on HTTP method
     let (read_only, destructive, idempotent, open_world) = match method {
-        "GET" => (true, false, true, true),   // Read-only, safe, idempotent
+        "GET" => (true, false, true, true), // Read-only, safe, idempotent
         "POST" => (false, true, false, true), // Can modify, potentially destructive, not idempotent
-        "PUT" => (false, false, true, true),  // Can modify, typically idempotent updates
+        "PUT" => (false, false, true, true), // Can modify, typically idempotent updates
         "DELETE" => (false, true, true, true), // Destructive but idempotent
         "PATCH" => (false, false, false, true), // Partial updates, not guaranteed idempotent
-        _ => (false, true, false, true),      // Default: assume can modify and be destructive
+        _ => (false, true, false, true),    // Default: assume can modify and be destructive
     };
 
     ToolAnnotations {

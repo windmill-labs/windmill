@@ -1,11 +1,3 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 //! Data models for MCP server
 //!
 //! Contains all the data structures used throughout the MCP implementation,
@@ -50,11 +42,7 @@ pub struct SchemaType {
 
 impl Default for SchemaType {
     fn default() -> Self {
-        Self {
-            r#type: "object".to_string(),
-            properties: HashMap::new(),
-            required: vec![],
-        }
+        Self { r#type: "object".to_string(), properties: HashMap::new(), required: vec![] }
     }
 }
 

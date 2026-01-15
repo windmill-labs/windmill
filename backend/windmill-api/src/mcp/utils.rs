@@ -10,7 +10,7 @@ use windmill_common::db::{Authed, UserDB};
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
 use windmill_common::{DB, HUB_BASE_URL};
-use windmill_mcp::server::{BackendError, BackendResult, ErrorData};
+use windmill_mcp::server::{BackendResult, ErrorData};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
 
 use crate::db::ApiAuthed;
@@ -255,10 +255,10 @@ pub fn substitute_path_params(
                     }
                     None => {
                         tracing::warn!("Missing required path parameter: {}", param_name);
-                        return Err(BackendError::invalid_params(format!(
+                        return Err(ErrorData::invalid_params(format!(
                             "Missing required path parameter: {}",
                             param_name
-                        )));
+                        ), None));
                     }
                 }
             }
@@ -350,10 +350,10 @@ pub async fn create_http_request(
         "DELETE" => client.delete(url),
         "PATCH" => client.patch(url),
         _ => {
-            return Err(BackendError::invalid_params(format!(
+            return Err(ErrorData::invalid_params(format!(
                 "Unsupported HTTP method: {}",
                 method
-            )));
+            ), None));
         }
     };
 
@@ -361,7 +361,7 @@ pub async fn create_http_request(
     let authed = Authed::from(api_authed.clone());
     let token = create_jwt_token(authed, workspace_id, 3600, None, None, None, None)
         .await
-        .map_err(|e| BackendError::internal(e.to_string()))?;
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
 
     // Add body if present
@@ -374,5 +374,5 @@ pub async fn create_http_request(
     request_builder
         .send()
         .await
-        .map_err(|e| BackendError::internal(format!("Failed to execute request: {}", e)))
+        .map_err(|e| ErrorData::internal_error(format!("Failed to execute request: {}", e), None))
 }
