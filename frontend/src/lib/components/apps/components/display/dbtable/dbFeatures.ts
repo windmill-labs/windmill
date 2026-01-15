@@ -7,7 +7,6 @@ export type DbFeatures = {
 	foreignKeys?: boolean
 	primaryKeys?: boolean
 	defaultValues?: boolean
-	defaultToNotNull?: boolean
 	schemas?: boolean
 }
 
@@ -16,7 +15,6 @@ export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
 		foreignKeys: true,
 		primaryKeys: true,
 		defaultValues: true,
-		defaultToNotNull: true,
 		schemas: dbInput.type !== 'ducklake' && dbSupportsSchemas(dbInput.resourceType)
 	}
 
@@ -27,8 +25,7 @@ export function getDbFeatures(dbInput: DbInput): Required<DbFeatures> {
 			...def,
 			foreignKeys: false,
 			primaryKeys: true,
-			defaultValues: false,
-			defaultToNotNull: false
+			defaultValues: false
 		}
 
 	return { ...def }

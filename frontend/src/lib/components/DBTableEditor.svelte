@@ -119,8 +119,7 @@
 			...(datatypeHasLength(defaultColumnType) && {
 				datatype_length: datatypeDefaultLength(defaultColumnType)
 			}),
-			...(primaryKey && { primaryKey }),
-			...(!features?.defaultToNotNull && { nullable: true })
+			...(primaryKey && { primaryKey })
 		})
 	}
 	if (!initialValues) {

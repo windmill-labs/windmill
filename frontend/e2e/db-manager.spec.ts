@@ -3,9 +3,50 @@ import { runDbManagerAlterTableTest, runDbManagerSimpleCRUDTest } from './DbMana
 import { DbType } from '../src/lib/components/dbTypes'
 import { Toast, prettify } from './utils'
 
+const resourceByDbType = {
+	postgresql: {
+		host: 'postgres_e2e',
+		port: 5432,
+		dbname: 'test_db',
+		user: 'test_user',
+		password: 'postgres_password',
+		sslmode: 'disable'
+	},
+	mysql: {
+		host: 'mysql_e2e',
+		port: 3306,
+		user: 'test_user',
+		database: 'test_db',
+		password: 'test_password',
+		ssl: false
+	},
+	oracle: {
+		user: 'test_user',
+		password: 'test_password',
+		database: 'oracle_e2e:1521/test_db'
+	},
+	ms_sql_server: {
+		host: 'mssql_e2e',
+		user: 'sa',
+		password: 'MsSql_Pass123!',
+		port: 1433,
+		dbname: 'master',
+		instance_name: '',
+		trust_cert: true,
+		ca_cert: '',
+		encrypt: true
+	},
+	bigquery: getBigQueryResource(),
+	snowflake: undefined // TODO
+} as const
+
 test.describe('Database resources', () => {
 	for (const dbType of ['postgresql', 'mysql', 'bigquery', 'ms_sql_server', 'snowflake'] as const) {
 		test.describe(prettify(dbType), () => {
+			test.skip(
+				resourceByDbType[dbType] === undefined,
+				`No resource config for ${dbType}, set ${dbType.toUpperCase()}_RESOURCE`
+			)
 			test(`simple CRUD with DB Manager`, async ({ page }) => {
 				await setupNewResourceAndOpenDbManager(page, dbType)
 				await runDbManagerSimpleCRUDTest(page, dbType)
@@ -163,42 +204,10 @@ async function setupCustomInstanceDb(row: Locator, page: Page, name: string) {
 	await closeModalBtn.click()
 }
 
-const resourceByDbType = {
-	postgresql: {
-		host: 'postgres_e2e',
-		port: 5432,
-		dbname: 'test_db',
-		user: 'test_user',
-		password: 'postgres_password',
-		sslmode: 'disable'
-	},
-	mysql: {
-		host: 'mysql_e2e',
-		port: 3306,
-		user: 'test_user',
-		database: 'test_db',
-		password: 'test_password',
-		ssl: false
-	},
-	oracle: {
-		user: 'test_user',
-		password: 'test_password',
-		database: 'oracle_e2e:1521/test_db'
-	},
-	ms_sql_server: {
-		host: 'mssql_e2e',
-		user: 'sa',
-		password: 'MsSql_Pass123!',
-		port: 1433,
-		dbname: 'master',
-		instance_name: '',
-		trust_cert: true,
-		ca_cert: '',
-		encrypt: true
-	},
-	bigquery: {}, // TODO
-	snowflake: {} // TODO
-} as const
+function getBigQueryResource(): object | undefined {
+	const bigqueryResource = process.env.BIGQUERY_RESOURCE
+	if (bigqueryResource) return JSON.parse(bigqueryResource)
+}
 
 const wsStorageResources = {
 	s3: {
@@ -301,6 +310,7 @@ async function setupNewResource(
 	const jsonEditor = page.locator('.simple-editor .view-lines')
 	await expect(jsonEditor).toBeVisible()
 	await jsonEditor.click({ clickCount: 4 }) // Select all existing text
+	console.log('Pasting resource config:', resourceObj)
 	await page.evaluate((c) => navigator.clipboard.writeText(c), JSON.stringify(resourceObj))
 	await page.keyboard.press('ControlOrMeta+V')
 

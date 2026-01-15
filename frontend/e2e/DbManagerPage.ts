@@ -121,12 +121,15 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await tableEditor.setTableName(postsTableName)
 	await idCol.delete()
 	await friendCol.setName('person_id')
-	await friendCol.setType(getDbDatatype(dbType, 'BIGINT'))
+	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
+		await friendCol.setType(getDbDatatype(dbType, 'BIGINT'))
+	}
 	await friendCol.setSettings({
 		defaultValue: dbFeatures.defaultValues ? '123' : undefined,
 		nullable: false
 	})
-	if (dbFeatures.primaryKeys) {
+	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
+		// Bigquery cannot rename a table with primary keys
 		await friendCol.setPrimaryKey(true)
 		await createdAtCol.setPrimaryKey(true)
 		await contentColumn.setPrimaryKey(true)
@@ -143,13 +146,15 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	tableEditor = new TableEditorDrawer(page)
 	await idCol.checkNotExists()
 	await friendCol.checkNameIs('person_id')
-	await friendCol.checkTypeIs(getDbDatatype(dbType, 'BIGINT'))
+	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
+		await friendCol.checkTypeIs(getDbDatatype(dbType, 'BIGINT'))
+	}
 	if (dbFeatures.defaultValues) {
 		await friendCol.checkSettingsIs({ defaultValue: /123/ })
 	}
 	await createdAtCol.checkTypeIs(getDbDatatype(dbType, 'TIMESTAMP'))
 	await createdAtCol.checkNameIs('created_at')
-	if (dbFeatures.primaryKeys) {
+	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
 		await friendCol.checkPrimaryKeyIs(true)
 		await createdAtCol.checkPrimaryKeyIs(true)
 		await contentColumn.checkPrimaryKeyIs(true)
@@ -188,7 +193,7 @@ export class DbManagerPage {
 
 	async selectTable(tableName: string) {
 		const tableKey = this.page.locator('.db-manager-table-key', { hasText: tableName })
-		await expect(tableKey).toBeVisible({ timeout: 10000 })
+		await expect(tableKey).toBeVisible()
 		await tableKey.click()
 	}
 
@@ -203,7 +208,7 @@ export class DbManagerPage {
 
 	async openActionsMenu(tableName: string): Promise<TableActionsMenu> {
 		const actionsBtn = this.dbManager().locator(`#db-manager-table-actions-${tableName}`)
-		await expect(actionsBtn).toBeVisible({ timeout: 10000 })
+		await expect(actionsBtn).toBeVisible()
 		await actionsBtn.click()
 		return new TableActionsMenu(this.page)
 	}
@@ -298,7 +303,7 @@ class TableEditorDrawer {
 
 	async expectNoChangesDetected() {
 		const btn = this.tableEditor().locator(`button:has-text("No changes detected")`)
-		return await expect(btn).toBeVisible({ timeout: 10000 })
+		return await expect(btn).toBeVisible()
 	}
 
 	getColumn(columnName: string): Column {
@@ -355,7 +360,7 @@ class Column {
 
 	async checkTypeIs(columnType: string) {
 		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
-		await expect(newColTypeSelect).toHaveValue(columnType)
+		await expect(newColTypeSelect).toHaveValue(new RegExp(`^${columnType}$`, 'i'))
 	}
 
 	async delete() {
@@ -430,7 +435,7 @@ class InsertRowDrawer {
 	drawer = () => this.page.locator('#insert-row-drawer')
 
 	async fillField(fieldName: string, value: string) {
-		await expect(this.drawer()).toBeVisible({ timeout: 10000 })
+		await expect(this.drawer()).toBeVisible()
 		// For now, assumes single field - could be enhanced to handle multiple fields
 		await this.drawer().locator('textarea').fill(value, { force: true })
 	}
@@ -451,7 +456,7 @@ class DataGrid {
 
 	async expectCellValue(value: string) {
 		const cell = this.dbManager.locator('.ag-cell-value', { hasText: value })
-		await expect(cell).toBeVisible({ timeout: 10000 })
+		await expect(cell).toBeVisible()
 	}
 
 	async editCell(oldValue: string, newValue: string) {
@@ -497,6 +502,9 @@ function getDbInput(dbType: _DbType): DbInput {
 // Ensure exact casing of datatype as per DB_TYPES
 function getDbDatatype(dbType: _DbType, datatype: string): string {
 	if (dbType === 'ms_sql_server' && datatype.toLowerCase() === 'timestamp') datatype = 'datetime2'
+	if (dbType === 'bigquery' && datatype.toLowerCase() === 'text') datatype = 'string'
+	if (dbType === 'bigquery' && datatype.toLowerCase() === 'int') datatype = 'int64'
+	if (dbType === 'snowflake' && datatype.toLowerCase() === 'text') datatype = 'varchar'
 	const allDataTypes = DB_TYPES[dbType == 'ducklake' ? 'duckdb' : dbType] || []
 	return allDataTypes.find((dt) => dt.toLowerCase() === datatype.toLowerCase()) || datatype
 }

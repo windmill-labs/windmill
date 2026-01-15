@@ -13,7 +13,6 @@ import {
 import { type Preview } from '$lib/gen'
 import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
 
-import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
 import { getDatabaseArg } from '$lib/components/dbOps'
@@ -362,16 +361,12 @@ export async function getDbSchemas(
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
 	let sqlScript = scripts[getLanguageByResourceType(resourceType)]
 
-	if (!sqlScript) return
+	if (!resourceType || !resourcePath || !workspace || !sqlScript) return
 
-	return new Promise(async (resolve, reject) => {
-		if (!resourceType || !resourcePath || !workspace) {
-			resolve()
-			return
-		}
-
-		const job = await JobService.runScriptPreview({
-			workspace: workspace,
+	let result: unknown
+	try {
+		result = await JobService.runScriptPreviewAndWaitResult({
+			workspace,
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
 				content: sqlScript.code,
@@ -382,91 +377,46 @@ export async function getDbSchemas(
 				}
 			}
 		})
+	} catch (e) {
+		console.error(e)
+		return errorCallback('Error fetching schema: ' + ((e as Error)?.message || e))
+	}
 
-		tryEvery({
-			tryCode: async () => {
-				if (resourcePath) {
-					const testResult = await JobService.getCompletedJob({
-						workspace,
-						id: job
-					})
-					if (!testResult.success) {
-						console.error(testResult.result?.['error']?.['message'])
-					} else {
-						if (testResult.result === 'WINDMILL_TOO_BIG') {
-							console.info('Result is too big, fetching result separately')
-							const data = await JobService.getCompletedJobResult({
-								workspace,
-								id: job
-							})
-							testResult.result = data
-						}
-						if (resourceType !== undefined) {
-							if (resourceType !== 'graphql') {
-								const { processingFn } = sqlScript
-								let schema: any
-								try {
-									schema =
-										processingFn !== undefined ? processingFn(testResult.result) : testResult.result
-								} catch (e) {
-									console.error(e)
-									errorCallback('Error processing schema')
-									resolve()
-									return
-								}
-								const dbSchema = {
-									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
-									schema,
-									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
-								}
-								dbSchemas[resourcePath] = {
-									...dbSchema,
-									stringified: stringifySchema(dbSchema)
-								}
-							} else {
-								if (
-									typeof testResult.result !== 'object' ||
-									!('__schema' in (testResult?.result ?? {}))
-								) {
-									console.error('Invalid GraphQL schema')
-
-									errorCallback('Invalid GraphQL schema')
-								} else {
-									const dbSchema = {
-										lang: 'graphql' as GraphqlSchema['lang'],
-										schema: testResult.result
-									}
-									dbSchemas[resourcePath] = {
-										...(dbSchema as any),
-										stringified: stringifySchema(dbSchema as any)
-									}
-								}
-							}
-						}
-					}
-					resolve()
+	if (resourceType !== undefined) {
+		if (resourceType !== 'graphql') {
+			const { processingFn } = sqlScript
+			let schema: any
+			try {
+				schema = processingFn !== undefined ? processingFn(result) : result
+			} catch (e) {
+				console.error(e)
+				return errorCallback('Error processing schema')
+			}
+			const dbSchema = {
+				lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
+				schema,
+				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+			}
+			dbSchemas[resourcePath] = {
+				...dbSchema,
+				stringified: stringifySchema(dbSchema)
+			}
+		} else {
+			if (typeof result !== 'object' || !('__schema' in (result ?? {}))) {
+				console.error('Invalid GraphQL schema')
+				return errorCallback('Invalid GraphQL schema')
+			} else {
+				const dbSchema = {
+					lang: 'graphql' as GraphqlSchema['lang'],
+					schema: result
 				}
-			},
-			timeoutCode: async () => {
-				console.error('Could not query schema within 5s')
-				errorCallback('Could not query schema within 5s')
-				try {
-					await JobService.cancelQueuedJob({
-						workspace,
-						id: job,
-						requestBody: {
-							reason: 'Could not query schema within 5s'
-						}
-					})
-				} catch (err) {
-					console.error(err)
+				dbSchemas[resourcePath] = {
+					...(dbSchema as any),
+					stringified: stringifySchema(dbSchema as any)
 				}
-				reject()
-			},
-			interval: 500,
-			timeout: 5000
-		})
-	})
+			}
+		}
+	}
 }
 
 export async function getTablesByResource(
