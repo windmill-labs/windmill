@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM audit WHERE timestamp <= now() - ($1::bigint::text || ' s')::interval",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d8186f0cee285aa50db7626409aec7e0504b068ffa8bb185d9384ce1422fd3d1"
+}
