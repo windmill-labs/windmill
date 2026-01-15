@@ -1,28 +1,29 @@
--- OpenTelemetry Span storage.
---
--- OTEL COMPATIBILITY:
--- All columns are 1-to-1 compatible with the OpenTelemetry Span proto spec.
--- See: https://opentelemetry.io/docs/specs/otel/trace/api/#span
---
--- Additional OTEL Span fields can be added as needed (all are spec-compatible):
---   trace_state TEXT, flags INTEGER, events JSONB, links JSONB,
---   dropped_attributes_count INTEGER, dropped_events_count INTEGER, dropped_links_count INTEGER
---
--- This table is intentionally generic and not tied to jobs. It can store:
---   - Job HTTP request traces
---   - System traces
---   - Upstream traces that span across jobs/workspaces
+-- OpenTelemetry Span storage (all fields from proto::Span).
+-- See: https://github.com/open-telemetry/opentelemetry-proto/blob/main/opentelemetry/proto/trace/v1/trace.proto
 
 CREATE TABLE IF NOT EXISTS otel_traces (
-    trace_id             VARCHAR(32) NOT NULL,   -- 16 bytes hex-encoded
-    span_id              VARCHAR(16) NOT NULL,   -- 8 bytes hex-encoded
-    parent_span_id       VARCHAR(16),            -- 8 bytes hex-encoded
-    name                 TEXT NOT NULL,          -- operation name (e.g., "GET example.com")
-    kind                 SMALLINT NOT NULL,      -- SpanKind enum (1=Internal, 2=Server, 3=Client, etc.)
-    start_time_unix_nano BIGINT NOT NULL,
-    end_time_unix_nano   BIGINT NOT NULL,
-    status               JSONB,                  -- {"code": int, "message": string}
-    attributes           JSONB NOT NULL DEFAULT '{}',
+    -- Identity fields (BYTEA for efficient storage and querying)
+    trace_id             BYTEA NOT NULL,              -- 16 bytes (proto: bytes)
+    span_id              BYTEA NOT NULL,              -- 8 bytes (proto: bytes)
+    trace_state          TEXT NOT NULL DEFAULT '',    -- W3C trace-context (proto: string)
+    parent_span_id       BYTEA NOT NULL DEFAULT '', -- 8 bytes, empty if root span (proto: bytes)
+    flags                INTEGER NOT NULL DEFAULT 0, -- W3C trace flags (proto: fixed32)
+    -- Core fields
+    name                 TEXT NOT NULL,              -- operation name (proto: string)
+    kind                 INTEGER NOT NULL,           -- SpanKind enum (proto: int32)
+    start_time_unix_nano BIGINT NOT NULL,            -- (proto: fixed64, postgres has no u64)
+    end_time_unix_nano   BIGINT NOT NULL,            -- (proto: fixed64, postgres has no u64)
+    -- Attributes
+    attributes                 JSONB NOT NULL DEFAULT '[]', -- (proto: repeated KeyValue)
+    dropped_attributes_count   INTEGER NOT NULL DEFAULT 0,  -- (proto: uint32)
+    -- Events
+    events                     JSONB NOT NULL DEFAULT '[]', -- (proto: repeated Event)
+    dropped_events_count       INTEGER NOT NULL DEFAULT 0,  -- (proto: uint32)
+    -- Links
+    links                      JSONB NOT NULL DEFAULT '[]', -- (proto: repeated Link)
+    dropped_links_count        INTEGER NOT NULL DEFAULT 0,  -- (proto: uint32)
+    -- Status
+    status               JSONB,                      -- (proto: optional Status message)
     PRIMARY KEY (trace_id, span_id)
 );
 
@@ -32,6 +33,4 @@ CREATE INDEX IF NOT EXISTS otel_traces_trace_time_idx ON otel_traces (trace_id, 
 -- Time-based cleanup (retention policy)
 CREATE INDEX IF NOT EXISTS otel_traces_time_idx ON otel_traces (start_time_unix_nano);
 
--- NOTE: No job_trace linking table needed.
--- trace_id is deterministically derived from job_id: trace_id = hex(job_id.as_u128())
--- To query traces for a job: SELECT * FROM otel_traces WHERE trace_id = hex_encode(job_id)
+-- trace_id = job_id.as_bytes()

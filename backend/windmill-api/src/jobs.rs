@@ -8689,24 +8689,30 @@ async fn get_otel_traces(
     Extension(db): Extension<DB>,
     Path((_w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Json<Vec<serde_json::Value>>> {
-    // trace_id = hex(job_id) - deterministic mapping, no linking table needed
-    let trace_id = format!("{:032x}", id.as_u128());
+    let trace_id = id.as_bytes().as_slice();
 
     let traces = sqlx::query_scalar!(
         r#"SELECT json_build_object(
-            'trace_id', trace_id,
-            'span_id', span_id,
-            'parent_span_id', parent_span_id,
+            'trace_id', encode(trace_id, 'hex'),           -- BYTEA to hex string
+            'span_id', encode(span_id, 'hex'),             -- BYTEA to hex string
+            'parent_span_id', encode(parent_span_id, 'hex'), -- BYTEA to hex string
+            'trace_state', trace_state,
+            'flags', flags,
             'name', name,
             'kind', kind,
             'start_time_unix_nano', start_time_unix_nano,
             'end_time_unix_nano', end_time_unix_nano,
-            'status', status,
-            'attributes', attributes
+            'attributes', attributes,
+            'dropped_attributes_count', dropped_attributes_count,
+            'events', events,
+            'dropped_events_count', dropped_events_count,
+            'links', links,
+            'dropped_links_count', dropped_links_count,
+            'status', status
         ) as "span!"
         FROM otel_traces
         WHERE trace_id = $1
-        ORDER BY start_time_unix_nano ASC"#,
+        ORDER BY start_time_unix_nano"#,
         trace_id
     )
     .fetch_all(&db)

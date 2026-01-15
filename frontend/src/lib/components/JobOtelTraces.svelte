@@ -179,10 +179,9 @@
 	{:else if traces.length === 0}
 		<div class="flex flex-col items-center justify-center py-8 text-secondary">
 			<Activity size={48} class="mb-4 opacity-50" />
-			<p class="text-lg font-medium">No traces found</p>
+			<p class="text-lg font-medium">No HTTP requests captured</p>
 			<p class="text-sm mt-2">
-				This job did not generate any OTel traces. Make sure OTel auto-instrumentation is enabled
-				and the script uses OTel libraries.
+				This job did not make any HTTP/HTTPS requests, or HTTP Request Tracing is not enabled in instance settings.
 			</p>
 		</div>
 	{:else}
