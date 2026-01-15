@@ -10,6 +10,7 @@
 	import { clone } from '$lib/utils'
 	import { untrack, createEventDispatcher } from 'svelte'
 	import { Save, X, Plus } from 'lucide-svelte'
+	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Rule {
 		name: string
@@ -45,8 +46,8 @@
 	let disableMergeUI = $state(rule?.rules.disableMergeUI ?? false)
 	let disableExecution = $state(rule?.rules.disableExecution ?? false)
 	let adminsBypassDisabled = $state(rule?.rules.adminsBypassDisabled ?? false)
-	let selectedGroups = $state<string[]>(rule?.scope.groups ?? [])
-	let selectedUsers = $state<string[]>(rule?.scope.users ?? [])
+	let selectedGroups = $state<string[]>(rule?.scope.groups?.map((g) => g.replace('g/', '')) ?? [])
+	let selectedUsers = $state<string[]>(rule?.scope.users?.map((u) => u.replace('u/', '')) ?? [])
 
 	// Initial state for unsaved changes tracking
 	let initialName = $state(rule?.name ?? '')
@@ -55,22 +56,30 @@
 	let initialDisableMergeUI = $state(rule?.rules.disableMergeUI ?? false)
 	let initialDisableExecution = $state(rule?.rules.disableExecution ?? false)
 	let initialAdminsBypassDisabled = $state(rule?.rules.adminsBypassDisabled ?? false)
-	let initialSelectedGroups = $state<string[]>(rule?.scope.groups ? clone(rule.scope.groups) : [])
-	let initialSelectedUsers = $state<string[]>(rule?.scope.users ? clone(rule.scope.users) : [])
+	let initialSelectedGroups = $state<string[]>(
+		rule?.scope.groups ? rule.scope.groups.map((g) => g.replace('g/', '')) : []
+	)
+	let initialSelectedUsers = $state<string[]>(
+		rule?.scope.users ? rule.scope.users.map((u) => u.replace('u/', '')) : []
+	)
 
 	// Available options
 	let availableGroups = $state<string[]>([])
 	let availableUsers = $state<string[]>([])
 
+	// Temporary values for Select dropdowns
+	let selectedGroupToAdd = $state<string | undefined>(undefined)
+	let selectedUserToAdd = $state<string | undefined>(undefined)
+
 	// Load available groups and users
 	async function loadAvailableGroups() {
 		const groups = await GroupService.listGroupNames({ workspace: $workspaceStore! })
-		availableGroups = groups.map((g) => `g/${g}`)
+		availableGroups = groups
 	}
 
 	async function loadAvailableUsers() {
 		const users = await UserService.listUsernames({ workspace: $workspaceStore! })
-		availableUsers = users.map((u) => `u/${u}`)
+		availableUsers = users
 	}
 
 	$effect(() => {
@@ -78,6 +87,26 @@
 			untrack(() => {
 				loadAvailableGroups()
 				loadAvailableUsers()
+			})
+		}
+	})
+
+	// Effect to add selected group
+	$effect(() => {
+		if (selectedGroupToAdd && !selectedGroups.includes(selectedGroupToAdd)) {
+			selectedGroups = [...selectedGroups, selectedGroupToAdd]
+			untrack(() => {
+				selectedGroupToAdd = undefined // Reset for next selection
+			})
+		}
+	})
+
+	// Effect to add selected user
+	$effect(() => {
+		if (selectedUserToAdd && !selectedUsers.includes(selectedUserToAdd)) {
+			selectedUsers = [...selectedUsers, selectedUserToAdd]
+			untrack(() => {
+				selectedUserToAdd = undefined // Reset for next selection
 			})
 		}
 	})
@@ -152,8 +181,8 @@
 						adminsBypassDisabled
 					},
 					scope: {
-						groups: selectedGroups,
-						users: selectedUsers
+						groups: selectedGroups.map(g => `g/${g}`),
+						users: selectedUsers.map(u => `u/${u}`)
 					}
 				}
 			})
@@ -182,8 +211,8 @@
 						adminsBypassDisabled
 					},
 					scope: {
-						groups: selectedGroups,
-						users: selectedUsers
+						groups: selectedGroups.map(g => `g/${g}`),
+						users: selectedUsers.map(u => `u/${u}`)
 					}
 				}
 			})
@@ -234,21 +263,15 @@
 		<div class="flex flex-col gap-2">
 			<Label>Groups</Label>
 			<Select
-				value={undefined}
-				on:change={(e) => {
-					const value = e.detail
-					if (value && !selectedGroups.includes(value)) {
-						selectedGroups = [...selectedGroups, value]
-					}
-				}}
-				items={availableGroups.filter((g) => !selectedGroups.includes(g))}
+				bind:value={selectedGroupToAdd}
+				items={safeSelectItems(availableGroups.filter((g) => !selectedGroups.includes(g)))}
 				placeholder="Select groups..."
 			/>
 			{#if selectedGroups.length > 0}
 				<div class="flex flex-wrap gap-2 mt-2">
 					{#each selectedGroups as group (group)}
 						<Badge color="blue" class="flex items-center gap-1">
-							{group.replace('g/', '')}
+							{group}
 							<button type="button" onclick={() => removeGroup(group)} class="ml-1 hover:text-red-600">
 								<X size={14} />
 							</button>
@@ -262,21 +285,15 @@
 		<div class="flex flex-col gap-2">
 			<Label>Users</Label>
 			<Select
-				value={undefined}
-				on:change={(e) => {
-					const value = e.detail
-					if (value && !selectedUsers.includes(value)) {
-						selectedUsers = [...selectedUsers, value]
-					}
-				}}
-				items={availableUsers.filter((u) => !selectedUsers.includes(u))}
+				bind:value={selectedUserToAdd}
+				items={safeSelectItems(availableUsers.filter((u) => !selectedUsers.includes(u)))}
 				placeholder="Select users..."
 			/>
 			{#if selectedUsers.length > 0}
 				<div class="flex flex-wrap gap-2 mt-2">
 					{#each selectedUsers as user (user)}
 						<Badge color="indigo" class="flex items-center gap-1">
-							{user.replace('u/', '')}
+							{user}
 							<button type="button" onclick={() => removeUser(user)} class="ml-1 hover:text-red-600">
 								<X size={14} />
 							</button>
