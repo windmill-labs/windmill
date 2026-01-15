@@ -1,17 +1,17 @@
 <script lang="ts">
-	import { type RunnableType, type Job } from '$lib/gen/index.js'
+	import { type RunnableType } from '$lib/gen/index.js'
 	import { sendUserToast } from '$lib/utils.js'
 	import RunningJobSchemaPicker from '$lib/components/schema/RunningJobSchemaPicker.svelte'
 	import { createEventDispatcher, onDestroy } from 'svelte'
-	import JobsLoader from './runs/JobsLoader.svelte'
+	import { useJobsLoader, type UseJobLoaderArgs } from './runs/useJobsLoader.svelte'
 	import { DataTable } from '$lib/components/table'
 	import HistoricList from './HistoricList.svelte'
 	import { Loader2 } from 'lucide-svelte'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		runnableId?: string | undefined
 		runnableType?: RunnableType | undefined
-		loading?: boolean
 		selected?: string | undefined
 		showAuthor?: boolean
 		placement?: 'bottom-start' | 'top-start' | 'bottom-end' | 'top-end'
@@ -22,7 +22,6 @@
 	let {
 		runnableId = undefined,
 		runnableType = undefined,
-		loading = $bindable(false),
 		selected = $bindable(undefined),
 		showAuthor = false,
 		placement = 'top-end',
@@ -33,7 +32,6 @@
 	let historicList: HistoricList | undefined = $state(undefined)
 	const dispatch = createEventDispatcher()
 
-	let jobs: Job[] = $state([])
 	let hasMoreCurrentRuns = false
 	let page = $state(1)
 
@@ -52,6 +50,10 @@
 				jobId: data.id
 			})
 		}
+	}
+
+	export function loading(): boolean {
+		return jobsLoader?.loading ?? false
 	}
 
 	onDestroy(() => {
@@ -95,40 +97,39 @@
 		}
 		return ''
 	}
+
+	let jobsLoader = useJobsLoader(
+		() =>
+			({
+				filters: {
+					show_skipped: false,
+					path: runnableId,
+					success: 'running',
+					arg: searchArgs ? JSON.stringify(searchArgs) : '',
+					per_page: 5
+				},
+				jobKinds: getJobKinds(runnableType),
+				syncQueuedRunsCount: false,
+				refreshRate: 10000,
+				computeMinAndMax: undefined,
+				currentWorkspace: $workspaceStore ?? '',
+				skip: !runnableId
+			}) satisfies UseJobLoaderArgs
+	)
+	let jobs = $derived(jobsLoader?.jobs ?? [])
 </script>
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#if runnableId}
-	<JobsLoader
-		bind:jobs
-		path={runnableId}
-		showSkipped={false}
-		jobKinds={getJobKinds(runnableType)}
-		user={null}
-		label={null}
-		folder={null}
-		concurrencyKey={null}
-		tag={null}
-		success="running"
-		argFilter={searchArgs ? JSON.stringify(searchArgs) : undefined}
-		bind:loading
-		syncQueuedRunsCount={false}
-		refreshRate={10000}
-		computeMinAndMax={undefined}
-		perPage={5}
-	/>
-{/if}
-
 <div class="h-full max-h-full min-h-0 w-full flex flex-col gap-2 relative">
 	<div class="grow-0" data-schema-picker>
 		<DataTable size="xs" bind:currentPage={page} hasMore={hasMoreCurrentRuns} tableFixed={true}>
-			{#if loading}
+			{#if jobsLoader?.loading}
 				<div class="text-primary absolute top-2 right-2">
 					<Loader2 class="animate-spin" size={14} />
 				</div>
 			{/if}
-			{#if jobs?.length > 0}
+			{#if jobs.length > 0}
 				<colgroup>
 					<col class="w-8" />
 					<col class="w-16" />
@@ -144,7 +145,7 @@
 							on:select={(e) => handleSelected(e.detail)}
 						/>
 					{/each}
-					{#if jobs?.length == 5}
+					{#if jobs.length == 5}
 						<tr class="text-left text-primary text-xs w-full">
 							<td class="w-full px-2" colspan="3">limited to 5 runs</td>
 						</tr>

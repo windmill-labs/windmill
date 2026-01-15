@@ -83,7 +83,6 @@
 	let rightPanelOpen = false
 
 	let savedInputsPicker: SavedInputsPicker | undefined = undefined
-	let loading = false
 	let captureTable: CaptureTable | undefined = undefined
 	let historicInputs: HistoricInputs | undefined = undefined
 	$: (selectedTab, (dropdownItems = getDropdownItems()))
@@ -111,11 +110,13 @@
 						<FlowInputEditor title="History">
 							<svelete:fragment slot="action">
 								<div class="center-center">
-									<RefreshButton {loading} onClick={() => historicInputs?.refresh()} />
+									<RefreshButton
+										loading={historicInputs?.loading() ?? false}
+										onClick={() => historicInputs?.refresh()}
+									/>
 								</div>
 							</svelete:fragment>
 							<HistoricInputs
-								bind:loading
 								bind:this={historicInputs}
 								{runnableId}
 								{runnableType}

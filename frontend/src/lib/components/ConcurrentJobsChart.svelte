@@ -19,16 +19,16 @@
 	interface Props {
 		extendedJobs?: ExtendedJobs | undefined
 		maxIsNow?: boolean
-		minTimeSet?: string | undefined
-		maxTimeSet?: string | undefined
+		minTimeSet?: string | null
+		maxTimeSet?: string | null
 		onZoom: (zoom: { min: Date; max: Date }) => void
 	}
 
 	let {
 		extendedJobs = undefined,
 		maxIsNow = false,
-		minTimeSet = undefined,
-		maxTimeSet = undefined,
+		minTimeSet = null,
+		maxTimeSet = null,
 		onZoom
 	}: Props = $props()
 
@@ -157,8 +157,8 @@
 	}
 	function computeMinMaxTime(
 		intervals: AggregatedInterval[] | undefined,
-		minTimeSet: string | undefined,
-		maxTimeSet: string | undefined
+		minTimeSet: string | null,
+		maxTimeSet: string | null
 	) {
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
@@ -235,7 +235,8 @@
 					display: false
 				},
 				min: minMaxTimes.min,
-				max: minMaxTimes.max
+				max: minMaxTimes.max,
+				ticks: { maxRotation: 0, minRotation: 0 }
 			},
 			y: {
 				grid: {

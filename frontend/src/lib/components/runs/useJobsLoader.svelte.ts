@@ -1,102 +1,114 @@
-<script lang="ts">
-	import { onDestroy, onMount, untrack } from 'svelte'
-	import {
-		JobService,
-		type Job,
-		type CompletedJob,
-		type ExtendedJobs,
-		ConcurrencyGroupsService,
-		type ObscuredJob,
-		CancelablePromise,
-		CancelError,
-		type JobTriggerKind
-	} from '$lib/gen'
+import { onDestroy, onMount, untrack } from 'svelte'
+import {
+	JobService,
+	type Job,
+	type CompletedJob,
+	type ExtendedJobs,
+	ConcurrencyGroupsService,
+	type ObscuredJob,
+	CancelablePromise,
+	CancelError
+} from '$lib/gen'
 
-	import { sendUserToast } from '$lib/toast'
-	import { workspaceStore } from '$lib/stores'
+import { sendUserToast } from '$lib/toast'
 
-	import { tweened, type Tweened } from 'svelte/motion'
-	import { subtractDaysFromDateString } from '$lib/utils'
-	import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+import { tweened, type Tweened } from 'svelte/motion'
+import { subtractDaysFromDateString } from '$lib/utils'
+import { CancelablePromiseUtils } from '$lib/cancelable-promise-utils'
+import type { RunsFilters } from './RunsFilter.svelte'
 
-	interface Props {
-		jobs: Job[] | undefined
-		user: string | null
-		label?: string | null
-		worker?: string | null
-		folder: string | null
-		path: string | null
-		success?: 'success' | 'suspended' | 'waiting' | 'failure' | 'running' | undefined
-		showSchedules?: boolean
-		showFutureJobs?: boolean
-		argFilter: string | undefined
-		resultFilter?: string | undefined
-		jobTriggerKind?: JobTriggerKind | undefined
-		schedulePath?: string | undefined
-		jobKindsCat?: string | undefined
-		minTs?: string | undefined
-		maxTs?: string | undefined
-		jobKinds?: string
-		queue_count?: Tweened<number> | undefined
-		suspended_count?: Tweened<number> | undefined
-		autoRefresh?: boolean
-		completedJobs?: CompletedJob[] | undefined
-		externalJobs?: Job[] | undefined
-		concurrencyKey: string | null
-		tag: string | null
-		showSkipped?: boolean
-		extendedJobs?: ExtendedJobs | undefined
-		argError?: string
-		resultError?: string
-		loading?: boolean
-		refreshRate?: number
-		syncQueuedRunsCount?: boolean
-		allWorkspaces?: boolean
-		computeMinAndMax: (() => { minTs: string; maxTs: string | undefined } | undefined) | undefined
-		lookback?: number
-		perPage?: number
-		allowWildcards?: boolean
+export function computeJobKinds(jobKindsCat: string | null): string {
+	if (jobKindsCat == 'all') {
+		return ''
+	} else if (jobKindsCat == 'dependencies') {
+		let kinds: CompletedJob['job_kind'][] = ['dependencies', 'flowdependencies', 'appdependencies']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'previews') {
+		let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'deploymentcallbacks') {
+		let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
+		return kinds.join(',')
+	} else if (jobKindsCat == 'runs') {
+		let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
+		return kinds.join(',')
+	} else {
+		let kinds: CompletedJob['job_kind'][] = [
+			'script',
+			'flow',
+			'flowscript',
+			'flownode',
+			'appscript'
+		]
+		return kinds.join(',')
 	}
+}
 
-	let {
-		jobs = $bindable(),
-		user,
-		label = null,
-		worker = null,
-		folder,
-		path,
-		success = undefined,
-		showSkipped = false,
-		showSchedules = true,
-		showFutureJobs = true,
-		argFilter,
-		resultFilter = undefined,
-		jobTriggerKind = undefined,
-		schedulePath = undefined,
-		jobKindsCat = undefined,
-		minTs = $bindable(undefined),
-		maxTs = $bindable(undefined),
-		jobKinds = $bindable(undefined),
-		queue_count = $bindable(undefined),
-		suspended_count = $bindable(undefined),
-		autoRefresh = true,
-		completedJobs = $bindable(undefined),
-		externalJobs = $bindable(undefined),
-		concurrencyKey,
-		tag,
-		extendedJobs = $bindable(undefined),
-		argError = '',
-		resultError = '',
-		loading = $bindable(false),
-		refreshRate = 5000,
-		syncQueuedRunsCount = true,
-		allWorkspaces = false,
-		computeMinAndMax,
-		lookback = 0,
-		perPage = $bindable(1000),
-		allowWildcards = false
-	}: Props = $props()
-	let intervalId: number | undefined = $state()
+export interface UseJobLoaderArgs {
+	currentWorkspace: string
+	filters?: Partial<RunsFilters>
+	jobKinds?: string
+	autoRefresh?: boolean
+	argError?: string
+	resultError?: string
+	refreshRate?: number
+	syncQueuedRunsCount?: boolean
+	skip?: boolean
+	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
+	lookback?: number
+	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
+	onSetPerPage?: (perPage: number) => void
+}
+
+export function useJobsLoader(args: () => UseJobLoaderArgs) {
+	let _args = $derived(args())
+
+	let currentWorkspace = $derived(_args.currentWorkspace)
+	let filters = $derived(_args.filters)
+	let jobKinds = $derived(_args.jobKinds)
+	let autoRefresh = $derived(_args.autoRefresh ?? true)
+	let argError = $derived(_args.argError ?? '')
+	let resultError = $derived(_args.resultError ?? '')
+	let refreshRate = $derived(_args.refreshRate ?? 5000)
+	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
+	let computeMinAndMax = $derived(_args.computeMinAndMax)
+	let lookback = $derived(_args.lookback ?? 0)
+	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
+	let onSetPerPage = $derived(_args.onSetPerPage)
+
+	let label = $derived(filters?.label ?? null)
+	let worker = $derived(filters?.worker ?? null)
+	let success = $derived(filters?.success ?? null)
+	let showSkipped = $derived(filters?.show_skipped ?? false)
+	let showSchedules = $derived(filters?.show_schedules ?? true)
+	let showFutureJobs = $derived(filters?.show_future_jobs ?? true)
+	let resultFilter = $derived(filters?.result)
+	let jobTriggerKind = $derived(filters?.job_trigger_kind ?? null)
+	let schedulePath = $derived(filters?.schedule_path ?? null)
+	let jobKindsCat = $derived(filters?.job_kinds ?? null)
+	let allWorkspaces = $derived(filters?.all_workspaces ?? false)
+	let allowWildcards = $derived(filters?.allow_wildcards ?? false)
+	let concurrencyKey = $derived(filters?.concurrency_key)
+	let tag = $derived(filters?.tag)
+	let user = $derived(filters?.user)
+	let folder = $derived(filters?.folder)
+	let path = $derived(filters?.path)
+	let argFilter = $derived(filters?.arg)
+	let minTs = $derived(filters?.min_ts ?? null)
+	let maxTs = $derived(filters?.max_ts ?? null)
+	let perPage = $derived(filters?.per_page ?? 100)
+
+	let queue_count: Tweened<number> | undefined = $state()
+	let suspended_count: Tweened<number> | undefined = $state()
+	let loading = $state(false)
+	let lastFetchWentToEnd = $state(false)
+
+	let completedJobs: CompletedJob[] | undefined = $state()
+	let externalJobs: Job[] | undefined = $state()
+	let extendedJobs: ExtendedJobs | undefined = $state()
+	let jobs: Job[] | undefined = $state()
+
+	let intervalId: ReturnType<typeof setInterval> | undefined = $state()
 	let sync = true
 
 	function onParamChanges() {
@@ -106,8 +118,8 @@
 			sendUserToast(
 				'Loading jobs is taking longer than expected...',
 				true,
-				perPage > 25
-					? [{ label: 'Reduce to 25 items per page', callback: () => (perPage = 25) }]
+				perPage > 25 && onSetPerPage
+					? [{ label: 'Reduce to 25 items per page', callback: () => onSetPerPage(25) }]
 					: []
 			)
 		})
@@ -120,43 +132,9 @@
 		return promise
 	}
 
-	function computeJobKinds(jobKindsCat: string | undefined): string {
-		if (jobKindsCat == undefined && jobKinds != undefined) {
-			return jobKinds
-		}
-		if (jobKindsCat == 'all') {
-			return ''
-		} else if (jobKindsCat == 'dependencies') {
-			let kinds: CompletedJob['job_kind'][] = [
-				'dependencies',
-				'flowdependencies',
-				'appdependencies'
-			]
-			return kinds.join(',')
-		} else if (jobKindsCat == 'previews') {
-			let kinds: CompletedJob['job_kind'][] = ['preview', 'flowpreview']
-			return kinds.join(',')
-		} else if (jobKindsCat == 'deploymentcallbacks') {
-			let kinds: CompletedJob['job_kind'][] = ['deploymentcallback']
-			return kinds.join(',')
-		} else if (jobKindsCat == 'runs') {
-			let kinds: CompletedJob['job_kind'][] = ['script', 'flow', 'singlestepflow']
-			return kinds.join(',')
-		} else {
-			let kinds: CompletedJob['job_kind'][] = [
-				'script',
-				'flow',
-				'flowscript',
-				'flownode',
-				'appscript'
-			]
-			return kinds.join(',')
-		}
-	}
-
 	let loadingFetch = false
 
-	export async function loadExtraJobs(): Promise<boolean> {
+	async function loadExtraJobs(): Promise<void> {
 		if (jobs && jobs.length > 0) {
 			let minQueueTs: string | undefined = undefined
 			let minCompletedTs: string | undefined = undefined
@@ -178,33 +156,36 @@
 
 			if (!ts) {
 				sendUserToast('No jobs to load from')
-				return false
+				lastFetchWentToEnd = false
+				return
 			}
 			// const minCreated = lastJob?.created_at
 			const minCreated = new Date(new Date(ts).getTime() - 1).toISOString()
 
 			let olderJobs = await fetchJobs(minCreated, minTs, undefined)
-			jobs = jobs?.concat(olderJobs)
+			jobs = updateWithNewJobs(olderJobs ?? [], jobs ?? [])
 			computeCompletedJobs()
-			return olderJobs?.length < perPage
+			lastFetchWentToEnd = olderJobs?.length < perPage
+		} else {
+			lastFetchWentToEnd = false
 		}
-		return false
 	}
 
 	function fetchJobs(
-		completedBefore: string | undefined,
-		completedAfter: string | undefined,
+		completedBefore: string | null,
+		completedAfter: string | null,
 		createdAfterQueue: string | undefined
 	): CancelablePromise<Job[]> {
+		if (_args.skip) return CancelablePromiseUtils.pure<Job[]>([])
 		loadingFetch = true
 		let scriptPathStart = folder === null || folder === '' ? undefined : `f/${folder}/`
 		let scriptPathExact = path === null || path === '' ? undefined : path
 		let promise = JobService.listJobs({
-			workspace: $workspaceStore!,
-			completedBefore,
-			completedAfter,
+			workspace: currentWorkspace,
+			completedBefore: completedBefore ?? undefined,
+			completedAfter: completedAfter ?? undefined,
 			createdAfterQueue,
-			schedulePath,
+			schedulePath: schedulePath ?? undefined,
 			scriptPathExact,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: scriptPathStart,
@@ -234,7 +215,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			triggerKind: jobTriggerKind,
+			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards: allowWildcards ? true : undefined
@@ -243,7 +224,7 @@
 			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
 			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
 			console.error(e)
-			return CancelablePromiseUtils.pure([] as Job[])
+			return CancelablePromiseUtils.pure<Job[]>([])
 		})
 		CancelablePromiseUtils.pipe(promise, () => {
 			loadingFetch = false
@@ -253,20 +234,22 @@
 
 	function fetchExtendedJobs(
 		concurrencyKey: string | null,
-		createdBeforeQueue: string | undefined,
-		completedAfter: string | undefined
+		createdBeforeQueue: string | null,
+		completedAfter: string | null
 	): CancelablePromise<ExtendedJobs> {
+		if (_args.skip)
+			return CancelablePromiseUtils.pure<ExtendedJobs>({ jobs: [], obscured_jobs: [] })
 		loadingFetch = true
 		let promise = ConcurrencyGroupsService.listExtendedJobs({
 			rowLimit: perPage,
 			concurrencyKey: concurrencyKey == null || concurrencyKey == '' ? undefined : concurrencyKey,
-			workspace: $workspaceStore!,
-			completedAfter,
-			createdBeforeQueue: createdBeforeQueue,
+			workspace: currentWorkspace,
+			completedAfter: completedAfter ?? undefined,
+			createdBeforeQueue: createdBeforeQueue ?? undefined,
 			// createdOrStartedBefore: startedBefore,
 			// createdOrStartedAfter: startedAfter,
 			// createdOrStartedAfterCompletedJobs: startedAfterCompletedJobs,
-			schedulePath,
+			schedulePath: schedulePath ?? undefined,
 			scriptPathExact: path === null || path === '' ? undefined : path,
 			createdBy: user === null || user === '' ? undefined : user,
 			scriptPathStart: folder === null || folder === '' ? undefined : `f/${folder}/`,
@@ -285,7 +268,7 @@
 				resultFilter && resultFilter != '{}' && resultFilter != '' && resultError == ''
 					? resultFilter
 					: undefined,
-			triggerKind: jobTriggerKind,
+			triggerKind: jobTriggerKind ?? undefined,
 			allWorkspaces: allWorkspaces ? true : undefined,
 			perPage,
 			allowWildcards
@@ -301,17 +284,8 @@
 		return promise
 	}
 
-	export async function loadJobs(
-		nMinTs: string | undefined,
-		nMaxTs: string | undefined,
-		reset: boolean,
-		shouldGetCount?: boolean
-	): Promise<void> {
-		minTs = nMinTs
-		maxTs = nMaxTs
-		if (reset) {
-			resetJobs()
-		}
+	async function loadJobs(reset: boolean, shouldGetCount?: boolean): Promise<void> {
+		if (reset) resetJobs()
 		await loadJobsIntern(shouldGetCount)
 	}
 
@@ -320,6 +294,7 @@
 		completedJobs = undefined
 		externalJobs = undefined
 		extendedJobs = undefined
+		lastFetchWentToEnd = false
 		intervalId && clearInterval(intervalId)
 		intervalId = setInterval(syncer, refreshRate)
 	}
@@ -334,7 +309,7 @@
 		const extendedMinTs = subtractDaysFromDateString(minTs, lookback)
 
 		if (concurrencyKey == null || concurrencyKey === '') {
-			return CancelablePromiseUtils.map(fetchJobs(maxTs, undefined, extendedMinTs), (newJobs) => {
+			return CancelablePromiseUtils.map(fetchJobs(maxTs, null, extendedMinTs), (newJobs) => {
 				extendedJobs = { jobs: newJobs, obscured_jobs: [] } as ExtendedJobs
 
 				// Filter on minTs here and not in the backend
@@ -346,7 +321,7 @@
 			})
 		} else {
 			return CancelablePromiseUtils.map(
-				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs),
+				fetchExtendedJobs(concurrencyKey, maxTs, extendedMinTs ?? null),
 				(newExtendedJobs) => {
 					extendedJobs = newExtendedJobs
 					const newJobs = newExtendedJobs.jobs
@@ -378,8 +353,9 @@
 	}
 
 	async function getCount() {
+		if (_args.skip) return
 		const { database_length, suspended } = await JobService.getQueueCount({
-			workspace: $workspaceStore!,
+			workspace: currentWorkspace,
 			allWorkspaces
 		})
 
@@ -399,8 +375,7 @@
 
 	async function syncer() {
 		if (success == 'waiting') {
-			minTs = undefined
-			maxTs = undefined
+			onSetMinMaxTs?.(null, null)
 		}
 		if (loadingFetch) {
 			return
@@ -410,14 +385,11 @@
 				getCount()
 			}
 
-			if (computeMinAndMax) {
-				const ts = computeMinAndMax()
-				if (ts) {
-					minTs = ts.minTs
-					maxTs = ts.maxTs
-					if (maxTs != undefined) {
-						loadJobsIntern(false)
-					}
+			const ts = computeMinAndMax?.()
+			if (ts) {
+				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
+				if (maxTs != undefined) {
+					loadJobsIntern(false)
 				}
 			}
 
@@ -426,7 +398,7 @@
 					loadJobsIntern(false)
 				} else {
 					let minQueueCreatedAt: string | undefined = undefined
-					let completedTs: string | undefined = undefined
+					let completedTs: string | null = null
 
 					let cursor = 0
 
@@ -491,8 +463,8 @@
 		return ret
 	}
 
-	function sortMinDate(minTs: string | undefined, jobs: Job[]) {
-		if (minTs != undefined) {
+	function sortMinDate(minTs: string | null, jobs: Job[]) {
+		if (minTs) {
 			const minDate = new Date(minTs)
 			return jobs.filter((x) =>
 				x.started_at
@@ -559,32 +531,7 @@
 		}
 	})
 	$effect(() => {
-		jobKinds = computeJobKinds(jobKindsCat)
-	})
-	$effect(() => {
-		;[
-			$workspaceStore,
-			path,
-			label,
-			success,
-			worker,
-			showSkipped,
-			jobKinds,
-			concurrencyKey,
-			tag,
-			lookback,
-			user,
-			folder,
-			allowWildcards,
-			schedulePath,
-			showFutureJobs,
-			showSchedules,
-			allWorkspaces,
-			argFilter,
-			resultFilter,
-			jobTriggerKind,
-			perPage
-		]
+		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})
@@ -605,4 +552,33 @@
 			}
 		})
 	})
-</script>
+
+	return {
+		loadExtraJobs,
+		loadJobs,
+		get queue_count() {
+			return queue_count
+		},
+		get suspended_count() {
+			return suspended_count
+		},
+		get loading() {
+			return loading
+		},
+		get completedJobs() {
+			return completedJobs
+		},
+		get externalJobs() {
+			return externalJobs
+		},
+		get extendedJobs() {
+			return extendedJobs
+		},
+		get jobs() {
+			return jobs
+		},
+		get lastFetchWentToEnd() {
+			return lastFetchWentToEnd
+		}
+	}
+}

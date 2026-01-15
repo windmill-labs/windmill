@@ -153,8 +153,8 @@
 						if (searchTerm !== '') return
 						let minMax = manualPicker?.computeMinMax()
 						if (minMax) {
-							maxTsManual = minMax?.maxTs
-							minTsManual = minMax?.minTs
+							maxTsManual = minMax?.maxTs ?? undefined
+							minTsManual = minMax?.minTs ?? undefined
 						}
 						let maxTsPlus1 = maxTs ? new Date(new Date(maxTs).getTime() + 1000) : undefined
 						getAllLogs(maxTsPlus1?.toISOString(), undefined)
@@ -504,8 +504,8 @@
 					/>
 				</div>
 				<ManuelDatePicker
-					bind:minTs={minTsManual}
-					bind:maxTs={maxTsManual}
+					bind:minTs={() => minTsManual ?? null, (v) => (minTsManual = v ?? undefined)}
+					bind:maxTs={() => maxTsManual ?? null, (v) => (maxTsManual = v ?? undefined)}
 					bind:this={manualPicker}
 					{loading}
 					on:loadJobs={() => {

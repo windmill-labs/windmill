@@ -34,7 +34,7 @@
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
-		lastFetchWentToEnd = $bindable(false),
+		lastFetchWentToEnd = false,
 		perPage = 1000
 	}: Props = $props()
 

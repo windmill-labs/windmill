@@ -3,7 +3,9 @@
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import { type StateStore } from './utils'
-import { resource, type ResourceReturn } from 'runed'
+import { resource, watch, type ResourceReturn } from 'runed'
+import * as runed from 'runed/kit'
+import type z from 'zod'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -185,5 +187,56 @@ export class ChangeOnDeepInequality<T> {
 
 	get value(): T {
 		return this._cached!
+	}
+}
+
+// The original from runed has a weird behavior with dedup reads causing duplicate effect runs
+// (Every field has to be derived to avoid it : https://runed.dev/docs/utilities/use-search-params)
+export function useSearchParams<S extends z.ZodType>(
+	schema: S,
+	options?: runed.SearchParamsOptions
+): runed.ReturnUseSearchParams<S> {
+	let params = runed.useSearchParams(schema, options)
+	let keys = Object.keys((schema as any).shape ?? {})
+	let obj = { ...params }
+	for (const key of keys) {
+		// Somehow using $derived does not trigger reactivity sometimes ...
+		// (e.g: filters.arg in RunsPage.svelte updates in the URL but does not trigger reactivity)
+		let derivedVal = $state(params[key])
+		Object.defineProperty(obj, key, {
+			get: () => {
+				if (typeof derivedVal === 'string') return decodeURIComponent(derivedVal)
+				return derivedVal
+			},
+			set: (v) => {
+				const val = typeof v === 'string' ? encodeURIComponent(v) : v
+				params[key] = val
+				derivedVal = val
+			},
+			enumerable: true,
+			configurable: true
+		})
+	}
+	return obj
+}
+
+// Prevents flickering when data is unloaded (undefined) then reloaded quickly
+// But still becomes undefined if data is not reloaded within the timeout
+// so the user has feedback that the data is not available anymore.
+export class StaleWhileLoading<T> {
+	private _current: T | undefined = $state()
+	private _currentTimeout: ReturnType<typeof setTimeout> | undefined
+	constructor(getter: () => T, timeout = 400) {
+		watch(getter, (value) => {
+			if (this._currentTimeout) clearTimeout(this._currentTimeout)
+			if (value === undefined) {
+				this._currentTimeout = setTimeout(() => (this._current = undefined), timeout)
+			} else {
+				this._current = value
+			}
+		})
+	}
+	get current(): T | undefined {
+		return this._current
 	}
 }

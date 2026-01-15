@@ -8,7 +8,7 @@
 	interface Props {
 		queue_count?: Tweened<number> | undefined
 		suspended_count?: Tweened<number> | undefined
-		success: string | undefined
+		success: string | null
 		small?: boolean
 		onJobsWaiting?: () => void
 		onJobsSuspended?: () => void
