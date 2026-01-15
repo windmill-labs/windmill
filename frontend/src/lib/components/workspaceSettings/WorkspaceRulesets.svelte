@@ -11,61 +11,22 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Plus, Pen, Trash } from 'lucide-svelte'
 	import { untrack } from 'svelte'
+	import { WorkspaceService, type ProtectionRule } from '$lib/gen'
 
-	interface Rule {
-		name: string
-		rules: {
-			requireForkOrBranch: boolean
-			disableFork: boolean
-			disableMergeUI: boolean
-			disableExecution: boolean
-			adminsBypassDisabled: boolean
-		}
-		scope: {
-			groups: string[]
-			users: string[]
-		}
-	}
-
-	let rules: Rule[] | undefined = $state(undefined)
-	let selectedRule: Rule | undefined = $state(undefined)
+	let rules: ProtectionRule[] | undefined = $state(undefined)
+	let selectedRule: ProtectionRule | undefined = $state(undefined)
 	let ruleDrawer: Drawer | undefined = $state(undefined)
 
 	async function loadRules() {
-		// TODO: Implement backend call
-		// rules = await WorkspaceService.listWorkspaceRules({ workspace: $workspaceStore! })
+		if (!$workspaceStore) return
 
-		// Mock data for now
-		rules = [
-			{
-				name: 'Production Protection',
-				rules: {
-					requireForkOrBranch: true,
-					disableFork: false,
-					disableMergeUI: true,
-					disableExecution: false,
-					adminsBypassDisabled: true
-				},
-				scope: {
-					groups: ['g/developers', 'g/operators'],
-					users: []
-				}
-			},
-			{
-				name: 'Read-Only Access',
-				rules: {
-					requireForkOrBranch: false,
-					disableFork: true,
-					disableMergeUI: false,
-					disableExecution: true,
-					adminsBypassDisabled: false
-				},
-				scope: {
-					groups: [],
-					users: ['u/viewer1@example.com', 'u/auditor@example.com']
-				}
-			}
-		]
+		try {
+			rules = await WorkspaceService.listProtectionRules({ workspace: $workspaceStore })
+		} catch (error) {
+			console.error('Failed to load protection rules:', error)
+			sendUserToast('Failed to load protection rules', true)
+			rules = []
+		}
 	}
 
 	$effect(() => {
@@ -75,19 +36,22 @@
 	})
 
 	async function deleteRule(name: string) {
-		// TODO: Implement backend call
-		// await WorkspaceService.deleteWorkspaceRule({
-		//   workspace: $workspaceStore!,
-		//   name
-		// })
+		if (!$workspaceStore) return
 
-		if (rules) {
-			rules = rules.filter((r) => r.name !== name)
+		try {
+			await WorkspaceService.deleteProtectionRule({
+				workspace: $workspaceStore,
+				ruleName: name
+			})
+			await loadRules()
+			sendUserToast('Protection rule deleted')
+		} catch (error) {
+			console.error('Failed to delete protection rule:', error)
+			sendUserToast('Failed to delete protection rule', true)
 		}
-		sendUserToast('Protection rule deleted')
 	}
 
-	function getScopeSummary(scope: Rule['scope']): string {
+	function getScopeSummary(scope: ProtectionRule['scope']): string {
 		const groupCount = scope.groups.length
 		const userCount = scope.users.length
 		const parts = []
@@ -96,7 +60,7 @@
 		return parts.length > 0 ? `${parts.join(', ')} can bypass` : 'No bypassers'
 	}
 
-	function getEnabledRulesCount(ruleConfig: Rule['rules']): number {
+	function getEnabledRulesCount(ruleConfig: ProtectionRule['rules']): number {
 		return Object.values(ruleConfig).filter(Boolean).length
 	}
 

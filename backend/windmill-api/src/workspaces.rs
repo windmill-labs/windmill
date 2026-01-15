@@ -184,7 +184,13 @@ pub fn workspaced_service() -> Router {
             "/reset_diff_tally/:fork_workspace_id",
             post(reset_workspace_diffs),
         )
-        .route("/compare/:target_workspace_id", get(compare_workspaces));
+        .route("/compare/:target_workspace_id", get(compare_workspaces))
+        .route("/protection_rules", get(list_protection_rules))
+        .route("/protection_rules", post(create_protection_rule))
+        .route(
+            "/protection_rules/:rule_name",
+            post(update_protection_rule).delete(delete_protection_rule),
+        );
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -4861,4 +4867,241 @@ async fn compare_two_variables(
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
     });
+}
+
+// Protection Rules API endpoints
+
+#[derive(Deserialize)]
+struct CreateProtectionRuleRequest {
+    name: String,
+    rules: windmill_common::workspaces::RuleConfig,
+    scope: windmill_common::workspaces::RuleScope,
+}
+
+#[derive(Deserialize)]
+struct UpdateProtectionRuleRequest {
+    rules: windmill_common::workspaces::RuleConfig,
+    scope: windmill_common::workspaces::RuleScope,
+}
+
+/// List all protection rules for a workspace
+async fn list_protection_rules(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<windmill_common::workspaces::ProtectionRule>> {
+    let rules = windmill_common::workspaces::get_protection_rules(&w_id, &db).await?;
+    Ok(Json((*rules).clone()))
+}
+
+/// Create a new protection rule
+async fn create_protection_rule(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(req): Json<CreateProtectionRuleRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    // Check if rule with this name already exists
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+        &w_id,
+        &req.name
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if exists {
+        return Err(Error::BadRequest(format!(
+            "Protection rule with name '{}' already exists",
+            req.name
+        )));
+    }
+
+    // Insert the new rule
+    sqlx::query!(
+        r#"
+            INSERT INTO workspace_protection_rule (workspace_id, name, rule_config, bypass_groups, bypass_users)
+            VALUES ($1, $2, $3, $4, $5)
+        "#,
+        &w_id,
+        &req.name,
+        sqlx::types::Json(&req.rules) as _,
+        &req.scope.groups,
+        &req.scope.users
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.create_protection_rule",
+        ActionKind::Create,
+        &w_id,
+        Some(&req.name),
+        Some([("name", &req.name[..])].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    // Invalidate cache
+    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings {
+            setting_type: format!("protection_rule_{}", req.name),
+        },
+        None,
+        false,
+    )
+    .await?;
+
+    Ok(format!("Created protection rule '{}'", req.name))
+}
+
+/// Update an existing protection rule
+async fn update_protection_rule(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, rule_name)): Path<(String, String)>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+    Json(req): Json<UpdateProtectionRuleRequest>,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    // Check if rule exists
+    let exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
+        &w_id,
+        &rule_name
+    )
+    .fetch_one(&mut *tx)
+    .await?
+    .unwrap_or(false);
+
+    if !exists {
+        return Err(Error::NotFound(format!(
+            "Protection rule '{}' not found",
+            rule_name
+        )));
+    }
+
+    // Update the rule
+    sqlx::query!(
+        r#"
+            UPDATE workspace_protection_rule
+            SET rule_config = $1, bypass_groups = $2, bypass_users = $3, updated_at = now()
+            WHERE workspace_id = $4 AND name = $5
+        "#,
+        sqlx::types::Json(&req.rules) as _,
+        &req.scope.groups,
+        &req.scope.users,
+        &w_id,
+        &rule_name
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.update_protection_rule",
+        ActionKind::Update,
+        &w_id,
+        Some(&rule_name),
+        Some([("name", &rule_name[..])].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    // Invalidate cache
+    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings {
+            setting_type: format!("protection_rule_{}", rule_name),
+        },
+        None,
+        false,
+    )
+    .await?;
+
+    Ok(format!("Updated protection rule '{}'", rule_name))
+}
+
+/// Delete a protection rule
+async fn delete_protection_rule(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, rule_name)): Path<(String, String)>,
+    ApiAuthed { is_admin, username, .. }: ApiAuthed,
+) -> Result<String> {
+    require_admin(is_admin, &username)?;
+
+    let mut tx = db.begin().await?;
+
+    // Delete the rule
+    let result = sqlx::query!(
+        "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
+        &w_id,
+        &rule_name
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(Error::NotFound(format!(
+            "Protection rule '{}' not found",
+            rule_name
+        )));
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.delete_protection_rule",
+        ActionKind::Delete,
+        &w_id,
+        Some(&rule_name),
+        Some([("name", &rule_name[..])].into()),
+    )
+    .await?;
+
+    tx.commit().await?;
+
+    // Invalidate cache
+    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings {
+            setting_type: format!("protection_rule_{}", rule_name),
+        },
+        None,
+        false,
+    )
+    .await?;
+
+    Ok(format!("Deleted protection rule '{}'", rule_name))
 }

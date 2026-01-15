@@ -4058,6 +4058,121 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/protection_rules:
+    get:
+      summary: list all protection rules for a workspace
+      operationId: listProtectionRules
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of protection rules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProtectionRule"
+    post:
+      summary: create a new protection rule
+      operationId: createProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: New protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - rules
+                - scope
+              properties:
+                name:
+                  type: string
+                  description: Unique name for the protection rule
+                  example: "Production Protection"
+                rules:
+                  $ref: "#/components/schemas/RuleConfig"
+                scope:
+                  $ref: "#/components/schemas/RuleScope"
+      responses:
+        "200":
+          description: protection rule created successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          description: rule with this name already exists
+
+  /w/{workspace}/workspaces/protection_rules/{rule_name}:
+    post:
+      summary: update an existing protection rule
+      operationId: updateProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to update
+      requestBody:
+        description: Updated protection rule configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - rules
+                - scope
+              properties:
+                rules:
+                  $ref: "#/components/schemas/RuleConfig"
+                scope:
+                  $ref: "#/components/schemas/RuleScope"
+      responses:
+        "200":
+          description: protection rule updated successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
+    delete:
+      summary: delete a protection rule
+      operationId: deleteProtectionRule
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: rule_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Name of the protection rule to delete
+      responses:
+        "200":
+          description: protection rule deleted successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: protection rule not found
+
   /oauth/login_callback/{client_name}:
     post:
       security: []
@@ -21498,3 +21613,68 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
+    ProtectionRule:
+      type: object
+      description: A workspace protection rule defining restrictions and bypass permissions
+      required:
+        - name
+        - rules
+        - scope
+      properties:
+        name:
+          type: string
+          description: Unique name for the protection rule
+          example: "Production Protection"
+        rules:
+          $ref: "#/components/schemas/RuleConfig"
+        scope:
+          $ref: "#/components/schemas/RuleScope"
+    RuleConfig:
+      type: object
+      description: Configuration of protection restrictions
+      required:
+        - requireForkOrBranch
+        - disableFork
+        - disableMergeUI
+        - disableExecution
+        - adminsBypassDisabled
+      properties:
+        requireForkOrBranch:
+          type: boolean
+          description: Require users to use fork or git branch for changes
+          example: true
+        disableFork:
+          type: boolean
+          description: Disable workspace forking
+          example: false
+        disableMergeUI:
+          type: boolean
+          description: Disable merge UI for forks
+          example: true
+        disableExecution:
+          type: boolean
+          description: Disable manual script and flow execution
+          example: false
+        adminsBypassDisabled:
+          type: boolean
+          description: Disable admin bypass for these rules
+          example: true
+    RuleScope:
+      type: object
+      description: Defines which users and groups can bypass the protection rules
+      required:
+        - groups
+        - users
+      properties:
+        groups:
+          type: array
+          items:
+            type: string
+          description: List of group identifiers that can bypass these rules (e.g., ["g/developers", "g/operators"])
+          example: ["g/developers", "g/operators"]
+        users:
+          type: array
+          items:
+            type: string
+          description: List of user identifiers that can bypass these rules (e.g., ["u/admin@example.com"])
+          example: ["u/admin@example.com"]

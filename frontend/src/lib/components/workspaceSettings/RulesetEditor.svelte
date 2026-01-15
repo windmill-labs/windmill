@@ -5,7 +5,7 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { enterpriseLicense, workspaceStore, userStore } from '$lib/stores'
-	import { GroupService, UserService } from '$lib/gen'
+	import { GroupService, UserService, WorkspaceService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
 	import { untrack, createEventDispatcher } from 'svelte'
@@ -137,71 +137,74 @@
 	}
 
 	async function create() {
-		if (!canSave) return
+		if (!canSave || !$workspaceStore) return
 
-		const newRule: Rule = {
-			name,
-			rules: {
-				requireForkOrBranch,
-				disableFork,
-				disableMergeUI,
-				disableExecution,
-				adminsBypassDisabled
-			},
-			scope: {
-				groups: selectedGroups,
-				users: selectedUsers
-			}
+		try {
+			await WorkspaceService.createProtectionRule({
+				workspace: $workspaceStore,
+				requestBody: {
+					name,
+					rules: {
+						requireForkOrBranch,
+						disableFork,
+						disableMergeUI,
+						disableExecution,
+						adminsBypassDisabled
+					},
+					scope: {
+						groups: selectedGroups,
+						users: selectedUsers
+					}
+				}
+			})
+
+			sendUserToast('Protection rule created successfully')
+			dispatch('update')
+		} catch (error) {
+			console.error('Failed to create protection rule:', error)
+			sendUserToast('Failed to create protection rule', true)
 		}
-
-		// TODO: Implement backend call
-		// await WorkspaceService.createWorkspaceRule({
-		//   workspace: $workspaceStore!,
-		//   requestBody: newRule
-		// })
-
-		sendUserToast('Protection rule created successfully')
-		dispatch('update')
 	}
 
 	async function save() {
-		if (!canSave) return
+		if (!canSave || !$workspaceStore) return
 
-		const updatedRule: Rule = {
-			name,
-			rules: {
-				requireForkOrBranch,
-				disableFork,
-				disableMergeUI,
-				disableExecution,
-				adminsBypassDisabled
-			},
-			scope: {
-				groups: selectedGroups,
-				users: selectedUsers
-			}
+		try {
+			await WorkspaceService.updateProtectionRule({
+				workspace: $workspaceStore,
+				ruleName: initialName,
+				requestBody: {
+					rules: {
+						requireForkOrBranch,
+						disableFork,
+						disableMergeUI,
+						disableExecution,
+						adminsBypassDisabled
+					},
+					scope: {
+						groups: selectedGroups,
+						users: selectedUsers
+					}
+				}
+			})
+
+			sendUserToast('Protection rule saved successfully')
+
+			// Update initial state
+			initialName = name
+			initialRequireForkOrBranch = requireForkOrBranch
+			initialDisableFork = disableFork
+			initialDisableMergeUI = disableMergeUI
+			initialDisableExecution = disableExecution
+			initialAdminsBypassDisabled = adminsBypassDisabled
+			initialSelectedGroups = clone(selectedGroups)
+			initialSelectedUsers = clone(selectedUsers)
+
+			dispatch('update')
+		} catch (error) {
+			console.error('Failed to save protection rule:', error)
+			sendUserToast('Failed to save protection rule', true)
 		}
-
-		// TODO: Implement backend call
-		// await WorkspaceService.updateWorkspaceRule({
-		//   workspace: $workspaceStore!,
-		//   name: initialName,
-		//   requestBody: updatedRule
-		// })
-
-		sendUserToast('Protection rule saved successfully')
-
-		// Update initial state
-		initialName = name
-		initialRequireForkOrBranch = requireForkOrBranch
-		initialDisableFork = disableFork
-		initialDisableMergeUI = disableMergeUI
-		initialDisableExecution = disableExecution
-		initialAdminsBypassDisabled = adminsBypassDisabled
-		initialSelectedGroups = clone(selectedGroups)
-		initialSelectedUsers = clone(selectedUsers)
-
-		dispatch('update')
 	}
 </script>
 

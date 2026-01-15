@@ -13,6 +13,60 @@ use crate::{
     PgDatabase, DB,
 };
 
+// Protection Rules - for fine-grained workspace access control
+
+/// Database row representation of a protection rule
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ProtectionRuleRow {
+    pub workspace_id: String,
+    pub name: String,
+    pub rule_config: sqlx::types::Json<RuleConfig>,
+    pub bypass_groups: Vec<String>,
+    pub bypass_users: Vec<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// API representation of a protection rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProtectionRule {
+    pub name: String,
+    pub rules: RuleConfig,
+    pub scope: RuleScope,
+}
+
+/// Configuration of protection rules
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleConfig {
+    pub require_fork_or_branch: bool,
+    pub disable_fork: bool,
+    #[serde(rename = "disableMergeUI")]
+    pub disable_merge_ui: bool,
+    pub disable_execution: bool,
+    pub admins_bypass_disabled: bool,
+}
+
+/// Scope defining who can bypass the protection rules
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuleScope {
+    pub groups: Vec<String>,
+    pub users: Vec<String>,
+}
+
+impl From<ProtectionRuleRow> for ProtectionRule {
+    fn from(row: ProtectionRuleRow) -> Self {
+        ProtectionRule {
+            name: row.name,
+            rules: row.rule_config.0,
+            scope: RuleScope {
+                groups: row.bypass_groups,
+                users: row.bypass_users,
+            },
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct WorkspaceGitSyncSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,6 +226,57 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
     TEAM_PLAN_CACHE.insert(_w_id.to_string(), team_plan_info.clone());
 
     Ok(team_plan_info)
+}
+
+// Protection Rules Cache
+
+lazy_static::lazy_static! {
+    pub static ref PROTECTION_RULES_CACHE: Cache<String, std::sync::Arc<Vec<ProtectionRule>>> = Cache::new(1000);
+}
+
+/// Get all protection rules for a workspace with caching
+pub async fn get_protection_rules(workspace_id: &str, db: &DB) -> Result<std::sync::Arc<Vec<ProtectionRule>>> {
+    // Check cache first
+    if let Some(cached) = PROTECTION_RULES_CACHE.get(workspace_id) {
+        return Ok(cached);
+    }
+
+    // Query database
+    let rows = sqlx::query_as!(
+        ProtectionRuleRow,
+        r#"
+            SELECT
+                workspace_id,
+                name,
+                rule_config as "rule_config: sqlx::types::Json<RuleConfig>",
+                bypass_groups,
+                bypass_users,
+                created_at,
+                updated_at
+            FROM workspace_protection_rule
+            WHERE workspace_id = $1
+            ORDER BY name
+        "#,
+        workspace_id
+    )
+    .fetch_all(db)
+    .await
+    .map_err(|e| Error::internal_err(format!("Failed to fetch protection rules: {}", e)))?;
+
+    // Convert to API representation
+    let rules: Vec<ProtectionRule> = rows.into_iter().map(|row| row.into()).collect();
+
+    // Cache and return
+    let arc_rules = std::sync::Arc::new(rules);
+    PROTECTION_RULES_CACHE.insert(workspace_id.to_string(), arc_rules.clone());
+
+    Ok(arc_rules)
+}
+
+/// Invalidate the protection rules cache for a workspace
+pub fn invalidate_protection_rules_cache(workspace_id: &str) {
+    PROTECTION_RULES_CACHE.remove(workspace_id);
+    tracing::debug!("Invalidated protection rules cache for workspace: {}", workspace_id);
 }
 
 #[derive(Deserialize, Serialize, Debug)]
