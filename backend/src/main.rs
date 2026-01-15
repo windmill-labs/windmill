@@ -1163,6 +1163,10 @@ Windmill Community Edition {GIT_VERSION}
                                                         },
                                                         OTEL_TRACING_PROXY_SETTING => {
                                                             reload_otel_tracing_proxy_setting(&conn).await;
+                                                            if worker_mode {
+                                                                tracing::info!("OTEL tracing proxy setting changed, restarting worker");
+                                                                send_delayed_killpill(&tx, 4, "OTEL tracing proxy setting change").await;
+                                                            }
                                                         },
                                                         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                                                             load_require_preexisting_user(&db).await;

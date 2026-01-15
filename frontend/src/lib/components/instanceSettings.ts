@@ -449,7 +449,7 @@ export const settings: Record<string, Setting[]> = {
 		{
 			label: 'HTTP Request Tracing',
 			description:
-				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Requires NUM_WORKERS=1 and worker restart.',
+				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Toggling requires worker restart.',
 			key: 'otel_tracing_proxy',
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
