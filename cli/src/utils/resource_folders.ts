@@ -34,6 +34,7 @@ export type FolderSuffixes =
 
 // Global state for nonDottedPaths configuration
 let _nonDottedPaths = false;
+let _nonDottedPathsLogged = false;
 
 /**
  * Set whether to use non-dotted paths (__flow, __app, __raw_app)
@@ -41,8 +42,9 @@ let _nonDottedPaths = false;
  * This should be called once at startup based on wmill.yaml configuration.
  */
 export function setNonDottedPaths(value: boolean): void {
-  if (value) {
+  if (value && !_nonDottedPathsLogged) {
     log.info("Using non-dotted paths (__flow, __app, __raw_app)");
+    _nonDottedPathsLogged = true;
   }
   _nonDottedPaths = value;
 }

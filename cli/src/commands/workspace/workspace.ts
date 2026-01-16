@@ -482,7 +482,7 @@ async function bind(
   try {
     await Deno.writeTextFile("wmill.yaml", yamlStringify(config));
   } catch (error) {
-    log.error(colors.red(`Failed to save configuration: ${error.message}`));
+    log.error(colors.red(`Failed to save configuration: ${(error as Error).message}`));
     return;
   }
 }

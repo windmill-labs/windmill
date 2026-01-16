@@ -118,7 +118,7 @@ async function createWorkspaceFork(
   } catch (error) {
     // If workspace creation fails, we should clean up the git branch
     log.error(
-      colors.red(`Failed to create forked workspace: ${error.message}`),
+      colors.red(`Failed to create forked workspace: ${(error as Error).message}`),
     );
     throw error;
   }

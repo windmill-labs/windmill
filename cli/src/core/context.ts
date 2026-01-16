@@ -221,29 +221,40 @@ async function tryResolveWorkspace(
 }
 
 export async function tryResolveBranchWorkspace(
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  branchOverride?: string
 ): Promise<Workspace | undefined> {
-  // Only try branch-based resolution if in a Git repository
-  if (!isGitRepository()) {
-    return undefined;
-  }
-
-  const rawBranch = getCurrentGitBranch();
-  if (!rawBranch) {
-    return undefined;
-  }
-
+  let rawBranch: string | null = null;
   let currentBranch: string;
-  const originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawBranch);
-  const workspaceIdIfForked =
-    getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
-  if (originalBranchIfForked) {
-    log.info(
-      `Using original branch \`${originalBranchIfForked}\` for finding workspace profile from gitBranches section in wmill.yaml`
-    );
-    currentBranch = originalBranchIfForked;
+  let originalBranchIfForked: string | null = null;
+  let workspaceIdIfForked: string | null = null;
+
+  if (branchOverride) {
+    // Use branch override directly
+    currentBranch = branchOverride;
+    log.info(`Using branch override: ${branchOverride}`);
   } else {
-    currentBranch = rawBranch;
+    // Only try branch-based resolution if in a Git repository
+    if (!isGitRepository()) {
+      return undefined;
+    }
+
+    rawBranch = getCurrentGitBranch();
+    if (!rawBranch) {
+      return undefined;
+    }
+
+    originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawBranch);
+    workspaceIdIfForked =
+      getWorkspaceIdForWorkspaceForkFromBranchName(rawBranch);
+    if (originalBranchIfForked) {
+      log.info(
+        `Using original branch \`${originalBranchIfForked}\` for finding workspace profile from gitBranches section in wmill.yaml`
+      );
+      currentBranch = originalBranchIfForked;
+    } else {
+      currentBranch = rawBranch;
+    }
   }
 
   // Read wmill.yaml to check for branch workspace configuration
@@ -284,7 +295,7 @@ export async function tryResolveBranchWorkspace(
       workspaceId,
       currentBranch,
       opts,
-      { rawBranch, isForked: !!originalBranchIfForked }
+      { rawBranch: rawBranch ?? currentBranch, isForked: !!originalBranchIfForked }
     );
   }
 
@@ -358,7 +369,8 @@ export async function tryResolveBranchWorkspace(
 }
 
 export async function resolveWorkspace(
-  opts: GlobalOptions
+  opts: GlobalOptions,
+  branchOverride?: string
 ): Promise<Workspace> {
   const cache = (opts as any).__secret_workspace;
   if (cache) return cache;
@@ -438,13 +450,13 @@ export async function resolveWorkspace(
     }
   }
 
-  const branch = getCurrentGitBranch();
+  const branch = branchOverride ?? getCurrentGitBranch();
 
   // Try explicit workspace flag first (should override branch-based resolution). Unless it's a
-  // forked workspace, that we detect through the branch name
+  // forked workspace, that we detect through the branch name (only when not using branchOverride)
   const res = await tryResolveWorkspace(opts);
   if (!res.isError) {
-    if (!branch || !branch.startsWith(WM_FORK_PREFIX)) {
+    if (branchOverride || !branch || !branch.startsWith(WM_FORK_PREFIX)) {
       return res.value;
     } else {
       log.info(
@@ -454,11 +466,12 @@ export async function resolveWorkspace(
   }
 
   // Try branch-based resolution (medium priority)
-  const branchWorkspace = await tryResolveBranchWorkspace(opts);
+  const branchWorkspace = await tryResolveBranchWorkspace(opts, branchOverride);
   if (branchWorkspace) {
     (opts as any).__secret_workspace = branchWorkspace;
     return branchWorkspace;
-  } else {
+  } else if (!branchOverride) {
+    // Only check for fork errors when not using branchOverride
     const originalBranch = getOriginalBranchForWorkspaceForks(branch);
     if (originalBranch) {
       log.error(

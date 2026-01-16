@@ -231,7 +231,7 @@ async function initAction(opts: InitOptions) {
       } catch (error) {
         // If there's an error checking backend settings, just continue with defaults
         log.warn(
-          `Could not check backend for git-sync settings: ${error.message}`
+          `Could not check backend for git-sync settings: ${(error as Error).message}`
         );
         log.info("Continuing with default settings");
       }

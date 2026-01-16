@@ -162,7 +162,7 @@ export async function pushTrigger<K extends TriggerType>(
         path,
       } as Trigger[K]);
     } catch (e) {
-      console.error(e.body);
+      console.error((e as any).body);
       throw e;
     }
   } else {
@@ -175,7 +175,7 @@ export async function pushTrigger<K extends TriggerType>(
         path,
       } as Trigger[K]);
     } catch (e) {
-      console.error(e.body);
+      console.error((e as any).body);
       throw e;
     }
   }

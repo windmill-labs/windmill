@@ -20,7 +20,7 @@ export class ContainerizedBackend {
 
   constructor(config: Partial<ContainerConfig> = {}) {
     this.config = {
-      composeFile: config.composeFile || '/home/alex/windmill/windmill/cli/test/docker-compose.test.yml',
+      composeFile: config.composeFile || new URL('./docker-compose.test.yml', import.meta.url).pathname,
       baseUrl: config.baseUrl || 'http://localhost:8001',
       workspace: config.workspace || 'test', // Use test workspace
       token: config.token || '',
@@ -1023,10 +1023,13 @@ export async function main(
       ...args
     ];
     
-    console.log('🔧 CLI Command:', ['/home/alex/.deno/bin/deno', 'run', '-A', '/home/alex/windmill/windmill/cli/src/main.ts', ...fullArgs].join(' '));
-    
-    return new Deno.Command('/home/alex/.deno/bin/deno', {
-      args: ['run', '-A', '/home/alex/windmill/windmill/cli/src/main.ts', ...fullArgs],
+    const denoPath = Deno.execPath();
+    const cliMainPath = new URL('../src/main.ts', import.meta.url).pathname;
+
+    console.log('🔧 CLI Command:', [denoPath, 'run', '-A', cliMainPath, ...fullArgs].join(' '));
+
+    return new Deno.Command(denoPath, {
+      args: ['run', '-A', cliMainPath, ...fullArgs],
       cwd: workingDir,
       stdout: 'piped',
       stderr: 'piped',

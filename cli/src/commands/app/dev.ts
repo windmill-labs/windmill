@@ -545,7 +545,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const schemaInferenceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -1221,7 +1221,7 @@ async function dev(opts: DevOptions) {
     sqlWatcher = Deno.watchFs(sqlToApplyPath);
 
     // Debounce timeout for SQL file changes
-    const sqlDebounceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const sqlDebounceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SQL_DEBOUNCE_MS = 300;
 
     // Handle SQL file changes in the background
