@@ -85,7 +85,6 @@
 	let dbManagerContent: DBManagerContent | undefined = $state()
 
 	let hasReplResult = $state(false)
-	let isRefreshing = $state(false)
 </script>
 
 <svelte:window bind:innerWidth={windowWidth} />
@@ -112,12 +111,7 @@
 	>
 		{#if effectiveInput && $workspaceStore}
 			{#key selectedDatatable}
-				<DBManagerContent
-					bind:this={dbManagerContent}
-					input={effectiveInput}
-					bind:hasReplResult
-					bind:isRefreshing
-				>
+				<DBManagerContent bind:this={dbManagerContent} input={effectiveInput} bind:hasReplResult>
 					{#snippet dbSelector()}
 						{#if isDatatableInput}
 							{#if datatables.loading}
@@ -141,7 +135,7 @@
 		{/if}
 		{#snippet actions()}
 			<Button
-				loading={isRefreshing}
+				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={() => dbManagerContent?.refresh()}
 				startIcon={{ icon: RefreshCcw }}
 				size="xs"

@@ -13,7 +13,7 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { untrack, type Snippet } from 'svelte'
+	import { type Snippet } from 'svelte'
 	import type { DbInput } from './dbTypes'
 	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
@@ -25,7 +25,6 @@
 		input?: DbInput
 		showRepl?: boolean
 		hasReplResult?: boolean
-		isRefreshing?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
 		dbSelector?: Snippet<[]>
@@ -41,7 +40,6 @@
 		input,
 		showRepl = true,
 		hasReplResult = $bindable(false),
-		isRefreshing = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
 		dbSelector,
@@ -61,50 +59,40 @@
 		}
 	}
 
-	// `refreshCount` is a derived state. `refreshing` is the source of truth
-	let refreshCount = $state(0)
-	$effect(() => {
-		if (refreshing) untrack(() => (refreshCount += 1))
-	})
-
-	let refreshing = $state(false)
-	$effect(() => {
-		if (refreshing) getSchema()
-	})
-	// Sync refreshing state with bindable prop
-	$effect(() => {
-		isRefreshing = refreshing
-	})
-	export const refresh = () => !refreshing && (refreshing = true)
-
-	// Initial schema load
-	$effect(() => {
-		if (input) {
-			untrack(() => getSchema())
+	let colDefs = resource(
+		() => [input],
+		async () => {
+			if (!input) return
+			return await loadAllTablesMetaData($workspaceStore, input)
 		}
-	})
-
-	async function getSchema() {
-		if (!input) return
-		const dbSchemasPath = getDbSchemasPath(input)
-		if ($dbSchemas[dbSchemasPath] && !refreshing) return
-
-		$dbSchemas[dbSchemasPath]
-		if (input.type == 'database') {
-			$dbSchemas[dbSchemasPath] = await getDbSchemas(
-				input.resourceType,
-				input.resourcePath,
-				$workspaceStore,
-				(message: string) => sendUserToast(message, true)
-			)
-		} else if (input.type == 'ducklake') {
-			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-				workspace: $workspaceStore!,
-				ducklake: input.ducklake
-			})
+	)
+	let dbSchemasPromise = resource(
+		() => [input],
+		async () => {
+			if (!input) return
+			const dbSchemasPath = getDbSchemasPath(input)
+			if (input.type == 'database') {
+				$dbSchemas[dbSchemasPath] = await getDbSchemas(
+					input.resourceType,
+					input.resourcePath,
+					$workspaceStore,
+					(message: string) => sendUserToast(message, true)
+				)
+			} else if (input.type == 'ducklake') {
+				$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+					workspace: $workspaceStore!,
+					ducklake: input.ducklake
+				})
+			}
 		}
-
-		refreshing = false
+	)
+	export const refresh = () => {
+		if (isLoading()) return
+		colDefs.refetch()
+		dbSchemasPromise.refetch()
+	}
+	export function isLoading() {
+		return colDefs.loading || dbSchemasPromise.loading
 	}
 
 	let replPanelSize = $state(36)
@@ -116,14 +104,6 @@
 	$effect(() => {
 		hasReplResult = !!replResultData
 	})
-
-	let colDefs = resource(
-		() => [input, refreshCount],
-		async () => {
-			if (!input) return
-			return await loadAllTablesMetaData($workspaceStore, input)
-		}
-	)
 
 	// Export for parent components
 	export function clearReplResult() {
