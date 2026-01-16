@@ -36,11 +36,11 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 use crate::{
     common::{
         build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
-        read_file_content, start_child_process, OccupancyMetrics,
+        read_file_content, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     get_proxy_envs_for_lang,
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, TRACING_PROXY_CA_CERT_PATH,
 };
 use windmill_common::client::AuthedClient;
 use windmill_common::scripts::ScriptLang;
@@ -179,7 +179,9 @@ exit $exit_status
             &NSJAIL_CONFIG_RUN_BASH_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut cmd_args = vec![
             "--config",

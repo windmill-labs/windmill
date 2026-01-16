@@ -21,11 +21,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -345,7 +345,9 @@ func Run(req Req) (interface{{}}, error){{
             &NSJAIL_CONFIG_RUN_GO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd

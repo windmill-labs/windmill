@@ -17,11 +17,12 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, start_child_process,
         write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV, get_proxy_envs_for_lang,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, get_proxy_envs_for_lang,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -1374,7 +1375,9 @@ try {{
                             "/tmp/bun/shared"
                         },
                     ),
-                ),
+                )
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());

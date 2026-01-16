@@ -228,6 +228,9 @@ pub const GO_BIN_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "gobin");
 pub const POWERSHELL_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "powershell");
 pub const COMPOSER_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "composer");
 
+pub const TRACING_PROXY_CA_CERT_PATH: &str =
+    concatcp!(ROOT_CACHE_NOMOUNT_DIR, "tracing_proxy_ca.pem");
+
 const NUM_SECS_PING: u64 = 5;
 const NUM_SECS_READINGS: u64 = 60;
 
@@ -652,14 +655,18 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
     let proxy_url = format!("http://127.0.0.1:{}", port);
     Ok(vec![
         ("HTTP_PROXY", proxy_url.clone()),
-        ("HTTPS_PROXY", proxy_url),
+        ("HTTPS_PROXY", proxy_url.clone()),
+        // Lowercase variants for Ruby and other runtimes that check lowercase first
+        ("http_proxy", proxy_url.clone()),
+        ("https_proxy", proxy_url),
         ("NO_PROXY", "".to_string()),
+        ("no_proxy", "".to_string()),
         // CA cert for various runtimes to trust the tracing proxy
-        ("SSL_CERT_FILE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("REQUESTS_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("NODE_EXTRA_CA_CERTS", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("CURL_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("DENO_CERT", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("NODE_EXTRA_CA_CERTS", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
 

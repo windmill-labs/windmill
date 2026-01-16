@@ -83,7 +83,7 @@ pub use worker_lockfiles::{
 };
 pub use otel_tracing_proxy_oss::start_otel_tracing_proxy;
 #[cfg(all(feature = "private", feature = "enterprise"))]
-pub use otel_tracing_proxy_oss::{set_current_job_context, TRACING_PROXY_PORT, TRACING_PROXY_CA_CERT_PATH};
+pub use otel_tracing_proxy_oss::{set_current_job_context, TRACING_PROXY_PORT};
 
 pub use result_processor::handle_job_error;
 

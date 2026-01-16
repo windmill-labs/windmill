@@ -28,11 +28,11 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process,
+        get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child, get_proxy_envs_for_lang,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
-    NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
 use windmill_common::scripts::ScriptLang;
@@ -564,7 +564,9 @@ pub async fn handle_csharp_job(
                 .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
