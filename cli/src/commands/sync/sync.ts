@@ -768,7 +768,7 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules,
+                flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
