@@ -11,7 +11,7 @@ import {
 } from './utils'
 
 import { type Preview } from '$lib/gen'
-import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
+import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 
 import { stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
@@ -378,12 +378,11 @@ export async function getDbSchemas(
 	resourceType: string,
 	resourcePath: string,
 	workspace: string | undefined,
-	dbSchemas: DBSchemas,
 	errorCallback: (message: string) => void,
 	options: {
 		useLegacyScripts?: boolean // To avoid breaking app policies
 	} = {}
-): Promise<void> {
+): Promise<DBSchema | undefined> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
 	let sqlScript = scripts[getLanguageByResourceType(resourceType)]
 
@@ -405,7 +404,8 @@ export async function getDbSchemas(
 		})
 	} catch (e) {
 		console.error(e)
-		return errorCallback('Error fetching schema: ' + ((e as Error)?.message || e))
+		errorCallback('Error fetching schema: ' + ((e as Error)?.message || e))
+		return
 	}
 
 	if (resourceType !== undefined) {
@@ -416,30 +416,26 @@ export async function getDbSchemas(
 				schema = processingFn !== undefined ? processingFn(result) : result
 			} catch (e) {
 				console.error(e)
-				return errorCallback('Error processing schema')
+				errorCallback('Error processing schema')
+				return
 			}
 			const dbSchema = {
 				lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
 				schema,
 				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
 			}
-			dbSchemas[resourcePath] = {
-				...dbSchema,
-				stringified: stringifySchema(dbSchema)
-			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
 		} else {
 			if (typeof result !== 'object' || !('__schema' in (result ?? {}))) {
 				console.error('Invalid GraphQL schema')
-				return errorCallback('Invalid GraphQL schema')
+				errorCallback('Invalid GraphQL schema')
+				return
 			} else {
 				const dbSchema = {
 					lang: 'graphql' as GraphqlSchema['lang'],
 					schema: result
 				}
-				dbSchemas[resourcePath] = {
-					...(dbSchema as any),
-					stringified: stringifySchema(dbSchema as any)
-				}
+				return { ...(dbSchema as any), stringified: stringifySchema(dbSchema as any) }
 			}
 		}
 	}

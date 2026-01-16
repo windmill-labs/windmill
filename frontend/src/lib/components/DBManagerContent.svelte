@@ -89,21 +89,17 @@
 
 	async function getSchema() {
 		if (!input) return
+		const dbSchemasPath = getDbSchemasPath(input)
 		await Promise.all([
 			(async () => {
-				cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
-			})(),
-			(async () => {
-				const dbSchemasPath = getDbSchemasPath(input)
 				if ($dbSchemas[dbSchemasPath] && !refreshing) return
 
-				const oldDbSchema = $dbSchemas[dbSchemasPath]
+				$dbSchemas[dbSchemasPath]
 				if (input.type == 'database') {
-					await getDbSchemas(
+					$dbSchemas[dbSchemasPath] = await getDbSchemas(
 						input.resourceType,
 						input.resourcePath,
 						$workspaceStore,
-						$dbSchemas,
 						(message: string) => sendUserToast(message, true)
 					)
 				} else if (input.type == 'ducklake') {
@@ -112,9 +108,9 @@
 						ducklake: input.ducklake
 					})
 				}
-				// avoid infinite loop on error due to the way getDbSchemas is implemented
-				// and relying on an assignement side effect
-				if (oldDbSchema !== $dbSchemas[dbSchemasPath]) $dbSchemas = $dbSchemas
+			})(),
+			(async () => {
+				cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? {}
 			})()
 		])
 		refreshing = false
