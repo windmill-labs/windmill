@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.608.0](https://github.com/windmill-labs/windmill/compare/v1.607.1...v1.608.0) (2026-01-16)
+
+
+### Features
+
+* add streamJob to raw apps ([1819713](https://github.com/windmill-labs/windmill/commit/1819713450acacc7f4342593869b12ffa3519fe1))
+
+
+### Bug Fixes
+
+* S3 secondary storage client and UI fixes ([#7587](https://github.com/windmill-labs/windmill/issues/7587)) ([b6ef536](https://github.com/windmill-labs/windmill/commit/b6ef536098775c24dd1aa40f3a186d5b04ea53a2))
+
 ## [1.607.1](https://github.com/windmill-labs/windmill/compare/v1.607.0...v1.607.1) (2026-01-16)
 
 
