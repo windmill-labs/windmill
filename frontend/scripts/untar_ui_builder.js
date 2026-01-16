@@ -20,7 +20,7 @@ console.log('Running postinstall for root project');
 
 import { x } from 'tar'
 
-const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-910a786.tar.gz'
+const tarUrl = 'https://pub-06154ed168a24e73a86ab84db6bf15d8.r2.dev/ui_builder-e2864ec.tar.gz'
 const outputTarPath = path.join(process.cwd(), 'ui_builder.tar.gz')
 const extractTo = path.join(process.cwd(), 'static/ui_builder/')
 
