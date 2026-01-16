@@ -12,7 +12,8 @@
 		LinearScale,
 		PointElement,
 		TimeScale,
-		LogarithmicScale
+		LogarithmicScale,
+		type ChartOptions
 	} from 'chart.js'
 	import type { CompletedJob } from '$lib/gen'
 	import { getDbClockNow } from '$lib/forLater'
@@ -23,8 +24,8 @@
 	interface Props {
 		jobs?: CompletedJob[] | undefined
 		maxIsNow?: boolean
-		minTimeSet?: string | undefined
-		maxTimeSet?: string | undefined
+		minTimeSet?: string | null
+		maxTimeSet?: string | null
 		selectedIds?: string[]
 		canSelect?: boolean
 		lastFetchWentToEnd?: boolean
@@ -37,8 +38,8 @@
 	let {
 		jobs = [],
 		maxIsNow = false,
-		minTimeSet = undefined,
-		maxTimeSet = undefined,
+		minTimeSet = null,
+		maxTimeSet = null,
 		selectedIds = $bindable([]),
 		canSelect = true,
 		lastFetchWentToEnd = false,
@@ -163,8 +164,8 @@
 
 	function computeMinMaxTime(
 		jobs: CompletedJob[] | undefined,
-		minTimeSet: string | undefined,
-		maxTimeSet: string | undefined
+		minTimeSet: string | null,
+		maxTimeSet: string | null
 	) {
 		let minTimeSetDate = minTimeSet ? new Date(minTimeSet) : undefined
 		let maxTimeSetDate = maxTimeSet ? new Date(maxTimeSet) : undefined
@@ -244,7 +245,7 @@
 
 	const minMaxTime = $derived.by(() => computeMinMaxTime(jobs, minTimeSet, maxTimeSet))
 
-	let scatterOptions = $derived({
+	let scatterOptions: ChartOptions<'scatter'> = $derived({
 		responsive: true,
 		maintainAspectRatio: false,
 		plugins: {
@@ -274,8 +275,9 @@
 				grid: {
 					display: false
 				},
-				min: minMaxTime.minTime,
-				max: minMaxTime.maxTime
+				min: minMaxTime.minTime.getTime(),
+				max: minMaxTime.maxTime.getTime(),
+				ticks: { maxRotation: 0, minRotation: 0 }
 			},
 			y: {
 				grid: {
@@ -285,11 +287,14 @@
 					display: true,
 					text: 'job duration (ms)'
 				},
-				type: 'logarithmic'
+				type: 'logarithmic',
+				afterFit: function (axis) {
+					axis.width = Math.max(axis.width, 65) // min width to prevent layout flickering
+				}
 			}
 		},
 		animation: false
-	} as any)
+	})
 </script>
 
 <DarkModeObserver bind:darkMode />

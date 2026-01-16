@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.606.1
+  version: 1.607.1
   title: Windmill API
 
   contact:
@@ -10030,6 +10030,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: flow_level
+          in: query
+          description: If true, generate resume URLs for the parent flow instead of the specific step. This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+          schema:
+            type: boolean
       responses:
         "200":
           description: url endpoints
