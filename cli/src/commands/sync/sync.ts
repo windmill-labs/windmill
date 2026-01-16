@@ -109,8 +109,9 @@ async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
+  branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
 }
 
 type DynFSElement = {
@@ -1858,7 +1859,7 @@ async function buildTracker(changes: Change[]) {
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string },
+    SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
@@ -1886,10 +1887,11 @@ export async function pull(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2334,7 +2336,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -2361,10 +2363,11 @@ export async function push(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -3118,6 +3121,10 @@ const command = new Command()
     "--promotion <branch:string>",
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
+  )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -3170,6 +3177,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
+  )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

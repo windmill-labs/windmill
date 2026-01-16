@@ -60,12 +60,19 @@ function buildYamlTypePattern(): string {
  * Get the specific items configuration for the current git branch
  * Merges commonSpecificItems with branch-specific specificItems
  */
-export function getSpecificItemsForCurrentBranch(config: SyncOptions): SpecificItemsConfig | undefined {
-  if (!isGitRepository() || !config.gitBranches) {
+export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOverride?: string): SpecificItemsConfig | undefined {
+  if (!config.gitBranches) {
     return undefined;
   }
 
-  const currentBranch = getCurrentGitBranch();
+  // Use branch override if provided, otherwise detect from git
+  let currentBranch: string | null = null;
+  if (branchOverride) {
+    currentBranch = branchOverride;
+  } else if (isGitRepository()) {
+    currentBranch = getCurrentGitBranch();
+  }
+
   if (!currentBranch) {
     return undefined;
   }

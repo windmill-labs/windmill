@@ -487,18 +487,26 @@ export async function getEffectiveSettings(
   config: SyncOptions,
   promotion?: string,
   skipBranchValidation?: boolean,
-  suppressLogs?: boolean
+  suppressLogs?: boolean,
+  branchOverride?: string
 ): Promise<SyncOptions> {
   // Start with top-level settings from config
   const { gitBranches, ...topLevelSettings } = config;
   const effective = { ...topLevelSettings };
 
-  if (isGitRepository()) {
+  // Determine the branch to use: branchOverride takes precedence, then git detection
+  let currentBranch: string | null = null;
+  let originalBranchIfForked: string | null = null;
+
+  if (branchOverride) {
+    currentBranch = branchOverride;
+    if (!suppressLogs) {
+      log.info(`Using branch override: ${branchOverride}`);
+    }
+  } else if (isGitRepository()) {
     const branch = getCurrentGitBranch();
+    originalBranchIfForked = getOriginalBranchForWorkspaceForks(branch);
 
-    const originalBranchIfForked = getOriginalBranchForWorkspaceForks(branch);
-
-    let currentBranch: string | null;
     if (originalBranchIfForked) {
       log.info(
         `Using overrides from original branch \`${originalBranchIfForked}\``
@@ -507,53 +515,53 @@ export async function getEffectiveSettings(
     } else {
       currentBranch = branch;
     }
+  } else {
+    log.debug("Not in a Git repository and no branch override provided, using top-level settings");
+  }
 
-    // If promotion is specified, use that branch's promotionOverrides or overrides
-    if (promotion && gitBranches && gitBranches[promotion]) {
-      const targetBranch = gitBranches[promotion];
+  // If promotion is specified, use that branch's promotionOverrides or overrides
+  if (promotion && gitBranches && gitBranches[promotion]) {
+    const targetBranch = gitBranches[promotion];
 
-      // First try promotionOverrides, then fall back to overrides
-      if (targetBranch.promotionOverrides) {
-        Object.assign(effective, targetBranch.promotionOverrides);
-        if (!suppressLogs) {
-          log.info(`Applied promotion settings from branch: ${promotion}`);
-        }
-      } else if (targetBranch.overrides) {
-        Object.assign(effective, targetBranch.overrides);
-        if (!suppressLogs) {
-          log.info(
-            `Applied settings from branch: ${promotion} (no promotionOverrides found)`
-          );
-        }
-      } else {
-        log.debug(
-          `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
-        );
-      }
-    }
-    // Otherwise use current branch overrides (existing behavior)
-    else if (
-      currentBranch &&
-      gitBranches &&
-      gitBranches[currentBranch] &&
-      gitBranches[currentBranch].overrides
-    ) {
-      Object.assign(effective, gitBranches[currentBranch].overrides);
+    // First try promotionOverrides, then fall back to overrides
+    if (targetBranch.promotionOverrides) {
+      Object.assign(effective, targetBranch.promotionOverrides);
       if (!suppressLogs) {
-        const extraLog = originalBranchIfForked
-          ? ` (because it is the origin of the workspace fork branch \`${branch}\`)`
-          : "";
+        log.info(`Applied promotion settings from branch: ${promotion}`);
+      }
+    } else if (targetBranch.overrides) {
+      Object.assign(effective, targetBranch.overrides);
+      if (!suppressLogs) {
         log.info(
-          `Applied settings for Git branch: ${currentBranch}${extraLog}`
+          `Applied settings from branch: ${promotion} (no promotionOverrides found)`
         );
       }
-    } else if (currentBranch) {
+    } else {
       log.debug(
-        `No branch-specific overrides found for '${currentBranch}', using top-level settings`
+        `No promotion or regular overrides found for branch '${promotion}', using top-level settings`
       );
     }
-  } else {
-    log.debug("Not in a Git repository, using top-level settings");
+  }
+  // Otherwise use current branch overrides (existing behavior)
+  else if (
+    currentBranch &&
+    gitBranches &&
+    gitBranches[currentBranch] &&
+    gitBranches[currentBranch].overrides
+  ) {
+    Object.assign(effective, gitBranches[currentBranch].overrides);
+    if (!suppressLogs) {
+      const extraLog = originalBranchIfForked
+        ? ` (because it is the origin of the workspace fork branch \`${currentBranch}\`)`
+        : "";
+      log.info(
+        `Applied settings for Git branch: ${currentBranch}${extraLog}`
+      );
+    }
+  } else if (currentBranch) {
+    log.debug(
+      `No branch-specific overrides found for '${currentBranch}', using top-level settings`
+    );
   }
 
   return effective;
