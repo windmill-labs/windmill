@@ -2178,10 +2178,13 @@ pub async fn handle_app_dependency_job(
     .execute(db)
     .await?;
 
-    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
-        .fetch_optional(db)
-        .await?
-        .map(|record| (record.app_id, record.value));
+    let record = sqlx::query!(
+        "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
+        id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|record| (record.app_id, record.value, record.raw_app));
 
     let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -2195,7 +2198,7 @@ pub async fn handle_app_dependency_job(
     .await?;
 
     // TODO: Use transaction for entire segment?
-    if let Some((app_id, value)) = record {
+    if let Some((app_id, value, is_raw_app)) = record {
         let value = lock_modules_app(
             value,
             &job,
@@ -2275,12 +2278,18 @@ pub async fn handle_app_dependency_job(
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
+        let deployed_object = if is_raw_app {
+            DeployedObject::RawApp { path: job_path, version: id, parent_path }
+        } else {
+            DeployedObject::App { path: job_path, version: id, parent_path }
+        };
+
         if let Err(e) = handle_deployment_metadata(
             &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id, parent_path },
+            deployed_object,
             deployment_message,
             false,
         )

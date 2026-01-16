@@ -1303,6 +1303,18 @@ async fn delete_app(
         ));
     }
 
+    // Check if it's a raw app before deletion
+    let is_raw_app = sqlx::query_scalar!(
+        "SELECT app_version.raw_app FROM app
+         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1333,16 +1345,26 @@ async fn delete_app(
     .await?;
     tx.commit().await?;
 
+    let deployed_object = if is_raw_app {
+        DeployedObject::RawApp {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    } else {
+        DeployedObject::App {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    };
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::App {
-            path: path.to_string(),
-            parent_path: Some(path.to_string()),
-            version: 0, // dummy version as it will not get inserted in db
-        },
+        deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
     )

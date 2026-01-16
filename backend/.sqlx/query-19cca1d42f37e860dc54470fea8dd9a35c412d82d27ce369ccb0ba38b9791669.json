@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT app_id, value FROM app_version WHERE id = $1",
+  "query": "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "value",
         "type_info": "Json"
+      },
+      {
+        "ordinal": 2,
+        "name": "raw_app",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      false,
       false
     ]
   },
-  "hash": "ea9bbb972217bab4d7e8f4c08e331899161e80c239d56eb657d73bbf4272939b"
+  "hash": "19cca1d42f37e860dc54470fea8dd9a35c412d82d27ce369ccb0ba38b9791669"
 }
