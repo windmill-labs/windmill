@@ -411,8 +411,9 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::add_www_authenticate_header;
             let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
-            // Apply middleware: first extract workspace ID, then add WWW-Authenticate header to 401s
+            // Apply middleware: auth check inside WWW-Authenticate wrapper so 401s get the header
             let mcp_router = mcp_router
+                .route_layer(from_extractor::<ApiAuthed>())
                 .layer(axum::middleware::from_fn(extract_and_store_workspace_id))
                 .layer(axum::middleware::from_fn(add_www_authenticate_header));
             (mcp_router, Some(mcp_cancellation_token))
@@ -538,7 +539,6 @@ pub async fn run_server(
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
-                .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
@@ -580,6 +580,7 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 .layer(from_extractor::<OptAuthed>())
+                .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
