@@ -162,8 +162,6 @@ libloading.workspace = true
 bitflags.workspace = true
 globset.workspace = true
 opentelemetry-proto.workspace = true
-prost.workspace = true
-tonic.workspace = true
 
 
 [target.'cfg(windows)'.dependencies]
@@ -421,7 +419,6 @@ opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
 opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
 opentelemetry-proto = { version = "0.29.0", features = ["with-serde", "gen-tonic"] }
-prost = "0.14.1"
 
 bollard = "0.18.1"
 
@@ -463,7 +460,6 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
-pingora-proxy = "0.6"
 hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
 hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
 rcgen = "0.13"

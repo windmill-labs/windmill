@@ -138,14 +138,10 @@ async-once-cell.workspace = true
 libloading = { workspace = true, optional = true }
 
 opentelemetry-proto.workspace = true
-prost.workspace = true
-axum.workspace = true
-tonic.workspace = true
 opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
-pingora-proxy.workspace = true
 hudsucker.workspace = true
 hyper-http-proxy.workspace = true
 hyper-tls.workspace = true

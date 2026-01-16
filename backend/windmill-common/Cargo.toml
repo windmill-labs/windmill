@@ -15,7 +15,7 @@ benchmark = []
 parquet = ["dep:object_store", "dep:aws-sdk-sts", "dep:aws-smithy-types-convert", "dep:datafusion"]
 aws_auth = ["dep:aws-sdk-sts"]
 otel = ["dep:opentelemetry-semantic-conventions", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk",
-    "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic"]
+    "dep:tracing-opentelemetry", "dep:opentelemetry-appender-tracing", "dep:tonic", "dep:opentelemetry"]
 smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
@@ -110,7 +110,7 @@ globset.workspace = true
 opentelemetry-semantic-conventions = { workspace = true, optional = true }
 opentelemetry-otlp = { workspace = true, optional = true }
 opentelemetry_sdk = { workspace = true, optional = true }
-opentelemetry.workspace = true
+opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 opentelemetry-appender-tracing = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
