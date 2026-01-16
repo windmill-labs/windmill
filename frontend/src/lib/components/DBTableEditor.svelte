@@ -314,7 +314,8 @@
 										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 											value: o,
 											label:
-												(currentSchema && o.startsWith(currentSchema)) || !features?.schemas
+												!features?.schemas ||
+												(currentSchema && o.toLowerCase().startsWith(currentSchema.toLowerCase()))
 													? o.split('.')[1]
 													: o
 										}))}

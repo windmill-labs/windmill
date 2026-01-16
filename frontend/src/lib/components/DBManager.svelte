@@ -220,14 +220,10 @@
 	let newSchemaName = $state('')
 
 	// Check if the sanitized schema name already exists
-	const sanitizedNewSchemaName = $derived(
-		newSchemaName
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-zA-Z0-9_]/g, '')
-	)
+	const sanitizedNewSchemaName = $derived(newSchemaName.trim().replace(/[^a-zA-Z0-9_]/g, ''))
 	const schemaAlreadyExists = $derived(
-		sanitizedNewSchemaName !== '' && schemaKeys.includes(sanitizedNewSchemaName)
+		sanitizedNewSchemaName !== '' &&
+			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
 	)
 </script>
 
@@ -247,10 +243,7 @@
 					placeholder="Search or create schema..."
 					showPlaceholderOnOpen
 					onCreateItem={(schema) => {
-						schema = schema
-							.trim()
-							.toLowerCase()
-							.replace(/[^a-zA-Z0-9_]/g, '')
+						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')
 						askingForConfirmation = {
 							confirmationText: `Create ${schema}`,
 							type: 'reload',

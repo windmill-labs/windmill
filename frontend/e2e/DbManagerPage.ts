@@ -2,7 +2,7 @@
 
 import { expect, Locator, Page } from '@playwright/test'
 import { getDbFeatures } from '../src/lib/components/apps/components/display/dbtable/dbFeatures'
-import { ConfirmationModal, Toast } from './utils'
+import { ConfirmationModal, Dropdown, Toast } from './utils'
 import { DbInput, DbType } from '../src/lib/components/dbTypes'
 import { DB_TYPES } from '../src/lib/consts'
 
@@ -10,12 +10,12 @@ export async function runDbManagerSimpleCRUDTest(page: Page, dbType: _DbType) {
 	let dbManager = new DbManagerPage(page)
 	await dbManager.expectToBeVisible()
 
-	let friendTableName = `friend_${Date.now()}`
+	let friendTableName = identifier(dbType, `friend_${Date.now()}`)
 
 	// Create table
 	const tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
-	await tableEditor.addColumn('name', getDbDatatype(dbType, 'TEXT'))
+	await tableEditor.addColumn(identifier(dbType, 'name'), getDbDatatype(dbType, 'TEXT'))
 	await tableEditor.getColumn('id').delete() // remove default id column
 	await tableEditor.createTable()
 
@@ -26,7 +26,7 @@ export async function runDbManagerSimpleCRUDTest(page: Page, dbType: _DbType) {
 
 	// Insert a row
 	const insertDrawer = await dbManager.openInsertDrawer()
-	await insertDrawer.fillField('name', 'Alice')
+	await insertDrawer.fillField(identifier(dbType, 'name'), 'Alice')
 	await insertDrawer.insert()
 
 	await Toast.expectSuccess(page, 'Row inserted')
@@ -53,12 +53,12 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await dbManager.expectToBeVisible()
 
 	if (dbFeatures.schemas) {
-		const schemaName = `schema_${timestamp}`
+		const schemaName = identifier(dbType, `schema_${timestamp}`)
 		await dbManager.setCurrentSchema(schemaName, { create: true })
 	}
 
 	// Create friend table
-	let friendTableName = `friend_${timestamp}`
+	let friendTableName = identifier(dbType, `friend_${timestamp}`)
 	let tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(friendTableName)
 	let friendIdCol = await tableEditor.getColumn('id') // deafult id column
@@ -68,28 +68,36 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	} else {
 		await expect(await friendIdCol.primaryKeyCheckbox()).toBeHidden()
 	}
-	await tableEditor.addColumn('name', getDbDatatype(dbType, 'TEXT'))
-	await tableEditor.addColumn('created_at', getDbDatatype(dbType, 'TIMESTAMP'))
+	await tableEditor.addColumn(identifier(dbType, 'name'), getDbDatatype(dbType, 'TEXT'))
+	await tableEditor.addColumn(identifier(dbType, 'created_at'), getDbDatatype(dbType, 'TIMESTAMP'))
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${friendTableName} created`)
 	await page.waitForTimeout(100)
 
 	// Create message table
-	let messageTableName = `message_${timestamp}`
+	let messageTableName = identifier(dbType, `message_${timestamp}`)
 	tableEditor = await dbManager.openCreateTableDrawer()
 	await tableEditor.setTableName(messageTableName)
 	let messageIdCol = await tableEditor.getColumn('id') // deafult id column
 	await messageIdCol.setType(getDbDatatype(dbType, 'INT'))
 	if (dbFeatures.primaryKeys) messageIdCol.setPrimaryKey(true)
-	await tableEditor.addColumn('friend_id', getDbDatatype(dbType, 'INT'))
-	let contentColumn = await tableEditor.addColumn('content', getDbDatatype(dbType, 'TEXT'))
+	await tableEditor.addColumn(identifier(dbType, 'friend_id'), getDbDatatype(dbType, 'INT'))
+	let contentColumn = await tableEditor.addColumn(
+		identifier(dbType, 'content'),
+		getDbDatatype(dbType, 'TEXT')
+	)
 	await contentColumn.setSettings({ nullable: true })
-	await tableEditor.addColumn('created_at', getDbDatatype(dbType, 'TIMESTAMP'))
+	await tableEditor.addColumn(identifier(dbType, 'created_at'), getDbDatatype(dbType, 'TIMESTAMP'))
 	if (dbFeatures.foreignKeys) {
-		await tableEditor.addForeignKey(friendTableName, 'friend_id', 'id', {
-			onDelete: 'Cascade',
-			onUpdate: 'Cascade'
-		})
+		await tableEditor.addForeignKey(
+			friendTableName,
+			identifier(dbType, 'friend_id'),
+			identifier(dbType, 'id'),
+			{
+				onDelete: 'Cascade',
+				onUpdate: 'Cascade'
+			}
+		)
 	} else {
 		await expect(tableEditor.foreignKeySection()).toBeHidden()
 	}
@@ -100,10 +108,10 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	// Alter message table
 	await (await dbManager.openActionsMenu(messageTableName)).alterTable()
 	await tableEditor.expectNoChangesDetected()
-	let postsTableName = `posts_${timestamp}`
-	let friendCol = tableEditor.getColumn('friend_id')
-	let createdAtCol = tableEditor.getColumn('created_at')
-	let idCol = tableEditor.getColumn('id')
+	let postsTableName = identifier(dbType, `posts_${timestamp}`)
+	let friendCol = tableEditor.getColumn(identifier(dbType, 'friend_id'))
+	let createdAtCol = tableEditor.getColumn(identifier(dbType, 'created_at'))
+	let idCol = tableEditor.getColumn(identifier(dbType, 'id'))
 
 	// Predicate checks
 	if (dbFeatures.primaryKeys) {
@@ -120,7 +128,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	// Apply alterations
 	await tableEditor.setTableName(postsTableName)
 	await idCol.delete()
-	await friendCol.setName('person_id')
+	await friendCol.setName(identifier(dbType, 'person_id'))
 	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
 		await friendCol.setType(getDbDatatype(dbType, 'BIGINT'))
 	}
@@ -144,7 +152,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await tableEditor.expectNoChangesDetected()
 	tableEditor = new TableEditorDrawer(page)
 	await idCol.checkNotExists()
-	await friendCol.checkNameIs('person_id')
+	await friendCol.checkNameIs(identifier(dbType, 'person_id'))
 	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
 		await friendCol.checkTypeIs(getDbDatatype(dbType, 'BIGINT'))
 	}
@@ -152,7 +160,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 		await friendCol.checkSettingsIs({ defaultValue: /123/ })
 	}
 	await createdAtCol.checkTypeIs(getDbDatatype(dbType, 'TIMESTAMP'))
-	await createdAtCol.checkNameIs('created_at')
+	await createdAtCol.checkNameIs(identifier(dbType, 'created_at'))
 	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
 		await friendCol.checkPrimaryKeyIs(true)
 		await createdAtCol.checkPrimaryKeyIs(true)
@@ -171,9 +179,9 @@ export class DbManagerPage {
 		const schemaSelect = this.dbManager().locator('input[id="db-schema-select"]')
 		await schemaSelect.click()
 		await schemaSelect.fill(schemaName)
-		const option = this.page
-			.locator(`.select-dropdown-open li:has(:text-is("${schemaName}"))`)
-			.or(this.page.locator('.select-dropdown-open li:has-text("Add new")'))
+		const option = Dropdown.getOption(this.page, schemaName).or(
+			Dropdown.getOption(this.page, 'Add new', { exact: false })
+		)
 		await option.click()
 		if (options?.create) {
 			await ConfirmationModal.confirm(this.page, '#db-create-schema-confirmation-modal', 'Create')
@@ -270,21 +278,13 @@ class TableEditorDrawer {
 		const fkSection = this.foreignKeySection()
 		const addFkButton = fkSection.locator('button:has-text("Add")')
 		await addFkButton.click()
-		const lastFkRow = fkSection.locator('tr').nth(-2)
+		const lastFk = fkSection.locator('tr').nth(-2)
 
-		const tableSelect = lastFkRow.locator('input.fk-table-select')
-		await tableSelect.click()
-		await this.page.locator(`.select-dropdown-open li:has(:text-is("${referencedTable}"))`).click()
+		await Dropdown.selectOption(this.page, lastFk.locator('input.fk-table-select'), referencedTable)
+		await Dropdown.selectOption(this.page, lastFk.locator('.fk-source-col-select input'), fromCol)
+		await Dropdown.selectOption(this.page, lastFk.locator('.fk-target-col-select input'), toCol)
 
-		const fromColSelect = lastFkRow.locator('.fk-source-col-select')
-		await fromColSelect.click()
-		await this.page.locator(`.select-dropdown-open li:has(:text-is("${fromCol}"))`).click()
-
-		const toColSelect = lastFkRow.locator('.fk-target-col-select')
-		await toColSelect.click()
-		await this.page.locator(`.select-dropdown-open li:has(:text-is("${toCol}"))`).click()
-
-		const fkSettings = lastFkRow.locator('.fk-settings-btn')
+		const fkSettings = lastFk.locator('.fk-settings-btn')
 		if (options?.onDelete || options?.onUpdate) {
 			await fkSettings.click()
 			if (options?.onDelete) {
@@ -352,9 +352,11 @@ class Column {
 	}
 
 	async setType(columnType: string) {
-		const newColTypeSelect = (await this.row()).locator('td').nth(1).locator('input')
-		await newColTypeSelect.click()
-		await this.page.locator(`.select-dropdown-open li:has(:text-is("${columnType}"))`).click()
+		await Dropdown.selectOption(
+			this.page,
+			(await this.row()).locator('td').nth(1).locator('input'),
+			columnType
+		)
 	}
 
 	async checkTypeIs(columnType: string) {
@@ -506,4 +508,10 @@ function getDbDatatype(dbType: _DbType, datatype: string): string {
 	if (dbType === 'snowflake' && datatype.toLowerCase() === 'text') datatype = 'varchar'
 	const allDataTypes = DB_TYPES[dbType == 'ducklake' ? 'duckdb' : dbType] || []
 	return allDataTypes.find((dt) => dt.toLowerCase() === datatype.toLowerCase()) || datatype
+}
+
+function identifier(dbType: _DbType, baseName: string): string {
+	baseName = baseName.replace(/[^a-zA-Z0-9_]/g, '_').trim()
+	if (dbType === 'snowflake') return baseName.toUpperCase()
+	return baseName
 }

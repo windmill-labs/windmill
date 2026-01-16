@@ -1,7 +1,7 @@
 import { test, expect, Page, Locator } from '@playwright/test'
 import { runDbManagerAlterTableTest, runDbManagerSimpleCRUDTest } from './DbManagerPage'
 import { DbType } from '../src/lib/components/dbTypes'
-import { Toast, prettify } from './utils'
+import { Dropdown, Toast, prettify } from './utils'
 
 const resourceByDbType = {
 	postgresql: getJsonEnv('POSTGRESQL_RESOURCE') ?? {
@@ -94,7 +94,7 @@ async function openDucklakeDbManager(page: Page, resource_type: StorageResourceT
 	let lastRow = page.locator('.ducklake-settings-table').locator('tr').nth(-2)
 	await lastRow.locator('input.ducklake-name').fill(`ducklake_${timestamp}`)
 	await lastRow.locator('.ducklake-workspace-storage-select').click()
-	await page.locator(`.select-dropdown-open li:has(:has-text("${storage}"))`).click()
+	await Dropdown.getOption(page, storage, { exact: false }).click()
 	await lastRow.locator('input.ducklake-storage-data-path').fill(`ducklake_${timestamp}`)
 	await setupCustomInstanceDb(lastRow, page, storage)
 	await page.locator('button:has-text("Save ducklake settings")').click()
@@ -173,8 +173,9 @@ async function setupCustomInstanceDb(row: Locator, page: Page, name: string) {
 	await customInstanceDbSelect.fill(name)
 
 	// Check if the database already exists in the dropdown
-	if (await page.locator(`.select-dropdown-open li:has(:text-is("${name}"))`).isVisible()) {
-		await page.locator(`.select-dropdown-open li:has(:text-is("${name}"))`).click()
+
+	if (await Dropdown.getOption(page, name).isVisible()) {
+		await Dropdown.getOption(page, name).click()
 		return
 	}
 
@@ -264,11 +265,12 @@ async function setupWsStorage(
 	await lastRow.locator('#storage-resource-type-select').click()
 	const dropdownResourceTypeLabel =
 		storageResourceTypeDropdownLabels[resource_type] ?? resource_type
-	await page.locator(`.select-dropdown-open li:has(:text-is("${dropdownResourceTypeLabel}"))`)
+
+	await Dropdown.getOption(page, dropdownResourceTypeLabel).click()
 
 	// Select resource
 	await lastRow.locator('#resource-picker-select').click()
-	await page.locator(`.select-dropdown-open li:has(:has-text("${resourceName}"))`).click()
+	await Dropdown.getOption(page, resourceName, { exact: false }).click()
 
 	await page.locator('button:has-text("Save storage settings")').click()
 	await Toast.expectSuccess(page, 'storage settings changed')
