@@ -37,25 +37,31 @@ pub async fn get_item_schema(
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
     sqlb.and_where("o.archived = false");
     sqlb.and_where("o.draft_only IS NOT TRUE");
-    let sql = sqlb.sql().map_err(|_e| {
-        tracing::error!("failed to build sql: {}", _e);
-        ErrorData::internal_error("failed to build sql", None)
+    let sql = sqlb.sql().map_err(|e| {
+        tracing::error!("failed to build sql: {}", e);
+        ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
     let mut tx = user_db
         .clone()
         .begin(authed)
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to begin transaction: {}", e);
+            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+        })?;
     let item = sqlx::query_as::<_, ItemSchema>(&sql)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|_e| {
-            tracing::error!("failed to fetch item schema: {}", _e);
-            ErrorData::internal_error("failed to fetch item schema", None)
+        .map_err(|e| {
+            tracing::error!("failed to fetch item schema: {}", e);
+            ErrorData::internal_error(format!("failed to fetch item schema: {}", e), None)
         })?;
     tx.commit()
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to commit transaction: {}", e);
+            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+        })?;
     Ok(item.schema)
 }
 
@@ -68,25 +74,31 @@ pub async fn get_resources_types(
     let mut sqlb = SqlBuilder::select_from("resource_type as o");
     sqlb.fields(&["o.name", "o.description"]);
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
-    let sql = sqlb.sql().map_err(|_e| {
-        tracing::error!("failed to build sql: {}", _e);
-        ErrorData::internal_error("failed to build sql", None)
+    let sql = sqlb.sql().map_err(|e| {
+        tracing::error!("failed to build sql: {}", e);
+        ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
     let mut tx = user_db
         .clone()
         .begin(authed)
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to begin transaction: {}", e);
+            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+        })?;
     let rows = sqlx::query_as::<_, ResourceType>(&sql)
         .fetch_all(&mut *tx)
         .await
-        .map_err(|_e| {
-            tracing::error!("Failed to fetch resource types: {}", _e);
-            ErrorData::internal_error("failed to fetch resource types", None)
+        .map_err(|e| {
+            tracing::error!("failed to fetch resource types: {}", e);
+            ErrorData::internal_error(format!("failed to fetch resource types: {}", e), None)
         })?;
     tx.commit()
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to commit transaction: {}", e);
+            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+        })?;
     Ok(rows)
 }
 
@@ -101,25 +113,31 @@ pub async fn get_resources(
     sqlb.fields(&["o.path", "o.description", "o.resource_type"]);
     sqlb.and_where("o.workspace_id = ?".bind(&workspace_id));
     sqlb.and_where("o.resource_type = ?".bind(&resource_type));
-    let sql = sqlb.sql().map_err(|_e| {
-        tracing::error!("failed to build sql: {}", _e);
-        ErrorData::internal_error("failed to build sql", None)
+    let sql = sqlb.sql().map_err(|e| {
+        tracing::error!("failed to build sql: {}", e);
+        ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
     let mut tx = user_db
         .clone()
         .begin(authed)
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to begin transaction: {}", e);
+            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+        })?;
     let rows = sqlx::query_as::<_, ResourceInfo>(&sql)
         .fetch_all(&mut *tx)
         .await
-        .map_err(|_e| {
-            tracing::error!("Failed to fetch resources: {}", _e);
-            ErrorData::internal_error("failed to fetch resources", None)
+        .map_err(|e| {
+            tracing::error!("failed to fetch resources: {}", e);
+            ErrorData::internal_error(format!("failed to fetch resources: {}", e), None)
         })?;
     tx.commit()
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to commit transaction: {}", e);
+            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+        })?;
 
     Ok(rows)
 }
@@ -157,25 +175,31 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         false,
     )
     .limit(ITEMS_FETCH_MAX_LIMIT);
-    let sql = sqlb.sql().map_err(|_e| {
-        tracing::error!("failed to build sql: {}", _e);
-        ErrorData::internal_error("failed to build sql", None)
+    let sql = sqlb.sql().map_err(|e| {
+        tracing::error!("failed to build sql: {}", e);
+        ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
     let mut tx = user_db
         .clone()
         .begin(authed)
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to begin transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to begin transaction: {}", e);
+            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+        })?;
     let rows = sqlx::query_as::<_, T>(&sql)
         .fetch_all(&mut *tx)
         .await
-        .map_err(|_e| {
-            tracing::error!("Failed to fetch {}: {}", item_type, _e);
-            ErrorData::internal_error(format!("failed to fetch {}", item_type), None)
+        .map_err(|e| {
+            tracing::error!("failed to fetch {}: {}", item_type, e);
+            ErrorData::internal_error(format!("failed to fetch {}: {}", item_type, e), None)
         })?;
     tx.commit()
         .await
-        .map_err(|_e| ErrorData::internal_error("failed to commit transaction", None))?;
+        .map_err(|e| {
+            tracing::error!("failed to commit transaction: {}", e);
+            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+        })?;
     Ok(rows)
 }
 
