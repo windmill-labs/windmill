@@ -1388,10 +1388,10 @@ export async function elementsToMap(
 
     // Handle branch-specific path mapping after all filtering
     if (specificItems) {
-      // Determine current branch for branch-specific file handling
-      const currentBranch = branchOverride || (isGitRepository() ? getCurrentGitBranch() : null);
-      if (currentBranch && isCurrentBranchFile(path, branchOverride)) {
+      if (isCurrentBranchFile(path, branchOverride)) {
         // This is a branch-specific file for current branch
+        // Safe to compute branch here since isCurrentBranchFile already validated it exists
+        const currentBranch = branchOverride || getCurrentGitBranch()!;
         const basePath = fromBranchSpecificPath(path, currentBranch);
         if (isSpecificItem(basePath, specificItems)) {
           // Map to base path for push operations
