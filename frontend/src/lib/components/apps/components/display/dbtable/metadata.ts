@@ -1,4 +1,4 @@
-import { JobService, ResourceService } from '$lib/gen'
+import { JobService, ResourceService, type ScriptLang } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
@@ -24,16 +24,11 @@ export async function loadTableMetaData(
 ): Promise<TableMetadata | undefined> {
 	if (!input || !table || !workspace) return undefined
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
-	let content = await makeLoadTableMetaDataQuery(input, workspace, table)
+	let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, table)
 
 	const job = await JobService.runScriptPreview({
 		workspace: workspace,
-		requestBody: {
-			language,
-			content,
-			args: getDatabaseArg(input)
-		}
+		requestBody: { language, content: query, args: getDatabaseArg(input) }
 	})
 
 	const maxRetries = 8
@@ -69,25 +64,18 @@ export async function loadAllTablesMetaData(
 ): Promise<Record<string, TableMetadata> | undefined> {
 	if (!input || !workspace) return undefined
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
-
 	try {
+		let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, undefined)
 		let result = (await runScriptAndPollResult({
 			workspace: workspace,
-			requestBody: {
-				language,
-				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
-				args: getDatabaseArg(input)
-			}
+			requestBody: { language, content: query, args: getDatabaseArg(input) }
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		const map: Record<string, TableMetadata> = {}
 
 		for (const _col of result) {
 			const col = lowercaseKeys(_col)
 			const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
-			if (!(tableKey in map)) {
-				map[tableKey] = []
-			}
+			map[tableKey] ??= []
 			map[tableKey].push(col)
 		}
 
@@ -103,9 +91,9 @@ async function makeLoadTableMetaDataQuery(
 	input: DbInput,
 	workspace: string,
 	table: string | undefined
-): Promise<string> {
+): Promise<{ query: string; language: ScriptLang }> {
 	if (input.type === 'ducklake') {
-		return `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
+		const query = `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
 		SELECT
 			COLUMN_NAME as field,
 			DATA_TYPE as DataType,
@@ -117,12 +105,13 @@ async function makeLoadTableMetaDataQuery(
 			TABLE_NAME as table_name
 		FROM information_schema.columns c
 		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`
+		return { query, language: 'duckdb' }
 	} else if (input.resourceType === 'mysql') {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
 			path: input.resourcePath
 		})) as any
-		return `
+		const query = `
 	SELECT 
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
@@ -152,8 +141,9 @@ async function makeLoadTableMetaDataQuery(
 			TABLE_NAME,
 			ORDINAL_POSITION;
 	`
+		return { query, language: 'mysql' }
 	} else if (input.resourceType === 'postgresql') {
-		return `
+		const query = `
 	SELECT 
 		a.attname as field,
 		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
@@ -199,8 +189,9 @@ async function makeLoadTableMetaDataQuery(
 	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
 	
 	`
+		return { query, language: 'postgresql' }
 	} else if (input.resourceType === 'ms_sql_server') {
-		return `
+		const query = `
 		SELECT
     c.COLUMN_NAME as field,
     c.DATA_TYPE as DataType,
@@ -244,11 +235,12 @@ WHERE
 ORDER BY
     c.ORDINAL_POSITION;
 	`
+		return { query, language: 'mssql' }
 	} else if (
 		input.resourceType === 'snowflake' ||
 		(input.resourceType as any) === 'snowflake_oauth'
 	) {
-		return `
+		const query = `
 		select COLUMN_NAME as field,
 		DATA_TYPE as DataType,
 		COLUMN_DEFAULT as DefaultValue,
@@ -272,10 +264,10 @@ ORDER BY
 	}
 	order by ORDINAL_POSITION;
 	`
+		return { query, language: 'snowflake' }
 	} else if (input.resourceType === 'bigquery') {
-		// TODO: find a solution for this (query uses hardcoded dataset name)
-		if (!table) throw new Error('Table name is required for BigQuery')
-		return `SELECT 
+		if (table) {
+			const query = `SELECT 
     c.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
@@ -291,6 +283,40 @@ FROM
 WHERE   
     c.TABLE_NAME = '${table.split('.')[1]}'
 order by c.ORDINAL_POSITION;`
+			return { query, language: 'bigquery' }
+		} else {
+			const query = `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
+export async function main(database: bigquery) {
+const bq = new BigQuery({
+	credentials: database
+})
+const [datasets] = await bq.getDatasets();
+if (!datasets) return {}
+const schema = {} as any
+let queries = datasets.map(dataset => \`
+	(SELECT 
+    c.COLUMN_NAME as field,
+		'\${dataset.id}' as schema_name,
+		c.TABLE_NAME as table_name,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+ORDER BY c.ORDINAL_POSITION)\`
+)
+let query = queries.join('\\nUNION ALL \\n')
+const [rows] = await bq.query(query)
+return rows
+}`
+			return { query, language: 'bun' }
+		}
 	} else {
 		throw new Error('Unsupported database type:' + input.resourceType)
 	}
