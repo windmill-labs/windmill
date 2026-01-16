@@ -8779,9 +8779,33 @@ async fn delete_completed_job<'a>(
 }
 
 async fn get_otel_traces(
+    OptAuthed(opt_authed): OptAuthed,
     Extension(db): Extension<DB>,
-    Path((_w_id, id)): Path<(String, Uuid)>,
+    Path((w_id, id)): Path<(String, Uuid)>,
 ) -> error::Result<Json<Vec<serde_json::Value>>> {
+    // Check job exists and user has permission to view it
+    let job = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match job {
+        Some(created_by) => {
+            if opt_authed.is_none() && created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(Error::NotFound(format!("Job {} not found", id)));
+        }
+    }
+
     let trace_id = id.as_bytes().as_slice();
 
     let traces = sqlx::query_scalar!(
