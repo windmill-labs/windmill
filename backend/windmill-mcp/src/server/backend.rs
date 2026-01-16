@@ -110,15 +110,14 @@ pub trait McpBackend: Send + Sync + Clone + 'static {
     // Schema Transformation (requires DB access for resources)
     // ─────────────────────────────────────────────────────────────────
 
-    /// Transform schema for resources by enriching with available resource information
-    async fn transform_schema_for_resources(
+    /// Transform schema for resources by enriching with available resource information.
+    /// The resources_cache should be pre-populated with all needed resource types.
+    fn transform_schema_for_resources(
         &self,
         schema: &SchemaType,
-        auth: &Self::Auth,
-        workspace_id: &str,
-        resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+        resources_cache: &HashMap<String, Vec<ResourceInfo>>,
         resources_types: &[ResourceType],
-    ) -> BackendResult<SchemaType>;
+    ) -> SchemaType;
 
     // ─────────────────────────────────────────────────────────────────
     // Execution Operations

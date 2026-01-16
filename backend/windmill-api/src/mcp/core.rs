@@ -184,14 +184,12 @@ impl McpBackend for WindmillBackend {
         }
     }
 
-    async fn transform_schema_for_resources(
+    fn transform_schema_for_resources(
         &self,
         schema: &SchemaType,
-        auth: &ApiAuthed,
-        workspace_id: &str,
-        resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+        resources_cache: &HashMap<String, Vec<ResourceInfo>>,
         resources_types: &[ResourceType],
-    ) -> BackendResult<SchemaType> {
+    ) -> SchemaType {
         let mut schema_obj = schema.clone();
 
         // Replace invalid char in property key with underscore
@@ -224,26 +222,6 @@ impl McpBackend for WindmillBackend {
                                 .iter()
                                 .find(|rt| rt.name == resource_type_key);
                             let resource_type_obj = resource_type.cloned();
-
-                            if !resources_cache.contains_key(&resource_type_key) {
-                                let available_resources = self
-                                    .list_resources(auth, workspace_id, &resource_type_key)
-                                    .await;
-
-                                match available_resources {
-                                    Ok(cache_data) => {
-                                        resources_cache
-                                            .insert(resource_type_key.clone(), cache_data);
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            "Failed to fetch resource cache data: {}",
-                                            e
-                                        );
-                                        continue;
-                                    }
-                                }
-                            }
 
                             if let Some(resource_cache) = resources_cache.get(&resource_type_key) {
                                 let resources_count = resource_cache.len();
@@ -300,7 +278,7 @@ impl McpBackend for WindmillBackend {
             }
         }
 
-        Ok(schema_obj)
+        schema_obj
     }
 
     async fn run_script(

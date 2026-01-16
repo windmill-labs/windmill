@@ -16,6 +16,9 @@ use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, Resourc
 use crate::db::ApiAuthed;
 use crate::HTTP_CLIENT;
 
+// items max limit
+const ITEMS_FETCH_MAX_LIMIT: usize = 100;
+
 // ============================================================================
 // Database utilities
 // ============================================================================
@@ -153,7 +156,7 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         },
         false,
     )
-    .limit(100);
+    .limit(ITEMS_FETCH_MAX_LIMIT);
     let sql = sqlb.sql().map_err(|_e| {
         tracing::error!("failed to build sql: {}", _e);
         ErrorData::internal_error("failed to build sql", None)
@@ -182,7 +185,7 @@ pub async fn get_scripts_from_hub(
     scope_integrations: Option<&str>,
 ) -> Result<Vec<HubScriptInfo>, ErrorData> {
     let query_params = Some(vec![
-        ("limit", "100".to_string()),
+        ("limit", ITEMS_FETCH_MAX_LIMIT.to_string()),
         ("with_schema", "true".to_string()),
         ("apps", scope_integrations.unwrap_or("").to_string()),
     ]);
@@ -255,10 +258,10 @@ pub fn substitute_path_params(
                     }
                     None => {
                         tracing::warn!("Missing required path parameter: {}", param_name);
-                        return Err(ErrorData::invalid_params(format!(
-                            "Missing required path parameter: {}",
-                            param_name
-                        ), None));
+                        return Err(ErrorData::invalid_params(
+                            format!("Missing required path parameter: {}", param_name),
+                            None,
+                        ));
                     }
                 }
             }
@@ -350,10 +353,10 @@ pub async fn create_http_request(
         "DELETE" => client.delete(url),
         "PATCH" => client.patch(url),
         _ => {
-            return Err(ErrorData::invalid_params(format!(
-                "Unsupported HTTP method: {}",
-                method
-            ), None));
+            return Err(ErrorData::invalid_params(
+                format!("Unsupported HTTP method: {}", method),
+                None,
+            ));
         }
     };
 

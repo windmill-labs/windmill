@@ -3,9 +3,10 @@
 //! Contains the generic Runner that implements the MCP ServerHandler trait
 //! and delegates to a McpBackend for actual functionality.
 
+use crate::common::schema::extract_resource_types_from_schema;
 use crate::common::scope::parse_mcp_scopes;
 use crate::common::transform::{reverse_transform, reverse_transform_key};
-use crate::common::types::{ResourceInfo, WorkspaceId};
+use crate::common::types::{ResourceInfo, ToolableItem, WorkspaceId};
 use crate::server::backend::{McpAuth, McpBackend};
 use crate::server::endpoints::endpoint_tool_to_mcp_tool;
 use crate::server::tools::create_tool_from_item;
@@ -18,7 +19,7 @@ use rmcp::model::{
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // Re-export from http crate for extracting request parts
@@ -48,13 +49,10 @@ impl<B: McpBackend> Runner<B> {
     fn extract_context(
         context: &RequestContext<RoleServer>,
     ) -> Result<(B::Auth, String), ErrorData> {
-        let http_parts = context
-            .extensions
-            .get::<HttpParts>()
-            .ok_or_else(|| {
-                tracing::error!("http::request::Parts not found");
-                ErrorData::internal_error("http::request::Parts not found", None)
-            })?;
+        let http_parts = context.extensions.get::<HttpParts>().ok_or_else(|| {
+            tracing::error!("http::request::Parts not found");
+            ErrorData::internal_error("http::request::Parts not found", None)
+        })?;
 
         let auth = http_parts.extensions.get::<B::Auth>().ok_or_else(|| {
             tracing::error!("Auth extension not found");
@@ -135,63 +133,77 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
             }
         )?;
 
-        let mut resources_cache: HashMap<String, Vec<ResourceInfo>> = HashMap::new();
+        // Filter items based on scope
+        let filtered_scripts: Vec<_> = scripts
+            .into_iter()
+            .filter(|s| !scope_config.granular || scope_config.is_allowed("script", &s.path))
+            .collect();
+
+        let filtered_flows: Vec<_> = flows
+            .into_iter()
+            .filter(|f| !scope_config.granular || scope_config.is_allowed("flow", &f.path))
+            .collect();
+
+        // Collect all needed resource types from all schemas
+        let mut needed_resource_types: HashSet<String> = HashSet::new();
+        for script in &filtered_scripts {
+            needed_resource_types.extend(extract_resource_types_from_schema(&script.get_schema()));
+        }
+        for flow in &filtered_flows {
+            needed_resource_types.extend(extract_resource_types_from_schema(&flow.get_schema()));
+        }
+        for hub_script in &hub_scripts {
+            needed_resource_types
+                .extend(extract_resource_types_from_schema(&hub_script.get_schema()));
+        }
+
+        // Pre-fetch all resources
+        let resource_futures: Vec<_> = needed_resource_types
+            .into_iter()
+            .map(|rt| {
+                let backend = self.backend.clone();
+                let auth = auth.clone();
+                let workspace_id = workspace_id.clone();
+                async move {
+                    backend
+                        .list_resources(&auth, &workspace_id, &rt)
+                        .await
+                        .map(|resources| (rt, resources))
+                }
+            })
+            .collect();
+
+        let resource_results = futures::future::try_join_all(resource_futures).await?;
+        let resources_cache: HashMap<String, Vec<ResourceInfo>> =
+            resource_results.into_iter().collect();
+
         let mut tools = Vec::new();
 
-        // Filter and add scripts based on scope
-        for script in scripts {
-            if scope_config.granular && !scope_config.is_allowed("script", &script.path) {
-                continue;
-            }
-
-            tools.push(
-                create_tool_from_item(
-                    &script,
-                    self.backend.as_ref(),
-                    &auth,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resource_types,
-                )
-                .await
-                .map_err(|e| ErrorData::internal_error(e.message, None))?,
-            );
+        for script in &filtered_scripts {
+            tools.push(create_tool_from_item(
+                script,
+                self.backend.as_ref(),
+                &resources_cache,
+                &resource_types,
+            ));
         }
 
-        // Filter and add flows based on scope
-        for flow in flows {
-            if scope_config.granular && !scope_config.is_allowed("flow", &flow.path) {
-                continue;
-            }
-
-            tools.push(
-                create_tool_from_item(
-                    &flow,
-                    self.backend.as_ref(),
-                    &auth,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resource_types,
-                )
-                .await
-                .map_err(|e| ErrorData::internal_error(e.message, None))?,
-            );
+        for flow in &filtered_flows {
+            tools.push(create_tool_from_item(
+                flow,
+                self.backend.as_ref(),
+                &resources_cache,
+                &resource_types,
+            ));
         }
 
-        // Add hub scripts
-        for hub_script in hub_scripts {
-            tools.push(
-                create_tool_from_item(
-                    &hub_script,
-                    self.backend.as_ref(),
-                    &auth,
-                    &workspace_id,
-                    &mut resources_cache,
-                    &resource_types,
-                )
-                .await
-                .map_err(|e| ErrorData::internal_error(e.message, None))?,
-            );
+        for hub_script in &hub_scripts {
+            tools.push(create_tool_from_item(
+                hub_script,
+                self.backend.as_ref(),
+                &resources_cache,
+                &resource_types,
+            ));
         }
 
         // Add endpoint tools from the generated MCP tools, filtered by scope

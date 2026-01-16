@@ -27,3 +27,4 @@ async-trait = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 tokio-util = { workspace = true, features = ["rt"], optional = true }
 tokio = { workspace = true, optional = true }
+futures.workspace = true

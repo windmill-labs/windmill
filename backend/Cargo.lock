@@ -15625,6 +15625,7 @@ version = "1.607.1"
 dependencies = [
  "anyhow",
  "async-trait",
+ "futures",
  "http 1.4.0",
  "oauth2",
  "reqwest 0.12.28",

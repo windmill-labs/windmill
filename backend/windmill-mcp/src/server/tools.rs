@@ -13,7 +13,7 @@ use crate::common::transform::transform_path;
 use crate::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem,
 };
-use crate::server::backend::{BackendResult, McpBackend};
+use crate::server::backend::McpBackend;
 
 /// Implementation of ToolableItem for ScriptInfo
 impl ToolableItem for ScriptInfo {
@@ -114,14 +114,15 @@ impl ToolableItem for HubScriptInfo {
 }
 
 /// Create an MCP Tool from a ToolableItem
-pub async fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
+///
+/// The resources_cache should be pre-populated with all resource types
+/// that may be referenced by the item's schema.
+pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     item: &T,
     backend: &B,
-    auth: &B::Auth,
-    workspace_id: &str,
-    resources_cache: &mut HashMap<String, Vec<ResourceInfo>>,
+    resources_cache: &HashMap<String, Vec<ResourceInfo>>,
     resources_types: &[ResourceType],
-) -> BackendResult<Tool> {
+) -> Tool {
     let is_hub = item.is_hub();
     let path = item.get_path_or_id();
     let item_type = item.item_type();
@@ -142,15 +143,8 @@ pub async fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
     );
 
     let schema = item.get_schema();
-    let schema_obj = backend
-        .transform_schema_for_resources(
-            &schema,
-            auth,
-            workspace_id,
-            resources_cache,
-            resources_types,
-        )
-        .await?;
+    let schema_obj =
+        backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
     let input_schema_map = match serde_json::to_value(schema_obj) {
         Ok(serde_json::Value::Object(map)) => map,
@@ -171,7 +165,7 @@ pub async fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         }
     };
 
-    Ok(Tool {
+    Tool {
         name: Cow::Owned(path),
         description: Some(Cow::Owned(description)),
         input_schema: Arc::new(input_schema_map),
@@ -186,5 +180,5 @@ pub async fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
             open_world_hint: Some(true),  // Can interact with external services
         }),
         meta: None,
-    })
+    }
 }
