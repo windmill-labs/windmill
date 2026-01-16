@@ -537,6 +537,7 @@ pub async fn setup_mcp_server() -> anyhow::Result<(Router, CancellationToken)> {
         sse_keep_alive: Some(Duration::from_secs(15)),
         stateful_mode: false,
         cancellation_token: cancellation_token.clone(),
+        sse_retry: Some(Duration::from_secs(15)),
     };
     let service = StreamableHttpService::new(
         || Ok(Runner::new()),
