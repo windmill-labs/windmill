@@ -290,7 +290,6 @@
 					...$state.snapshot(files ?? {}),
 					'/wmill.d.ts': genWmillTs(runnables)
 				}
-				console.log('result', frontendFiles)
 				return frontendFiles
 			},
 			setFrontendFile: (path, content): LintResult => {
@@ -302,7 +301,6 @@
 				setFilesInIframe(files)
 				selectedDocument = path
 				handleSelectFile(path)
-				console.log('files after setting', files)
 				return lint()
 			},
 			deleteFrontendFile: (path) => {

@@ -36,10 +36,56 @@ import {
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { regenerateAgentDocs } from "./generate_agents.ts";
-import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
+import {
+  getFolderSuffix,
+  hasFolderSuffix,
+  setNonDottedPaths,
+} from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
+
+/**
+ * Search for wmill.yaml by traversing upward from the current directory.
+ * Unlike the standard findWmillYaml() in conf.ts, this does not stop at
+ * the git root - it continues searching until the filesystem root.
+ * This is needed for `app dev` which runs from inside a raw_app folder
+ * that may be deeply nested within a larger git repository.
+ */
+async function findAndLoadNonDottedPathsSetting(): Promise<void> {
+  let currentDir = process.cwd();
+
+  while (true) {
+    const wmillYamlPath = path.join(currentDir, "wmill.yaml");
+
+    if (fs.existsSync(wmillYamlPath)) {
+      try {
+        const config = await yamlParseFile(wmillYamlPath) as {
+          nonDottedPaths?: boolean;
+        };
+        setNonDottedPaths(config?.nonDottedPaths ?? false);
+        log.debug(
+          `Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${
+            config?.nonDottedPaths ?? false
+          }`,
+        );
+      } catch (e) {
+        log.debug(`Failed to parse wmill.yaml at ${wmillYamlPath}: ${e}`);
+      }
+      return;
+    }
+
+    // Check if we've reached the filesystem root
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      // Reached filesystem root without finding wmill.yaml
+      log.debug("No wmill.yaml found, using default dotted paths");
+      return;
+    }
+
+    currentDir = parentDir;
+  }
+}
 
 // HTML template with live reload and SQL migration modal
 const createHTML = (jsPath: string, cssPath: string) => `
@@ -305,6 +351,10 @@ interface DevOptions extends GlobalOptions {
 async function dev(opts: DevOptions) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
 
+  // Search for wmill.yaml by traversing upward (without git root constraint)
+  // to initialize nonDottedPaths setting before using folder suffix functions
+  await findAndLoadNonDottedPathsSetting();
+
   // Validate that we're in a .raw_app folder
   const cwd = process.cwd();
   const currentDirName = path.basename(cwd);
@@ -312,9 +362,13 @@ async function dev(opts: DevOptions) {
   if (!hasFolderSuffix(currentDirName, "raw_app")) {
     log.error(
       colors.red(
-        `Error: The dev command must be run inside a ${getFolderSuffix("raw_app")} folder.\n` +
+        `Error: The dev command must be run inside a ${
+          getFolderSuffix("raw_app")
+        } folder.\n` +
           `Current directory: ${currentDirName}\n` +
-          `Please navigate to a folder ending with '${getFolderSuffix("raw_app")}' before running this command.`,
+          `Please navigate to a folder ending with '${
+            getFolderSuffix("raw_app")
+          }' before running this command.`,
       ),
     );
     Deno.exit(1);
@@ -326,7 +380,9 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a ${getFolderSuffix("raw_app")} folder containing a raw_app.yaml file.`,
+          `The dev command must be run in a ${
+            getFolderSuffix("raw_app")
+          } folder containing a raw_app.yaml file.`,
       ),
     );
     Deno.exit(1);
@@ -421,13 +477,22 @@ async function dev(opts: DevOptions) {
       build.onLoad(
         { filter: /.*/, namespace: "wmill-virtual" },
         (args: any) => {
+          const contents = wmillTs(port);
           log.info(
             colors.yellow(
               `[wmill-virtual] Loading virtual module: ${args.path}`,
             ),
           );
+          log.info(
+            colors.gray(
+              `[wmill-virtual] Exports: ${
+                contents.match(/export (const|function) \w+/g)?.join(", ") ??
+                  "none"
+              }`,
+            ),
+          );
           return {
-            contents: wmillTs(port),
+            contents,
             loader: "ts",
           };
         },
@@ -956,6 +1021,32 @@ async function dev(opts: DevOptions) {
             break;
           }
 
+          case "streamJob": {
+            // Stream job results using SSE
+            log.info(colors.blue(`[streamJob] Streaming job: ${jobId}`));
+            try {
+              await streamJobWithSSE(
+                workspaceId,
+                jobId,
+                reqId,
+                ws,
+                workspace.remote,
+                workspace.token,
+              );
+            } catch (error: any) {
+              log.error(colors.red(`[streamJob] Error: ${error.message}`));
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: error.message, stack: error.stack },
+                }),
+              );
+            }
+            break;
+          }
+
           case "applySqlMigration": {
             // Execute SQL migration against a datatable
             const { sql, datatable, fileName } = message;
@@ -1303,6 +1394,30 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
   }
 }
 
+/**
+ * Convert runnables from file format to API format.
+ * File format uses type: "script"|"hubscript"|"flow" for path-based runnables.
+ * API format uses type: "path" with runType: "script"|"hubscript"|"flow".
+ */
+function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    if (
+      runnable?.type === "script" ||
+      runnable?.type === "hubscript" ||
+      runnable?.type === "flow"
+    ) {
+      // Convert from file format to API format
+      // { type: "script" } -> { type: "path", runType: "script" }
+      const originalType = runnable.type;
+      runnable.runType = originalType;
+      runnable.type = "path";
+      log.debug(
+        `Converted runnable '${runnableId}' from type='${originalType}' to type='path', runType='${originalType}'`,
+      );
+    }
+  }
+}
+
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
@@ -1318,6 +1433,10 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
       )) as any;
       runnables = rawApp?.runnables ?? {};
     }
+
+    // Always convert path-based runnables from file format to API format
+    // This handles both backend folder runnables and raw_app.yaml runnables
+    convertRunnablesToApiFormat(runnables);
 
     replaceInlineScripts(runnables, backendPath + SEP, true);
 
@@ -1370,12 +1489,31 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if (runnable.type === "path" && runnable.runType && runnable.path) {
-    // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
+  } else if (
+    (runnable.type === "path" || runnable.type === "runnableByPath") &&
+    runnable.runType &&
+    runnable.path
+  ) {
+    // Path-based runnables have type: "path" (or legacy "runnableByPath") and runType: "script"|"hubscript"|"flow"
     const prefix = runnable.runType;
     requestBody.path = prefix !== "hubscript"
       ? `${prefix}/${runnable.path}`
       : `script/${runnable.path}`;
+  } else {
+    // Neither inline script nor valid path-based runnable
+    const debugInfo =
+      `type=${(runnable as any).type}, runType=${(runnable as any).runType}, ` +
+      `path=${(runnable as any).path}, hasInlineScript=${!!(runnable as any)
+        .inlineScript}`;
+    log.error(
+      colors.red(
+        `[executeRunnable] Invalid runnable configuration for '${runnableId}': ${debugInfo}`,
+      ),
+    );
+    throw new Error(
+      `Invalid runnable '${runnableId}': ${debugInfo}. ` +
+        `Must have either inlineScript (for inline type) or type="path" with runType and path fields`,
+    );
   }
 
   const uuid = await wmill.executeComponent({
@@ -1444,4 +1582,122 @@ async function getJobStatus(workspace: string, jobId: string): Promise<any> {
     workspace,
     id: jobId,
   });
+}
+
+async function streamJobWithSSE(
+  workspace: string,
+  jobId: string,
+  reqId: string,
+  ws: WebSocket,
+  baseUrl: string,
+  token: string,
+): Promise<void> {
+  const sseUrl =
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+
+  const response = await fetch(sseUrl, {
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `SSE request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body for SSE stream");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          try {
+            const update = JSON.parse(data);
+            const type = update.type;
+
+            if (type === "ping" || type === "timeout") {
+              if (type === "timeout") {
+                reader.cancel();
+                return;
+              }
+              continue;
+            }
+
+            if (type === "error") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: update.error || "SSE error" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            if (type === "not_found") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: "Job not found" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            // Send stream update if there's new stream data
+            if (update.new_result_stream !== undefined) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobUpdate",
+                  reqId,
+                  new_result_stream: update.new_result_stream,
+                  stream_offset: update.stream_offset,
+                }),
+              );
+            }
+
+            // Check if job is completed
+            if (update.completed) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: false,
+                  result: update.only_result,
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+          } catch (parseErr) {
+            log.warn(`Failed to parse SSE data: ${parseErr}`);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
