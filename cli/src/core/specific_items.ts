@@ -231,13 +231,21 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
  */
 export function getBranchSpecificPath(
   basePath: string,
-  specificItems: SpecificItemsConfig | undefined
+  specificItems: SpecificItemsConfig | undefined,
+  branchOverride?: string
 ): string | undefined {
-  if (!isGitRepository() || !specificItems) {
+  if (!specificItems) {
     return undefined;
   }
 
-  const currentBranch = getCurrentGitBranch();
+  // Use branch override if provided, otherwise detect from git
+  let currentBranch: string | null = null;
+  if (branchOverride) {
+    currentBranch = branchOverride;
+  } else if (isGitRepository()) {
+    currentBranch = getCurrentGitBranch();
+  }
+
   if (!currentBranch) {
     return undefined;
   }
@@ -255,12 +263,15 @@ const branchPatternCache = new Map<string, RegExp>();
 /**
  * Check if a path is a branch-specific file for the current branch
  */
-export function isCurrentBranchFile(path: string): boolean {
-  if (!isGitRepository()) {
-    return false;
+export function isCurrentBranchFile(path: string, branchOverride?: string): boolean {
+  // Use branch override if provided, otherwise detect from git
+  let currentBranch: string | null = null;
+  if (branchOverride) {
+    currentBranch = branchOverride;
+  } else if (isGitRepository()) {
+    currentBranch = getCurrentGitBranch();
   }
 
-  const currentBranch = getCurrentGitBranch();
   if (!currentBranch) {
     return false;
   }

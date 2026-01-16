@@ -56,7 +56,7 @@ import {
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch } from "../../utils/git.ts";
+import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -1249,6 +1249,7 @@ export async function elementsToMap(
   json: boolean,
   skips: Skips,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1351,8 +1352,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      const currentBranch = getCurrentGitBranch();
-      if (!currentBranch || !isCurrentBranchFile(path)) {
+      if (!isCurrentBranchFile(path, branchOverride)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1388,8 +1388,9 @@ export async function elementsToMap(
 
     // Handle branch-specific path mapping after all filtering
     if (specificItems) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch && isCurrentBranchFile(path)) {
+      // Determine current branch for branch-specific file handling
+      const currentBranch = branchOverride || (isGitRepository() ? getCurrentGitBranch() : null);
+      if (currentBranch && isCurrentBranchFile(path, branchOverride)) {
         // This is a branch-specific file for current branch
         const basePath = fromBranchSpecificPath(path, currentBranch);
         if (isSpecificItem(basePath, specificItems)) {
@@ -1445,13 +1446,14 @@ async function compareDynFSElement(
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems),
-        elementsToMap(els2, ignore, json, skips, specificItems),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride), {}];
 
   const changes: Change[] = [];
 
@@ -1949,6 +1951,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
+    opts.branch,
   );
 
   log.info(
@@ -1971,6 +1974,7 @@ export async function pull(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -1983,7 +1987,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2009,6 +2013,7 @@ export async function pull(
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
           specificItems,
+          opts.branch,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -2218,6 +2223,7 @@ export async function pull(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -2243,7 +2249,7 @@ export async function pull(
   }
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
+function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
   for (const change of changes) {
     let displayPath = change.path;
     let branchNote = "";
@@ -2253,6 +2259,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
         specificItems,
+        branchOverride,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -2435,6 +2442,7 @@ export async function push(
     codebases,
     false,
     specificItems,
+    opts.branch,
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
@@ -2558,6 +2566,7 @@ export async function push(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -2570,7 +2579,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2712,7 +2721,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = getCurrentGitBranch();
+                  const currentBranch = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
@@ -2743,6 +2752,7 @@ export async function push(
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
               }
 
@@ -2796,6 +2806,7 @@ export async function push(
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -3032,6 +3043,7 @@ export async function push(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
