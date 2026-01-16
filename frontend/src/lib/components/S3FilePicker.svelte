@@ -122,7 +122,7 @@
 							(v) => {
 								if (v === storage) return
 								storage = v
-								s3FilePickerInner?.reloadContent()
+								s3FilePickerInner?.reloadContent?.()
 							}
 						}
 					/>

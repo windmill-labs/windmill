@@ -443,7 +443,7 @@
 			: undefined
 	}
 
-	async function reloadContent() {
+	export async function reloadContent() {
 		if (initialFileKey !== undefined) {
 			initialFileKeyInternalCopy = { ...initialFileKey }
 		}
