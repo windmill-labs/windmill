@@ -157,23 +157,34 @@ const bq = new BigQuery({
 	credentials: args
 })
 const [datasets] = await bq.getDatasets();
-const schema = {}
-for (const dataset of datasets) {
-	schema[dataset.id] = {}
-	const query = "SELECT table_name, ARRAY_AGG(STRUCT(if(is_nullable = 'YES', true, false) AS required, column_name AS name, data_type AS type, if(column_default = 'NULL', null, column_default) AS \`default\`) ORDER BY ordinal_position) AS schema \
-FROM \`{dataset.id}\`.INFORMATION_SCHEMA.COLUMNS \
-GROUP BY table_name".replace('{dataset.id}', dataset.id)
-	const [rows] = await bq.query(query)
-	for (const row of rows) {
-		schema[dataset.id][row.table_name] = {}
-		for (const col of row.schema) {
-			const colName = col.name
-			delete col.name
-			if (col.default === null) {
-				delete col.default
-			}
-			schema[dataset.id][row.table_name][colName] = col
+if (!datasets) return {}
+const schema = {} as any
+let queries = datasets.map(dataset => \`
+	SELECT 
+		table_name, 
+		'\${dataset.id}' as dataset,
+		ARRAY_AGG(STRUCT(
+			if(is_nullable = 'YES', true, false) AS required,
+			column_name AS name,
+			data_type AS type,
+			if(column_default = 'NULL', null, column_default) AS \\\`default\\\`
+		) ORDER BY ordinal_position)
+		AS schema 
+	FROM \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.COLUMNS 
+	GROUP BY table_name\`
+)
+let query = queries.join('\\nUNION ALL \\n')
+const [rows] = await bq.query(query)
+for (const row of rows) {
+	schema[row.dataset] ??= {}
+	schema[row.dataset][row.table_name] = {}
+	for (const col of row.schema) {
+		const colName = col.name
+		delete col.name
+		if (col.default === null) {
+			delete col.default
 		}
+		schema[row.dataset][row.table_name][colName] = col
 	}
 }
 return schema

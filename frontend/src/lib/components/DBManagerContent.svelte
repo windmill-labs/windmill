@@ -91,6 +91,7 @@
 		if (!input) return
 		await Promise.all([
 			(async () => {
+				if (input?.type == 'database' && input.resourceType === 'bigquery') return
 				cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
 			})(),
 			(async () => {
