@@ -222,6 +222,7 @@ memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
+hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
 tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"

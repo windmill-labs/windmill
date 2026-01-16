@@ -16837,6 +16837,7 @@ dependencies = [
  "hex",
  "hudsucker",
  "hyper-http-proxy",
+ "hyper-util",
  "itertools 0.14.0",
  "jsonwebtoken 8.3.0",
  "lazy_static",
