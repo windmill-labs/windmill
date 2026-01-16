@@ -4,7 +4,7 @@ import { DbType } from '../src/lib/components/dbTypes'
 import { Toast, prettify } from './utils'
 
 const resourceByDbType = {
-	postgresql: {
+	postgresql: getJsonEnv('POSTGRESQL_RESOURCE') ?? {
 		host: 'postgres_e2e',
 		port: 5432,
 		dbname: 'test_db',
@@ -12,7 +12,7 @@ const resourceByDbType = {
 		password: 'postgres_password',
 		sslmode: 'disable'
 	},
-	mysql: {
+	mysql: getJsonEnv('MYSQL_RESOURCE') ?? {
 		host: 'mysql_e2e',
 		port: 3306,
 		user: 'test_user',
@@ -20,12 +20,12 @@ const resourceByDbType = {
 		password: 'test_password',
 		ssl: false
 	},
-	oracle: {
+	oracledb: getJsonEnv('ORACLEDB_RESOURCE') ?? {
 		user: 'test_user',
 		password: 'test_password',
 		database: 'oracle_e2e:1521/test_db'
 	},
-	ms_sql_server: {
+	ms_sql_server: getJsonEnv('MS_SQL_SERVER_RESOURCE') ?? {
 		host: 'mssql_e2e',
 		user: 'sa',
 		password: 'MsSql_Pass123!',
@@ -36,8 +36,8 @@ const resourceByDbType = {
 		ca_cert: '',
 		encrypt: true
 	},
-	bigquery: getBigQueryResource(),
-	snowflake: undefined // TODO
+	bigquery: getJsonEnv('BIGQUERY_RESOURCE'),
+	snowflake: getJsonEnv('SNOWFLAKE_RESOURCE')
 } as const
 
 test.describe('Database resources', () => {
@@ -204,9 +204,9 @@ async function setupCustomInstanceDb(row: Locator, page: Page, name: string) {
 	await closeModalBtn.click()
 }
 
-function getBigQueryResource(): object | undefined {
-	const bigqueryResource = process.env.BIGQUERY_RESOURCE
-	if (bigqueryResource) return JSON.parse(bigqueryResource)
+function getJsonEnv(name: string): object | undefined {
+	const env = process.env[name]
+	if (env) return JSON.parse(env)
 }
 
 const wsStorageResources = {

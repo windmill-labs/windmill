@@ -68,3 +68,5 @@ export default defineConfig({
 	//   reuseExistingServer: !process.env.CI,
 	// },
 })
+
+declare const process: any
