@@ -179,7 +179,7 @@ impl McpClient {
 
         let result = self
             .client
-            .call_tool(CallToolRequestParam { name: name.to_string().into(), arguments: mcp_args })
+            .call_tool(CallToolRequestParam { name: name.to_string().into(), arguments: mcp_args, task: None })
             .await
             .context(format!("Failed to call MCP tool: {}", name))?;
 
