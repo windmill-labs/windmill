@@ -550,12 +550,7 @@ pub async fn add_www_authenticate_header(
 
     // Only add header to 401 Unauthorized responses
     if response.status() == StatusCode::UNAUTHORIZED {
-        let base_url = BASE_URL.read().await.clone();
-        let base_url = if base_url.is_empty() {
-            "http://localhost:8000".to_string()
-        } else {
-            base_url.trim_end_matches('/').to_string()
-        };
+        let base_url = BASE_URL.read().await;
 
         // RFC 9728: The resource parameter contains the protected resource URL.
         // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource

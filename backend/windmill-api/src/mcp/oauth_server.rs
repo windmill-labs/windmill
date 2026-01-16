@@ -193,15 +193,6 @@ struct AuthorizationCode {
     code_challenge_method: Option<String>,
 }
 
-async fn get_base_url() -> String {
-    let base_url = BASE_URL.read().await.clone();
-    if base_url.is_empty() {
-        "http://localhost:8000".to_string()
-    } else {
-        base_url.trim_end_matches('/').to_string()
-    }
-}
-
 fn supported_scopes() -> Vec<String> {
     vec![
         "mcp:all".to_string(),
@@ -216,7 +207,7 @@ fn supported_scopes() -> Vec<String> {
 pub async fn workspaced_oauth_metadata(
     Path(workspace_id): Path<String>,
 ) -> Json<AuthorizationMetadata> {
-    let base_url = get_base_url().await;
+    let base_url = BASE_URL.read().await;
     let issuer = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
 
     Json(AuthorizationMetadata {
@@ -234,7 +225,7 @@ pub async fn workspaced_oauth_metadata(
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
-    let base_url = get_base_url().await;
+    let base_url = BASE_URL.read().await;
     let resource_url = format!("{}/api/mcp/w/{}/sse", base_url, workspace_id);
     let auth_server_url = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
     Json(ProtectedResourceMetadata {
@@ -447,7 +438,7 @@ pub async fn workspaced_oauth_authorize(
         .into_response();
     }
 
-    let base_url = get_base_url().await;
+    let base_url = BASE_URL.read().await;
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
         base_url,
