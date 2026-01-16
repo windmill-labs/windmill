@@ -908,6 +908,23 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting expired blacklisted agent tokens: {:?}", e),
     }
 
+    match sqlx::query_scalar!(
+        "DELETE FROM mcp_oauth_server_code WHERE expires_at <= now() RETURNING code",
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(deleted_codes) => {
+            if deleted_codes.len() > 0 {
+                tracing::info!(
+                    "deleted {} expired MCP OAuth authorization codes",
+                    deleted_codes.len()
+                );
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired MCP OAuth authorization codes: {:?}", e),
+    }
+
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
     if job_retention_secs > 0 {
         match db.begin().await {

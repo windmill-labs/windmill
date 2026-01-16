@@ -22,3 +22,12 @@ CREATE TABLE mcp_oauth_server_code (
 );
 
 CREATE INDEX idx_mcp_oauth_server_code_expires ON mcp_oauth_server_code(expires_at);
+
+GRANT ALL ON mcp_oauth_client TO windmill_user;
+GRANT ALL ON mcp_oauth_client TO windmill_admin;
+
+GRANT ALL ON mcp_oauth_server_client TO windmill_user;
+GRANT ALL ON mcp_oauth_server_client TO windmill_admin;
+
+GRANT ALL ON mcp_oauth_server_code TO windmill_user;
+GRANT ALL ON mcp_oauth_server_code TO windmill_admin;

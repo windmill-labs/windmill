@@ -17,6 +17,9 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 
+/// Token expiration for MCP OAuth tokens (1 week in seconds)
+const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
+
 /// RFC 8414
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorizationMetadata {
@@ -347,7 +350,6 @@ pub async fn oauth_token(
 
     let token = rd_string(32);
     let scopes = auth_code.scopes;
-    let expires_in: u64 = 86400;
 
     if let Err(e) = sqlx::query!(
         "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
@@ -355,7 +357,7 @@ pub async fn oauth_token(
         token,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
-        expires_in.to_string(),
+        MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
         &scopes,
         auth_code.workspace_id,
     )
@@ -371,7 +373,7 @@ pub async fn oauth_token(
     Ok(Json(TokenResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
-        expires_in,
+        expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
         scope: Some(scopes.join(" ")),
     }))
 }
@@ -472,6 +474,40 @@ pub async fn workspaced_oauth_approve(
     authed: ApiAuthed,
     Json(form): Json<ApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
+    // Verify user is a member of the workspace
+    let is_member = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM usr WHERE workspace_id = $1 AND email = $2 AND NOT disabled)",
+        workspace_id,
+        authed.email
+    )
+    .fetch_one(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .unwrap_or(false);
+
+    if !is_member {
+        return Err(Error::NotAuthorized(
+            "User is not a member of this workspace".to_string(),
+        ));
+    }
+
+    // Verify client exists and redirect_uri is registered
+    let client = sqlx::query_as!(
+        OAuthClient,
+        "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
+        form.client_id
+    )
+    .fetch_optional(&db)
+    .await
+    .map_err(|e| Error::InternalErr(format!("Database error: {}", e)))?
+    .ok_or_else(|| Error::BadRequest("Unknown client_id".to_string()))?;
+
+    if !client.redirect_uris.contains(&form.redirect_uri) {
+        return Err(Error::BadRequest(
+            "Invalid redirect_uri for this client".to_string(),
+        ));
+    }
+
     if form.code_challenge.is_empty() {
         return Err(Error::BadRequest(
             "PKCE required: code_challenge is mandatory".to_string(),
