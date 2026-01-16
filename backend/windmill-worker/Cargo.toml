@@ -147,6 +147,7 @@ bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 pingora-proxy.workspace = true
 hudsucker.workspace = true
+hyper-http-proxy.workspace = true
 rcgen.workspace = true
 
 [build-dependencies]

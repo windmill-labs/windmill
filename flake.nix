@@ -287,6 +287,7 @@
           JAVA_PATH = "${pkgs.jdk21}/bin/java";
           JAVAC_PATH = "${pkgs.jdk21}/bin/javac";
           COURSIER_PATH = "${coursier}/coursier";
+          BASH_PATH = "bash";
           RUBY_PATH = "${pkgs.ruby}/bin/ruby";
           RUBY_BUNDLE_PATH = "${pkgs.ruby}/bin/bundle";
           RUBY_GEM_PATH = "${pkgs.ruby}/bin/gem";

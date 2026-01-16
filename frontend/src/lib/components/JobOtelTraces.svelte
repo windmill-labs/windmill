@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { workspaceStore } from '$lib/stores'
-	import { onMount } from 'svelte'
 	import { Alert, Skeleton } from './common'
 	import { Activity } from 'lucide-svelte'
 	import { JobService } from '$lib/gen'
@@ -48,8 +47,10 @@
 	let error: string | null = $state(null)
 	let expandedSpans: Set<string> = $state(new Set())
 
-	onMount(async () => {
-		await loadTraces()
+	$effect(() => {
+		if (jobId) {
+			loadTraces()
+		}
 	})
 
 	async function loadTraces() {
@@ -63,7 +64,7 @@
 				workspace: $workspaceStore,
 				id: jobId
 			})
-			traces = response as OtelSpan[]
+			traces = response as unknown as OtelSpan[]
 		} catch (e: any) {
 			if (e?.status === 404) {
 				traces = []

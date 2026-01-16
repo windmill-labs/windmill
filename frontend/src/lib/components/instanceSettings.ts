@@ -7,11 +7,9 @@ export const OTEL_TRACING_PROXY_LANGUAGES = [
 	'bun',
 	'go',
 	'bash',
-	'php',
 	'rust',
 	'csharp',
 	'nu',
-	'java',
 	'ruby'
 ] as const
 

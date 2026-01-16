@@ -21,7 +21,7 @@ use crate::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
         get_reserved_variables, read_result, start_child_process, MaybeLock, OccupancyMetrics,
     },
-    handle_child::handle_child, get_proxy_envs_for_lang,
+    handle_child::handle_child,
     COMPOSER_CACHE_DIR, COMPOSER_PATH, DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PHP_PATH,
 };
 use windmill_common::client::AuthedClient;
@@ -316,7 +316,6 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Php).await?)
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .args(args)
@@ -333,7 +332,6 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
-            .envs(get_proxy_envs_for_lang(&ScriptLang::Php).await?)
             .env("COMPOSER_HOME", &*COMPOSER_CACHE_DIR)
             .env("BASE_INTERNAL_URL", base_internal_url)
             .stdin(Stdio::null())

@@ -35,14 +35,15 @@ use crate::handle_child::run_future_with_polling_update_job_poller;
 
 use crate::{
     common::{
-        build_args_map, build_command_with_isolation, get_reserved_variables, read_file, read_file_content, start_child_process,
-        OccupancyMetrics,
+        build_args_map, build_command_with_isolation, get_reserved_variables, read_file,
+        read_file_content, start_child_process, OccupancyMetrics,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
-    get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
 };
-use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
+use windmill_common::scripts::ScriptLang;
 
 lazy_static::lazy_static! {
 
@@ -166,8 +167,7 @@ exit $exit_status
         .runnable_path
         .as_ref()
         .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
-                && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
         })
         .unwrap_or(true);
 

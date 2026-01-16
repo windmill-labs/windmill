@@ -659,6 +659,7 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         ("REQUESTS_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("NODE_EXTRA_CA_CERTS", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("CURL_CA_BUNDLE", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ("DENO_CERT", crate::otel_tracing_proxy_ee::TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
 }
 
