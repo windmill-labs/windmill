@@ -26,6 +26,7 @@
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/io@*": "0.225.2",
     "jsr:@std/io@0.223": "0.223.0",
+    "jsr:@std/io@~0.224.2": "0.224.9",
     "jsr:@std/io@~0.225.2": "0.225.2",
     "jsr:@std/log@*": "0.224.14",
     "jsr:@std/path@*": "1.1.3",
@@ -169,6 +170,9 @@
         "jsr:@std/bytes@0.223"
       ]
     },
+    "@std/io@0.224.9": {
+      "integrity": "4414664b6926f665102e73c969cfda06d2c4c59bd5d0c603fd4f1b1c840d6ee3"
+    },
     "@std/io@0.225.2": {
       "integrity": "3c740cd4ee4c082e6cfc86458f47e2ab7cb353dc6234d5e9b1f91a2de5f4d6c7",
       "dependencies": [
@@ -231,6 +235,7 @@
       "dependencies": [
         "jsr:@std/encoding@1.0.0-rc.2",
         "jsr:@std/fmt@~0.225.4",
+        "jsr:@std/io@~0.224.2",
         "jsr:@windmill-labs/cliffy-internal"
       ]
     },
@@ -261,6 +266,7 @@
       "dependencies": [
         "jsr:@std/assert@1.0.0-rc.2",
         "jsr:@std/fmt@~0.225.4",
+        "jsr:@std/io@~0.224.2",
         "jsr:@std/path@1.0.0-rc.2",
         "jsr:@std/text",
         "jsr:@windmill-labs/cliffy-ansi",
