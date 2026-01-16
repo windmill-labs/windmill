@@ -3,12 +3,17 @@
 //! Contains database query functions and HTTP request helpers
 //! used by the MCP server implementation.
 
+use std::collections::HashMap;
+
+use axum::body::{to_bytes, Body};
+use axum::response::Response;
 use serde_json::Value;
 use sql_builder::prelude::*;
 use windmill_common::auth::create_jwt_token;
 use windmill_common::db::{Authed, UserDB};
 use windmill_common::scripts::{get_full_hub_script_by_path, Schema};
 use windmill_common::utils::{query_elems_from_hub, StripPath};
+use windmill_common::worker::to_raw_value;
 use windmill_common::{DB, HUB_BASE_URL};
 use windmill_mcp::server::{BackendResult, ErrorData};
 use windmill_mcp::{HubResponse, HubScriptInfo, ItemSchema, ResourceInfo, ResourceType};
@@ -41,14 +46,10 @@ pub async fn get_item_schema(
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
-    let mut tx = user_db
-        .clone()
-        .begin(authed)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to begin transaction: {}", e);
-            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
-        })?;
+    let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+        tracing::error!("failed to begin transaction: {}", e);
+        ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+    })?;
     let item = sqlx::query_as::<_, ItemSchema>(&sql)
         .fetch_one(&mut *tx)
         .await
@@ -56,12 +57,10 @@ pub async fn get_item_schema(
             tracing::error!("failed to fetch item schema: {}", e);
             ErrorData::internal_error(format!("failed to fetch item schema: {}", e), None)
         })?;
-    tx.commit()
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to commit transaction: {}", e);
-            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
-        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit transaction: {}", e);
+        ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+    })?;
     Ok(item.schema)
 }
 
@@ -78,14 +77,10 @@ pub async fn get_resources_types(
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
-    let mut tx = user_db
-        .clone()
-        .begin(authed)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to begin transaction: {}", e);
-            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
-        })?;
+    let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+        tracing::error!("failed to begin transaction: {}", e);
+        ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+    })?;
     let rows = sqlx::query_as::<_, ResourceType>(&sql)
         .fetch_all(&mut *tx)
         .await
@@ -93,12 +88,10 @@ pub async fn get_resources_types(
             tracing::error!("failed to fetch resource types: {}", e);
             ErrorData::internal_error(format!("failed to fetch resource types: {}", e), None)
         })?;
-    tx.commit()
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to commit transaction: {}", e);
-            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
-        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit transaction: {}", e);
+        ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+    })?;
     Ok(rows)
 }
 
@@ -117,14 +110,10 @@ pub async fn get_resources(
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
-    let mut tx = user_db
-        .clone()
-        .begin(authed)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to begin transaction: {}", e);
-            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
-        })?;
+    let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+        tracing::error!("failed to begin transaction: {}", e);
+        ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+    })?;
     let rows = sqlx::query_as::<_, ResourceInfo>(&sql)
         .fetch_all(&mut *tx)
         .await
@@ -132,12 +121,10 @@ pub async fn get_resources(
             tracing::error!("failed to fetch resources: {}", e);
             ErrorData::internal_error(format!("failed to fetch resources: {}", e), None)
         })?;
-    tx.commit()
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to commit transaction: {}", e);
-            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
-        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit transaction: {}", e);
+        ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+    })?;
 
     Ok(rows)
 }
@@ -179,14 +166,10 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
         tracing::error!("failed to build sql: {}", e);
         ErrorData::internal_error(format!("failed to build sql: {}", e), None)
     })?;
-    let mut tx = user_db
-        .clone()
-        .begin(authed)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to begin transaction: {}", e);
-            ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
-        })?;
+    let mut tx = user_db.clone().begin(authed).await.map_err(|e| {
+        tracing::error!("failed to begin transaction: {}", e);
+        ErrorData::internal_error(format!("failed to begin transaction: {}", e), None)
+    })?;
     let rows = sqlx::query_as::<_, T>(&sql)
         .fetch_all(&mut *tx)
         .await
@@ -194,12 +177,10 @@ pub async fn get_items<T: for<'a> sqlx::FromRow<'a, sqlx::postgres::PgRow> + Sen
             tracing::error!("failed to fetch {}: {}", item_type, e);
             ErrorData::internal_error(format!("failed to fetch {}: {}", item_type, e), None)
         })?;
-    tx.commit()
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to commit transaction: {}", e);
-            ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
-        })?;
+    tx.commit().await.map_err(|e| {
+        tracing::error!("failed to commit transaction: {}", e);
+        ErrorData::internal_error(format!("failed to commit transaction: {}", e), None)
+    })?;
     Ok(rows)
 }
 
@@ -402,4 +383,32 @@ pub async fn create_http_request(
         .send()
         .await
         .map_err(|e| ErrorData::internal_error(format!("Failed to execute request: {}", e), None))
+}
+
+/// Convert a JSON Value into PushArgsOwned for job execution
+pub fn prepare_push_args(args: Value) -> windmill_queue::PushArgsOwned {
+    if let Value::Object(map) = args {
+        let mut args_hash = HashMap::new();
+        for (k, v) in map {
+            args_hash.insert(k, to_raw_value(&v));
+        }
+        windmill_queue::PushArgsOwned { extra: None, args: args_hash }
+    } else {
+        windmill_queue::PushArgsOwned::default()
+    }
+}
+
+/// Parse an HTTP response body into a JSON Value
+pub async fn parse_response_body(response: Response<Body>) -> BackendResult<Value> {
+    let body_bytes = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .map_err(|e| {
+            ErrorData::internal_error(format!("Failed to read response body: {}", e), None)
+        })?;
+
+    let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
+        ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
+    })?;
+
+    Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
 }

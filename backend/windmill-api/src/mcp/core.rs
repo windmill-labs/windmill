@@ -4,10 +4,9 @@
 //! for the Windmill platform.
 
 use async_trait::async_trait;
-use axum::body::to_bytes;
 use serde_json::Value;
 use std::collections::HashMap;
-use windmill_common::{db::UserDB, utils::StripPath, worker::to_raw_value, DB};
+use windmill_common::{db::UserDB, utils::StripPath, DB};
 use windmill_mcp::common::transform::apply_key_transformation;
 use windmill_mcp::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo,
@@ -23,7 +22,7 @@ use super::auto_generated_endpoints::all_tools;
 use super::utils::{
     build_query_string, build_request_body, create_http_request, get_hub_script_schema,
     get_item_schema, get_items, get_resources, get_resources_types, get_scripts_from_hub,
-    substitute_path_params,
+    parse_response_body, prepare_push_args, substitute_path_params,
 };
 
 use std::sync::Arc;
@@ -288,15 +287,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
     ) -> BackendResult<Value> {
-        let push_args = if let Value::Object(map) = args {
-            let mut args_hash = HashMap::new();
-            for (k, v) in map {
-                args_hash.insert(k, to_raw_value(&v));
-            }
-            windmill_queue::PushArgsOwned { extra: None, args: args_hash }
-        } else {
-            windmill_queue::PushArgsOwned::default()
-        };
+        let push_args = prepare_push_args(args);
 
         let result = run_wait_result_script_by_path_internal(
             self.db.clone(),
@@ -310,17 +301,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let body_bytes = to_bytes(result.into_body(), usize::MAX)
-            .await
-            .map_err(|e| {
-                ErrorData::internal_error(format!("Failed to read response body: {}", e), None)
-            })?;
-
-        let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
-        })?;
-
-        Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
+        parse_response_body(result).await
     }
 
     async fn run_flow(
@@ -330,15 +311,7 @@ impl McpBackend for WindmillBackend {
         path: &str,
         args: Value,
     ) -> BackendResult<Value> {
-        let push_args = if let Value::Object(map) = args {
-            let mut args_hash = HashMap::new();
-            for (k, v) in map {
-                args_hash.insert(k, to_raw_value(&v));
-            }
-            windmill_queue::PushArgsOwned { extra: None, args: args_hash }
-        } else {
-            windmill_queue::PushArgsOwned::default()
-        };
+        let push_args = prepare_push_args(args);
 
         let result = run_wait_result_flow_by_path_internal(
             self.db.clone(),
@@ -352,17 +325,7 @@ impl McpBackend for WindmillBackend {
         .await
         .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
 
-        let body_bytes = to_bytes(result.into_body(), usize::MAX)
-            .await
-            .map_err(|e| {
-                ErrorData::internal_error(format!("Failed to read response body: {}", e), None)
-            })?;
-
-        let body_str = String::from_utf8(body_bytes.to_vec()).map_err(|e| {
-            ErrorData::internal_error(format!("Failed to decode response body: {}", e), None)
-        })?;
-
-        Ok(serde_json::from_str(&body_str).unwrap_or_else(|_| Value::String(body_str)))
+        parse_response_body(result).await
     }
 
     async fn call_endpoint(
