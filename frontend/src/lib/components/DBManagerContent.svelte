@@ -89,30 +89,34 @@
 
 	async function getSchema() {
 		if (!input) return
-		const dbSchemasPath = getDbSchemasPath(input)
-		if ($dbSchemas[dbSchemasPath] && !refreshing) return
+		await Promise.all([
+			(async () => {
+				cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
+			})(),
+			(async () => {
+				const dbSchemasPath = getDbSchemasPath(input)
+				if ($dbSchemas[dbSchemasPath] && !refreshing) return
 
-		const oldDbSchema = $dbSchemas[dbSchemasPath]
-		if (input.type == 'database') {
-			await getDbSchemas(
-				input.resourceType,
-				input.resourcePath,
-				$workspaceStore,
-				$dbSchemas,
-				(message: string) => {
-					sendUserToast(message, true)
+				const oldDbSchema = $dbSchemas[dbSchemasPath]
+				if (input.type == 'database') {
+					await getDbSchemas(
+						input.resourceType,
+						input.resourcePath,
+						$workspaceStore,
+						$dbSchemas,
+						(message: string) => sendUserToast(message, true)
+					)
+				} else if (input.type == 'ducklake') {
+					$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+						workspace: $workspaceStore!,
+						ducklake: input.ducklake
+					})
 				}
-			)
-		} else if (input.type == 'ducklake') {
-			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-				workspace: $workspaceStore!,
-				ducklake: input.ducklake
-			})
-		}
-
-		// avoid infinite loop on error due to the way getDbSchemas is implemented
-		// and relying on an assignement side effect
-		if (oldDbSchema !== $dbSchemas[dbSchemasPath]) $dbSchemas = $dbSchemas
+				// avoid infinite loop on error due to the way getDbSchemas is implemented
+				// and relying on an assignement side effect
+				if (oldDbSchema !== $dbSchemas[dbSchemasPath]) $dbSchemas = $dbSchemas
+			})()
+		])
 		refreshing = false
 	}
 
@@ -136,18 +140,12 @@
 		if (cachedColDefs[tableKey]) return cachedColDefs[tableKey]
 		if (!input) return []
 
-		try {
-			cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
-			return cachedColDefs[tableKey]
-		} catch (e) {
-			if (input?.type == 'ducklake')
-				throw 'Impossible that loadAllTablesMetaData fails for Ducklake'
-			// Query is not implemented for all dbs, need a fallback
-			const result = await loadTableMetaData(input, $workspaceStore, tableKey)
+		if (input?.type == 'ducklake') throw 'Impossible that loadAllTablesMetaData fails for Ducklake'
+		// Query is not implemented for all dbs, need a fallback
+		const result = await loadTableMetaData(input, $workspaceStore, tableKey)
 
-			if (result) cachedColDefs[tableKey] = result
-			return result ?? []
-		}
+		if (result) cachedColDefs[tableKey] = result
+		return result ?? []
 	}
 
 	// Export for parent components
