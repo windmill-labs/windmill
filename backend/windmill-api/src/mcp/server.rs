@@ -531,9 +531,20 @@ pub async fn extract_and_store_workspace_id(
 
 /// Middleware that adds WWW-Authenticate header to 401 responses
 /// This helps MCP clients discover the OAuth authorization server (RFC 9728)
-pub async fn add_www_authenticate_header(request: Request<axum::body::Body>, next: Next) -> Response {
+pub async fn add_www_authenticate_header(
+    request: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
     use axum::http::StatusCode;
     use windmill_common::BASE_URL;
+
+    // Extract workspace_id before consuming the request
+    let Some(workspace_id) = request.extensions().get::<WorkspaceId>().map(|w| w.0.clone()) else {
+        return Response::builder()
+            .status(axum::http::StatusCode::INTERNAL_SERVER_ERROR)
+            .body(axum::body::Body::from("Missing workspace_id in request"))
+            .unwrap();
+    };
 
     let response = next.run(request).await;
 
@@ -546,17 +557,19 @@ pub async fn add_www_authenticate_header(request: Request<axum::body::Body>, nex
             base_url.trim_end_matches('/').to_string()
         };
 
-        let resource_metadata_url = format!("{}/.well-known/oauth-protected-resource", base_url);
-        let www_authenticate = format!(
-            "Bearer resource_metadata=\"{}\"",
-            resource_metadata_url
-        );
+        // RFC 9728: The resource parameter contains the protected resource URL.
+        // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
+        // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/sse
+        let resource_url = format!("{}/api/mcp/w/{}/sse", base_url, workspace_id);
+        let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         // Reconstruct response with the new header
         let (mut parts, body) = response.into_parts();
         parts.headers.insert(
             axum::http::header::WWW_AUTHENTICATE,
-            www_authenticate.parse().unwrap_or_else(|_| "Bearer".parse().unwrap()),
+            www_authenticate
+                .parse()
+                .unwrap_or_else(|_| "Bearer".parse().unwrap()),
         );
         Response::from_parts(parts, body)
     } else {

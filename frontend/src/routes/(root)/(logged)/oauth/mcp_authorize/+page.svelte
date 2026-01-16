@@ -5,6 +5,7 @@
 	import { sendUserToast } from '$lib/toast'
 
 	// Get OAuth params from URL
+	let workspaceId = $page.url.searchParams.get('workspace_id') || ''
 	let clientId = $page.url.searchParams.get('client_id') || ''
 	let clientName = $page.url.searchParams.get('client_name') || 'Unknown Client'
 	let redirectUri = $page.url.searchParams.get('redirect_uri') || ''
@@ -32,8 +33,13 @@
 	async function onApprove() {
 		loading = true
 		try {
-			// POST request to workspace-scoped approve endpoint
-			const response = await fetch(`/api/mcp/oauth/server/approve`, {
+			// POST request to workspace-scoped approve endpoint if workspace_id is present
+			// Otherwise fall back to global endpoint for backwards compatibility
+			const approveUrl = workspaceId
+				? `/api/w/${workspaceId}/mcp/oauth/server/approve`
+				: `/api/mcp/oauth/server/approve`
+
+			const response = await fetch(approveUrl, {
 				method: 'POST',
 				body: JSON.stringify({
 					client_id: clientId,
@@ -103,6 +109,9 @@
 		<p class="text-center text-lg mb-6">
 			<span class="font-semibold text-blue-600 dark:text-blue-400">{clientName}</span>
 			is requesting access to your Windmill MCP tools
+			{#if workspaceId}
+				in workspace <span class="font-semibold text-blue-600 dark:text-blue-400">{workspaceId}</span>
+			{/if}
 		</p>
 
 		<div class="flex flex-row justify-around gap-x-4">
