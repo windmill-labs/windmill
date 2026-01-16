@@ -314,7 +314,7 @@ export async function handleFile(
             continue;
           }
           log.info(`Adding file: ${file.path.substring(1)}`);
-          const fil = new File([file.contents], file.path.substring(1));
+          const fil = new File([file.contents as BlobPart], file.path.substring(1));
           tarball.append(fil);
         }
         const endTime = performance.now();
@@ -542,7 +542,7 @@ async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
   }
 
   // Create a Blob from the chunks
-  const blob = new Blob(chunks);
+  const blob = new Blob(chunks as BlobPart[]);
   return blob;
 }
 
