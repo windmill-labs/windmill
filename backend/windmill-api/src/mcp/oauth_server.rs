@@ -215,7 +215,7 @@ struct AuthorizationCode {
     code: String,
     client_id: String,
     user_email: String,
-    workspace_id: Option<String>,
+    workspace_id: String,
     scopes: Vec<String>,
     redirect_uri: String,
     code_challenge: Option<String>,
@@ -349,13 +349,15 @@ pub async fn oauth_token(
         ));
     }
 
-    // Fetch and validate the authorization code
+    // Atomically fetch and delete the authorization code (single-use)
+    // Using DELETE ... RETURNING prevents race conditions where the same code
+    // could be replayed in concurrent requests
     let auth_code = match sqlx::query_as!(
         AuthorizationCode,
-        "SELECT code, client_id, user_email, workspace_id, scopes, redirect_uri,
-                code_challenge, code_challenge_method
-         FROM mcp_oauth_server_code
-         WHERE code = $1 AND expires_at > now()",
+        "DELETE FROM mcp_oauth_server_code
+         WHERE code = $1 AND expires_at > now()
+         RETURNING code, client_id, user_email, workspace_id, scopes, redirect_uri,
+                   code_challenge, code_challenge_method",
         req.code
     )
     .fetch_optional(&db)
@@ -368,7 +370,7 @@ pub async fn oauth_token(
             ));
         }
         Err(e) => {
-            tracing::error!("Database error fetching auth code: {}", e);
+            tracing::error!("Database error consuming auth code: {}", e);
             return Err(OAuthTokenError::server_error("Database error"));
         }
     };
@@ -404,20 +406,6 @@ pub async fn oauth_token(
 
     if !validate_pkce_s256(verifier, challenge) {
         return Err(OAuthTokenError::invalid_grant("Invalid code_verifier"));
-    }
-
-    // Delete the authorization code (single-use)
-    if let Err(e) = sqlx::query!(
-        "DELETE FROM mcp_oauth_server_code WHERE code = $1",
-        req.code
-    )
-    .execute(&db)
-    .await
-    {
-        tracing::error!("Failed to delete authorization code: {}", e);
-        return Err(OAuthTokenError::server_error(
-            "Failed to consume authorization code",
-        ));
     }
 
     // Create a Windmill token with MCP scopes

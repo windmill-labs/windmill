@@ -12,7 +12,7 @@ CREATE TABLE mcp_oauth_server_code (
     code VARCHAR(64) PRIMARY KEY,
     client_id VARCHAR(255) NOT NULL REFERENCES mcp_oauth_server_client(client_id) ON DELETE CASCADE,
     user_email VARCHAR(255) NOT NULL,
-    workspace_id VARCHAR(50),  -- NULL = instance-wide access
+    workspace_id VARCHAR(50) NOT NULL,
     scopes TEXT[] NOT NULL,
     redirect_uri TEXT NOT NULL,
     code_challenge VARCHAR(128),  -- PKCE
