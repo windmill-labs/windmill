@@ -497,6 +497,7 @@ export async function getEffectiveSettings(
   // Determine the branch to use: branchOverride takes precedence, then git detection
   let currentBranch: string | null = null;
   let originalBranchIfForked: string | null = null;
+  let rawGitBranch: string | null = null;
 
   if (branchOverride) {
     currentBranch = branchOverride;
@@ -504,8 +505,8 @@ export async function getEffectiveSettings(
       log.info(`Using branch override: ${branchOverride}`);
     }
   } else if (isGitRepository()) {
-    const branch = getCurrentGitBranch();
-    originalBranchIfForked = getOriginalBranchForWorkspaceForks(branch);
+    rawGitBranch = getCurrentGitBranch();
+    originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawGitBranch);
 
     if (originalBranchIfForked) {
       log.info(
@@ -513,7 +514,7 @@ export async function getEffectiveSettings(
       );
       currentBranch = originalBranchIfForked;
     } else {
-      currentBranch = branch;
+      currentBranch = rawGitBranch;
     }
   } else {
     log.debug("Not in a Git repository and no branch override provided, using top-level settings");
@@ -552,7 +553,7 @@ export async function getEffectiveSettings(
     Object.assign(effective, gitBranches[currentBranch].overrides);
     if (!suppressLogs) {
       const extraLog = originalBranchIfForked
-        ? ` (because it is the origin of the workspace fork branch \`${currentBranch}\`)`
+        ? ` (because it is the origin of the workspace fork branch \`${rawGitBranch}\`)`
         : "";
       log.info(
         `Applied settings for Git branch: ${currentBranch}${extraLog}`
