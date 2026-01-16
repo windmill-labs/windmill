@@ -355,7 +355,7 @@ pub async fn run_server(
             {
                 let smtp_server = Arc::new(SmtpServer {
                     db: db.clone(),
-                    user_db: user_db,
+                    user_db: user_db.clone(),
                     auth_cache: auth_cache.clone(),
                     base_internal_url: _base_internal_url.clone(),
                 });
@@ -409,7 +409,8 @@ pub async fn run_server(
     let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
+            let (mcp_router, mcp_cancellation_token) =
+                setup_mcp_server(db.clone(), user_db).await?;
             let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
             (
                 mcp_router.layer(mcp_middleware),
