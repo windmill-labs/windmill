@@ -1,15 +1,4 @@
-//! OAuth Authorization Server for MCP
-//!
-//! This module implements Windmill as an OAuth 2.0 Authorization Server,
-//! allowing external MCP clients (like Claude Desktop) to authenticate
-//! and obtain tokens to access Windmill's MCP tools.
-//!
-//! Implements:
-//! - RFC 8414: OAuth 2.0 Authorization Server Metadata
-//! - RFC 9728: OAuth 2.0 Protected Resource Metadata
-//! - RFC 7591: OAuth 2.0 Dynamic Client Registration
-//! - RFC 6749: OAuth 2.0 Authorization Framework
-//! - RFC 7636: PKCE (Proof Key for Code Exchange)
+//! OAuth 2.0 Authorization Server for MCP (RFC 6749, 7591, 7636, 8414, 9728)
 
 use axum::{
     extract::{Extension, Path, Query},
@@ -28,11 +17,7 @@ use windmill_common::{
 
 use crate::db::ApiAuthed;
 
-// ============================================================================
-// Types
-// ============================================================================
-
-/// OAuth 2.0 Authorization Server Metadata (RFC 8414)
+/// RFC 8414
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorizationMetadata {
     pub issuer: String,
@@ -48,25 +33,17 @@ pub struct AuthorizationMetadata {
     pub code_challenge_methods_supported: Option<Vec<String>>,
 }
 
-/// OAuth 2.0 Protected Resource Metadata (RFC 9728)
-/// Returned by /.well-known/oauth-protected-resource to help MCP clients
-/// discover the authorization server.
+/// RFC 9728
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProtectedResourceMetadata {
-    /// The resource identifier (URI of the MCP server)
     pub resource: String,
-    /// List of authorization servers that can issue tokens for this resource
     pub authorization_servers: Vec<String>,
-    /// Scopes supported by this resource
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes_supported: Option<Vec<String>>,
-    /// Bearer token methods supported
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bearer_methods_supported: Option<Vec<String>>,
 }
 
-/// OAuth error response for JSON errors (non-redirect cases)
-/// Used when we cannot safely redirect (e.g., invalid client_id)
 #[derive(Debug, Serialize)]
 pub struct OAuthJsonError {
     pub error: String,
@@ -86,7 +63,6 @@ impl IntoResponse for OAuthJsonError {
     }
 }
 
-/// OAuth token endpoint error response (RFC 6749 Section 5.2)
 #[derive(Debug, Serialize)]
 pub struct OAuthTokenError {
     pub error: String,
@@ -131,14 +107,12 @@ impl IntoResponse for OAuthTokenError {
     }
 }
 
-/// Dynamic Client Registration Request (RFC 7591)
 #[derive(Debug, Deserialize)]
 pub struct ClientRegistrationRequest {
     pub client_name: String,
     pub redirect_uris: Vec<String>,
 }
 
-/// Dynamic Client Registration Response (RFC 7591)
 #[derive(Debug, Serialize)]
 pub struct ClientRegistrationResponse {
     pub client_id: String,
@@ -148,7 +122,6 @@ pub struct ClientRegistrationResponse {
     pub redirect_uris: Vec<String>,
 }
 
-/// Authorization Request Query Parameters
 #[derive(Debug, Deserialize)]
 pub struct AuthorizeQuery {
     pub response_type: String,
@@ -164,7 +137,6 @@ pub struct AuthorizeQuery {
     pub code_challenge_method: Option<String>,
 }
 
-/// Authorization Approval Form
 #[derive(Debug, Deserialize)]
 pub struct ApprovalForm {
     pub client_id: String,
@@ -175,7 +147,6 @@ pub struct ApprovalForm {
     pub code_challenge_method: String,
 }
 
-/// Token Request (application/x-www-form-urlencoded)
 #[derive(Debug, Deserialize)]
 pub struct TokenRequest {
     pub grant_type: String,
@@ -189,7 +160,6 @@ pub struct TokenRequest {
     pub code_verifier: Option<String>,
 }
 
-/// Token Response
 #[derive(Debug, Serialize)]
 pub struct TokenResponse {
     pub access_token: String,
@@ -199,7 +169,6 @@ pub struct TokenResponse {
     pub scope: Option<String>,
 }
 
-/// Database row for OAuth client
 #[allow(dead_code)]
 #[derive(Debug, FromRow)]
 struct OAuthClient {
@@ -208,7 +177,6 @@ struct OAuthClient {
     redirect_uris: Vec<String>,
 }
 
-/// Database row for authorization code
 #[allow(dead_code)]
 #[derive(Debug, FromRow)]
 struct AuthorizationCode {
@@ -222,11 +190,6 @@ struct AuthorizationCode {
     code_challenge_method: Option<String>,
 }
 
-// ============================================================================
-// Handlers
-// ============================================================================
-
-/// Helper to get the normalized base URL
 async fn get_base_url() -> String {
     let base_url = BASE_URL.read().await.clone();
     if base_url.is_empty() {
@@ -236,7 +199,6 @@ async fn get_base_url() -> String {
     }
 }
 
-/// Supported MCP scopes
 fn supported_scopes() -> Vec<String> {
     vec![
         "mcp:all".to_string(),
@@ -248,12 +210,6 @@ fn supported_scopes() -> Vec<String> {
 }
 
 /// GET /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
-/// Returns OAuth 2.0 Authorization Server Metadata for workspace-scoped OAuth server (RFC 8414)
-/// Per RFC 8414, when issuer is http://host/path, metadata is at http://host/.well-known/oauth-authorization-server/path
-///
-/// Note: registration_endpoint is GLOBAL (not workspace-scoped) because client registration
-/// is a one-time operation that doesn't require workspace context. A single MCP client
-/// (like Claude Desktop) registers once and can then authorize access to multiple workspaces.
 pub async fn workspaced_oauth_metadata(
     Path(workspace_id): Path<String>,
 ) -> Json<AuthorizationMetadata> {
@@ -264,7 +220,6 @@ pub async fn workspaced_oauth_metadata(
         issuer,
         authorization_endpoint: format!("{}/api/w/{}/mcp/oauth/server/authorize", base_url, workspace_id),
         token_endpoint: format!("{}/api/w/{}/mcp/oauth/server/token", base_url, workspace_id),
-        // Registration is global - client registers once and can authorize to multiple workspaces
         registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
         scopes_supported: Some(supported_scopes()),
         response_types_supported: Some(vec!["code".to_string()]),
@@ -273,15 +228,11 @@ pub async fn workspaced_oauth_metadata(
 }
 
 /// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/sse
-/// RFC 9728 path-based protected resource metadata discovery.
-/// Per RFC 9728, for resource http://host/api/mcp/w/test/sse, metadata is at
-/// http://host/.well-known/oauth-protected-resource/api/mcp/w/test/sse
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
     let base_url = get_base_url().await;
     let resource_url = format!("{}/api/mcp/w/{}/sse", base_url, workspace_id);
-    // Return workspace-scoped authorization server URL
     let auth_server_url = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
     Json(ProtectedResourceMetadata {
         resource: resource_url,
@@ -291,8 +242,7 @@ pub async fn protected_resource_metadata_by_path(
     })
 }
 
-/// POST /api/mcp/oauth/server/register
-/// Dynamic Client Registration (RFC 7591)
+/// POST /api/mcp/oauth/server/register - dynamic client registration
 pub async fn oauth_register(
     Extension(db): Extension<DB>,
     Json(req): Json<ClientRegistrationRequest>,
@@ -320,38 +270,30 @@ pub async fn oauth_register(
         axum::http::StatusCode::CREATED,
         Json(ClientRegistrationResponse {
             client_id,
-            client_secret: None, // Public client, PKCE required
+            client_secret: None,
             client_name: req.client_name,
             redirect_uris: req.redirect_uris,
         }),
     ))
 }
 
-/// Approval Response (returned to frontend)
 #[derive(Debug, Serialize)]
 pub struct ApprovalResponse {
     pub code: String,
     pub state: Option<String>,
 }
 
-/// POST /api/mcp/oauth/server/token
-/// POST /api/w/:workspace_id/mcp/oauth/server/token
-/// Token endpoint - exchange authorization code for access token
-/// Returns RFC 6749 compliant error responses.
+/// POST /api/w/:workspace_id/mcp/oauth/server/token - exchange code for token
 pub async fn oauth_token(
     Extension(db): Extension<DB>,
     Form(req): Form<TokenRequest>,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
-    // Validate grant_type
     if req.grant_type != "authorization_code" {
         return Err(OAuthTokenError::unsupported_grant_type(
             "Only authorization_code grant type is supported",
         ));
     }
 
-    // Atomically fetch and delete the authorization code (single-use)
-    // Using DELETE ... RETURNING prevents race conditions where the same code
-    // could be replayed in concurrent requests
     let auth_code = match sqlx::query_as!(
         AuthorizationCode,
         "DELETE FROM mcp_oauth_server_code
@@ -375,28 +317,23 @@ pub async fn oauth_token(
         }
     };
 
-    // Validate client_id
     if auth_code.client_id != req.client_id {
         return Err(OAuthTokenError::invalid_grant("client_id mismatch"));
     }
 
-    // Validate redirect_uri
     if auth_code.redirect_uri != req.redirect_uri {
         return Err(OAuthTokenError::invalid_grant("redirect_uri mismatch"));
     }
 
-    // PKCE is required - code_challenge must be present
     let challenge = auth_code.code_challenge.as_ref().ok_or_else(|| {
         OAuthTokenError::invalid_grant("Authorization code missing PKCE challenge")
     })?;
 
-    // Validate PKCE (S256 only)
     let verifier = req
         .code_verifier
         .as_ref()
         .ok_or_else(|| OAuthTokenError::invalid_request("code_verifier is required"))?;
 
-    // Verify the method is S256 (should always be, but defense in depth)
     let method = auth_code.code_challenge_method.as_deref().unwrap_or("S256");
     if method != "S256" {
         return Err(OAuthTokenError::invalid_grant(
@@ -408,10 +345,9 @@ pub async fn oauth_token(
         return Err(OAuthTokenError::invalid_grant("Invalid code_verifier"));
     }
 
-    // Create a Windmill token with MCP scopes
     let token = rd_string(32);
     let scopes = auth_code.scopes;
-    let expires_in: u64 = 86400; // 24 hours
+    let expires_in: u64 = 86400;
 
     if let Err(e) = sqlx::query!(
         "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
@@ -440,18 +376,12 @@ pub async fn oauth_token(
     }))
 }
 
-// ============================================================================
-// Workspace-Scoped Handlers
-// ============================================================================
-
-/// GET /api/w/:workspace_id/mcp/oauth/server/authorize
-/// Workspace-scoped authorization endpoint - validates params and redirects to frontend consent page
+/// GET /api/w/:workspace_id/mcp/oauth/server/authorize - redirects to consent page
 pub async fn workspaced_oauth_authorize(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     Query(params): Query<AuthorizeQuery>,
 ) -> impl IntoResponse {
-    // First, validate client exists - we cannot trust redirect_uri until we verify client
     let client = match sqlx::query_as!(
         OAuthClient,
         "SELECT client_id, client_name, redirect_uris FROM mcp_oauth_server_client WHERE client_id = $1",
@@ -462,7 +392,6 @@ pub async fn workspaced_oauth_authorize(
     {
         Ok(Some(client)) => client,
         Ok(None) => {
-            // RFC 6749 4.1.2.1: If client_id is invalid, do NOT redirect
             return OAuthJsonError::new("invalid_client", Some("Unknown client_id"))
                 .into_response();
         }
@@ -473,8 +402,6 @@ pub async fn workspaced_oauth_authorize(
         }
     };
 
-    // Validate redirect_uri BEFORE any redirects
-    // RFC 6749 4.1.2.1: If redirect_uri is invalid, do NOT redirect
     if !client.redirect_uris.contains(&params.redirect_uri) {
         return OAuthJsonError::new(
             "invalid_request",
@@ -483,9 +410,6 @@ pub async fn workspaced_oauth_authorize(
         .into_response();
     }
 
-    // Now we have a validated redirect_uri, we can use OAuthErrorRedirect for errors
-
-    // Validate response_type
     if params.response_type != "code" {
         return OAuthErrorRedirect::new(
             &params.redirect_uri,
@@ -496,7 +420,6 @@ pub async fn workspaced_oauth_authorize(
         .into_response();
     }
 
-    // Require PKCE for public clients (this is a public client server)
     let code_challenge = match &params.code_challenge {
         Some(challenge) if !challenge.is_empty() => challenge.as_str(),
         _ => {
@@ -510,7 +433,6 @@ pub async fn workspaced_oauth_authorize(
         }
     };
 
-    // Validate code_challenge_method (must be S256)
     let code_challenge_method = params.code_challenge_method.as_deref().unwrap_or("S256");
 
     if code_challenge_method != "S256" {
@@ -523,7 +445,6 @@ pub async fn workspaced_oauth_authorize(
         .into_response();
     }
 
-    // Redirect to frontend consent page with workspace_id included
     let base_url = get_base_url().await;
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
@@ -544,23 +465,19 @@ pub async fn workspaced_oauth_authorize(
     Redirect::temporary(&frontend_url).into_response()
 }
 
-/// POST /api/w/:workspace_id/mcp/oauth/server/approve
-/// Handle user approval of authorization request (called by frontend)
-/// Stores the workspace_id with the authorization code
+/// POST /api/w/:workspace_id/mcp/oauth/server/approve - user approval (frontend)
 pub async fn workspaced_oauth_approve(
     Extension(db): Extension<DB>,
     Path(workspace_id): Path<String>,
     authed: ApiAuthed,
     Json(form): Json<ApprovalForm>,
 ) -> Result<Json<ApprovalResponse>> {
-    // PKCE is required for public clients - validate code_challenge is present
     if form.code_challenge.is_empty() {
         return Err(Error::BadRequest(
             "PKCE required: code_challenge is mandatory".to_string(),
         ));
     }
 
-    // Validate code_challenge_method
     if form.code_challenge_method.is_empty() {
         return Err(Error::BadRequest(
             "PKCE required: code_challenge_method is mandatory".to_string(),
@@ -573,17 +490,14 @@ pub async fn workspaced_oauth_approve(
         ));
     }
 
-    // Generate authorization code
     let code = format!("mcp-code-{}", rd_string(32));
 
-    // Parse scopes
     let scopes: Vec<String> = form
         .scope
         .split_whitespace()
         .map(|s| s.to_string())
         .collect();
 
-    // Store the authorization code with workspace_id
     sqlx::query!(
         "INSERT INTO mcp_oauth_server_code
          (code, client_id, user_email, workspace_id, scopes, redirect_uri, code_challenge, code_challenge_method)
@@ -610,10 +524,6 @@ pub async fn workspaced_oauth_approve(
         },
     }))
 }
-
-// ============================================================================
-// Helpers
-// ============================================================================
 
 /// PKCE validation (S256 only)
 fn validate_pkce_s256(verifier: &str, challenge: &str) -> bool {
@@ -674,20 +584,12 @@ impl IntoResponse for OAuthErrorRedirect {
     }
 }
 
-// ============================================================================
-// Router
-// ============================================================================
-
-/// Global OAuth endpoints (unauthenticated) - only registration
-/// Client registration is a one-time operation, not workspace-specific.
-/// Token exchange is at workspace-scoped endpoint.
 /// Mounted at /api/mcp/oauth/server
 pub fn global_service() -> Router {
     Router::new().route("/register", post(oauth_register))
 }
 
 /// Workspace-scoped OAuth endpoints that don't require authentication
-/// These are called by the MCP client during the OAuth flow, before the user is authenticated.
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (outside authenticated section)
 pub fn workspaced_unauthed_service() -> Router {
     Router::new()
@@ -696,7 +598,6 @@ pub fn workspaced_unauthed_service() -> Router {
 }
 
 /// Workspace-scoped OAuth endpoints that require authentication
-/// Called by the frontend when the logged-in user approves access.
 /// Mounted at /api/w/:workspace_id/mcp/oauth/server (inside authenticated section)
 pub fn workspaced_authed_service() -> Router {
     Router::new().route("/approve", post(workspaced_oauth_approve))
