@@ -380,7 +380,7 @@
 	</div>
 </div>
 {#if tab != 'users'}
-	<div class="absolute bottom-2 w-[95%]">
+	<div class="absolute bottom-2 w-[95%] z-10">
 		<Button
 			variant="accent"
 			on:click={() => {
