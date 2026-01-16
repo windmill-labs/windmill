@@ -1881,7 +1881,7 @@ export async function pull(
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -2362,7 +2362,7 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness

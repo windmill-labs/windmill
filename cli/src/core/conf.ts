@@ -501,9 +501,7 @@ export async function getEffectiveSettings(
 
   if (branchOverride) {
     currentBranch = branchOverride;
-    if (!suppressLogs) {
-      log.info(`Using branch override: ${branchOverride}`);
-    }
+    // Note: "Using branch override" is logged in context.ts when resolving workspace
   } else if (isGitRepository()) {
     rawGitBranch = getCurrentGitBranch();
     originalBranchIfForked = getOriginalBranchForWorkspaceForks(rawGitBranch);
