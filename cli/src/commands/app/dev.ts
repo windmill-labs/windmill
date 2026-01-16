@@ -36,10 +36,46 @@ import {
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { regenerateAgentDocs } from "./generate_agents.ts";
-import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
+import { hasFolderSuffix, getFolderSuffix, setNonDottedPaths } from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
+
+/**
+ * Search for wmill.yaml by traversing upward from the current directory.
+ * Unlike the standard findWmillYaml() in conf.ts, this does not stop at
+ * the git root - it continues searching until the filesystem root.
+ * This is needed for `app dev` which runs from inside a raw_app folder
+ * that may be deeply nested within a larger git repository.
+ */
+async function findAndLoadNonDottedPathsSetting(): Promise<void> {
+  let currentDir = process.cwd();
+
+  while (true) {
+    const wmillYamlPath = path.join(currentDir, "wmill.yaml");
+
+    if (fs.existsSync(wmillYamlPath)) {
+      try {
+        const config = await yamlParseFile(wmillYamlPath) as { nonDottedPaths?: boolean };
+        setNonDottedPaths(config?.nonDottedPaths ?? false);
+        log.debug(`Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${config?.nonDottedPaths ?? false}`);
+      } catch (e) {
+        log.debug(`Failed to parse wmill.yaml at ${wmillYamlPath}: ${e}`);
+      }
+      return;
+    }
+
+    // Check if we've reached the filesystem root
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      // Reached filesystem root without finding wmill.yaml
+      log.debug("No wmill.yaml found, using default dotted paths");
+      return;
+    }
+
+    currentDir = parentDir;
+  }
+}
 
 // HTML template with live reload and SQL migration modal
 const createHTML = (jsPath: string, cssPath: string) => `
@@ -304,6 +340,10 @@ interface DevOptions extends GlobalOptions {
 
 async function dev(opts: DevOptions) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
+
+  // Search for wmill.yaml by traversing upward (without git root constraint)
+  // to initialize nonDottedPaths setting before using folder suffix functions
+  await findAndLoadNonDottedPathsSetting();
 
   // Validate that we're in a .raw_app folder
   const cwd = process.cwd();
@@ -1303,6 +1343,30 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
   }
 }
 
+/**
+ * Convert runnables from file format to API format.
+ * File format uses type: "script"|"hubscript"|"flow" for path-based runnables.
+ * API format uses type: "path" with runType: "script"|"hubscript"|"flow".
+ */
+function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    if (
+      runnable?.type === "script" ||
+      runnable?.type === "hubscript" ||
+      runnable?.type === "flow"
+    ) {
+      // Convert from file format to API format
+      // { type: "script" } -> { type: "path", runType: "script" }
+      const originalType = runnable.type;
+      runnable.runType = originalType;
+      runnable.type = "path";
+      log.debug(
+        `Converted runnable '${runnableId}' from type='${originalType}' to type='path', runType='${originalType}'`,
+      );
+    }
+  }
+}
+
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
@@ -1318,6 +1382,10 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
       )) as any;
       runnables = rawApp?.runnables ?? {};
     }
+
+    // Always convert path-based runnables from file format to API format
+    // This handles both backend folder runnables and raw_app.yaml runnables
+    convertRunnablesToApiFormat(runnables);
 
     replaceInlineScripts(runnables, backendPath + SEP, true);
 
@@ -1370,12 +1438,25 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if (runnable.type === "path" && runnable.runType && runnable.path) {
-    // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
+  } else if (
+    (runnable.type === "path" || runnable.type === "runnableByPath") &&
+    runnable.runType &&
+    runnable.path
+  ) {
+    // Path-based runnables have type: "path" (or legacy "runnableByPath") and runType: "script"|"hubscript"|"flow"
     const prefix = runnable.runType;
     requestBody.path = prefix !== "hubscript"
       ? `${prefix}/${runnable.path}`
       : `script/${runnable.path}`;
+  } else {
+    // Neither inline script nor valid path-based runnable
+    const debugInfo = `type=${(runnable as any).type}, runType=${(runnable as any).runType}, ` +
+      `path=${(runnable as any).path}, hasInlineScript=${!!(runnable as any).inlineScript}`;
+    log.error(colors.red(`[executeRunnable] Invalid runnable configuration for '${runnableId}': ${debugInfo}`));
+    throw new Error(
+      `Invalid runnable '${runnableId}': ${debugInfo}. ` +
+        `Must have either inlineScript (for inline type) or type="path" with runType and path fields`,
+    );
   }
 
   const uuid = await wmill.executeComponent({

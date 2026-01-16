@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.607.1](https://github.com/windmill-labs/windmill/compare/v1.607.0...v1.607.1) (2026-01-16)
+
+
+### Bug Fixes
+
+* fix wmill app dev with workspace scripts ([d5fa3d8](https://github.com/windmill-labs/windmill/commit/d5fa3d8dec78148becdc826ab83defe39a06af7e))
+* improve raw app builder malformed files ([483b7d6](https://github.com/windmill-labs/windmill/commit/483b7d699f01f2bf91c23f9e37534f648a0a4e7e))
+
 ## [1.607.0](https://github.com/windmill-labs/windmill/compare/v1.606.1...v1.607.0) (2026-01-15)
 
 
