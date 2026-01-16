@@ -975,7 +975,7 @@ class Windmill:
             ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e
-        return S3Object(s3=response["file_key"])
+        return S3Object(s3=response["file_key"], storage=s3object["storage"])
 
     def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
@@ -1179,20 +1179,26 @@ class Windmill:
         with open(f"/shared/{path}", "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def get_resume_urls(self, approver: str = None) -> dict:
+    def get_resume_urls(self, approver: str = None, flow_level: bool = None) -> dict:
         """Get URLs needed for resuming a flow after suspension.
 
         Args:
             approver: Optional approver name
+            flow_level: If True, generate resume URLs for the parent flow instead of the
+                specific step. This allows pre-approvals that can be consumed by any later
+                suspend step in the same flow.
 
         Returns:
             Dictionary with approvalPage, resume, and cancel URLs
         """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        params = {"approver": approver}
+        if flow_level is not None:
+            params["flow_level"] = flow_level
         return self.get(
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
-            params={"approver": approver},
+            params=params,
         ).json()
 
     def request_interactive_slack_approval(
@@ -1887,16 +1893,19 @@ def get_state_path() -> str:
 
 
 @init_global_client
-def get_resume_urls(approver: str = None) -> dict:
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
     """Get URLs needed for resuming a flow after suspension.
 
     Args:
         approver: Optional approver name
+        flow_level: If True, generate resume URLs for the parent flow instead of the
+            specific step. This allows pre-approvals that can be consumed by any later
+            suspend step in the same flow.
 
     Returns:
         Dictionary with approvalPage, resume, and cancel URLs
     """
-    return _client.get_resume_urls(approver)
+    return _client.get_resume_urls(approver, flow_level)
 
 
 @init_global_client

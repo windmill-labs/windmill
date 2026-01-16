@@ -14,6 +14,7 @@
 	import { base } from '$lib/base'
 	import { isCloudHosted } from '$lib/cloud'
 	import EEOnly from '$lib/components/EEOnly.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
 
 	let {
 		policy,
@@ -117,44 +118,46 @@
 	</Alert>
 	<div class="py-2"></div>
 {/if}
-<span class="text-secondary text-sm font-bold">Summary</span>
-<div class="w-full pt-2">
+<label for="summary" class="text-emphasis text-xs font-semibold">Summary</label>
+<div class="w-full pt-1">
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		autofocus
-		type="text"
-		placeholder="App summary"
-		class="text-sm w-full"
-		bind:value={summary}
-		onkeydown={(e) => {
-			e.stopPropagation()
-		}}
-		onkeyup={() => {
-			if (appPath == '' && summary?.length > 0 && !dirtyPath) {
-				path?.setName(
-					summary
-						.toLowerCase()
-						.replace(/[^a-z0-9_]/g, '_')
-						.replace(/-+/g, '_')
-						.replace(/^-|-$/g, '')
-				)
+	<TextInput
+		inputProps={{
+			id: 'summary',
+			autofocus: true,
+			placeholder: 'App summary',
+			onkeydown: (e) => {
+				e.stopPropagation()
+			},
+			onkeyup: () => {
+				if (appPath == '' && summary?.length > 0 && !dirtyPath) {
+					path?.setName(
+						summary
+							.toLowerCase()
+							.replace(/[^a-z0-9_]/g, '_')
+							.replace(/-+/g, '_')
+							.replace(/^-|-$/g, '')
+					)
+				}
 			}
 		}}
+		bind:value={summary}
 	/>
 </div>
-<div class="py-4"></div>
-<span class="text-secondary text-sm font-bold">Deployment message</span>
-<div class="w-full pt-2">
+<div class="py-6"></div>
+<label for="deploymentMsg" class="text-emphasis text-xs font-semibold">Deployment message</label>
+<div class="w-full pt-1">
 	<!-- svelte-ignore a11y_autofocus -->
-	<input
-		type="text"
-		placeholder="Optional deployment message"
-		class="text-sm w-full"
+	<TextInput
+		inputProps={{
+			id: 'deploymentMsg',
+			placeholder: 'Optional deployment message'
+		}}
 		bind:value={deploymentMsg}
 	/>
 </div>
-<div class="py-4"></div>
-<span class="text-secondary text-sm font-bold">Path</span>
+<div class="py-6"></div>
+<label for="path" class="text-emphasis text-xs font-semibold">Path</label>
 <Path
 	bind:this={path}
 	bind:dirty={dirtyPath}

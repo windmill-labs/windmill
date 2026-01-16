@@ -1,9 +1,12 @@
 <script lang="ts" module>
 	const s3LogPrefixes = [
-		'\n[windmill] Previous logs have been saved to object storage at logs/',
-		'\n[windmill] Previous logs have been saved to disk at logs/',
-		'\n[windmill] No object storage set in instance settings. Previous logs have been saved to disk at logs/'
+		'[windmill] Previous logs have been saved to object storage at logs/',
+		'[windmill] Previous logs have been saved to disk at logs/',
+		'[windmill] No object storage set in instance settings. Previous logs have been saved to disk at logs/'
 	]
+
+	// Only search within first N characters to avoid expensive full-content scans
+	const S3_LOG_SEARCH_LIMIT = 2000
 </script>
 
 <script lang="ts">
@@ -74,34 +77,76 @@
 
 	let loadedFromObjectStore = $state('')
 
-	function findPrefixIndex(truncateContent: string): number | undefined {
-		let index = s3LogPrefixes.findIndex((x) => truncateContent.startsWith(x))
-		if (index == -1) {
+	function findPrefixInfo(
+		truncateContent: string
+	): { prefixIndex: number; position: number } | undefined {
+		// Quick check - [windmill] is rare, so bail early in the common case
+		// This is much faster than doing 3 long string indexOf searches
+		const windmillPos = truncateContent.indexOf('[windmill]')
+		if (windmillPos === -1 || windmillPos >= S3_LOG_SEARCH_LIMIT) {
 			return undefined
 		}
-		return index
-	}
-	function findStartUrl(truncateContent: string, prefixIndex: number | undefined = undefined) {
-		if (prefixIndex == undefined) {
-			return undefined
+
+		// Found [windmill] marker, now determine which specific prefix matches
+		for (let i = 0; i < s3LogPrefixes.length; i++) {
+			const prefix = s3LogPrefixes[i]
+			if (
+				truncateContent.length >= windmillPos + prefix.length &&
+				truncateContent.startsWith(prefix, windmillPos)
+			) {
+				return { prefixIndex: i, position: windmillPos }
+			}
 		}
-		const end = truncateContent.substring(1).indexOf('\n')
-		return prefixIndex != undefined && truncateContent
-			? truncateContent.substring(
-					s3LogPrefixes[prefixIndex]?.length,
-					end == -1 ? undefined : end + 1
-				)
-			: undefined
+		return undefined
 	}
 
-	function tooltipText(prefixIndex: number | undefined) {
-		if (prefixIndex == undefined) {
+	function findStartUrl(
+		truncateContent: string,
+		prefixInfo: { prefixIndex: number; position: number } | undefined
+	) {
+		if (!prefixInfo) {
+			return undefined
+		}
+
+		const { prefixIndex, position } = prefixInfo
+		const prefix = s3LogPrefixes[prefixIndex]
+		const startOfPath = position + prefix.length
+		const endOfLine = truncateContent.indexOf('\n', startOfPath)
+
+		return truncateContent.substring(startOfPath, endOfLine === -1 ? undefined : endOfLine)
+	}
+
+	function splitAtWindmillLine(
+		content: string,
+		prefixInfo: { prefixIndex: number; position: number }
+	): { before: string; after: string } {
+		const { prefixIndex, position } = prefixInfo
+		const prefix = s3LogPrefixes[prefixIndex]
+
+		// Find line boundaries
+		const lineStart = position > 0 && content[position - 1] === '\n' ? position - 1 : position
+		const pathStart = position + prefix.length
+		const lineEnd = content.indexOf('\n', pathStart)
+
+		if (lineEnd === -1) {
+			// [windmill] line is at the end
+			return { before: content.substring(0, lineStart), after: '' }
+		}
+
+		return {
+			before: content.substring(0, lineStart),
+			after: content.substring(lineEnd)
+		}
+	}
+
+	function tooltipText(prefixInfo: { prefixIndex: number; position: number } | undefined) {
+		if (prefixInfo == undefined) {
 			return 'No path/file detected to download from'
-		} else if (prefixIndex == 0) {
+		} else if (prefixInfo.prefixIndex == 0) {
 			return 'Download the previous logs from the instance configured object store'
-		} else if (prefixIndex == 1) {
+		} else if (prefixInfo.prefixIndex == 1) {
 			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Upgrade to EE to use an object store such as S3 instead of a shared volume.'
-		} else if (prefixIndex == 2) {
+		} else if (prefixInfo.prefixIndex == 2) {
 			return 'Attempt to download the logs from disk. Assume there is a shared disk between the workers and the server at /tmp/windmill/logs. Since you are on EE, you can alternatively use an object store such as S3 configured in the instance settings instead of a shared volume..'
 		}
 	}
@@ -132,7 +177,6 @@
 				workspace: $workspaceStore ?? '',
 				path: downloadStartUrl
 			})) as string
-			downloadStartUrl = undefined
 			LOG_LIMIT += Math.min(LOG_INC, res.length)
 			loadedFromObjectStore = res + loadedFromObjectStore
 			let newC = truncateContent(content, loadedFromObjectStore, LOG_LIMIT)
@@ -160,21 +204,38 @@
 		}
 	})
 	let truncatedContent = $derived(truncateContent(content, loadedFromObjectStore, LOG_LIMIT))
-	let prefixIndex = $derived(findPrefixIndex(truncatedContent))
-	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixIndex))
+	let prefixInfo = $derived(findPrefixInfo(truncatedContent))
+	let downloadStartUrl = $derived(findStartUrl(truncatedContent, prefixInfo))
 	$effect.pre(() => {
 		truncatedContent && scrollToBottom()
 	})
-	let html = $derived(
-		ansi_up.ansi_to_html(
-			downloadStartUrl && prefixIndex != undefined
-				? truncatedContent.substring(
-						truncatedContent.substring(1).indexOf('\n') + 2,
-						truncatedContent.length
-					)
-				: truncatedContent
-		)
-	)
+
+	// When [windmill] line is NOT at start, split into before/after to render button inline
+	let splitHtml = $derived.by(() => {
+		if (prefixInfo == undefined || prefixInfo.position === 0) {
+			return undefined
+		}
+		const { before, after } = splitAtWindmillLine(truncatedContent, prefixInfo)
+		return {
+			before: ansi_up.ansi_to_html(before),
+			after: ansi_up.ansi_to_html(after)
+		}
+	})
+
+	// Only compute html when splitHtml won't be used (avoids wasteful ansi_to_html call)
+	let html = $derived.by(() => {
+		if (splitHtml) {
+			// splitHtml is active - skip expensive computation
+			return ''
+		}
+		if (prefixInfo == undefined) {
+			// No [windmill] line - return full content
+			return ansi_up.ansi_to_html(truncatedContent)
+		}
+		// [windmill] at start - strip the line and return the rest
+		const { after } = splitAtWindmillLine(truncatedContent, prefixInfo)
+		return ansi_up.ansi_to_html(after)
+	})
 </script>
 
 <Drawer bind:this={logViewer} bind:open={drawerOpen} size="900px">
@@ -210,12 +271,15 @@
 				class="bg-surface-secondary text-primary text-xs w-full p-2 whitespace-pre-wrap border rounded-md"
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
+						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}{@html splitHtml.before}<button
+								onclick={getStoreLogs}
+								>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+							>{@html splitHtml.after}{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
-							>Show more... <Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br />{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
+							>Show more... <Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br />{@html html}{:else if len > LOG_LIMIT}(truncated to the last {LOG_LIMIT} characters)...<br
 						/><button onclick={() => showMoreTruncate(len)}>Show more..</button><br
-						/>{/if}{@html html}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
+						/>{@html html}{:else}{@html html}{/if}{:else if isLoading}Waiting for job to start...{:else}No logs are available yet{/if}</pre
 			>
 		</div>
 	</DrawerContent>
@@ -292,13 +356,18 @@
 				)}
 				>{#if content}{@const len =
 						(content?.length ?? 0) +
-						(loadedFromObjectStore?.length ?? 0)}{#if downloadStartUrl}<button
+						(loadedFromObjectStore?.length ?? 0)}{#if splitHtml}<span>{@html splitHtml.before}</span><button
+								onclick={getStoreLogs}
+								>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+							><span>{@html splitHtml.after}</span
+						>{:else if downloadStartUrl}<button
 							onclick={getStoreLogs}
-							>Show more... &nbsp;<Tooltip>{tooltipText(prefixIndex)}</Tooltip></button
-						><br />{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
+							>Show more... &nbsp;<Tooltip>{tooltipText(prefixInfo)}</Tooltip></button
+						><br /><span>{@html html}</span
+						>{:else if len > LOG_LIMIT}<button onclick={() => showMoreTruncate(len)}
 							>Show more..</button
-						>&nbsp;({LOG_LIMIT}/{len} chars)<br />{/if}<span>{@html html}</span
-					>{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
+						>&nbsp;({LOG_LIMIT}/{len} chars)<br /><span>{@html html}</span
+						>{:else}<span>{@html html}</span>{/if}{:else if !isLoading}<span>{customEmptyMessage}</span>{/if}</pre
 			>
 		</div>
 	</div>

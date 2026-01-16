@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.603.4
+  version: 1.608.0
   title: Windmill API
 
   contact:
@@ -4224,6 +4224,9 @@ paths:
                 cc_token_url:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                mcp_server_url:
+                  type: string
+                  description: "MCP server URL for MCP OAuth token refresh"
               required:
                 - refresh_token
                 - expires_in
@@ -10027,6 +10030,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: flow_level
+          in: query
+          description: If true, generate resume URLs for the parent flow instead of the specific step. This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+          schema:
+            type: boolean
       responses:
         "200":
           description: url endpoints
@@ -15841,6 +15849,98 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/EndpointTool"
+
+  /mcp/oauth/discover:
+    post:
+      summary: discover MCP server OAuth metadata
+      operationId: discoverMcpOAuth
+      tags:
+        - mcp_oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mcp_server_url
+              properties:
+                mcp_server_url:
+                  type: string
+                  description: URL of the MCP server to discover OAuth metadata from
+      responses:
+        "200":
+          description: OAuth metadata from MCP server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scopes_supported:
+                    type: array
+                    items:
+                      type: string
+                  authorization_endpoint:
+                    type: string
+                  token_endpoint:
+                    type: string
+                  registration_endpoint:
+                    type: string
+                  supports_dynamic_registration:
+                    type: boolean
+
+  /mcp/oauth/start:
+    get:
+      summary: start MCP OAuth popup flow
+      description: Opens in a popup, discovers OAuth metadata, registers client, and redirects to OAuth provider
+      operationId: startMcpOAuthPopup
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: mcp_server_url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: URL of the MCP server to connect to
+        - name: scopes
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of OAuth scopes to request
+      responses:
+        "302":
+          description: Redirect to OAuth provider authorization URL
+
+  /mcp/oauth/callback:
+    get:
+      security: []
+      summary: MCP OAuth callback
+      description: Handles OAuth callback, exchanges code for tokens, returns HTML that posts message to opener
+      operationId: mcpOAuthCallback
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth authorization code
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state token
+      responses:
+        "200":
+          description: HTML page with JavaScript that posts tokens to opener window and closes
+          content:
+            text/html:
+              schema:
+                type: string
 
 components:
   securitySchemes:

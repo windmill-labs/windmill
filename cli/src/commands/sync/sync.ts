@@ -56,7 +56,7 @@ import {
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch } from "../../utils/git.ts";
+import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -109,8 +109,9 @@ async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
+  branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
 }
 
 type DynFSElement = {
@@ -767,7 +768,7 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules,
+                flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
@@ -1248,6 +1249,7 @@ export async function elementsToMap(
   json: boolean,
   skips: Skips,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1350,8 +1352,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      const currentBranch = getCurrentGitBranch();
-      if (!currentBranch || !isCurrentBranchFile(path)) {
+      if (!isCurrentBranchFile(path, branchOverride)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1387,9 +1388,10 @@ export async function elementsToMap(
 
     // Handle branch-specific path mapping after all filtering
     if (specificItems) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch && isCurrentBranchFile(path)) {
+      if (isCurrentBranchFile(path, branchOverride)) {
         // This is a branch-specific file for current branch
+        // Safe to compute branch here since isCurrentBranchFile already validated it exists
+        const currentBranch = branchOverride || getCurrentGitBranch()!;
         const basePath = fromBranchSpecificPath(path, currentBranch);
         if (isSpecificItem(basePath, specificItems)) {
           // Map to base path for push operations
@@ -1444,13 +1446,14 @@ async function compareDynFSElement(
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems),
-        elementsToMap(els2, ignore, json, skips, specificItems),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride), {}];
 
   const changes: Change[] = [];
 
@@ -1858,7 +1861,7 @@ async function buildTracker(changes: Change[]) {
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string },
+    SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
@@ -1878,7 +1881,7 @@ export async function pull(
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -1886,10 +1889,11 @@ export async function pull(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -1947,6 +1951,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
+    opts.branch,
   );
 
   log.info(
@@ -1969,6 +1974,7 @@ export async function pull(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -1981,7 +1987,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2007,6 +2013,7 @@ export async function pull(
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
           specificItems,
+          opts.branch,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -2216,6 +2223,7 @@ export async function pull(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -2241,7 +2249,7 @@ export async function pull(
   }
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
+function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
   for (const change of changes) {
     let displayPath = change.path;
     let branchNote = "";
@@ -2251,6 +2259,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
         specificItems,
+        branchOverride,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -2334,7 +2343,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -2353,7 +2362,7 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -2361,10 +2370,11 @@ export async function push(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2432,6 +2442,7 @@ export async function push(
     codebases,
     false,
     specificItems,
+    opts.branch,
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
@@ -2555,6 +2566,7 @@ export async function push(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -2567,7 +2579,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2709,7 +2721,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = getCurrentGitBranch();
+                  const currentBranch = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
@@ -2740,6 +2752,7 @@ export async function push(
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
               }
 
@@ -2793,6 +2806,7 @@ export async function push(
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -3029,6 +3043,7 @@ export async function push(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -3118,6 +3133,10 @@ const command = new Command()
     "--promotion <branch:string>",
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
+  )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -3170,6 +3189,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
+  )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

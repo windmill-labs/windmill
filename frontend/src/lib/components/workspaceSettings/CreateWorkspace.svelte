@@ -327,7 +327,7 @@
 
 	let auto_invite = $state(false)
 	let operatorOnly = $state(false)
-	let autoAdd = $state(false)
+	let autoAdd = $state(true)
 	let selected: Exclude<AIProvider, 'customai'> = $state('openai')
 	run(() => {
 		id = name.toLowerCase().replace(/\s/gi, '-')
@@ -541,8 +541,8 @@
 			<div class="flex flex-col gap-1">
 				<label for="auto-invite" class="text-xs font-semibold text-emphasis"
 					>{isCloudHosted()
-						? `Auto-invite anyone from ${domain}`
-						: `Auto-invite anyone joining the instance`}</label
+						? `Auto-${autoAdd ? 'add' : 'invite'} anyone from ${domain}`
+						: `Auto-${autoAdd ? 'add' : 'invite'} anyone joining the instance`}</label
 				>
 				<Toggle
 					id="auto-invite"
@@ -556,23 +556,25 @@
 				{#if auto_invite}
 					<div class="bg-surface-tertiary p-4 rounded-md flex flex-col gap-8">
 						<!-- svelte-ignore a11y_label_has_associated_control -->
-						<label class="flex flex-col gap-1">
-							<span class="text-xs font-semibold text-emphasis">Mode</span>
-							<span class="text-xs text-secondary font-normal"
-								>Whether to invite or add users directly to the workspace.</span
-							>
-							<ToggleButtonGroup
-								selected={autoAdd ? 'add' : 'invite'}
-								on:selected={async (e) => {
-									autoAdd = e.detail === 'add'
-								}}
-							>
-								{#snippet children({ item })}
-									<ToggleButton value="invite" label="Auto-invite" {item} />
-									<ToggleButton value="add" label="Auto-add" {item} />
-								{/snippet}
-							</ToggleButtonGroup>
-						</label>
+						{#if isCloudHosted()}
+							<label class="flex flex-col gap-1">
+								<span class="text-xs font-semibold text-emphasis">Mode</span>
+								<span class="text-xs text-secondary font-normal"
+									>Whether to invite or add users directly to the workspace.</span
+								>
+								<ToggleButtonGroup
+									selected={autoAdd ? 'add' : 'invite'}
+									on:selected={async (e) => {
+										autoAdd = e.detail === 'add'
+									}}
+								>
+									{#snippet children({ item })}
+										<ToggleButton value="invite" label="Auto-invite" {item} />
+										<ToggleButton value="add" label="Auto-add" {item} />
+									{/snippet}
+								</ToggleButtonGroup>
+							</label>
+						{/if}
 
 						<label class="font-semibold flex flex-col gap-1">
 							<span class="text-xs font-semibold text-emphasis">Role</span>
