@@ -259,6 +259,9 @@ pub struct OtelTracingProxySettings {
     pub enabled: bool,
     #[serde(default)]
     pub enabled_languages: HashSet<ScriptLang>,
+    /// If true, MITM TLS to capture full HTTP details. If false, just tunnel (no CA cert needed).
+    #[serde(default)]
+    pub mitm_enabled: bool,
 }
 
 #[cfg(feature = "prometheus")]
@@ -653,7 +656,7 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         .await
         .ok_or_else(|| anyhow::anyhow!("OTEL tracing proxy port not initialized"))?;
     let proxy_url = format!("http://127.0.0.1:{}", port);
-    Ok(vec![
+    let mut envs = vec![
         ("HTTP_PROXY", proxy_url.clone()),
         ("HTTPS_PROXY", proxy_url.clone()),
         // Lowercase variants for Ruby and other runtimes that check lowercase first
@@ -661,13 +664,18 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         ("https_proxy", proxy_url),
         ("NO_PROXY", "".to_string()),
         ("no_proxy", "".to_string()),
-        // CA cert for various runtimes to trust the tracing proxy
-        ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("NODE_EXTRA_CA_CERTS", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
-    ])
+    ];
+    // CA cert env vars only needed when MITM is enabled
+    if OTEL_TRACING_PROXY_SETTINGS.read().await.mitm_enabled {
+        envs.extend([
+            ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+            ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+            ("NODE_EXTRA_CA_CERTS", TRACING_PROXY_CA_CERT_PATH.to_string()),
+            ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
+            ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        ]);
+    }
+    Ok(envs)
 }
 
 #[cfg(windows)]

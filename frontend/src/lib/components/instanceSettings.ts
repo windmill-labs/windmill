@@ -467,7 +467,7 @@ export const settings: Record<string, Setting[]> = {
 			fieldType: 'otel_tracing_proxy',
 			storage: 'setting',
 			ee_only: 'HTTP Request Tracing is an EE feature',
-			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
+			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES], mitm_enabled: true })
 		},
 		{
 			label: 'Prometheus',

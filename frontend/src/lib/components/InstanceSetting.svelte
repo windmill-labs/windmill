@@ -863,6 +863,17 @@
 									</button>
 								{/each}
 							</div>
+							<Toggle
+								id="otel_tracing_proxy_mitm"
+								checked={tracingProxyVal.mitm_enabled ?? true}
+								on:change={(e) => {
+									$values[setting.key] = { ...tracingProxyVal, mitm_enabled: e.detail }
+								}}
+								options={{ right: 'TLS Interception (MITM)' }}
+							/>
+							<p class="text-xs text-secondary">
+								When enabled, captures full HTTP details (method, URL, status). Requires CA cert trust in scripts. When disabled, just tunnels traffic without capturing.
+							</p>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}
