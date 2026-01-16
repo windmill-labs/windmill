@@ -31,14 +31,13 @@
 	}
 
 	async function onApprove() {
+		if (!workspaceId) {
+			sendUserToast('Error: missing workspace_id', true)
+			return
+		}
 		loading = true
 		try {
-			// POST request to workspace-scoped approve endpoint if workspace_id is present
-			// Otherwise fall back to global endpoint for backwards compatibility
-			const approveUrl = workspaceId
-				? `/api/w/${workspaceId}/mcp/oauth/server/approve`
-				: `/api/mcp/oauth/server/approve`
-
+			const approveUrl = `/api/w/${workspaceId}/mcp/oauth/server/approve`
 			const response = await fetch(approveUrl, {
 				method: 'POST',
 				body: JSON.stringify({
@@ -110,7 +109,9 @@
 			<span class="font-semibold text-blue-600 dark:text-blue-400">{clientName}</span>
 			is requesting access to your Windmill MCP tools
 			{#if workspaceId}
-				in workspace <span class="font-semibold text-blue-600 dark:text-blue-400">{workspaceId}</span>
+				in workspace <span class="font-semibold text-blue-600 dark:text-blue-400"
+					>{workspaceId}</span
+				>
 			{/if}
 		</p>
 
