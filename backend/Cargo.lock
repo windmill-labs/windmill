@@ -16803,7 +16803,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
- "axum",
+ "axum 0.7.9",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",
