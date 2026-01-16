@@ -34,7 +34,7 @@
 		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
-		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
+		colDefs: Record<string, ColumnDef[]> | undefined
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
@@ -56,8 +56,8 @@
 		dbSchema,
 		dbTableOpsFactory,
 		dbSchemaOps,
-		getColDefs,
 		dbSupportsSchemas,
+		colDefs,
 		refresh,
 		initialSchemaKey,
 		initialTableKey,
@@ -207,10 +207,11 @@
 			if (!table) return
 			let tableKey2 =
 				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
+			if (!colDefs?.[tableKey2]) return
 			return await dbSchemaOps.onFetchTableEditorDefinition({
 				table: table,
 				schema: selected.schemaKey,
-				getColDefs: () => getColDefs(tableKey2)
+				colDefs: colDefs[tableKey2]
 			})
 		}
 	)
@@ -506,13 +507,9 @@
 		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#if tableKey}
-			{#await getColDefs(tableKey) then colDefs}
-				{#if colDefs && colDefs?.length}
-					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-					<DBTable {dbTableOps} />
-				{/if}
-			{/await}
+		{#if tableKey && colDefs?.[tableKey]?.length}
+			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
+			<DBTable {dbTableOps} />
 		{/if}
 	</Pane>
 </Splitpanes>

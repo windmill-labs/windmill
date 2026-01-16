@@ -2,7 +2,7 @@
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 	import { sendUserToast, sortArray } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
-	import { dbSupportsSchemas, type TableMetadata } from './apps/components/display/dbtable/utils'
+	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
@@ -15,14 +15,11 @@
 	import SimpleAgTable from './SimpleAgTable.svelte'
 	import { untrack, type Snippet } from 'svelte'
 	import type { DbInput } from './dbTypes'
-	import {
-		getDbSchemas,
-		loadAllTablesMetaData,
-		loadTableMetaData
-	} from './apps/components/display/dbtable/metadata'
+	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
 	import type { SelectedTable } from './DBManager.svelte'
 	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
+	import { resource } from 'runed'
 
 	interface Props {
 		input?: DbInput
@@ -90,29 +87,23 @@
 	async function getSchema() {
 		if (!input) return
 		const dbSchemasPath = getDbSchemasPath(input)
-		await Promise.all([
-			(async () => {
-				if ($dbSchemas[dbSchemasPath] && !refreshing) return
+		if ($dbSchemas[dbSchemasPath] && !refreshing) return
 
-				$dbSchemas[dbSchemasPath]
-				if (input.type == 'database') {
-					$dbSchemas[dbSchemasPath] = await getDbSchemas(
-						input.resourceType,
-						input.resourcePath,
-						$workspaceStore,
-						(message: string) => sendUserToast(message, true)
-					)
-				} else if (input.type == 'ducklake') {
-					$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-						workspace: $workspaceStore!,
-						ducklake: input.ducklake
-					})
-				}
-			})(),
-			(async () => {
-				cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? {}
-			})()
-		])
+		$dbSchemas[dbSchemasPath]
+		if (input.type == 'database') {
+			$dbSchemas[dbSchemasPath] = await getDbSchemas(
+				input.resourceType,
+				input.resourcePath,
+				$workspaceStore,
+				(message: string) => sendUserToast(message, true)
+			)
+		} else if (input.type == 'ducklake') {
+			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+				workspace: $workspaceStore!,
+				ducklake: input.ducklake
+			})
+		}
+
 		refreshing = false
 	}
 
@@ -126,23 +117,13 @@
 		hasReplResult = !!replResultData
 	})
 
-	let cachedColDefs: Record<string, TableMetadata> = {}
-	let cachedLastRefreshCount = 0
-
-	async function getColDefs(tableKey: string): Promise<TableMetadata> {
-		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
-		cachedLastRefreshCount = refreshCount
-
-		if (cachedColDefs[tableKey]) return cachedColDefs[tableKey]
-		if (!input) return []
-
-		if (input?.type == 'ducklake') throw 'Impossible that loadAllTablesMetaData fails for Ducklake'
-		// Query is not implemented for all dbs, need a fallback
-		const result = await loadTableMetaData(input, $workspaceStore, tableKey)
-
-		if (result) cachedColDefs[tableKey] = result
-		return result ?? []
-	}
+	let colDefs = resource(
+		() => [input, refreshCount],
+		async () => {
+			if (!input) return
+			return await loadAllTablesMetaData($workspaceStore, input)
+		}
+	)
 
 	// Export for parent components
 	export function clearReplResult() {
@@ -188,7 +169,7 @@
 			<DbManager
 				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
 				{dbSchema}
-				{getColDefs}
+				colDefs={colDefs.current}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,

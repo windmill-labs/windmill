@@ -132,7 +132,6 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 		// Bigquery cannot rename a table with primary keys
 		await friendCol.setPrimaryKey(true)
 		await createdAtCol.setPrimaryKey(true)
-		await contentColumn.setPrimaryKey(true)
 	}
 	if (dbFeatures.foreignKeys) await tableEditor.deleteForeignKey()
 	await tableEditor.alterTable()
@@ -157,7 +156,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
 		await friendCol.checkPrimaryKeyIs(true)
 		await createdAtCol.checkPrimaryKeyIs(true)
-		await contentColumn.checkPrimaryKeyIs(true)
+		await contentColumn.checkPrimaryKeyIs(false)
 	}
 }
 

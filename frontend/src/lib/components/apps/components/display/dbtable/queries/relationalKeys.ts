@@ -3,7 +3,6 @@ import { wrapDucklakeQuery } from '$lib/components/ducklake'
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { ScriptLang } from '$lib/gen'
 import type { TableEditorForeignKey } from '../tableEditor'
-import type { TableMetadata } from '../utils'
 
 /**
  * Raw foreign key result from database queries
@@ -403,12 +402,10 @@ export async function fetchTableRelationalKeys(
 	schema: string | undefined,
 	workspace: string,
 	dbArg: Record<string, any>,
-	language: ScriptLang,
-	getColDefs: () => Promise<TableMetadata>
+	language: ScriptLang
 ): Promise<{
 	foreignKeys: TableEditorForeignKey[]
 	pk_constraint_name?: string
-	colDefs: TableMetadata
 }> {
 	let fkPromise = async () => {
 		try {
@@ -466,11 +463,7 @@ export async function fetchTableRelationalKeys(
 		}
 	}
 
-	const [foreignKeys, pk_constraint_name, colDefs] = await Promise.all([
-		fkPromise(),
-		pkPromise(),
-		getColDefs()
-	])
+	const [foreignKeys, pk_constraint_name] = await Promise.all([fkPromise(), pkPromise()])
 
-	return { foreignKeys, pk_constraint_name, colDefs }
+	return { foreignKeys, pk_constraint_name }
 }
