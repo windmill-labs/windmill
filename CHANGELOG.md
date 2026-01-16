@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.609.0](https://github.com/windmill-labs/windmill/compare/v1.608.0...v1.609.0) (2026-01-16)
+
+
+### Features
+
+* cli branch override ([#7592](https://github.com/windmill-labs/windmill/issues/7592)) ([dcee9fe](https://github.com/windmill-labs/windmill/commit/dcee9fe7b163993836691988a552a5bc6042b9a2))
+
+
+### Bug Fixes
+
+* Fix MS SQL S3 Mode ([#7595](https://github.com/windmill-labs/windmill/issues/7595)) ([c7a6a05](https://github.com/windmill-labs/windmill/commit/c7a6a05925681bb1b2cec8d2c11037bc3d339798))
+* transparency issue of instance setting save button ([#7594](https://github.com/windmill-labs/windmill/issues/7594)) ([86ebf9e](https://github.com/windmill-labs/windmill/commit/86ebf9e25a03db99453269832bce030438c677c3))
+
 ## [1.608.0](https://github.com/windmill-labs/windmill/compare/v1.607.1...v1.608.0) (2026-01-16)
 
 
