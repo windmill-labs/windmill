@@ -2271,8 +2271,6 @@ async fn edit_success_handler(
     Json(es): Json<EditSuccessHandler>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
-) -> Result<String> {
-    require_admin(is_admin, &username)?;
 
     let mut tx = db.begin().await?;
 

@@ -2132,9 +2132,9 @@ pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
         Some(&format!("success.handler.{job_id}")),
         None,
         None,
-        Some(job_id),
-        None,
-        Some(job_id),
+        Some(job_id), // parent_job
+        Some(job_id), // root_job
+        Some(job_id), // flow_innermost_root_job
         None,
         false,
         false,
