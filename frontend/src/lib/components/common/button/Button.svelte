@@ -100,7 +100,7 @@
 	}
 
 	let {
-		id = '',
+		id,
 		aiId = undefined,
 		aiDescription = undefined,
 		size = 'md',

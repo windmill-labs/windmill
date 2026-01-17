@@ -202,7 +202,7 @@
 	</div>
 {/if}
 
-<DataTable>
+<DataTable containerClass="ducklake-settings-table">
 	<Head>
 		<tr>
 			{#each tableHeadNames as name, i}
@@ -235,7 +235,11 @@
 							<code class="px-1 py-0.5 border rounded-md">ATTACH 'ducklake' AS dl;</code> shorthand
 						</Tooltip>
 					{/if}
-					<TextInput bind:value={ducklake.name} inputProps={{ placeholder: 'Name' }} />
+					<TextInput
+						bind:value={ducklake.name}
+						inputProps={{ placeholder: 'Name' }}
+						class="ducklake-name"
+					/>
 				</Cell>
 				<Cell>
 					<div class="flex gap-2">
@@ -309,11 +313,12 @@
 									else delete ducklake.storage.storage
 								}
 							}
-							class="w-48"
+							class="ducklake-workspace-storage-select w-48"
 							inputClass="!placeholder-secondary"
 						/>
 						<TextInput
 							inputProps={{ placeholder: 'Data path (defaults to /)' }}
+							class="ducklake-storage-data-path"
 							bind:value={ducklake.storage.path}
 						/>
 					</div>

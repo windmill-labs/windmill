@@ -75,6 +75,7 @@ export function columnDefToTableEditorValuesColumn(
 	} else {
 		datatype = colDef.datatype?.replace(/\s+/g, ' ').toUpperCase() || 'UNKNOWN'
 	}
+	datatype = normalizeDatatypeAlias(datatype)
 
 	const defaultValue = colDef.defaultvalue
 		? colDef.defaultvalue.startsWith("'") &&
@@ -94,4 +95,16 @@ export function columnDefToTableEditorValuesColumn(
 		initialName: colDef.field,
 		default_constraint_name: colDef.default_constraint_name
 	}
+}
+
+function normalizeDatatypeAlias(datatype: string): string {
+	// Normalize some common datatype variations
+	const dt = datatype.toUpperCase().trim()
+	if (dt === 'INTEGER') return 'INT'
+	if (dt === 'DOUBLE PRECISION') return 'DOUBLE'
+	if (dt === 'TIMESTAMP WITHOUT TIME ZONE') return 'TIMESTAMP'
+	if (dt === 'TIMESTAMP WITH TIME ZONE') return 'TIMESTAMPTZ'
+	if (dt === 'CHARACTER VARYING') return 'VARCHAR'
+	if (dt === 'CHARACTER') return 'CHAR'
+	return datatype
 }

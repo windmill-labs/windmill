@@ -132,7 +132,7 @@
 	</Alert>
 {/if}
 {#if s3ResourceSettings}
-	<DataTable containerClass="mt-4">
+	<DataTable containerClass="storage-settings-table mt-4">
 		<Head>
 			<tr>
 				{#each tableHeadNames as name, i}
@@ -152,7 +152,11 @@
 						{#if tableRow[0] === null}
 							<TextInput inputProps={{ placeholder: 'Primary storage', disabled: true }} />
 						{:else}
-							<TextInput bind:value={tableRow[0]} inputProps={{ placeholder: 'Name' }} />
+							<TextInput
+								bind:value={tableRow[0]}
+								inputProps={{ placeholder: 'Name' }}
+								class="secondary-storage-name-input"
+							/>
 						{/if}
 					</Cell>
 					<Cell>
@@ -167,6 +171,7 @@
 										{ value: 'gcloud_storage', label: 'Google Cloud Storage' }
 									]}
 									bind:value={tableRow[1].resourceType}
+									id="storage-resource-type-select"
 									class="w-40"
 								/>
 							</div>

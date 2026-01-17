@@ -592,13 +592,23 @@
 			dbSchema = $dbSchemas[resourcePath]
 			if (dbSchema === undefined) {
 				if (lang === 'graphql') {
-					await getDbSchemas('graphql', resourcePath, $workspaceStore, $dbSchemas, (e) => {
-						console.error('error getting graphql db schema', e)
-					})
+					$dbSchemas[resourcePath] = await getDbSchemas(
+						'graphql',
+						resourcePath,
+						$workspaceStore,
+						(e) => {
+							console.error('error getting graphql db schema', e)
+						}
+					)
 				} else if (lang === 'sql') {
-					await getDbSchemas(scriptLang ?? '', resourcePath, $workspaceStore, $dbSchemas, (e) => {
-						console.error(`error getting SQL (${scriptLang}) db schema`, e)
-					})
+					$dbSchemas[resourcePath] = await getDbSchemas(
+						scriptLang ?? '',
+						resourcePath,
+						$workspaceStore,
+						(e) => {
+							console.error(`error getting SQL (${scriptLang}) db schema`, e)
+						}
+					)
 				}
 			}
 			dbSchema = $dbSchemas[resourcePath]

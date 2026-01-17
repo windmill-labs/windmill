@@ -190,6 +190,24 @@ export class ChangeOnDeepInequality<T> {
 	}
 }
 
+export function useReducedMotion(): { val: boolean } {
+	if (typeof window === 'undefined') return { val: false }
+
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+	let s = $state(query.matches)
+	$effect(() => {
+		const handler = (event: MediaQueryListEvent) => {
+			s = event.matches
+		}
+		query.addEventListener('change', handler)
+		return () => query.removeEventListener('change', handler)
+	})
+	return {
+		get val() {
+			return s
+		}
+	}
+}
 // The original from runed has a weird behavior with dedup reads causing duplicate effect runs
 // (Every field has to be derived to avoid it : https://runed.dev/docs/utilities/use-search-params)
 export function useSearchParams<S extends z.ZodType>(

@@ -410,7 +410,8 @@
 			<TextInput
 				inputProps={{
 					autofocus: true,
-					placeholder: HOME_SEARCH_PLACEHOLDER
+					placeholder: HOME_SEARCH_PLACEHOLDER,
+					id: 'home-search-input'
 				}}
 				size="md"
 				bind:value={filter}

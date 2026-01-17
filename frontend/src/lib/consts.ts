@@ -156,8 +156,6 @@ export const BIGQUERY_TYPES = [
 	'integer[]',
 	'int64',
 	'int64[]',
-	'float',
-	'float[]',
 	'float64',
 	'float64[]',
 	'numeric',
