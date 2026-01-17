@@ -405,6 +405,7 @@ async-once-cell = "0.5.4"
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
+flate2 = "^1"
 http = "^1"
 async-stream = "^0"
 

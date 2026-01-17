@@ -4977,6 +4977,141 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/npm_proxy/metadata/{package}:
+    get:
+      summary: get npm package metadata from private registry
+      operationId: getNpmPackageMetadata
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tags:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  versions:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/npm_proxy/resolve/{package}:
+    get:
+      summary: resolve npm package version from private registry
+      operationId: resolveNpmPackageVersion
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tag
+          description: version tag or reference
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: resolved version
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    nullable: true
+
+  /w/{workspace}/npm_proxy/filetree/{package}/{version}:
+    get:
+      summary: get npm package file tree from private registry
+      operationId: getNpmPackageFiletree
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package file tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  default:
+                    type: string
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+
+  /w/{workspace}/npm_proxy/file/{package}/{version}/{filepath}:
+    get:
+      summary: get specific file from npm package in private registry
+      operationId: getNpmPackageFile
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: filepath
+          description: file path within package
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: file content
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/embeddings/query_resource_types:
     get:
       summary: query resource types by similarity
