@@ -2268,8 +2268,9 @@ async fn edit_success_handler(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
     Json(es): Json<EditSuccessHandler>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
