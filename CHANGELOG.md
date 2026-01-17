@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.610.0](https://github.com/windmill-labs/windmill/compare/v1.609.0...v1.610.0) (2026-01-17)
+
+
+### Features
+
+* add private npm registry proxy support for ATA in webide ([#7597](https://github.com/windmill-labs/windmill/issues/7597)) ([b3cb41e](https://github.com/windmill-labs/windmill/commit/b3cb41efa4520fd3243a6dbab7c985923dd538e3))
+* add workspace success handler with 60s TTL caching ([#7598](https://github.com/windmill-labs/windmill/issues/7598)) ([73c4ce3](https://github.com/windmill-labs/windmill/commit/73c4ce30127af587510b16fbc7fa223436f6845c))
+
+
+### Bug Fixes
+
+* handle missing storage key in S3Object for write_s3_file ([03daa34](https://github.com/windmill-labs/windmill/commit/03daa341eb91118c27e92b1b51731400a0dce30c))
+* improve job deletion performance and batching ([8dd5e81](https://github.com/windmill-labs/windmill/commit/8dd5e81a32b97814eab3b72964807bdfe0ea8b49))
+
 ## [1.609.0](https://github.com/windmill-labs/windmill/compare/v1.608.0...v1.609.0) (2026-01-16)
 
 
