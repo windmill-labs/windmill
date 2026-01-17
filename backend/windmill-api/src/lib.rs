@@ -149,6 +149,7 @@ mod scim_oss;
 mod scopes;
 mod scripts;
 mod service_logs;
+mod secret_backend_ext;
 mod settings;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]

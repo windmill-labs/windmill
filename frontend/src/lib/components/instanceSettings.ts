@@ -34,6 +34,7 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
+		| 'secret_backend'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -472,6 +473,17 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
+		}
+	],
+	'Secret Storage': [
+		{
+			label: 'Secret Storage Backend',
+			description:
+				'Configure where secrets (secret variables) are stored. By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+			key: 'secret_backend',
+			fieldType: 'secret_backend',
+			storage: 'setting',
+			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	]
 }

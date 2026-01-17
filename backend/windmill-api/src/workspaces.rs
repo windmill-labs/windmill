@@ -270,6 +270,10 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_muted_on_cancel: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_handler_extra_args: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
@@ -555,6 +559,8 @@ async fn get_settings(
             error_handler,
             error_handler_extra_args,
             error_handler_muted_on_cancel,
+            success_handler,
+            success_handler_extra_args,
             large_file_storage,
             datatable,
             ducklake,

@@ -40,6 +40,7 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
+    secret_backend::{SecretMigrationReport, VaultSettings},
     server::Smtp,
 };
 use windmill_common::{error::to_anyhow, PgDatabase};
@@ -83,6 +84,14 @@ pub fn global_service() -> Router {
         .route(
             "/critical_alerts/acknowledge_all",
             post(acknowledge_all_critical_alerts),
+        );
+
+    let r = r
+        .route("/test_secret_backend", post(test_secret_backend))
+        .route("/migrate_secrets_to_vault", post(migrate_secrets_to_vault))
+        .route(
+            "/migrate_secrets_to_database",
+            post(migrate_secrets_to_database),
         );
 
     #[cfg(feature = "parquet")]
@@ -797,4 +806,63 @@ async fn setup_custom_instance_pg_database_inner(
         })?;
 
     Ok(())
+}
+
+// ============================================================================
+// Secret Backend Settings (HashiCorp Vault Integration)
+// ============================================================================
+
+/// Test connection to a secret backend (HashiCorp Vault)
+///
+/// This endpoint validates that the Vault settings are correct and that
+/// Windmill can successfully authenticate and communicate with Vault.
+pub async fn test_secret_backend(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> Result<String> {
+    require_super_admin(&db, &authed.email).await?;
+
+    windmill_common::secret_backend::test_vault_connection(&settings).await?;
+
+    Ok("Successfully connected to HashiCorp Vault".to_string())
+}
+
+/// Migrate existing secrets from database to HashiCorp Vault
+///
+/// This endpoint reads all encrypted secrets from the database, decrypts them,
+/// and stores them in HashiCorp Vault. The database values are NOT deleted
+/// automatically to allow for rollback if needed.
+///
+/// This is an Enterprise Edition feature.
+pub async fn migrate_secrets_to_vault(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report = windmill_common::secret_backend::migrate_secrets_to_vault(&db, &settings).await?;
+
+    Ok(Json(report))
+}
+
+/// Migrate secrets from HashiCorp Vault back to database
+///
+/// This endpoint reads all secrets from HashiCorp Vault, encrypts them using
+/// the workspace encryption keys, and stores them in the database. The Vault
+/// values are NOT deleted automatically to allow for rollback if needed.
+///
+/// This is an Enterprise Edition feature.
+pub async fn migrate_secrets_to_database(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(settings): Json<VaultSettings>,
+) -> JsonResult<SecretMigrationReport> {
+    require_super_admin(&db, &authed.email).await?;
+
+    let report =
+        windmill_common::secret_backend::migrate_secrets_to_database(&db, &settings).await?;
+
+    Ok(Json(report))
 }

@@ -8,6 +8,7 @@
 
 use crate::{
     db::{ApiAuthed, DB},
+    secret_backend_ext::{delete_secret_from_backend, get_secret_value, store_secret_value},
     users::{maybe_refresh_folders, require_owner_of_path},
     utils::{check_scopes, BulkDeleteRequest},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -39,7 +40,7 @@ use crate::var_resource_cache::{cache_variable, get_cached_variable};
 use lazy_static::lazy_static;
 use serde::Deserialize;
 use sqlx::{Acquire, Postgres, Transaction};
-use windmill_common::variables::{decrypt, encrypt};
+use windmill_common::variables::encrypt;
 use windmill_git_sync::{handle_deployment_metadata, DeployedObject};
 
 lazy_static! {
@@ -210,13 +211,8 @@ async fn get_variable(
                 return Err(Error::internal_err("Require oauth2 feature".to_string()));
             } else if !value.is_empty() && decrypt_secret {
                 let _ = tx.commit().await;
-                let mc = build_crypt(&db, &w_id).await?;
-                Some(decrypt(&mc, value).map_err(|e| {
-                    Error::internal_err(format!(
-                        "Error decrypting variable {}: {}",
-                        variable.path, e
-                    ))
-                })?)
+                // Use secret backend for decryption (supports both DB and Vault)
+                Some(get_secret_value(&db, &w_id, &variable.path, &value).await?)
             } else if q.include_encrypted.unwrap_or(false) {
                 Some(value)
             } else {
@@ -355,8 +351,8 @@ async fn create_variable(
 
     check_path_conflict(&db, &w_id, &variable.path).await?;
     let value = if variable.is_secret && !already_encrypted.unwrap_or(false) {
-        let mc = build_crypt(&db, &w_id).await?;
-        encrypt(&mc, &variable.value)
+        // Use secret backend for encryption (supports both DB and Vault)
+        store_secret_value(&db, &w_id, &variable.path, &variable.value).await?
     } else {
         variable.value
     };
@@ -436,6 +432,16 @@ async fn delete_variable(
 
     check_scopes(&authed, || format!("variables:write:{}", path))?;
 
+    // Check if variable is a secret before deleting (for Vault cleanup)
+    let is_secret = sqlx::query_scalar!(
+        "SELECT is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -464,6 +470,11 @@ async fn delete_variable(
     .await?;
 
     tx.commit().await?;
+
+    // If variable was a secret, also delete from Vault backend (if configured)
+    if is_secret {
+        delete_secret_from_backend(&db, &w_id, path).await?;
+    }
 
     handle_deployment_metadata(
         &authed.email,
@@ -604,8 +615,8 @@ async fn update_variable(
         };
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
-            let mc = build_crypt(&db, &w_id).await?;
-            encrypt(&mc, &nvalue)
+            // Use secret backend for encryption (supports both DB and Vault)
+            store_secret_value(&db, &w_id, &path, &nvalue).await?
         } else {
             nvalue
         };
@@ -835,13 +846,8 @@ pub async fn get_value_internal<'a>(
             #[cfg(not(feature = "oauth2"))]
             return Err(Error::internal_err("Require oauth2 feature".to_string()));
         } else if !value.is_empty() {
-            let mc = build_crypt(db_with_opt_authed.db(), &w_id).await?;
-            decrypt(&mc, value).map_err(|e| {
-                Error::internal_err(format!(
-                    "Error decrypting variable {}: {}",
-                    variable.path, e
-                ))
-            })?
+            // Use secret backend for decryption (supports both DB and Vault)
+            get_secret_value(db_with_opt_authed.db(), &w_id, &variable.path, &value).await?
         } else {
             "".to_string()
         }
