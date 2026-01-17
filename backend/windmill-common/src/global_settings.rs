@@ -115,6 +115,8 @@ pub const ENV_SETTINGS: &[&str] = &[
     "PG_SCHEMA",
     "PG_LISTENER_REFRESH_PERIOD_SECS",
     "AI_REQUEST_TIMEOUT_SECONDS",
+    "JOB_CLEANUP_BATCH_SIZE",
+    "JOB_CLEANUP_MAX_BATCHES",
 ];
 
 use crate::error;
