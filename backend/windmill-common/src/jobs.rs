@@ -237,7 +237,7 @@ impl QueuedJob {
 impl Default for QueuedJob {
     fn default() -> Self {
         Self {
-            workspace_id: "".to_string(),
+            workspace_id: "w".to_string(),
             id: Uuid::default(),
             parent_job: None,
             created_by: "".to_string(),

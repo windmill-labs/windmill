@@ -1,0 +1,177 @@
+name: Build multi-platform Docker image
+
+on:
+  workflow_call:
+    inputs:
+      registry:
+        required: true
+        type: string
+      image_name:
+        required: true
+        type: string
+      name:
+        required: true
+        type: string
+      metadata_flavor:
+        default: |
+          latest=auto
+        type: string
+      metadata_tags:
+        type: string
+        default: |
+          type=schedule
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha
+      metadata_labels:
+        type: string
+        default: |
+          org.opencontainers.image.licenses=Windmill-Enterprise-License
+      build_args:
+        type: string
+        default: ""
+      push_image:
+        default: false
+        type: boolean
+      checkout_ee:
+        default: false
+        type: boolean
+      fetch_depth:
+        default: 1
+        type: number
+      after_checkout_command:
+        default: ""
+        type: string
+      build_runner_cpus:
+        default: 4
+        type: number
+
+jobs:
+  docker:
+    name: Docker ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubicloud-standard-${{ inputs.build_runner_cpus }}
+            platform: linux/amd64
+          - runner: ubicloud-standard-${{ inputs.build_runner_cpus }}-arm
+            platform: linux/arm64
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Read EE repo commit hash
+        run: |
+          echo "ee_repo_ref=$(cat ./backend/ee-repo-ref.txt)" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        if: ${{ inputs.checkout_ee }}
+        with:
+          repository: windmill-labs/windmill-ee-private
+          path: ./windmill-ee-private
+          ref: ${{ env.ee_repo_ref }}
+          token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
+          fetch-depth: ${{ inputs.fetch_depth }}
+
+      - name: Run command after checkout
+        if: ${{ inputs.after_checkout_command }}
+        run: ${{ inputs.after_checkout_command }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ inputs.image_name }}
+          tags: ${{ inputs.metadata_tags }}
+          labels: ${{ inputs.metadata_labels }}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ${{ inputs.build_args }}
+          cache-from: type=gha,scope=ubicloud-${{ matrix.runner }}-${{ inputs.name }}
+          cache-to: type=gha,mode=max,scope=ubicloud-${{ matrix.runner }}-${{ inputs.name }}
+          outputs: type=image,name=${{ inputs.registry }}/${{ inputs.image_name
+            }},push-by-digest=true,name-canonical=true,push=true
+
+      - name: Print cache proxy logs
+        run: sudo cat /var/log/cacheproxy.log
+        if: always()
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        if: ${{ inputs.push_image }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.runner }}-${{ inputs.name }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    if: ${{ inputs.push_image }}
+    runs-on: ubicloud
+    needs:
+      - docker
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ inputs.registry }}/${{ inputs.image_name }}
+          tags: ${{ inputs.metadata_tags }}
+          labels: ${{ inputs.metadata_labels }}
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ inputs.registry }}/${{ inputs.image_name }}@sha256:%s ' *)
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ inputs.registry }}/${{ inputs.image_name }}:${{ steps.meta.outputs.version }}
