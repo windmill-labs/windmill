@@ -720,6 +720,8 @@ pub async fn run_server(
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
         )
+        // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
+        .route("/.well-known/jwks.json", get(settings::get_jwks))
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 

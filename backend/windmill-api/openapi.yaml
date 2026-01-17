@@ -1411,6 +1411,20 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /.well-known/jwks.json:
+    get:
+      summary: get JWKS for Vault JWT authentication
+      operationId: getJwks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JwksResponse"
+
   /settings/test_secret_backend:
     post:
       summary: test secret backend connection (HashiCorp Vault)
@@ -16668,6 +16682,18 @@ components:
           items:
             type: string
           description: List of errors encountered during migration
+
+    JwksResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Array of JSON Web Keys for JWT verification
 
     FlowConversation:
       type: object
