@@ -11,12 +11,12 @@ use crate::{
         start_child_process, OccupancyMetrics, StreamNotifier,
     },
     handle_child::handle_child,
-    DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
+    get_proxy_envs_for_lang, DENO_CACHE_DIR, DENO_PATH, DISABLE_NSJAIL, HOME_ENV, NPM_CONFIG_REGISTRY, PATH_ENV, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
 use tokio::{fs::File, io::AsyncReadExt, process::Command};
-use windmill_common::{error::Result, worker::write_file, BASE_URL};
+use windmill_common::{error::Result, scripts::ScriptLang, worker::write_file, BASE_URL};
 use windmill_common::{
     error::{self},
     worker::Connection,
@@ -92,6 +92,12 @@ async fn get_common_deno_proc_envs(
             crate::USERPROFILE_ENV.to_string(),
         );
     }
+
+    // Add proxy envs (including OTEL tracing proxy if enabled for deno)
+    for (k, v) in get_proxy_envs_for_lang(&ScriptLang::Deno).await.unwrap_or_default() {
+        deno_envs.insert(k.to_string(), v);
+    }
+
     return deno_envs;
 }
 

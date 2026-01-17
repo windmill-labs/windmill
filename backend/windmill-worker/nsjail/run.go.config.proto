@@ -102,4 +102,11 @@ iface_no_lo: true
 envar: "GOPATH=/tmp/.cache/go"
 envar: "HOME=/tmp/go"
 
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
 
+#{DEV}

@@ -20,12 +20,13 @@ use windmill_queue::{append_logs, CanceledBy};
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUST_CACHE_DIR,
-    TZ_ENV,
+    get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
+use windmill_common::scripts::ScriptLang;
 use windmill_common::client::AuthedClient;
 
 #[cfg(windows)]
@@ -52,19 +53,6 @@ lazy_static::lazy_static! {
     static ref RUSTUP_HOME_DEFAULT: String = format!("{}\\.rustup", *HOME_DIR);
 }
 
-#[cfg(debug_assertions)]
-const DEV_CONF_NSJAIL: &'static str = r#"
-# Mount nix store for nixos to work properly
-mount {
-    src: "/nix/store"
-    dst: "/nix/store"
-    is_bind: true
-    mandatory: false
-}
-"#;
-
-#[cfg(not(debug_assertions))]
-const DEV_CONF_NSJAIL: &'static str = "";
 
 #[cfg(not(windows))]
 lazy_static::lazy_static! {
@@ -341,7 +329,8 @@ pub async fn build_rust_crate(
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
                 .replace("{CARGO_HOME}", CARGO_HOME.as_str())
-                .replace("{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{BUILD}", &build_dir),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -549,7 +538,8 @@ pub async fn handle_rust_job(
                 .replace("{CACHE_DIR}", RUST_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{SHARED_MOUNT}", shared_mount),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -558,6 +548,7 @@ pub async fn handle_rust_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Rust).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -573,6 +564,7 @@ pub async fn handle_rust_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Rust).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

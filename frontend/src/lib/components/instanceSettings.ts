@@ -1,5 +1,18 @@
 import type { ButtonType } from './common/button/model'
 
+// Languages that support HTTP request tracing via OTEL proxy
+export const OTEL_TRACING_PROXY_LANGUAGES = [
+	'python3',
+	'deno',
+	'bun',
+	'go',
+	'bash',
+	'rust',
+	'csharp',
+	'nu',
+	'ruby'
+] as const
+
 export interface Setting {
 	label: string
 	description?: string
@@ -16,24 +29,25 @@ export interface Setting {
 		value?: string
 	}[]
 	fieldType:
-		| 'text'
-		| 'number'
-		| 'boolean'
-		| 'password'
-		| 'select'
-		| 'select_python'
-		| 'textarea'
-		| 'codearea'
-		| 'seconds'
-		| 'email'
-		| 'license_key'
-		| 'object_store_config'
-		| 'critical_error_channels'
-		| 'critical_alerts_on_db_oversize'
-		| 'slack_connect'
-		| 'smtp_connect'
-		| 'indexer_rates'
-		| 'otel'
+	| 'text'
+	| 'number'
+	| 'boolean'
+	| 'password'
+	| 'select'
+	| 'select_python'
+	| 'textarea'
+	| 'codearea'
+	| 'seconds'
+	| 'email'
+	| 'license_key'
+	| 'object_store_config'
+	| 'critical_error_channels'
+	| 'critical_alerts_on_db_oversize'
+	| 'slack_connect'
+	| 'smtp_connect'
+	| 'indexer_rates'
+	| 'otel'
+	| 'otel_tracing_proxy'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -445,7 +459,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
+		{
+			label: 'HTTP Request Tracing',
+			description:
+				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Toggling restarts workers.',
+			key: 'otel_tracing_proxy',
+			fieldType: 'otel_tracing_proxy',
+			storage: 'setting',
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES], mitm_enabled: true })
+		},
 		{
 			label: 'Prometheus',
 			description:

@@ -141,4 +141,11 @@ envar: "LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH"
 envar: "PYTHONPATH={ADDITIONAL_PYTHON_PATHS}"
 envar: "HOME=/tmp"
 
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
 
+#{DEV}

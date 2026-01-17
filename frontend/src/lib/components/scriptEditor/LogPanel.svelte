@@ -25,6 +25,7 @@
 	import type Editor from '../Editor.svelte'
 	import type DiffEditor from '../DiffEditor.svelte'
 	import ScriptFix from '../copilot/ScriptFix.svelte'
+	import JobOtelTraces from '../JobOtelTraces.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
 	import Head from '../table/Head.svelte'
@@ -127,6 +128,7 @@
 		{#if showCaptures && customUi?.disableTriggerCaptures !== true}
 			<Tab value="captures" label="Trigger captures" />
 		{/if}
+		<Tab value="tracing" label="Tracing" />
 
 		{#snippet content()}
 			<div class="grow min-h-0">
@@ -297,6 +299,15 @@
 				{/if}
 				{#if selectedTab === 'captures'}
 					{@render capturesTab?.()}
+				{/if}
+				{#if selectedTab === 'tracing'}
+					{#if previewJob?.id}
+						<JobOtelTraces jobId={previewJob.id} />
+					{:else}
+						<div class="p-4 text-secondary">
+							Run a preview to see HTTP request traces
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/snippet}

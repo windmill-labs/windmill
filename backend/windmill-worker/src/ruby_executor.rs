@@ -24,12 +24,14 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
-    handle_child::{self},
+    handle_child::{self}, get_proxy_envs_for_lang,
     universal_pkg_installer::{par_install_language_dependencies_seq, RequiredDependency},
     DISABLE_NSJAIL, DISABLE_NUSER, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, RUBY_CACHE_DIR, RUBY_REPOS,
+    TRACING_PROXY_CA_CERT_PATH,
 };
+use windmill_common::scripts::ScriptLang;
 lazy_static::lazy_static! {
     static ref RUBY_CONCURRENT_DOWNLOADS: usize = std::env::var("RUBY_CONCURRENT_DOWNLOADS").ok().map(|flag| flag.parse().unwrap_or(20)).unwrap_or(20);
     static ref RUBY_PATH: String = std::env::var("RUBY_PATH").unwrap_or_else(|_| "/usr/bin/ruby".to_string());
@@ -49,19 +51,6 @@ const NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT: &str =
     include_str!("../nsjail/download.ruby.config.proto");
 const NSJAIL_CONFIG_LOCK_RUBY_CONTENT: &str = include_str!("../nsjail/lock.ruby.config.proto");
 
-#[cfg(debug_assertions)]
-const DEV_CONF_NSJAIL: &'static str = r#"
-# Mount nix store for nixos to work properly
-mount {
-    src: "/nix/store"
-    dst: "/nix/store"
-    is_bind: true
-    mandatory: false
-}
-"#;
-
-#[cfg(not(debug_assertions))]
-const DEV_CONF_NSJAIL: &'static str = "";
 
 #[allow(dead_code)]
 pub(crate) struct JobHandlerInput<'a> {
@@ -349,7 +338,8 @@ Your Gemfile syntax will continue to work as-is."
                 &NSJAIL_CONFIG_LOCK_RUBY_CONTENT
                     .replace("{JOB_DIR}", job_dir)
                     .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                    .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
+                    .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                    .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
             )?;
             let mut cmd = Command::new(NSJAIL_PATH.as_str());
             cmd.args(vec!["--config", &nsjail_proto, "--", BUNDLE_PATH.as_str()]);
@@ -624,7 +614,8 @@ async fn install<'a>(
                     &NSJAIL_CONFIG_DOWNLOAD_RUBY_CONTENT
                         .replace("{TARGET}", &dependency.path)
                         .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                        .replace("{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
+                        .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                        .replace("#{DEV}", DEV_CONF_NSJAIL), // .replace("{BUILD}", &build_dir),
                 )?;
                 let mut cmd = Command::new(NSJAIL_PATH.as_str());
                 cmd.args(vec!["--config", &nsjail_proto, "--", GEM_PATH.as_str()]);
@@ -791,7 +782,8 @@ mount {{
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{SHARED_MOUNT}", &shared_mount)
                 .replace("{SHARED_DEPENDENCIES}", &shared_deps)
-                .replace("{DEV}", DEV_CONF_NSJAIL)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string()),
         )?;
         let mut cmd = Command::new(NSJAIL_PATH.as_str());
@@ -803,7 +795,7 @@ mount {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
             .args(vec![
                 "--config",
                 "run.config.proto",
@@ -842,7 +834,7 @@ mount {{
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(reserved_variables)
             .envs(RUBY_PROXY_ENVS.clone())
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Ruby).await?)
             .envs(envs);
 
         cmd.stdin(Stdio::null())

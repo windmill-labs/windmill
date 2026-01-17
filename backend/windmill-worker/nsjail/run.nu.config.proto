@@ -105,3 +105,12 @@ iface_no_lo: true
 {SHARED_MOUNT}
 
 envar: "HOME=/tmp"
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}
