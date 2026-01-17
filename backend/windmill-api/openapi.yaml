@@ -2276,6 +2276,10 @@ paths:
                     $ref: "#/components/schemas/ScriptArgs"
                   error_handler_muted_on_cancel:
                     type: boolean
+                  success_handler:
+                    type: string
+                  success_handler_extra_args:
+                    $ref: "#/components/schemas/ScriptArgs"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -2984,6 +2988,34 @@ paths:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
                   type: boolean
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_success_handler:
+    post:
+      summary: edit success handler
+      operationId: editSuccessHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceSuccessHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                success_handler:
+                  type: string
+                success_handler_extra_args:
+                  $ref: "#/components/schemas/ScriptArgs"
       responses:
         "200":
           description: status

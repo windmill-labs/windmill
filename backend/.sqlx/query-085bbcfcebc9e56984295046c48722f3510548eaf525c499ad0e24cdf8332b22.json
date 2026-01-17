@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT success_handler_extra_args FROM workspace_settings WHERE workspace_id = 'test-workspace'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "success_handler_extra_args",
+        "type_info": "Json"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "085bbcfcebc9e56984295046c48722f3510548eaf525c499ad0e24cdf8332b22"
+}

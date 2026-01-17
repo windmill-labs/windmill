@@ -1065,6 +1065,8 @@ TABLE: workspace_settings
   - ai_config (jsonb)
   - error_handler_extra_args (json)
   - error_handler_muted_on_cancel (boolean)
+  - success_handler (text)
+  - success_handler_extra_args (json)
   - large_file_storage (jsonb)
   - git_sync (jsonb)
   - default_app (character)
