@@ -23,6 +23,15 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
+#[cfg(feature = "enterprise")]
+use crate::otel_auto_instrumentation_impl::{
+    get_otel_auto_instrumentation_config, get_otel_typescript_env_vars,
+};
+#[cfg(not(feature = "enterprise"))]
+use crate::otel_auto_instrumentation_oss::{
+    get_otel_auto_instrumentation_config, get_otel_typescript_env_vars,
+};
+
 lazy_static::lazy_static! {
 
     static ref DENO_FLAGS: Option<Vec<String>> = std::env::var("DENO_FLAGS")
@@ -357,6 +366,18 @@ try {{
         common_deno_proc_envs.insert("HOME".to_string(), job_dir.to_string());
     }
 
+    // Get OTel auto-instrumentation env vars (EE feature)
+    let otel_envs: Vec<(String, String)> = if let Connection::Sql(db) = conn {
+        let otel_config = get_otel_auto_instrumentation_config(db).await;
+        if otel_config.enabled && otel_config.typescript_enabled {
+            get_otel_typescript_env_vars(&job.id, &job.workspace_id, job.runnable_path(), &otel_config)
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
     //do not cache local dependencies
     let child = {
         let reload = format!("--reload={base_internal_url}");
@@ -417,6 +438,7 @@ try {{
             .envs(envs)
             .envs(reserved_variables)
             .envs(common_deno_proc_envs)
+            .envs(otel_envs)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

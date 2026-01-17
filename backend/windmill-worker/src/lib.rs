@@ -52,6 +52,9 @@ mod oracledb_executor;
 #[cfg(feature = "private")]
 pub mod otel_ee;
 mod otel_oss;
+#[cfg(feature = "enterprise")]
+pub mod otel_auto_instrumentation_impl;
+pub mod otel_auto_instrumentation_oss;
 mod pg_executor;
 #[cfg(feature = "php")]
 mod php_executor;

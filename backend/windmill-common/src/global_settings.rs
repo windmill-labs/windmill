@@ -46,6 +46,7 @@ pub const DEV_INSTANCE_SETTING: &str = "dev_instance";
 pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
+pub const OTEL_AUTO_INSTRUMENTATION_SETTING: &str = "otel_auto_instrumentation";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
 
 pub const ENV_SETTINGS: &[&str] = &[

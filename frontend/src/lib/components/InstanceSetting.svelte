@@ -830,6 +830,55 @@
 						</div> -->
 						{/if}
 					</div>
+				{:else if setting.fieldType == 'otel_auto_instrumentation'}
+					<div class="flex flex-col gap-4 border rounded p-4">
+						{#if $values[setting.key]}
+							<div class="flex gap-8">
+								<Toggle
+									disabled={!$enterpriseLicense}
+									id="otel_auto_instr_enabled"
+									bind:checked={$values[setting.key].enabled}
+									options={{ right: 'Enabled' }}
+								/>
+							</div>
+							{#if $values[setting.key].enabled}
+								<div class="flex gap-8">
+									<Toggle
+										disabled={!$enterpriseLicense}
+										id="otel_auto_instr_python"
+										bind:checked={$values[setting.key].python_enabled}
+										options={{ right: 'Python' }}
+									/>
+									<Toggle
+										disabled={!$enterpriseLicense}
+										id="otel_auto_instr_typescript"
+										bind:checked={$values[setting.key].typescript_enabled}
+										options={{ right: 'TypeScript (Bun/Deno)' }}
+									/>
+								</div>
+								<div class="flex flex-col gap-1">
+									<label
+										for="otel_collector_port"
+										class="block text-xs font-semibold text-emphasis">Collector Port</label
+									>
+									<TextInput
+										inputProps={{
+											type: 'number',
+											placeholder: '4318',
+											id: 'otel_collector_port',
+											disabled: !$enterpriseLicense
+										}}
+										bind:value={$values[setting.key].collector_port}
+									/>
+									<span class="text-tertiary text-xs">Port for the built-in OTel collector (default: 4318)</span>
+								</div>
+							{/if}
+						{:else}
+							<div class="text-secondary text-sm">
+								Click Save to initialize OTel auto-instrumentation settings
+							</div>
+						{/if}
+					</div>
 				{:else if setting.fieldType == 'object_store_config'}
 					<ObjectStoreConfigSettings bind:bucket_config={$values[setting.key]} />
 					<div class="mb-6"></div>
