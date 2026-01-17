@@ -15,6 +15,7 @@ use tower_http::cors::{Any, CorsLayer};
 use windmill_common::{
     error::{Error, JsonResult, Result},
     global_settings::{load_value_from_global_settings, NPM_CONFIG_REGISTRY_SETTING},
+    utils::StripPath,
 };
 
 use crate::{db::ApiAuthed, HTTP_CLIENT};
@@ -22,6 +23,59 @@ use crate::{db::ApiAuthed, HTTP_CLIENT};
 #[derive(Deserialize)]
 struct ProxyQuery {
     tag: Option<String>,
+}
+
+/// Parse a scoped package path like "@scope/name" or "name" from a wildcard path
+fn parse_package_name(path: &str) -> String {
+    // Remove leading slash if present
+    path.trim_start_matches('/').to_string()
+}
+
+/// Parse package and version from a path like "@scope/name/1.0.0" or "name/1.0.0"
+fn parse_package_and_version(path: &str) -> Result<(String, String)> {
+    let path = path.trim_start_matches('/');
+
+    if path.starts_with('@') {
+        // Scoped package: @scope/name/version
+        let parts: Vec<&str> = path.splitn(3, '/').collect();
+        if parts.len() < 3 {
+            return Err(Error::BadRequest("Invalid scoped package path, expected @scope/name/version".to_string()));
+        }
+        let package = format!("{}/{}", parts[0], parts[1]);
+        let version = parts[2].to_string();
+        Ok((package, version))
+    } else {
+        // Regular package: name/version
+        let parts: Vec<&str> = path.splitn(2, '/').collect();
+        if parts.len() < 2 {
+            return Err(Error::BadRequest("Invalid package path, expected name/version".to_string()));
+        }
+        Ok((parts[0].to_string(), parts[1].to_string()))
+    }
+}
+
+/// Parse package, version, and filepath from a path like "@scope/name/1.0.0/index.d.ts"
+fn parse_package_version_and_file(path: &str) -> Result<(String, String, String)> {
+    let path = path.trim_start_matches('/');
+
+    if path.starts_with('@') {
+        // Scoped package: @scope/name/version/filepath
+        let parts: Vec<&str> = path.splitn(4, '/').collect();
+        if parts.len() < 4 {
+            return Err(Error::BadRequest("Invalid scoped package file path, expected @scope/name/version/filepath".to_string()));
+        }
+        let package = format!("{}/{}", parts[0], parts[1]);
+        let version = parts[2].to_string();
+        let filepath = parts[3].to_string();
+        Ok((package, version, filepath))
+    } else {
+        // Regular package: name/version/filepath
+        let parts: Vec<&str> = path.splitn(3, '/').collect();
+        if parts.len() < 3 {
+            return Err(Error::BadRequest("Invalid package file path, expected name/version/filepath".to_string()));
+        }
+        Ok((parts[0].to_string(), parts[1].to_string(), parts[2].to_string()))
+    }
 }
 
 #[derive(Serialize)]
@@ -48,10 +102,11 @@ struct FileEntry {
 
 pub fn workspaced_service() -> Router {
     Router::new()
-        .route("/metadata/:package", get(get_package_metadata))
-        .route("/resolve/:package", get(resolve_package_version))
-        .route("/filetree/:package/:version", get(get_package_filetree))
-        .route("/file/:package/:version/*filepath", get(get_package_file))
+        // Use wildcards for package names to support scoped packages like @scope/package
+        .route("/metadata/*package", get(get_package_metadata))
+        .route("/resolve/*package", get(resolve_package_version))
+        .route("/filetree/*package_version", get(get_package_filetree))
+        .route("/file/*package_version_filepath", get(get_package_file))
         .layer(
             CorsLayer::new()
                 .allow_origin(Any)
@@ -62,10 +117,11 @@ pub fn workspaced_service() -> Router {
 
 /// Get package metadata (versions and tags) from the private registry
 async fn get_package_metadata(
-    authed: ApiAuthed,
-    Path(package): Path<String>,
+    _authed: ApiAuthed,
+    Path((_w_id, package_path)): Path<(String, StripPath)>,
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageVersions> {
+    let package = parse_package_name(package_path.to_path());
     let npm_registry = get_npm_registry(&db).await?;
 
     if npm_registry.is_none() {
@@ -118,11 +174,12 @@ async fn get_package_metadata(
 
 /// Resolve a package tag/version reference to a specific version
 async fn resolve_package_version(
-    authed: ApiAuthed,
-    Path(package): Path<String>,
+    _authed: ApiAuthed,
+    Path((_w_id, package_path)): Path<(String, StripPath)>,
     Query(query): Query<ProxyQuery>,
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageVersion> {
+    let package = parse_package_name(package_path.to_path());
     let npm_registry = get_npm_registry(&db).await?;
 
     if npm_registry.is_none() {
@@ -180,10 +237,11 @@ async fn resolve_package_version(
 
 /// Get the file tree for a specific package version
 async fn get_package_filetree(
-    authed: ApiAuthed,
-    Path((package, version)): Path<(String, String)>,
+    _authed: ApiAuthed,
+    Path((_w_id, package_version_path)): Path<(String, StripPath)>,
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> JsonResult<PackageFiletree> {
+    let (package, version) = parse_package_and_version(package_version_path.to_path())?;
     let npm_registry = get_npm_registry(&db).await?;
 
     if npm_registry.is_none() {
@@ -263,10 +321,11 @@ async fn get_package_filetree(
 
 /// Get a specific file from a package version
 async fn get_package_file(
-    authed: ApiAuthed,
-    Path((package, version, filepath)): Path<(String, String, String)>,
+    _authed: ApiAuthed,
+    Path((_w_id, full_path)): Path<(String, StripPath)>,
     Extension(db): Extension<sqlx::Pool<sqlx::Postgres>>,
 ) -> Result<String> {
+    let (package, version, filepath) = parse_package_version_and_file(full_path.to_path())?;
     let npm_registry = get_npm_registry(&db).await?;
 
     if npm_registry.is_none() {
