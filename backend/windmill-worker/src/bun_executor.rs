@@ -50,6 +50,14 @@ use windmill_common::{
 use windmill_common::s3_helpers::attempt_fetch_bytes;
 
 use windmill_parser::Typ;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct RawScriptForDependencies {
+    pub script_path: String,
+    pub raw_code: Option<String>,
+    pub language: ScriptLang,
+}
 
 const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
@@ -106,10 +114,41 @@ pub async fn gen_bun_lockfile(
     workspace_dependencies: &WorkspaceDependenciesPrefetched,
     npm_mode: bool,
     occupancy_metrics: &mut Option<&mut OccupancyMetrics>,
+    raw_scripts: Option<&Vec<RawScriptForDependencies>>,
 ) -> Result<Option<String>> {
     let common_bun_proc_envs: HashMap<String, String> = get_common_bun_proc_envs(None).await;
 
     let mut empty_deps = false;
+
+    // Write raw scripts to job_dir so loader can find them locally
+    if let Some(scripts) = raw_scripts {
+        for script in scripts {
+            if let Some(ref raw_code) = script.raw_code {
+                // Normalize path: remove leading slash and u/ or f/ prefixes
+                let path = script.script_path
+                    .trim_start_matches('/')
+                    .trim_start_matches("u/")
+                    .trim_start_matches("f/");
+
+                // Ensure .ts extension
+                let file_path = if path.ends_with(".ts") {
+                    path.to_string()
+                } else {
+                    format!("{}.ts", path)
+                };
+
+                // Create parent directories if needed
+                let script_file_path = format!("{}/{}", job_dir, file_path);
+                if let Some(parent) = std::path::Path::new(&script_file_path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+
+                // Write the script file
+                write_file(job_dir, &file_path, raw_code)?;
+                tracing::debug!("Wrote raw_script to {}/{}", job_dir, file_path);
+            }
+        }
+    }
 
     if let Some(package_json_content) = workspace_dependencies.get_bun()? {
         gen_bunfig(job_dir).await?;
@@ -987,6 +1026,7 @@ pub async fn handle_bun_job(
                     workspace_dependencies,
                     annotation.npm,
                     &mut Some(occupancy_metrics),
+                    None, // raw_scripts - will be provided by worker.rs later
                 )
                 .await?;
 
@@ -1700,6 +1740,7 @@ pub async fn start_worker(
             .await?,
             annotation.npm,
             &mut None,
+            None, // raw_scripts - will be provided by worker.rs later
         )
         .await?;
     }
