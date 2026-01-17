@@ -106,6 +106,7 @@ async fn test_success_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()>
 async fn test_success_handler_triggered_on_success(db: Pool<Postgres>) -> anyhow::Result<()> {
     use serde_json::json;
     use windmill_common::jobs::{JobPayload, RawCode};
+    use windmill_common::runnable_settings::{ConcurrencySettingsWithCustom, DebouncingSettings};
     use windmill_common::scripts::ScriptLang;
 
     initialize_tracing().await;
@@ -159,12 +160,12 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         path: Some("f/test/simple_script".to_string()),
         language: ScriptLang::Deno,
         lock: None,
-        custom_concurrency_key: None,
-        concurrent_limit: None,
-        concurrency_time_window_s: None,
+        hash: None,
         cache_ttl: None,
+        cache_ignore_s3_path: None,
         dedicated_worker: None,
-        codebase: None,
+        concurrency_settings: ConcurrencySettingsWithCustom::default(),
+        debouncing_settings: DebouncingSettings::default(),
     }))
     .run_until_complete(&db, false, server.addr.port())
     .await

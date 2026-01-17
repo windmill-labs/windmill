@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM metrics WHERE created_at < NOW() - INTERVAL '180 day'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "45dde0dc2da12fe46b5975ed53b520fc4160c008c3d29fe7d99e609c0b6e3e6d"
+}
