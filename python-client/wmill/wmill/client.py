@@ -975,7 +975,7 @@ class Windmill:
             ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e
-        return S3Object(s3=response["file_key"], storage=s3object["storage"])
+        return S3Object(s3=response["file_key"], storage=s3object.get("storage") if s3object else None)
 
     def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
