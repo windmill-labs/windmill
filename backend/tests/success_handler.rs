@@ -155,7 +155,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     .await?;
 
     // Run a simple script that succeeds
-    let result = RunJob::from(JobPayload::Code(RawCode {
+    let completed_job = RunJob::from(JobPayload::Code(RawCode {
         content: "export function main() { return 'success'; }".to_string(),
         path: Some("f/test/simple_script".to_string()),
         language: ScriptLang::Deno,
@@ -168,15 +168,69 @@ export async function main(path: string, email: string, job_id: string, is_flow:
         debouncing_settings: DebouncingSettings::default(),
     }))
     .run_until_complete(&db, false, server.addr.port())
-    .await
-    .json_result()
-    .unwrap();
+    .await;
 
+    let result = completed_job.json_result().unwrap();
     assert_eq!(result, json!("success"));
 
-    // In a full EE environment, we would check that the success handler job was created
-    // For this test, we just verify the main job completed successfully
-    // The actual success handler triggering is in the EE apply_completed_job_handlers code
+    let main_job_id = completed_job.id;
+
+    // Wait a short time for the success handler job to be created
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Verify the success handler job was created
+    let success_handler_job = sqlx::query!(
+        r#"
+        SELECT
+            id,
+            runnable_path,
+            permissioned_as_email,
+            trigger,
+            parent_job,
+            root_job
+        FROM v2_job
+        WHERE workspace_id = 'test-workspace'
+            AND permissioned_as_email = 'success_handler@windmill.dev'
+            AND trigger LIKE 'success.handler.%'
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    assert!(
+        success_handler_job.is_some(),
+        "Success handler job should have been created"
+    );
+
+    let handler_job = success_handler_job.unwrap();
+
+    // Verify the success handler job has correct parameters
+    assert_eq!(
+        handler_job.runnable_path.as_deref(),
+        Some("f/test/success_handler"),
+        "Success handler should run the configured script"
+    );
+    assert_eq!(
+        handler_job.permissioned_as_email.as_str(),
+        "success_handler@windmill.dev",
+        "Success handler should run as success_handler user"
+    );
+    assert_eq!(
+        handler_job.parent_job,
+        Some(main_job_id),
+        "Success handler should have main job as parent"
+    );
+    assert_eq!(
+        handler_job.root_job,
+        Some(main_job_id),
+        "Success handler should have main job as root"
+    );
+    assert!(
+        handler_job.trigger.as_ref().map_or(false, |t| t.starts_with("success.handler.")),
+        "Success handler trigger should start with 'success.handler.'"
+    );
 
     Ok(())
 }
