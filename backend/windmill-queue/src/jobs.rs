@@ -138,10 +138,13 @@ const MAX_FREE_CONCURRENT_RUNS: i32 = 30;
 const ERROR_HANDLER_USERNAME: &str = "error_handler";
 const SCHEDULE_ERROR_HANDLER_USERNAME: &str = "schedule_error_handler";
 const GLOBAL_ERROR_HANDLER_USERNAME: &str = "global";
+const SUCCESS_HANDLER_USERNAME: &str = "success_handler";
 
 pub const ERROR_HANDLER_USER_GROUP: &str = "g/error_handler";
 pub const ERROR_HANDLER_USER_EMAIL: &str = "error_handler@windmill.dev";
 pub const SCHEDULE_ERROR_HANDLER_USER_EMAIL: &str = "schedule_error_handler@windmill.dev";
+pub const SUCCESS_HANDLER_USER_GROUP: &str = "g/success_handler";
+pub const SUCCESS_HANDLER_USER_EMAIL: &str = "success_handler@windmill.dev";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CanceledBy {
@@ -775,6 +778,10 @@ lazy_static::lazy_static! {
     // Cache for workspace error handler settings with 60s TTL
     // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
     static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
+
+    // Cache for workspace success handler settings with 60s TTL
+    // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
+    static ref WORKSPACE_SUCCESS_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, i64)> = Cache::new(1000);
 }
 
 pub async fn add_completed_job<T: Serialize + Send + Sync + ValidableJson>(
@@ -1707,6 +1714,103 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     Ok(())
 }
 
+pub async fn send_success_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>(
+    queued_job: &MiniCompletedJob,
+    db: &Pool<Postgres>,
+    result: Json<&'a T>,
+) -> Result<(), Error> {
+    let w_id = &queued_job.workspace_id;
+
+    // Try to get from cache first, checking if entry is still valid (within 60s TTL)
+    let now = chrono::Utc::now().timestamp();
+    let (success_handler, success_handler_extra_args) =
+        if let Some(cached) = WORKSPACE_SUCCESS_HANDLER_CACHE.get(w_id) {
+            if cached.2 > now {
+                // Cache hit and not expired
+                (cached.0.clone(), cached.1.clone())
+            } else {
+                // Cache expired, fetch from database
+                let row_result =
+                    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
+                        r#"
+                        SELECT
+                            success_handler,
+                            success_handler_extra_args
+                        FROM
+                            workspace_settings
+                        WHERE
+                            workspace_id = $1
+                    "#,
+                    )
+                    .bind(&w_id)
+                    .fetch_optional(db)
+                    .await
+                    .context("fetching success handler info from workspace_settings")?
+                    .ok_or_else(|| {
+                        Error::internal_err(format!("no workspace settings for id {w_id}"))
+                    })?;
+
+                // Update cache with 60s TTL
+                let expiry = now + 60;
+                WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
+                    w_id.clone(),
+                    (row_result.0.clone(), row_result.1.clone(), expiry),
+                );
+                row_result
+            }
+        } else {
+            // Cache miss, fetch from database
+            let row_result =
+                sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
+                    r#"
+                    SELECT
+                        success_handler,
+                        success_handler_extra_args
+                    FROM
+                        workspace_settings
+                    WHERE
+                        workspace_id = $1
+                "#,
+                )
+                .bind(&w_id)
+                .fetch_optional(db)
+                .await
+                .context("fetching success handler info from workspace_settings")?
+                .ok_or_else(|| {
+                    Error::internal_err(format!("no workspace settings for id {w_id}"))
+                })?;
+
+            // Store in cache with 60s TTL
+            let expiry = now + 60;
+            WORKSPACE_SUCCESS_HANDLER_CACHE.insert(
+                w_id.clone(),
+                (row_result.0.clone(), row_result.1.clone(), expiry),
+            );
+            row_result
+        };
+
+    if let Some(success_handler) = success_handler {
+        tracing::info!("workspace success handler for job {}", &queued_job.id);
+
+        push_success_handler(
+            db,
+            queued_job.id,
+            queued_job.schedule_path(),
+            queued_job.runnable_path.clone(),
+            queued_job.is_flow(),
+            &queued_job.workspace_id,
+            &success_handler,
+            result,
+            queued_job.started_at,
+            success_handler_extra_args,
+            &queued_job.permissioned_as_email,
+            None,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 pub async fn handle_maybe_scheduled_job<'c>(
     db: &Pool<Postgres>,
     job: &MiniCompletedJob,
@@ -1941,6 +2045,91 @@ pub async fn push_error_handler<'a, 'c, T: Serialize + Send + Sync>(
         email,
         permissioned_as,
         Some(&format!("error.handler.{job_id}")),
+        None,
+        None,
+        Some(job_id),
+        None,
+        Some(job_id),
+        None,
+        false,
+        false,
+        None,
+        true,
+        tag,
+        None,
+        None,
+        priority,
+        None,
+        false,
+        None,
+        None,
+        None,
+    )
+    .await?;
+    tx.commit().await?;
+    return Ok(uuid);
+}
+
+pub async fn push_success_handler<'a, 'c, T: Serialize + Send + Sync>(
+    db: &Pool<Postgres>,
+    job_id: Uuid,
+    schedule_path: Option<String>,
+    script_path: Option<String>,
+    is_flow: bool,
+    w_id: &str,
+    on_success_path: &str,
+    result: Json<&'a T>,
+    started_at: Option<DateTime<Utc>>,
+    extra_args: Option<Json<Box<RawValue>>>,
+    email: &str,
+    priority: Option<i16>,
+) -> windmill_common::error::Result<Uuid> {
+    let (payload, tag, on_behalf_of) =
+        get_payload_tag_from_prefixed_path(on_success_path, db, w_id).await?;
+
+    let mut extra = HashMap::new();
+    if let Some(schedule_path) = schedule_path {
+        extra.insert("schedule_path".to_string(), to_raw_value(&schedule_path));
+    }
+    extra.insert("workspace_id".to_string(), to_raw_value(&w_id));
+    extra.insert("job_id".to_string(), to_raw_value(&job_id));
+    extra.insert("path".to_string(), to_raw_value(&script_path));
+    extra.insert("is_flow".to_string(), to_raw_value(&is_flow));
+    extra.insert("started_at".to_string(), to_raw_value(&started_at));
+    extra.insert("email".to_string(), to_raw_value(&email));
+
+    if let Some(args_v) = extra_args {
+        if let Ok(args_m) = serde_json::from_str::<HashMap<String, Box<RawValue>>>(args_v.get()) {
+            extra.extend(args_m);
+        } else {
+            return Err(error::Error::ExecutionErr(
+                "args of scripts needs to be dict".to_string(),
+            ));
+        }
+    }
+
+    let result = sanitize_result(result);
+
+    let (email, permissioned_as) = if let Some(on_behalf_of) = on_behalf_of.as_ref() {
+        (
+            on_behalf_of.email.as_str(),
+            on_behalf_of.permissioned_as.clone(),
+        )
+    } else {
+        (SUCCESS_HANDLER_USER_EMAIL, SUCCESS_HANDLER_USER_GROUP.to_string())
+    };
+
+    let tx = PushIsolationLevel::IsolatedRoot(db.clone());
+    let (uuid, tx) = push(
+        &db,
+        tx,
+        w_id,
+        payload,
+        PushArgs { extra: Some(extra), args: &result },
+        SUCCESS_HANDLER_USERNAME,
+        email,
+        permissioned_as,
+        Some(&format!("success.handler.{job_id}")),
         None,
         None,
         Some(job_id),
