@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.610.1](https://github.com/windmill-labs/windmill/compare/v1.610.0...v1.610.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* resolve BlobPart type incompatibility between Deno and Node.js ([2eac74c](https://github.com/windmill-labs/windmill/commit/2eac74cef4aa5a987fb16110388f99e912951db8))
+* use type cast instead of slice() for BlobPart compatibility ([ff77154](https://github.com/windmill-labs/windmill/commit/ff771546380ef26dfa443f9d459853048bc8029c))
+
 ## [1.610.0](https://github.com/windmill-labs/windmill/compare/v1.609.0...v1.610.0) (2026-01-17)
 
 
