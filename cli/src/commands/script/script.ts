@@ -314,8 +314,8 @@ export async function handleFile(
             continue;
           }
           log.info(`Adding file: ${file.path.substring(1)}`);
-          // .slice() creates new ArrayBuffer, needed for cross-platform compatibility
-          const fil = new File([file.contents.slice()], file.path.substring(1));
+          // deno-lint-ignore no-explicit-any
+          const fil = new File([file.contents as any], file.path.substring(1));
           tarball.append(fil);
         }
         const endTime = performance.now();
@@ -542,8 +542,8 @@ async function streamToBlob(stream: ReadableStream<Uint8Array>): Promise<Blob> {
     chunks.push(value);
   }
 
-  // Create a Blob from the chunks (.map with slice for cross-platform compatibility)
-  const blob = new Blob(chunks.map(c => c.slice()));
+  // deno-lint-ignore no-explicit-any
+  const blob = new Blob(chunks as any);
   return blob;
 }
 
