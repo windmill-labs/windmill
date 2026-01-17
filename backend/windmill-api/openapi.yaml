@@ -1411,6 +1411,69 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/test_secret_backend:
+    post:
+      summary: test secret backend connection (HashiCorp Vault)
+      operationId: testSecretBackend
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings to test
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_vault:
+    post:
+      summary: migrate secrets from database to HashiCorp Vault
+      operationId: migrateSecretsToVault
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration target
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_to_database:
+    post:
+      summary: migrate secrets from HashiCorp Vault to database
+      operationId: migrateSecretsToDatabase
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration source
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -16564,6 +16627,47 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    VaultSettings:
+      type: object
+      required:
+        - address
+        - mount_path
+        - jwt_role
+      properties:
+        address:
+          type: string
+          description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
+        mount_path:
+          type: string
+          description: KV v2 secrets engine mount path (e.g., windmill)
+        jwt_role:
+          type: string
+          description: Vault JWT auth role name for Windmill
+        namespace:
+          type: string
+          description: Vault Enterprise namespace (optional)
+
+    SecretMigrationReport:
+      type: object
+      required:
+        - total_secrets
+        - migrated
+        - errors
+      properties:
+        total_secrets:
+          type: integer
+          format: int64
+          description: Total number of secrets found
+        migrated:
+          type: integer
+          format: int64
+          description: Number of secrets successfully migrated
+        errors:
+          type: array
+          items:
+            type: string
+          description: List of errors encountered during migration
 
     FlowConversation:
       type: object
