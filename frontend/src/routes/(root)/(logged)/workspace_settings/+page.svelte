@@ -1174,7 +1174,7 @@
 				<hr class="border-t" />
 				<Section
 					label="Workspace Success Handler"
-					description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group."
+					description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
 					class="space-y-6"
 				>
 					{#if !$enterpriseLicense}
