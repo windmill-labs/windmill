@@ -1411,6 +1411,83 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /.well-known/jwks.json:
+    get:
+      summary: get JWKS for Vault JWT authentication
+      operationId: getJwks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JwksResponse"
+
+  /settings/test_secret_backend:
+    post:
+      summary: test secret backend connection (HashiCorp Vault)
+      operationId: testSecretBackend
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings to test
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_vault:
+    post:
+      summary: migrate secrets from database to HashiCorp Vault
+      operationId: migrateSecretsToVault
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration target
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_to_database:
+    post:
+      summary: migrate secrets from HashiCorp Vault to database
+      operationId: migrateSecretsToDatabase
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration source
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -16596,6 +16673,83 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    VaultSettings:
+      type: object
+      required:
+        - address
+        - mount_path
+      properties:
+        address:
+          type: string
+          description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
+        mount_path:
+          type: string
+          description: KV v2 secrets engine mount path (e.g., windmill)
+        jwt_role:
+          type: string
+          description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
+        namespace:
+          type: string
+          description: Vault Enterprise namespace (optional)
+        token:
+          type: string
+          description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+
+    SecretMigrationFailure:
+      type: object
+      required:
+        - workspace_id
+        - path
+        - error
+      properties:
+        workspace_id:
+          type: string
+          description: Workspace ID where the secret is located
+        path:
+          type: string
+          description: Path of the secret that failed to migrate
+        error:
+          type: string
+          description: Error message
+
+    SecretMigrationReport:
+      type: object
+      required:
+        - total_secrets
+        - migrated_count
+        - failed_count
+        - failures
+      properties:
+        total_secrets:
+          type: integer
+          format: int64
+          description: Total number of secrets found
+        migrated_count:
+          type: integer
+          format: int64
+          description: Number of secrets successfully migrated
+        failed_count:
+          type: integer
+          format: int64
+          description: Number of secrets that failed to migrate
+        failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretMigrationFailure"
+          description: Details of any failures encountered during migration
+
+    JwksResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Array of JSON Web Keys for JWT verification
 
     FlowConversation:
       type: object
