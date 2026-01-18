@@ -16679,7 +16679,6 @@ components:
       required:
         - address
         - mount_path
-        - jwt_role
       properties:
         address:
           type: string
@@ -16689,31 +16688,56 @@ components:
           description: KV v2 secrets engine mount path (e.g., windmill)
         jwt_role:
           type: string
-          description: Vault JWT auth role name for Windmill
+          description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
         namespace:
           type: string
           description: Vault Enterprise namespace (optional)
+        token:
+          type: string
+          description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+
+    SecretMigrationFailure:
+      type: object
+      required:
+        - workspace_id
+        - path
+        - error
+      properties:
+        workspace_id:
+          type: string
+          description: Workspace ID where the secret is located
+        path:
+          type: string
+          description: Path of the secret that failed to migrate
+        error:
+          type: string
+          description: Error message
 
     SecretMigrationReport:
       type: object
       required:
         - total_secrets
-        - migrated
-        - errors
+        - migrated_count
+        - failed_count
+        - failures
       properties:
         total_secrets:
           type: integer
           format: int64
           description: Total number of secrets found
-        migrated:
+        migrated_count:
           type: integer
           format: int64
           description: Number of secrets successfully migrated
-        errors:
+        failed_count:
+          type: integer
+          format: int64
+          description: Number of secrets that failed to migrate
+        failures:
           type: array
           items:
-            type: string
-          description: List of errors encountered during migration
+            $ref: "#/components/schemas/SecretMigrationFailure"
+          description: Details of any failures encountered during migration
 
     JwksResponse:
       type: object

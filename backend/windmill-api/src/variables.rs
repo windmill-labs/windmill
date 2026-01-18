@@ -510,6 +510,15 @@ async fn delete_variables_bulk(
         check_scopes(&authed, || format!("variables:write:{}", path))?;
     }
 
+    // Query which paths are secrets before deletion (for Vault cleanup)
+    let secret_paths: Vec<String> = sqlx::query_scalar!(
+        "SELECT path FROM variable WHERE path = ANY($1) AND workspace_id = $2 AND is_secret = true",
+        &request.paths,
+        &w_id
+    )
+    .fetch_all(&db)
+    .await?;
+
     let mut tx = user_db.begin(&authed).await?;
 
     let deleted_paths = sqlx::query_scalar!(
@@ -539,6 +548,13 @@ async fn delete_variables_bulk(
     .await?;
 
     tx.commit().await?;
+
+    // Delete secrets from Vault backend (if configured)
+    for path in &secret_paths {
+        if deleted_paths.contains(path) {
+            delete_secret_from_backend(&db, &w_id, path).await?;
+        }
+    }
 
     try_join_all(deleted_paths.iter().map(|path| {
         handle_deployment_metadata(
