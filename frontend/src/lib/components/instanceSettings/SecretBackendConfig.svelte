@@ -4,12 +4,13 @@
 	import { SettingService } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import TextInput from '../text_input/TextInput.svelte'
-	import { Database, Lock, Server, ArrowRightLeft, ArrowLeft, ArrowRight } from 'lucide-svelte'
+	import { Database, Lock, Server, ArrowLeft, ArrowRight } from 'lucide-svelte'
 	import type { Writable } from 'svelte/store'
 	import { enterpriseLicense } from '$lib/stores'
 	import ToggleButtonGroup from '../common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
+	import EEOnly from '../EEOnly.svelte'
 
 	interface Props {
 		values: Writable<Record<string, any>>
@@ -35,10 +36,18 @@
 	let migrateToVaultModalOpen = $state(false)
 	let migrateToDatabaseModalOpen = $state(false)
 
-	function setBackendType(type: 'Database' | 'HashiCorpVault') {
+	// Check if Vault option should be disabled (non-EE)
+	let vaultDisabled = $derived(!$enterpriseLicense)
+
+	function setBackendType(type: string | undefined) {
+		if (!type) return
+		// Prevent selecting Vault in non-EE
+		if (type === 'HashiCorpVault' && vaultDisabled) {
+			return
+		}
 		if (type === 'Database') {
 			$values['secret_backend'] = { type: 'Database' }
-		} else {
+		} else if (type === 'HashiCorpVault') {
 			$values['secret_backend'] = {
 				type: 'HashiCorpVault',
 				address: $values['secret_backend']?.address ?? '',
@@ -155,11 +164,7 @@
 		<label class="block text-xs font-semibold text-emphasis">Backend Type</label>
 		<ToggleButtonGroup
 			selected={selectedType}
-			onSelectedChange={(v) => {
-				if (v === 'Database' || v === 'HashiCorpVault') {
-					setBackendType(v)
-				}
-			}}
+			onSelected={(v) => setBackendType(v)}
 		>
 			{#snippet children({ item: toggleButton })}
 				<ToggleButton
@@ -171,11 +176,19 @@
 				<ToggleButton
 					value="HashiCorpVault"
 					label="HashiCorp Vault"
-					tooltip="Store secrets in HashiCorp Vault"
+					tooltip={vaultDisabled
+						? 'HashiCorp Vault integration requires Enterprise Edition'
+						: 'Store secrets in HashiCorp Vault'}
 					item={toggleButton}
+					disabled={vaultDisabled}
 				/>
 			{/snippet}
 		</ToggleButtonGroup>
+		{#if vaultDisabled}
+			<div class="flex items-center gap-1">
+				<EEOnly>HashiCorp Vault integration requires Enterprise Edition</EEOnly>
+			</div>
+		{/if}
 	</div>
 
 	{#if selectedType === 'Database'}
@@ -188,7 +201,7 @@
 				</p>
 			</div>
 		</div>
-	{:else}
+	{:else if selectedType === 'HashiCorpVault'}
 		<!-- Vault Configuration -->
 		<div class="space-y-4 p-4 border rounded-lg">
 			<div class="flex items-center gap-2 mb-4">
