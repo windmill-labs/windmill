@@ -47,6 +47,7 @@ pub const JWT_SECRET_SETTING: &str = "jwt_secret";
 pub const EMAIL_DOMAIN_SETTING: &str = "email_domain";
 pub const OTEL_SETTING: &str = "otel";
 pub const APP_WORKSPACED_ROUTE_SETTING: &str = "app_workspaced_route";
+pub const SECRET_BACKEND_SETTING: &str = "secret_backend";
 
 pub const ENV_SETTINGS: &[&str] = &[
     "DISABLE_NSJAIL",

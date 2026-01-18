@@ -78,6 +78,7 @@ pub mod result_stream;
 pub mod runnable_settings;
 pub mod s3_helpers;
 pub mod schedule;
+pub mod secret_backend;
 pub mod schema;
 pub mod scripts;
 pub mod server;
