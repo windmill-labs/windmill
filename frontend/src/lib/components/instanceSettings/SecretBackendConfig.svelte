@@ -187,6 +187,9 @@
 		// Must have address and mount path, plus either token OR jwt_role (not both)
 		return hasAddress && hasMountPath && (hasToken || hasJwtRole)
 	}
+
+	// Get the base URL for JWKS endpoint instructions
+	let baseUrl = $derived(typeof window !== 'undefined' ? window.location.origin : 'https://your-windmill-instance.com')
 </script>
 
 <div class="space-y-6">
@@ -320,13 +323,12 @@
 						<Password bind:password={$values['secret_backend'].token} small {disabled} />
 					</div>
 				{:else}
-					<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+					<div class="flex flex-col gap-2 p-3 bg-surface-secondary rounded-lg">
 						<label for="vault_jwt_role" class="block text-xs font-semibold text-emphasis"
 							>JWT Auth Role</label
 						>
 						<span class="text-2xs text-secondary"
-							>The JWT authentication role configured in Vault. Windmill will authenticate using
-							signed JWTs validated against the JWKS endpoint at <code class="text-2xs">/api/oidc/jwks</code>.</span
+							>The JWT authentication role configured in Vault.</span
 						>
 						<TextInput
 							inputProps={{
@@ -337,6 +339,46 @@
 							}}
 							bind:value={$values['secret_backend'].jwt_role}
 						/>
+
+						<!-- Vault JWT Setup Instructions -->
+						<details class="mt-2">
+							<summary class="text-xs font-medium text-secondary cursor-pointer hover:text-primary"
+								>Vault JWT Setup Instructions</summary
+							>
+							<div class="mt-2 p-2 bg-surface rounded text-2xs text-secondary space-y-2">
+								<p>Configure Vault to accept JWTs from Windmill:</p>
+								<div class="bg-gray-100 dark:bg-gray-800 p-2 rounded font-mono text-2xs overflow-x-auto">
+									<pre># Enable JWT auth method
+vault auth enable jwt
+
+# Configure JWT auth with Windmill's JWKS endpoint
+vault write auth/jwt/config \
+  jwks_url="{baseUrl}/.well-known/jwks.json" \
+  bound_issuer="{baseUrl}"
+
+# Create a policy for Windmill secrets
+vault policy write windmill-secrets - &lt;&lt;EOF
+path "windmill/data/*" &#123;
+  capabilities = ["create", "read", "update", "delete"]
+&#125;
+path "windmill/metadata/*" &#123;
+  capabilities = ["list", "delete"]
+&#125;
+EOF
+
+# Create the JWT role
+vault write auth/jwt/role/windmill-secrets \
+  role_type="jwt" \
+  bound_audiences="{baseUrl}" \
+  user_claim="email" \
+  policies="windmill-secrets" \
+  ttl="1h"</pre>
+								</div>
+								<p class="text-yellow-600 dark:text-yellow-400">
+									Replace <code>windmill-secrets</code> with your role name if different.
+								</p>
+							</div>
+						</details>
 					</div>
 				{/if}
 
