@@ -30,6 +30,16 @@
 		$values['secret_backend']?.type ?? 'Database'
 	)
 
+	// Derive auth method from current config
+	// We check jwt_role === null because setAuthMethod explicitly sets jwt_role to null for token mode
+	// and sets token to null for jwt mode. This allows empty token values while still tracking the selection.
+	let authMethod: 'token' | 'jwt' = $derived.by(() => {
+		const config = $values['secret_backend']
+		if (!config || config.type !== 'HashiCorpVault') return 'jwt'
+		// If jwt_role is explicitly null, we're in token mode; otherwise jwt mode
+		return config.jwt_role === null ? 'token' : 'jwt'
+	})
+
 	let testingConnection = $state(false)
 	let migratingToVault = $state(false)
 	let migratingToDatabase = $state(false)
@@ -55,6 +65,26 @@
 				jwt_role: $values['secret_backend']?.jwt_role ?? 'windmill-secrets',
 				namespace: $values['secret_backend']?.namespace ?? null,
 				token: $values['secret_backend']?.token ?? null
+			}
+		}
+	}
+
+	function setAuthMethod(method: string | undefined) {
+		if (!method || !$values['secret_backend'] || $values['secret_backend'].type !== 'HashiCorpVault') return
+
+		if (method === 'token') {
+			// Clear JWT role when switching to token auth
+			$values['secret_backend'] = {
+				...$values['secret_backend'],
+				jwt_role: null,
+				token: $values['secret_backend'].token ?? ''
+			}
+		} else if (method === 'jwt') {
+			// Clear token when switching to JWT auth
+			$values['secret_backend'] = {
+				...$values['secret_backend'],
+				token: null,
+				jwt_role: $values['secret_backend'].jwt_role ?? 'windmill-secrets'
 			}
 		}
 	}
@@ -149,12 +179,13 @@
 		if (!$values['secret_backend'] || $values['secret_backend'].type !== 'HashiCorpVault') {
 			return false
 		}
-		return (
-			$values['secret_backend'].address?.trim() !== '' &&
-			$values['secret_backend'].mount_path?.trim() !== '' &&
-			($values['secret_backend'].token?.trim() !== '' ||
-				$values['secret_backend'].jwt_role?.trim() !== '')
-		)
+		const hasAddress = $values['secret_backend'].address?.trim() !== ''
+		const hasMountPath = $values['secret_backend'].mount_path?.trim() !== ''
+		const hasToken = $values['secret_backend'].token?.trim()
+		const hasJwtRole = $values['secret_backend'].jwt_role?.trim()
+
+		// Must have address and mount path, plus either token OR jwt_role (not both)
+		return hasAddress && hasMountPath && (hasToken || hasJwtRole)
 	}
 </script>
 
@@ -175,10 +206,10 @@
 				/>
 				<ToggleButton
 					value="HashiCorpVault"
-					label="HashiCorp Vault"
+					label="HashiCorp Vault (Beta)"
 					tooltip={vaultDisabled
 						? 'HashiCorp Vault integration requires Enterprise Edition'
-						: 'Store secrets in HashiCorp Vault'}
+						: 'Store secrets in HashiCorp Vault (Beta feature)'}
 					item={toggleButton}
 					disabled={vaultDisabled}
 				/>
@@ -207,7 +238,13 @@
 			<div class="flex items-center gap-2 mb-4">
 				<Lock class="text-primary" size={20} />
 				<div>
-					<p class="text-sm font-medium text-emphasis">HashiCorp Vault Configuration</p>
+					<p class="text-sm font-medium text-emphasis">
+						HashiCorp Vault Configuration
+						<span
+							class="ml-2 px-1.5 py-0.5 text-2xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 rounded"
+							>Beta</span
+						>
+					</p>
 					<p class="text-xs text-secondary">
 						Store secrets in an external HashiCorp Vault instance.
 					</p>
@@ -246,33 +283,62 @@
 					/>
 				</div>
 
-				<div class="flex flex-col gap-1">
-					<label for="vault_token" class="block text-xs font-semibold text-emphasis"
-						>Vault Token</label
+				<!-- Authentication Method Toggle -->
+				<div class="flex flex-col gap-2">
+					<label class="block text-xs font-semibold text-emphasis">Authentication Method</label>
+					<ToggleButtonGroup
+						selected={authMethod}
+						onSelected={(v) => setAuthMethod(v)}
 					>
-					<span class="text-2xs text-secondary"
-						>Static token for authentication (for testing/development)</span
-					>
-					<Password bind:password={$values['secret_backend'].token} small {disabled} />
+						{#snippet children({ item: toggleButton })}
+							<ToggleButton
+								value="jwt"
+								label="JWT Auth"
+								tooltip="Authenticate using Windmill-signed JWTs (recommended for production)"
+								item={toggleButton}
+								{disabled}
+							/>
+							<ToggleButton
+								value="token"
+								label="Static Token"
+								tooltip="Use a static Vault token (for testing/development)"
+								item={toggleButton}
+								{disabled}
+							/>
+						{/snippet}
+					</ToggleButtonGroup>
 				</div>
 
-				<div class="flex flex-col gap-1">
-					<label for="vault_jwt_role" class="block text-xs font-semibold text-emphasis"
-						>JWT Auth Role (EE)</label
-					>
-					<span class="text-2xs text-secondary"
-						>The JWT authentication role configured in Vault (requires EE)</span
-					>
-					<TextInput
-						inputProps={{
-							type: 'text',
-							id: 'vault_jwt_role',
-							placeholder: 'windmill-secrets',
-							disabled: disabled
-						}}
-						bind:value={$values['secret_backend'].jwt_role}
-					/>
-				</div>
+				{#if authMethod === 'token'}
+					<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+						<label for="vault_token" class="block text-xs font-semibold text-emphasis"
+							>Vault Token</label
+						>
+						<span class="text-2xs text-secondary"
+							>Static token for authentication. Recommended only for testing/development.</span
+						>
+						<Password bind:password={$values['secret_backend'].token} small {disabled} />
+					</div>
+				{:else}
+					<div class="flex flex-col gap-1 p-3 bg-surface-secondary rounded-lg">
+						<label for="vault_jwt_role" class="block text-xs font-semibold text-emphasis"
+							>JWT Auth Role</label
+						>
+						<span class="text-2xs text-secondary"
+							>The JWT authentication role configured in Vault. Windmill will authenticate using
+							signed JWTs validated against the JWKS endpoint at <code class="text-2xs">/api/oidc/jwks</code>.</span
+						>
+						<TextInput
+							inputProps={{
+								type: 'text',
+								id: 'vault_jwt_role',
+								placeholder: 'windmill-secrets',
+								disabled: disabled
+							}}
+							bind:value={$values['secret_backend'].jwt_role}
+						/>
+					</div>
+				{/if}
 
 				<div class="flex flex-col gap-1">
 					<label for="vault_namespace" class="block text-xs font-semibold text-emphasis"

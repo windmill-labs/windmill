@@ -9,7 +9,8 @@
 use crate::{
     db::{ApiAuthed, DB},
     secret_backend_ext::{
-        delete_secret_from_backend, get_secret_value, rename_vault_secret, store_secret_value,
+        delete_secret_from_backend, get_secret_value, is_vault_stored_value, rename_vault_secret,
+        store_secret_value,
     },
     users::{maybe_refresh_folders, require_owner_of_path},
     utils::{check_scopes, BulkDeleteRequest},
@@ -602,7 +603,9 @@ async fn update_variable(
         sqlb.set_str("path", npath);
     }
     let ns_value_is_none = ns.value.is_none();
-    if let Some(nvalue) = ns.value {
+    // Determine the target path for storing secrets (use new path if provided)
+    let target_path = ns.path.as_deref().unwrap_or(path);
+    if let Some(nvalue) = ns.value.clone() {
         let is_secret = if ns.is_secret.is_some() {
             ns.is_secret.unwrap()
         } else {
@@ -618,7 +621,8 @@ async fn update_variable(
 
         let value = if is_secret && !already_encrypted.unwrap_or(false) {
             // Use secret backend for encryption (supports both DB and Vault)
-            store_secret_value(&db, &w_id, &path, &nvalue).await?
+            // Store at target_path (new path if renaming, otherwise current path)
+            store_secret_value(&db, &w_id, target_path, &nvalue).await?
         } else {
             nvalue
         };
@@ -682,13 +686,19 @@ async fn update_variable(
             .await?;
 
             if let Some(var) = current_var {
-                if var.is_secret {
-                    // Check if this is a Vault-stored secret and rename it
-                    if let Some(new_value) =
-                        rename_vault_secret(&db, &w_id, path, &npath, &var.value).await?
-                    {
-                        // Update the variable's value to point to the new Vault path
-                        sqlb.set_str("value", &new_value);
+                if var.is_secret && is_vault_stored_value(&var.value) {
+                    if ns.value.is_some() {
+                        // New value was provided and already stored at new path
+                        // Just delete the old secret from Vault
+                        delete_secret_from_backend(&db, &w_id, path).await?;
+                    } else {
+                        // No new value - rename the secret in Vault
+                        if let Some(new_value) =
+                            rename_vault_secret(&db, &w_id, path, &npath, &var.value).await?
+                        {
+                            // Update the variable's value to point to the new Vault path
+                            sqlb.set_str("value", &new_value);
+                        }
                     }
                 }
             }

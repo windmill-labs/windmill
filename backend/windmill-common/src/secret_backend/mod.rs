@@ -96,7 +96,9 @@ pub struct VaultSettings {
     /// KV v2 mount path (e.g., "windmill")
     pub mount_path: String,
     /// JWT auth role name configured in Vault (used for JWT/OIDC auth)
-    pub jwt_role: String,
+    /// Optional - if not provided, token auth is used
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub jwt_role: Option<String>,
     /// Vault Enterprise namespace (optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub namespace: Option<String>,
