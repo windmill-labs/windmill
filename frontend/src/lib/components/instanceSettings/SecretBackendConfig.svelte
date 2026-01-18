@@ -188,8 +188,8 @@
 		return hasAddress && hasMountPath && (hasToken || hasJwtRole)
 	}
 
-	// Get the base URL for JWKS endpoint instructions
-	let baseUrl = $derived(typeof window !== 'undefined' ? window.location.origin : 'https://your-windmill-instance.com')
+	// Get the base URL for JWKS endpoint instructions (from instance settings)
+	let baseUrl = $derived($values['base_url'] ?? 'https://your-windmill-instance.com')
 </script>
 
 <div class="space-y-6">
