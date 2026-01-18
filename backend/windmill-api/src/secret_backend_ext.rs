@@ -72,7 +72,7 @@ pub async fn get_secret_backend(db: &DB) -> Result<Arc<dyn SecretBackend>> {
 /// Get a cached Vault backend or create a new one if settings changed
 #[cfg(all(feature = "private", feature = "enterprise"))]
 async fn get_or_create_vault_backend(
-    db: &DB,
+    _db: &DB,
     settings: VaultSettings,
 ) -> Result<Arc<dyn SecretBackend>> {
     // Check if we have a cached backend with matching settings (read lock)
@@ -99,7 +99,7 @@ async fn get_or_create_vault_backend(
     let backend: Arc<dyn SecretBackend> = {
         #[cfg(feature = "openidconnect")]
         if settings.token.is_none() {
-            Arc::new(VaultBackend::new_with_db(settings.clone(), db.clone()))
+            Arc::new(VaultBackend::new_with_db(settings.clone(), _db.clone()))
         } else {
             Arc::new(VaultBackend::new(settings.clone()))
         }
