@@ -142,3 +142,148 @@ pub async fn delete_secret_from_backend(
 pub fn is_vault_stored_value(value: &str) -> bool {
     value.starts_with("$vault:")
 }
+
+/// Rename a secret in Vault when a variable path changes
+///
+/// This function:
+/// 1. Reads the secret value from the old path
+/// 2. Writes it to the new path
+/// 3. Deletes from the old path
+/// 4. Returns the new marker value ($vault:new_path)
+///
+/// If the value is not a Vault-stored value, returns None (no action needed).
+/// If Vault is not configured, returns None.
+pub async fn rename_vault_secret(
+    db: &DB,
+    workspace_id: &str,
+    old_path: &str,
+    new_path: &str,
+    current_value: &str,
+) -> Result<Option<String>> {
+    // Only handle Vault-stored values
+    if !is_vault_stored_value(current_value) {
+        return Ok(None);
+    }
+
+    // Check if Vault backend is configured
+    if !is_vault_backend_configured(db).await? {
+        // Vault not configured but value has $vault: prefix - this is an inconsistent state
+        // Log warning and return new marker to at least update the DB reference
+        tracing::warn!(
+            "Variable value has $vault: prefix but Vault is not configured. \
+             Updating DB reference from {} to {}",
+            old_path,
+            new_path
+        );
+        return Ok(Some(format!("$vault:{}", new_path)));
+    }
+
+    let backend = get_secret_backend(db).await?;
+
+    // Read from old path
+    let secret_value = match backend.get_secret(workspace_id, old_path).await {
+        Ok(value) => value,
+        Err(Error::NotFound(_)) => {
+            // Secret doesn't exist in Vault - just update the DB reference
+            tracing::warn!(
+                "Secret not found in Vault at path {} during rename to {}",
+                old_path,
+                new_path
+            );
+            return Ok(Some(format!("$vault:{}", new_path)));
+        }
+        Err(e) => return Err(e),
+    };
+
+    // Write to new path
+    backend
+        .set_secret(workspace_id, new_path, &secret_value)
+        .await?;
+
+    // Delete from old path (ignore errors - new path is already written)
+    if let Err(e) = backend.delete_secret(workspace_id, old_path).await {
+        tracing::warn!(
+            "Failed to delete old secret at {} after rename to {}: {}",
+            old_path,
+            new_path,
+            e
+        );
+    }
+
+    Ok(Some(format!("$vault:{}", new_path)))
+}
+
+/// Bulk rename secrets in Vault when a path prefix changes (e.g., user rename)
+///
+/// This is used when renaming users where many secrets need their paths updated.
+/// Returns a list of (old_path, new_value) pairs for updating the database.
+pub async fn rename_vault_secrets_with_prefix(
+    db: &DB,
+    workspace_id: &str,
+    old_prefix: &str,
+    new_prefix: &str,
+    variables: Vec<(String, String)>, // (path, value) pairs
+) -> Result<Vec<(String, String)>> {
+    // Only process if Vault is configured
+    if !is_vault_backend_configured(db).await? {
+        return Ok(vec![]);
+    }
+
+    let backend = get_secret_backend(db).await?;
+    let mut updates = Vec::new();
+
+    for (old_path, value) in variables {
+        // Only handle Vault-stored values
+        if !is_vault_stored_value(&value) {
+            continue;
+        }
+
+        // Calculate new path by replacing prefix
+        let new_path = if old_path.starts_with(old_prefix) {
+            format!("{}{}", new_prefix, &old_path[old_prefix.len()..])
+        } else {
+            continue; // Path doesn't match prefix, skip
+        };
+
+        // Read from old path
+        let secret_value = match backend.get_secret(workspace_id, &old_path).await {
+            Ok(v) => v,
+            Err(Error::NotFound(_)) => {
+                // Just update DB reference
+                updates.push((old_path, format!("$vault:{}", new_path)));
+                continue;
+            }
+            Err(e) => {
+                tracing::error!(
+                    "Failed to read secret at {} during bulk rename: {}",
+                    old_path,
+                    e
+                );
+                continue;
+            }
+        };
+
+        // Write to new path
+        if let Err(e) = backend.set_secret(workspace_id, &new_path, &secret_value).await {
+            tracing::error!(
+                "Failed to write secret to {} during bulk rename: {}",
+                new_path,
+                e
+            );
+            continue;
+        }
+
+        // Delete from old path
+        if let Err(e) = backend.delete_secret(workspace_id, &old_path).await {
+            tracing::warn!(
+                "Failed to delete old secret at {} after rename: {}",
+                old_path,
+                e
+            );
+        }
+
+        updates.push((old_path, format!("$vault:{}", new_path)));
+    }
+
+    Ok(updates)
+}

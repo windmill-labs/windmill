@@ -8,7 +8,9 @@
 
 use crate::{
     db::{ApiAuthed, DB},
-    secret_backend_ext::{delete_secret_from_backend, get_secret_value, store_secret_value},
+    secret_backend_ext::{
+        delete_secret_from_backend, get_secret_value, rename_vault_secret, store_secret_value,
+    },
     users::{maybe_refresh_folders, require_owner_of_path},
     utils::{check_scopes, BulkDeleteRequest},
     webhook_util::{WebhookMessage, WebhookShared},
@@ -665,10 +667,31 @@ async fn update_variable(
 
     let mut tx: Transaction<'_, Postgres> = user_db.begin(&authed).await?;
 
-    if let Some(npath) = ns.path {
+    if let Some(npath) = ns.path.clone() {
         if npath != path {
             check_path_conflict(&db, &w_id, &npath).await?;
             require_owner_of_path(&authed, path)?;
+
+            // Handle Vault secret rename if the variable is a secret stored in Vault
+            let current_var = sqlx::query!(
+                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                path,
+                w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if let Some(var) = current_var {
+                if var.is_secret {
+                    // Check if this is a Vault-stored secret and rename it
+                    if let Some(new_value) =
+                        rename_vault_secret(&db, &w_id, path, &npath, &var.value).await?
+                    {
+                        // Update the variable's value to point to the new Vault path
+                        sqlb.set_str("value", &new_value);
+                    }
+                }
+            }
 
             let mut v = sqlx::query_scalar!(
                 "SELECT value FROM resource  WHERE path = $1 AND workspace_id = $2",
