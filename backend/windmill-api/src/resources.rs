@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::{ApiAuthed, DB},
+    secret_backend_ext::rename_vault_secret,
     users::{maybe_refresh_folders, require_owner_of_path, Tokened},
     utils::{check_scopes, require_super_admin, BulkDeleteRequest},
     var_resource_cache::{cache_resource, get_cached_resource},
@@ -947,11 +948,39 @@ async fn update_resource(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    if let Some(npath) = ns.path {
+    if let Some(npath) = ns.path.clone() {
         if npath != path {
             check_path_conflict(&mut tx, &w_id, &npath).await?;
 
             require_owner_of_path(&authed, path)?;
+
+            // Handle Vault secret rename if the linked variable is a Vault-stored secret
+            let linked_var = sqlx::query!(
+                "SELECT value, is_secret FROM variable WHERE path = $1 AND workspace_id = $2",
+                path,
+                w_id
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+
+            if let Some(var) = linked_var {
+                if var.is_secret {
+                    // Check if this is a Vault-stored secret and rename it
+                    if let Some(new_value) =
+                        rename_vault_secret(&db, &w_id, path, &npath, &var.value).await?
+                    {
+                        // Update the variable's value to point to the new Vault path
+                        sqlx::query!(
+                            "UPDATE variable SET value = $1 WHERE path = $2 AND workspace_id = $3",
+                            new_value,
+                            path,
+                            w_id
+                        )
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                }
+            }
 
             sqlx::query!(
                 "UPDATE variable SET path = $1 WHERE path = $2 AND workspace_id = $3",
