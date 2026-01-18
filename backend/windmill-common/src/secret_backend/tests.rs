@@ -25,7 +25,7 @@ mod tests {
         VaultSettings {
             address: "http://127.0.0.1:8200".to_string(),
             mount_path: "windmill".to_string(),
-            jwt_role: "windmill-secrets".to_string(),
+            jwt_role: Some("windmill-secrets".to_string()),
             namespace: None,
             token: Some("test-root-token".to_string()),
         }
