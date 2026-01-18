@@ -372,28 +372,31 @@
 	title="Migrate Secrets to Vault"
 	confirmationText="Migrate"
 	open={migrateToVaultModalOpen}
-	type="info"
-	on:canceled={() => {
+	loading={migratingToVault}
+	type="reload"
+	onCanceled={() => {
 		migrateToVaultModalOpen = false
 	}}
-	on:confirmed={migrateSecretsToVault}
+	onConfirmed={migrateSecretsToVault}
 >
-	<div class="flex flex-col gap-2">
-		<p>
-			This will migrate all existing secrets from the database to HashiCorp Vault. The process
-			will:
-		</p>
-		<ol class="list-decimal list-inside text-sm space-y-1">
-			<li>Read all encrypted secrets from the database</li>
-			<li>Decrypt them using the workspace encryption keys</li>
-			<li>Store them in HashiCorp Vault under the configured mount path</li>
-		</ol>
-		<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
-			Note: Database values are NOT deleted automatically. You can manually clear them after
-			verifying the migration was successful.
-		</p>
-		<p>Are you sure you want to proceed?</p>
-	</div>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all existing secrets from the database to HashiCorp Vault. The process
+				will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>Read all encrypted secrets from the database</li>
+				<li>Decrypt them using the workspace encryption keys</li>
+				<li>Store them in HashiCorp Vault under the configured mount path</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: Database values are NOT deleted automatically. You can manually clear them after
+				verifying the migration was successful.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
 </ConfirmationModal>
 
 <!-- Migrate to Database Modal -->
@@ -401,25 +404,28 @@
 	title="Migrate Secrets to Database"
 	confirmationText="Migrate"
 	open={migrateToDatabaseModalOpen}
-	type="info"
-	on:canceled={() => {
+	loading={migratingToDatabase}
+	type="reload"
+	onCanceled={() => {
 		migrateToDatabaseModalOpen = false
 	}}
-	on:confirmed={migrateSecretsToDatabase}
+	onConfirmed={migrateSecretsToDatabase}
 >
-	<div class="flex flex-col gap-2">
-		<p>
-			This will migrate all secrets from HashiCorp Vault back to the database. The process will:
-		</p>
-		<ol class="list-decimal list-inside text-sm space-y-1">
-			<li>List all secrets in Vault for each workspace</li>
-			<li>Read each secret value from Vault</li>
-			<li>Encrypt and store them in the database</li>
-		</ol>
-		<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
-			Note: Vault values are NOT deleted automatically. Only secrets that already exist in the
-			database will be updated.
-		</p>
-		<p>Are you sure you want to proceed?</p>
-	</div>
+	{#snippet children()}
+		<div class="flex flex-col gap-2">
+			<p>
+				This will migrate all secrets from HashiCorp Vault back to the database. The process will:
+			</p>
+			<ol class="list-decimal list-inside text-sm space-y-1">
+				<li>List all secrets in Vault for each workspace</li>
+				<li>Read each secret value from Vault</li>
+				<li>Encrypt and store them in the database</li>
+			</ol>
+			<p class="text-yellow-600 dark:text-yellow-400 text-sm mt-2">
+				Note: Vault values are NOT deleted automatically. Only secrets that already exist in the
+				database will be updated.
+			</p>
+			<p>Are you sure you want to proceed?</p>
+		</div>
+	{/snippet}
 </ConfirmationModal>
