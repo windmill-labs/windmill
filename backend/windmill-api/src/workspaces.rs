@@ -127,6 +127,7 @@ pub fn workspaced_service() -> Router {
         .route("/edit_copilot_config", post(edit_copilot_config))
         .route("/get_copilot_info", get(get_copilot_info))
         .route("/edit_error_handler", post(edit_error_handler))
+        .route("/edit_success_handler", post(edit_success_handler))
         .route(
             "/edit_large_file_storage_config",
             post(edit_large_file_storage_config),
@@ -444,6 +445,12 @@ pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
+}
+
+#[derive(Deserialize)]
+pub struct EditSuccessHandler {
+    pub success_handler: Option<String>,
+    pub success_handler_extra_args: Option<serde_json::Value>,
 }
 
 lazy_static::lazy_static! {
@@ -2255,6 +2262,88 @@ async fn edit_error_handler(
     .await?;
 
     Ok(format!("Edit error_handler for workspace {}", &w_id))
+}
+
+async fn edit_success_handler(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    Json(es): Json<EditSuccessHandler>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let mut tx = db.begin().await?;
+
+    sqlx::query_as!(
+        Group,
+        "INSERT INTO group_ (workspace_id, name, summary, extra_perms) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING",
+        w_id,
+        "success_handler",
+        "The group the success handler acts on behalf of",
+        serde_json::json!({username_to_permissioned_as(&authed.username): true})
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    if let Some(success_handler) = &es.success_handler {
+        sqlx::query!(
+            r#"
+            UPDATE
+                workspace_settings
+            SET
+                success_handler = $1,
+                success_handler_extra_args = $2
+            WHERE
+                workspace_id = $3
+            "#,
+            success_handler,
+            es.success_handler_extra_args,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query!(
+            r#"
+            UPDATE
+                workspace_settings
+            SET
+                success_handler = NULL,
+                success_handler_extra_args = NULL
+            WHERE
+                workspace_id = $1
+        "#,
+            &w_id
+        )
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    audit_log(
+        &mut *tx,
+        &authed,
+        "workspaces.edit_success_handler",
+        ActionKind::Update,
+        &w_id,
+        Some(&authed.email),
+        Some([("success_handler", &format!("{:?}", es.success_handler)[..])].into()),
+    )
+    .await?;
+    tx.commit().await?;
+
+    // Trigger git sync for success handler changes
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        windmill_git_sync::DeployedObject::Settings { setting_type: "success_handler".to_string() },
+        Some("Success handler configuration updated".to_string()),
+        false,
+    )
+    .await?;
+
+    Ok(format!("Edit success_handler for workspace {}", &w_id))
 }
 
 #[derive(Deserialize)]
