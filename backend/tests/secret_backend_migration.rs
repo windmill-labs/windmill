@@ -21,6 +21,7 @@
 //! ```
 
 use sqlx::{Pool, Postgres};
+use windmill_common::error::Result;
 use windmill_common::secret_backend::{
     vault_oss::{migrate_secrets_to_database, migrate_secrets_to_vault, test_vault_connection, VaultBackend},
     SecretBackend, VaultSettings,
@@ -32,7 +33,7 @@ fn test_vault_settings() -> VaultSettings {
     VaultSettings {
         address: std::env::var("VAULT_ADDR").unwrap_or_else(|_| "http://127.0.0.1:8200".to_string()),
         mount_path: "windmill".to_string(),
-        jwt_role: "windmill-secrets".to_string(),
+        jwt_role: Some("windmill-secrets".to_string()),
         namespace: None,
         token: Some(
             std::env::var("VAULT_TOKEN").unwrap_or_else(|_| "test-root-token".to_string()),
@@ -44,10 +45,9 @@ fn test_vault_settings() -> VaultSettings {
 #[sqlx::test(fixtures("base", "secret_backend"))]
 #[ignore = "requires running Vault instance"]
 async fn test_vault_connection_works(db: Pool<Postgres>) {
-    let _ = db; // Ensure DB is available
     let settings = test_vault_settings();
 
-    let result = test_vault_connection(&settings).await;
+    let result = test_vault_connection(&settings, Some(&db)).await;
     assert!(result.is_ok(), "Failed to connect to Vault: {:?}", result.err());
     println!("✓ Successfully connected to Vault at {}", settings.address);
 }
@@ -59,7 +59,7 @@ async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
     let settings = test_vault_settings();
 
     // First verify we can connect to Vault
-    test_vault_connection(&settings)
+    test_vault_connection(&settings, Some(&db))
         .await
         .expect("Failed to connect to Vault");
 
@@ -85,7 +85,6 @@ async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
     println!("Migration report:");
     println!("  Total secrets: {}", report.total_secrets);
     println!("  Migrated: {}", report.migrated_count);
-    println!("  Skipped: {}", report.skipped_count);
     println!("  Failed: {}", report.failed_count);
 
     if !report.failures.is_empty() {
@@ -100,11 +99,10 @@ async fn test_migrate_db_to_vault(db: Pool<Postgres>) {
 
     // Verify secrets are in Vault
     println!("\nVerifying secrets in Vault...");
-    let vault_backend = VaultBackend::new(settings.clone())
-        .expect("Failed to create Vault backend");
+    let vault_backend = VaultBackend::new(settings.clone());
 
     for secret in &secrets_before {
-        let result = vault_backend
+        let result: Result<String> = vault_backend
             .get_secret(&secret.workspace_id, &secret.path)
             .await;
         assert!(
@@ -127,7 +125,7 @@ async fn test_migrate_vault_to_db(db: Pool<Postgres>) {
     let settings = test_vault_settings();
 
     // First verify we can connect to Vault
-    test_vault_connection(&settings)
+    test_vault_connection(&settings, Some(&db))
         .await
         .expect("Failed to connect to Vault");
 
@@ -164,7 +162,6 @@ async fn test_migrate_vault_to_db(db: Pool<Postgres>) {
     println!("Migration report:");
     println!("  Total secrets: {}", report.total_secrets);
     println!("  Migrated: {}", report.migrated_count);
-    println!("  Skipped: {}", report.skipped_count);
     println!("  Failed: {}", report.failed_count);
 
     if !report.failures.is_empty() {
@@ -205,7 +202,7 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
     let settings = test_vault_settings();
 
     // Verify Vault connection
-    test_vault_connection(&settings)
+    test_vault_connection(&settings, Some(&db))
         .await
         .expect("Failed to connect to Vault");
 
@@ -258,7 +255,7 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
     .collect();
 
     // Compare original and restored
-    for ((ws, path), original_value) in &original_secrets {
+    for ((ws, path), _original_value) in &original_secrets {
         let restored_value = restored_secrets
             .get(&(ws.clone(), path.clone()))
             .expect(&format!("Secret {}/{} not found after round-trip", ws, path));
@@ -284,7 +281,7 @@ async fn test_full_round_trip_migration(db: Pool<Postgres>) {
 async fn test_workspace_isolation(db: Pool<Postgres>) {
     let settings = test_vault_settings();
 
-    test_vault_connection(&settings)
+    test_vault_connection(&settings, Some(&db))
         .await
         .expect("Failed to connect to Vault");
 
@@ -296,11 +293,10 @@ async fn test_workspace_isolation(db: Pool<Postgres>) {
     println!("Migrated {} secrets across workspaces", report.migrated_count);
 
     // Verify workspace isolation in Vault
-    let vault_backend = VaultBackend::new(settings.clone())
-        .expect("Failed to create Vault backend");
+    let vault_backend = VaultBackend::new(settings.clone());
 
     // Try to access test-workspace-2 secret from test-workspace path (should fail)
-    let cross_workspace_result = vault_backend
+    let cross_workspace_result: Result<String> = vault_backend
         .get_secret("test-workspace", "u/test-user/other_secret")
         .await;
 
@@ -311,13 +307,13 @@ async fn test_workspace_isolation(db: Pool<Postgres>) {
     println!("✓ Cross-workspace access correctly denied");
 
     // Verify each workspace's secrets are accessible from their own workspace
-    let ws1_result = vault_backend
+    let ws1_result: Result<String> = vault_backend
         .get_secret("test-workspace", "u/test-user/db_password")
         .await;
     assert!(ws1_result.is_ok(), "test-workspace secret should be accessible");
     println!("✓ test-workspace secrets accessible");
 
-    let ws2_result = vault_backend
+    let ws2_result: Result<String> = vault_backend
         .get_secret("test-workspace-2", "u/test-user/other_secret")
         .await;
     assert!(ws2_result.is_ok(), "test-workspace-2 secret should be accessible");
