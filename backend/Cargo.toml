@@ -456,3 +456,4 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
+prost = "0.13.5"
