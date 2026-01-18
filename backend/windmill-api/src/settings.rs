@@ -40,9 +40,10 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, EMAIL_DOMAIN_SETTING, ENV_SETTINGS,
         HUB_ACCESSIBLE_URL_SETTING, HUB_BASE_URL_SETTING,
     },
-    secret_backend::{SecretMigrationReport, VaultSettings},
     server::Smtp,
 };
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
 use windmill_common::{error::to_anyhow, PgDatabase};
 
 pub fn global_service() -> Router {
@@ -86,6 +87,8 @@ pub fn global_service() -> Router {
             post(acknowledge_all_critical_alerts),
         );
 
+    // Vault integration routes (EE only - requires both private and enterprise features)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
     let r = r
         .route("/test_secret_backend", post(test_secret_backend))
         .route("/migrate_secrets_to_vault", post(migrate_secrets_to_vault))
@@ -809,13 +812,16 @@ async fn setup_custom_instance_pg_database_inner(
 }
 
 // ============================================================================
-// Secret Backend Settings (HashiCorp Vault Integration)
+// Secret Backend Settings (HashiCorp Vault Integration) - Enterprise Edition
 // ============================================================================
 
 /// Test connection to a secret backend (HashiCorp Vault)
 ///
 /// This endpoint validates that the Vault settings are correct and that
 /// Windmill can successfully authenticate and communicate with Vault.
+///
+/// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 pub async fn test_secret_backend(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -823,7 +829,7 @@ pub async fn test_secret_backend(
 ) -> Result<String> {
     require_super_admin(&db, &authed.email).await?;
 
-    windmill_common::secret_backend::test_vault_connection(&settings).await?;
+    windmill_common::secret_backend::test_vault_connection(&settings, Some(&db)).await?;
 
     Ok("Successfully connected to HashiCorp Vault".to_string())
 }
@@ -835,6 +841,7 @@ pub async fn test_secret_backend(
 /// automatically to allow for rollback if needed.
 ///
 /// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 pub async fn migrate_secrets_to_vault(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
@@ -854,6 +861,7 @@ pub async fn migrate_secrets_to_vault(
 /// values are NOT deleted automatically to allow for rollback if needed.
 ///
 /// This is an Enterprise Edition feature.
+#[cfg(all(feature = "private", feature = "enterprise"))]
 pub async fn migrate_secrets_to_database(
     Extension(db): Extension<DB>,
     authed: ApiAuthed,
