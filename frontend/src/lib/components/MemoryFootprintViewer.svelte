@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { type MetricDataPoint, MetricsService } from '$lib/gen'
 	import { displayTime } from '$lib/utils'
-	import { enterpriseLicense, workspaceStore } from '$lib/stores'
+	import { workspaceStore } from '$lib/stores'
 	import {
 		CategoryScale,
 		Chart as ChartJS,
@@ -70,11 +70,7 @@
 </script>
 
 <div class="relative max-h-100">
-	{#if !$enterpriseLicense}
-		<Alert type="warning" title="Enterprise Edition only feature">
-			Job metrics are only available on Windmill Enterprise Edition.
-		</Alert>
-	{:else if (jobMemoryStats?.length ?? 0) === 0}
+	{#if (jobMemoryStats?.length ?? 0) === 0}
 		<Alert type="info" title="No metric available"
 			>No data points available for this job. Metrics are recorded only for jobs running for more
 			than 500ms.</Alert
