@@ -8,14 +8,21 @@
 
 	const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
-	let customPrompts = $state<Record<string, string>>(getUserCustomPrompts())
+	let initialPrompts = getUserCustomPrompts()
+	let customPrompts = $state<Record<string, string>>({ ...initialPrompts })
 
 	function save() {
 		storeLocalSetting(USER_CUSTOM_PROMPTS_KEY, JSON.stringify(customPrompts))
+		initialPrompts = { ...customPrompts }
 		sendUserToast('User AI prompts saved')
 	}
 
 	let hasPrompts = $derived(Object.values(customPrompts).some((p) => p?.trim().length > 0))
+
+	let hasChanges = $derived(
+		Object.keys(customPrompts).length !== Object.keys(initialPrompts).length ||
+			Object.keys(customPrompts).some((key) => customPrompts[key] !== initialPrompts[key])
+	)
 </script>
 
 <div class="mt-4">
@@ -28,8 +35,8 @@
 				bind:customPrompts
 				description="These prompts are stored locally in your browser and apply in addition to the workspace-level prompts."
 			/>
-			<div class="flex flex-row justify-end mt-2">
-				<Button onclick={save}>Save</Button>
+			<div class="flex flex-row justify-end mt-2 gap-2">
+				<Button onclick={save} disabled={!hasChanges} variant="accent">Save custom prompts</Button>
 			</div>
 		</div>
 	</Section>
