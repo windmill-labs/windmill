@@ -374,7 +374,6 @@ fn convert_mcp_tools_to_windmill_tools(
     mcp_tools
         .iter()
         .map(|mcp_tool| {
-            // Sanitize resource name and tool name to only contain valid characters
             let sanitized_resource_name = sanitize_tool_name_part(resource_name);
             let tool_name = format!("mcp_{}_{}", sanitized_resource_name, mcp_tool.name);
 
