@@ -190,7 +190,7 @@ impl McpClient {
         args_str: &str,
     ) -> Result<Option<serde_json::Map<String, serde_json::Value>>> {
         if args_str.trim().is_empty() {
-            return Ok(None);
+            return Ok(Some(serde_json::Map::new()));
         }
 
         let args_value: serde_json::Value =
@@ -198,7 +198,7 @@ impl McpClient {
 
         match args_value {
             serde_json::Value::Object(map) => Ok(Some(map)),
-            serde_json::Value::Null => Ok(None),
+            serde_json::Value::Null => Ok(Some(serde_json::Map::new())),
             _ => Ok(Some(
                 vec![("value".to_string(), args_value)]
                     .into_iter()
