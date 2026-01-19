@@ -351,6 +351,19 @@ pub async fn cleanup_mcp_clients(mcp_clients: HashMap<String, Arc<McpClient>>) {
     }
 }
 
+#[cfg(feature = "mcp")]
+fn sanitize_tool_name_part(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 /// Convert raw MCP tools to Windmill Tool format with source tracking
 #[cfg(feature = "mcp")]
 fn convert_mcp_tools_to_windmill_tools(
@@ -361,7 +374,8 @@ fn convert_mcp_tools_to_windmill_tools(
     mcp_tools
         .iter()
         .map(|mcp_tool| {
-            let tool_name = format!("mcp_{}_{}", resource_name, mcp_tool.name);
+            let sanitized_resource_name = sanitize_tool_name_part(resource_name);
+            let tool_name = format!("mcp_{}_{}", sanitized_resource_name, mcp_tool.name);
 
             let mut schema_value = serde_json::to_value(&*mcp_tool.input_schema)
                 .context("Failed to convert MCP schema to JSON value")?;
