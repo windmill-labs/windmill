@@ -120,10 +120,7 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
-		if (
-			toPath &&
-			(toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))
-		) {
+		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
 			const currentPath = navigation.from?.url.pathname
 			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
 			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
