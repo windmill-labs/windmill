@@ -67,14 +67,15 @@
 
 			{#each Object.values(AIMode) as mode}
 				<div class="flex flex-col gap-2 pb-4 last:border-b-0">
-					<Label label={modeLabels[mode]}>
+					<Label label={modeLabels[mode]} for={`custom-prompt-${mode}`}>
 						<TextInput
 							bind:value={customPrompts[mode]}
 							underlyingInputEl="textarea"
 							inputProps={{
 								placeholder: placeholders[mode],
 								rows: 3,
-								maxlength: MAX_CUSTOM_PROMPT_LENGTH
+								maxlength: MAX_CUSTOM_PROMPT_LENGTH,
+								id: `custom-prompt-${mode}`
 							}}
 							class="min-h-12 resize-y"
 							size="sm"

@@ -17,6 +17,8 @@
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
+	import { Save } from 'lucide-svelte'
+	import { Section } from '../common'
 
 	let {
 		aiProviders = $bindable(),
@@ -146,31 +148,29 @@
 
 <div class="flex flex-col gap-4 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-emphasis text-sm font-semibold"> Windmill AI</div>
+		<div class="text-emphasis text-sm font-semibold flex flex-row gap-2 justify-between">
+			Windmill AI <Button
+				variant="accent"
+				unifiedSize="md"
+				wrapperClasses="self-start"
+				disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+					(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+					(Object.keys(aiProviders).length > 0 && !defaultModel)}
+				on:click={editCopilotConfig}
+				startIcon={{ icon: Save }}
+			>
+				Save AI settings
+			</Button></div
+		>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 			Windmill AI integrates with your favorite AI providers and models.
 		</Description>
 	</div>
 </div>
 
-<div class="flex flex-row-reverse gap-2 pb-4">
-	<Button
-		variant="accent"
-		size="xl"
-		wrapperClasses="self-start"
-		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)}
-		on:click={editCopilotConfig}
-	>
-		Save
-	</Button>
-</div>
-
 <div class="flex flex-col gap-8">
 	<div class="flex flex-col gap-2">
-		<p class="font-semibold text-xs text-emphasis">AI Providers</p>
-		<div class="flex flex-col gap-4">
+		<Section label="AI Providers" class="flex flex-col gap-4">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
 				<div class="flex flex-col gap-2">
 					<div class="flex flex-row gap-2">
@@ -230,28 +230,30 @@
 					</div>
 
 					{#if aiProviders[provider]}
-						<div class="mb-4 flex flex-col gap-2">
-							<div class="flex flex-row gap-1">
-								<ResourcePicker
-									selectFirst
-									resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
-										? 'openai_client_credentials_oauth'
-										: provider}
-									initialValue={aiProviders[provider].resource_path}
-									bind:value={
-										() => aiProviders[provider].resource_path || undefined,
-										(v) => {
-											aiProviders[provider].resource_path = v ?? ''
-											onAiProviderChange(provider as AIProvider)
+						<div class="mb-4 flex flex-col gap-6 border p-4 rounded-md">
+							<Label label="Resource">
+								<div class="flex flex-row gap-1">
+									<ResourcePicker
+										selectFirst
+										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
+											? 'openai_client_credentials_oauth'
+											: provider}
+										initialValue={aiProviders[provider].resource_path}
+										bind:value={
+											() => aiProviders[provider].resource_path || undefined,
+											(v) => {
+												aiProviders[provider].resource_path = v ?? ''
+												onAiProviderChange(provider as AIProvider)
+											}
 										}
-									}
-								/>
-								<TestAiKey
-									aiProvider={provider as AIProvider}
-									resourcePath={aiProviders[provider].resource_path}
-									model={aiProviders[provider].models[0]}
-								/>
-							</div>
+									/>
+									<TestAiKey
+										aiProvider={provider as AIProvider}
+										resourcePath={aiProviders[provider].resource_path}
+										model={aiProviders[provider].models[0]}
+									/>
+								</div>
+							</Label>
 
 							<Label label="Enabled models">
 								<MultiSelect
@@ -264,15 +266,15 @@
 									onCreateItem={(item) =>
 										(aiProviders[provider].models = [...aiProviders[provider].models, item])}
 								/>
+								<p class="text-2xs text-hint">
+									If you don't see the model you want, you can type it manually in the selector.
+								</p>
 							</Label>
-							<p class="text-xs">
-								If you don't see the model you want, you can type it manually in the selector.
-							</p>
 						</div>
 					{/if}
 				</div>
 			{/each}
-		</div>
+		</Section>
 	</div>
 
 	{#if Object.keys(aiProviders).length > 0}

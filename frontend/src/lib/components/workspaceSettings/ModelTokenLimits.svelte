@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { AIConfig, AIProvider } from '$lib/gen'
+	import { Badge, Button } from '../common'
 	import { getModelMaxTokens } from '../copilot/lib'
 	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
@@ -99,7 +100,7 @@
 {#if Object.keys(aiProviders).length > 0}
 	<div class="flex flex-col gap-4">
 		<div class="flex flex-col gap-1">
-			<p class="font-semibold">Model Output Limits</p>
+			<p class="font-semibold text-xs text-emphasis">Model Output Limits</p>
 			<p class="text-xs text-secondary">
 				Configure maximum token limits for each model. These limits apply to all AI chat
 				interactions in the workspace.
@@ -110,20 +111,16 @@
 			{#each Object.entries(modelsByProvider).filter(([provider, models]) => models.length > 0) as [provider, models]}
 				{@const isExpanded = !collapsedProviders[provider]}
 				{@const hasCustom = hasCustomSettings(provider, models)}
-				<div class="border border-gray-200 dark:border-gray-700 rounded-md">
+				<div class="border rounded-md bg-surface-tertiary">
 					<button
 						type="button"
 						onclick={() => toggleProvider(provider)}
-						class="w-full px-4 py-3 flex items-center justify-between bg-surface-secondary hover:bg-surface-hover transition-colors rounded-md"
+						class="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover transition-colors rounded-t-md"
 					>
 						<div class="flex items-center gap-2">
-							<h4 class="font-medium text-sm capitalize">{provider}</h4>
+							<h4 class="font-medium text-xs capitalize">{provider}</h4>
 							{#if hasCustom}
-								<span
-									class="text-xs px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 rounded"
-								>
-									Modified
-								</span>
+								<Badge color="blue">Modified</Badge>
 							{/if}
 						</div>
 						{#if isExpanded}
@@ -134,7 +131,7 @@
 					</button>
 
 					{#if isExpanded}
-						<div transition:slide|local={{ duration: 200 }} class="p-3">
+						<div transition:slide|local={{ duration: 200 }} class="p-4 border-t">
 							<div class="space-y-3">
 								{#each models as { model }}
 									{@const currentTokens = getCurrentTokensForModel(provider as AIProvider, model)}
@@ -143,7 +140,7 @@
 									<div class="flex flex-col gap-1">
 										<div class="flex items-center gap-3">
 											<div class="flex-1 min-w-0">
-												<span class="text-sm text-primary truncate block">{model}</span>
+												<span class="text-xs text-primary truncate block">{model}</span>
 											</div>
 											<div class="flex items-center gap-2">
 												<input
@@ -165,14 +162,13 @@
 										{#if !isAtDefault}
 											<div class="text-xs text-primary flex flex-row items-center gap-1">
 												<span>Default: {defaultTokens} tokens</span>
-												<button
-													type="button"
+												<Button
+													variant="default"
+													unifiedSize="xs"
 													onclick={() => resetModelToDefault(provider as AIProvider, model)}
-													class="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 whitespace-nowrap"
-													title="Reset to default ({defaultTokens})"
 												>
 													Reset
-												</button>
+												</Button>
 											</div>
 											{#if errors[getModelKey(provider as AIProvider, model)]}
 												<div class="text-xs text-red-500"
