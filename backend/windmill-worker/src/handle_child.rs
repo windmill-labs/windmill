@@ -730,27 +730,27 @@ where
 
                 let update_job_row = i == 2 || (!*SLOW_LOGS && (i < 20 || (i < 120 && i % 5 == 0) || i % 10 == 0)) || i % 20 == 0;
                 if update_job_row && job_id != Uuid::nil() {
-                    if let Connection::Sql(ref db) = conn {
-                        // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
-                        if i == 2 {
-                                    memory_metric_id = job_metrics::register_metric_for_job(
-                                &db,
-                                w_id.to_string(),
-                                job_id,
-                                "memory_kb".to_string(),
-                                job_metrics::MetricKind::TimeseriesInt,
-                                Some("Job Memory Footprint (kB)".to_string()),
-                            )
-                            .await;
-                        }
-                        if let Ok(ref metric_id) = memory_metric_id {
-                            if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
-                                tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                    if job_id != Uuid::nil() {
+                        if let Connection::Sql(ref db) = conn {
+                            // tracking metric starting at i >= 2 b/c first point it useless and we don't want to track metric for super fast jobs
+                            if i == 2 {
+                                        memory_metric_id = job_metrics::register_metric_for_job(
+                                    &db,
+                                    w_id.to_string(),
+                                    job_id,
+                                    "memory_kb".to_string(),
+                                    job_metrics::MetricKind::TimeseriesInt,
+                                    Some("Job Memory Footprint (kB)".to_string()),
+                                )
+                                .await;
+                            }
+                            if let Ok(ref metric_id) = memory_metric_id {
+                                if let Err(err) = job_metrics::record_metric(&db, w_id.to_string(), job_id, metric_id.to_owned(), job_metrics::MetricNumericValue::Integer(current_mem)).await {
+                                    tracing::error!("Unable to save memory stat for job {} in workspace {}. Error was: {:?}", job_id, w_id, err);
+                                }
                             }
                         }
                     }
-                }
-                if job_id != Uuid::nil() {
                     if matches!(conn, Connection::Http(_)) {
                         if i % 4 != 0 {
                             // only ping every 4th time (2s) on http agent mode
@@ -776,7 +776,6 @@ where
                         break
                     }
                 }
-            }
             },
         );
     }
