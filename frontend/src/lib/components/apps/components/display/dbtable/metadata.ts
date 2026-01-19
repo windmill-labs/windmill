@@ -382,7 +382,7 @@ async function fetchSnowflakePrimaryKeys(
 		requestBody: {
 			language: 'snowflake',
 			args: dbArg,
-			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS'
+			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS IN ACCOUNT'
 		}
 	})) as SnowflakeShowPrimaryKeysResult[]
 }
