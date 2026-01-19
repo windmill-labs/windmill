@@ -45,7 +45,19 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				return testResult.result.map(lowercaseKeys)
+				const result = testResult.result.map(lowercaseKeys)
+
+				// For Snowflake, fetch primary keys separately
+				if (
+					input.type === 'database' &&
+					(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+				) {
+					const map: Record<string, TableMetadata> = { [table]: result }
+					await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
+					return map[table]
+				}
+
+				return result
 			} else {
 				attempts++
 			}
@@ -79,7 +91,7 @@ export async function loadAllTablesMetaData(
 			map[tableKey].push(col)
 		}
 
-		fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
 
 		return map
 	} catch (e) {
@@ -336,14 +348,23 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 	workspace: string,
 	tableKey?: string
 ) {
-	if (input.type == 'database' && input.resourceType === 'snowflake') {
+	if (
+		input.type == 'database' &&
+		(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+	) {
 		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
 		for (const pk of pkResult) {
-			const tableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
-			if (tableKey in map) {
-				for (const col of map[tableKey]) {
-					if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
-						col.isprimarykey = true
+			const pkTableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
+			// Also check the original casing and the provided tableKey
+			const keysToCheck = [pkTableKey, `${pk.schema_name}.${pk.table_name}`, tableKey].filter(
+				Boolean
+			) as string[]
+			for (const key of keysToCheck) {
+				if (key in map) {
+					for (const col of map[key]) {
+						if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
+							col.isprimarykey = true
+						}
 					}
 				}
 			}
