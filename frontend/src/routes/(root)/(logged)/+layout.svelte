@@ -411,13 +411,7 @@
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
 {#if $page.status == 404}
-	<CenteredModal title="Page not found, redirecting you to login">
-		<div class="w-full">
-			<div class="block m-auto w-20">
-				<WindmillIcon height="80px" width="80px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
@@ -735,11 +729,5 @@
 		</div>
 	</div>
 {:else}
-	<CenteredModal title="Loading user...">
-		<div class="w-full">
-			<div class="block m-auto w-16">
-				<WindmillIcon height="60px" width="60px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}
