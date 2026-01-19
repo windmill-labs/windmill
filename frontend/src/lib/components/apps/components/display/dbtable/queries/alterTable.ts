@@ -127,10 +127,18 @@ export function makeAlterTableQueries(
 				break
 
 			case 'addPrimaryKey':
-				const notEnforced = dbType === 'bigquery' ? ' NOT ENFORCED' : ''
-				queries.push(
-					`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')})${notEnforced};`
-				)
+				if (dbType === 'snowflake') {
+					// Snowflake requires CONSTRAINT syntax with explicit name
+					const constraintName = `${values.name}_pk`
+					queries.push(
+						`ALTER TABLE ${tableRef} ADD CONSTRAINT ${constraintName} PRIMARY KEY (${op.columns.join(', ')});`
+					)
+				} else {
+					const notEnforced = dbType === 'bigquery' ? ' NOT ENFORCED' : ''
+					queries.push(
+						`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')})${notEnforced};`
+					)
+				}
 				break
 
 			case 'dropPrimaryKey':
