@@ -50,7 +50,7 @@
 			<p class="text-xs text-secondary">
 				Customize AI behavior with system prompts. These are stored locally in your browser and
 				apply in addition to {#if $userStore?.is_admin || $userStore?.is_super_admin}<a
-						href="workspace_settings?tab=ai#"
+						href="/workspace_settings?tab=ai"
 						>workspace-level prompts <ExternalLink size={12} class="inline-block" /></a
 					>{:else}workspace-level prompts{/if}.
 			</p>

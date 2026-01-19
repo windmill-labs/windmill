@@ -181,7 +181,7 @@
 				disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
 					(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
 					(Object.keys(aiProviders).length > 0 && !defaultModel)}
-				on:click={editCopilotConfig}
+				onClick={editCopilotConfig}
 				startIcon={{ icon: Save }}
 			>
 				Save AI settings
