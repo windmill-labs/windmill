@@ -64,7 +64,9 @@ use crate::{
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
-    users::{get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    users::{
+        get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
+    },
     utils::{check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
@@ -3164,10 +3166,22 @@ pub async fn get_resume_urls_internal(
             "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
         ),
         cancel: build_resume_url(
-            "cancel", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
+            "cancel",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
         resume: build_resume_url(
-            "resume", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
+            "resume",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
     };
 
@@ -5108,7 +5122,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                     if success {
                         StatusCode::OK
                     } else {
-                        StatusCode::INTERNAL_SERVER_ERROR
+                        StatusCode::UNPROCESSABLE_ENTITY
                     },
                     Json(result),
                 )
@@ -5122,7 +5136,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 })
                 .unwrap_or_else(|| {
                     if !success {
-                        Ok(StatusCode::INTERNAL_SERVER_ERROR)
+                        Ok(StatusCode::UNPROCESSABLE_ENTITY)
                     } else if result_value.is_some() {
                         Ok(StatusCode::OK)
                     } else {
@@ -5172,7 +5186,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             if success {
                 StatusCode::OK
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                StatusCode::UNPROCESSABLE_ENTITY
             },
             Json(result),
         )
