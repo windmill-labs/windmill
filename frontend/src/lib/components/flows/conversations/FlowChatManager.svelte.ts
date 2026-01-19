@@ -322,14 +322,19 @@ export class FlowChatManager {
 			// Do a final poll to get all messages from database
 			try {
 				if (this.selectedConversationId) {
-					await this.pollConversationMessages(this.selectedConversationId)
+					await this.pollConversationMessages(this.selectedConversationId, {
+						removeTempMessages: true
+					})
 				}
 			} catch {}
 			this.cleanup()
 		}
 	}
 
-	private async pollConversationMessages(conversationId: string, isNewConversation?: boolean) {
+	private async pollConversationMessages(
+		conversationId: string,
+		options?: { isNewConversation?: boolean; removeTempMessages?: boolean }
+	) {
 		if (!get(workspaceStore)) return
 
 		try {
@@ -342,7 +347,7 @@ export class FlowChatManager {
 				afterId: lastId
 			})
 
-			if (isNewConversation) {
+			if (options?.isNewConversation) {
 				await this.refreshConversations()
 			}
 
@@ -355,8 +360,11 @@ export class FlowChatManager {
 				}
 			}
 
-			// Remove temporary messages
-			this.messages = this.messages.filter((msg) => !msg.id.startsWith('temp-'))
+			// Only remove temporary messages when explicitly requested (e.g., after job completion)
+			// During streaming, we keep temp messages to avoid them disappearing due to race conditions
+			if (options?.removeTempMessages) {
+				this.messages = this.messages.filter((msg) => !msg.id.startsWith('temp-'))
+			}
 		} catch (error) {
 			console.error('Polling error:', error)
 		}
@@ -365,7 +373,7 @@ export class FlowChatManager {
 	private startPolling(conversationId: string, isNewConversation?: boolean) {
 		if (this.pollingInterval) return
 		this.pollingInterval = setInterval(() => {
-			this.pollConversationMessages(conversationId, isNewConversation)
+			this.pollConversationMessages(conversationId, { isNewConversation })
 		}, 500) // Poll every 0.5 seconds
 		setTimeout(
 			() => {
@@ -491,7 +499,48 @@ export class FlowChatManager {
 			eventSource.onmessage = async (event) => {
 				try {
 					const data = JSON.parse(event.data)
-					if (data.type === 'update') {
+					const type = data.type
+
+					// Handle timeout - reconnect to SSE
+					if (type === 'timeout') {
+						eventSource.close()
+						this.currentEventSource = undefined
+						// Reconnect
+						this.handleStreamingMessage(
+							messageContent,
+							currentConversationId,
+							isNewConversation,
+							additionalInputs
+						)
+						return
+					}
+
+					// Handle ping - just ignore
+					if (type === 'ping') {
+						return
+					}
+
+					// Handle error
+					if (type === 'error') {
+						eventSource.close()
+						this.currentEventSource = undefined
+						console.error('SSE error:', data)
+						sendUserToast('Stream error: ' + (data.error || 'Unknown error'), true)
+						this.cleanup()
+						return
+					}
+
+					// Handle not found
+					if (type === 'not_found') {
+						eventSource.close()
+						this.currentEventSource = undefined
+						console.error('Job not found')
+						sendUserToast('Job not found', true)
+						this.cleanup()
+						return
+					}
+
+					if (type === 'update') {
 						if (data.flow_stream_job_id) {
 							this.currentJobId = data.flow_stream_job_id
 						}
@@ -567,7 +616,9 @@ export class FlowChatManager {
 							isCompleted = true
 							// Do a final poll to get all messages from database
 							if (this.selectedConversationId) {
-								await this.pollConversationMessages(this.selectedConversationId)
+								await this.pollConversationMessages(this.selectedConversationId, {
+									removeTempMessages: true
+								})
 							}
 							this.cleanup()
 						}
