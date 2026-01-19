@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.612.1](https://github.com/windmill-labs/windmill/compare/v1.612.0...v1.612.1) (2026-01-19)
+
+
+### Bug Fixes
+
+* fix runs page initialization ([1438b26](https://github.com/windmill-labs/windmill/commit/1438b263102ccf22612f98e59596c7e51083df71))
+* update git sync CLI to 1.612.0 ([8daeccc](https://github.com/windmill-labs/windmill/commit/8daeccc89fc0405143a2b553520f9a42272e3c26))
+
 ## [1.612.0](https://github.com/windmill-labs/windmill/compare/v1.611.0...v1.612.0) (2026-01-19)
 
 
