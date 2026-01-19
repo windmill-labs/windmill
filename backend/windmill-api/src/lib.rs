@@ -508,6 +508,7 @@ pub async fn run_server(
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
+                        .nest("/workers", workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {

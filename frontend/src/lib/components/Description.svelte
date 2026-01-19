@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ExternalLink } from 'lucide-svelte'
 	import { twMerge } from 'tailwind-merge'
 
 	export let link: string | undefined = undefined
@@ -7,6 +8,6 @@
 <div class={twMerge('text-xs text-primary font-normal', $$props.class)}>
 	<slot />
 	{#if link}
-		<a href={link} target="_blank">Learn more</a>
+		<a href={link} target="_blank">Learn more <ExternalLink size={12} class="inline-block" /></a>
 	{/if}
 </div>
