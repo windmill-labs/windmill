@@ -2359,7 +2359,7 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    upload_file_from_req(s3_client, &file_key, request, options).await?;
+    let _put_result = upload_file_from_req(s3_client, &file_key, request, options).await?;
 
     let delete_token = jwt::encode_with_internal_secret(S3DeleteTokenClaims {
         file_key: file_key.clone(),
