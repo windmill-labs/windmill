@@ -70,6 +70,8 @@ export class RawAppHistoryManager {
 	private branchIdCounter = $state(0)
 	// Track if current state has pending changes
 	private hasPendingChanges = $state(false)
+	// Temporary storage for current state when viewing history
+	private temporaryCurrentState = $state<HistoryEntry | undefined>(undefined)
 
 	// Derived state
 	public readonly hasEntries = $derived(this.entries.length > 0)
@@ -92,6 +94,9 @@ export class RawAppHistoryManager {
 	public readonly needsSnapshotBeforeNav = $derived(
 		this.currentIndex === -1 && this.currentBranchId === undefined && this.hasPendingChanges
 	)
+
+	// Whether we have a temporary current state saved
+	public readonly hasTemporaryState = $derived(this.temporaryCurrentState !== undefined)
 
 	public readonly canUndo = $derived(
 		this.currentIndex > 0 ||
@@ -178,19 +183,25 @@ export class RawAppHistoryManager {
 	 * When making changes from a historical position, create a branch from the "future"
 	 */
 	markPendingChanges(): void {
-		// If we're on a branch and making changes, that branch becomes main
-		if (this.currentBranchId !== undefined) {
-			this.promoteBranchToMain()
-		}
-		// If we're at a historical position on main timeline
-		else if (this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1) {
-			this.createBranchFromFuture()
-		}
+		// If we're viewing history (not at current state)
+		if (this.currentIndex !== -1 || this.currentBranchId !== undefined) {
+			// Convert temporary current state to a real snapshot first
+			this.convertTemporaryToSnapshot()
 
-		// Clear selection - we're now in a new unsaved state
-		this.currentIndex = -1
-		this.currentBranchId = undefined
-		this.currentBranchEntryIndex = -1
+			// If we're on a branch and making changes, that branch becomes main
+			if (this.currentBranchId !== undefined) {
+				this.promoteBranchToMain()
+			}
+			// If we're at a historical position on main timeline
+			else if (this.currentIndex !== -1 && this.currentIndex < this.entries.length - 1) {
+				this.createBranchFromFuture()
+			}
+
+			// Clear selection - we're now at current state
+			this.currentIndex = -1
+			this.currentBranchId = undefined
+			this.currentBranchEntryIndex = -1
+		}
 
 		this.hasPendingChanges = true
 	}
@@ -341,12 +352,44 @@ export class RawAppHistoryManager {
 	}
 
 	/**
-	 * Clear selection (go back to latest state)
+	 * Clear selection (go back to current state)
 	 */
 	clearSelection(): void {
 		this.currentIndex = -1
 		this.currentBranchId = undefined
 		this.currentBranchEntryIndex = -1
+		this.hasPendingChanges = false
+	}
+
+	/**
+	 * Save current state temporarily when viewing history
+	 */
+	saveTemporaryCurrentState(
+		files: Record<string, string>,
+		runnables: Record<string, Runnable>,
+		summary: string,
+		data: RawAppData
+	): void {
+		this.temporaryCurrentState = this.createSnapshot(files, runnables, summary, data)
+	}
+
+	/**
+	 * Get and clear temporary current state
+	 */
+	getAndClearTemporaryState(): HistoryEntry | undefined {
+		const temp = this.temporaryCurrentState
+		this.temporaryCurrentState = undefined
+		return temp
+	}
+
+	/**
+	 * Convert temporary current state to a real snapshot
+	 */
+	convertTemporaryToSnapshot(): void {
+		if (this.temporaryCurrentState) {
+			this.addSnapshot(this.temporaryCurrentState)
+			this.temporaryCurrentState = undefined
+		}
 	}
 
 	/**

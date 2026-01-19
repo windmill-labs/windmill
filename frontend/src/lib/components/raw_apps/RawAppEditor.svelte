@@ -733,9 +733,10 @@
 	}
 
 	function handleHistorySelect(id: number) {
-		// Create a snapshot if we have pending changes before navigating
-		if (historyManager.needsSnapshotBeforeNav) {
-			historyManager.manualSnapshot(files ?? {}, runnables, summary, data)
+		// Save current state temporarily (not as a snapshot) when navigating to history
+		// Only if we're currently at the "current" state (not already viewing history)
+		if (historyManager.selectedEntryId === undefined) {
+			historyManager.saveTemporaryCurrentState(files ?? {}, runnables, summary, data)
 		}
 
 		const entry = historyManager.selectEntry(id)
@@ -856,7 +857,12 @@
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
 				onHistorySelectCurrent={() => {
-					// Clear selection to go back to current working state
+					// Restore the temporary current state if it exists
+					const tempState = historyManager.getAndClearTemporaryState()
+					if (tempState) {
+						applyEntry(tempState)
+					}
+					// Clear selection to indicate we're at current state
 					historyManager.clearSelection()
 				}}
 				onManualSnapshot={() => {
