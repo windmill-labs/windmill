@@ -226,7 +226,7 @@ function renderDropDefaultValue(
 		case 'bigquery':
 			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} DROP DEFAULT;`
 		case 'ms_sql_server':
-			return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${defaultConstraintName};`
+			return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${renderDbQuotedIdentifier(defaultConstraintName ?? '', dbType)};`
 		default:
 			throw new Error(`Unsupported database type: ${dbType}`)
 	}
@@ -303,7 +303,7 @@ function renderDropForeignKey(
 ): string {
 	if (dbType === 'mysql')
 		return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${renderDbQuotedIdentifier(fk_constraint_name, dbType)};`
-	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${fk_constraint_name};`
+	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${renderDbQuotedIdentifier(fk_constraint_name, dbType)};`
 }
 
 function renderDropPrimaryKey(

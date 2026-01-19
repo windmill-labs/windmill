@@ -129,10 +129,13 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
 		await friendCol.setType(getDbDatatype(dbType, 'BIGINT'))
 	}
-	await friendCol.setSettings({
-		defaultValue: dbFeatures.defaultValues ? '123' : undefined,
-		nullable: false
-	})
+	if (dbType !== 'snowflake') {
+		// Snowflake does not support altering default values
+		await friendCol.setSettings({
+			defaultValue: dbFeatures.defaultValues ? '123' : undefined,
+			nullable: false
+		})
+	}
 	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
 		// Bigquery cannot rename a table with primary keys
 		await friendCol.setPrimaryKey(true)

@@ -87,7 +87,6 @@
 		}
 	)
 	export const refresh = () => {
-		if (isLoading()) return
 		colDefs.refetch()
 		dbSchemasPromise.refetch()
 	}
