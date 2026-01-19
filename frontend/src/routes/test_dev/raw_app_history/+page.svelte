@@ -1,12 +1,13 @@
 <script lang="ts">
 	import RawAppHistoryList from '$lib/components/raw_apps/RawAppHistoryList.svelte'
+	import HistoryTreeVisualization from '$lib/components/raw_apps/HistoryTreeVisualization.svelte'
 	import type {
 		HistoryEntry,
 		HistoryBranch
 	} from '$lib/components/raw_apps/RawAppHistoryManager.svelte.ts'
 	import DarkModeObserver from '$lib/components/DarkModeObserver.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { Moon, Sun, Plus, Trash, RotateCcw, GitBranch } from 'lucide-svelte'
+	import { Moon, Sun, Plus, Trash, RotateCcw, GitBranch, Eye } from 'lucide-svelte'
 
 	let darkMode: boolean = $state(false)
 
@@ -55,10 +56,16 @@
 	let branches = $state<HistoryBranch[]>([])
 
 	let selectedId = $state<number | undefined>(undefined)
+	let showNewVisualization = $state(true)
 
 	function handleSelect(id: number) {
 		selectedId = id
 		console.log('Selected entry:', id)
+	}
+
+	function handleSelectCurrent() {
+		selectedId = undefined
+		console.log('Selected current state')
 	}
 
 	// Test actions
@@ -69,11 +76,15 @@
 	function addBranch() {
 		if (entries.length < 2) return
 
-		// Fork from 3rd entry (or last available)
-		const forkIndex = Math.min(2, entries.length - 1)
+		// Fork from a random entry (prefer middle entries for better visual)
+		const forkIndex = Math.floor(Math.random() * Math.min(entries.length - 1, 3)) + 1
 		const forkPointId = entries[forkIndex].id
 
-		const branchEntries: HistoryEntry[] = [createMockEntry(0.5), createMockEntry(0.25)]
+		const numBranchEntries = Math.floor(Math.random() * 3) + 1
+		const branchEntries: HistoryEntry[] = []
+		for (let i = 0; i < numBranchEntries; i++) {
+			branchEntries.push(createMockEntry(0.5 - i * 0.1))
+		}
 
 		branches = [
 			...branches,
@@ -144,9 +155,18 @@
 			<Button variant="subtle" size="xs" startIcon={{ icon: Trash }} onclick={clearAll} destructive>
 				Clear All
 			</Button>
+			<Button
+				variant={showNewVisualization ? 'default' : 'subtle'}
+				size="xs"
+				startIcon={{ icon: Eye }}
+				onclick={() => (showNewVisualization = !showNewVisualization)}
+			>
+				{showNewVisualization ? 'New Viz' : 'Old Viz'}
+			</Button>
 		</div>
 		<div class="text-2xs text-tertiary">
-			Entries: {entries.length} | Branches: {branches.length} | Selected: {selectedId ?? 'none'}
+			Entries: {entries.length} | Branches: {branches.length} | Selected: {selectedId ??
+				'current'} | Mode: {showNewVisualization ? 'New' : 'Original'}
 		</div>
 	</div>
 
@@ -156,9 +176,27 @@
 		<div
 			class="flex flex-col gap-4 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-surface"
 		>
-			<h2 class="text-sm font-semibold text-emphasis">History List</h2>
-			<div class="max-h-[500px] overflow-y-auto">
-				<RawAppHistoryList {entries} {branches} {selectedId} onSelect={handleSelect} />
+			<h2 class="text-sm font-semibold text-emphasis">
+				{showNewVisualization ? 'New Tree Visualization' : 'Original History List'}
+			</h2>
+			<div class="max-h-[500px] overflow-y-auto overflow-x-hidden">
+				{#if showNewVisualization}
+					<HistoryTreeVisualization
+						{entries}
+						{branches}
+						{selectedId}
+						onSelect={handleSelect}
+						onSelectCurrent={handleSelectCurrent}
+					/>
+				{:else}
+					<RawAppHistoryList
+						{entries}
+						{branches}
+						{selectedId}
+						onSelect={handleSelect}
+						onSelectCurrent={handleSelectCurrent}
+					/>
+				{/if}
 			</div>
 		</div>
 

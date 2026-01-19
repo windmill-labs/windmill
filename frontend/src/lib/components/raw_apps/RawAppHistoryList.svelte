@@ -1,7 +1,9 @@
 <script lang="ts">
 	import type { HistoryEntry, HistoryBranch } from './RawAppHistoryManager.svelte'
-	import { classNames, displayDate } from '$lib/utils'
-	import { GitBranch } from 'lucide-svelte'
+	import { displayDate } from '$lib/utils'
+	import { Circle, CircleDot, CircleDotDashed, CircleDashed } from 'lucide-svelte'
+	import { cubicOut } from 'svelte/easing'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		entries: HistoryEntry[]
@@ -12,6 +14,12 @@
 	}
 
 	let { entries, branches, selectedId, onSelect, onSelectCurrent }: Props = $props()
+
+	// Constants for layout
+	const LINE_X = 8 // X position of main timeline line (center of dots)
+	const BRANCH_OFFSET_X = 45 // How far branches are offset horizontally
+	const ENTRY_HEIGHT = 28 // Height of each entry
+	const CURRENT_HEIGHT = 32 // Height of current state button
 
 	// Build a map of fork points to their branches for rendering
 	const branchesByForkPoint = $derived(
@@ -27,131 +35,304 @@
 		)
 	)
 
-	// Entries in reverse order (newest first)
+	// Entries in reverse order (newest first) for display
 	const reversedEntries = $derived(entries.slice().reverse())
+
+	// Calculate positions for rendering
+	const entryPositions = $derived.by(() => {
+		const positions: Record<number, { x: number; y: number; index: number }> = {}
+
+		let currentY = CURRENT_HEIGHT + 12 // Start below current button
+
+		reversedEntries.forEach((entry, index) => {
+			// For each entry, calculate space needed for branches above it
+			const entryBranches = branchesByForkPoint[entry.id] ?? []
+			const branchSpaceAbove = entryBranches.reduce((total, branch) => {
+				return total + branch.entries.length * ENTRY_HEIGHT
+			}, 0)
+
+			// Add space for branches above this entry
+			currentY += branchSpaceAbove
+
+			// Position this entry
+			positions[entry.id] = { x: LINE_X, y: currentY, index }
+
+			// Move to next entry position
+			currentY += ENTRY_HEIGHT
+		})
+
+		return positions
+	})
+
+	// Calculate total height needed for the container
+	const totalHeight = $derived.by(() => {
+		const mainTimelineMaxY = Object.values(entryPositions).reduce(
+			(max, pos) => Math.max(max, pos.y),
+			0
+		)
+		const branchMaxY = Object.values(branchPositions)
+			.flatMap((groups) => Object.values(groups).flatMap((nodes) => nodes.map((node) => node.y)))
+			.reduce((max, y) => Math.max(max, y), 0)
+		return Math.max(mainTimelineMaxY, branchMaxY, 150) + 20 // Add padding at bottom
+	})
+
+	// Calculate branch positions
+	const branchPositions = $derived.by(() => {
+		const positions: Record<
+			number,
+			Record<number, Array<{ id: number; x: number; y: number }>>
+		> = {}
+
+		Object.entries(branchesByForkPoint).forEach(([forkPointId, forkBranches]) => {
+			const forkPoint = entryPositions[Number(forkPointId)]
+			if (!forkPoint) return
+
+			positions[Number(forkPointId)] = {}
+
+			forkBranches.forEach((branch) => {
+				positions[Number(forkPointId)][branch.id] = []
+
+				// Branch flows from fork point upward (toward newer/current)
+				// Start just above the fork point and continue upward
+				// Oldest branch entry is closest to fork point, newest is furthest
+				let currentY = forkPoint.y - ENTRY_HEIGHT
+
+				branch.entries.forEach((entry) => {
+					positions[Number(forkPointId)][branch.id].push({
+						id: entry.id,
+						x: LINE_X + BRANCH_OFFSET_X,
+						y: currentY
+					})
+					currentY -= ENTRY_HEIGHT // Move upward (decreasing Y)
+				})
+			})
+		})
+
+		return positions
+	})
+
+	// Helper to create SVG path for branch connection
+	function createBranchPath(startX: number, startY: number, endX: number, endY: number): string {
+		// Control points are vertically offset to create vertical tangents
+		const controlOffset = Math.abs(startY - endY) * 0.85 // 85% of vertical distance for very intense curve
+		// Both tangents point upward (toward smaller Y values)
+		// Start control point: above the start point
+		// End control point: above the end point (since endY < startY, we add to go further up)
+		return `M ${startX} ${startY} C ${startX} ${startY - controlOffset}, ${endX} ${endY + controlOffset}, ${endX} ${endY}`
+	}
+
+	// Custom draw function for smoother animation
+	function drawPath(node: SVGPathElement, { duration = 400 } = {}) {
+		const length = node.getTotalLength()
+
+		return {
+			duration,
+			css: (t: number) => {
+				const eased = cubicOut(t)
+				return `
+					stroke-dasharray: ${length};
+					stroke-dashoffset: ${length * (1 - eased)};
+				`
+			}
+		}
+	}
 </script>
+
+{#snippet timelineButton(
+	label: string,
+	timestamp: string | null,
+	isSelected: boolean,
+	onClick: () => void,
+	position: { x: number; y: number },
+	type: 'current' | 'main' | 'branch' = 'main'
+)}
+	{@const colors = {
+		current: {
+			selected: 'text-accent',
+			default: 'text-primary',
+			textSelected: 'text-accent',
+			bgSelected: 'bg-surface-accent-selected'
+		},
+		main: {
+			selected: 'text-accent',
+			default: 'text-primary',
+			textSelected: 'text-accent',
+			bgSelected: 'bg-surface-accent-selected'
+		},
+		branch: {
+			selected: 'text-amber-500 dark:text-amber-400',
+			default: 'text-secondary',
+			textSelected: 'text-amber-600 dark:text-amber-400 font-medium',
+			bgSelected: 'bg-amber-50 dark:bg-amber-900/20'
+		}
+	}}
+	{@const color = colors[type]}
+
+	<button
+		onclick={onClick}
+		aria-label={timestamp ? `Snapshot from ${displayDate(timestamp, true, false)}` : label}
+		aria-current={isSelected ? 'true' : 'false'}
+		class={'absolute flex items-center gap-1 transition-all duration-200'}
+		style="left: {position.x - 6}px; top: {position.y - 6}px;"
+	>
+		{#if isSelected}
+			{#if type === 'current'}
+				<CircleDotDashed size={12} class="bg-surface {color.selected}" />
+			{:else}
+				<CircleDot size={12} class="bg-surface {color.selected}" />
+			{/if}
+		{:else if type === 'current'}
+			<CircleDashed size={12} class="bg-surface {color.default}" />
+		{:else}
+			<Circle size={12} class="bg-surface {color.default}" />
+		{/if}
+		<span
+			class={twMerge(
+				'text-2xs truncate px-2 py-1 rounded-md',
+				type === 'current' ? 'font-semibold text-emphasis' : '',
+				isSelected ? color.textSelected : 'text-tertiary',
+				isSelected ? color.bgSelected : 'hover:bg-surface-hover'
+			)}
+		>
+			{timestamp ? displayDate(timestamp, true, false) : label}
+		</span>
+	</button>
+{/snippet}
 
 {#if entries.length === 0}
 	<div class="text-tertiary py-2 text-center text-2xs">
 		No snapshots yet. Auto-saved every 5 min.
 	</div>
 {:else}
-	<div class="relative w-full" role="list" aria-label="History timeline">
-		<!-- Timeline line at 5px from left, centered on 6px dot -->
-		<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
+	<div
+		class="relative w-full"
+		style="height: {totalHeight}px;"
+		role="list"
+		aria-label="History timeline"
+	>
+		<!-- SVG for lines and connections -->
+		<svg class="absolute inset-0 pointer-events-none" style="width: 100%; height: 100%;">
+			<!-- Main timeline line (green gradient) -->
+			<defs>
+				<linearGradient id="mainLineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+					<stop offset="0%" style="stop-color:rgb(34, 197, 94);stop-opacity:1" />
+					<stop offset="100%" style="stop-color:rgb(34, 197, 94);stop-opacity:0.3" />
+				</linearGradient>
+			</defs>
 
-		<!-- Current Working State indicator - always visible as a clickable option -->
-		<button
-			onclick={() => onSelectCurrent?.()}
-			aria-label="Current working state"
-			aria-current={selectedId === undefined ? 'true' : 'false'}
-			class={classNames(
-				'relative flex items-center gap-2 py-1 pr-1 pl-5 w-full text-left rounded transition-colors mb-2',
-				'hover:bg-surface-hover',
-				selectedId === undefined ? 'bg-green-50 dark:bg-green-900/20' : ''
-			)}
-		>
-			<!-- Working state dot - green to indicate current -->
-			<div
-				class={classNames(
-					'absolute left-[2px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
-					selectedId === undefined
-						? 'border-green-500 dark:border-green-400'
-						: 'border-gray-300 dark:border-gray-600'
-				)}
-			></div>
+			<!-- Always show the main line if there are entries -->
+			{#if reversedEntries.length > 0}
+				{@const mainTimelineMaxY = Math.max(...Object.values(entryPositions).map((pos) => pos.y))}
+				{@const branchMaxY = Object.values(branchPositions)
+					.flatMap((groups) =>
+						Object.values(groups).flatMap((nodes) => nodes.map((node) => node.y))
+					)
+					.reduce((max, y) => Math.max(max, y), 0)}
+				{@const maxY = Math.max(mainTimelineMaxY, branchMaxY)}
+				<line
+					x1={LINE_X}
+					y1={8}
+					x2={LINE_X}
+					y2={maxY + 8}
+					stroke="currentColor"
+					stroke-width="1"
+					opacity="1"
+					class="transition-all duration-300 text-primary"
+				/>
+			{/if}
 
-			<span
-				class={classNames(
-					'text-2xs',
-					selectedId === undefined
-						? 'text-green-600 dark:text-green-400 font-medium'
-						: 'text-tertiary'
-				)}
-			>
-				Current (editing)
-			</span>
-		</button>
+			<!-- Branch connection lines -->
+			{#each Object.entries(branchPositions) as [forkPointId, branchGroups] (forkPointId)}
+				{@const forkPoint = entryPositions[Number(forkPointId)]}
+				{#if forkPoint}
+					{#each Object.entries(branchGroups) as [branchId, branchNodes] (branchId)}
+						{#if branchNodes.length > 0}
+							<!-- Connection from fork point to first branch entry -->
+							<path
+								d={createBranchPath(forkPoint.x, forkPoint.y, branchNodes[0].x, branchNodes[0].y)}
+								stroke="currentColor"
+								stroke-width="1.5"
+								fill="none"
+								stroke-dasharray="4 2"
+								opacity="0.6"
+								in:drawPath={{ duration: 400 }}
+								class="transition-opacity duration-300 text-secondary"
+							/>
 
-		{#each reversedEntries as entry (entry.id)}
-			{@const isSelected = selectedId === entry.id}
-			{@const entryBranches = branchesByForkPoint[entry.id] ?? []}
-
-			<!-- Render branches ABOVE their fork point (newest first within branch) -->
-			{#each entryBranches as branch (branch.id)}
-				<div
-					class="ml-4 relative border-l border-dashed border-gray-300 dark:border-gray-600 pl-2 my-1"
-				>
-					<div class="absolute left-3 bottom-2 text-tertiary">
-						<GitBranch size={10} />
-					</div>
-					<!-- Branch entries in reverse order (newest first) -->
-					{#each branch.entries.slice().reverse() as branchEntry (branchEntry.id)}
-						{@const isBranchSelected = selectedId === branchEntry.id}
-						<button
-							onclick={() => onSelect(branchEntry.id)}
-							aria-label={`Branch snapshot from ${displayDate(branchEntry.timestamp.toISOString(), true, false)}`}
-							aria-current={isBranchSelected ? 'true' : 'false'}
-							class={classNames(
-								'relative flex items-center gap-2 py-1 pr-1 pl-2 w-full text-left rounded transition-colors',
-								'hover:bg-surface-hover',
-								isBranchSelected ? 'bg-amber-50 dark:bg-amber-900/20' : ''
-							)}
-						>
-							<!-- Branch dot -->
-							<div
-								class={classNames(
-									'w-1 h-1 rounded-full',
-									isBranchSelected
-										? 'bg-amber-500 dark:bg-amber-400'
-										: 'bg-gray-300 dark:bg-gray-600'
-								)}
-							></div>
-							<span
-								class={classNames(
-									'text-2xs truncate',
-									isBranchSelected
-										? 'text-amber-600 dark:text-amber-400 font-medium'
-										: 'text-tertiary'
-								)}
-							>
-								{displayDate(branchEntry.timestamp.toISOString(), true, false)}
-							</span>
-						</button>
+							<!-- Vertical line connecting branch entries within this branch -->
+							{#if branchNodes.length > 1}
+								{@const firstNode = branchNodes[0]}
+								{@const lastNode = branchNodes[branchNodes.length - 1]}
+								<line
+									x1={firstNode.x}
+									y1={firstNode.y}
+									x2={lastNode.x}
+									y2={lastNode.y}
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-dasharray="4 2"
+									opacity="0.6"
+									class="transition-all duration-300 text-secondary"
+								/>
+							{/if}
+						{/if}
 					{/each}
-				</div>
+				{/if}
 			{/each}
+		</svg>
 
-			<!-- Main timeline entry -->
-			<button
-				onclick={() => onSelect(entry.id)}
-				aria-label={`Snapshot from ${displayDate(entry.timestamp.toISOString(), true, false)}`}
-				aria-current={isSelected ? 'true' : 'false'}
-				class={classNames(
-					'relative flex items-center gap-2 py-1 pr-1 pl-5 w-full text-left rounded transition-colors',
-					'hover:bg-surface-hover',
-					isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''
-				)}
-			>
-				<!-- Timeline dot - 6px wide (w-1.5), left edge at 2px so center aligns with line at 5px -->
-				<div
-					class={classNames(
-						'absolute left-[2px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
-						isSelected
-							? 'border-blue-500 dark:border-blue-400'
-							: 'border-gray-300 dark:border-gray-600'
-					)}
-				></div>
+		<!-- Interactive elements -->
+		<div class="relative">
+			<!-- Current Working State -->
+			{@render timelineButton(
+				'Current',
+				null,
+				selectedId === undefined,
+				() => onSelectCurrent?.(),
+				{ x: LINE_X, y: 6 },
+				'current'
+			)}
 
-				<span
-					class={classNames(
-						'text-2xs truncate',
-						isSelected ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-tertiary'
+			<!-- Main timeline entries -->
+			{#each reversedEntries as entry (entry.id)}
+				{@const pos = entryPositions[entry.id]}
+				{@const isSelected = selectedId === entry.id}
+				{@const entryBranches = branchesByForkPoint[entry.id] ?? []}
+
+				{#if pos}
+					<!-- Main entry button -->
+					{@render timelineButton(
+						'',
+						entry.timestamp.toISOString(),
+						isSelected,
+						() => onSelect(entry.id),
+						pos,
+						'main'
 					)}
-				>
-					{displayDate(entry.timestamp.toISOString(), true, false)}
-				</span>
-			</button>
-		{/each}
+
+					<!-- Branch entries -->
+					{#if entryBranches.length > 0}
+						{#each Object.values(branchPositions[entry.id] ?? {}) as branchNodes}
+							{#each branchNodes as branchNode (branchNode.id)}
+								{@const branchEntry = branches
+									.flatMap((b) => b.entries)
+									.find((e) => e.id === branchNode.id)}
+								{@const isBranchSelected = selectedId === branchNode.id}
+								{#if branchEntry}
+									{@render timelineButton(
+										'',
+										branchEntry.timestamp.toISOString(),
+										isBranchSelected,
+										() => onSelect(branchNode.id),
+										{ x: branchNode.x, y: branchNode.y - 4 },
+										'branch'
+									)}
+								{/if}
+							{/each}
+						{/each}
+					{/if}
+				{/if}
+			{/each}
+		</div>
 	</div>
 {/if}
