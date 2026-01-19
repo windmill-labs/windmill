@@ -8,6 +8,9 @@
 
 	let runsTutorial: RunsTutorial
 
+	// Get the path from route params (e.g., /runs/u/user/script → "u/user/script")
+	let initialPath = $derived(page.params.path ?? '')
+
 	onMount(() => {
 		// Check if there's a tutorial parameter in the URL
 		const tutorialParam = page.url.searchParams.get('tutorial')
@@ -20,6 +23,6 @@
 	})
 </script>
 
-<RunsPage />
+<RunsPage {initialPath} />
 
 <RunsTutorial bind:this={runsTutorial} index={7} />
