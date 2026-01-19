@@ -220,7 +220,11 @@
 	let newSchemaName = $state('')
 
 	// Check if the sanitized schema name already exists
-	const sanitizedNewSchemaName = $derived(newSchemaName.trim().replace(/[^a-zA-Z0-9_]/g, ''))
+	const sanitizedNewSchemaName = $derived.by(() => {
+		let s = newSchemaName.trim().replace(/[^a-zA-Z0-9_]/g, '')
+		if (dbType === 'snowflake') s = s.toUpperCase()
+		return s
+	})
 	const schemaAlreadyExists = $derived(
 		sanitizedNewSchemaName !== '' &&
 			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
@@ -244,6 +248,7 @@
 					showPlaceholderOnOpen
 					onCreateItem={(schema) => {
 						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')
+						if (dbType === 'snowflake') schema = schema.toUpperCase()
 						askingForConfirmation = {
 							confirmationText: `Create ${schema}`,
 							type: 'reload',
