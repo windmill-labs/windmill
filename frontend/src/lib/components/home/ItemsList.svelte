@@ -362,7 +362,7 @@
 	</DrawerContent>
 </Drawer>
 
-<CenteredPage>
+<CenteredPage wrapperClasses="w-full" handleOverflow={false}>
 	<div
 		class="flex flex-wrap gap-2 items-center justify-between w-full"
 		use:triggerableByAI={{
