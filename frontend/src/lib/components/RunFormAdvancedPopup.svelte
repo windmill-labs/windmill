@@ -30,7 +30,7 @@
 
 	async function loadWorkerGroups() {
 		if (!$workerTags) {
-			$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
+			$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
 		}
 	}
 </script>

@@ -5920,11 +5920,6 @@ paths:
       tags:
         - worker
       parameters:
-        - name: workspace
-          in: query
-          schema:
-            type: string
-          required: false
         - name: show_workspace_restriction
           in: query
           schema:
@@ -5933,6 +5928,24 @@ paths:
       responses:
         "200":
           description: list of custom tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workers/custom_tags:
+    get:
+      summary: get custom tags available for this workspace
+      operationId: getCustomTagsForWorkspace
+      tags:
+        - worker
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of custom tags for workspace
           content:
             application/json:
               schema:
