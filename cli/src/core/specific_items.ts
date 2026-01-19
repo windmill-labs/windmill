@@ -8,6 +8,7 @@ export interface SpecificItemsConfig {
   variables?: string[];
   resources?: string[];
   triggers?: string[];
+  folders?: string[];
 }
 
 // Define all branch-specific file types (computed lazily)
@@ -15,6 +16,7 @@ function getBranchSpecificTypes() {
   return {
     variable: '.variable.yaml',
     resource: '.resource.yaml',
+    folder: '/folder.meta.yaml',
     // Generate trigger patterns from the list
     ...Object.fromEntries(
       TRIGGER_TYPES.map(t => [`${t}_trigger`, `.${t}_trigger.yaml`])
@@ -142,6 +144,16 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
     return specificItems.triggers ? matchesPatterns(path, specificItems.triggers) : false;
   }
 
+  // Check for folder meta files
+  if (path.endsWith('/folder.meta.yaml')) {
+    if (specificItems.folders) {
+      // Match against the folder path (without /folder.meta.yaml)
+      const folderPath = path.slice(0, -'/folder.meta.yaml'.length);
+      return matchesPatterns(folderPath, specificItems.folders);
+    }
+    return false;
+  }
+
   // Check for resource files using the standard detection function
   if (isFileResource(path)) {
     // Extract the base path without the file extension to match against patterns
@@ -197,7 +209,20 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
   const sanitizedBranchName = branchName.replace(/[\/\\:*?"<>|.]/g, '_');
   const escapedBranchName = sanitizedBranchName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-  // Check for resource file pattern first
+  // Check for folder pattern: path.branchName/folder.meta.yaml -> path/folder.meta.yaml
+  const folderPattern = new RegExp(`\\.${escapedBranchName}(/folder\\.meta\\.yaml)$`);
+  const folderMatch = branchSpecificPath.match(folderPattern);
+
+  if (folderMatch) {
+    const extension = folderMatch[1];
+    const pathWithoutBranchAndExtension = branchSpecificPath.substring(
+      0,
+      branchSpecificPath.length - `.${sanitizedBranchName}${extension}`.length
+    );
+    return `${pathWithoutBranchAndExtension}${extension}`;
+  }
+
+  // Check for resource file pattern
   const resourceFilePattern = new RegExp(`\\.${escapedBranchName}(\\.resource\\.file\\..+)$`);
   const resourceFileMatch = branchSpecificPath.match(resourceFilePattern);
 
@@ -283,7 +308,11 @@ export function isCurrentBranchFile(path: string, branchOverride?: string): bool
   // Use cached pattern or create and cache new one
   let pattern = branchPatternCache.get(currentBranch);
   if (!pattern) {
-    pattern = new RegExp(`\\.${escapedBranchName}\\.${buildYamlTypePattern()}\\.yaml$|\\.${escapedBranchName}\\.resource\\.file\\..+$`);
+    pattern = new RegExp(
+      `\\.${escapedBranchName}\\.${buildYamlTypePattern()}\\.yaml$|` +
+      `\\.${escapedBranchName}\\.resource\\.file\\..+$|` +
+      `\\.${escapedBranchName}/folder\\.meta\\.yaml$`
+    );
     branchPatternCache.set(currentBranch, pattern);
   }
 
@@ -296,5 +325,9 @@ export function isCurrentBranchFile(path: string, branchOverride?: string): bool
  */
 export function isBranchSpecificFile(path: string): boolean {
   const yamlTypePattern = buildYamlTypePattern();
-  return new RegExp(`\\.[^.]+\\.${yamlTypePattern}\\.yaml$|\\.[^.]+\\.resource\\.file\\..+$`).test(path);
+  return new RegExp(
+    `\\.[^.]+\\.${yamlTypePattern}\\.yaml$|` +
+    `\\.[^.]+\\.resource\\.file\\..+$|` +
+    `\\.[^.]+/folder\\.meta\\.yaml$`
+  ).test(path);
 }

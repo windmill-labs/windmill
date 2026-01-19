@@ -336,3 +336,56 @@ Deno.test("branchOverride: getSpecificItemsForCurrentBranch merges common and br
   assertEquals(result?.resources, ["shared/**"]);
   assertEquals(result?.triggers, ["dev/triggers/**"]);
 });
+
+// =============================================================================
+// FOLDER BRANCH-SPECIFIC TESTS
+// =============================================================================
+
+Deno.test("toBranchSpecificPath: converts folder path to branch-specific", () => {
+  const result = toBranchSpecificPath("f/my_folder/folder.meta.yaml", "main");
+  assertEquals(result, "f/my_folder.main/folder.meta.yaml");
+});
+
+Deno.test("toBranchSpecificPath: converts nested folder path to branch-specific", () => {
+  const result = toBranchSpecificPath("f/parent/child/folder.meta.yaml", "develop");
+  assertEquals(result, "f/parent/child.develop/folder.meta.yaml");
+});
+
+Deno.test("fromBranchSpecificPath: converts branch-specific folder back to base", () => {
+  const result = fromBranchSpecificPath("f/my_folder.main/folder.meta.yaml", "main");
+  assertEquals(result, "f/my_folder/folder.meta.yaml");
+});
+
+Deno.test("fromBranchSpecificPath: handles sanitized branch names for folders", () => {
+  const result = fromBranchSpecificPath("f/my_folder.feature_test/folder.meta.yaml", "feature/test");
+  assertEquals(result, "f/my_folder/folder.meta.yaml");
+});
+
+Deno.test("isSpecificItem: matches folder paths with glob pattern", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+  assertEquals(isSpecificItem("f/env_staging/folder.meta.yaml", config), true);
+  assertEquals(isSpecificItem("f/env_production/folder.meta.yaml", config), true);
+  assertEquals(isSpecificItem("f/other/folder.meta.yaml", config), false);
+});
+
+Deno.test("isBranchSpecificFile: detects branch-specific folder files", () => {
+  assertEquals(isBranchSpecificFile("f/my_folder.main/folder.meta.yaml"), true);
+  assertEquals(isBranchSpecificFile("f/my_folder.develop/folder.meta.yaml"), true);
+  assertEquals(isBranchSpecificFile("f/my_folder/folder.meta.yaml"), false);
+});
+
+Deno.test("isCurrentBranchFile: detects branch-specific folder for current branch", () => {
+  assertEquals(isCurrentBranchFile("f/my_folder.staging/folder.meta.yaml", "staging"), true);
+  assertEquals(isCurrentBranchFile("f/my_folder.staging/folder.meta.yaml", "production"), false);
+  assertEquals(isCurrentBranchFile("f/my_folder/folder.meta.yaml", "staging"), false);
+});
+
+Deno.test("round-trip: folder path conversion", () => {
+  const original = "f/configs/env_folder/folder.meta.yaml";
+  const branch = "feature/new-env";
+  const branchSpecific = toBranchSpecificPath(original, branch);
+  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  assertEquals(restored, original);
+});

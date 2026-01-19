@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE workspace_settings\n        SET success_handler = 'script/f/test/success_handler',\n            success_handler_extra_args = '{\"key\": \"value\"}'::json\n        WHERE workspace_id = 'test-workspace'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6eaa0af9c5e0a8d64c3202753c9c3cef39361b0987a22b7d2b2346652f81177e"
+}

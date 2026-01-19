@@ -28,6 +28,7 @@
 	import EEOnly from './EEOnly.svelte'
 	import CriticalAlertChannels from './instanceSettings/CriticalAlertChannels.svelte'
 	import SmtpSettings from './instanceSettings/SmtpSettings.svelte'
+	import SecretBackendConfig from './instanceSettings/SecretBackendConfig.svelte'
 	import TextInput from './text_input/TextInput.svelte'
 	import Label from './Label.svelte'
 
@@ -886,6 +887,8 @@
 					TODO
 				{:else if setting.fieldType == 'smtp_connect'}
 					<SmtpSettings {values} disabled={loading} />
+				{:else if setting.fieldType == 'secret_backend'}
+					<SecretBackendConfig {values} disabled={loading} />
 				{/if}
 				{#if hasError}
 					<span class="text-red-500 dark:text-red-400 text-sm">

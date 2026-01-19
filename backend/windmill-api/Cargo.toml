@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [features]
 default = []
-private = ["windmill-audit/private"]
+private = ["windmill-audit/private", "windmill-common/private"]
 enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
 stripe = []
 agent_worker_server = []
@@ -157,6 +157,8 @@ google-cloud-googleapis = { workspace = true , optional = true }
 tonic = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
 deno_core = { workspace = true, optional = true }
+tar.workspace = true
+flate2.workspace = true
 backon = {workspace = true, optional = true}
 
 [build-dependencies]
