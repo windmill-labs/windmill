@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.612.2](https://github.com/windmill-labs/windmill/compare/v1.612.1...v1.612.2) (2026-01-19)
+
+
+### Bug Fixes
+
+* add HIDE_WORKERS_FOR_NON_ADMINS env var and workspace-scoped custom_tags endpoint ([#7613](https://github.com/windmill-labs/windmill/issues/7613)) ([f33b799](https://github.com/windmill-labs/windmill/commit/f33b79936b8666242f2235d4fa6d4e7488123194))
+* **mcp:** fix empty args format + sanitize tool name ([#7615](https://github.com/windmill-labs/windmill/issues/7615)) ([f55dac6](https://github.com/windmill-labs/windmill/commit/f55dac69582000f0bfdae6dbed2d33f2e48087b2))
+
 ## [1.612.1](https://github.com/windmill-labs/windmill/compare/v1.612.0...v1.612.1) (2026-01-19)
 
 
