@@ -36,7 +36,11 @@ import {
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { regenerateAgentDocs } from "./generate_agents.ts";
-import { hasFolderSuffix, getFolderSuffix, setNonDottedPaths } from "../../utils/resource_folders.ts";
+import {
+  getFolderSuffix,
+  hasFolderSuffix,
+  setNonDottedPaths,
+} from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -56,9 +60,15 @@ async function findAndLoadNonDottedPathsSetting(): Promise<void> {
 
     if (fs.existsSync(wmillYamlPath)) {
       try {
-        const config = await yamlParseFile(wmillYamlPath) as { nonDottedPaths?: boolean };
+        const config = await yamlParseFile(wmillYamlPath) as {
+          nonDottedPaths?: boolean;
+        };
         setNonDottedPaths(config?.nonDottedPaths ?? false);
-        log.debug(`Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${config?.nonDottedPaths ?? false}`);
+        log.debug(
+          `Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${
+            config?.nonDottedPaths ?? false
+          }`,
+        );
       } catch (e) {
         log.debug(`Failed to parse wmill.yaml at ${wmillYamlPath}: ${e}`);
       }
@@ -352,9 +362,13 @@ async function dev(opts: DevOptions) {
   if (!hasFolderSuffix(currentDirName, "raw_app")) {
     log.error(
       colors.red(
-        `Error: The dev command must be run inside a ${getFolderSuffix("raw_app")} folder.\n` +
+        `Error: The dev command must be run inside a ${
+          getFolderSuffix("raw_app")
+        } folder.\n` +
           `Current directory: ${currentDirName}\n` +
-          `Please navigate to a folder ending with '${getFolderSuffix("raw_app")}' before running this command.`,
+          `Please navigate to a folder ending with '${
+            getFolderSuffix("raw_app")
+          }' before running this command.`,
       ),
     );
     Deno.exit(1);
@@ -366,7 +380,9 @@ async function dev(opts: DevOptions) {
     log.error(
       colors.red(
         `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a ${getFolderSuffix("raw_app")} folder containing a raw_app.yaml file.`,
+          `The dev command must be run in a ${
+            getFolderSuffix("raw_app")
+          } folder containing a raw_app.yaml file.`,
       ),
     );
     Deno.exit(1);
@@ -461,13 +477,22 @@ async function dev(opts: DevOptions) {
       build.onLoad(
         { filter: /.*/, namespace: "wmill-virtual" },
         (args: any) => {
+          const contents = wmillTs(port);
           log.info(
             colors.yellow(
               `[wmill-virtual] Loading virtual module: ${args.path}`,
             ),
           );
+          log.info(
+            colors.gray(
+              `[wmill-virtual] Exports: ${
+                contents.match(/export (const|function) \w+/g)?.join(", ") ??
+                  "none"
+              }`,
+            ),
+          );
           return {
-            contents: wmillTs(port),
+            contents,
             loader: "ts",
           };
         },
@@ -520,7 +545,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const schemaInferenceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -996,6 +1021,32 @@ async function dev(opts: DevOptions) {
             break;
           }
 
+          case "streamJob": {
+            // Stream job results using SSE
+            log.info(colors.blue(`[streamJob] Streaming job: ${jobId}`));
+            try {
+              await streamJobWithSSE(
+                workspaceId,
+                jobId,
+                reqId,
+                ws,
+                workspace.remote,
+                workspace.token,
+              );
+            } catch (error: any) {
+              log.error(colors.red(`[streamJob] Error: ${error.message}`));
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: error.message, stack: error.stack },
+                }),
+              );
+            }
+            break;
+          }
+
           case "applySqlMigration": {
             // Execute SQL migration against a datatable
             const { sql, datatable, fileName } = message;
@@ -1170,7 +1221,7 @@ async function dev(opts: DevOptions) {
     sqlWatcher = Deno.watchFs(sqlToApplyPath);
 
     // Debounce timeout for SQL file changes
-    const sqlDebounceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const sqlDebounceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SQL_DEBOUNCE_MS = 300;
 
     // Handle SQL file changes in the background
@@ -1450,9 +1501,15 @@ async function executeRunnable(
       : `script/${runnable.path}`;
   } else {
     // Neither inline script nor valid path-based runnable
-    const debugInfo = `type=${(runnable as any).type}, runType=${(runnable as any).runType}, ` +
-      `path=${(runnable as any).path}, hasInlineScript=${!!(runnable as any).inlineScript}`;
-    log.error(colors.red(`[executeRunnable] Invalid runnable configuration for '${runnableId}': ${debugInfo}`));
+    const debugInfo =
+      `type=${(runnable as any).type}, runType=${(runnable as any).runType}, ` +
+      `path=${(runnable as any).path}, hasInlineScript=${!!(runnable as any)
+        .inlineScript}`;
+    log.error(
+      colors.red(
+        `[executeRunnable] Invalid runnable configuration for '${runnableId}': ${debugInfo}`,
+      ),
+    );
     throw new Error(
       `Invalid runnable '${runnableId}': ${debugInfo}. ` +
         `Must have either inlineScript (for inline type) or type="path" with runType and path fields`,
@@ -1525,4 +1582,122 @@ async function getJobStatus(workspace: string, jobId: string): Promise<any> {
     workspace,
     id: jobId,
   });
+}
+
+async function streamJobWithSSE(
+  workspace: string,
+  jobId: string,
+  reqId: string,
+  ws: WebSocket,
+  baseUrl: string,
+  token: string,
+): Promise<void> {
+  const sseUrl =
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+
+  const response = await fetch(sseUrl, {
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `SSE request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body for SSE stream");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          try {
+            const update = JSON.parse(data);
+            const type = update.type;
+
+            if (type === "ping" || type === "timeout") {
+              if (type === "timeout") {
+                reader.cancel();
+                return;
+              }
+              continue;
+            }
+
+            if (type === "error") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: update.error || "SSE error" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            if (type === "not_found") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: "Job not found" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            // Send stream update if there's new stream data
+            if (update.new_result_stream !== undefined) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobUpdate",
+                  reqId,
+                  new_result_stream: update.new_result_stream,
+                  stream_offset: update.stream_offset,
+                }),
+              );
+            }
+
+            // Check if job is completed
+            if (update.completed) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: false,
+                  result: update.only_result,
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+          } catch (parseErr) {
+            log.warn(`Failed to parse SSE data: ${parseErr}`);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

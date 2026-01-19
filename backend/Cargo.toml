@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.607.1"
+version = "1.611.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -35,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.607.1"
+version = "1.611.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -405,6 +405,7 @@ async-once-cell = "0.5.4"
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
 tar = "^0"
+flate2 = "^1"
 http = "^1"
 async-stream = "^0"
 
