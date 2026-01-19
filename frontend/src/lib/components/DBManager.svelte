@@ -202,8 +202,8 @@
 		open: false
 	})
 	let dbTableEditorAlterTableData = resource(
-		() => dbTableEditorState.alterTableKey,
-		async (table) => {
+		[() => dbTableEditorState.alterTableKey, () => colDefs],
+		async ([table]) => {
 			if (!table) return
 			let tableKey2 =
 				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
@@ -586,7 +586,7 @@
 						}
 					}}
 				/>
-			{:else if dbTableEditorAlterTableData.loading}
+			{:else if dbTableEditorAlterTableData.loading || !colDefs}
 				<Loader2 class="animate-spin" size={32} />
 			{:else}
 				<p class="text-sm text-tertiary">Failed to load table definition.</p>
