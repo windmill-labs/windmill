@@ -7,6 +7,75 @@
 - Keep components small and focused
 - Always use keys in {#each} blocks
 
+## Data Flow and State Management
+
+### Prefer Unidirectional Data Flow with Composable State
+
+When you can use unidirectional data flow with composable state, prefer that over two-way binding between components. Two-way binding between components creates confusing data flow - as the codebase grows, nothing guarantees that bound state won't be updated from multiple locations, leading to bugs and maintenance issues.
+
+**❌ AVOID: Two-way binding when composable state would work**
+
+```svelte
+<Loader bind:loading bind:items {args} />
+```
+
+**✅ PREFER: Unidirectional data flow with composables**
+
+```typescript
+// loader.svelte.ts
+function useLoader(argsGetter: () => Args) {
+  let args = $derived(argsGetter())
+  let items = $state([])
+  let loading = $state(false)
+
+  $effect(() => {
+    // Logic reactive to args changes
+  })
+
+  return {
+    get loading() { return loading },
+    get items() { return items }
+  }
+}
+
+// Component.svelte
+<script>
+  let loader = useLoader(() => args)
+  let loading = $derived(loader.loading)
+  let items = $derived(loader.items)
+</script>
+```
+
+This pattern ensures:
+- State responsibility is clearly owned by `useLoader`
+- Data flows in one direction (parent → child)
+- No ambiguity about where state can be modified
+- Better maintainability as the codebase scales
+
+### Async Data Fetching with Runed
+
+For async requests, **always use `resource()` from the Runed library** instead of manual state management:
+
+```typescript
+import { resource } from 'runed'
+
+let items = resource(() => args, (args) => YourService.route(args))
+
+// Access loading state
+items.loading
+
+// Access data
+items.current
+```
+
+The `resource()` utility:
+- Automatically handles loading states
+- Manages async lifecycle
+- Provides reactive updates when dependencies change
+- Eliminates boilerplate for common async patterns
+
+**Key Takeaway**: Prefer unidirectional data flow with composables over two-way binding between components. Two-way binding is acceptable for simple form inputs, but avoid it when composable state patterns can provide clearer state ownership.
+
 ## UI Guidelines
 
 ### Styling Guidelines

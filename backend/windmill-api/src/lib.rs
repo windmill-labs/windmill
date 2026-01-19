@@ -106,6 +106,7 @@ mod inkeep_oss;
 mod inputs;
 mod integration;
 mod live_migrations;
+mod npm_proxy;
 #[cfg(feature = "http_trigger")]
 mod openapi;
 #[cfg(all(feature = "private", feature = "parquet"))]
@@ -148,6 +149,7 @@ mod scim_oss;
 mod scopes;
 mod scripts;
 mod service_logs;
+mod secret_backend_ext;
 mod settings;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
@@ -355,7 +357,7 @@ pub async fn run_server(
             {
                 let smtp_server = Arc::new(SmtpServer {
                     db: db.clone(),
-                    user_db: user_db,
+                    user_db: user_db.clone(),
                     auth_cache: auth_cache.clone(),
                     base_internal_url: _base_internal_url.clone(),
                 });
@@ -409,7 +411,8 @@ pub async fn run_server(
     let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
-            let (mcp_router, mcp_cancellation_token) = setup_mcp_server().await?;
+            let (mcp_router, mcp_cancellation_token) =
+                setup_mcp_server(db.clone(), user_db).await?;
             let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
             (
                 mcp_router.layer(mcp_middleware),
@@ -495,6 +498,7 @@ pub async fn run_server(
                             Router::new()
                         })
                         .nest("/ai", ai::workspaced_service())
+                        .nest("/npm_proxy", npm_proxy::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
                         .nest("/resources", resources::workspaced_service())
                         .nest("/schedules", schedule::workspaced_service())
@@ -716,6 +720,8 @@ pub async fn run_server(
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
         )
+        // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
+        .route("/.well-known/jwks.json", get(settings::get_jwks))
         .fallback(static_assets::static_handler)
         .layer(middleware_stack);
 
