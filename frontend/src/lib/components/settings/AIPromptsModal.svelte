@@ -13,6 +13,7 @@
 		onSave: () => void
 		onReset: () => void
 		hasChanges: boolean
+		isWorkspaceSettings?: boolean
 	}
 
 	let {
@@ -20,7 +21,8 @@
 		customPrompts = $bindable(),
 		onSave,
 		onReset,
-		hasChanges
+		hasChanges,
+		isWorkspaceSettings = false
 	}: Props = $props()
 
 	const placeholders: Record<AIMode, string> = {
@@ -60,9 +62,13 @@
 >
 	<div class="flex flex-col gap-6 h-full px-1 w-full">
 		<div class="grow min-h-0 overflow-y-auto" style="scrollbar-gutter: stable;">
-			<div class="text-sm text-secondary mb-6">
-				Customize the system prompts for each AI mode. These prompts are stored locally in your
-				browser and apply in addition to workspace-level prompts.
+			<div class="text-xs text-secondary mb-6">
+				{#if isWorkspaceSettings}
+					Customize the system prompts for each AI mode. These prompts apply to all workspace members.
+				{:else}
+					Customize the system prompts for each AI mode. These prompts are stored locally in your
+					browser and apply in addition to workspace-level prompts.
+				{/if}
 			</div>
 
 			{#each Object.values(AIMode) as mode}

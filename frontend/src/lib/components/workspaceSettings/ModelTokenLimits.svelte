@@ -98,7 +98,7 @@
 </script>
 
 {#if Object.keys(aiProviders).length > 0}
-	<div class="flex flex-col gap-4">
+	<div class="flex flex-col gap-2">
 		<div class="flex flex-col gap-1">
 			<p class="font-semibold text-xs text-emphasis">Model Output Limits</p>
 			<p class="text-xs text-secondary">
@@ -115,7 +115,7 @@
 					<button
 						type="button"
 						onclick={() => toggleProvider(provider)}
-						class="w-full px-4 py-3 flex items-center justify-between hover:bg-surface-hover transition-colors rounded-t-md"
+						class="w-full px-4 py-1 min-h-8 flex items-center justify-between hover:bg-surface-hover transition-colors rounded-t-md"
 					>
 						<div class="flex items-center gap-2">
 							<h4 class="font-medium text-xs capitalize">{provider}</h4>
