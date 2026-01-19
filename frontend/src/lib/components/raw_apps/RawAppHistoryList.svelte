@@ -8,9 +8,10 @@
 		branches: HistoryBranch[]
 		selectedId: number | undefined
 		onSelect: (id: number) => void
+		onSelectCurrent?: () => void
 	}
 
-	let { entries, branches, selectedId, onSelect }: Props = $props()
+	let { entries, branches, selectedId, onSelect, onSelectCurrent }: Props = $props()
 
 	// Build a map of fork points to their branches for rendering
 	const branchesByForkPoint = $derived(
@@ -35,13 +36,45 @@
 		No snapshots yet. Auto-saved every 5 min.
 	</div>
 {:else}
-	<div class="relative w-full">
+	<div class="relative w-full" role="list" aria-label="History timeline">
 		<!-- Timeline line at 5px from left, centered on 6px dot -->
 		<div class="absolute left-[5px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700"></div>
 
-		{#each reversedEntries as entry, i (entry.id)}
+		<!-- Current Working State indicator - always visible as a clickable option -->
+		<button
+			onclick={() => onSelectCurrent?.()}
+			aria-label="Current working state"
+			aria-current={selectedId === undefined ? 'true' : 'false'}
+			class={classNames(
+				'relative flex items-center gap-2 py-1 pr-1 pl-5 w-full text-left rounded transition-colors mb-2',
+				'hover:bg-surface-hover',
+				selectedId === undefined ? 'bg-green-50 dark:bg-green-900/20' : ''
+			)}
+		>
+			<!-- Working state dot - green to indicate current -->
+			<div
+				class={classNames(
+					'absolute left-[2px] top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full border-[1.5px] bg-surface',
+					selectedId === undefined
+						? 'border-green-500 dark:border-green-400'
+						: 'border-gray-300 dark:border-gray-600'
+				)}
+			></div>
+
+			<span
+				class={classNames(
+					'text-2xs',
+					selectedId === undefined
+						? 'text-green-600 dark:text-green-400 font-medium'
+						: 'text-tertiary'
+				)}
+			>
+				Current (editing)
+			</span>
+		</button>
+
+		{#each reversedEntries as entry (entry.id)}
 			{@const isSelected = selectedId === entry.id}
-			{@const isFirst = i === 0}
 			{@const entryBranches = branchesByForkPoint[entry.id] ?? []}
 
 			<!-- Render branches ABOVE their fork point (newest first within branch) -->
@@ -57,6 +90,8 @@
 						{@const isBranchSelected = selectedId === branchEntry.id}
 						<button
 							onclick={() => onSelect(branchEntry.id)}
+							aria-label={`Branch snapshot from ${displayDate(branchEntry.timestamp.toISOString(), true, false)}`}
+							aria-current={isBranchSelected ? 'true' : 'false'}
 							class={classNames(
 								'relative flex items-center gap-2 py-1 pr-1 pl-2 w-full text-left rounded transition-colors',
 								'hover:bg-surface-hover',
@@ -90,6 +125,8 @@
 			<!-- Main timeline entry -->
 			<button
 				onclick={() => onSelect(entry.id)}
+				aria-label={`Snapshot from ${displayDate(entry.timestamp.toISOString(), true, false)}`}
+				aria-current={isSelected ? 'true' : 'false'}
 				class={classNames(
 					'relative flex items-center gap-2 py-1 pr-1 pl-5 w-full text-left rounded transition-colors',
 					'hover:bg-surface-hover',
@@ -109,12 +146,9 @@
 				<span
 					class={classNames(
 						'text-2xs truncate',
-						isSelected ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-secondary'
+						isSelected ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-tertiary'
 					)}
 				>
-					{#if isFirst && !isSelected}
-						<span class="text-tertiary">Latest · </span>
-					{/if}
 					{displayDate(entry.timestamp.toISOString(), true, false)}
 				</span>
 			</button>

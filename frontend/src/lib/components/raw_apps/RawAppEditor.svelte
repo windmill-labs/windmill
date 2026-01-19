@@ -855,6 +855,10 @@
 				{historyManager}
 				historySelectedId={historyManager.selectedEntryId}
 				onHistorySelect={handleHistorySelect}
+				onHistorySelectCurrent={() => {
+					// Clear selection to go back to current working state
+					historyManager.clearSelection()
+				}}
 				onManualSnapshot={() => {
 					historyManager.manualSnapshot(files ?? {}, runnables, summary, data, true)
 				}}
