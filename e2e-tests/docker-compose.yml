@@ -29,7 +29,7 @@ services:
     logging: *default-logging
 
   windmill_server:
-    image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill-ee:main}
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 1
@@ -52,7 +52,7 @@ services:
     logging: *default-logging
 
   windmill_worker:
-    image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill-ee:main}
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 3
@@ -88,7 +88,7 @@ services:
   ## This worker is specialized for "native" jobs. Native jobs run in-process and thus are much more lightweight than other jobs
   windmill_worker_native:
     # Use ghcr.io/windmill-labs/windmill-ee:main for the ee
-    image: ${WM_IMAGE:-ghcr.io/windmill-labs/windmill-ee:main}
+    image: ${WM_IMAGE}
     pull_policy: always
     deploy:
       replicas: 1

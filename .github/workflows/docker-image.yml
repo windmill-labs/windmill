@@ -286,118 +286,9 @@ jobs:
           path: |
             integration_tests/logs
 
-  run_e2e_tests:
-    runs-on: ubicloud
-    needs: [build_ee]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref }}
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Start E2E environment
-        if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
-        working-directory: ./e2e-tests
-        env:
-          WM_IMAGE: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
-          DATABASE_URL: postgres://postgres:changeme@db/windmill
-          LICENSE_KEY: ${{ secrets.WM_LICENSE_KEY_CI }}
-        run: |
-          docker compose up -d
-          echo "Waiting for services to be healthy..."
-          # Wait for all services to be healthy (up to 5 minutes)
-          timeout=300
-          elapsed=0
-          while [ $elapsed -lt $timeout ]; do
-            if docker compose ps | grep -q "unhealthy\|starting"; then
-              echo "Services still starting... ($elapsed seconds elapsed)"
-              sleep 10
-              elapsed=$((elapsed + 10))
-            else
-              echo "All services are healthy!"
-              break
-            fi
-          done
-
-          if [ $elapsed -ge $timeout ]; then
-            echo "Timeout waiting for services to be healthy"
-            docker compose ps
-            docker compose logs
-            exit 1
-          fi
-
-          # Additional wait for Windmill server to be fully ready
-          echo "Waiting for Windmill server to be ready..."
-          sleep 30
-
-          # Check if server is responding
-          curl -f http://localhost:80/api/version || (echo "Windmill server not responding" && docker compose logs windmill_server && exit 1)
-
-      - name: Install Playwright
-        if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
-        working-directory: ./frontend
-        run: |
-          npm install --no-save @playwright/test
-          npx playwright install --with-deps chromium
-
-      - name: Run E2E tests
-        if: ${{ ! startsWith(github.ref, 'refs/tags/v') }}
-        working-directory: ./frontend
-        timeout-minutes: 15
-        env:
-          BASE_URL: http://localhost:80
-          CI: true
-        run: npm run test:e2e
-
-      - name: Upload Playwright report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Windmill E2E Playwright Report
-          path: frontend/playwright-report/
-          retention-days: 30
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: Windmill E2E Test Results
-          path: frontend/test-results/
-          retention-days: 30
-
-      - name: Capture Docker logs on failure
-        if: failure()
-        working-directory: ./e2e-tests
-        run: |
-          mkdir -p logs
-          docker compose logs > logs/docker-compose.log
-          docker compose ps > logs/docker-compose-ps.log
-
-      - name: Upload Docker logs
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: Windmill E2E Docker Logs
-          path: e2e-tests/logs/
-          retention-days: 7
-
-      - name: Cleanup
-        if: always()
-        working-directory: ./e2e-tests
-        run: |
-          docker compose down -v
-          docker compose rm -f
-
   tag_latest:
     runs-on: ubicloud
-    needs: [run_integration_test, run_e2e_tests, build]
+    needs: [run_integration_test, build]
     if:
       github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))  && (github.event_name != 'workflow_dispatch')
@@ -418,7 +309,7 @@ jobs:
 
   tag_latest_ee:
     runs-on: ubicloud
-    needs: [run_integration_test, run_e2e_tests, build_ee]
+    needs: [run_integration_test, build_ee]
     if:
       github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch') && (github.ref == 'refs/heads/main' ||
       startsWith(github.ref, 'refs/tags/v'))
