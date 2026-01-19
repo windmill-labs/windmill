@@ -453,7 +453,6 @@ async fn windmill_main() -> anyhow::Result<()> {
     };
 
     // TODO: maybe gate behind debug_assertions?
-    // TODO: what about native?
     if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
@@ -1382,14 +1381,30 @@ Windmill Community Edition {GIT_VERSION}
             {
                 // Start OTEL tracing proxy for HTTP request interception
                 // Only enabled when: setting is on, worker mode (not server), and single worker (to avoid race conditions)
-                if worker_mode && num_workers == 1 && windmill_worker::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled {
+                if worker_mode
+                    && num_workers == 1
+                    && windmill_worker::OTEL_TRACING_PROXY_SETTINGS
+                        .read()
+                        .await
+                        .enabled
+                {
                     if let Some(db) = conn.as_sql() {
-                        tracing::info!("Starting OTEL tracing proxy (port will be dynamically assigned)");
-                        if let Err(e) = windmill_worker::start_otel_tracing_proxy(db.clone(), otel_killpill_rx).await {
+                        tracing::info!(
+                            "Starting OTEL tracing proxy (port will be dynamically assigned)"
+                        );
+                        if let Err(e) =
+                            windmill_worker::start_otel_tracing_proxy(db.clone(), otel_killpill_rx)
+                                .await
+                        {
                             tracing::error!("OTEL tracing proxy error: {}", e);
                         }
                     }
-                } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS.read().await.enabled && num_workers > 1 {
+                } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS
+                    .read()
+                    .await
+                    .enabled
+                    && num_workers > 1
+                {
                     tracing::warn!("OTEL tracing proxy is enabled but num_workers > 1. Disabling to avoid race conditions. Set NUM_WORKERS=1 to enable.");
                 }
             }
