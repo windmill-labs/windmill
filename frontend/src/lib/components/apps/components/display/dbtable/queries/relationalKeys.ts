@@ -266,32 +266,28 @@ WHERE
 
 // Snowflake queries
 function makeSnowflakeForeignKeysQuery(tableName: string, schemaName: string): string {
-	return `
-SELECT
-    tc.constraint_name as fk_constraint_name,
-    kcu.column_name as source_column,
-    rc.unique_constraint_schema || '.' || ccu.table_name as target_table,
-    ccu.column_name as target_column,
-    COALESCE(rc.delete_rule, 'NO ACTION') as on_delete,
-    COALESCE(rc.update_rule, 'NO ACTION') as on_update
-FROM
-    information_schema.table_constraints tc
-    JOIN information_schema.referential_constraints rc
-        ON tc.constraint_name = rc.constraint_name
-        AND tc.constraint_schema = rc.constraint_schema
-    JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-        AND tc.constraint_schema = kcu.constraint_schema
-    JOIN information_schema.constraint_column_usage ccu
-        ON rc.unique_constraint_name = ccu.constraint_name
-        AND rc.unique_constraint_schema = ccu.constraint_schema
-WHERE
-    tc.constraint_type = 'FOREIGN KEY'
-    AND tc.table_name = '${tableName}'
-    AND tc.table_schema = '${schemaName}'
-ORDER BY
-    tc.constraint_name, kcu.ordinal_position;
-`.trim()
+	return `SHOW IMPORTED KEYS IN TABLE ${schemaName}.${tableName}`
+}
+
+/**
+ * Transforms Snowflake SHOW IMPORTED KEYS result to RawForeignKey format
+ * Snowflake returns columns: fk_database_name, fk_schema_name, fk_table_name, fk_column_name,
+ * pk_database_name, pk_schema_name, pk_table_name, pk_column_name, key_sequence,
+ * update_rule, delete_rule, fk_name, pk_name, deferrability
+ */
+function transformSnowflakeForeignKeys(snowflakeResults: any[]): RawForeignKey[] {
+	if (!snowflakeResults || !Array.isArray(snowflakeResults)) {
+		return []
+	}
+
+	return snowflakeResults.map((row) => ({
+		fk_constraint_name: row.fk_name || row.FK_NAME || '',
+		source_column: row.fk_column_name || row.FK_COLUMN_NAME || '',
+		target_table: `${row.pk_schema_name || row.PK_SCHEMA_NAME || ''}.${row.pk_table_name || row.PK_TABLE_NAME || ''}`,
+		target_column: row.pk_column_name || row.PK_COLUMN_NAME || '',
+		on_delete: (row.delete_rule || row.DELETE_RULE || 'NO ACTION').toUpperCase() as 'CASCADE' | 'SET NULL' | 'NO ACTION',
+		on_update: (row.update_rule || row.UPDATE_RULE || 'NO ACTION').toUpperCase() as 'CASCADE' | 'SET NULL' | 'NO ACTION'
+	}))
 }
 
 function makeSnowflakePrimaryKeyQuery(tableName: string, schemaName: string): string {
@@ -418,17 +414,27 @@ export async function fetchTableRelationalKeys(
 					requestBody: { args: dbArg, content: fkQuery, language }
 				})
 
-				let rawForeignKeys = fkResult as RawForeignKey[]
+				let rawForeignKeys: RawForeignKey[]
+
+				// Snowflake returns a different format from SHOW IMPORTED KEYS
+				if (dbType === 'snowflake') {
+					rawForeignKeys = transformSnowflakeForeignKeys(fkResult as any[])
+				} else {
+					rawForeignKeys = fkResult as RawForeignKey[]
+
+					if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
+						// Lowercase keys for consistency
+						rawForeignKeys = rawForeignKeys.map((fk) => {
+							const lowerFk: any = {}
+							Object.keys(fk).forEach((key) => {
+								lowerFk[key.toLowerCase()] = fk[key]
+							})
+							return lowerFk
+						})
+					}
+				}
 
 				if (rawForeignKeys && Array.isArray(rawForeignKeys)) {
-					// Lowercase keys for consistency
-					rawForeignKeys = rawForeignKeys.map((fk) => {
-						const lowerFk: any = {}
-						Object.keys(fk).forEach((key) => {
-							lowerFk[key.toLowerCase()] = fk[key]
-						})
-						return lowerFk
-					})
 					return transformForeignKeys(rawForeignKeys)
 				}
 			}
