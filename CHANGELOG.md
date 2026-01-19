@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.611.0](https://github.com/windmill-labs/windmill/compare/v1.610.1...v1.611.0) (2026-01-19)
+
+
+### Features
+
+* add HashiCorp Vault secret storage integration ([#7599](https://github.com/windmill-labs/windmill/issues/7599)) ([1b9d1c5](https://github.com/windmill-labs/windmill/commit/1b9d1c56c7e49042677326eb397e10d34a3ddcdf))
+
+
+### Bug Fixes
+
+* **flow-chat:** handle SSE timeout and fix temp message race condition ([4f8110e](https://github.com/windmill-labs/windmill/commit/4f8110eb9852b78b48aabbed114c75cbf0d1a2ef))
+
 ## [1.610.1](https://github.com/windmill-labs/windmill/compare/v1.610.0...v1.610.1) (2026-01-17)
 
 
