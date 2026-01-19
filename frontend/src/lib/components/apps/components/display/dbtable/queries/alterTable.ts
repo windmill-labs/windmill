@@ -123,7 +123,8 @@ export function makeAlterTableQueries(
 				break
 
 			case 'renameTable':
-				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${op.to};`)
+				const tableNewRef = dbType === 'snowflake' && schema ? `${schema.trim()}.${op.to}` : op.to
+				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${tableNewRef};`)
 				break
 
 			case 'addPrimaryKey':

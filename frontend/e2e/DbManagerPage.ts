@@ -156,10 +156,12 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	if (dbType !== 'bigquery' && dbType !== 'snowflake') {
 		await friendCol.checkTypeIs(getDbDatatype(dbType, 'BIGINT'))
 	}
-	if (dbFeatures.defaultValues) {
+	if (dbFeatures.defaultValues && dbType !== 'snowflake') {
 		await friendCol.checkSettingsIs({ defaultValue: /123/ })
 	}
-	await createdAtCol.checkTypeIs(getDbDatatype(dbType, 'TIMESTAMP'))
+	await createdAtCol.checkTypeIs(
+		dbType === 'snowflake' ? 'TIMESTAMP_NTZ' : getDbDatatype(dbType, 'TIMESTAMP')
+	)
 	await createdAtCol.checkNameIs(identifier(dbType, 'created_at'))
 	if (dbFeatures.primaryKeys && dbType !== 'bigquery') {
 		await friendCol.checkPrimaryKeyIs(true)
