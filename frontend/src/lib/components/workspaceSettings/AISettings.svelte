@@ -46,7 +46,7 @@
 	)
 
 	let modalOpen = $state(false)
-	let initialPrompts = { ...customPrompts }
+	let initialPrompts = $state($state.snapshot(customPrompts))
 	let hasPromptsChanges = $derived(
 		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(
 			(key) => {
@@ -96,11 +96,6 @@
 			fetchedAiModels = true
 		})()
 	})
-
-	function savePrompts() {
-		initialPrompts = { ...customPrompts }
-		sendUserToast('AI prompts updated - remember to save AI settings')
-	}
 
 	function resetPrompts() {
 		customPrompts = { ...initialPrompts }
@@ -198,11 +193,11 @@
 	</div>
 </div>
 
-<div class="flex flex-col gap-6 mt-4">
+<div class="flex flex-col gap-8 mt-4">
 	<Label label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
-				<div class="flex flex-col gap-2">
+				<div class="flex flex-col">
 					<div class="flex flex-row gap-2">
 						<Toggle
 							options={{
@@ -260,7 +255,10 @@
 					</div>
 
 					{#if aiProviders[provider]}
-						<div class="mb-4 flex flex-col gap-6 border p-4 rounded-md">
+						<div
+							class="mb-4 flex flex-col gap-6 border p-4 rounded-md mt-2"
+							transition:slide|local={{ duration: 150 }}
+						>
 							<Label label="Resource">
 								<div class="flex flex-row gap-1">
 									<ResourcePicker
@@ -362,23 +360,21 @@
 			members.
 		</p>
 
-		<div class="flex justify-between items-center">
-			<div class="flex items-center gap-2 pt-1">
-				<Button
-					onclick={() => (modalOpen = true)}
-					variant="default"
-					unifiedSize="sm"
-					startIcon={{ icon: Settings }}
-				>
-					Configure AI Prompts
-				</Button>
-				{#if promptCount > 0}
-					<span class="text-xs text-secondary">({promptCount} configured)</span>
-				{/if}
-			</div>
-
+		<div class="flex items-center gap-2 pt-1">
+			<Button
+				onclick={() => (modalOpen = true)}
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: Settings }}
+				disabled={Object.keys(aiProviders ?? {}).length === 0}
+			>
+				Configure AI prompts
+			</Button>
+			{#if promptCount > 0}
+				<span class="text-xs text-secondary">({promptCount} configured)</span>
+			{/if}
 			{#if hasPromptsChanges}
-				<span class="text-xs text-yellow-600 dark:text-yellow-400"> Unsaved changes </span>
+				<Badge color="yellow">Unsaved changes</Badge>
 			{/if}
 		</div>
 	</Label>
@@ -386,13 +382,10 @@
 	<div class="py-6"></div>
 </div>
 
-{#if Object.keys(aiProviders).length > 0}
-	<AIPromptsModal
-		bind:open={modalOpen}
-		bind:customPrompts
-		onSave={savePrompts}
-		onReset={resetPrompts}
-		hasChanges={hasPromptsChanges}
-		isWorkspaceSettings={true}
-	/>
-{/if}
+<AIPromptsModal
+	bind:open={modalOpen}
+	bind:customPrompts
+	onReset={resetPrompts}
+	hasChanges={hasPromptsChanges}
+	isWorkspaceSettings={true}
+/>

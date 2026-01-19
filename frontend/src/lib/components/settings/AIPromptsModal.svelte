@@ -10,7 +10,7 @@
 	interface Props {
 		open?: boolean
 		customPrompts: Record<string, string>
-		onSave: () => void
+		onSave?: () => void
 		onReset: () => void
 		hasChanges: boolean
 		isWorkspaceSettings?: boolean
@@ -44,7 +44,7 @@
 	}
 
 	function handleSave() {
-		onSave()
+		onSave?.()
 		open = false
 	}
 
@@ -64,7 +64,8 @@
 		<div class="grow min-h-0 overflow-y-auto" style="scrollbar-gutter: stable;">
 			<div class="text-xs text-secondary mb-6">
 				{#if isWorkspaceSettings}
-					Customize the system prompts for each AI mode. These prompts apply to all workspace members.
+					Customize the system prompts for each AI mode. These prompts apply to all workspace
+					members.
 				{:else}
 					Customize the system prompts for each AI mode. These prompts are stored locally in your
 					browser and apply in addition to workspace-level prompts.
@@ -100,9 +101,11 @@
 			<Button size="sm" variant="default" disabled={!hasChanges} onclick={handleReset}>
 				Reset
 			</Button>
-			<Button size="sm" variant="accent" disabled={!hasChanges} onclick={handleSave}>
-				Save Prompts
-			</Button>
+			{#if onSave}
+				<Button size="sm" variant="accent" disabled={!hasChanges} onclick={handleSave}>
+					Save Prompts
+				</Button>
+			{/if}
 		</div>
 	</div>
 </Modal2>

@@ -32,11 +32,13 @@
 	)
 
 	let hasChanges = $derived(
-		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(key => {
-			const currentValue = customPrompts[key] || ''
-			const initialValue = initialPrompts[key] || ''
-			return currentValue !== initialValue
-		})
+		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(
+			(key) => {
+				const currentValue = customPrompts[key] || ''
+				const initialValue = initialPrompts[key] || ''
+				return currentValue !== initialValue
+			}
+		)
 	)
 </script>
 
@@ -59,7 +61,7 @@
 						unifiedSize="sm"
 						startIcon={{ icon: Settings }}
 					>
-						Configure AI Prompts
+						Configure AI prompts
 					</Button>
 					{#if hasPrompts}
 						<span class="text-xs text-secondary">({promptCount} configured)</span>
