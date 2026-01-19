@@ -429,3 +429,87 @@ Deno.test("round-trip: folder meta with sanitized branch", () => {
   const restored = fromBranchSpecificPath(branchSpecific, branch);
   assertEquals(restored, original);
 });
+
+// =============================================================================
+// SETTINGS BRANCH-SPECIFIC TESTS
+// =============================================================================
+
+Deno.test("toBranchSpecificPath: converts settings.yaml to branch-specific", () => {
+  const result = toBranchSpecificPath("settings.yaml", "main");
+  assertEquals(result, "settings.main.yaml");
+});
+
+Deno.test("toBranchSpecificPath: sanitizes branch name in settings path", () => {
+  const result = toBranchSpecificPath("settings.yaml", "feature/test");
+  assertEquals(result, "settings.feature_test.yaml");
+});
+
+Deno.test("fromBranchSpecificPath: converts branch-specific settings back to base", () => {
+  const result = fromBranchSpecificPath("settings.main.yaml", "main");
+  assertEquals(result, "settings.yaml");
+});
+
+Deno.test("fromBranchSpecificPath: handles sanitized branch names for settings", () => {
+  const result = fromBranchSpecificPath("settings.feature_test.yaml", "feature/test");
+  assertEquals(result, "settings.yaml");
+});
+
+Deno.test("isSpecificItem: matches settings.yaml when settings is true", () => {
+  const config: SpecificItemsConfig = {
+    settings: true,
+  };
+  assertEquals(isSpecificItem("settings.yaml", config), true);
+});
+
+Deno.test("isSpecificItem: does not match settings.yaml when settings is false", () => {
+  const config: SpecificItemsConfig = {
+    settings: false,
+  };
+  assertEquals(isSpecificItem("settings.yaml", config), false);
+});
+
+Deno.test("isSpecificItem: does not match settings.yaml when settings is undefined", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isSpecificItem("settings.yaml", config), false);
+});
+
+Deno.test("isBranchSpecificFile: detects branch-specific settings files", () => {
+  assertEquals(isBranchSpecificFile("settings.main.yaml"), true);
+  assertEquals(isBranchSpecificFile("settings.develop.yaml"), true);
+  assertEquals(isBranchSpecificFile("settings.feature_test.yaml"), true);
+});
+
+Deno.test("isBranchSpecificFile: returns false for non-branch-specific settings", () => {
+  assertEquals(isBranchSpecificFile("settings.yaml"), false);
+});
+
+Deno.test("isCurrentBranchFile: detects branch-specific settings for current branch", () => {
+  assertEquals(isCurrentBranchFile("settings.staging.yaml", "staging"), true);
+  assertEquals(isCurrentBranchFile("settings.staging.yaml", "production"), false);
+  assertEquals(isCurrentBranchFile("settings.yaml", "staging"), false);
+});
+
+Deno.test("isCurrentBranchFile: handles sanitized branch for settings", () => {
+  assertEquals(isCurrentBranchFile("settings.feature_test.yaml", "feature/test"), true);
+  assertEquals(isCurrentBranchFile("settings.feature_test.yaml", "feature/other"), false);
+});
+
+Deno.test("round-trip: settings path conversion", () => {
+  const original = "settings.yaml";
+  const branch = "main";
+  const branchSpecific = toBranchSpecificPath(original, branch);
+  assertEquals(branchSpecific, "settings.main.yaml");
+  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  assertEquals(restored, original);
+});
+
+Deno.test("round-trip: settings with sanitized branch", () => {
+  const original = "settings.yaml";
+  const branch = "release/v1.0";
+  const branchSpecific = toBranchSpecificPath(original, branch);
+  assertEquals(branchSpecific, "settings.release_v1_0.yaml");
+  const restored = fromBranchSpecificPath(branchSpecific, branch);
+  assertEquals(restored, original);
+});

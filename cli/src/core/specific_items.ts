@@ -9,6 +9,7 @@ export interface SpecificItemsConfig {
   resources?: string[];
   triggers?: string[];
   folders?: string[];
+  settings?: boolean;
 }
 
 // Define all branch-specific file types (computed lazily)
@@ -99,6 +100,12 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOver
   if (commonItems?.triggers) {
     merged.triggers = [...commonItems.triggers];
   }
+  if (commonItems?.folders) {
+    merged.folders = [...commonItems.folders];
+  }
+  if (commonItems?.settings !== undefined) {
+    merged.settings = commonItems.settings;
+  }
 
   // Add branch-specific items (extending common items)
   if (branchItems?.variables) {
@@ -109,6 +116,13 @@ export function getSpecificItemsForCurrentBranch(config: SyncOptions, branchOver
   }
   if (branchItems?.triggers) {
     merged.triggers = [...(merged.triggers || []), ...branchItems.triggers];
+  }
+  if (branchItems?.folders) {
+    merged.folders = [...(merged.folders || []), ...branchItems.folders];
+  }
+  // For settings (boolean), branch-specific overrides common
+  if (branchItems?.settings !== undefined) {
+    merged.settings = branchItems.settings;
   }
 
   return merged;
@@ -153,6 +167,11 @@ export function isSpecificItem(path: string, specificItems: SpecificItemsConfig 
     return false;
   }
 
+  // Check for settings.yaml (root-level file)
+  if (path === 'settings.yaml') {
+    return specificItems.settings === true;
+  }
+
   // Check for resource files using the standard detection function
   if (isFileResource(path)) {
     // Extract the base path without the file extension to match against patterns
@@ -182,6 +201,11 @@ export function toBranchSpecificPath(basePath: string, branchName: string): stri
   if (basePath.endsWith('/folder.meta.yaml')) {
     const pathWithoutMeta = basePath.substring(0, basePath.length - '/folder.meta.yaml'.length);
     return `${pathWithoutMeta}/folder.${sanitizedBranchName}.meta.yaml`;
+  }
+
+  // Check for settings.yaml: settings.yaml -> settings.branchName.yaml
+  if (basePath === 'settings.yaml') {
+    return `settings.${sanitizedBranchName}.yaml`;
   }
 
   // Check for resource file pattern (e.g., .resource.file.ini)
@@ -218,6 +242,12 @@ export function fromBranchSpecificPath(branchSpecificPath: string, branchName: s
   const folderPattern = new RegExp(`/folder\\.${escapedBranchName}\\.meta\\.yaml$`);
   if (folderPattern.test(branchSpecificPath)) {
     return branchSpecificPath.replace(folderPattern, '/folder.meta.yaml');
+  }
+
+  // Check for settings file pattern: settings.branchName.yaml -> settings.yaml
+  const settingsPattern = new RegExp(`^settings\\.${escapedBranchName}\\.yaml$`);
+  if (settingsPattern.test(branchSpecificPath)) {
+    return 'settings.yaml';
   }
 
   // Check for resource file pattern
@@ -309,7 +339,8 @@ export function isCurrentBranchFile(path: string, branchOverride?: string): bool
     pattern = new RegExp(
       `\\.${escapedBranchName}\\.${buildYamlTypePattern()}\\.yaml$|` +
       `\\.${escapedBranchName}\\.resource\\.file\\..+$|` +
-      `/folder\\.${escapedBranchName}\\.meta\\.yaml$`
+      `/folder\\.${escapedBranchName}\\.meta\\.yaml$|` +
+      `^settings\\.${escapedBranchName}\\.yaml$`
     );
     branchPatternCache.set(currentBranch, pattern);
   }
@@ -326,6 +357,7 @@ export function isBranchSpecificFile(path: string): boolean {
   return new RegExp(
     `\\.[^.]+\\.${yamlTypePattern}\\.yaml$|` +
     `\\.[^.]+\\.resource\\.file\\..+$|` +
-    `/folder\\.[^.]+\\.meta\\.yaml$`
+    `/folder\\.[^.]+\\.meta\\.yaml$|` +
+    `^settings\\.[^.]+\\.yaml$`
   ).test(path);
 }
