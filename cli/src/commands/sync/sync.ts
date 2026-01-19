@@ -1866,9 +1866,9 @@ export async function pull(
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2351,9 +2351,9 @@ export async function push(
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
