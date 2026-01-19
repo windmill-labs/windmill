@@ -1766,7 +1766,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_urlencoded",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tower-service",
@@ -2133,9 +2133,9 @@ dependencies = [
 
 [[package]]
 name = "cc"
-version = "1.2.52"
+version = "1.2.53"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd4932aefd12402b36c60956a4fe0035421f544799057659ff86f923657aada3"
+checksum = "755d2fce177175ffca841e9a06afdb2c4ab0f593d53b4dee48147dfaade85932"
 dependencies = [
  "find-msvc-tools",
  "jobserver",
@@ -3608,7 +3608,7 @@ dependencies = [
  "swc_visit",
  "swc_visit_macros",
  "text_lines",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "unicode-width 0.1.14",
  "url",
 ]
@@ -3622,7 +3622,7 @@ dependencies = [
  "async-trait",
  "deno_core",
  "deno_error",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]
@@ -3639,7 +3639,7 @@ dependencies = [
  "rusqlite",
  "serde",
  "sha2 0.10.9",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -3683,7 +3683,7 @@ dependencies = [
  "deno_webgpu",
  "image",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -3709,7 +3709,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -3754,7 +3754,7 @@ dependencies = [
  "smallvec",
  "sourcemap 8.0.1",
  "static_assertions",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "url",
  "v8",
@@ -3779,7 +3779,7 @@ dependencies = [
  "deno_core",
  "deno_error",
  "saffron",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -3817,7 +3817,7 @@ dependencies = [
  "sha2 0.10.9",
  "signature",
  "spki",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
  "x25519-dalek",
@@ -3877,7 +3877,7 @@ dependencies = [
  "rustls-webpki 0.102.8",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-rustls 0.26.4",
  "tokio-socks",
@@ -3905,7 +3905,7 @@ dependencies = [
  "serde",
  "serde-value",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "winapi",
 ]
@@ -3931,7 +3931,7 @@ dependencies = [
  "rand 0.8.5",
  "rayon",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "winapi",
  "windows-sys 0.59.0",
 ]
@@ -3970,7 +3970,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
 ]
@@ -4030,7 +4030,7 @@ dependencies = [
  "rand 0.8.5",
  "rusqlite",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4043,7 +4043,7 @@ dependencies = [
  "deno_semver",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4070,7 +4070,7 @@ dependencies = [
  "libloading 0.7.4",
  "log",
  "napi_sym",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "windows-sys 0.59.0",
 ]
 
@@ -4104,7 +4104,7 @@ dependencies = [
  "rustls-tokio-stream",
  "serde",
  "socket2 0.5.10",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4191,7 +4191,7 @@ dependencies = [
  "spki",
  "stable_deref_trait",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-eld",
  "url",
@@ -4219,7 +4219,7 @@ dependencies = [
  "monch",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4237,7 +4237,7 @@ dependencies = [
  "strum 0.25.0",
  "strum_macros 0.25.3",
  "syn 2.0.114",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4258,7 +4258,7 @@ dependencies = [
  "serde",
  "signal-hook",
  "signal-hook-registry",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "winapi",
 ]
@@ -4277,7 +4277,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4290,7 +4290,7 @@ dependencies = [
  "deno_error",
  "percent-encoding",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4311,7 +4311,7 @@ dependencies = [
  "once_cell",
  "percent-encoding",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "which 6.0.3",
  "winapi",
 ]
@@ -4338,7 +4338,7 @@ dependencies = [
  "serde",
  "simd-json",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "which 6.0.3",
  "winapi",
@@ -4372,7 +4372,7 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4437,7 +4437,7 @@ dependencies = [
  "serde",
  "sys_traits",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-metrics",
  "twox-hash 1.6.3",
@@ -4460,7 +4460,7 @@ dependencies = [
  "monch",
  "once_cell",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -4487,7 +4487,7 @@ dependencies = [
  "opentelemetry_sdk 0.27.1",
  "pin-project",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4515,7 +4515,7 @@ dependencies = [
  "rustls-tokio-stream",
  "rustls-webpki 0.102.8",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "webpki-roots 0.26.11",
 ]
@@ -4539,7 +4539,7 @@ checksum = "d79e743ad841f7826d46c6944580f5ba665fe9ab4c31a68c4eed8b5a78225da3"
 dependencies = [
  "deno_core",
  "deno_error",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "urlpattern",
 ]
 
@@ -4559,7 +4559,7 @@ dependencies = [
  "flate2",
  "futures",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "uuid",
 ]
@@ -4574,7 +4574,7 @@ dependencies = [
  "deno_error",
  "raw-window-handle",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "wgpu-core",
  "wgpu-types",
@@ -4610,7 +4610,7 @@ dependencies = [
  "once_cell",
  "rustls-tokio-stream",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4624,7 +4624,7 @@ dependencies = [
  "deno_error",
  "deno_web",
  "rusqlite",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -4672,7 +4672,7 @@ dependencies = [
  "rand 0.8.5",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "url",
@@ -4697,7 +4697,7 @@ dependencies = [
  "rand 0.8.5",
  "rusqlite",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "uuid",
@@ -5559,21 +5559,20 @@ checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
 
 [[package]]
 name = "filetime"
-version = "0.2.26"
+version = "0.2.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc0505cd1b6fa6580283f6bdf70a73fcf4aba1184038c90902b92b3dd0df63ed"
+checksum = "f98844151eee8917efc50bd9e8318cb963ae8b297431495d3f758616ea5c57db"
 dependencies = [
  "cfg-if",
  "libc",
  "libredox",
- "windows-sys 0.60.2",
 ]
 
 [[package]]
 name = "find-msvc-tools"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f449e6c6c08c865631d4890cfacf252b3d396c9bcc83adb6623cdb02a8336c41"
+checksum = "8591b0bcc8a98a64310a2fae1bb3e9b8564dd10e381e6e28010fde8e8e8568db"
 
 [[package]]
 name = "fixedbitset"
@@ -6675,7 +6674,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "ureq",
  "windows-sys 0.60.2",
@@ -6700,7 +6699,7 @@ dependencies = [
  "once_cell",
  "rand 0.9.0",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tinyvec",
  "tokio",
  "tracing",
@@ -6724,7 +6723,7 @@ dependencies = [
  "resolv-conf",
  "serde",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -7313,7 +7312,7 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -7593,7 +7592,7 @@ dependencies = [
  "pest_derive",
  "regex",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -7783,7 +7782,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tower 0.5.3",
@@ -7807,7 +7806,7 @@ dependencies = [
  "serde",
  "serde-value",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -7845,7 +7844,7 @@ dependencies = [
  "pin-project",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-util",
  "tracing",
@@ -8655,7 +8654,7 @@ dependencies = [
  "quote",
  "syn 2.0.114",
  "termcolor",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -8680,7 +8679,7 @@ dependencies = [
  "serde",
  "serde_json",
  "socket2 0.5.10",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-native-tls",
  "tokio-util",
@@ -8712,7 +8711,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2 0.10.9",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "uuid",
 ]
 
@@ -8882,7 +8881,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sys_traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "url",
 ]
 
@@ -9030,7 +9029,7 @@ dependencies = [
  "num-format",
  "serde",
  "serde_json",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "typetag",
  "windows-sys 0.48.0",
 ]
@@ -9305,7 +9304,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "url",
@@ -10443,7 +10442,7 @@ dependencies = [
  "lazy_static",
  "memchr",
  "parking_lot",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -10628,7 +10627,7 @@ dependencies = [
  "rustc-hash 2.1.1",
  "rustls 0.23.35",
  "socket2 0.6.1",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "web-time",
@@ -10650,7 +10649,7 @@ dependencies = [
  "rustls 0.23.35",
  "rustls-pki-types",
  "slab",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tinyvec",
  "tracing",
  "web-time",
@@ -10951,7 +10950,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -11128,7 +11127,7 @@ dependencies = [
  "http 1.4.0",
  "reqwest 0.13.1",
  "serde",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tower-service",
 ]
 
@@ -11147,7 +11146,7 @@ dependencies = [
  "reqwest 0.13.1",
  "reqwest-middleware",
  "retry-policies",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "wasmtimer",
@@ -11270,7 +11269,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sse-stream",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -11529,7 +11528,7 @@ dependencies = [
  "once_cell",
  "ring 0.17.14",
  "rustls-pki-types",
- "rustls-webpki 0.103.8",
+ "rustls-webpki 0.103.9",
  "subtle",
  "zeroize",
 ]
@@ -11591,9 +11590,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.13.3"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4910321ebe4151be888e35fe062169554e74aad01beafed60410131420ceffbc"
+checksum = "be040f8b0a225e40375822a563fa9524378b9d63112f53e19ffff34df5d33fdd"
 dependencies = [
  "web-time",
  "zeroize",
@@ -11613,7 +11612,7 @@ dependencies = [
  "rustls 0.23.35",
  "rustls-native-certs 0.8.3",
  "rustls-platform-verifier-android",
- "rustls-webpki 0.103.8",
+ "rustls-webpki 0.103.9",
  "security-framework 3.5.1",
  "security-framework-sys",
  "webpki-root-certs 1.0.5",
@@ -11661,9 +11660,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.8"
+version = "0.103.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2ffdfa2f5286e2247234e03f680868ac2815974dc39e00ea15adc445d0aafe52"
+checksum = "d7df23109aa6c1567d1c575b9952556388da57401e4ace1d15f79eedad0d8f53"
 dependencies = [
  "aws-lc-rs",
  "ring 0.17.14",
@@ -12193,7 +12192,7 @@ dependencies = [
  "num-bigint",
  "serde",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "v8",
 ]
 
@@ -12422,7 +12421,7 @@ checksum = "297f631f50729c8c99b84667867963997ec0b50f32b2a7dbcab828ef0541e8bb"
 dependencies = [
  "num-bigint",
  "num-traits",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "time",
 ]
 
@@ -12715,7 +12714,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "smallvec",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tracing",
@@ -12801,7 +12800,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tracing",
  "uuid",
  "whoami",
@@ -12842,7 +12841,7 @@ dependencies = [
  "smallvec",
  "sqlx-core",
  "stringprep",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tracing",
  "uuid",
  "whoami",
@@ -12868,7 +12867,7 @@ dependencies = [
  "serde",
  "serde_urlencoded",
  "sqlx-core",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tracing",
  "url",
  "uuid",
@@ -13600,7 +13599,7 @@ dependencies = [
  "tantivy-stacker",
  "tantivy-tokenizer-api",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "time",
  "uuid",
  "winapi",
@@ -13772,11 +13771,11 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
+checksum = "4288b5bcbc7920c07a1149a35cf9590a2aa808e0bc1eafaade0b80947865fbc4"
 dependencies = [
- "thiserror-impl 2.0.17",
+ "thiserror-impl 2.0.18",
 ]
 
 [[package]]
@@ -13792,9 +13791,9 @@ dependencies = [
 
 [[package]]
 name = "thiserror-impl"
-version = "2.0.17"
+version = "2.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
+checksum = "ebc4ee7f67670e9b64d05fa4253e753e016c6c95ff35b89b7941d6b856dec1d5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -14477,7 +14476,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "786d480bce6247ab75f005b14ae1624ad978d3029d9113f0a22fa1ac773faeaf"
 dependencies = [
  "crossbeam-channel",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "time",
  "tracing-subscriber",
 ]
@@ -15321,7 +15320,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2eeee3bdea6257cc36d756fa745a70f9d393571e47d69e0ed97581676a5369ca"
 dependencies = [
  "deno_error",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -15551,7 +15550,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "aws-sdk-config",
@@ -15615,7 +15614,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -15652,6 +15651,7 @@ dependencies = [
  "deno_core",
  "deno_error",
  "ed25519-dalek",
+ "flate2",
  "futures",
  "git-version",
  "google-cloud-googleapis",
@@ -15699,8 +15699,9 @@ dependencies = [
  "sha2 0.10.9",
  "sql-builder",
  "sqlx",
+ "tar",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "time",
  "tinyvector",
  "tokenizers",
@@ -15738,7 +15739,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -15748,7 +15749,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "chrono",
  "lazy_static",
@@ -15762,7 +15763,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -15771,7 +15772,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "uuid",
@@ -15781,7 +15782,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15852,7 +15853,7 @@ dependencies = [
  "systemstat",
  "tar",
  "tempfile",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tikv-jemalloc-ctl",
  "tokio",
  "tokio-postgres 0.7.13",
@@ -15875,7 +15876,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "regex",
  "serde",
@@ -15890,7 +15891,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -15914,7 +15915,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15930,21 +15931,27 @@ dependencies = [
 
 [[package]]
 name = "windmill-mcp"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "futures",
+ "http 1.4.0",
  "oauth2",
  "reqwest 0.12.28",
  "rmcp",
  "serde",
  "serde_json",
+ "sqlx",
+ "tokio",
+ "tokio-util",
  "tracing",
  "windmill-common",
 ]
 
 [[package]]
 name = "windmill-oauth"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "async-oauth2",
@@ -15968,7 +15975,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15977,7 +15984,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15989,7 +15996,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -16001,7 +16008,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -16013,7 +16020,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16025,7 +16032,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -16037,7 +16044,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -16048,7 +16055,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -16059,7 +16066,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -16072,7 +16079,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16096,7 +16103,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16110,7 +16117,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -16127,7 +16134,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16141,7 +16148,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16160,7 +16167,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -16171,7 +16178,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16197,7 +16204,7 @@ dependencies = [
  "serde_urlencoded",
  "sql-builder",
  "sqlx",
- "thiserror 2.0.17",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "ulid",
@@ -16208,7 +16215,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -16218,7 +16225,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.608.0"
+version = "1.611.0"
 dependencies = [
  "anyhow",
  "async-once-cell",

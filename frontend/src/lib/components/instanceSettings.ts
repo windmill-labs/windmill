@@ -29,25 +29,26 @@ export interface Setting {
 		value?: string
 	}[]
 	fieldType:
-	| 'text'
-	| 'number'
-	| 'boolean'
-	| 'password'
-	| 'select'
-	| 'select_python'
-	| 'textarea'
-	| 'codearea'
-	| 'seconds'
-	| 'email'
-	| 'license_key'
-	| 'object_store_config'
-	| 'critical_error_channels'
-	| 'critical_alerts_on_db_oversize'
-	| 'slack_connect'
-	| 'smtp_connect'
-	| 'indexer_rates'
-	| 'otel'
-	| 'otel_tracing_proxy'
+		| 'text'
+		| 'number'
+		| 'boolean'
+		| 'password'
+		| 'select'
+		| 'select_python'
+		| 'textarea'
+		| 'codearea'
+		| 'seconds'
+		| 'email'
+		| 'license_key'
+		| 'object_store_config'
+		| 'critical_error_channels'
+		| 'critical_alerts_on_db_oversize'
+		| 'slack_connect'
+		| 'smtp_connect'
+		| 'indexer_rates'
+		| 'otel'
+		| 'otel_tracing_proxy'
+		| 'secret_backend'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -495,6 +496,17 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
+		}
+	],
+	'Secret Storage': [
+		{
+			label: 'Secret Storage Backend',
+			description:
+				'Configure where secrets (secret variables) are stored. By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+			key: 'secret_backend',
+			fieldType: 'secret_backend',
+			storage: 'setting',
+			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	]
 }

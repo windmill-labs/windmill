@@ -230,7 +230,7 @@ pub async fn do_mssql(
             let rows_stream = async_stream::stream! {
                 let mut stream = prepared_query.query(&mut client).await.map_err(to_anyhow)?.into_row_stream().map(|row| {
                     let raw_value = row_to_json(row.map_err(to_anyhow)?).map_err(to_anyhow);
-                    let json = raw_value.and_then(|raw_value| serde_json::to_value(raw_value.get()).map_err(to_anyhow));
+                    let json = raw_value.and_then(|raw_value| serde_json::from_str(raw_value.get()).map_err(to_anyhow));
                     json
                 });
                 while let Some(row) = stream.next().await {

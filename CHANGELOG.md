@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.611.0](https://github.com/windmill-labs/windmill/compare/v1.610.1...v1.611.0) (2026-01-19)
+
+
+### Features
+
+* add HashiCorp Vault secret storage integration ([#7599](https://github.com/windmill-labs/windmill/issues/7599)) ([1b9d1c5](https://github.com/windmill-labs/windmill/commit/1b9d1c56c7e49042677326eb397e10d34a3ddcdf))
+
+
+### Bug Fixes
+
+* **flow-chat:** handle SSE timeout and fix temp message race condition ([4f8110e](https://github.com/windmill-labs/windmill/commit/4f8110eb9852b78b48aabbed114c75cbf0d1a2ef))
+
+## [1.610.1](https://github.com/windmill-labs/windmill/compare/v1.610.0...v1.610.1) (2026-01-17)
+
+
+### Bug Fixes
+
+* resolve BlobPart type incompatibility between Deno and Node.js ([2eac74c](https://github.com/windmill-labs/windmill/commit/2eac74cef4aa5a987fb16110388f99e912951db8))
+* use type cast instead of slice() for BlobPart compatibility ([ff77154](https://github.com/windmill-labs/windmill/commit/ff771546380ef26dfa443f9d459853048bc8029c))
+
+## [1.610.0](https://github.com/windmill-labs/windmill/compare/v1.609.0...v1.610.0) (2026-01-17)
+
+
+### Features
+
+* add private npm registry proxy support for ATA in webide ([#7597](https://github.com/windmill-labs/windmill/issues/7597)) ([b3cb41e](https://github.com/windmill-labs/windmill/commit/b3cb41efa4520fd3243a6dbab7c985923dd538e3))
+* add workspace success handler with 60s TTL caching ([#7598](https://github.com/windmill-labs/windmill/issues/7598)) ([73c4ce3](https://github.com/windmill-labs/windmill/commit/73c4ce30127af587510b16fbc7fa223436f6845c))
+
+
+### Bug Fixes
+
+* handle missing storage key in S3Object for write_s3_file ([03daa34](https://github.com/windmill-labs/windmill/commit/03daa341eb91118c27e92b1b51731400a0dce30c))
+* improve job deletion performance and batching ([8dd5e81](https://github.com/windmill-labs/windmill/commit/8dd5e81a32b97814eab3b72964807bdfe0ea8b49))
+
+## [1.609.0](https://github.com/windmill-labs/windmill/compare/v1.608.0...v1.609.0) (2026-01-16)
+
+
+### Features
+
+* cli branch override ([#7592](https://github.com/windmill-labs/windmill/issues/7592)) ([dcee9fe](https://github.com/windmill-labs/windmill/commit/dcee9fe7b163993836691988a552a5bc6042b9a2))
+
+
+### Bug Fixes
+
+* Fix MS SQL S3 Mode ([#7595](https://github.com/windmill-labs/windmill/issues/7595)) ([c7a6a05](https://github.com/windmill-labs/windmill/commit/c7a6a05925681bb1b2cec8d2c11037bc3d339798))
+* transparency issue of instance setting save button ([#7594](https://github.com/windmill-labs/windmill/issues/7594)) ([86ebf9e](https://github.com/windmill-labs/windmill/commit/86ebf9e25a03db99453269832bce030438c677c3))
+
 ## [1.608.0](https://github.com/windmill-labs/windmill/compare/v1.607.1...v1.608.0) (2026-01-16)
 
 
