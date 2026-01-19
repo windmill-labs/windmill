@@ -361,7 +361,7 @@
 													</div>
 												</div>
 												<div class="ml-auto flex">
-													{#if columnIndex === 0}
+													{#if columnIndex === 0 && features.enforcedForeignKeys}
 														<Popover
 															contentClasses="py-3 px-5 w-52 flex flex-col gap-4"
 															enableFlyTransition

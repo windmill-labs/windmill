@@ -285,8 +285,14 @@ function transformSnowflakeForeignKeys(snowflakeResults: any[]): RawForeignKey[]
 		source_column: row.fk_column_name || row.FK_COLUMN_NAME || '',
 		target_table: `${row.pk_schema_name || row.PK_SCHEMA_NAME || ''}.${row.pk_table_name || row.PK_TABLE_NAME || ''}`,
 		target_column: row.pk_column_name || row.PK_COLUMN_NAME || '',
-		on_delete: (row.delete_rule || row.DELETE_RULE || 'NO ACTION').toUpperCase() as 'CASCADE' | 'SET NULL' | 'NO ACTION',
-		on_update: (row.update_rule || row.UPDATE_RULE || 'NO ACTION').toUpperCase() as 'CASCADE' | 'SET NULL' | 'NO ACTION'
+		on_delete: (row.delete_rule || row.DELETE_RULE || 'NO ACTION').toUpperCase() as
+			| 'CASCADE'
+			| 'SET NULL'
+			| 'NO ACTION',
+		on_update: (row.update_rule || row.UPDATE_RULE || 'NO ACTION').toUpperCase() as
+			| 'CASCADE'
+			| 'SET NULL'
+			| 'NO ACTION'
 	}))
 }
 

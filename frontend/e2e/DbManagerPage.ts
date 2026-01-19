@@ -72,7 +72,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 	await tableEditor.addColumn(identifier(dbType, 'created_at'), getDbDatatype(dbType, 'TIMESTAMP'))
 	await tableEditor.createTable()
 	await Toast.expectSuccess(page, `${friendTableName} created`)
-	await page.waitForTimeout(100)
+	await dbManager.selectTable(friendTableName) // Ensure the view refreshed
 
 	// Create message table
 	let messageTableName = identifier(dbType, `message_${timestamp}`)
@@ -93,10 +93,7 @@ export async function runDbManagerAlterTableTest(page: Page, dbType: _DbType) {
 			friendTableName,
 			identifier(dbType, 'friend_id'),
 			identifier(dbType, 'id'),
-			{
-				onDelete: 'Cascade',
-				onUpdate: 'Cascade'
-			}
+			dbFeatures.enforcedForeignKeys ? { onDelete: 'Cascade', onUpdate: 'Cascade' } : undefined
 		)
 	} else {
 		await expect(tableEditor.foreignKeySection()).toBeHidden()
