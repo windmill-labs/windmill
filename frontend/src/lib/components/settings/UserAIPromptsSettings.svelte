@@ -10,8 +10,10 @@
 
 	const USER_CUSTOM_PROMPTS_KEY = 'userCustomAIPrompts'
 
-	let initialPrompts = getUserCustomPrompts()
-	let customPrompts = $state<Record<string, string>>({ ...initialPrompts })
+	const userCustomPrompts = getUserCustomPrompts()
+
+	let initialPrompts = $state({ ...userCustomPrompts })
+	let customPrompts = $state<Record<string, string>>({ ...userCustomPrompts })
 	let modalOpen = $state(false)
 
 	function save() {
