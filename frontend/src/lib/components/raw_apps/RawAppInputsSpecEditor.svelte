@@ -6,17 +6,32 @@
 
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { Loader2, Pen, User } from 'lucide-svelte'
+	import { Loader2, Pen, User, Shield } from 'lucide-svelte'
 
 	import Toggle from '$lib/components/Toggle.svelte'
 	import StaticInputEditor from '../apps/editor/settingsPanel/inputEditor/StaticInputEditor.svelte'
 	import { fieldTypeToTsType } from '../apps/utils'
-	import type { RichConfiguration } from '../apps/types'
 	import type { InputType } from '../apps/inputType'
+	import Select from '$lib/components/select/Select.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
+
+	// Build ctx properties with current user's actual values
+	let ctxProperties = $derived([
+		{ value: 'username', label: 'Username', subtitle: `string — "${$userStore?.username ?? 'unknown'}"` },
+		{ value: 'email', label: 'Email', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` },
+		{ value: 'groups', label: 'Groups', subtitle: `string[] — ${JSON.stringify($userStore?.groups ?? [])}` },
+		{ value: 'workspace', label: 'Workspace', subtitle: `string — "${$workspaceStore ?? 'unknown'}"` },
+		{ value: 'author', label: 'Author', subtitle: `string — "${$userStore?.email ?? 'unknown'}"` }
+	])
+
+	// Raw app input type that includes ctx inputs
+	// Using a looser type to avoid TypeScript narrowing issues in Svelte templates
+	// The 'any' binding allows compatibility with both StaticInputEditor and raw app field types
+	type RawAppInput = any
 
 	interface Props {
 		id: string
-		componentInput: RichConfiguration
+		componentInput: RawAppInput
 		key: string
 		shouldCapitalize?: boolean
 		resourceOnly?: boolean
@@ -58,8 +73,12 @@
 		if (componentInput == undefined) {
 			//@ts-ignore
 			componentInput = {
-				type: 'user'
+				type: 'user',
+				fieldType
 			}
+		} else if (componentInput.fieldType == undefined && fieldType) {
+			// Ensure fieldType is set on existing inputs
+			componentInput = { ...componentInput, fieldType }
 		}
 	})
 </script>
@@ -96,10 +115,25 @@
 
 			<div class={classNames('flex gap-x-2 gap-y-1 justify-end items-center')}>
 				{#if componentInput?.type && allowTypeChange !== false}
-					<ToggleButtonGroup bind:selected={componentInput.type}>
+					<ToggleButtonGroup
+						selected={componentInput.type}
+						onSelected={(newType) => {
+							// Preserve fieldType and other properties when changing type
+							componentInput = {
+								...componentInput,
+								type: newType,
+								fieldType: componentInput.fieldType ?? fieldType
+							}
+							// Clear ctx when switching away from ctx type
+							if (newType !== 'ctx') {
+								delete componentInput.ctx
+							}
+						}}
+					>
 						{#snippet children({ item })}
 							<ToggleButton {item} value="user" icon={User} iconOnly tooltip="User Input" />
 							<ToggleButton {item} value="static" icon={Pen} iconOnly tooltip="Static" />
+							<ToggleButton {item} value="ctx" icon={Shield} iconOnly tooltip="Context (secure backend value)" />
 						{/snippet}
 					</ToggleButtonGroup>
 				{/if}
@@ -117,6 +151,20 @@
 					{placeholder}
 					bind:componentInput
 				/>
+			</div>
+		{:else if componentInput?.type === 'ctx'}
+			<div class="w-full">
+				<Select
+					items={ctxProperties}
+					bind:value={componentInput.ctx}
+					placeholder="Select context property"
+				/>
+				{#if componentInput.ctx}
+					<span class="text-2xs italic text-tertiary mt-1 flex items-center gap-1">
+						<Shield size={12} />
+						Securely resolved by the backend (cannot be altered by users)
+					</span>
+				{/if}
 			</div>
 		{:else if componentInput?.type === 'user' || componentInput?.type == undefined}
 			<span class="text-2xs italic text-primary">Field's value is a frontend input</span>
