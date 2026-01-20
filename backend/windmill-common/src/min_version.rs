@@ -33,7 +33,7 @@ lazy_static::lazy_static! {
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 
     /// Min keep-alive version fetched from server by workers.
-    pub static ref SERVER_MIN_KEEP_ALIVE_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+    pub static ref REMOTE_MIN_KEEP_ALIVE_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 }
 
 /// Creates a VersionConstraint with compile-time assertion that version > LOCAL_MIN_KEEP_ALIVE_VERSION.
@@ -127,14 +127,14 @@ pub async fn update_min_version(conn: &Connection) {
     }
 }
 
-/// Worker-side: Fetches and updates MIN_VERSION and SERVER_MIN_KEEP_ALIVE_VERSION.
+/// Worker-side: Fetches and updates MIN_VERSION and REMOTE_MIN_KEEP_ALIVE_VERSION.
 pub async fn handle_min_versions(conn: &Connection, client: &HttpClient) {
     update_min_version(conn).await;
 
-    // Update SERVER_MIN_KEEP_ALIVE_VERSION
+    // Update REMOTE_MIN_KEEP_ALIVE_VERSION
     match client.get::<String>("/api/settings/min_keep_alive_version").await {
         Ok(v) => match Version::parse(&v) {
-            Ok(v) => *SERVER_MIN_KEEP_ALIVE_VERSION.write().await = v,
+            Ok(v) => *REMOTE_MIN_KEEP_ALIVE_VERSION.write().await = v,
             Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
         },
         Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
