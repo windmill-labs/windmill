@@ -776,8 +776,8 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, i64)> = Cache::new(1000);
 
     // Cache for workspace success handler settings with 60s TTL
     // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
@@ -1577,10 +1577,10 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool), Error> {
-    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
+    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool)>(
         r#"
-        SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel
+        SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path
         FROM workspace_settings
         WHERE workspace_id = $1
         "#,
@@ -1601,16 +1601,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path) =
         if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-            if cached.3 > now {
-                (cached.0.clone(), cached.1.clone(), cached.2)
+            if cached.4 > now {
+                (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
             } else {
                 let row = fetch_error_handler_from_db(db, w_id).await?;
                 let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
                 WORKSPACE_ERROR_HANDLER_CACHE.insert(
                     w_id.clone(),
-                    (row.0.clone(), row.1.clone(), row.2, expiry),
+                    (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
                 );
                 row
             }
@@ -1619,13 +1619,22 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, expiry),
+                (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
             );
             row
         };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
+    }
+
+    // Skip error handler for scripts/flows starting with u/
+    if error_handler_muted_on_user_path {
+        if let Some(ref path) = queued_job.runnable_path {
+            if path.starts_with("u/") {
+                return Ok(());
+            }
+        }
     }
 
     if let Some(error_handler) = error_handler {

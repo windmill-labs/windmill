@@ -98,6 +98,7 @@
 	let errorHandlerItemKind: 'flow' | 'script' = $state('script')
 	let errorHandlerExtraArgs: Record<string, any> = $state({})
 	let errorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
+	let errorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
 	let successHandlerScriptPath: string | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
@@ -340,6 +341,7 @@
 			: 'script'
 		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
 		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
+		errorHandlerMutedOnUserPath = settings.error_handler_muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		if (emptyString($enterpriseLicense)) {
@@ -500,7 +502,8 @@
 				requestBody: {
 					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
 					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel
+					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
+					error_handler_muted_on_user_path: errorHandlerMutedOnUserPath
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -510,7 +513,8 @@
 				requestBody: {
 					error_handler: undefined,
 					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined
+					error_handler_muted_on_cancel: undefined,
+					error_handler_muted_on_user_path: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
@@ -1155,6 +1159,14 @@
 									emptyString(errorHandlerExtraArgs['channel']))}
 							bind:checked={errorHandlerMutedOnCancel}
 							options={{ right: 'Do not run error handler for canceled jobs' }}
+						/>
+						<Toggle
+							disabled={!$enterpriseLicense ||
+								((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+									!emptyString(errorHandlerScriptPath) &&
+									emptyString(errorHandlerExtraArgs['channel']))}
+							bind:checked={errorHandlerMutedOnUserPath}
+							options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 						/>
 						<Button
 							disabled={!$enterpriseLicense ||

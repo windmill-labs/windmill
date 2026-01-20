@@ -2353,6 +2353,8 @@ paths:
                     $ref: "#/components/schemas/ScriptArgs"
                   error_handler_muted_on_cancel:
                     type: boolean
+                  error_handler_muted_on_user_path:
+                    type: boolean
                   success_handler:
                     type: string
                   success_handler_extra_args:
@@ -2379,6 +2381,7 @@ paths:
                     $ref: "#/components/schemas/OperatorSettings"
                 required:
                   - error_handler_muted_on_cancel
+                  - error_handler_muted_on_user_path
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -3064,6 +3067,8 @@ paths:
                 error_handler_extra_args:
                   $ref: "#/components/schemas/ScriptArgs"
                 error_handler_muted_on_cancel:
+                  type: boolean
+                error_handler_muted_on_user_path:
                   type: boolean
       responses:
         "200":

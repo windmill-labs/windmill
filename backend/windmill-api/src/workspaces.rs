@@ -271,6 +271,8 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_handler_muted_on_cancel: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_handler_muted_on_user_path: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler_extra_args: Option<serde_json::Value>,
@@ -445,6 +447,7 @@ pub struct EditErrorHandler {
     pub error_handler: Option<String>,
     pub error_handler_extra_args: Option<serde_json::Value>,
     pub error_handler_muted_on_cancel: Option<bool>,
+    pub error_handler_muted_on_user_path: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -566,6 +569,7 @@ async fn get_settings(
             error_handler,
             error_handler_extra_args,
             error_handler_muted_on_cancel,
+            error_handler_muted_on_user_path,
             success_handler,
             success_handler_extra_args,
             large_file_storage,
@@ -2208,13 +2212,15 @@ async fn edit_error_handler(
             SET
                 error_handler = $1,
                 error_handler_extra_args = $2,
-                error_handler_muted_on_cancel = $3
+                error_handler_muted_on_cancel = $3,
+                error_handler_muted_on_user_path = $4
             WHERE
-                workspace_id = $4
+                workspace_id = $5
             "#,
             error_handler,
             ee.error_handler_extra_args,
             ee.error_handler_muted_on_cancel.unwrap_or(false),
+            ee.error_handler_muted_on_user_path.unwrap_or(false),
             &w_id
         )
         .execute(&mut *tx)
@@ -2227,7 +2233,8 @@ async fn edit_error_handler(
             SET
                 error_handler = NULL,
                 error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = false
+                error_handler_muted_on_cancel = false,
+                error_handler_muted_on_user_path = false
             WHERE
                 workspace_id = $1
         "#,
