@@ -5,7 +5,6 @@ use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
-use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
@@ -34,7 +33,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 

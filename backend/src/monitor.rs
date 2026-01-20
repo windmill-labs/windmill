@@ -1800,7 +1800,7 @@ pub async fn monitor_db(
 
     let update_min_worker_version_f = async {
         #[cfg(not(feature = "test_job_debouncing"))]
-        windmill_common::worker::update_min_version(conn).await;
+        windmill_common::min_version::update_min_version(conn).await;
     };
 
     join!(
@@ -2888,8 +2888,8 @@ RETURNING key,job_id
 
 async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
     // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
-    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
-        .read()
+    if !windmill_common::min_version::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
+        .met()
         .await
     {
         let result = sqlx::query!(

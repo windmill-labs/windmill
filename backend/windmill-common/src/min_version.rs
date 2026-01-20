@@ -1,39 +1,21 @@
-/*
- * Author: Ruben Fiszel
- * Copyright: Windmill Labs, Inc 2022
- * This file and its contents are licensed under the AGPLv3 License.
- * Please see the included NOTICE for copyright information and
- * LICENSE-AGPL for a copy of the license.
- */
-
 use crate::error::{self, Error};
 use semver::Version;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-lazy_static::lazy_static! {
-    // ============ Feature Definitions ============
+// ============ Feature Definitions ============
 
-    pub static ref MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc!((1, 602, 0), "Sync jobs debouncing");
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: VC = vc!((1, 597, 0), "Debouncing V2");
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: VC = vc!((1, 595, 0), "Flow status separate table");
-    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: VC = vc!((1, 592, 0), "Runnable settings V0");
-    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: VC = vc!((1, 587, 0), "Workspace dependencies");
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: VC = vc!((1, 566, 0), "Debouncing");
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: VC = vc!((1, 461, 0), "V2 job tables");
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_440: VC = vc!((1, 440, 0), "Flow node value on pull");
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_432: VC = vc!((1, 432, 0), "Flow script job kind");
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_427: VC = vc!((1, 427, 0), "Flow version lite table");
+pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jobs debouncing");
+pub const MIN_VERSION_SUPPORTS_DEBOUNCING_V2: VC = vc(1, 597, 0, "Debouncing V2");
+pub const MIN_VERSION_IS_AT_LEAST_1_595: VC = vc(1, 595, 0, "Flow status separate table");
+pub const MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: VC = vc(1, 592, 0, "Runnable settings V0");
+pub const MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: VC = vc(1, 587, 0, "Workspace dependencies");
+pub const MIN_VERSION_SUPPORTS_DEBOUNCING: VC = vc(1, 566, 0, "Debouncing");
+pub const MIN_VERSION_IS_AT_LEAST_1_461: VC = vc(1, 461, 0, "V2 job tables");
+pub const MIN_VERSION_IS_AT_LEAST_1_440: VC = vc(1, 440, 0, "Flow node value on pull");
+pub const MIN_VERSION_IS_AT_LEAST_1_432: VC = vc(1, 432, 0, "Flow script job kind");
+pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite table");
 
-    // Global minimum version across all workers (for feature flags)
-    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-
-    /// Min keep-alive version fetched from server by workers.
-    pub static ref SERVER_MIN_KEEP_ALIVE_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-}
-
-// ============ Minimum Keep-Alive Version ============
-//
 // NOTE: Workers must NOT use LOCAL_MIN_KEEP_ALIVE_VERSION directly.
 // They should call the server API: GET /api/settings/min_keep_alive_version
 //
@@ -42,10 +24,30 @@ lazy_static::lazy_static! {
 
 /// Authoritative min keep-alive version defined in this codebase.
 /// Served via: GET /api/settings/min_keep_alive_version
-/// Also used by vc! macro for compile-time checks.
-pub const LOCAL_MIN_KEEP_ALIVE_VERSION: Version = Version::new(0, 0, 0);
+/// Also used by vc() for compile-time checks.
+pub const LOCAL_MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 0, 0);
 
 // ============ Implementation ============
+lazy_static::lazy_static! {
+    // Global minimum version across all workers (for feature flags)
+    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+
+    /// Min keep-alive version fetched from server by workers.
+    pub static ref SERVER_MIN_KEEP_ALIVE_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
+}
+
+/// Creates a VersionConstraint with compile-time assertion that version > LOCAL_MIN_KEEP_ALIVE_VERSION.
+/// When LOCAL_MIN_KEEP_ALIVE_VERSION is raised, obsolete constraints will fail to compile.
+pub const fn vc(major: u64, minor: u64, patch: u64, name: &'static str) -> VersionConstraint {
+    let is_greater = major > LOCAL_MIN_KEEP_ALIVE_VERSION.0
+        || (major == LOCAL_MIN_KEEP_ALIVE_VERSION.0 && minor > LOCAL_MIN_KEEP_ALIVE_VERSION.1)
+        || (major == LOCAL_MIN_KEEP_ALIVE_VERSION.0 && minor == LOCAL_MIN_KEEP_ALIVE_VERSION.1 && patch > LOCAL_MIN_KEEP_ALIVE_VERSION.2);
+    assert!(
+        is_greater,
+        "Feature version must be > LOCAL_MIN_KEEP_ALIVE_VERSION. Remove this obsolete constraint."
+    );
+    VersionConstraint { available_since: Version::new(major, minor, patch), name }
+}
 
 pub type VC = VersionConstraint;
 
@@ -56,12 +58,12 @@ pub struct VersionConstraint {
 }
 
 impl VersionConstraint {
-    pub async fn is_met(&self) -> bool {
-        !version_greater_than(*MIN_VERSION.read().await, self.available_since)
+    pub async fn met(&self) -> bool {
+        &*MIN_VERSION.read().await <= &self.available_since
     }
 
     pub async fn assert(&self) -> error::Result<()> {
-        if self.is_met().await {
+        if self.met().await {
             Ok(())
         } else {
             Err(Error::WorkersAreBehind {
@@ -72,28 +74,6 @@ impl VersionConstraint {
     }
 }
 
-/// Compares versions ignoring pre-release/build metadata. Returns true if a > b.
-pub const fn version_greater_than(a: Version, b: Version) -> bool {
-    a.major > b.major
-        || (a.major == b.major && a.minor > b.minor)
-        || (a.major == b.major && a.minor == b.minor && a.patch > b.patch)
-}
-
-/// Creates a VersionConstraint with compile-time assertion that version > LOCAL_MIN_KEEP_ALIVE_VERSION.
-/// When LOCAL_MIN_KEEP_ALIVE_VERSION is raised, obsolete constraints will fail to compile.
-macro_rules! vc {
-    (($major:expr, $minor:expr, $patch:expr), $name:expr) => {{
-        const V: Version = Version::new($major, $minor, $patch);
-        const _: () = assert!(
-            version_greater_than(V, LOCAL_MIN_KEEP_ALIVE_VERSION),
-            "Feature version must be > LOCAL_MIN_KEEP_ALIVE_VERSION. Remove this obsolete constraint."
-        );
-        VersionConstraint {
-            available_since: V,
-            name: $name,
-        }
-    }};
-}
 
 // ============ Version Management ============
 
@@ -131,19 +111,25 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
     Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
 }
 
-/// Fetches and updates MIN_VERSION and SERVER_MIN_KEEP_ALIVE_VERSION.
-pub async fn handle_min_versions(conn: &Connection, client: &HttpClient) {
-    // Update MIN_VERSION
+/// Server-side: Fetches and updates MIN_VERSION only.
+pub async fn update_min_version(conn: &Connection) {
     match get_min_version(conn).await {
-        Ok(v) => {
+        Ok(ref mut v) => {
             let cur = GIT_SEM_VERSION.clone();
-            if v != cur {
+            if v != &cur {
                 tracing::info!("Minimal worker version: {v}");
             }
-            *MIN_VERSION.write().await = v;
+            v.pre = semver::Prerelease::EMPTY;
+            v.build = semver::BuildMetadata::EMPTY;
+            *MIN_VERSION.write().await = v.clone();
         }
         Err(e) => tracing::error!("Failed to fetch min version: {:#?}", e),
     }
+}
+
+/// Worker-side: Fetches and updates MIN_VERSION and SERVER_MIN_KEEP_ALIVE_VERSION.
+pub async fn handle_min_versions(conn: &Connection, client: &HttpClient) {
+    update_min_version(conn).await;
 
     // Update SERVER_MIN_KEEP_ALIVE_VERSION
     match client.get::<String>("/api/settings/min_keep_alive_version").await {
