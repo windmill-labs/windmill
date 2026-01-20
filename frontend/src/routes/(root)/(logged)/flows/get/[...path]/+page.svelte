@@ -64,6 +64,7 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import { page } from '$app/state'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { slide } from 'svelte/transition'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -202,7 +203,11 @@
 		}
 	}
 
-	async function runFlowForChat(userMessage: string, conversationId: string, additionalInputs?: Record<string, any>): Promise<string> {
+	async function runFlowForChat(
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -466,7 +471,6 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
-			title={defaultIfEmptyString(flow?.summary, flow?.path ?? '')}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -476,6 +480,8 @@
 			scriptOrFlowPath={flow?.path ?? ''}
 			errorHandlerKind="flow"
 			tag={flow?.tag ?? ''}
+			summary={flow?.summary}
+			path={flow?.path}
 		>
 			<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
 			{#snippet trigger_badges()}
@@ -523,21 +529,19 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex flex-col h-full justify-between">
+			<div class="flex flex-col h-full justify-between bg-surface py-4 gap-4">
 				<div
 					class="w-full {chatInputEnabled
 						? 'p-3 flex flex-col h-full'
-						: 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
+						: 'max-w-3xl p-4'} mx-auto gap-2 bg-surface"
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
 					{/if}
 
-					<div class="mb-1">
-						{#if !emptyString(flow?.description)}
-							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
-						{/if}
-					</div>
+					{#if !emptyString(flow?.description)}
+						<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} noPadding />
+					{/if}
 
 					{#if deploymentInProgress}
 						<HeaderBadge color="yellow">
@@ -570,28 +574,37 @@
 							inputSchema={flow?.schema}
 						/>
 					{:else}
+						{@const hasSchema = flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
 						<!-- Normal Mode: Form Layout -->
 						<div class="flex flex-col align-left">
-							<div class="flex flex-row justify-between">
-								<InputSelectedBadge
-									onReject={() => {
-										savedInputsV2?.resetSelected()
-									}}
-									{inputSelected}
-								/>
-								<Toggle
-									bind:checked={jsonView}
-									size="xs"
-									options={{
-										right: 'JSON',
-										rightTooltip: 'Fill args from JSON'
-									}}
-									lightMode
-									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-									}}
-								/>
-							</div>
+							{#if hasSchema || inputSelected}
+								<div class="flex flex-row justify-between" transition:slide={{ duration: 150 }}>
+									{#if inputSelected}
+										<div class="py-2">
+											<InputSelectedBadge
+												onReject={() => {
+													savedInputsV2?.resetSelected()
+												}}
+												{inputSelected}
+											/>
+										</div>
+									{/if}
+									{#if hasSchema}
+										<Toggle
+											bind:checked={jsonView}
+											size="xs"
+											options={{
+												right: 'JSON',
+												rightTooltip: 'Fill args from JSON'
+											}}
+											lightMode
+											on:change={(e) => {
+												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+											}}
+										/>
+									{/if}
+								</div>
+							{/if}
 
 							{#if flow.schema?.prompt_for_ai !== undefined}
 								<AIFormAssistant
@@ -620,20 +633,15 @@
 							/>
 						</div>
 
-						<div class="py-10"></div>
-
-						{#if !emptyString(flow.summary)}
-							<div>
-								<span class="text-primary text-xs">{flow.path}</span>
-							</div>
-						{/if}
-						<span class="text-2xs text-secondary">
-							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-						</span>
+						<div class="pt-4 flex flex-col gap-1 w-full items-end">
+							<span class="text-2xs text-secondary">
+								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+							</span>
+						</div>
 					{/if}
 				</div>
 				{#if !chatInputEnabled}
-					<div class="mt-8">
+					<div class="mt-0">
 						<FlowGraphViewer
 							triggerNode={true}
 							download

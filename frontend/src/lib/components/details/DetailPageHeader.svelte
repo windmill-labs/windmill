@@ -8,6 +8,7 @@
 	import { createEventDispatcher, getContext, tick } from 'svelte'
 	import type { TriggerContext } from '../triggers'
 	import { Calendar } from 'lucide-svelte'
+	import { emptyString } from '$lib/utils'
 
 	type MainButton = {
 		label: string
@@ -28,7 +29,8 @@
 	interface Props {
 		mainButtons?: MainButton[]
 		menuItems?: MenuItemButton[]
-		title: string
+		summary?: string
+		path?: string
 		tag: string | undefined
 		errorHandlerKind: 'flow' | 'script'
 		scriptOrFlowPath: string
@@ -40,7 +42,8 @@
 	let {
 		mainButtons = [],
 		menuItems = [],
-		title,
+		summary,
+		path,
 		tag,
 		errorHandlerKind,
 		scriptOrFlowPath,
@@ -52,18 +55,31 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="border-b p-2 shadow-md">
+<div class="border-b p-1 shadow-md">
 	<div class="mx-auto">
-		<div class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center">
+		<div
+			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-10"
+		>
 			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
 				<div
 					class={twMerge(
-						'text-lg min-w-24 font-semibold text-emphasis truncate',
+						'min-w-24 text-emphasis truncate flex flex-col gap-0',
 						$userStore?.operator ? 'pl-10' : ''
 					)}
 				>
-					{title}
-				</div>{#if tag}
+					<span
+						class={twMerge(
+							'text-sm min-w-24 text-emphasis font-semibold truncate',
+							$userStore?.operator ? 'pl-10' : ''
+						)}
+					>
+						{emptyString(summary) ? (path ?? '') : summary}
+					</span>
+					{#if !emptyString(summary)}
+						<span class="text-2xs text-secondary">{path}</span>
+					{/if}
+				</div>
+				{#if tag}
 					<Badge>tag: {tag}</Badge>
 				{/if}
 				{@render children?.()}

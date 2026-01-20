@@ -567,7 +567,6 @@
 			<DetailPageHeader
 				{mainButtons}
 				menuItems={getMenuItems(script, deployUiSettings)}
-				title={defaultIfEmptyString(script?.summary, script?.path ?? '')}
 				bind:errorHandlerMuted={
 					() => script?.ws_error_handler_muted ?? false,
 					(v) => {
@@ -580,6 +579,8 @@
 				on:seeTriggers={() => {
 					rightPaneSelected = 'triggers'
 				}}
+				summary={script?.summary}
+				path={script?.path}
 			>
 				{#snippet trigger_badges()}
 					<TriggersBadge
