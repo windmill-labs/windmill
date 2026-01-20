@@ -364,7 +364,7 @@ export class RawAppHistoryManager {
 	/**
 	 * Save current state temporarily when viewing history
 	 */
-	saveTemporaryCurrentState(
+	public saveTemporaryCurrentState(
 		files: Record<string, string>,
 		runnables: Record<string, Runnable>,
 		summary: string,
@@ -376,7 +376,7 @@ export class RawAppHistoryManager {
 	/**
 	 * Get and clear temporary current state
 	 */
-	getAndClearTemporaryState(): HistoryEntry | undefined {
+	public getAndClearTemporaryState(): HistoryEntry | undefined {
 		const temp = this.temporaryCurrentState
 		this.temporaryCurrentState = undefined
 		return temp

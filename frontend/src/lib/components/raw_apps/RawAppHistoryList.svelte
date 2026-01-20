@@ -172,7 +172,7 @@
 		<span
 			class={twMerge(
 				'text-2xs truncate px-2 py-1 rounded-md',
-				type === 'current' ? 'font-semibold text-emphasis' : '',
+				type === 'current' ? 'font-semibold text-emphasis' : 'font-normal',
 				isSelected ? color.textSelected : 'text-tertiary',
 				isSelected ? color.bgSelected : 'hover:bg-surface-hover'
 			)}

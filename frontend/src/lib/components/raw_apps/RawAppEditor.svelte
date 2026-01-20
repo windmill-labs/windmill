@@ -820,8 +820,8 @@
 		onRedo={handleRedo}
 	/>
 
-	<Splitpanes id="o2" class="grow">
-		<Pane bind:size={sidebarPanelSize} maxSize={20}>
+	<Splitpanes id="o2" class="grow min-h-0">
+		<Pane bind:size={sidebarPanelSize} maxSize={20} class="h-full overflow-y-auto">
 			<RawAppSidebar
 				bind:files={
 					() => files,
