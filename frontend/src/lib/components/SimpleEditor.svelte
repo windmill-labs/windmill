@@ -297,7 +297,7 @@
 		}
 	})
 
-	let fontSize = $derived(small ? 12 : 14)
+	let fontSize = $derived(small ? 12 : 13.5)
 
 	async function loadMonaco() {
 		setMonacoJsonOptions()

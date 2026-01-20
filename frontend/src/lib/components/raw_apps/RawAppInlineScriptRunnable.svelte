@@ -25,6 +25,7 @@
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import RunButton from '$lib/components/RunButton.svelte'
 	import { userStore, workspaceStore } from '$lib/stores'
 
 	type RunnableWithInlineScript = RunnableWithFields & {
@@ -67,7 +68,7 @@
 					}
 	}
 
-	let selectedTab = $state('inputs')
+	let selectedTab = $state('test')
 	let args = $state({})
 
 	function getSchema(runnable: RunnableWithFields) {
@@ -88,16 +89,18 @@
 	let inlineScriptEditor: RawAppInlineScriptEditor | undefined = $state()
 
 	// Get debug state from the editor
-	const editorDebugState = $derived(inlineScriptEditor?.getDebugState?.() ?? {
-		debugMode: false,
-		isDebuggableScript: false,
-		showDebugPanel: false,
-		hasDebugResult: false,
-		dapClient: null,
-		selectedDebugFrameId: null,
-		debugSessionJobId: null,
-		debugBreakpoints: new Set()
-	})
+	const editorDebugState = $derived(
+		inlineScriptEditor?.getDebugState?.() ?? {
+			debugMode: false,
+			isDebuggableScript: false,
+			showDebugPanel: false,
+			hasDebugResult: false,
+			dapClient: null,
+			selectedDebugFrameId: null,
+			debugSessionJobId: null,
+			debugBreakpoints: new Set()
+		}
+	)
 
 	// Reactive debug state values
 	const debugMode = $derived(editorDebugState.debugMode)
@@ -190,13 +193,7 @@
 					bind:inlineScript={runnable.inlineScript}
 					bind:name={runnable.name}
 					bind:fields={runnable.fields}
-					isLoading={testIsLoading}
 					onRun={testPreview}
-					onCancel={async () => {
-						if (jobLoader) {
-							await jobLoader.cancelJob()
-						}
-					}}
 					on:delete
 					path={appPath}
 					{onSelectionChange}
@@ -221,8 +218,8 @@
 		</Pane>
 		<Pane size={45}>
 			<Tabs bind:selected={selectedTab}>
-				<Tab value="inputs" label="Inputs" />
 				<Tab value="test" label="Test" />
+				<Tab value="inputs" label="Inputs" />
 				{#snippet content()}
 					{#if selectedTab == 'inputs'}
 						{#if runnable?.fields}
@@ -275,6 +272,18 @@
 							<Splitpanes horizontal class="grow">
 								<Pane size={50}>
 									<div class="px-2 py-3 h-full overflow-auto">
+										<div class="mx-auto w-fit">
+											<RunButton
+												isLoading={testIsLoading}
+												onRun={testPreview}
+												onCancel={async () => {
+													if (jobLoader) {
+														await jobLoader.cancelJob()
+													}
+												}}
+												size="md"
+											/>
+										</div>
 										<SchemaForm
 											on:keydownCmdEnter={testPreview}
 											disabledArgs={Object.entries(runnable?.fields ?? {})
@@ -307,7 +316,9 @@
 																/>
 															</div>
 														{:else}
-															<div class="h-full flex items-center justify-center text-sm text-tertiary">
+															<div
+																class="h-full flex items-center justify-center text-sm text-tertiary"
+															>
 																{#if $debugState.running && !$debugState.stopped}
 																	Running...
 																{:else if $debugState.stopped}
