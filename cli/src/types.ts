@@ -289,7 +289,8 @@ export function getTypeStrFromPath(
   ) {
     return "script";
   }
-  if (parsed.name === "folder.meta") {
+  // Match folder.meta (base) or folder.<branch>.meta (branch-specific)
+  if (parsed.name === "folder.meta" || /^folder\.[^.]+\.meta$/.test(parsed.name)) {
     return "folder";
   }
 
