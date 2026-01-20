@@ -786,35 +786,27 @@ async fn get_public_app_by_secret(
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        // Compute bundle_secret for raw apps
-        if app.raw_app {
-            app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
-        }
-        return Ok(Json(app));
-    }
-
-    if opt_authed.is_none() {
-        {
+    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        if opt_authed.is_none() {
             return Err(Error::NotAuthorized(
                 "App visibility does not allow public access and you are not logged in".to_string(),
             ));
-        }
-    } else {
-        let authed = opt_authed.unwrap();
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-            id,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
+        } else {
+            let authed = opt_authed.unwrap();
+            let mut tx = user_db.begin(&authed).await?;
+            let is_visible = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+                id,
+                &w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            if !is_visible.unwrap_or(false) {
+                return Err(Error::NotAuthorized(
+                    "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+                ));
+            }
         }
     }
 
