@@ -2,7 +2,6 @@
 	import type { HistoryEntry, HistoryBranch } from './RawAppHistoryManager.svelte'
 	import { displayDate } from '$lib/utils'
 	import { Circle, CircleDot, CircleDotDashed, CircleDashed } from 'lucide-svelte'
-	import { cubicOut } from 'svelte/easing'
 	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
@@ -120,22 +119,6 @@
 		// End control point: above the end point (since endY < startY, we add to go further up)
 		return `M ${startX} ${startY} C ${startX} ${startY - controlOffset}, ${endX} ${endY + controlOffset}, ${endX} ${endY}`
 	}
-
-	// Custom draw function for smoother animation
-	function drawPath(node: SVGPathElement, { duration = 400 } = {}) {
-		const length = node.getTotalLength()
-
-		return {
-			duration,
-			css: (t: number) => {
-				const eased = cubicOut(t)
-				return `
-					stroke-dasharray: ${length};
-					stroke-dashoffset: ${length * (1 - eased)};
-				`
-			}
-		}
-	}
 </script>
 
 {#snippet timelineButton(
@@ -162,7 +145,7 @@
 		branch: {
 			selected: 'text-amber-500 dark:text-amber-400',
 			default: 'text-secondary',
-			textSelected: 'text-amber-600 dark:text-amber-400 font-medium',
+			textSelected: 'text-amber-600 dark:text-amber-400',
 			bgSelected: 'bg-amber-50 dark:bg-amber-900/20'
 		}
 	}}
@@ -172,7 +155,7 @@
 		onclick={onClick}
 		aria-label={timestamp ? `Snapshot from ${displayDate(timestamp, true, false)}` : label}
 		aria-current={isSelected ? 'true' : 'false'}
-		class={'absolute flex items-center gap-1 transition-all duration-200'}
+		class={'absolute flex items-center gap-1 transition-all duration-200 animate-fadeIn'}
 		style="left: {position.x - 6}px; top: {position.y - 6}px;"
 	>
 		{#if isSelected}
@@ -206,7 +189,7 @@
 {:else}
 	<div
 		class="relative w-full"
-		style="height: {totalHeight}px;"
+		style="height: {totalHeight}px; transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);"
 		role="list"
 		aria-label="History timeline"
 	>
@@ -237,7 +220,8 @@
 					stroke="currentColor"
 					stroke-width="1"
 					opacity="1"
-					class="transition-all duration-300 text-primary"
+					class="text-primary"
+					style="transition: y2 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
 				/>
 			{/if}
 
@@ -255,8 +239,7 @@
 								fill="none"
 								stroke-dasharray="4 2"
 								opacity="0.6"
-								in:drawPath={{ duration: 400 }}
-								class="transition-opacity duration-300 text-secondary"
+								class="text-secondary transition-all duration-300"
 							/>
 
 							<!-- Vertical line connecting branch entries within this branch -->
@@ -272,7 +255,8 @@
 									stroke-width="1.5"
 									stroke-dasharray="4 2"
 									opacity="0.6"
-									class="transition-all duration-300 text-secondary"
+									class="text-secondary"
+									style="transition: y1 0.3s cubic-bezier(0.4, 0, 0.2, 1), y2 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
 								/>
 							{/if}
 						{/if}
@@ -336,3 +320,20 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	@keyframes fadeIn {
+		from {
+			opacity: 0;
+			transform: translateY(-10px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.animate-fadeIn {
+		animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+	}
+</style>
