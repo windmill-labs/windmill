@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.612.2](https://github.com/windmill-labs/windmill/compare/v1.612.1...v1.612.2) (2026-01-19)
+
+
+### Bug Fixes
+
+* add HIDE_WORKERS_FOR_NON_ADMINS env var and workspace-scoped custom_tags endpoint ([#7613](https://github.com/windmill-labs/windmill/issues/7613)) ([f33b799](https://github.com/windmill-labs/windmill/commit/f33b79936b8666242f2235d4fa6d4e7488123194))
+* **mcp:** fix empty args format + sanitize tool name ([#7615](https://github.com/windmill-labs/windmill/issues/7615)) ([f55dac6](https://github.com/windmill-labs/windmill/commit/f55dac69582000f0bfdae6dbed2d33f2e48087b2))
+
+## [1.612.1](https://github.com/windmill-labs/windmill/compare/v1.612.0...v1.612.1) (2026-01-19)
+
+
+### Bug Fixes
+
+* fix runs page initialization ([1438b26](https://github.com/windmill-labs/windmill/commit/1438b263102ccf22612f98e59596c7e51083df71))
+* update git sync CLI to 1.612.0 ([8daeccc](https://github.com/windmill-labs/windmill/commit/8daeccc89fc0405143a2b553520f9a42272e3c26))
+
+## [1.612.0](https://github.com/windmill-labs/windmill/compare/v1.611.0...v1.612.0) (2026-01-19)
+
+
+### Features
+
+* **cli:** add branch-specific items for folders and settings ([#7611](https://github.com/windmill-labs/windmill/issues/7611)) ([3ec9439](https://github.com/windmill-labs/windmill/commit/3ec94395dcc6a179a4d5dde3a5b88aeb1053ada3))
+* move job metrics from ee to ce ([#7608](https://github.com/windmill-labs/windmill/issues/7608)) ([c04eb37](https://github.com/windmill-labs/windmill/commit/c04eb371ccd805e8d0d0a03b4ef654c7a8131ccd))
+
+
+### Bug Fixes
+
+* **frontend:** fix centered page shift when scroll ([#7610](https://github.com/windmill-labs/windmill/issues/7610)) ([c1ec159](https://github.com/windmill-labs/windmill/commit/c1ec159471d3fabb9cb7b9023d662726a9cf1f93))
+* **frontend:** improve ai settings page ([#7606](https://github.com/windmill-labs/windmill/issues/7606)) ([9359ad8](https://github.com/windmill-labs/windmill/commit/9359ad820ded8a4a94195ee76bbe6210f6e8eb9f))
+* **frontend:** improve loading centered modal ui ([#7605](https://github.com/windmill-labs/windmill/issues/7605)) ([30da9e6](https://github.com/windmill-labs/windmill/commit/30da9e69f88ba4621bb3ee35287f914389930bb6))
+
 ## [1.611.0](https://github.com/windmill-labs/windmill/compare/v1.610.1...v1.611.0) (2026-01-19)
 
 

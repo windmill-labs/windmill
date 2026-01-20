@@ -46,7 +46,19 @@
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams, StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 
+	interface Props {
+		/** Initial path from route params (e.g., /runs/u/user/script) */
+		initialPath?: string
+	}
+
+	let { initialPath }: Props = $props()
+
 	let filters = useSearchParams(runsFiltersSchema)
+
+	// Initialize path filter from route param if provided and not already set via query params
+	if (initialPath && !filters.path) {
+		filters.path = initialPath
+	}
 
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)

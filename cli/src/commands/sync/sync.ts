@@ -932,6 +932,29 @@ function ZipFSElement(
               };
             }
 
+            // Helper to simplify fields for YAML output
+            // { type: 'static', value: X } -> { value: X }
+            // { type: 'ctx', ctx: X } -> { ctx: X }
+            function simplifyFields(fields: Record<string, any> | undefined) {
+              if (!fields) return undefined;
+              const simplified: Record<string, any> = {};
+              for (const [k, v] of Object.entries(fields)) {
+                if (typeof v === "object" && v !== null) {
+                  if (v.type === "static" && v.value !== undefined) {
+                    simplified[k] = { value: v.value };
+                  } else if (v.type === "ctx" && v.ctx !== undefined) {
+                    simplified[k] = { ctx: v.ctx };
+                  } else {
+                    // Keep other field types as-is
+                    simplified[k] = v;
+                  }
+                } else {
+                  simplified[k] = v;
+                }
+              }
+              return simplified;
+            }
+
             // Yield each runnable as a separate YAML file in the backend folder
             // For inline scripts, simplify the YAML - inlineScript is not needed since
             // content/lock/language can be derived from sibling files
@@ -967,6 +990,11 @@ function ZipFSElement(
               } else {
                 // For other runnables, keep as-is
                 simplifiedRunnable = runnableObj;
+              }
+
+              // Simplify fields for cleaner YAML output
+              if (simplifiedRunnable.fields) {
+                simplifiedRunnable.fields = simplifyFields(simplifiedRunnable.fields);
               }
 
               yield {
@@ -1866,9 +1894,9 @@ export async function pull(
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2351,9 +2379,9 @@ export async function push(
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);

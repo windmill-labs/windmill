@@ -1766,6 +1766,8 @@ pub struct ListableCompletedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -1853,6 +1855,7 @@ pub struct ListQueueQuery {
     pub allow_wildcards: Option<bool>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub trigger_path: Option<String>,
+    pub include_args: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1886,6 +1889,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             allow_wildcards: lcq.allow_wildcards,
             trigger_kind: lcq.trigger_kind,
             trigger_path: lcq.trigger_path,
+            include_args: lcq.include_args,
         }
     }
 }
@@ -2075,6 +2079,16 @@ async fn list_queue_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
+    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+
     let sql = list_queue_jobs_query(
         &w_id,
         &lq,
@@ -2087,7 +2101,7 @@ async fn list_queue_jobs(
             "v2_job_queue.scheduled_for",
             "v2_job.runnable_id as script_hash",
             "v2_job.runnable_path as script_path",
-            "null as args",
+            args_field,
             "v2_job.kind as job_kind",
             "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
             "v2_job.permissioned_as",
@@ -2414,6 +2428,14 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
@@ -2426,13 +2448,36 @@ async fn list_jobs(
             "cannot specify both success and running".to_string(),
         ));
     }
+
+    // Create dynamic field arrays when include_args is true
+    let cj_fields: Vec<&str>;
+    let qj_fields: Vec<&str>;
+    let cj_fields_ref: &[&str];
+    let qj_fields_ref: &[&str];
+
+    if include_args {
+        cj_fields = UnifiedJob::completed_job_fields()
+            .iter()
+            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .collect();
+        qj_fields = UnifiedJob::queued_job_fields()
+            .iter()
+            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .collect();
+        cj_fields_ref = &cj_fields;
+        qj_fields_ref = &qj_fields;
+    } else {
+        cj_fields_ref = UnifiedJob::completed_job_fields();
+        qj_fields_ref = UnifiedJob::queued_job_fields();
+    }
+
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
             Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
-            UnifiedJob::completed_job_fields(),
+            cj_fields_ref,
             true,
             get_scope_tags(&authed),
         ))
@@ -2450,7 +2495,7 @@ async fn list_jobs(
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
-            UnifiedJob::queued_job_fields(),
+            qj_fields_ref,
             Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
@@ -3447,6 +3492,7 @@ pub struct UnifiedJob {
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
     pub script_path: Option<String>,
+    pub args: Option<serde_json::Value>,
     pub duration_ms: Option<i64>,
     pub success: Option<bool>,
     pub deleted: bool,
@@ -3567,6 +3613,7 @@ impl UnifiedJob {
 
 impl<'a> From<UnifiedJob> for Job {
     fn from(uj: UnifiedJob) -> Self {
+        let args = uj.args.and_then(|v| serde_json::from_value(v).ok());
         match uj.typ.as_ref() {
             "CompletedJob" => Job::CompletedJob(JobExtended::new(
                 uj.self_wait_time_ms,
@@ -3583,7 +3630,7 @@ impl<'a> From<UnifiedJob> for Job {
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
                     script_path: uj.script_path,
-                    args: None,
+                    args: args.clone(),
                     result: None,
                     result_columns: None,
                     logs: None,
@@ -3623,7 +3670,7 @@ impl<'a> From<UnifiedJob> for Job {
                     script_hash: uj.script_hash,
                     script_path: uj.script_path,
                     script_entrypoint_override: None,
-                    args: None,
+                    args,
                     logs: None,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
@@ -8332,6 +8379,7 @@ pub struct ListCompletedQuery {
     pub allow_wildcards: Option<bool>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub trigger_path: Option<String>,
+    pub include_args: Option<bool>,
 }
 
 async fn list_completed_jobs(
@@ -8341,7 +8389,17 @@ async fn list_completed_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<ListableCompletedJob>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
     let (per_page, offset) = paginate(pagination);
+
+    let args_field = if include_args { "v2_job.args" } else { "null as args" };
 
     let sql = list_completed_jobs_query(
         &w_id,
@@ -8378,6 +8436,7 @@ async fn list_completed_jobs(
             "v2_job.tag",
             "v2_job.priority",
             "v2_job_completed.result->'wm_labels' as labels",
+            args_field,
             "'CompletedJob' as type",
         ],
         false,

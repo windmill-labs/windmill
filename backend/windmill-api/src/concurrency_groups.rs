@@ -224,6 +224,7 @@ async fn get_concurrent_intervals(
             concurrency_key: Some(_),
             allow_wildcards: None,
             trigger_kind: _,
+            include_args: _,
         } => true,
         _ => false,
     };
