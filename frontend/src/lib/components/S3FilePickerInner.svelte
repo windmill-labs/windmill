@@ -81,7 +81,6 @@
 				count: number
 			}
 		>
-		wasOpen?: boolean
 		replaceUnauthorizedWarning?: Snippet
 		listStoredFilesRequest?: (d: ListStoredFilesData) => CancelablePromise<ListStoredFilesResponse>
 		loadFilePreviewRequest?: (d: LoadFilePreviewData) => CancelablePromise<LoadFilePreviewResponse>
@@ -108,7 +107,6 @@
 		storage = $bindable(undefined),
 		uploadModalOpen = $bindable(false),
 		allFilesByKey = $bindable({}),
-		wasOpen = $bindable(false),
 		replaceUnauthorizedWarning,
 		listStoredFilesRequest = HelpersService.listStoredFiles,
 		loadFilePreviewRequest = HelpersService.loadFilePreview,
@@ -424,7 +422,6 @@
 	}
 
 	export async function open(_preSelectedFileKey: S3Object | undefined = undefined) {
-		wasOpen = true
 		const preSelectedFileKey = _preSelectedFileKey && parseS3Object(_preSelectedFileKey)
 		storage = preSelectedFileKey?.storage
 		if (preSelectedFileKey !== undefined) {
