@@ -138,6 +138,8 @@ pub struct AuthorizeQuery {
     pub code_challenge: Option<String>,
     #[serde(default)]
     pub code_challenge_method: Option<String>,
+    #[serde(default)]
+    pub resource: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,7 +214,10 @@ pub async fn workspaced_oauth_metadata(
 
     Json(AuthorizationMetadata {
         issuer,
-        authorization_endpoint: format!("{}/api/w/{}/mcp/oauth/server/authorize", base_url, workspace_id),
+        authorization_endpoint: format!(
+            "{}/api/w/{}/mcp/oauth/server/authorize",
+            base_url, workspace_id
+        ),
         token_endpoint: format!("{}/api/w/{}/mcp/oauth/server/token", base_url, workspace_id),
         registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
         scopes_supported: Some(supported_scopes()),
@@ -438,6 +443,19 @@ pub async fn workspaced_oauth_authorize(
         .into_response();
     }
 
+    let resource = match &params.resource {
+        Some(r) => r,
+        None => {
+            return OAuthErrorRedirect::new(
+                &params.redirect_uri,
+                "invalid_request",
+                Some("Missing 'resource' parameter. Required for MCP audience binding."),
+                params.state.as_deref(),
+            )
+            .into_response();
+        }
+    };
+
     let base_url = BASE_URL.read().await;
     let frontend_url = format!(
         "{}/oauth/mcp_authorize?{}",
@@ -451,6 +469,7 @@ pub async fn workspaced_oauth_authorize(
             ("state", params.state.as_deref().unwrap_or("")),
             ("code_challenge", code_challenge),
             ("code_challenge_method", code_challenge_method),
+            ("resource", resource),
         ])
         .unwrap_or_default()
     );
