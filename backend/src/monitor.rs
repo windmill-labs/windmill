@@ -829,6 +829,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
     }
 
+    // Clean up expired MCP OAuth refresh tokens
+    let mcp_refresh_tokens_r: std::result::Result<Vec<i64>, _> = sqlx::query_scalar(
+        "DELETE FROM mcp_oauth_refresh_token WHERE expires_at <= now() RETURNING id",
+    )
+    .fetch_all(db)
+    .await;
+
+    match mcp_refresh_tokens_r {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("deleted {} expired MCP OAuth refresh tokens", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting MCP OAuth refresh tokens: {}", e.to_string()),
+    }
+
     let deleted_cache = sqlx::query_scalar!(
             "DELETE FROM resource WHERE resource_type = 'cache' AND to_timestamp((value->>'expire')::int) < now() RETURNING path",
         )

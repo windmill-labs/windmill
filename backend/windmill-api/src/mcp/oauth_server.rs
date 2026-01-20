@@ -20,6 +20,9 @@ use crate::db::ApiAuthed;
 /// Token expiration for MCP OAuth tokens (1 week in seconds)
 const MCP_OAUTH_TOKEN_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// Refresh token expiration for MCP OAuth (30 days in seconds)
+const MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS: u64 = 30 * 24 * 60 * 60;
+
 /// RFC 8414
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorizationMetadata {
@@ -32,6 +35,8 @@ pub struct AuthorizationMetadata {
     pub scopes_supported: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_types_supported: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grant_types_supported: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_challenge_methods_supported: Option<Vec<String>>,
 }
@@ -163,6 +168,8 @@ pub struct TokenRequest {
     pub client_id: String,
     #[serde(default)]
     pub code_verifier: Option<String>,
+    #[serde(default)]
+    pub refresh_token: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -172,6 +179,8 @@ pub struct TokenResponse {
     pub expires_in: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -193,6 +202,23 @@ struct AuthorizationCode {
     redirect_uri: String,
     code_challenge: Option<String>,
     code_challenge_method: Option<String>,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, FromRow)]
+struct RefreshTokenRow {
+    id: i64,
+    refresh_token: String,
+    access_token: String,
+    client_id: String,
+    user_email: String,
+    workspace_id: String,
+    scopes: Vec<String>,
+    token_family: sqlx::types::Uuid,
+    created_at: chrono::DateTime<chrono::Utc>,
+    expires_at: chrono::DateTime<chrono::Utc>,
+    used_at: Option<chrono::DateTime<chrono::Utc>>,
+    revoked: bool,
 }
 
 fn supported_scopes() -> Vec<String> {
@@ -222,6 +248,10 @@ pub async fn workspaced_oauth_metadata(
         registration_endpoint: Some(format!("{}/api/mcp/oauth/server/register", base_url)),
         scopes_supported: Some(supported_scopes()),
         response_types_supported: Some(vec!["code".to_string()]),
+        grant_types_supported: Some(vec![
+            "authorization_code".to_string(),
+            "refresh_token".to_string(),
+        ]),
         code_challenge_methods_supported: Some(vec!["S256".to_string()]),
     })
 }
@@ -282,17 +312,25 @@ pub struct ApprovalResponse {
     pub state: Option<String>,
 }
 
-/// POST /api/w/:workspace_id/mcp/oauth/server/token - exchange code for token
+/// POST /api/w/:workspace_id/mcp/oauth/server/token - exchange code for token or refresh
 pub async fn oauth_token(
     Extension(db): Extension<DB>,
     Form(req): Form<TokenRequest>,
 ) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
-    if req.grant_type != "authorization_code" {
-        return Err(OAuthTokenError::unsupported_grant_type(
-            "Only authorization_code grant type is supported",
-        ));
+    match req.grant_type.as_str() {
+        "authorization_code" => handle_authorization_code_grant(&db, &req).await,
+        "refresh_token" => handle_refresh_token_grant(&db, &req).await,
+        _ => Err(OAuthTokenError::unsupported_grant_type(
+            "Supported grant types: authorization_code, refresh_token",
+        )),
     }
+}
 
+/// Handle authorization_code grant type
+async fn handle_authorization_code_grant(
+    db: &DB,
+    req: &TokenRequest,
+) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
     let auth_code = match sqlx::query_as!(
         AuthorizationCode,
         "DELETE FROM mcp_oauth_server_code
@@ -301,7 +339,7 @@ pub async fn oauth_token(
                    code_challenge, code_challenge_method",
         req.code
     )
-    .fetch_optional(&db)
+    .fetch_optional(db)
     .await
     {
         Ok(Some(code)) => code,
@@ -344,33 +382,180 @@ pub async fn oauth_token(
         return Err(OAuthTokenError::invalid_grant("Invalid code_verifier"));
     }
 
-    let token = rd_string(32);
+    let access_token = rd_string(32);
+    let refresh_token = rd_string(32);
+    let token_family = sqlx::types::Uuid::new_v4();
     let scopes = auth_code.scopes;
 
+    // Create access token
     if let Err(e) = sqlx::query!(
         "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
          VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5, $6)",
-        token,
+        access_token,
         auth_code.user_email,
         format!("mcp-oauth-{}", auth_code.client_id),
         MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
         &scopes,
         auth_code.workspace_id,
     )
-    .execute(&db)
+    .execute(db)
     .await
     {
-        tracing::error!("Failed to create token: {}", e);
+        tracing::error!("Failed to create access token: {}", e);
         return Err(OAuthTokenError::server_error(
             "Failed to create access token",
         ));
     }
 
+    // Create refresh token
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO mcp_oauth_refresh_token
+         (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
+        refresh_token,
+        access_token,
+        auth_code.client_id,
+        auth_code.user_email,
+        auth_code.workspace_id,
+        &scopes,
+        token_family,
+        MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to create refresh token: {}", e);
+    }
+
     Ok(Json(TokenResponse {
-        access_token: token,
+        access_token,
         token_type: "Bearer".to_string(),
         expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
         scope: Some(scopes.join(" ")),
+        refresh_token: Some(refresh_token),
+    }))
+}
+
+/// Handle refresh_token grant type with token rotation and theft detection
+async fn handle_refresh_token_grant(
+    db: &DB,
+    req: &TokenRequest,
+) -> std::result::Result<Json<TokenResponse>, OAuthTokenError> {
+    let refresh_token_value = req
+        .refresh_token
+        .as_ref()
+        .ok_or_else(|| OAuthTokenError::invalid_request("refresh_token is required"))?;
+
+    if req.client_id.is_empty() {
+        return Err(OAuthTokenError::invalid_request("client_id is required"));
+    }
+
+    // Atomically claim the refresh token by setting used_at in a single UPDATE.
+    let token_row = match sqlx::query_as!(
+        RefreshTokenRow,
+        "UPDATE mcp_oauth_refresh_token
+         SET used_at = now()
+         WHERE refresh_token = $1
+           AND client_id = $2
+           AND used_at IS NULL
+           AND NOT revoked
+           AND expires_at > now()
+         RETURNING id, refresh_token, access_token, client_id, user_email, workspace_id,
+                   scopes, token_family, created_at, expires_at, used_at, revoked",
+        refresh_token_value,
+        req.client_id
+    )
+    .fetch_optional(db)
+    .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            // Check for token reuse (theft detection) and revoke family if detected
+            if let Ok(Some(family)) = sqlx::query_scalar!(
+                "SELECT token_family FROM mcp_oauth_refresh_token
+                 WHERE refresh_token = $1 AND used_at IS NOT NULL",
+                refresh_token_value
+            )
+            .fetch_optional(db)
+            .await
+            {
+                tracing::warn!("Refresh token reuse detected, revoking family {:?}", family);
+                let _ = sqlx::query!(
+                    "UPDATE mcp_oauth_refresh_token SET revoked = TRUE WHERE token_family = $1",
+                    family
+                )
+                .execute(db)
+                .await;
+            }
+            return Err(OAuthTokenError::invalid_grant("Invalid refresh token"));
+        }
+        Err(e) => {
+            tracing::error!("Database error claiming refresh token: {}", e);
+            return Err(OAuthTokenError::server_error("Database error"));
+        }
+    };
+
+    // Delete old access token
+    if let Err(e) = sqlx::query!("DELETE FROM token WHERE token = $1", token_row.access_token)
+        .execute(db)
+        .await
+    {
+        tracing::error!("Failed to delete old access token: {}", e);
+        // Non-fatal, continue with token creation
+    }
+
+    // Generate new tokens
+    let new_access_token = rd_string(32);
+    let new_refresh_token = rd_string(32);
+    let scopes = token_row.scopes;
+
+    // Create new access token
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO token (token, email, label, expiration, scopes, workspace_id)
+         VALUES ($1, $2, $3, now() + ($4 || ' seconds')::interval, $5, $6)",
+        new_access_token,
+        token_row.user_email,
+        format!("mcp-oauth-{}", token_row.client_id),
+        MCP_OAUTH_TOKEN_EXPIRATION_SECS.to_string(),
+        &scopes,
+        token_row.workspace_id,
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to create new access token: {}", e);
+        return Err(OAuthTokenError::server_error(
+            "Failed to create access token",
+        ));
+    }
+
+    // Create new refresh token (same token family for tracking)
+    if let Err(e) = sqlx::query!(
+        "INSERT INTO mcp_oauth_refresh_token
+         (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
+        new_refresh_token,
+        new_access_token,
+        token_row.client_id,
+        token_row.user_email,
+        token_row.workspace_id,
+        &scopes,
+        token_row.token_family,
+        MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
+    )
+    .execute(db)
+    .await
+    {
+        tracing::error!("Failed to create new refresh token: {}", e);
+        // Access token was created, return success without refresh token
+    }
+
+    Ok(Json(TokenResponse {
+        access_token: new_access_token,
+        token_type: "Bearer".to_string(),
+        expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
+        scope: Some(scopes.join(" ")),
+        refresh_token: Some(new_refresh_token),
     }))
 }
 
