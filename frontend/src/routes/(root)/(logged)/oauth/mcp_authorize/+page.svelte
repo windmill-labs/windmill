@@ -47,8 +47,7 @@
 					scope: scope,
 					state: oauthState,
 					code_challenge: codeChallenge,
-					code_challenge_method: codeChallengeMethod,
-					approved: 'true'
+					code_challenge_method: codeChallengeMethod
 				}),
 				headers: {
 					'Content-Type': 'application/json'
@@ -67,7 +66,9 @@
 				loading = false
 				window.location.href = url
 			} else {
-				sendUserToast('Error approving authorization request', true)
+				const errorData = await response.json().catch(() => null)
+				const errorMsg = errorData?.message || `Server returned ${response.status}`
+				sendUserToast(`Error: ${errorMsg}`, true)
 				loading = false
 			}
 		} catch (e) {

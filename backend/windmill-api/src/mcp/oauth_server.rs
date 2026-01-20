@@ -408,7 +408,7 @@ async fn handle_authorization_code_grant(
     }
 
     // Create refresh token
-    if let Err(e) = sqlx::query!(
+    let refresh_token_result = sqlx::query!(
         "INSERT INTO mcp_oauth_refresh_token
          (refresh_token, access_token, client_id, user_email, workspace_id, scopes, token_family, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, now() + ($8 || ' seconds')::interval)",
@@ -422,17 +422,22 @@ async fn handle_authorization_code_grant(
         MCP_OAUTH_REFRESH_TOKEN_EXPIRATION_SECS.to_string(),
     )
     .execute(db)
-    .await
-    {
-        tracing::error!("Failed to create refresh token: {}", e);
-    }
+    .await;
+
+    let refresh_token_value = match refresh_token_result {
+        Ok(_) => Some(refresh_token),
+        Err(e) => {
+            tracing::error!("Failed to create refresh token: {}", e);
+            None // Don't include invalid refresh token
+        }
+    };
 
     Ok(Json(TokenResponse {
         access_token,
         token_type: "Bearer".to_string(),
         expires_in: MCP_OAUTH_TOKEN_EXPIRATION_SECS,
         scope: Some(scopes.join(" ")),
-        refresh_token: Some(refresh_token),
+        refresh_token: refresh_token_value,
     }))
 }
 
