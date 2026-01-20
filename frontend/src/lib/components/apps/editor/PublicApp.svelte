@@ -123,6 +123,12 @@
 				path={app.path}
 				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
 			/>
+		{:else if app.raw_app && !effectiveWorkspace}
+			<div class="px-4 mt-20">
+				<Alert type="error" title="Configuration error">
+					Unable to load raw app: workspace information is missing.
+				</Alert>
+			</div>
 		{:else}
 			<div
 				class={twMerge(
