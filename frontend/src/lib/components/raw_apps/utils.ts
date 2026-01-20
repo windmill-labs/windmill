@@ -27,7 +27,7 @@ export function htmlContent(
 <head>
 	<meta charset="UTF-8" />
 	<title>App Preview</title>
-	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps/get_data/v/${secret}.css" />
+	<link rel="stylesheet" href="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.css" />
 	<script>
 		window.ctx = ${ctx ? JSON.stringify(ctx) : 'undefined'};
 
@@ -80,7 +80,7 @@ export function htmlContent(
 </head>
 <body>
 	<div id="root"></div>
-	<script src="${baseUrl}/api/w/${workspace}/apps/get_data/v/${secret}.js"></script>
+	<script src="${baseUrl}/api/w/${workspace}/apps_u/get_data/v/${secret}.js"></script>
 </body>
 </html>`
 }

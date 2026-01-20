@@ -718,7 +718,6 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
-			hideSecretUrl={true}
 		/>
 	</DrawerContent>
 </Drawer>

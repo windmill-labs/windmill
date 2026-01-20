@@ -20973,6 +20973,10 @@ components:
             type: boolean
         custom_path:
           type: string
+        raw_app:
+          type: boolean
+        bundle_secret:
+          type: string
       required:
         - id
         - workspace_id
@@ -20985,6 +20989,7 @@ components:
         - policy
         - execution_mode
         - extra_perms
+        - raw_app
 
     AppWithLastVersionWDraft:
       allOf:
