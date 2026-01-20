@@ -293,6 +293,14 @@ export function getTypeStrFromPath(
   if (parsed.name === "folder.meta" || /^folder\.[^.]+\.meta$/.test(parsed.name)) {
     return "folder";
   }
+  // Match settings (base) or settings.<branch> (branch-specific)
+  if (parsed.name === "settings" || /^settings\.[^.]+$/.test(parsed.name)) {
+    return "settings";
+  }
+  // Match encryption_key (base) or encryption_key.<branch> (branch-specific)
+  if (parsed.name === "encryption_key" || /^encryption_key\.[^.]+$/.test(parsed.name)) {
+    return "encryption_key";
+  }
 
   const typeEnding = parsed.name.split(".").at(-1);
   if (
