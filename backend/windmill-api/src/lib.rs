@@ -78,6 +78,9 @@ pub mod args;
 mod assets;
 mod audit;
 pub mod auth;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod azure_proxy_ee;
+mod azure_proxy_oss;
 mod bedrock;
 mod capture;
 mod concurrency_groups;
@@ -148,8 +151,8 @@ pub mod scim_ee;
 mod scim_oss;
 mod scopes;
 mod scripts;
-mod service_logs;
 mod secret_backend_ext;
+mod service_logs;
 mod settings;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
@@ -508,6 +511,7 @@ pub async fn run_server(
                             users::workspaced_service().layer(Extension(argon2.clone())),
                         )
                         .nest("/variables", variables::workspaced_service())
+                        .nest("/workers", workers::workspaced_service())
                         .nest("/workspaces", workspaces::workspaced_service())
                         .nest("/oidc", oidc_oss::workspaced_service())
                         .nest("/openapi", {

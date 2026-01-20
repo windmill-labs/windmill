@@ -53,6 +53,8 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      folders?: string[];
+      settings?: boolean;
     };
   } & {
     [branchName: string]: SyncOptions & {
@@ -64,6 +66,8 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        folders?: string[];
+        settings?: boolean;
       };
     };
   };
@@ -73,6 +77,8 @@ export interface SyncOptions {
       variables?: string[];
       resources?: string[];
       triggers?: string[];
+      folders?: string[];
+      settings?: boolean;
     };
   } & {
     [branchName: string]: SyncOptions & {
@@ -84,6 +90,8 @@ export interface SyncOptions {
         variables?: string[];
         resources?: string[];
         triggers?: string[];
+        folders?: string[];
+        settings?: boolean;
       };
     };
   };
@@ -370,9 +378,11 @@ export async function mergeConfigWithConfigFile<T>(
 
 // Validate branch configuration early in the process
 export async function validateBranchConfiguration(
-  opts: Pick<SyncOptions, "skipBranchValidation" | "yes">
+  opts: Pick<SyncOptions, "skipBranchValidation" | "yes">,
+  branchOverride?: string
 ): Promise<void> {
-  if (opts.skipBranchValidation || !isGitRepository()) {
+  // When branch override is provided, skip validation - user is explicitly specifying the branch
+  if (opts.skipBranchValidation || branchOverride || !isGitRepository()) {
     return;
   }
 
