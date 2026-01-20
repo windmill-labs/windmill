@@ -3,7 +3,7 @@
 	import { CornerDownLeft, Loader2 } from 'lucide-svelte'
 
 	interface Props {
-		isLoading: any
+		isLoading: boolean
 		hideShortcut?: boolean
 		onRun: () => Promise<void>
 		onCancel: () => Promise<void>

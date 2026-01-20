@@ -450,6 +450,7 @@ export class RawAppHistoryManager {
 		this.currentIndex = -1
 		this.currentBranchId = undefined
 		this.currentBranchEntryIndex = -1
+		this.temporaryCurrentState = undefined
 	}
 
 	/**

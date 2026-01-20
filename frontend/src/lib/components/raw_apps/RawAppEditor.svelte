@@ -204,7 +204,6 @@
 		)
 	}
 
-
 	function populateRunnables() {
 		iframe?.contentWindow?.postMessage(
 			{
@@ -760,7 +759,7 @@
 		}
 	}
 
-	async function applyEntry(entry: {
+	function applyEntry(entry: {
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		summary: string
@@ -781,7 +780,6 @@
 				setFilesInIframe(entry.files)
 			}
 			populateRunnables()
-
 		} catch (error) {
 			console.error('Failed to apply entry:', error)
 			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)

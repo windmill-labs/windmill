@@ -195,14 +195,6 @@
 	>
 		<!-- SVG for lines and connections -->
 		<svg class="absolute inset-0 pointer-events-none" style="width: 100%; height: 100%;">
-			<!-- Main timeline line (green gradient) -->
-			<defs>
-				<linearGradient id="mainLineGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-					<stop offset="0%" style="stop-color:rgb(34, 197, 94);stop-opacity:1" />
-					<stop offset="100%" style="stop-color:rgb(34, 197, 94);stop-opacity:0.3" />
-				</linearGradient>
-			</defs>
-
 			<!-- Always show the main line if there are entries -->
 			{#if reversedEntries.length > 0}
 				{@const mainTimelineMaxY = Math.max(...Object.values(entryPositions).map((pos) => pos.y))}
