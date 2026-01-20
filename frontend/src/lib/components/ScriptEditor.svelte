@@ -1253,7 +1253,7 @@
 			{#if assets?.length}
 				<AssetsDropdownButton {assets} />
 			{/if}
-			{#if isDebuggableScript}
+			{#if isDebuggableScript && customUi?.editorBar?.debug != false}
 				<Button
 					variant={debugMode ? 'accent' : 'default'}
 					size="xs"

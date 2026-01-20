@@ -79,6 +79,7 @@ export type EditorBarUi = {
 	database?: boolean
 	ducklake?: boolean
 	dataTable?: boolean
+	debug?: boolean
 }
 
 export type EditableSchemaFormUi = {
