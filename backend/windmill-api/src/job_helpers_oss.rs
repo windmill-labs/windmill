@@ -12,7 +12,7 @@ use windmill_common::s3_helpers::StorageResourceType;
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use crate::db::{ApiAuthed, DB};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
-use object_store::{ObjectStore, PutMultipartOpts};
+use object_store::{ObjectStore, PutMultipartOpts, PutResult};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use std::sync::Arc;
 #[cfg(not(feature = "private"))]
@@ -85,7 +85,7 @@ pub async fn upload_file_from_req(
     _file_key: &str,
     _req: axum::extract::Request,
     _options: PutMultipartOpts,
-) -> error::Result<()> {
+) -> error::Result<PutResult> {
     Err(error::Error::internal_err(
         "Not implemented in Windmill's Open Source repository".to_string(),
     ))
