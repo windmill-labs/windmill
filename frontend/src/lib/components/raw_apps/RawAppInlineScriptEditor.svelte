@@ -14,7 +14,7 @@
 
 	import { scriptLangToEditorLang } from '$lib/scripts'
 	import DiffEditor from '$lib/components/DiffEditor.svelte'
-	import type { AppInput, InlineScript } from '../apps/inputType'
+	import type { InlineScript, StaticAppInput, UserAppInput, CtxAppInput } from '../apps/inputType'
 	import CacheTtlPopup from '../apps/editor/inlineScriptsPanel/CacheTtlPopup.svelte'
 	import RunButton from '$lib/components/RunButton.svelte'
 	import { computeFields } from '../apps/editor/inlineScriptsPanel/utils'
@@ -45,7 +45,7 @@
 		inlineScript: (InlineScript & { language: ScriptLang }) | undefined
 		name?: string | undefined
 		id: string
-		fields?: Record<string, AppInput>
+		fields?: Record<string, StaticAppInput | UserAppInput | CtxAppInput>
 		path: string
 		isLoading?: boolean
 		onRun: () => Promise<void>

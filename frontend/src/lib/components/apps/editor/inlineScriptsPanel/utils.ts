@@ -1,7 +1,7 @@
 import type { Schema } from '$lib/common'
 import { ScriptService } from '$lib/gen'
 import { sendUserToast } from '$lib/toast'
-import { isRunnableByName, isRunnableByPath, type AppInputs, type InlineScript, type Runnable, type RunnableByName } from '../../inputType'
+import { isRunnableByName, isRunnableByPath, type AppInputs, type InlineScript, type Runnable, type RunnableByName, type CtxInput } from '../../inputType'
 import type { GridItem, HiddenRunnable } from '../../types'
 import { fieldTypeToTsType, schemaToInputsSpec } from '../../utils'
 import type { AppComponent } from '../component'
@@ -13,7 +13,8 @@ export interface AppScriptsList {
 
 // When the schema is loaded, we need to update the inputs spec
 // in order to render the inputs the component panel
-export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs) {
+// Note: fields can include CtxInput for raw apps
+export function computeFields(schema: Schema, defaultUserInput: boolean, fields: AppInputs | Record<string, CtxInput | AppInputs[string]>) {
 	let schemaCopy: Schema = JSON.parse(JSON.stringify(schema))
 
 	const result = {}
@@ -29,7 +30,13 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 		if (oldInput === undefined) {
 			result[key] = newInput
 		} else {
-			if (
+			// Preserve ctx inputs (used in raw apps) - they have { type: 'ctx', ctx: 'property' } syntax
+			if (oldInput.type === 'ctx') {
+				result[key] = oldInput
+			} else if (oldInput.fieldType === undefined) {
+				// For raw app inputs without fieldType, preserve the input but add the fieldType from schema
+				result[key] = Object.assign({}, oldInput, { fieldType: newInput.fieldType })
+			} else if (
 				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
 				newInput.format !== oldInput.format ||
 				newInput.subFieldType !== oldInput.subFieldType ||

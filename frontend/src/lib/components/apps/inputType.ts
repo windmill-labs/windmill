@@ -106,6 +106,12 @@ export type EvalInputV2 = {
 	allowUserResources?: boolean
 }
 
+// Context input, secure backend-resolved value (username, email, groups, workspace, author)
+export type CtxInput = {
+	type: 'ctx'
+	ctx: 'username' | 'email' | 'groups' | 'workspace' | 'author'
+}
+
 export type RowInput = {
 	type: 'row'
 	column: string
@@ -153,7 +159,7 @@ export type RunnableByName = {
 export type Runnable = RunnableByPath | RunnableByName | undefined
 
 export type RunnableWithFields = Runnable & {
-	fields?: Record<string, StaticAppInput | UserAppInput>
+	fields?: Record<string, StaticAppInput | UserAppInput | CtxInput>
 }
 
 // Runnable input, set by the developer in the component panel
@@ -279,6 +285,7 @@ export type TemplateV2AppInput = Extract<AppInput, { type: 'templatev2' }>
 
 export type UploadAppInput = Extract<AppInput, { type: 'upload' }>
 export type UploadS3AppInput = Extract<AppInput, { type: 'uploadS3' }>
+export type CtxAppInput = CtxInput
 
 export type RichAppInput =
 	| AppInput
