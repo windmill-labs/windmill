@@ -1411,6 +1411,20 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /settings/min_keep_alive_version:
+    get:
+      summary: get minimum worker version required to stay alive
+      operationId: getMinKeepAliveVersion
+      tags:
+        - setting
+      responses:
+        "200":
+          description: minimum keep-alive version
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /.well-known/jwks.json:
     get:
       summary: get JWKS for Vault JWT authentication

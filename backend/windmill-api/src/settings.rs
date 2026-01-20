@@ -55,6 +55,7 @@ pub fn global_service() -> Router {
             post(set_global_setting).get(get_global_setting),
         )
         .route("/list_global", get(list_global_settings))
+        .route("/min_keep_alive_version", get(get_min_keep_alive_version))
         .route("/test_smtp", post(test_email))
         .route("/test_license_key", post(test_license_key))
         .route("/send_stats", post(send_stats))
@@ -906,4 +907,18 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
         // For now, return empty - the EE implementation would override this
         Ok(Json(JwksResponse { keys: vec![] }))
     }
+}
+
+// ============================================================================
+// Minimum Keep-Alive Version
+// ============================================================================
+
+/// Returns the minimum version required for workers to stay alive.
+///
+/// Workers that report a version below this threshold will be terminated.
+/// This endpoint is called by workers during their periodic health checks.
+///
+/// See: backend/windmill-common/src/min_version.rs
+async fn get_min_keep_alive_version() -> String {
+    windmill_common::min_version::LOCAL_MIN_KEEP_ALIVE_VERSION.to_string()
 }
