@@ -380,5 +380,6 @@ pub static SHORT_IMPORTS_MAP: PyMap = phf_map! {
     "taiga" => "python-taiga",
     "docx" => "python-docx",
     "vt" => "vt-py",
+    "grpc" => "grpcio",
     // Add new entry here ^
 };
