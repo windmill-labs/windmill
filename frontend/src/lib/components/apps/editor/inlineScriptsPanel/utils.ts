@@ -35,7 +35,7 @@ export function computeFields(schema: Schema, defaultUserInput: boolean, fields:
 				result[key] = oldInput
 			} else if (oldInput.fieldType === undefined) {
 				// For raw app inputs without fieldType, preserve the input but add the fieldType from schema
-				result[key] = { ...oldInput, fieldType: newInput.fieldType }
+				result[key] = Object.assign({}, oldInput, { fieldType: newInput.fieldType })
 			} else if (
 				fieldTypeToTsType(newInput.fieldType) !== fieldTypeToTsType(oldInput.fieldType) ||
 				newInput.format !== oldInput.format ||
