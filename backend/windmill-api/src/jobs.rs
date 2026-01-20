@@ -341,6 +341,7 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
+        .route("/get_otel_traces/:id", get(get_otel_traces))
 }
 
 pub fn workspace_unauthed_service() -> Router {
@@ -8834,4 +8835,64 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+async fn get_otel_traces(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Json<Vec<serde_json::Value>>> {
+    // Check job exists and user has permission to view it
+    let job = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match job {
+        Some(created_by) => {
+            if opt_authed.is_none() && created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(Error::NotFound(format!("Job {} not found", id)));
+        }
+    }
+
+    let trace_id = id.as_bytes().as_slice();
+
+    let traces = sqlx::query_scalar!(
+        r#"SELECT json_build_object(
+            'trace_id', encode(trace_id, 'hex'),           -- BYTEA to hex string
+            'span_id', encode(span_id, 'hex'),             -- BYTEA to hex string
+            'parent_span_id', encode(parent_span_id, 'hex'), -- BYTEA to hex string
+            'trace_state', trace_state,
+            'flags', flags,
+            'name', name,
+            'kind', kind,
+            'start_time_unix_nano', start_time_unix_nano,
+            'end_time_unix_nano', end_time_unix_nano,
+            'attributes', attributes,
+            'dropped_attributes_count', dropped_attributes_count,
+            'events', events,
+            'dropped_events_count', dropped_events_count,
+            'links', links,
+            'dropped_links_count', dropped_links_count,
+            'status', status
+        ) as "span!"
+        FROM otel_traces
+        WHERE trace_id = $1
+        ORDER BY start_time_unix_nano"#,
+        trace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(traces))
 }
