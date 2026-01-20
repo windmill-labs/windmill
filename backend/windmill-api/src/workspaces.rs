@@ -30,10 +30,11 @@ use regex::Regex;
 use hex;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
+use strum::IntoEnumIterator;
 use uuid::Uuid;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_common::db::UserDB;
+use windmill_common::db::{Authable, UserDB};
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
@@ -43,8 +44,9 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
-    WorkspaceGitSyncSettings,
+    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
+    DataTableCatalogResourceType, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
+    RuleCheckResult, WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -3357,6 +3359,22 @@ async fn create_workspace_fork(
         )));
     }
 
+    if check_user_against_rule(
+        &parent_workspace_id,
+        &ProtectionRuleKind::DisableWorkspaceForking,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+        == RuleCheckResult::Blocked
+    {
+        return Err(Error::NotAuthorized(format!(
+            "This workspace does not allow forking"
+        )));
+    }
+
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -4874,14 +4892,45 @@ async fn compare_two_variables(
 #[derive(Deserialize)]
 struct CreateProtectionRuleRequest {
     name: String,
-    rules: windmill_common::workspaces::RuleConfig,
-    scope: windmill_common::workspaces::RuleScope,
+    rules: Vec<ProtectionRuleKind>,
+    bypass_groups: Vec<String>,
+    bypass_users: Vec<String>,
 }
 
 #[derive(Deserialize)]
 struct UpdateProtectionRuleRequest {
-    rules: windmill_common::workspaces::RuleConfig,
-    scope: windmill_common::workspaces::RuleScope,
+    rules: Vec<ProtectionRuleKind>,
+    bypass_groups: Vec<String>,
+    bypass_users: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct ProtectionRulesetResponse {
+    pub workspace_id: String,
+    pub name: String,
+    pub rules: Vec<ProtectionRuleKind>,
+    pub bypass_groups: Vec<String>,
+    pub bypass_users: Vec<String>,
+}
+
+impl From<ProtectionRuleset> for ProtectionRulesetResponse {
+    fn from(value: ProtectionRuleset) -> Self {
+        let mut rules = vec![];
+
+        for rule in ProtectionRuleKind::iter() {
+            if value.rules.contains(rule.flag()) {
+                rules.push(rule)
+            }
+        }
+
+        ProtectionRulesetResponse {
+            rules,
+            workspace_id: value.workspace_id,
+            name: value.name,
+            bypass_groups: value.bypass_groups,
+            bypass_users: value.bypass_users,
+        }
+    }
 }
 
 /// List all protection rules for a workspace
@@ -4889,9 +4938,10 @@ async fn list_protection_rules(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
-) -> JsonResult<Vec<windmill_common::workspaces::ProtectionRule>> {
-    let rules = windmill_common::workspaces::get_protection_rules(&w_id, &db).await?;
-    Ok(Json((*rules).clone()))
+) -> JsonResult<Vec<ProtectionRulesetResponse>> {
+    let rules =
+        (*windmill_common::workspaces::get_protection_rules(&w_id, &db).await?).clone();
+    Ok(Json(rules.into_iter().map(ProtectionRulesetResponse::from).collect()))
 }
 
 /// Create a new protection rule
@@ -4926,14 +4976,14 @@ async fn create_protection_rule(
     // Insert the new rule
     sqlx::query!(
         r#"
-            INSERT INTO workspace_protection_rule (workspace_id, name, rule_config, bypass_groups, bypass_users)
+            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
             VALUES ($1, $2, $3, $4, $5)
         "#,
         &w_id,
         &req.name,
-        sqlx::types::Json(&req.rules) as _,
-        &req.scope.groups,
-        &req.scope.users
+        ProtectionRules::from(&req.rules).bits(),
+        &req.bypass_groups,
+        &req.bypass_users,
     )
     .execute(&mut *tx)
     .await?;
@@ -4959,9 +5009,7 @@ async fn create_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings {
-            setting_type: format!("protection_rule_{}", req.name),
-        },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", req.name) },
         None,
         false,
     )
@@ -5003,12 +5051,12 @@ async fn update_protection_rule(
     sqlx::query!(
         r#"
             UPDATE workspace_protection_rule
-            SET rule_config = $1, bypass_groups = $2, bypass_users = $3, updated_at = now()
+            SET rules = $1, bypass_groups = $2, bypass_users = $3
             WHERE workspace_id = $4 AND name = $5
         "#,
-        sqlx::types::Json(&req.rules) as _,
-        &req.scope.groups,
-        &req.scope.users,
+        ProtectionRules::from(&req.rules).bits(),
+        &req.bypass_groups,
+        &req.bypass_users,
         &w_id,
         &rule_name
     )
@@ -5036,9 +5084,7 @@ async fn update_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings {
-            setting_type: format!("protection_rule_{}", rule_name),
-        },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
         None,
         false,
     )
@@ -5095,9 +5141,7 @@ async fn delete_protection_rule(
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::Settings {
-            setting_type: format!("protection_rule_{}", rule_name),
-        },
+        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
         None,
         false,
     )

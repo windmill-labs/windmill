@@ -5,30 +5,15 @@
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { enterpriseLicense, workspaceStore, userStore } from '$lib/stores'
-	import { GroupService, UserService, WorkspaceService } from '$lib/gen'
+	import { GroupService, UserService, WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
 	import { untrack, createEventDispatcher } from 'svelte'
 	import { Save, X, Plus } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
-	interface Rule {
-		name: string
-		rules: {
-			requireForkOrBranch: boolean
-			disableFork: boolean
-			disableMergeUI: boolean
-			disableExecution: boolean
-			adminsBypassDisabled: boolean
-		}
-		scope: {
-			groups: string[]
-			users: string[]
-		}
-	}
-
 	interface Props {
-		rule?: Rule
+		rule?: ProtectionRuleset
 		existingNames?: string[]
 	}
 
@@ -39,28 +24,27 @@
 	// Create mode vs Edit mode
 	const isCreateMode = $derived(!rule)
 
+	// Helper function to check if a rule is in the array
+	const hasRule = (ruleKind: string) => rule?.rules?.includes(ruleKind as any) ?? false
+
 	// Editable state
 	let name = $state(rule?.name ?? '')
-	let requireForkOrBranch = $state(rule?.rules.requireForkOrBranch ?? false)
-	let disableFork = $state(rule?.rules.disableFork ?? false)
-	let disableMergeUI = $state(rule?.rules.disableMergeUI ?? false)
-	let disableExecution = $state(rule?.rules.disableExecution ?? false)
-	let adminsBypassDisabled = $state(rule?.rules.adminsBypassDisabled ?? false)
-	let selectedGroups = $state<string[]>(rule?.scope.groups?.map((g) => g.replace('g/', '')) ?? [])
-	let selectedUsers = $state<string[]>(rule?.scope.users?.map((u) => u.replace('u/', '')) ?? [])
+	let requireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
+	let disableFork = $state(hasRule('DisableWorkspaceForking'))
+	let disableMergeUI = $state(hasRule('DisableMergeUIInForks'))
+	let selectedGroups = $state<string[]>(rule?.bypass_groups?.map((g) => g.replace('g/', '')) ?? [])
+	let selectedUsers = $state<string[]>(rule?.bypass_users?.map((u) => u.replace('u/', '')) ?? [])
 
 	// Initial state for unsaved changes tracking
 	let initialName = $state(rule?.name ?? '')
-	let initialRequireForkOrBranch = $state(rule?.rules.requireForkOrBranch ?? false)
-	let initialDisableFork = $state(rule?.rules.disableFork ?? false)
-	let initialDisableMergeUI = $state(rule?.rules.disableMergeUI ?? false)
-	let initialDisableExecution = $state(rule?.rules.disableExecution ?? false)
-	let initialAdminsBypassDisabled = $state(rule?.rules.adminsBypassDisabled ?? false)
+	let initialRequireForkOrBranch = $state(hasRule('RequireForkOrBranchToDeploy'))
+	let initialDisableFork = $state(hasRule('DisableWorkspaceForking'))
+	let initialDisableMergeUI = $state(hasRule('DisableMergeUIInForks'))
 	let initialSelectedGroups = $state<string[]>(
-		rule?.scope.groups ? rule.scope.groups.map((g) => g.replace('g/', '')) : []
+		rule?.bypass_groups ? rule.bypass_groups.map((g) => g.replace('g/', '')) : []
 	)
 	let initialSelectedUsers = $state<string[]>(
-		rule?.scope.users ? rule.scope.users.map((u) => u.replace('u/', '')) : []
+		rule?.bypass_users ? rule.bypass_users.map((u) => u.replace('u/', '')) : []
 	)
 
 	// Available options
@@ -118,22 +102,16 @@
 					requireForkOrBranch ||
 					disableFork ||
 					disableMergeUI ||
-					disableExecution ||
-					adminsBypassDisabled ||
 					selectedGroups.length > 0 ||
 					selectedUsers.length > 0
 			: name !== initialName ||
 					requireForkOrBranch !== initialRequireForkOrBranch ||
 					disableFork !== initialDisableFork ||
 					disableMergeUI !== initialDisableMergeUI ||
-					disableExecution !== initialDisableExecution ||
-					adminsBypassDisabled !== initialAdminsBypassDisabled ||
 					JSON.stringify([...selectedGroups].sort()) !==
 						JSON.stringify([...initialSelectedGroups].sort()) ||
 					JSON.stringify([...selectedUsers].sort()) !== JSON.stringify([...initialSelectedUsers].sort())
 	)
-
-	const scopeEmpty = $derived(selectedGroups.length === 0 && selectedUsers.length === 0)
 
 	const nameError = $derived.by(() => {
 		if (!name.trim()) return 'Name is required'
@@ -146,11 +124,6 @@
 	})
 
 	const canSave = $derived(!nameError && hasUnsavedChanges)
-
-	const enabledRulesCount = $derived(
-		[requireForkOrBranch, disableFork, disableMergeUI, disableExecution, adminsBypassDisabled].filter(Boolean)
-			.length
-	)
 
 	// Logical warnings (non-blocking)
 	const hasLogicalWarnings = $derived(
@@ -173,17 +146,13 @@
 				workspace: $workspaceStore,
 				requestBody: {
 					name,
-					rules: {
-						requireForkOrBranch,
-						disableFork,
-						disableMergeUI,
-						disableExecution,
-						adminsBypassDisabled
-					},
-					scope: {
-						groups: selectedGroups.map(g => `g/${g}`),
-						users: selectedUsers.map(u => `u/${u}`)
-					}
+					rules: [
+						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy'] : []),
+						...(disableFork ? ['DisableWorkspaceForking'] : []),
+						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
+					],
+					bypass_groups: selectedGroups.map(g => `g/${g}`),
+					bypass_users: selectedUsers.map(u => `u/${u}`)
 				}
 			})
 
@@ -203,17 +172,13 @@
 				workspace: $workspaceStore,
 				ruleName: initialName,
 				requestBody: {
-					rules: {
-						requireForkOrBranch,
-						disableFork,
-						disableMergeUI,
-						disableExecution,
-						adminsBypassDisabled
-					},
-					scope: {
-						groups: selectedGroups.map(g => `g/${g}`),
-						users: selectedUsers.map(u => `u/${u}`)
-					}
+					rules: [
+						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy'] : []),
+						...(disableFork ? ['DisableWorkspaceForking'] : []),
+						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
+					],
+					bypass_groups: selectedGroups.map(g => `g/${g}`),
+					bypass_users: selectedUsers.map(u => `u/${u}`)
 				}
 			})
 
@@ -224,8 +189,6 @@
 			initialRequireForkOrBranch = requireForkOrBranch
 			initialDisableFork = disableFork
 			initialDisableMergeUI = disableMergeUI
-			initialDisableExecution = disableExecution
-			initialAdminsBypassDisabled = adminsBypassDisabled
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
@@ -307,7 +270,7 @@
 	<!-- Protection Rules Section -->
 	<Section
 		label="Protection Rules"
-		description="Configure the rules that will be enforced for users and groups in the scope. {enabledRulesCount}/5 rules enabled."
+		description="Configure the rules that will be enforced"
 		class="space-y-4"
 	>
 		<div class="flex flex-col gap-4">
@@ -346,32 +309,6 @@
 				<div class="text-xs text-secondary ml-6">
 					Users cannot deploy fork changes through the web UI. Merges must be done through external
 					processes such as a PR on the Git Sync repo.
-				</div>
-			</div>
-
-			<!-- Disable Execution -->
-			<div class="flex flex-col gap-2">
-				<Toggle
-					bind:checked={disableExecution}
-					options={{
-						right: 'Disable manual script and flow execution'
-					}}
-				/>
-				<div class="text-xs text-secondary ml-6">
-					Users cannot execute scripts or flows. Useful for read-only or review workspaces.
-				</div>
-			</div>
-
-			<!-- Admin Bypass -->
-			<div class="flex flex-col gap-2">
-				<Toggle
-					bind:checked={adminsBypassDisabled}
-					options={{
-						right: 'Disable admin bypass for these rules'
-					}}
-				/>
-				<div class="text-xs text-secondary ml-6">
-					Even workspace admins must follow these rules. Use for strict governance requirements.
 				</div>
 			</div>
 		</div>

@@ -13,57 +13,96 @@ use crate::{
     PgDatabase, DB,
 };
 
+macro_rules! sqlx_bitflags {
+    (
+        $flags:ty => $repr:ty
+    ) => {
+        // ---- Type ----
+        impl sqlx::Type<sqlx::Postgres> for $flags {
+            fn type_info() -> sqlx::postgres::PgTypeInfo {
+                <$repr as sqlx::Type<sqlx::Postgres>>::type_info()
+            }
+        }
+
+        // ---- Encode ----
+        impl<'q> sqlx::Encode<'q, sqlx::Postgres> for $flags {
+            fn encode_by_ref(
+                &self,
+                buf: &mut sqlx::postgres::PgArgumentBuffer,
+            ) -> std::result::Result<sqlx::encode::IsNull, Box<dyn std::error::Error + Send + Sync>>
+            {
+                let bits: $repr = self.bits();
+                <$repr as sqlx::Encode<sqlx::Postgres>>::encode(bits, buf)
+            }
+        }
+
+        // ---- Decode ----
+        impl<'r> sqlx::Decode<'r, sqlx::Postgres> for $flags {
+            fn decode(
+                value: sqlx::postgres::PgValueRef<'r>,
+            ) -> std::result::Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+                let bits = <$repr as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+                <$flags>::from_bits(bits)
+                    .ok_or_else(|| "invalid bitflags value from database".into())
+            }
+        }
+    };
+}
+
 // Protection Rules - for fine-grained workspace access control
 
-/// Database row representation of a protection rule
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct ProtectionRuleRow {
+/// API representation of a protection rule
+#[derive(Debug, Clone)]
+pub struct ProtectionRuleset {
     pub workspace_id: String,
     pub name: String,
-    pub rule_config: sqlx::types::Json<RuleConfig>,
+    pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    // pub name: String,
+    // pub bypassers: RuleBypassers,
 }
 
-/// API representation of a protection rule
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProtectionRule {
-    pub name: String,
-    pub rules: RuleConfig,
-    pub scope: RuleScope,
+bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    // #[sqlx(transparent)]
+    pub struct ProtectionRules: i32 {
+        const REQUIRE_FORK_OR_BRANCH_TO_DEPLOY =    1 << 0;
+        const DISABLE_WORKSPACE_FORKING =           1 << 1;
+        const DISABLE_MERGE_UI_IN_FORKS =           1 << 2;
+    }
 }
 
-/// Configuration of protection rules
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct RuleConfig {
-    pub require_fork_or_branch: bool,
-    pub disable_fork: bool,
-    #[serde(rename = "disableMergeUI")]
-    pub disable_merge_ui: bool,
-    pub disable_execution: bool,
-    pub admins_bypass_disabled: bool,
+sqlx_bitflags!(ProtectionRules => i32);
+
+#[derive(Serialize, Deserialize, strum_macros::EnumIter)]
+pub enum ProtectionRuleKind {
+    RequireForkOrBranchToDeploy,
+    DisableWorkspaceForking,
+    DisableMergeUIInForks,
 }
 
-/// Scope defining who can bypass the protection rules
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RuleScope {
-    pub groups: Vec<String>,
-    pub users: Vec<String>,
-}
-
-impl From<ProtectionRuleRow> for ProtectionRule {
-    fn from(row: ProtectionRuleRow) -> Self {
-        ProtectionRule {
-            name: row.name,
-            rules: row.rule_config.0,
-            scope: RuleScope {
-                groups: row.bypass_groups,
-                users: row.bypass_users,
-            },
+impl ProtectionRuleKind {
+    pub const fn flag(&self) -> ProtectionRules {
+        match self {
+            ProtectionRuleKind::RequireForkOrBranchToDeploy => {
+                ProtectionRules::REQUIRE_FORK_OR_BRANCH_TO_DEPLOY
+            }
+            ProtectionRuleKind::DisableWorkspaceForking => {
+                ProtectionRules::DISABLE_WORKSPACE_FORKING
+            }
+            ProtectionRuleKind::DisableMergeUIInForks => ProtectionRules::DISABLE_MERGE_UI_IN_FORKS,
         }
+    }
+}
+
+impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
+    fn from(value: &Vec<ProtectionRuleKind>) -> Self {
+        let mut r = ProtectionRules::empty();
+        for rule in value {
+            r = r | rule.flag();
+        }
+        r
     }
 }
 
@@ -231,28 +270,29 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
 // Protection Rules Cache
 
 lazy_static::lazy_static! {
-    pub static ref PROTECTION_RULES_CACHE: Cache<String, std::sync::Arc<Vec<ProtectionRule>>> = Cache::new(1000);
+    pub static ref PROTECTION_RULES_CACHE: Cache<String, std::sync::Arc<Vec<ProtectionRuleset>>> = Cache::new(100);
 }
 
 /// Get all protection rules for a workspace with caching
-pub async fn get_protection_rules(workspace_id: &str, db: &DB) -> Result<std::sync::Arc<Vec<ProtectionRule>>> {
+pub async fn get_protection_rules(
+    workspace_id: &str,
+    db: &DB,
+) -> Result<std::sync::Arc<Vec<ProtectionRuleset>>> {
     // Check cache first
     if let Some(cached) = PROTECTION_RULES_CACHE.get(workspace_id) {
         return Ok(cached);
     }
 
     // Query database
-    let rows = sqlx::query_as!(
-        ProtectionRuleRow,
+    let rulesets = sqlx::query_as!(
+        ProtectionRuleset,
         r#"
             SELECT
                 workspace_id,
                 name,
-                rule_config as "rule_config: sqlx::types::Json<RuleConfig>",
+                rules as "rules: ProtectionRules",
                 bypass_groups,
-                bypass_users,
-                created_at,
-                updated_at
+                bypass_users
             FROM workspace_protection_rule
             WHERE workspace_id = $1
             ORDER BY name
@@ -263,11 +303,8 @@ pub async fn get_protection_rules(workspace_id: &str, db: &DB) -> Result<std::sy
     .await
     .map_err(|e| Error::internal_err(format!("Failed to fetch protection rules: {}", e)))?;
 
-    // Convert to API representation
-    let rules: Vec<ProtectionRule> = rows.into_iter().map(|row| row.into()).collect();
-
     // Cache and return
-    let arc_rules = std::sync::Arc::new(rules);
+    let arc_rules = std::sync::Arc::new(rulesets);
     PROTECTION_RULES_CACHE.insert(workspace_id.to_string(), arc_rules.clone());
 
     Ok(arc_rules)
@@ -276,7 +313,73 @@ pub async fn get_protection_rules(workspace_id: &str, db: &DB) -> Result<std::sy
 /// Invalidate the protection rules cache for a workspace
 pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
-    tracing::debug!("Invalidated protection rules cache for workspace: {}", workspace_id);
+    tracing::debug!(
+        "Invalidated protection rules cache for workspace: {}",
+        workspace_id
+    );
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuleCheckResult {
+    Allowed,
+    Blocked,
+}
+
+/// Check if a user can bypass a protection rule
+///
+/// Returns `Allowed` if:
+/// - User is in the rule's bypass users list (u/<username>)
+/// - User's group is in the rule's bypass groups list (g/<groupname>)
+///
+/// Returns `Blocked` if:
+/// - User is not in bypass lists
+///
+/// Returns `Err` if the rule is not found
+pub async fn check_user_against_rule(
+    workspace_id: &str,
+    rule: &ProtectionRuleKind,
+    username: &str,
+    user_groups: &[String],
+    is_admin: bool,
+    db: &DB,
+) -> Result<RuleCheckResult> {
+    // Check if admin can bypass
+    if is_admin {
+        return Ok(RuleCheckResult::Allowed);
+    }
+
+    // Get all protection rules for the workspace
+    let rulesets = get_protection_rules(workspace_id, db).await?;
+
+    for ruleset in rulesets.iter() {
+        if ruleset.rules.contains(rule.flag()) {
+            if ruleset.bypass_users.iter().any(|u| u == username)
+                || ruleset
+                    .bypass_groups
+                    .iter()
+                    .any(|g| user_groups.contains(g))
+            {
+                //Bypass logic and return
+            }
+        }
+    }
+
+    // Check if user is in bypass users list
+    // let user_with_prefix = format!("u/{}", username);
+    // if rule.bypassers.users.contains(&user_with_prefix) {
+    //     return Ok(RuleCheckResult::Allowed);
+    // }
+    //
+    // // Check if any of user's groups are in bypass groups list
+    // for group in user_groups {
+    //     let group_with_prefix = format!("g/{}", group);
+    //     if rule.bypassers.groups.contains(&group_with_prefix) {
+    //         return Ok(RuleCheckResult::Allowed);
+    //     }
+    // }
+
+    // User is blocked by this rule
+    Ok(RuleCheckResult::Blocked)
 }
 
 #[derive(Deserialize, Serialize, Debug)]

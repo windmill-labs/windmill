@@ -11,10 +11,10 @@
 	import { sendUserToast } from '$lib/toast'
 	import { Plus, Pen, Trash } from 'lucide-svelte'
 	import { untrack } from 'svelte'
-	import { WorkspaceService, type ProtectionRule } from '$lib/gen'
+	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 
-	let rules: ProtectionRule[] | undefined = $state(undefined)
-	let selectedRule: ProtectionRule | undefined = $state(undefined)
+	let rules: ProtectionRuleset[] | undefined = $state(undefined)
+	let selectedRule: ProtectionRuleset | undefined = $state(undefined)
 	let ruleDrawer: Drawer | undefined = $state(undefined)
 
 	async function loadRules() {
@@ -51,17 +51,17 @@
 		}
 	}
 
-	function getScopeSummary(scope: ProtectionRule['scope']): string {
-		const groupCount = scope.groups.length
-		const userCount = scope.users.length
+	function getScopeSummary(bypassGroups: string[], bypassUsers: string[]): string {
+		const groupCount = bypassGroups.length
+		const userCount = bypassUsers.length
 		const parts = []
 		if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`)
 		if (userCount > 0) parts.push(`${userCount} user${userCount !== 1 ? 's' : ''}`)
 		return parts.length > 0 ? `${parts.join(', ')} can bypass` : 'No bypassers'
 	}
 
-	function getEnabledRulesCount(ruleConfig: ProtectionRule['rules']): number {
-		return Object.values(ruleConfig).filter(Boolean).length
+	function getEnabledRulesCount(ruleConfig: ProtectionRuleset['rules']): number {
+		return ruleConfig.length
 	}
 
 	const existingRuleNames = $derived(
@@ -162,11 +162,11 @@
 							</div>
 						</Cell>
 						<Cell>
-							<span class="text-xs text-secondary">{getScopeSummary(rule.scope)}</span>
+							<span class="text-xs text-secondary">{getScopeSummary(rule.bypass_groups, rule.bypass_users)}</span>
 						</Cell>
 						<Cell>
 							<span class="text-xs text-secondary">
-								{getEnabledRulesCount(rule.rules)}/5 enabled
+								{getEnabledRulesCount(rule.rules)} enabled
 							</span>
 						</Cell>
 						<Cell last>

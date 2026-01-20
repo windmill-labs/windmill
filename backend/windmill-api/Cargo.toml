@@ -146,6 +146,7 @@ aws-sdk-sso = { workspace = true, optional = true }
 aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 rustls = { workspace = true }
+strum.workspace = true
 
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
