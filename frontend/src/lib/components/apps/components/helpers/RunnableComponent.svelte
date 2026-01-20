@@ -72,6 +72,7 @@
 		overrideCallback?: (() => CancelablePromise<void>) | undefined
 		overrideAutoRefresh?: boolean
 		replaceCallback?: boolean
+		onSuccess?: (result: any) => void
 		children?: import('svelte').Snippet
 		nonRenderedPlaceholder?: import('svelte').Snippet
 	}
@@ -104,7 +105,8 @@
 		overrideAutoRefresh = false,
 		replaceCallback = false,
 		children,
-		nonRenderedPlaceholder
+		nonRenderedPlaceholder,
+		onSuccess
 	}: Props = $props()
 
 	const {
@@ -685,7 +687,7 @@
 		delete $errorByComponent[id]
 
 		if (dispatchSuccess) {
-			dispatch('success', result)
+			onSuccess?.(result)
 		}
 		// callbacks?.done(res)
 	}

@@ -50,7 +50,7 @@
 		{runnable}
 		wrapperClass="hidden"
 		recomputableByRefreshButton={runnable.autoRefresh ?? true}
-		on:success={onSuccess}
+		onSuccess={(_r) => onSuccess()}
 		{outputs}
 	>
 		{@render children?.()}
