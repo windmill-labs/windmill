@@ -4,7 +4,7 @@
 	import { base } from '$lib/base'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
-	import { workspaceStore } from '$lib/stores'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	let port = Number($page.url.searchParams.get('port'))
 	let host: string = $page.url.searchParams.get('host') || 'localhost'
@@ -12,9 +12,11 @@
 	port = port == 0 || Number.isNaN(port) ? 80 : port
 
 	async function authorizeToken(): Promise<void> {
+		const username = $userStore?.username
+		const label = username ? `cli-${username}` : 'cli'
 		const newToken = await UserService.createToken({
 			requestBody: {
-				label: 'External tool token',
+				label,
 				expiration: undefined
 			}
 		})

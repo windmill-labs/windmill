@@ -35,6 +35,8 @@ function respecializeFields(fields: Record<string, any>) {
     if (typeof v == "object") {
       if (v.value !== undefined) {
         fields[k] = { value: v.value, type: "static" };
+      } else if (v.ctx !== undefined) {
+        fields[k] = { ctx: v.ctx, type: "ctx" };
       } else if (v.expr !== undefined) {
         fields[k] = {
           expr: v.expr,

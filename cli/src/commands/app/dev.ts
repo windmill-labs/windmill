@@ -28,7 +28,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
-import { replaceInlineScripts } from "./app.ts";
+import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
@@ -1439,6 +1439,7 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     convertRunnablesToApiFormat(runnables);
 
     replaceInlineScripts(runnables, backendPath + SEP, true);
+    repopulateFields(runnables);
 
     return runnables;
   } catch (error: any) {
@@ -1462,11 +1463,14 @@ async function executeRunnable(
     force_viewer_allow_user_resources: [],
   };
 
-  // Handle static fields
+  // Handle fields (static, ctx, user)
   if (runnable.fields) {
     for (const [key, field] of Object.entries(runnable.fields)) {
       if (field?.type === "static") {
         requestBody.force_viewer_static_fields[key] = field.value;
+      } else if (field?.type === "ctx" && field?.ctx) {
+        // Convert ctx fields to $ctx:property format for backend resolution
+        requestBody.args[key] = `$ctx:${field.ctx}`;
       }
       if (field?.type === "user" && field?.allowUserResources) {
         requestBody.force_viewer_allow_user_resources.push(key);
