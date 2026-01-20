@@ -1,4 +1,5 @@
-use crate::{common::MaybeLock, PROXY_ENVS};
+use crate::{common::MaybeLock, get_proxy_envs_for_lang};
+use windmill_common::scripts::ScriptLang;
 use std::{collections::HashMap, fs::DirBuilder, process::Stdio};
 
 use itertools::Itertools;
@@ -20,11 +21,11 @@ use windmill_queue::{append_logs, CanceledBy, MiniPulledJob};
 use crate::{
     common::{
         build_command_with_isolation, capitalize, create_args_and_out_file, get_reserved_variables,
-        read_result, start_child_process, OccupancyMetrics,
+        read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     DISABLE_NSJAIL, DISABLE_NUSER, GOPRIVATE, GOPROXY, GO_BIN_CACHE_DIR, GO_CACHE_DIR, HOME_ENV,
-    NSJAIL_PATH, PATH_ENV, TZ_ENV,
+    NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::client::AuthedClient;
 
@@ -344,7 +345,9 @@ func Run(req Req) (interface{{}}, error){{
             &NSJAIL_CONFIG_RUN_GO_CONTENT
                 .replace("{JOB_DIR}", job_dir)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -352,6 +355,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Go).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -372,6 +376,7 @@ func Run(req Req) (interface{{}}, error){{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Go).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)

@@ -48,6 +48,7 @@
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import JobOtelTraces from './JobOtelTraces.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 
@@ -103,7 +104,7 @@
 		refreshGlobal: (moduleId: string, clear: boolean, root: string) => Promise<void>
 		updateGlobalRefresh: (moduleId: string, updateFn: (clear, root) => Promise<void>) => void
 		job?: (Job & { result_stream?: string }) | undefined
-		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
+		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states' | 'tracing'
 		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
 		onResultStreamUpdate?: ({
@@ -1756,7 +1757,7 @@
 							bind:expandedSubflows
 							onSelect={(e) => {
 								console.log('onSelect', e)
-								if (rightColumnSelect != 'node_definition') {
+								if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
 									rightColumnSelect = 'node_status'
 								}
 								if (typeof e == 'string') {
@@ -1811,6 +1812,7 @@
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states" label="User States" />
 							{/if}
+							<Tab value="tracing" label="Tracing" />
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
@@ -2009,6 +2011,13 @@
 							<div class="p-2">
 								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
 							</div>
+						{:else if rightColumnSelect == 'tracing'}
+							{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+							{#if node?.job_id}
+								<JobOtelTraces jobId={node.job_id} />
+							{:else}
+								<div class="p-4 text-secondary">Select a node with a job to see HTTP request traces</div>
+							{/if}
 						{/if}
 					</div>
 				</div>

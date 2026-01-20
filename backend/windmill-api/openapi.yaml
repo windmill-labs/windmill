@@ -9344,6 +9344,25 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/jobs/get_otel_traces/{id}:
+    get:
+      summary: get OpenTelemetry traces for a job
+      operationId: getJobOtelTraces
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: list of OTEL Span objects (compatible with OpenTelemetry Span proto)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
   /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{trigger_path}:
     post:
       summary: resume all suspended jobs for a specific trigger
@@ -17563,6 +17582,7 @@ components:
         - email
         - visible_to_owner
         - tag
+
 
     ExportableCompletedJob:
       type: object

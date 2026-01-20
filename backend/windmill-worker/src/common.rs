@@ -50,6 +50,20 @@ use crate::agent_workers::UPDATE_PING_URL;
 use crate::{JOB_DEFAULT_TIMEOUT, MAX_RESULT_SIZE, MAX_TIMEOUT_DURATION, PATH_ENV};
 use windmill_common::client::AuthedClient;
 
+/// Additional nsjail config for development. Currently used for nix flake.
+#[cfg(debug_assertions)]
+pub const DEV_CONF_NSJAIL: &str = r#"
+mount {
+    src: "/nix/store"
+    dst: "/nix/store"
+    is_bind: true
+    mandatory: false
+}
+"#;
+
+#[cfg(not(debug_assertions))]
+pub const DEV_CONF_NSJAIL: &str = "";
+
 pub async fn build_args_map<'a>(
     job: &'a MiniPulledJob,
     client: &AuthedClient,

@@ -112,3 +112,12 @@ mount {
 }
 
 {SHARED_MOUNT}
+
+mount {
+    src: "{TRACING_PROXY_CA_CERT_PATH}"
+    dst: "{TRACING_PROXY_CA_CERT_PATH}"
+    is_bind: true
+    mandatory: false
+}
+
+#{DEV}
