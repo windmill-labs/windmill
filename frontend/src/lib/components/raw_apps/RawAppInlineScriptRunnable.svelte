@@ -7,7 +7,8 @@
 		type InlineScript,
 		type RunnableWithFields,
 		type StaticAppInput,
-		type UserAppInput
+		type UserAppInput,
+		type CtxAppInput
 	} from '../apps/inputType'
 	import { createEventDispatcher } from 'svelte'
 	import RawAppInlineScriptEditor from './RawAppInlineScriptEditor.svelte'
@@ -24,6 +25,7 @@
 	import { DebugToolbar, DebugPanel, debugState } from '$lib/components/debug'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
+	import { userStore, workspaceStore } from '$lib/stores'
 
 	type RunnableWithInlineScript = RunnableWithFields & {
 		inlineScript?: InlineScript & { language: ScriptLang }
@@ -112,13 +114,34 @@
 		}
 	})
 
-	function onFieldsChange(fields: Record<string, StaticAppInput | UserAppInput>) {
+	// Helper to get actual ctx value for testing
+	function getCtxValue(expr: string): any {
+		switch (expr) {
+			case 'username':
+				return $userStore?.username ?? ''
+			case 'email':
+				return $userStore?.email ?? ''
+			case 'groups':
+				return $userStore?.groups ?? []
+			case 'workspace':
+				return $workspaceStore ?? ''
+			case 'author':
+				return $userStore?.email ?? '' // In editor, author is the current user
+			default:
+				return ''
+		}
+	}
+
+	function onFieldsChange(fields: Record<string, StaticAppInput | UserAppInput | CtxAppInput>) {
 		if (args == undefined) {
 			args = {}
 		}
 		Object.entries(fields ?? {}).forEach(([k, v]) => {
 			if (v.type == 'static') {
 				args[k] = v.value
+			} else if (v.type == 'ctx' && v.ctx) {
+				// For test preview, use actual user values
+				args[k] = getCtxValue(v.ctx)
 			}
 		})
 	}
