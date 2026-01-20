@@ -10,6 +10,7 @@
 		disableLogo?: boolean
 		large?: boolean
 		centerVertically?: boolean
+		loading?: boolean
 		children?: import('svelte').Snippet
 	}
 
@@ -19,6 +20,7 @@
 		disableLogo = false,
 		large = false,
 		centerVertically = true,
+		loading = false,
 		children
 	}: Props = $props()
 
@@ -34,7 +36,7 @@
 		{#if (!disableLogo && !$enterpriseLicense) || !$whitelabelNameStore}
 			<div class="hidden lg:block">
 				<div>
-					<WindmillIcon size={centerVertically ? 64 : 48} spin="slow" />
+					<WindmillIcon size={centerVertically ? 64 : 48} spin={loading ? 'fast' : 'slow'} />
 				</div>
 			</div>
 		{:else}
@@ -52,13 +54,15 @@
 			{/if}
 		</div>
 
-		<div
-			class="rounded-md bg-surface w-full {large
-				? 'max-w-5xl'
-				: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 z-10"
-		>
-			{@render children?.()}
-		</div>
+		{#if children}
+			<div
+				class="rounded-md bg-surface w-full {large
+					? 'max-w-5xl'
+					: 'max-w-[640px]'} p-4 sm:py-8 sm:px-10 z-10"
+			>
+				{@render children()}
+			</div>
+		{/if}
 	</div>
 
 	<LoginPageHeader />

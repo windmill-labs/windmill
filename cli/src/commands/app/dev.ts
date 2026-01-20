@@ -28,7 +28,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
-import { replaceInlineScripts } from "./app.ts";
+import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
@@ -545,7 +545,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const schemaInferenceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -1221,7 +1221,7 @@ async function dev(opts: DevOptions) {
     sqlWatcher = Deno.watchFs(sqlToApplyPath);
 
     // Debounce timeout for SQL file changes
-    const sqlDebounceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const sqlDebounceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SQL_DEBOUNCE_MS = 300;
 
     // Handle SQL file changes in the background
@@ -1439,6 +1439,7 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
     convertRunnablesToApiFormat(runnables);
 
     replaceInlineScripts(runnables, backendPath + SEP, true);
+    repopulateFields(runnables);
 
     return runnables;
   } catch (error: any) {
@@ -1462,11 +1463,14 @@ async function executeRunnable(
     force_viewer_allow_user_resources: [],
   };
 
-  // Handle static fields
+  // Handle fields (static, ctx, user)
   if (runnable.fields) {
     for (const [key, field] of Object.entries(runnable.fields)) {
       if (field?.type === "static") {
         requestBody.force_viewer_static_fields[key] = field.value;
+      } else if (field?.type === "ctx" && field?.ctx) {
+        // Convert ctx fields to $ctx:property format for backend resolution
+        requestBody.args[key] = `$ctx:${field.ctx}`;
       }
       if (field?.type === "user" && field?.allowUserResources) {
         requestBody.force_viewer_allow_user_resources.push(key);

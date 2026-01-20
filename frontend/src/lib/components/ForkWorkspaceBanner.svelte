@@ -68,10 +68,7 @@
 		}
 	}
 
-	function forkAheadBehindMessage(
-		changesAhead: number,
-		changesBehind: number,
-	) {
+	function forkAheadBehindMessage(changesAhead: number, changesBehind: number) {
 		let msg: string[] = []
 		if (changesAhead > 0 || changesBehind > 0) {
 			msg.push('This fork is ')
@@ -86,11 +83,11 @@
 </script>
 
 {#if isFork}
-	<div class="w-full bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800">
+	<div class="w-full bg-blue-50 dark:bg-blue-900 text-xs rounded-b-md max-w-7xl mx-auto">
 		<div class="px-4 py-2">
 			<div class="flex items-center justify-between">
 				<div class="flex items-center gap-3">
-					<GitFork class="w-4 h-4 text-blue-600 dark:text-blue-400" />
+					<GitFork class="w-4 h-4 text-accent" />
 					<div class="text-sm">
 						<span class="font-medium text-blue-900 dark:text-blue-100">
 							Fork of <b>{parentWorkspaceData?.name}</b> ({parentWorkspaceId})
@@ -106,17 +103,17 @@
 					{:else if comparison}
 						<div class="flex items-center gap-4 text-xs">
 							{#if comparison.summary.total_diffs > 0}
-								<span>
+								<span class="text-blue-700 dark:text-blue-100">
 									{forkAheadBehindMessage(
 										comparison.summary.total_ahead,
-										comparison.summary.total_behind,
+										comparison.summary.total_behind
 									)}
-									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison.summary
-										.total_diffs} items:
+									<span class="font-semibold underline">{parentWorkspaceId}</span> over {comparison
+										.summary.total_diffs} items:
 								</span>
 								<div class="flex items-center gap-2">
 									{#if comparison.summary.scripts_changed > 0}
-										<span class="text-blue-700 dark:text-blue-300">
+										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.scripts_changed} script{comparison.summary
 												.scripts_changed !== 1
 												? 's'
@@ -124,21 +121,21 @@
 										</span>
 									{/if}
 									{#if comparison.summary.flows_changed > 0}
-										<span class="text-blue-700 dark:text-blue-300">
+										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.flows_changed} flow{comparison.summary.flows_changed !== 1
 												? 's'
 												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.apps_changed > 0}
-										<span class="text-blue-700 dark:text-blue-300">
+										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.apps_changed} app{comparison.summary.apps_changed !== 1
 												? 's'
 												: ''}
 										</span>
 									{/if}
 									{#if comparison.summary.resources_changed > 0}
-										<span class="text-blue-700 dark:text-blue-300">
+										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.resources_changed} resource{comparison.summary
 												.resources_changed !== 1
 												? 's'
@@ -146,7 +143,7 @@
 										</span>
 									{/if}
 									{#if comparison.summary.variables_changed > 0}
-										<span class="text-blue-700 dark:text-blue-300">
+										<span class="text-blue-700 dark:text-blue-100">
 											{comparison.summary.variables_changed} variable{comparison.summary
 												.variables_changed !== 1
 												? 's'
@@ -167,9 +164,12 @@
 									</div>
 								{/if}
 							{:else if comparison.skipped_comparison}
-								<span class="text-blue-600 dark:text-blue-400"> This fork was created before the addition of certain windmill features, and therefore the changes with its parent workspace cannot be displayed.</span>
+								<span class="text-blue-600 dark:text-blue-200">
+									This fork was created before the addition of certain windmill features, and
+									therefore the changes with its parent workspace cannot be displayed.</span
+								>
 							{:else}
-								<span class="text-blue-600 dark:text-blue-400"> Everything is up to date </span>
+								<span class="text-blue-600 dark:text-blue-200"> Everything is up to date </span>
 							{/if}
 						</div>
 					{/if}
