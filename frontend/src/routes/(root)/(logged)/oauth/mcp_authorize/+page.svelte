@@ -3,6 +3,7 @@
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { Button } from '$lib/components/common'
 	import { sendUserToast } from '$lib/toast'
+	import { Check, Info } from 'lucide-svelte'
 
 	// Get OAuth params from URL
 	let workspaceId = $page.url.searchParams.get('workspace_id') || ''
@@ -76,50 +77,73 @@
 	}
 </script>
 
-<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>
-	{#if success}
-		<div class="text-center">
-			<div class="mb-4 text-green-600 dark:text-green-400">
-				<svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M5 13l4 4L19 7"
-					/>
-				</svg>
+{#if !workspaceId}
+	<p class="text-center text-sm text-primary mb-6"> Error: missing workspace_id </p>
+{:else}
+	<CenteredModal title={success ? 'Authorization Approved' : 'Authorization Request'}>
+		{#if success}
+			<div class="text-center">
+				<div class="mb-4 text-green-500">
+					<Check class="w-16 h-16 mx-auto" />
+				</div>
+				<p class="text-sm text-primary mb-4">
+					Authorization granted to <span class="font-semibold text-accent">{clientName}</span>.
+				</p>
+				<p class="text-xs text-secondary mb-4">
+					You should be redirected automatically. If not, click the link below:
+				</p>
+				<a href={successRedirectUrl} class="text-xs text-accent hover:underline break-all">
+					{successRedirectUrl}
+				</a>
 			</div>
-			<p class="text-lg mb-4">
-				Authorization granted to <span class="font-semibold text-blue-600 dark:text-blue-400"
-					>{clientName}</span
-				>.
+		{:else}
+			<p class="text-center text-sm text-primary mb-6">
+				<span class="font-semibold text-accent">{clientName}</span>
+				is requesting access to your
+				<span class="font-semibold text-accent">{workspaceId}</span>
+				workspace.
 			</p>
-			<p class="text-secondary text-sm mb-4">
-				You should be redirected automatically. If not, click the link below:
-			</p>
-			<a
-				href={successRedirectUrl}
-				class="text-blue-600 dark:text-blue-400 hover:underline break-all"
-			>
-				{successRedirectUrl}
-			</a>
-		</div>
-	{:else}
-		<p class="text-center text-lg mb-6">
-			<span class="font-semibold text-blue-600 dark:text-blue-400">{clientName}</span>
-			is requesting access to your Windmill MCP tools
-			{#if workspaceId}
-				in workspace <span class="font-semibold text-blue-600 dark:text-blue-400"
-					>{workspaceId}</span
-				>
-			{/if}
-		</p>
 
-		<div class="flex flex-row justify-around gap-x-4">
-			<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
-			<Button variant="accent" size="lg" disabled={loading} {loading} onClick={onApprove}
-				>Approve</Button
+			<div class="mb-6">
+				<p class="text-xs font-semibold text-emphasis mb-3">This will allow the client to:</p>
+				<ul class="flex flex-col gap-y-2">
+					<li class="flex items-center gap-x-2 text-xs text-primary">
+						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
+						Execute all scripts in the workspace
+					</li>
+					<li class="flex items-center gap-x-2 text-xs text-primary">
+						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
+						Execute all flows in the workspace
+					</li>
+					<li class="flex items-center gap-x-2 text-xs text-primary">
+						<Check class="w-4 h-4 text-green-500 flex-shrink-0" />
+						Access API endpoints related to the workspace
+					</li>
+				</ul>
+			</div>
+
+			<div
+				class="flex items-start gap-x-2 p-3 mb-6 rounded-md bg-surface-secondary border border-light"
 			>
-		</div>
-	{/if}
-</CenteredModal>
+				<Info class="w-4 h-4 text-secondary flex-shrink-0 mt-0.5" />
+				<p class="text-2xs text-secondary">
+					For more fine-grained control, you can create a specific token with limited scope from
+					your account settings.
+					<a
+						href="https://www.windmill.dev/docs/core_concepts/mcp"
+						target="_blank"
+						rel="noopener noreferrer"
+						class="text-accent hover:underline">See documentation</a
+					>.
+				</p>
+			</div>
+
+			<div class="flex flex-row justify-around gap-x-4">
+				<Button variant="border" size="lg" disabled={loading} onClick={onDeny}>Deny</Button>
+				<Button variant="accent" size="lg" disabled={loading} {loading} onClick={onApprove}
+					>Approve</Button
+				>
+			</div>
+		{/if}
+	</CenteredModal>
+{/if}
