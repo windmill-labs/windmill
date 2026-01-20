@@ -55,7 +55,7 @@
 {:else}
 	{#if debug}
 		<pre class="text-2xs">
-			key: {key} 
+			key: {key}
 			{JSON.stringify({ r: resolvedConfig })}
 			{JSON.stringify(configuration)}</pre
 		>
