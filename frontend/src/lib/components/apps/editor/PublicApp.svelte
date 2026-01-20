@@ -13,6 +13,8 @@
 	import { urlParamsToObject } from '$lib/utils'
 	import { goto } from '$app/navigation'
 	import AppPreview from './AppPreview.svelte'
+	import RawAppPreview from '$lib/components/raw_apps/RawAppPreview.svelte'
+	import type { Runnable } from '$lib/components/raw_apps/rawAppPolicy'
 	import { twMerge } from 'tailwind-merge'
 	import { writable } from 'svelte/store'
 
@@ -28,9 +30,12 @@
 		noPermission: boolean
 		jwtError: boolean
 		onLoginSuccess: () => void
-		app: (AppWithLastVersion & { value: any }) | undefined
+		app: (AppWithLastVersion & { value: any; workspace_id?: string }) | undefined
 		workspace: string | undefined
 	} = $props()
+
+	// Use workspace from props or from app.workspace_id (for custom path responses)
+	let effectiveWorkspace = $derived(workspace ?? app?.workspace_id)
 
 	setContext(IS_APP_PUBLIC_CONTEXT_KEY, true)
 
@@ -97,9 +102,9 @@
 {:else if noPermission}
 	<div class="px-4 mt-20 w-full text-center font-bold text-xl"> This app requires read access </div>
 	<div class="text-center mt-8 text-sm text-primary">
-		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && workspace}
+		{#if $userStore}You are logged in but have no read access to this app{:else if globalUser && effectiveWorkspace}
 			You are logged in but are not a member of the workspace <span class="text-xl font-bold"
-				>{workspace}</span
+				>{effectiveWorkspace}</span
 			> this app is part of
 		{:else}You must be logged in and have read access to this app{/if}</div
 	>
@@ -110,35 +115,45 @@
 	</div>
 {:else if app}
 	{#key app}
-		<div
-			class={twMerge(
-				'min-h-screen h-full w-full flex',
-				app?.value?.['css']?.['app']?.['viewer']?.class,
-				'wm-app-viewer'
-			)}
-			style={app?.value?.['css']?.['app']?.['viewer']?.style}
-		>
-			<AppPreview
-				noBackend={false}
-				context={{
-					email: $userStore?.email,
-					name: $userStore?.name,
-					groups: $userStore?.groups,
-					username: $userStore?.username,
-					query: urlParamsToObject(page.url.searchParams),
-					hash: page.url.hash.substring(1)
-				}}
-				{workspace}
-				summary={app.summary}
-				app={app.value}
-				appPath={app.path}
-				{breakpoint}
-				policy={app.policy}
-				isEditor={false}
-				replaceStateFn={(path) => goto(path)}
-				gotoFn={(path, opt) => goto(path, opt)}
+		{#if app.raw_app && effectiveWorkspace}
+			<RawAppPreview
+				workspace={effectiveWorkspace}
+				user={$userStore}
+				secret={app.bundle_secret}
+				path={app.path}
+				runnables={(app.value?.runnables ?? {}) as Record<string, Runnable>}
 			/>
-		</div>
+		{:else}
+			<div
+				class={twMerge(
+					'min-h-screen h-full w-full flex',
+					app?.value?.['css']?.['app']?.['viewer']?.class,
+					'wm-app-viewer'
+				)}
+				style={app?.value?.['css']?.['app']?.['viewer']?.style}
+			>
+				<AppPreview
+					noBackend={false}
+					context={{
+						email: $userStore?.email,
+						name: $userStore?.name,
+						groups: $userStore?.groups,
+						username: $userStore?.username,
+						query: urlParamsToObject(page.url.searchParams),
+						hash: page.url.hash.substring(1)
+					}}
+					workspace={effectiveWorkspace}
+					summary={app.summary}
+					app={app.value}
+					appPath={app.path}
+					{breakpoint}
+					policy={app.policy}
+					isEditor={false}
+					replaceStateFn={(path) => goto(path)}
+					gotoFn={(path, opt) => goto(path, opt)}
+				/>
+			</div>
+		{/if}
 	{/key}
 {:else}
 	<Skeleton layout={[[4], 0.5, [50]]} />

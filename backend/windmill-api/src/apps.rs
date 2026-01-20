@@ -120,6 +120,7 @@ pub fn unauthed_service() -> Router {
         .route("/download_s3_file/*path", get(download_s3_file_from_app))
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
+        .route("/get_data/v/*id", get(get_raw_app_data))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -175,6 +176,9 @@ pub struct AppWithLastVersion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
     pub raw_app: bool,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle_secret: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -770,7 +774,7 @@ async fn get_public_app_by_secret(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by, app_version.raw_app
-        FROM app, app_version 
+        FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
@@ -778,11 +782,15 @@ async fn get_public_app_by_secret(
     .fetch_optional(&db)
     .await?;
 
-    let app = not_found_if_none(app_o, "App", id.to_string())?;
+    let mut app = not_found_if_none(app_o, "App", id.to_string())?;
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
     if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        // Compute bundle_secret for raw apps
+        if app.raw_app {
+            app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
+        }
         return Ok(Json(app));
     }
 
@@ -808,6 +816,11 @@ async fn get_public_app_by_secret(
                 "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
             ));
         }
+    }
+
+    // Compute bundle_secret for raw apps
+    if app.raw_app {
+        app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
     }
 
     Ok(Json(app))
@@ -891,6 +904,15 @@ async fn get_secret_id(
 }
 
 const BUNDLE_SECRET_PREFIX: &str = "bundle_";
+
+pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Result<String> {
+    let version_id = versions
+        .last()
+        .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
+    let mc = build_crypt(db, w_id).await?;
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    Ok(hx)
+}
 
 async fn get_latest_version_secret_id(
     authed: ApiAuthed,
