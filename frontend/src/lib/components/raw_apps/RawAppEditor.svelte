@@ -190,6 +190,21 @@
 		)
 	}
 
+	function setFilesAndSelectInIframe(newFiles: Record<string, string>, pathToSelect: string) {
+		const files = Object.fromEntries(
+			Object.entries(newFiles).filter(([path, _]) => !path.endsWith('/'))
+		)
+		iframe?.contentWindow?.postMessage(
+			{
+				type: 'setFilesAndSelect',
+				files: files,
+				pathToSelect: pathToSelect
+			},
+			'*'
+		)
+	}
+
+
 	function populateRunnables() {
 		iframe?.contentWindow?.postMessage(
 			{
@@ -298,9 +313,9 @@
 					files = {}
 				}
 				files[path] = content
-				setFilesInIframe(files)
 				selectedDocument = path
-				handleSelectFile(path)
+				// Use combined setFilesAndSelect to avoid race condition
+				setFilesAndSelectInIframe(files, path)
 				return lint()
 			},
 			deleteFrontendFile: (path) => {
@@ -745,7 +760,7 @@
 		}
 	}
 
-	function applyEntry(entry: {
+	async function applyEntry(entry: {
 		files: Record<string, string>
 		runnables: Record<string, Runnable>
 		summary: string
@@ -757,19 +772,16 @@
 			summary = entry.summary
 			data = structuredClone($state.snapshot(entry.data))
 
-			setFilesInIframe(entry.files)
+			// If there's a selected document that exists in the new files, use the combined message
+			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
+				// Use combined setFilesAndSelect message to avoid race condition
+				setFilesAndSelectInIframe(entry.files, selectedDocument)
+			} else {
+				// Otherwise just set files normally
+				setFilesInIframe(entry.files)
+			}
 			populateRunnables()
 
-			// Re-select the current document if it exists in the new files
-			if (selectedDocument && entry.files[selectedDocument] !== undefined) {
-				iframe?.contentWindow?.postMessage(
-					{
-						type: 'selectFile',
-						path: selectedDocument
-					},
-					'*'
-				)
-			}
 		} catch (error) {
 			console.error('Failed to apply entry:', error)
 			sendUserToast('Failed to apply entry: ' + (error as Error).message, true)
