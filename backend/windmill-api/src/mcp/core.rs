@@ -440,8 +440,8 @@ pub async fn add_www_authenticate_header(
 
         // RFC 9728: The resource parameter contains the protected resource URL.
         // Clients derive the metadata URL by inserting /.well-known/oauth-protected-resource
-        // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/sse
-        let resource_url = format!("{}/api/mcp/w/{}/sse", base_url, workspace_id);
+        // after the host, e.g., http://host/.well-known/oauth-protected-resource/api/mcp/w/test/mcp
+        let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
         let www_authenticate = format!("Bearer resource=\"{}\"", resource_url);
 
         // Reconstruct response with the new header

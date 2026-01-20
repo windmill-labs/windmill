@@ -606,7 +606,9 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 .layer(from_extractor::<OptAuthed>())
-                .nest("/mcp/w/:workspace_id/sse", mcp_router)
+                // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
+                .nest("/mcp/w/:workspace_id/sse", mcp_router.clone())
+                .nest("/mcp/w/:workspace_id/mcp", mcp_router)
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -769,9 +771,9 @@ pub async fn run_server(
                 }
             },
         )
-        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/sse
+        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
         .route(
-            "/.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/sse",
+            "/.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp",
             {
                 #[cfg(feature = "mcp")]
                 {

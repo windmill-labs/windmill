@@ -226,12 +226,12 @@ pub async fn workspaced_oauth_metadata(
     })
 }
 
-/// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/sse
+/// GET /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
 pub async fn protected_resource_metadata_by_path(
     Path(workspace_id): Path<String>,
 ) -> Json<ProtectedResourceMetadata> {
     let base_url = BASE_URL.read().await;
-    let resource_url = format!("{}/api/mcp/w/{}/sse", base_url, workspace_id);
+    let resource_url = format!("{}/api/mcp/w/{}/mcp", base_url, workspace_id);
     let auth_server_url = format!("{}/api/w/{}/mcp/oauth/server", base_url, workspace_id);
     Json(ProtectedResourceMetadata {
         resource: resource_url,
