@@ -68,6 +68,13 @@
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
+				// Build args, converting ctx fields to $ctx:property format
+				const args = { ...(data.v ?? {}) }
+				for (const [key, field] of Object.entries(runnable?.fields ?? {})) {
+					if (field?.type === 'ctx' && field?.ctx) {
+						args[key] = `$ctx:${field.ctx}`
+					}
+				}
 				const uuid = await executeRunnable(
 					runnable,
 					workspace,
@@ -77,7 +84,7 @@
 					runnable_id,
 					{
 						component: runnable_id,
-						args: data.v ?? {},
+						args,
 						force_viewer_allow_user_resources: editor
 							? undefinedIfEmpty(
 									Object.keys(runnable?.fields ?? {}).filter(
