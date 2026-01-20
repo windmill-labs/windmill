@@ -925,14 +925,27 @@ async fn get_workspace_s3_resource_path(
             Some(job_id.to_string()),
         )
         .await?;
-    get_s3_resource_internal(
+    let object_store_resource = get_s3_resource_internal(
         rt,
         s3_resource_value_raw,
         windmill_common::job_s3_helpers_oss::TokenGenerator::AsClient(client),
         db,
     )
-    .await
-    .map(Some)
+    .await?;
+
+    // Check bucket workspace restrictions
+    use windmill_common::s3_helpers::ObjectStoreResource;
+    let bucket_name = match &object_store_resource {
+        ObjectStoreResource::S3(s3_resource) => Some(&s3_resource.bucket),
+        ObjectStoreResource::Azure(azure_resource) => Some(&azure_resource.container_name),
+        ObjectStoreResource::Gcs(gcs_resource) => Some(&gcs_resource.bucket),
+    };
+
+    if let Some(bucket) = bucket_name {
+        windmill_common::s3_helpers::check_bucket_workspace_restriction(bucket, workspace_id)?;
+    }
+
+    Ok(Some(object_store_resource))
 }
 
 #[derive(Deserialize, Serialize)]
