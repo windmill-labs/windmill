@@ -23,15 +23,6 @@ CREATE TABLE mcp_oauth_server_code (
 
 CREATE INDEX idx_mcp_oauth_server_code_expires ON mcp_oauth_server_code(expires_at);
 
-GRANT ALL ON mcp_oauth_client TO windmill_user;
-GRANT ALL ON mcp_oauth_client TO windmill_admin;
-
-GRANT ALL ON mcp_oauth_server_client TO windmill_user;
-GRANT ALL ON mcp_oauth_server_client TO windmill_admin;
-
-GRANT ALL ON mcp_oauth_server_code TO windmill_user;
-GRANT ALL ON mcp_oauth_server_code TO windmill_admin;
-
 -- MCP OAuth refresh tokens for token rotation
 CREATE TABLE mcp_oauth_refresh_token (
     id BIGSERIAL PRIMARY KEY,
@@ -51,8 +42,3 @@ CREATE TABLE mcp_oauth_refresh_token (
 CREATE INDEX idx_mcp_oauth_refresh_token_token ON mcp_oauth_refresh_token(refresh_token);
 CREATE INDEX idx_mcp_oauth_refresh_token_expires ON mcp_oauth_refresh_token(expires_at);
 CREATE INDEX idx_mcp_oauth_refresh_token_family ON mcp_oauth_refresh_token(token_family);
-
-GRANT ALL ON mcp_oauth_refresh_token TO windmill_user;
-GRANT ALL ON mcp_oauth_refresh_token TO windmill_admin;
-GRANT ALL ON mcp_oauth_refresh_token_id_seq TO windmill_user;
-GRANT ALL ON mcp_oauth_refresh_token_id_seq TO windmill_admin;
