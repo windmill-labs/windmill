@@ -1365,7 +1365,7 @@
 					$relativeLineNumbers
 				),
 				model,
-				fontSize: !small ? 13.5 : 12,
+				fontSize: !small ? 14 : 12,
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,
