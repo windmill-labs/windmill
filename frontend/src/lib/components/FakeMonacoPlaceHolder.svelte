@@ -21,7 +21,7 @@
 		lineNumbersOffset = 0,
 		class: className = '',
 		showNumbers = true,
-		fontSize = 14
+		fontSize = 13.5
 	}: Props = $props()
 
 	let yPadding = MONACO_Y_PADDING
