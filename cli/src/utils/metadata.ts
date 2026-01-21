@@ -636,6 +636,15 @@ interface Lock {
 }
 
 const WMILL_LOCKFILE = "wmill-lock.yaml";
+
+/**
+ * Normalizes a path to use Linux separators (forward slashes).
+ * This ensures wmill-lock.yaml is portable across Windows and Linux.
+ */
+export function normalizeLockPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 export async function readLockfile(): Promise<Lock> {
   try {
     const read = await yamlParseFile(WMILL_LOCKFILE);
@@ -654,10 +663,11 @@ export async function readLockfile(): Promise<Lock> {
 }
 
 function v2LockPath(path: string, subpath?: string) {
+  const normalizedPath = normalizeLockPath(path);
   if (subpath) {
-    return `${path}+${subpath}`;
+    return `${normalizedPath}+${normalizeLockPath(subpath)}`;
   } else {
-    return path;
+    return normalizedPath;
   }
 }
 export async function checkifMetadataUptodate(
