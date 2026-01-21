@@ -35,6 +35,11 @@ const config = {
 		port: 3000,
 		cors: { origin: '*' },
 		proxy: {
+			'^/\\.well-known/.*': {
+				target: process.env.REMOTE ?? 'https://app.windmill.dev',
+				changeOrigin: true,
+				cookieDomainRewrite: 'localhost'
+			},
 			'^/api/w/[^/]+/s3_proxy/.*': {
 				target: process.env.REMOTE ?? 'https://app.windmill.dev/',
 				changeOrigin: false, // Important for signature to be correct

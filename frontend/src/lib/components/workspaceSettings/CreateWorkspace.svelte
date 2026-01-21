@@ -14,7 +14,7 @@
 		type CompletedJob
 	} from '$lib/gen'
 	import { validateUsername } from '$lib/utils'
-	import { logoutWithRedirect } from '$lib/logout'
+	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { page } from '$app/stores'
 	import { usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'

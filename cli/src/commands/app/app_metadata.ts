@@ -15,6 +15,7 @@ import {
   updateMetadataGlobalLock,
   inferSchema,
   getRawWorkspaceDependencies,
+  normalizeLockPath,
 } from "../../utils/metadata.ts";
 import {
   ScriptLanguage,
@@ -73,7 +74,8 @@ async function generateAppHash(
       }
       if (exts.some((e) => f.path.endsWith(e))) {
         // Embed lock into hash
-        const relativePath = f.path.replace(runnablesFolder + SEP, "");
+        // Normalize path to ensure OS-independent hashing
+        const relativePath = normalizeLockPath(f.path.replace(runnablesFolder + SEP, ""));
         hashes[relativePath] = await generateHash(
           (await f.getContentText()) + JSON.stringify(rawReqs)
         );

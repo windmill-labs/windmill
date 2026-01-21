@@ -18,10 +18,11 @@
     "jsr:@std/fmt@1": "1.0.8",
     "jsr:@std/fmt@^1.0.5": "1.0.8",
     "jsr:@std/fmt@~0.225.4": "0.225.6",
-    "jsr:@std/fs@*": "1.0.20",
+    "jsr:@std/fs@*": "1.0.22",
     "jsr:@std/fs@0.223": "0.223.0",
     "jsr:@std/fs@1": "1.0.20",
-    "jsr:@std/fs@^1.0.11": "1.0.20",
+    "jsr:@std/fs@^1.0.11": "1.0.22",
+    "jsr:@std/fs@^1.0.21": "1.0.22",
     "jsr:@std/fs@~0.229.3": "0.229.3",
     "jsr:@std/internal@^1.0.12": "1.0.12",
     "jsr:@std/io@*": "0.225.2",
@@ -29,15 +30,17 @@
     "jsr:@std/io@~0.224.2": "0.224.9",
     "jsr:@std/io@~0.225.2": "0.225.2",
     "jsr:@std/log@*": "0.224.14",
-    "jsr:@std/path@*": "1.1.3",
+    "jsr:@std/path@*": "1.1.4",
     "jsr:@std/path@0.223": "0.223.0",
     "jsr:@std/path@1": "1.1.3",
     "jsr:@std/path@1.0.0-rc.1": "1.0.0-rc.1",
     "jsr:@std/path@1.0.0-rc.2": "1.0.0-rc.2",
-    "jsr:@std/path@^1.1.3": "1.1.3",
+    "jsr:@std/path@^1.1.3": "1.1.4",
+    "jsr:@std/path@^1.1.4": "1.1.4",
     "jsr:@std/path@~0.225.2": "0.225.2",
     "jsr:@std/text@1.0.0-rc.1": "1.0.0-rc.1",
     "jsr:@std/yaml@*": "1.0.10",
+    "jsr:@std/yaml@^1.0.10": "1.0.10",
     "jsr:@ts-morph/bootstrap@0.24": "0.24.0",
     "jsr:@ts-morph/common@0.24": "0.24.0",
     "jsr:@windmill-labs/cliffy-ansi@1.0.0-rc.5": "1.0.0-rc.5",
@@ -160,6 +163,13 @@
         "jsr:@std/path@^1.1.3"
       ]
     },
+    "@std/fs@1.0.22": {
+      "integrity": "de0f277a58a867147a8a01bc1b181d0dfa80bfddba8c9cf2bacd6747bcec9308",
+      "dependencies": [
+        "jsr:@std/internal",
+        "jsr:@std/path@^1.1.4"
+      ]
+    },
     "@std/internal@1.0.12": {
       "integrity": "972a634fd5bc34b242024402972cd5143eac68d8dffaca5eaa4dba30ce17b027"
     },
@@ -207,6 +217,12 @@
     },
     "@std/path@1.1.3": {
       "integrity": "b015962d82a5e6daea980c32b82d2c40142149639968549c649031a230b1afb3",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/path@1.1.4": {
+      "integrity": "1d2d43f39efb1b42f0b1882a25486647cb851481862dc7313390b2bb044314b5",
       "dependencies": [
         "jsr:@std/internal"
       ]
