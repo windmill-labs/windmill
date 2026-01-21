@@ -463,10 +463,7 @@ fn transform_fim_to_chat_completions(body: &Bytes) -> Result<(Bytes, String)> {
 
     let system_prompt = "You are a code completion assistant. Complete the code between the given prefix and suffix. Output ONLY the code that goes in the middle - no explanations, no markdown, no repeating the prefix or suffix.";
 
-    let user_content = format!(
-        "PREFIX:\n{}\n\nSUFFIX:\n{}",
-        fim_req.prompt, suffix
-    );
+    let user_content = format!("<PREFIX>\n{}\n<SUFFIX>\n{}", fim_req.prompt, suffix);
 
     let chat_req = json!({
         "model": fim_req.model,
