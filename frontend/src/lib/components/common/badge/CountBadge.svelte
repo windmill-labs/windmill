@@ -6,9 +6,10 @@
 		count: number | undefined
 		small?: boolean
 		alwaysVisible?: boolean
+		class?: string
 	}
 
-	let { count, small = true, alwaysVisible = false }: Props = $props()
+	let { count, small = true, alwaysVisible = false, class: classNames = '' }: Props = $props()
 </script>
 
 {#if count === undefined || count > 0 || alwaysVisible}
@@ -25,7 +26,8 @@
 
 			// Special case for always visible
 			alwaysVisible && small ? 'h-3 w-3 text-[8px] -right-0.5 -top-0.5' : '',
-			alwaysVisible && !small ? 'h-4 w-4 text-xs -right-1 -top-1' : ''
+			alwaysVisible && !small ? 'h-4 w-4 text-xs -right-1 -top-1' : '',
+			classNames
 		)}
 	>
 		{#if count === undefined}

@@ -16,6 +16,8 @@
 		noBorder?: boolean
 		extraRowClasses?: { bgSelected: string; bgHover: string; class: string }
 		neverShowLoader?: boolean
+		preventXOverflow?: boolean
+		customRow?: import('svelte').Snippet<[any]>
 		columns?: import('svelte').Snippet
 		extra_row?: import('svelte').Snippet<[any]>
 		children?: import('svelte').Snippet<[any]>
@@ -36,6 +38,8 @@
 			class: ''
 		},
 		neverShowLoader = false,
+		preventXOverflow = false,
+		customRow,
 		columns,
 		extra_row,
 		children,
@@ -167,34 +171,41 @@
 	{rounded}
 	{noBorder}
 	{neverShowLoader}
+	{preventXOverflow}
 >
 	{@render columns?.()}
 
 	<tbody class="h-full w-full">
-		<Row
-			on:click={() => dispatch('select', 'extraRow')}
-			class={twMerge(
-				extraRowClasses.class,
-				selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
-				'cursor-pointer rounded-md'
-			)}
-			on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
-		>
-			{@render extra_row?.({ hover: hovered === 'extraRow' })}
-		</Row>
+		{#if extra_row}
+			<Row
+				on:click={() => dispatch('select', 'extraRow')}
+				class={twMerge(
+					extraRowClasses.class,
+					selectedItemId === 'extraRow' ? extraRowClasses.bgSelected : extraRowClasses.bgHover,
+					'cursor-pointer rounded-md'
+				)}
+				on:hover={(e) => (hovered = e.detail ? 'extraRow' : undefined)}
+			>
+				{@render extra_row?.({ hover: hovered === 'extraRow' })}
+			</Row>
+		{/if}
 		{#each items ?? [] as item, index}
 			{@const hover = item.id === hovered}
-			<Row
-				on:click={() => dispatch('select', item)}
-				class={twMerge(
-					selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
-					'cursor-pointer rounded-md',
-					item.isNew && index === 0 ? 'animate-slideIn' : 'group'
-				)}
-				on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
-			>
-				{@render children?.({ item, hover })}
-			</Row>
+			{#if customRow}
+				{@render customRow?.({ item, hover })}
+			{:else}
+				<Row
+					on:click={() => dispatch('select', item)}
+					class={twMerge(
+						selectedItemId === item.id ? 'bg-surface-selected' : 'hover:bg-surface-hover',
+						'cursor-pointer rounded-md',
+						item.isNew && index === 0 ? 'animate-slideIn' : 'group'
+					)}
+					on:hover={(e) => (hovered = e.detail ? item.id : undefined)}
+				>
+					{@render children?.({ item, hover })}
+				</Row>
+			{/if}
 		{/each}
 	</tbody>
 
