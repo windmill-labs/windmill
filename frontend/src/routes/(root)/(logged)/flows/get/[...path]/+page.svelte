@@ -578,17 +578,17 @@
 						<!-- Normal Mode: Form Layout -->
 						<div class="flex flex-col align-left">
 							{#if hasSchema || inputSelected}
-								<div class="flex flex-row justify-between" transition:slide={{ duration: 150 }}>
-									{#if inputSelected}
-										<div class="py-2">
-											<InputSelectedBadge
-												onReject={() => {
-													savedInputsV2?.resetSelected()
-												}}
-												{inputSelected}
-											/>
-										</div>
-									{/if}
+								<div
+									class="flex flex-row justify-between min-h-12"
+									transition:slide={{ duration: 150 }}
+								>
+									<InputSelectedBadge
+										onReject={() => {
+											savedInputsV2?.resetSelected()
+										}}
+										{inputSelected}
+									/>
+
 									{#if hasSchema}
 										<Toggle
 											bind:checked={jsonView}
@@ -635,7 +635,7 @@
 
 						<div class="pt-4 flex flex-col gap-1 w-full items-end">
 							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
+								Edited <TimeAgo date={flow.edited_at ?? ''} noSeconds /> by {flow.edited_by}
 							</span>
 						</div>
 					{/if}
