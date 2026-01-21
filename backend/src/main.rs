@@ -1329,7 +1329,8 @@ Windmill Community Edition {GIT_VERSION}
 
                                 // update min version explicitly.
                                 // for sql connection it is the part of monitor_db.
-                                windmill_common::min_version::update_min_version(conn).await;
+                                // TODO: pass worker name for min keep-alive alerts
+                                windmill_common::min_version::update_min_version(conn, None).await;
                             }
                         };
                     }

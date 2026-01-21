@@ -1800,7 +1800,7 @@ pub async fn monitor_db(
 
     let update_min_worker_version_f = async {
         #[cfg(not(feature = "test_job_debouncing"))]
-        windmill_common::min_version::update_min_version(conn).await;
+        windmill_common::min_version::update_min_version(conn, None).await;
     };
 
     join!(

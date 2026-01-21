@@ -16,16 +16,13 @@ pub const MIN_VERSION_IS_AT_LEAST_1_440: VC = vc(1, 440, 0, "Flow node value on 
 pub const MIN_VERSION_IS_AT_LEAST_1_432: VC = vc(1, 432, 0, "Flow script job kind");
 pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite table");
 
-// NOTE: Workers must NOT use LOCAL_MIN_KEEP_ALIVE_VERSION directly.
-// They should call the server API: GET /api/settings/min_keep_alive_version
-//
 // TODO: Currently only shows warning in frontend. In the future,
 // workers below this version should be terminated automatically.
 
-/// Authoritative min keep-alive version defined in this codebase.
+/// Minimum version workers must have to stay connected.
 /// Served via: GET /api/settings/min_keep_alive_version
 /// Also used by vc() for compile-time checks.
-pub const LOCAL_MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
+pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
 
 // Compile-time check: must lag at least 50 minor versions behind current.
 // NOTE: The 50 version lag is a constant and should NEVER be changed. If this check
@@ -36,20 +33,17 @@ const _: () = assert!(const_str::parse!(const_str::split!(crate::utils::GIT_VERS
 lazy_static::lazy_static! {
     // Global minimum version across all workers (for feature flags)
     pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-
-    /// Min keep-alive version fetched from server by workers.
-    pub static ref REMOTE_MIN_KEEP_ALIVE_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
 }
 
-/// Creates a VersionConstraint with compile-time assertion that version > LOCAL_MIN_KEEP_ALIVE_VERSION.
-/// When LOCAL_MIN_KEEP_ALIVE_VERSION is raised, obsolete constraints will fail to compile.
+/// Creates a VersionConstraint with compile-time assertion that version > MIN_KEEP_ALIVE_VERSION.
+/// When MIN_KEEP_ALIVE_VERSION is raised, obsolete constraints will fail to compile.
 pub const fn vc(major: u64, minor: u64, patch: u64, name: &'static str) -> VersionConstraint {
-    let is_greater = major > LOCAL_MIN_KEEP_ALIVE_VERSION.0
-        || (major == LOCAL_MIN_KEEP_ALIVE_VERSION.0 && minor > LOCAL_MIN_KEEP_ALIVE_VERSION.1)
-        || (major == LOCAL_MIN_KEEP_ALIVE_VERSION.0 && minor == LOCAL_MIN_KEEP_ALIVE_VERSION.1 && patch > LOCAL_MIN_KEEP_ALIVE_VERSION.2);
+    let is_greater = major > MIN_KEEP_ALIVE_VERSION.0
+        || (major == MIN_KEEP_ALIVE_VERSION.0 && minor > MIN_KEEP_ALIVE_VERSION.1)
+        || (major == MIN_KEEP_ALIVE_VERSION.0 && minor == MIN_KEEP_ALIVE_VERSION.1 && patch > MIN_KEEP_ALIVE_VERSION.2);
     assert!(
         is_greater,
-        "Feature version must be > LOCAL_MIN_KEEP_ALIVE_VERSION. Remove this obsolete constraint."
+        "Feature version must be > MIN_KEEP_ALIVE_VERSION. Remove this obsolete constraint."
     );
     VersionConstraint { available_since: Version::new(major, minor, patch), name }
 }
@@ -68,6 +62,7 @@ impl VersionConstraint {
     }
 
     pub async fn met(&self) -> bool {
+        // TODO: check if not 0.0.0
         &*MIN_VERSION.read().await <= &self.available_since
     }
 
@@ -86,8 +81,9 @@ impl VersionConstraint {
 
 // ============ Version Management ============
 
-use crate::worker::{Connection, HttpClient};
-use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
+use crate::worker::Connection;
+use crate::utils::{GIT_SEM_VERSION, GIT_VERSION, HTTP_CLIENT};
+use crate::BASE_INTERNAL_URL;
 
 /// Fetches the minimum version across all workers.
 // TODO: consider using HTTP for everything instead of Connection enum
@@ -120,8 +116,10 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
     Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
 }
 
-/// Server-side: Fetches and updates MIN_VERSION only.
-pub async fn update_min_version(conn: &Connection) {
+/// Updates MIN_VERSION and optionally checks min keep-alive version for workers.
+/// If `_worker_name` is Some, fetches min keep-alive version from server and sends alerts.
+pub async fn update_min_version(conn: &Connection, _worker_name: Option<&str>) {
+    // Update MIN_VERSION
     match get_min_version(conn).await {
         Ok(ref mut v) => {
             let cur = GIT_SEM_VERSION.clone();
@@ -134,34 +132,32 @@ pub async fn update_min_version(conn: &Connection) {
         }
         Err(e) => tracing::error!("Failed to fetch min version: {:#?}", e),
     }
-}
 
-/// Worker-side: Fetches and updates MIN_VERSION and REMOTE_MIN_KEEP_ALIVE_VERSION.
-pub async fn handle_min_versions(conn: &Connection, client: &HttpClient, _worker_name: &str) {
-    update_min_version(conn).await;
-
-    // Update REMOTE_MIN_KEEP_ALIVE_VERSION
-    match client.get::<String>("/api/settings/min_keep_alive_version").await {
-        Ok(v) => match Version::parse(&v) {
-            Ok(min_keep_alive) => {
-                *REMOTE_MIN_KEEP_ALIVE_VERSION.write().await = min_keep_alive.clone();
-
-                // Send critical alert if worker is behind min keep-alive version
-                #[cfg(feature = "enterprise")]
-                if let Connection::Sql(db) = conn {
-                    let current = GIT_SEM_VERSION.clone();
-                    crate::ee_oss::simple_alert_helper(
-                        format!("Worker {_worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade recommended."),
-                        format!("Worker {_worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
-                        &format!("worker-below-min-keep-alive-{_worker_name}"),
-                        || current < min_keep_alive,
-                        None,
-                        db,
-                    ).await;
-                }
-            }
-            Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
-        },
-        Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
+    // Workers fetch min keep-alive version from server and send alerts
+    #[cfg(feature = "enterprise")]
+    if let Some(worker_name) = _worker_name {
+        let url = format!("{}/api/settings/min_keep_alive_version", *BASE_INTERNAL_URL);
+        match HTTP_CLIENT.get(&url).send().await {
+            Ok(resp) => match resp.text().await {
+                Ok(v) => match Version::parse(&v) {
+                    Ok(min_keep_alive) => {
+                        if let Connection::Sql(db) = conn {
+                            let current = GIT_SEM_VERSION.clone();
+                            crate::ee::simple_alert_helper(
+                                format!("Worker {worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade recommended."),
+                                format!("Worker {worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
+                                &format!("worker-below-min-keep-alive-{worker_name}"),
+                                || current < min_keep_alive,
+                                None,
+                                db,
+                            ).await;
+                        }
+                    }
+                    Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
+                },
+                Err(e) => tracing::error!("Failed to read min keep-alive version response: {:#?}", e),
+            },
+            Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
+        }
     }
 }
