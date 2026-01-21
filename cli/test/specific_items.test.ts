@@ -8,9 +8,13 @@ import { assertEquals, assertExists, assert } from "https://deno.land/std@0.224.
 // Import the functions we need to test
 import {
   isSpecificItem,
+  isItemTypeConfigured,
   toBranchSpecificPath,
   fromBranchSpecificPath,
   isBranchSpecificFile,
+  isCurrentBranchFile,
+  getBranchSpecificPath,
+  getSpecificItemsForCurrentBranch,
 } from "../src/core/specific_items.ts";
 
 import type { SpecificItemsConfig } from "../src/core/specific_items.ts";
@@ -211,12 +215,6 @@ Deno.test("round-trip: resource file with extension", () => {
 // BRANCH OVERRIDE TESTS (for --branch flag functionality)
 // These tests validate that functions work correctly with explicit branch override
 // =============================================================================
-
-import {
-  getBranchSpecificPath,
-  isCurrentBranchFile,
-  getSpecificItemsForCurrentBranch,
-} from "../src/core/specific_items.ts";
 
 Deno.test("branchOverride: getBranchSpecificPath with override returns branch-specific path", () => {
   // This test verifies that when branchOverride is provided, the function uses it
@@ -512,4 +510,112 @@ Deno.test("round-trip: settings with sanitized branch", () => {
   assertEquals(branchSpecific, "settings.release_v1_0.yaml");
   const restored = fromBranchSpecificPath(branchSpecific, branch);
   assertEquals(restored, original);
+});
+
+// =============================================================================
+// isItemTypeConfigured TESTS
+// =============================================================================
+
+Deno.test("isItemTypeConfigured: returns true when folders is configured", () => {
+  const config: SpecificItemsConfig = { folders: ["f/**"] };
+  assertEquals(isItemTypeConfigured("f/test/folder.meta.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false when folders is NOT configured", () => {
+  const config: SpecificItemsConfig = { variables: ["f/**"] };
+  assertEquals(isItemTypeConfigured("f/test/folder.meta.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true when variables is configured", () => {
+  const config: SpecificItemsConfig = { variables: ["f/**"] };
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false when variables is NOT configured", () => {
+  const config: SpecificItemsConfig = { folders: ["f/**"] };
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true when settings is configured", () => {
+  const config: SpecificItemsConfig = { settings: true };
+  assertEquals(isItemTypeConfigured("settings.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false when settings is NOT configured", () => {
+  const config: SpecificItemsConfig = { folders: ["f/**"] };
+  assertEquals(isItemTypeConfigured("settings.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns false for undefined config", () => {
+  assertEquals(isItemTypeConfigured("f/test/folder.meta.yaml", undefined), false);
+});
+
+// =============================================================================
+// Branch-specific item filtering behavior tests
+// =============================================================================
+
+Deno.test("filtering: folder type configured and matches - should process branch-specific file", () => {
+  const config: SpecificItemsConfig = { folders: ["f/**"] };
+  const basePath = "f/compliance/folder.meta.yaml";
+
+  // Type is configured AND matches pattern = should process
+  const typeConfigured = isItemTypeConfigured(basePath, config);
+  const matchesPattern = isSpecificItem(basePath, config);
+
+  assertEquals(typeConfigured, true);
+  assertEquals(matchesPattern, true);
+  // Skip condition: typeConfigured && !matchesPattern = false (should NOT skip)
+  assertEquals(typeConfigured && !matchesPattern, false);
+});
+
+Deno.test("filtering: folder type configured but does NOT match - should skip branch-specific file", () => {
+  const config: SpecificItemsConfig = { folders: ["f/other/**"] };
+  const basePath = "f/compliance/folder.meta.yaml";
+
+  // Type is configured but does NOT match pattern = should skip
+  const typeConfigured = isItemTypeConfigured(basePath, config);
+  const matchesPattern = isSpecificItem(basePath, config);
+
+  assertEquals(typeConfigured, true);
+  assertEquals(matchesPattern, false);
+  // Skip condition: typeConfigured && !matchesPattern = true (should skip)
+  assertEquals(typeConfigured && !matchesPattern, true);
+});
+
+Deno.test("filtering: folder type NOT configured - should process branch-specific file", () => {
+  const config: SpecificItemsConfig = { variables: ["f/**"] };
+  const basePath = "f/compliance/folder.meta.yaml";
+
+  // Type is NOT configured = should process (not subject to specificItems rules)
+  const typeConfigured = isItemTypeConfigured(basePath, config);
+
+  assertEquals(typeConfigured, false);
+  // Skip condition: typeConfigured && !matchesPattern = false (should NOT skip)
+  assertEquals(typeConfigured && !isSpecificItem(basePath, config), false);
+});
+
+Deno.test("filtering: getSpecificItemsForCurrentBranch returns correct config", () => {
+  const config = {
+    gitBranches: {
+      dev: {
+        specificItems: {
+          folders: ["f/**"]
+        }
+      },
+      prod: {
+        specificItems: {
+          folders: ["f/prod/**"]
+        }
+      }
+    }
+  };
+
+  const devItems = getSpecificItemsForCurrentBranch(config as any, "dev");
+  assertEquals(devItems?.folders, ["f/**"]);
+
+  const prodItems = getSpecificItemsForCurrentBranch(config as any, "prod");
+  assertEquals(prodItems?.folders, ["f/prod/**"]);
+
+  const unknownItems = getSpecificItemsForCurrentBranch(config as any, "unknown");
+  assertEquals(unknownItems, undefined);
 });

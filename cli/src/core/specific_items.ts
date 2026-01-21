@@ -136,6 +136,42 @@ function matchesPatterns(path: string, patterns: string[]): boolean {
 }
 
 /**
+ * Check if the item type for a given path is configured in specificItems
+ * This is different from isSpecificItem which checks if it MATCHES the pattern
+ */
+export function isItemTypeConfigured(path: string, specificItems: SpecificItemsConfig | undefined): boolean {
+  if (!specificItems) {
+    return false;
+  }
+
+  if (path.endsWith('.variable.yaml')) {
+    return specificItems.variables !== undefined;
+  }
+
+  if (path.endsWith('.resource.yaml')) {
+    return specificItems.resources !== undefined;
+  }
+
+  if (isTriggerFile(path)) {
+    return specificItems.triggers !== undefined;
+  }
+
+  if (path.endsWith('/folder.meta.yaml')) {
+    return specificItems.folders !== undefined;
+  }
+
+  if (path === 'settings.yaml') {
+    return specificItems.settings !== undefined;
+  }
+
+  if (isFileResource(path)) {
+    return specificItems.resources !== undefined;
+  }
+
+  return false;
+}
+
+/**
  * Check if a file path should be treated as branch-specific
  */
 export function isSpecificItem(path: string, specificItems: SpecificItemsConfig | undefined): boolean {

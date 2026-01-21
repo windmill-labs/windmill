@@ -53,6 +53,7 @@ import {
   getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
   isCurrentBranchFile,
+  isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
@@ -1394,9 +1395,11 @@ export async function elementsToMap(
       const currentBranch = branchOverride || getCurrentGitBranch()!;
       const basePath = fromBranchSpecificPath(path, currentBranch);
 
-      // If specificItems is configured, only process if it matches the pattern
-      if (specificItems && !isSpecificItem(basePath, specificItems)) {
-        // Branch-specific file doesn't match pattern, skip it
+      // Only apply specificItems filtering if the item TYPE is configured
+      // If the type is configured but doesn't match the pattern, skip it
+      // If the type is NOT configured, process the file normally
+      if (isItemTypeConfigured(basePath, specificItems) && !isSpecificItem(basePath, specificItems)) {
+        // Branch-specific file doesn't match the configured pattern, skip it
         continue;
       }
 
@@ -1409,9 +1412,9 @@ export async function elementsToMap(
         // Skip base file, we already processed branch-specific version
         continue;
       }
-      // If specificItems is configured and this is a specific item, skip it
-      // (we should only use branch-specific versions for specific items)
-      if (specificItems && isSpecificItem(path, specificItems)) {
+      // Only skip base files if this item type IS configured as branch-specific
+      // AND it matches the pattern (meaning we expect a branch-specific version)
+      if (isSpecificItem(path, specificItems)) {
         continue;
       }
       map[path] = content;
