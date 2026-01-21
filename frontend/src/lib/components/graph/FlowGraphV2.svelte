@@ -256,7 +256,6 @@
 
 	// Function to calculate extra gap needed for notes below the lowest flow nodes
 	function calculateNoteGap(notes: FlowNote[] | undefined): number {
-		console.log('calculateNoteGap', notes)
 		if (!notes || notes.length === 0) {
 			return 0
 		}

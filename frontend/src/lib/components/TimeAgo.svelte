@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getDbClockNow } from '$lib/forLater'
 	import { displayDate } from '$lib/utils'
-	import { onDestroy, onMount, untrack } from 'svelte'
+	import { onMount, untrack } from 'svelte'
 
 	interface Props {
 		date: string
@@ -33,10 +33,11 @@
 				interval = undefined
 			}
 		}, intervalMs)
-	})
 
-	onDestroy(() => {
-		interval && clearInterval(interval)
+		// Add explicit cleanup
+		return () => {
+			interval && clearInterval(interval)
+		}
 	})
 
 	async function computeDate() {
@@ -93,11 +94,11 @@
 			else if (hours < 24) {
 				return `${hours} hours ago`
 			}
-			// If less than a month ago -> "the mm/dd/year"
+			// If less than a month ago -> "x days ago"
 			else if (isLessThanMonthAgo(date)) {
 				return `${dAgo} days ago`
 			}
-			// If more than a month ago -> "x days ago"
+			// If more than a month ago -> "the mm/dd/year"
 			else {
 				const month = (date.getMonth() + 1).toString().padStart(2, '0')
 				const day = date.getDate().toString().padStart(2, '0')
