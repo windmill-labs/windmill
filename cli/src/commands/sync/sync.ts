@@ -53,6 +53,7 @@ import {
   getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
   isCurrentBranchFile,
+  isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
@@ -1415,32 +1416,38 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (specificItems) {
-      if (isCurrentBranchFile(path, branchOverride)) {
-        // This is a branch-specific file for current branch
-        // Safe to compute branch here since isCurrentBranchFile already validated it exists
-        const currentBranch = branchOverride || getCurrentGitBranch()!;
-        const basePath = fromBranchSpecificPath(path, currentBranch);
-        if (isSpecificItem(basePath, specificItems)) {
-          // Map to base path for push operations
-          map[basePath] = content;
-          processedBasePaths.add(basePath);
-        } else {
-          // Branch-specific file doesn't match pattern, skip it
-          continue;
-        }
-      } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file, check if we should skip it
-        if (processedBasePaths.has(path)) {
-          // Skip base file, we already processed branch-specific version
-          continue;
-        }
-        map[path] = content;
+    if (isCurrentBranchFile(path, branchOverride)) {
+      // This is a branch-specific file for current branch
+      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const basePath = fromBranchSpecificPath(path, currentBranch);
+
+      // Only use branch-specific files if the item type IS configured as branch-specific
+      // AND matches the pattern. Otherwise, skip and use base file instead.
+      if (!isItemTypeConfigured(basePath, specificItems)) {
+        // Type not configured as branch-specific - skip, use base file instead
+        continue;
       }
-    } else {
-      // No specific items configuration, use regular path
-      map[entry.path] = content;
+      if (!isSpecificItem(basePath, specificItems)) {
+        // Type configured but doesn't match pattern - skip
+        continue;
+      }
+
+      // Type configured AND matches - map to base path
+      map[basePath] = content;
+      processedBasePaths.add(basePath);
+    } else if (!isBranchSpecificFile(path)) {
+      // This is a regular base file
+      if (processedBasePaths.has(path)) {
+        // Skip base file, we already processed branch-specific version
+        continue;
+      }
+      // Skip base file if it's configured as branch-specific (expect branch version)
+      if (isSpecificItem(path, specificItems)) {
+        continue;
+      }
+      map[path] = content;
     }
+    // Note: branch-specific files for other branches are already filtered out earlier
   }
   return map;
 }

@@ -8,9 +8,13 @@ import { assertEquals, assertExists, assert } from "https://deno.land/std@0.224.
 // Import the functions we need to test
 import {
   isSpecificItem,
+  isItemTypeConfigured,
   toBranchSpecificPath,
   fromBranchSpecificPath,
   isBranchSpecificFile,
+  isCurrentBranchFile,
+  getBranchSpecificPath,
+  getSpecificItemsForCurrentBranch,
 } from "../src/core/specific_items.ts";
 
 import type { SpecificItemsConfig } from "../src/core/specific_items.ts";
@@ -211,12 +215,6 @@ Deno.test("round-trip: resource file with extension", () => {
 // BRANCH OVERRIDE TESTS (for --branch flag functionality)
 // These tests validate that functions work correctly with explicit branch override
 // =============================================================================
-
-import {
-  getBranchSpecificPath,
-  isCurrentBranchFile,
-  getSpecificItemsForCurrentBranch,
-} from "../src/core/specific_items.ts";
 
 Deno.test("branchOverride: getBranchSpecificPath with override returns branch-specific path", () => {
   // This test verifies that when branchOverride is provided, the function uses it
@@ -512,4 +510,348 @@ Deno.test("round-trip: settings with sanitized branch", () => {
   assertEquals(branchSpecific, "settings.release_v1_0.yaml");
   const restored = fromBranchSpecificPath(branchSpecific, branch);
   assertEquals(restored, original);
+});
+
+// =============================================================================
+// isItemTypeConfigured TESTS
+// This function checks if the TYPE is configured, not whether it matches pattern.
+// Used to determine if branch-specific files should be used for this type.
+// =============================================================================
+
+Deno.test("isItemTypeConfigured: returns false when specificItems is undefined", () => {
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", undefined), false);
+  assertEquals(isItemTypeConfigured("f/test.resource.yaml", undefined), false);
+  assertEquals(isItemTypeConfigured("f/folder/folder.meta.yaml", undefined), false);
+  assertEquals(isItemTypeConfigured("settings.yaml", undefined), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for variables when variables is configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  // Type is configured (even if path doesn't match the pattern)
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), true);
+  assertEquals(isItemTypeConfigured("g/other.variable.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for variables when variables is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    resources: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for resources when resources is configured", () => {
+  const config: SpecificItemsConfig = {
+    resources: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/test.resource.yaml", config), true);
+  assertEquals(isItemTypeConfigured("g/other.resource.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for resources when resources is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/test.resource.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for triggers when triggers is configured", () => {
+  const config: SpecificItemsConfig = {
+    triggers: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/my.http_trigger.yaml", config), true);
+  assertEquals(isItemTypeConfigured("f/my.kafka_trigger.yaml", config), true);
+  assertEquals(isItemTypeConfigured("g/other.websocket_trigger.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for triggers when triggers is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/my.http_trigger.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for folders when folders is configured", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+  // Type is configured (even if path doesn't match the pattern)
+  assertEquals(isItemTypeConfigured("f/env_staging/folder.meta.yaml", config), true);
+  assertEquals(isItemTypeConfigured("f/other/folder.meta.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for folders when folders is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/my_folder/folder.meta.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for settings when settings is configured (true)", () => {
+  const config: SpecificItemsConfig = {
+    settings: true,
+  };
+  assertEquals(isItemTypeConfigured("settings.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns true for settings when settings is configured (false)", () => {
+  // settings: false still means the type is "configured" (explicitly disabled)
+  const config: SpecificItemsConfig = {
+    settings: false,
+  };
+  assertEquals(isItemTypeConfigured("settings.yaml", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for settings when settings is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("settings.yaml", config), false);
+});
+
+Deno.test("isItemTypeConfigured: returns true for resource files (with extension) when resources is configured", () => {
+  const config: SpecificItemsConfig = {
+    resources: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/config.resource.file.json", config), true);
+  assertEquals(isItemTypeConfigured("f/data.resource.file.ini", config), true);
+});
+
+Deno.test("isItemTypeConfigured: returns false for resource files when resources is NOT configured", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+  assertEquals(isItemTypeConfigured("f/config.resource.file.json", config), false);
+});
+
+// =============================================================================
+// BRANCH-SPECIFIC FILE FILTERING TESTS
+// These tests verify the expected filtering behavior:
+// - When type IS configured: use branch-specific files, skip base files
+// - When type is NOT configured: skip branch-specific files, use base files
+// =============================================================================
+
+Deno.test("filtering logic: folders - when NOT configured, branch-specific should be ignored", () => {
+  // Config has variables but NOT folders
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+
+  const basePath = "f/my_folder/folder.meta.yaml";
+  const branchSpecificPath = "f/my_folder/folder.main.meta.yaml";
+
+  // Folder type is NOT configured
+  assertEquals(isItemTypeConfigured(basePath, config), false);
+
+  // Therefore, branch-specific file detection should not apply to this type
+  // The sync logic should:
+  // 1. Skip branch-specific folder files (isBranchSpecificFile returns true)
+  // 2. Use the base file
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(isBranchSpecificFile(basePath), false);
+});
+
+Deno.test("filtering logic: folders - when IS configured and matches, use branch-specific", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/my_folder"],
+  };
+
+  const basePath = "f/my_folder/folder.meta.yaml";
+  const branchSpecificPath = "f/my_folder/folder.main.meta.yaml";
+
+  // Folder type IS configured
+  assertEquals(isItemTypeConfigured(basePath, config), true);
+
+  // And path matches the pattern
+  assertEquals(isSpecificItem(basePath, config), true);
+
+  // The sync logic should:
+  // 1. Use branch-specific folder file (map to base path)
+  // 2. Skip the base file
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(fromBranchSpecificPath(branchSpecificPath, "main"), basePath);
+});
+
+Deno.test("filtering logic: folders - when IS configured but doesn't match, skip branch-specific", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"], // Only env_ folders are branch-specific
+  };
+
+  const basePath = "f/other_folder/folder.meta.yaml";
+  const branchSpecificPath = "f/other_folder/folder.main.meta.yaml";
+
+  // Folder type IS configured
+  assertEquals(isItemTypeConfigured(basePath, config), true);
+
+  // But this path doesn't match the pattern
+  assertEquals(isSpecificItem(basePath, config), false);
+
+  // The sync logic should:
+  // 1. Skip the branch-specific file (type configured but doesn't match)
+  // 2. Use the base file
+});
+
+Deno.test("filtering logic: settings - when NOT configured, branch-specific should be ignored", () => {
+  // Config has variables but NOT settings
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+  };
+
+  const basePath = "settings.yaml";
+  const branchSpecificPath = "settings.main.yaml";
+
+  // Settings type is NOT configured
+  assertEquals(isItemTypeConfigured(basePath, config), false);
+
+  // Therefore, branch-specific file detection should not apply to this type
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(isBranchSpecificFile(basePath), false);
+});
+
+Deno.test("filtering logic: settings - when IS configured (true), use branch-specific", () => {
+  const config: SpecificItemsConfig = {
+    settings: true,
+  };
+
+  const basePath = "settings.yaml";
+  const branchSpecificPath = "settings.main.yaml";
+
+  // Settings type IS configured
+  assertEquals(isItemTypeConfigured(basePath, config), true);
+
+  // And settings: true means it matches
+  assertEquals(isSpecificItem(basePath, config), true);
+
+  // The sync logic should use branch-specific file
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(fromBranchSpecificPath(branchSpecificPath, "main"), basePath);
+});
+
+Deno.test("filtering logic: settings - when IS configured (false), skip branch-specific", () => {
+  // settings: false means type is configured but explicitly disabled
+  const config: SpecificItemsConfig = {
+    settings: false,
+  };
+
+  const basePath = "settings.yaml";
+  const branchSpecificPath = "settings.main.yaml";
+
+  // Settings type IS configured (even though value is false)
+  assertEquals(isItemTypeConfigured(basePath, config), true);
+
+  // But settings: false means it doesn't match (not a specific item)
+  assertEquals(isSpecificItem(basePath, config), false);
+
+  // The sync logic should skip branch-specific file and use base
+});
+
+Deno.test("filtering logic: variables - when NOT configured, branch-specific should be ignored", () => {
+  // Config has folders but NOT variables
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+
+  const basePath = "f/test.variable.yaml";
+  const branchSpecificPath = "f/test.main.variable.yaml";
+
+  // Variable type is NOT configured
+  assertEquals(isItemTypeConfigured(basePath, config), false);
+
+  // Branch-specific variable files should be ignored
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(isBranchSpecificFile(basePath), false);
+});
+
+Deno.test("filtering logic: resources - when NOT configured, branch-specific should be ignored", () => {
+  // Config has folders but NOT resources
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+
+  const basePath = "f/db.resource.yaml";
+  const branchSpecificPath = "f/db.main.resource.yaml";
+
+  // Resource type is NOT configured
+  assertEquals(isItemTypeConfigured(basePath, config), false);
+
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(isBranchSpecificFile(basePath), false);
+});
+
+Deno.test("filtering logic: triggers - when NOT configured, branch-specific should be ignored", () => {
+  // Config has folders but NOT triggers
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+
+  const basePath = "f/webhook.http_trigger.yaml";
+  const branchSpecificPath = "f/webhook.main.http_trigger.yaml";
+
+  // Trigger type is NOT configured
+  assertEquals(isItemTypeConfigured(basePath, config), false);
+
+  assertEquals(isBranchSpecificFile(branchSpecificPath), true);
+  assertEquals(isBranchSpecificFile(basePath), false);
+});
+
+// =============================================================================
+// MIXED CONFIGURATION TESTS
+// Tests for configs that have some types configured but not others
+// =============================================================================
+
+Deno.test("mixed config: only folders configured - other types use base files", () => {
+  const config: SpecificItemsConfig = {
+    folders: ["f/env_*"],
+  };
+
+  // Folders IS configured
+  assertEquals(isItemTypeConfigured("f/env_staging/folder.meta.yaml", config), true);
+  assertEquals(isSpecificItem("f/env_staging/folder.meta.yaml", config), true);
+
+  // Variables, resources, triggers, settings are NOT configured
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/db.resource.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/hook.http_trigger.yaml", config), false);
+  assertEquals(isItemTypeConfigured("settings.yaml", config), false);
+});
+
+Deno.test("mixed config: only settings configured - other types use base files", () => {
+  const config: SpecificItemsConfig = {
+    settings: true,
+  };
+
+  // Settings IS configured
+  assertEquals(isItemTypeConfigured("settings.yaml", config), true);
+  assertEquals(isSpecificItem("settings.yaml", config), true);
+
+  // Other types are NOT configured
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/db.resource.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/hook.http_trigger.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/my_folder/folder.meta.yaml", config), false);
+});
+
+Deno.test("mixed config: variables and folders configured - resources and triggers use base", () => {
+  const config: SpecificItemsConfig = {
+    variables: ["f/**"],
+    folders: ["f/env_*"],
+  };
+
+  // Variables IS configured
+  assertEquals(isItemTypeConfigured("f/test.variable.yaml", config), true);
+  assertEquals(isSpecificItem("f/test.variable.yaml", config), true);
+
+  // Folders IS configured (path matches)
+  assertEquals(isItemTypeConfigured("f/env_staging/folder.meta.yaml", config), true);
+  assertEquals(isSpecificItem("f/env_staging/folder.meta.yaml", config), true);
+
+  // Folders IS configured but path doesn't match
+  assertEquals(isItemTypeConfigured("f/other/folder.meta.yaml", config), true);
+  assertEquals(isSpecificItem("f/other/folder.meta.yaml", config), false);
+
+  // Resources and triggers are NOT configured
+  assertEquals(isItemTypeConfigured("f/db.resource.yaml", config), false);
+  assertEquals(isItemTypeConfigured("f/hook.http_trigger.yaml", config), false);
+  assertEquals(isItemTypeConfigured("settings.yaml", config), false);
 });
