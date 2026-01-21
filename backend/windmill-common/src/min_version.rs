@@ -122,8 +122,8 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
 }
 
 /// Updates MIN_VERSION and optionally checks min keep-alive version for workers.
-/// If `_worker_name` is Some, fetches min keep-alive version from server and sends alerts.
-pub async fn update_min_version(conn: &Connection, _worker_name: Option<&str>) {
+/// If `_worker_mode` is true, fetches min keep-alive version from server and sends alerts for each worker.
+pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_names: Vec<String>) {
     // Update MIN_VERSION
     match get_min_version(conn).await {
         Ok(ref mut v) => {
@@ -140,29 +140,31 @@ pub async fn update_min_version(conn: &Connection, _worker_name: Option<&str>) {
 
     // Workers fetch min keep-alive version from server and send alerts
     #[cfg(feature = "enterprise")]
-    if let Some(worker_name) = _worker_name {
-        let url = format!("{}/api/settings/min_keep_alive_version", *BASE_INTERNAL_URL);
-        match HTTP_CLIENT.get(&url).send().await {
-            Ok(resp) => match resp.text().await {
-                Ok(v) => match Version::parse(&v) {
-                    Ok(min_keep_alive) => {
-                        if let Connection::Sql(db) = conn {
+    if _worker_mode {
+        if let Connection::Sql(db) = conn {
+            let url = format!("{}/api/settings/min_keep_alive_version", *BASE_INTERNAL_URL);
+            match HTTP_CLIENT.get(&url).send().await {
+                Ok(resp) => match resp.text().await {
+                    Ok(v) => match Version::parse(&v) {
+                        Ok(min_keep_alive) => {
                             let current = GIT_SEM_VERSION.clone();
-                            crate::ee::simple_alert_helper(
-                                format!("Worker {worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade recommended."),
-                                format!("Worker {worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
-                                &format!("worker-below-min-keep-alive-{worker_name}"),
-                                || current < min_keep_alive,
-                                Some("admins"),
-                                db,
-                            ).await;
+                            for worker_name in &_worker_names {
+                                crate::ee::simple_alert_helper(
+                                    format!("Worker {worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade recommended."),
+                                    format!("Worker {worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
+                                    &format!("worker-below-min-keep-alive-{worker_name}"),
+                                    || current < min_keep_alive,
+                                    Some("admins"),
+                                    db,
+                                ).await;
+                            }
                         }
-                    }
-                    Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
+                        Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
+                    },
+                    Err(e) => tracing::error!("Failed to read min keep-alive version response: {:#?}", e),
                 },
-                Err(e) => tracing::error!("Failed to read min keep-alive version response: {:#?}", e),
-            },
-            Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
+                Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
+            }
         }
     }
 }
