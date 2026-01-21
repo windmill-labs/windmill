@@ -55,7 +55,7 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class="border-b p-1 shadow-md">
+<div class="border-b p-1">
 	<div class="mx-auto">
 		<div
 			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-10"

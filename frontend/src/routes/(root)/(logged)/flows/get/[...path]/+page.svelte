@@ -540,39 +540,45 @@
 		{#if flow}
 			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
 				<div
-					class="w-full {chatInputEnabled
-						? 'p-3 flex flex-col h-full'
-						: 'max-w-3xl p-6'} mx-auto gap-2"
+					class="w-full {chatInputEnabled ? 'p-3 flex flex-col h-full' : 'max-w-3xl p-6'} mx-auto"
 					bind:clientHeight={topSectionHeight}
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
+						<div class="h-4"></div>
 					{/if}
 
 					{#if !emptyString(flow?.description)}
-						<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} noPadding />
+						<div class="p-4 rounded-md bg-surface-secondary">
+							<GfmMarkdown
+								md={defaultIfEmptyString(flow?.description, 'No description')}
+								noPadding
+							/>
+						</div>
 						<div class="h-4"></div>
 					{/if}
 
 					{#if deploymentInProgress}
-						<HeaderBadge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-							{#if deploymentJobId}
-								<a
-									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-									class="underline"
-									target="_blank">view job</a
-								>
-							{/if}
-						</HeaderBadge>
+						<div class="pb-4" transition:slide={{ duration: 150 }}>
+							<HeaderBadge color="yellow">
+								<Loader2 size={12} class="inline animate-spin mr-1" />
+								Deployment in progress
+								{#if deploymentJobId}
+									<a
+										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+										class="underline"
+										target="_blank">view job</a
+									>
+								{/if}
+							</HeaderBadge>
+						</div>
 					{/if}
 					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-							<p class="font-bold">Error deploying this flow</p>
+						<Alert type="error" title="Deployment failed">
 							<p> This flow has not been deployed successfully because of the following errors: </p>
 							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-						</div>
+						</Alert>
+						<div class="h-4"></div>
 					{/if}
 
 					{#if chatInputEnabled}
