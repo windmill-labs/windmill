@@ -67,10 +67,14 @@
 					? 's'
 					: ''}"
 				variant="subtle"
-				btnClasses="w-fit"
-				iconOnly
+				btnClasses="w-fit px-2 relative"
 			>
-				<CountBadge count={manager.conversations.length} small={true} alwaysVisible={true} />
+				<CountBadge
+					count={manager.conversations.length}
+					small
+					alwaysVisible={true}
+					class="right-[3px] top-[3px]"
+				/>
 			</Button>
 		</div>
 	{/if}
