@@ -6,7 +6,7 @@ use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
+use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
 use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
@@ -438,6 +438,53 @@ pub struct AIConfig {
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
 }
 
+// FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM
+#[derive(Deserialize, Debug)]
+struct FimRequest {
+    model: String,
+    prompt: String,         // code before cursor
+    suffix: Option<String>, // code after cursor
+    temperature: Option<f32>,
+    max_tokens: Option<u32>,
+    stop: Option<Vec<String>>,
+}
+
+/// Checks if the AI provider supports native FIM (Fill-in-the-Middle) endpoint
+fn supports_native_fim(provider: &AIProvider) -> bool {
+    matches!(provider, AIProvider::Mistral)
+}
+
+/// Transforms a FIM request to chat/completions format for providers that don't support native FIM.
+fn transform_fim_to_chat_completions(body: &Bytes) -> Result<(Bytes, String)> {
+    let fim_req: FimRequest = serde_json::from_slice(body)
+        .map_err(|e| Error::internal_err(format!("Failed to parse FIM request: {}", e)))?;
+
+    let suffix = fim_req.suffix.unwrap_or_default();
+
+    let system_prompt = "You are a code completion assistant. Complete the code at the <CURSOR/> position between the given prefix and suffix. Output ONLY the code that goes at the cursor - no explanations, no markdown, no repeating the prefix or suffix.";
+
+    let user_content = format!(
+        "<PREFIX>\n{}\n<CURSOR/>\n<SUFFIX>\n{}",
+        fim_req.prompt, suffix
+    );
+
+    let chat_req = json!({
+        "model": fim_req.model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content}
+        ],
+        "temperature": fim_req.temperature.unwrap_or(0.0),
+        "max_tokens": fim_req.max_tokens.unwrap_or(256),
+        "stop": fim_req.stop
+    });
+
+    let chat_body = serde_json::to_vec(&chat_req)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize chat request: {}", e)))?;
+
+    Ok((Bytes::from(chat_body), "chat/completions".to_string()))
+}
+
 pub fn global_service() -> Router {
     Router::new().route("/proxy/*ai", post(global_proxy).get(global_proxy))
 }
@@ -516,10 +563,10 @@ async fn global_proxy(
 async fn proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
-    Path((w_id, ai_path)): Path<(String, String)>,
+    Path((w_id, mut ai_path)): Path<(String, String)>,
     method: Method,
     headers: HeaderMap,
-    body: Bytes,
+    mut body: Bytes,
 ) -> impl IntoResponse {
     let provider = headers
         .get("X-Provider")
@@ -599,6 +646,19 @@ async fn proxy(
             request_config
         }
     };
+
+    // Check if this is a FIM request to a provider that doesn't support native FIM endpoint
+    // For such providers, transform to use FIM sentinel tokens with the chat/completions endpoint
+    let is_fim_request = ai_path.contains("fim/completions");
+    if is_fim_request && !supports_native_fim(&provider) {
+        tracing::debug!(
+            "Transforming FIM request to chat/completions with FIM tokens for provider {:?}",
+            provider
+        );
+        let (chat_body, chat_path) = transform_fim_to_chat_completions(&body)?;
+        body = chat_body;
+        ai_path = chat_path;
+    }
 
     // Extract model and streaming flag for Bedrock transformation (only for POST requests)
     let (model, is_streaming) =
