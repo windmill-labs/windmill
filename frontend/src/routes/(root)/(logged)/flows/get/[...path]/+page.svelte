@@ -663,7 +663,6 @@
 							triggerNode={true}
 							download
 							{flow}
-							overflowAuto
 							noSide={true}
 							minHeight={graphMinHeight}
 							on:select={(e) => {

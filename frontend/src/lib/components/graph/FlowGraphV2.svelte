@@ -650,6 +650,10 @@
 		]
 
 		await tick()
+		updateHeight()
+	}
+
+	function updateHeight() {
 		if (nodes.length === 0) {
 			height = minHeight
 		} else {
@@ -658,6 +662,11 @@
 			height = Math.max(maxBottom - minY, minHeight)
 		}
 	}
+
+	$effect(() => {
+		minHeight
+		untrack(() => updateHeight())
+	})
 
 	const nodeTypes = {
 		input2: InputNode,
