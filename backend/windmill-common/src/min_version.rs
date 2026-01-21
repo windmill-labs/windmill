@@ -27,7 +27,11 @@ pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
 // Compile-time check: must lag at least 50 minor versions behind current.
 // NOTE: The 50 version lag is a constant and should NEVER be changed. If this check
 // fails, wait until enough versions have passed rather than reducing the lag requirement.
-const _: () = assert!(const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - MIN_KEEP_ALIVE_VERSION.1 >= 50);
+// Skip check if GIT_VERSION is "unknown-version" (no git tags available during build)
+const _: () = assert!(
+    const_str::equal!(crate::utils::GIT_VERSION, "unknown-version") ||
+    const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - MIN_KEEP_ALIVE_VERSION.1 >= 50
+);
 
 // ============ Implementation ============
 lazy_static::lazy_static! {
@@ -68,7 +72,7 @@ impl VersionConstraint {
             tracing::warn!("MIN_VERSION not set yet, assuming feature '{}' is met", self.name);
             return true;
         }
-        &*min <= &self.available_since
+        &self.available_since <= &*min
     }
 
     pub async fn assert(&self) -> error::Result<()> {
@@ -122,7 +126,8 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
 
 /// Updates MIN_VERSION and optionally checks min keep-alive version for workers.
 /// If `_worker_mode` is true, fetches min keep-alive version from server and sends alerts for each worker.
-pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_names: Vec<String>) {
+/// If `initial_load` is true, skips the HTTP fetch to min_keep_alive_version endpoint (server may not be ready).
+pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_names: Vec<String>, _initial_load: bool) {
     // Update MIN_VERSION
     match get_min_version(conn).await {
         Ok(ref mut v) => {
@@ -138,8 +143,9 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
     }
 
     // Workers fetch min keep-alive version from server and send alerts
+    // Skip on initial_load since the server may not be ready yet
     #[cfg(all(feature = "enterprise", feature = "private"))]
-    if _worker_mode {
+    if _worker_mode && !_initial_load {
         if let Connection::Sql(db) = conn {
             let url = format!("{}/api/min_keep_alive_version", *crate::BASE_INTERNAL_URL);
             match crate::utils::HTTP_CLIENT.get(&url).send().await {
