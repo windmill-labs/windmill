@@ -141,10 +141,10 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
     #[cfg(feature = "enterprise")]
     if _worker_mode {
         if let Connection::Sql(db) = conn {
-            let url = format!("{}/api/settings/min_keep_alive_version", *crate::BASE_INTERNAL_URL);
+            let url = format!("{}/api/min_keep_alive_version", *crate::BASE_INTERNAL_URL);
             match crate::utils::HTTP_CLIENT.get(&url).send().await {
-                Ok(resp) => match dbg!(resp).text().await {
-                    Ok(v) => match Version::parse(&dbg!(v)) {
+                Ok(resp) => match resp.text().await {
+                    Ok(v) => match Version::parse(&v) {
                         Ok(min_keep_alive) => {
                             let current = GIT_SEM_VERSION.clone();
                             for worker_name in &_worker_names {

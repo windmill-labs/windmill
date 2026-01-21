@@ -716,6 +716,7 @@ pub async fn run_server(
                     }
                 })
                 .route("/version", get(git_v))
+                .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi))
@@ -835,6 +836,11 @@ async fn git_v() -> String {
 #[cfg(not(feature = "enterprise"))]
 async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
+}
+
+async fn min_keep_alive_version() -> String {
+    let v = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
+    format!("{}.{}.{}", v.0, v.1, v.2)
 }
 
 #[cfg(not(feature = "enterprise"))]

@@ -1411,7 +1411,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
-  /settings/min_keep_alive_version:
+  /min_keep_alive_version:
     get:
       summary: get minimum worker version required to stay alive
       operationId: getMinKeepAliveVersion
