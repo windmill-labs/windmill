@@ -920,6 +920,6 @@ pub async fn get_jwks() -> JsonResult<JwksResponse> {
 ///
 /// See: backend/windmill-common/src/min_version.rs
 async fn get_min_keep_alive_version() -> String {
-    let v = windmill_common::min_version::LOCAL_MIN_KEEP_ALIVE_VERSION;
+    let v = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
     format!("{}.{}.{}", v.0, v.1, v.2)
 }
