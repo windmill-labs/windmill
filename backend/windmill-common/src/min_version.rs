@@ -29,7 +29,7 @@ pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
 // fails, wait until enough versions have passed rather than reducing the lag requirement.
 // Skip check if GIT_VERSION is "unknown-version" (no git tags available during build)
 const _: () = assert!(
-    const_str::equal!(crate::utils::GIT_VERSION, "unknown-version") ||
+    !const_str::contains!(crate::utils::GIT_VERSION, ".") ||
     const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - MIN_KEEP_ALIVE_VERSION.1 >= 50
 );
 
