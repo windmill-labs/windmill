@@ -25,7 +25,12 @@ pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite t
 /// Authoritative min keep-alive version defined in this codebase.
 /// Served via: GET /api/settings/min_keep_alive_version
 /// Also used by vc() for compile-time checks.
-pub const LOCAL_MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 0, 0);
+pub const LOCAL_MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
+
+// Compile-time check: must lag at least 50 minor versions behind current.
+// NOTE: The 50 version lag is a constant and should NEVER be changed. If this check
+// fails, wait until enough versions have passed rather than reducing the lag requirement.
+const _: () = assert!(const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - LOCAL_MIN_KEEP_ALIVE_VERSION.1 >= 50);
 
 // ============ Implementation ============
 lazy_static::lazy_static! {
@@ -128,13 +133,29 @@ pub async fn update_min_version(conn: &Connection) {
 }
 
 /// Worker-side: Fetches and updates MIN_VERSION and REMOTE_MIN_KEEP_ALIVE_VERSION.
-pub async fn handle_min_versions(conn: &Connection, client: &HttpClient) {
+pub async fn handle_min_versions(conn: &Connection, client: &HttpClient, _worker_name: &str) {
     update_min_version(conn).await;
 
     // Update REMOTE_MIN_KEEP_ALIVE_VERSION
     match client.get::<String>("/api/settings/min_keep_alive_version").await {
         Ok(v) => match Version::parse(&v) {
-            Ok(v) => *REMOTE_MIN_KEEP_ALIVE_VERSION.write().await = v,
+            Ok(min_keep_alive) => {
+                *REMOTE_MIN_KEEP_ALIVE_VERSION.write().await = min_keep_alive.clone();
+
+                // Send critical alert if worker is behind min keep-alive version
+                #[cfg(feature = "enterprise")]
+                if let Connection::Sql(db) = conn {
+                    let current = GIT_SEM_VERSION.clone();
+                    crate::ee_oss::simple_alert_helper(
+                        format!("Worker {_worker_name} version {current} is below minimum keep-alive version {min_keep_alive}. Upgrade recommended."),
+                        format!("Worker {_worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
+                        &format!("worker-below-min-keep-alive-{_worker_name}"),
+                        || current < min_keep_alive,
+                        None,
+                        db,
+                    ).await;
+                }
+            }
             Err(e) => tracing::error!("Failed to parse min keep-alive version: {:#?}", e),
         },
         Err(e) => tracing::error!("Failed to fetch min keep-alive version: {:#?}", e),
