@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.613.2](https://github.com/windmill-labs/windmill/compare/v1.613.1...v1.613.2) (2026-01-21)
+
+
+### Bug Fixes
+
+* azure read s3 proxy ([#7641](https://github.com/windmill-labs/windmill/issues/7641)) ([9e617a3](https://github.com/windmill-labs/windmill/commit/9e617a3979622a58ae022f9a74e2dde87a43c60e))
+* **cli:** skip branch-specific files when type is not configured ([#7643](https://github.com/windmill-labs/windmill/issues/7643)) ([287b7e7](https://github.com/windmill-labs/windmill/commit/287b7e7d971469db979e6951ee14764f6b91ed67))
+
 ## [1.613.1](https://github.com/windmill-labs/windmill/compare/v1.613.0...v1.613.1) (2026-01-21)
 
 
