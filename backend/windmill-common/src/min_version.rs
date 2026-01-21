@@ -138,7 +138,7 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
     }
 
     // Workers fetch min keep-alive version from server and send alerts
-    #[cfg(feature = "enterprise")]
+    #[cfg(all(feature = "enterprise", feature = "private"))]
     if _worker_mode {
         if let Connection::Sql(db) = conn {
             let url = format!("{}/api/min_keep_alive_version", *crate::BASE_INTERNAL_URL);
