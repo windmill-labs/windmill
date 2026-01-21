@@ -1350,10 +1350,12 @@ export async function elementsToMap(
       // If getTypeStrFromPath can't determine the type, continue processing the file
     }
 
-    // Handle branch-specific files - skip files for other branches
-    if (specificItems && isBranchSpecificFile(path)) {
+    // Handle branch-specific files - ALWAYS skip files that don't match current branch
+    // This applies regardless of specificItems config - branch-specific files by naming
+    // convention should only be processed when on the matching branch
+    if (isBranchSpecificFile(path)) {
       if (!isCurrentBranchFile(path, branchOverride)) {
-        // Skip branch-specific files for other branches
+        // Skip branch-specific files for other branches (or when not on any branch)
         continue;
       }
     }
@@ -1387,36 +1389,34 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (specificItems) {
-      if (isCurrentBranchFile(path, branchOverride)) {
-        // This is a branch-specific file for current branch
-        // Safe to compute branch here since isCurrentBranchFile already validated it exists
-        const currentBranch = branchOverride || getCurrentGitBranch()!;
-        const basePath = fromBranchSpecificPath(path, currentBranch);
-        if (isSpecificItem(basePath, specificItems)) {
-          // Map to base path for push operations
-          map[basePath] = content;
-          processedBasePaths.add(basePath);
-        } else {
-          // Branch-specific file doesn't match pattern, skip it
-          continue;
-        }
-      } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file
-        if (processedBasePaths.has(path)) {
-          // Skip base file, we already processed branch-specific version
-          continue;
-        }
-        // If this base file is a specific item, skip it - we should only use branch-specific versions
-        if (isSpecificItem(path, specificItems)) {
-          continue;
-        }
-        map[path] = content;
+    if (isCurrentBranchFile(path, branchOverride)) {
+      // This is a branch-specific file for current branch - map to base path
+      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const basePath = fromBranchSpecificPath(path, currentBranch);
+
+      // If specificItems is configured, only process if it matches the pattern
+      if (specificItems && !isSpecificItem(basePath, specificItems)) {
+        // Branch-specific file doesn't match pattern, skip it
+        continue;
       }
-    } else {
-      // No specific items configuration, use regular path
-      map[entry.path] = content;
+
+      // Map to base path for push operations
+      map[basePath] = content;
+      processedBasePaths.add(basePath);
+    } else if (!isBranchSpecificFile(path)) {
+      // This is a regular base file
+      if (processedBasePaths.has(path)) {
+        // Skip base file, we already processed branch-specific version
+        continue;
+      }
+      // If specificItems is configured and this is a specific item, skip it
+      // (we should only use branch-specific versions for specific items)
+      if (specificItems && isSpecificItem(path, specificItems)) {
+        continue;
+      }
+      map[path] = content;
     }
+    // Note: branch-specific files for other branches are already filtered out above
   }
   return map;
 }
