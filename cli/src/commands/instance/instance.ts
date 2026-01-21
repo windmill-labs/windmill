@@ -9,7 +9,6 @@ import {
   yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
-import process from "node:process";
 
 import { colors, Input, log } from "../../../deps.ts";
 import { loginInteractive } from "../../core/login.ts";
@@ -516,7 +515,7 @@ async function instancePush(opts: InstanceSyncOptions) {
 
       try {
         const workspaceSettings = (await yamlParseFile(
-          path.join(process.cwd(), "settings.yaml"),
+          path.join(Deno.cwd(), "settings.yaml"),
         )) as SimplifiedSettings;
         await workspaceSetup(
           {
