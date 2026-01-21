@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { formatResourceTypes } from './utils'
+import { formatResourceTypes, isMistralFamily } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -290,8 +290,7 @@ function getModelSpecificConfig(
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const modelLower = modelProvider.model.toLowerCase()
-	const isMistralModel = modelLower.includes('mistral') || modelLower.includes('codestral')
+	const isMistralModel = isMistralFamily(modelProvider.model)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))

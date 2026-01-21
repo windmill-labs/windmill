@@ -5,6 +5,7 @@ import { LRUCache } from 'lru-cache'
 import { autocompleteRequest } from './request'
 import { FIM_MAX_TOKENS, getModelContextWindow } from '../lib'
 import { setGlobalCSS } from '../shared'
+import { supportsAutocomplete } from '../utils'
 import { get } from 'svelte/store'
 import type { MonacoLanguageClient } from 'monaco-languageclient'
 import { copilotInfo } from '$lib/aiStore'
@@ -203,8 +204,7 @@ export class Autocompletor {
 
 	static isProviderModelSupported(providerModel: AIProviderModel | undefined) {
 		if (!providerModel) return false
-		const modelLower = providerModel.model.toLowerCase()
-		return modelLower.includes('codestral') && !modelLower.includes('embed')
+		return supportsAutocomplete(providerModel.model)
 	}
 
 	dispose() {

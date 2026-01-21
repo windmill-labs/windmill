@@ -3,6 +3,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
+	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
@@ -166,12 +167,7 @@
 		}
 	}
 
-	const autocompleteModels = $derived(
-		selectedAiModels.filter((m) => {
-			const lower = m.toLowerCase()
-			return lower.includes('codestral') && !lower.includes('embed')
-		})
-	)
+	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
 <div class="flex flex-col gap-4 mt-4">
