@@ -592,6 +592,9 @@
 					{selectedJobStep}
 					{selectedJobStepType}
 					{restartBranchNames}
+					onRestartComplete={(newJobId) => {
+						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+					}}
 					flowPath={job.script_path}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
