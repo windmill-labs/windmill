@@ -92,7 +92,7 @@
 			}
 			// If less than a day ago -> "x hours ago"
 			else if (hours < 24) {
-				return `${hours} hours ago`
+				return `${hours} hour${hours !== 1 ? 's' : ''} ago`
 			}
 			// If less than a month ago -> "x days ago"
 			else if (isLessThanMonthAgo(date)) {
