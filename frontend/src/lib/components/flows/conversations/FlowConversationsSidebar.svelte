@@ -135,13 +135,4 @@
 			{/snippet}
 		</InfiniteList>
 	</div>
-
-	{#if manager.isSidebarExpanded}
-		<!-- Footer -->
-		<div class="flex-shrink-0 p-4 border-t border-gray-200 dark:border-gray-700">
-			<p class="text-xs text-primary">
-				{manager.conversations.length} conversation{manager.conversations.length !== 1 ? 's' : ''}
-			</p>
-		</div>
-	{/if}
 </div>
