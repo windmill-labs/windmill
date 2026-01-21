@@ -60,7 +60,7 @@
 		<div
 			class="flex w-full flex-wrap md:flex-nowrap justify-end gap-x-2 gap-y-4 items-center min-h-10"
 		>
-			<div class="grow px-2 inline-flex items-center gap-4 min-w-0">
+			<div class="grow px-4 inline-flex items-center gap-4 min-w-0">
 				<div
 					class={twMerge(
 						'min-w-24 text-emphasis truncate flex flex-col gap-0',
