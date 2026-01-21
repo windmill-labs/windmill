@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.613.4](https://github.com/windmill-labs/windmill/compare/v1.613.3...v1.613.4) (2026-01-21)
+
+
+### Bug Fixes
+
+* update git sync CLI to 1.613.2 ([7848d36](https://github.com/windmill-labs/windmill/commit/7848d361a546ef8a2ef9fa20a0399f2e8473f685))
+
 ## [1.613.3](https://github.com/windmill-labs/windmill/compare/v1.613.2...v1.613.3) (2026-01-21)
 
 
