@@ -290,6 +290,8 @@ function getModelSpecificConfig(
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
+	const modelLower = modelProvider.model.toLowerCase()
+	const isMistralModel = modelLower.includes('mistral') || modelLower.includes('codestral')
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -297,7 +299,8 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: maxTokens
+			max_completion_tokens: maxTokens,
+			...(isMistralModel ? { seed: undefined } : {})
 		}
 	} else {
 		return {
@@ -314,7 +317,8 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_tokens: maxTokens
+			max_tokens: maxTokens,
+			...(isMistralModel ? { seed: undefined } : {})
 		}
 	}
 }
