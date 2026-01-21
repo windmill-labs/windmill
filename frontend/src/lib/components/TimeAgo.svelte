@@ -92,6 +92,7 @@
 			}
 			// If less than a day ago -> "x hours ago"
 			else if (hours < 24) {
+				isRecent = false
 				return `${hours} hour${hours !== 1 ? 's' : ''} ago`
 			}
 			// If less than a month ago -> "x days ago"
