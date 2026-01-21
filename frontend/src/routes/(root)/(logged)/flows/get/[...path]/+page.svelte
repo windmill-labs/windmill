@@ -405,6 +405,15 @@
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
+	let topSectionHeight = $state(0)
+	let paneHeight = $state(0)
+
+	let graphMinHeight = $derived.by(() => {
+		if (!topSectionHeight || !paneHeight) return 400
+		const availableHeight = paneHeight - topSectionHeight - 1 // Account for the separator between the top section and the graph
+		return Math.max(400, availableHeight)
+	})
+
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
@@ -529,11 +538,12 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex flex-col h-full justify-between bg-surface py-4 gap-4">
+			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
 				<div
 					class="w-full {chatInputEnabled
 						? 'p-3 flex flex-col h-full'
-						: 'max-w-3xl p-4'} mx-auto gap-2 bg-surface"
+						: 'max-w-3xl p-6'} mx-auto gap-2"
+					bind:clientHeight={topSectionHeight}
 				>
 					{#if flow?.archived}
 						<Alert type="error" title="Archived">This flow was archived</Alert>
@@ -541,6 +551,7 @@
 
 					{#if !emptyString(flow?.description)}
 						<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} noPadding />
+						<div class="h-4"></div>
 					{/if}
 
 					{#if deploymentInProgress}
@@ -641,13 +652,14 @@
 					{/if}
 				</div>
 				{#if !chatInputEnabled}
-					<div class="mt-0">
+					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
 							download
 							{flow}
 							overflowAuto
 							noSide={true}
+							minHeight={graphMinHeight}
 							on:select={(e) => {
 								if (e.detail) {
 									stepDetail = e.detail
@@ -660,6 +672,7 @@
 							on:triggerDetail={(e) => {
 								rightPaneSelected = 'triggers'
 							}}
+							noBorder={true}
 						/>
 					</div>
 				{/if}
