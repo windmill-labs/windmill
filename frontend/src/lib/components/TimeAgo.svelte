@@ -88,7 +88,7 @@
 
 			// If less than an hour ago -> "x min ago"
 			if (mins < 60) {
-				return `${mins} min ago`
+				return `${mins} min${mins !== 1 ? 's' : ''} ago`
 			}
 			// If less than a day ago -> "x hours ago"
 			else if (hours < 24) {
