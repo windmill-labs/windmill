@@ -110,8 +110,8 @@
 									? 'opacity-100'
 									: 'opacity-0'}"
 								disabled={manager.deletingConversationId === conversation.id}
-								onclick={(e) => {
-									e.stopPropagation()
+								onClick={(e) => {
+									e?.stopPropagation()
 									if (conversation.isDraft) {
 										// just remove first conversation as it is the draft
 										manager.conversations = [...manager.conversations.slice(1)]
