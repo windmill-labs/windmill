@@ -27,7 +27,7 @@ pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
 // Compile-time check: must lag at least 50 minor versions behind current.
 // NOTE: The 50 version lag is a constant and should NEVER be changed. If this check
 // fails, wait until enough versions have passed rather than reducing the lag requirement.
-const _: () = assert!(const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - LOCAL_MIN_KEEP_ALIVE_VERSION.1 >= 50);
+const _: () = assert!(const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - MIN_KEEP_ALIVE_VERSION.1 >= 50);
 
 // ============ Implementation ============
 lazy_static::lazy_static! {
@@ -87,8 +87,7 @@ impl VersionConstraint {
 // ============ Version Management ============
 
 use crate::worker::Connection;
-use crate::utils::{GIT_SEM_VERSION, GIT_VERSION, HTTP_CLIENT};
-use crate::BASE_INTERNAL_URL;
+use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
 
 /// Fetches the minimum version across all workers.
 // TODO: consider using HTTP for everything instead of Connection enum
@@ -142,10 +141,10 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
     #[cfg(feature = "enterprise")]
     if _worker_mode {
         if let Connection::Sql(db) = conn {
-            let url = format!("{}/api/settings/min_keep_alive_version", *BASE_INTERNAL_URL);
-            match HTTP_CLIENT.get(&url).send().await {
-                Ok(resp) => match resp.text().await {
-                    Ok(v) => match Version::parse(&v) {
+            let url = format!("{}/api/settings/min_keep_alive_version", *crate::BASE_INTERNAL_URL);
+            match crate::utils::HTTP_CLIENT.get(&url).send().await {
+                Ok(resp) => match dbg!(resp).text().await {
+                    Ok(v) => match Version::parse(&dbg!(v)) {
                         Ok(min_keep_alive) => {
                             let current = GIT_SEM_VERSION.clone();
                             for worker_name in &_worker_names {
