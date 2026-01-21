@@ -1,18 +1,12 @@
 <script lang="ts">
 	import { Button } from '$lib/components/common'
-	import {
-		MessageCircle,
-		Plus,
-		Trash2,
-		PanelLeftClose,
-		PanelLeftOpen,
-		Loader2
-	} from 'lucide-svelte'
+	import { MessageCircle, Plus, Trash2, PanelLeftClose, PanelLeftOpen } from 'lucide-svelte'
 	import { type FlowConversation } from '$lib/gen'
 	import CountBadge from '$lib/components/common/badge/CountBadge.svelte'
 	import InfiniteList from '$lib/components/InfiniteList.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { FlowChatManager } from './FlowChatManager.svelte'
+	import { fade } from 'svelte/transition'
 
 	interface Props {
 		manager: FlowChatManager
@@ -26,35 +20,37 @@
 </script>
 
 <div
-	class="flex flex-col h-full bg-surface border-r border-gray-200 dark:border-gray-700 transition-all duration-300 {manager.isSidebarExpanded
+	class="flex flex-col h-full bg-surface border-r transition-all duration-300 {manager.isSidebarExpanded
 		? 'w-60'
-		: 'w-16'}"
+		: 'w-[44px]'}"
 >
 	<!-- Header -->
-	<div class="flex-shrink-0 p-2 border-b border-gray-200 dark:border-gray-700">
-		<div class="flex flex-col gap-2">
+	<div class="flex-shrink-0 border-b">
+		<div class="flex flex-col gap-2 p-1">
 			<Button
-				size="sm"
-				color="light"
-				startIcon={{ icon: manager.isSidebarExpanded ? PanelLeftClose : PanelLeftOpen }}
-				onclick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
+				unifiedSize="md"
+				variant="subtle"
+				startIcon={{
+					icon: manager.isSidebarExpanded ? PanelLeftClose : PanelLeftOpen,
+					classes: 'ml-[2px]'
+				}}
+				onClick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
 				iconOnly={!manager.isSidebarExpanded}
-				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
+				btnClasses={'justify-start transition-all duration-150'}
 				label="Conversations"
 			>
-				Conversations
+				<div transition:fade={{ duration: 100 }}> Conversations </div>
 			</Button>
 			<Button
-				size="sm"
-				color="light"
-				startIcon={{ icon: Plus }}
-				onclick={() => manager.createConversation({ clearMessages: true })}
+				unifiedSize="md"
+				variant="subtle"
+				startIcon={{ icon: Plus, classes: 'ml-[2px]' }}
+				onClick={() => manager.createConversation({ clearMessages: true })}
 				title="Start new conversation"
 				iconOnly={!manager.isSidebarExpanded}
-				btnClasses={manager.isSidebarExpanded ? '!justify-start' : ''}
-				label="New chat"
+				btnClasses={'justify-start transition-all duration-150 whitespace-nowrap'}
 			>
-				New chat
+				<div transition:fade={{ duration: 100 }}> New chat </div>
 			</Button>
 		</div>
 	</div>
@@ -62,71 +58,74 @@
 	<!-- Conversations List -->
 	{#if !manager.isSidebarExpanded}
 		<!-- Collapsed state - show single chat icon with badge -->
-		<div class="p-2 flex flex-col items-center mt-2">
-			<button
-				class="relative w-[23px] h-[23px] rounded-md center-center hover:bg-surface-hover transition-all duration-100 text-secondary hover:text-primary group"
-				onclick={() => (manager.isSidebarExpanded = true)}
+		<div class="p-1">
+			<Button
+				unifiedSize="md"
+				startIcon={{ icon: MessageCircle }}
+				onClick={() => (manager.isSidebarExpanded = true)}
 				title="{manager.conversations.length} conversation{manager.conversations.length !== 1
 					? 's'
 					: ''}"
+				variant="subtle"
+				btnClasses="w-fit"
+				iconOnly
 			>
-				<MessageCircle size={16} />
 				<CountBadge count={manager.conversations.length} small={true} alwaysVisible={true} />
-			</button>
+			</Button>
 		</div>
 	{/if}
 
 	<!-- Always mount InfiniteList, but hide it when collapsed -->
-	<div class="flex-1 overflow-hidden" class:hidden={!manager.isSidebarExpanded}>
+	<div
+		class="flex-1 overflow-hidden transition-all duration-150 p-1"
+		class:hidden={!manager.isSidebarExpanded}
+	>
 		<InfiniteList
 			bind:this={manager.conversationListComponent}
 			bind:items={manager.conversations}
 			selectedItemId={manager.selectedConversationId}
 			noBorder={true}
 			rounded={false}
+			preventXOverflow={true}
 		>
-			{#snippet children({ item: conversation, hover })}
-				<div
-					class={twMerge(
-						'w-full p-1',
-						manager.selectedConversationId === conversation.id
-							? 'bg-blue-200/30 text-blue-500 dark:bg-blue-600/30 text-blue-400'
-							: ''
-					)}
-				>
-					<Button
-						color="transparent"
-						size="xs"
-						onclick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
-					>
-						<span class="flex-1 text-left text-sm font-medium text-primary truncate">
-							{getConversationTitle(conversation)}
-						</span>
-						<button
-							class="ml-2 p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 transition-all {hover ||
-							manager.deletingConversationId === conversation.id
-								? 'opacity-100'
-								: 'opacity-0'}"
-							disabled={manager.deletingConversationId === conversation.id}
-							onclick={(e) => {
-								e.stopPropagation()
-								if (conversation.isDraft) {
-									// just remove first conversation as it is the draft
-									manager.conversations = [...manager.conversations.slice(1)]
-								} else {
-									manager.conversationListComponent?.deleteItem(conversation.id)
-								}
-							}}
-							title="Delete conversation"
+			{#snippet customRow({ item: conversation, hover })}
+				{#if manager.isSidebarExpanded}
+					<div class={twMerge('w-full pb-1')} transition:fade={{ duration: 100, delay: 30 }}>
+						<Button
+							unifiedSize="md"
+							variant="subtle"
+							onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
+							selected={manager.selectedConversationId === conversation.id}
+							btnClasses="transition-all duration-150"
 						>
-							{#if manager.deletingConversationId === conversation.id}
-								<Loader2 size={14} class="animate-spin" />
-							{:else}
-								<Trash2 size={14} />
-							{/if}
-						</button>
-					</Button>
-				</div>
+							<span class="flex-1 text-left truncate">
+								{getConversationTitle(conversation)}
+							</span>
+							<Button
+								WrapperClasses="ml-2 {hover || manager.deletingConversationId === conversation.id
+									? 'opacity-100'
+									: 'opacity-0'}"
+								disabled={manager.deletingConversationId === conversation.id}
+								onclick={(e) => {
+									e.stopPropagation()
+									if (conversation.isDraft) {
+										// just remove first conversation as it is the draft
+										manager.conversations = [...manager.conversations.slice(1)]
+									} else {
+										manager.conversationListComponent?.deleteItem(conversation.id)
+									}
+								}}
+								title="Delete conversation"
+								destructive
+								unifiedSize="xs"
+								variant="subtle"
+								loading={manager.deletingConversationId === conversation.id}
+								iconOnly
+								startIcon={{ icon: Trash2 }}
+							/>
+						</Button>
+					</div>
+				{/if}
 			{/snippet}
 
 			{#snippet empty()}
