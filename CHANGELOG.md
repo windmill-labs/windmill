@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.613.3](https://github.com/windmill-labs/windmill/compare/v1.613.2...v1.613.3) (2026-01-21)
+
+
+### Bug Fixes
+
+* **cli:** normalize paths in wmill-lock for cross-platform compatibility ([#7645](https://github.com/windmill-labs/windmill/issues/7645)) ([8cf456d](https://github.com/windmill-labs/windmill/commit/8cf456d74c79921806edbcd0c9fde462f7202188))
+* update git sync CLI to 1.613.2 ([1e4fe01](https://github.com/windmill-labs/windmill/commit/1e4fe01293e65ac130b368fbef45a1571ee2b6d7))
+
 ## [1.613.2](https://github.com/windmill-labs/windmill/compare/v1.613.1...v1.613.2) (2026-01-21)
 
 
