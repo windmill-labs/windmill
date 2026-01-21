@@ -3338,6 +3338,19 @@ async fn create_workspace_fork_branch(
         )));
     }
 
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::DisableWorkspaceForking,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -3359,7 +3372,7 @@ async fn create_workspace_fork(
         )));
     }
 
-    if check_user_against_rule(
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
         &parent_workspace_id,
         &ProtectionRuleKind::DisableWorkspaceForking,
         AuditAuthorable::username(&authed),
@@ -3368,11 +3381,8 @@ async fn create_workspace_fork(
         &db,
     )
     .await?
-        == RuleCheckResult::Blocked
     {
-        return Err(Error::NotAuthorized(format!(
-            "This workspace does not allow forking"
-        )));
+        return Err(Error::PermissionDenied(msg));
     }
 
     if *DISABLE_WORKSPACE_FORK {

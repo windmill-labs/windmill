@@ -151,8 +151,8 @@
 						...(disableFork ? ['DisableWorkspaceForking'] : []),
 						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
 					],
-					bypass_groups: selectedGroups.map(g => `g/${g}`),
-					bypass_users: selectedUsers.map(u => `u/${u}`)
+					bypass_groups: selectedGroups,
+					bypass_users: selectedUsers
 				}
 			})
 
@@ -177,8 +177,8 @@
 						...(disableFork ? ['DisableWorkspaceForking'] : []),
 						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
 					],
-					bypass_groups: selectedGroups.map(g => `g/${g}`),
-					bypass_users: selectedUsers.map(u => `u/${u}`)
+					bypass_groups: selectedGroups,
+					bypass_users: selectedUsers
 				}
 			})
 

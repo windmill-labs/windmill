@@ -94,6 +94,18 @@ impl ProtectionRuleKind {
             ProtectionRuleKind::DisableMergeUIInForks => ProtectionRules::DISABLE_MERGE_UI_IN_FORKS,
         }
     }
+
+    pub const fn msg(&self) -> &str {
+        match self {
+            ProtectionRuleKind::RequireForkOrBranchToDeploy => {
+                "Cannot directly deploy in this workspace. Fork or Pull request required."
+            }
+            ProtectionRuleKind::DisableWorkspaceForking => "Forking this workspace is forbidden",
+            ProtectionRuleKind::DisableMergeUIInForks => {
+                "UI deployement to parent is forbidden. Use a pull request instead"
+            }
+        }
+    }
 }
 
 impl From<&Vec<ProtectionRuleKind>> for ProtectionRules {
@@ -270,17 +282,21 @@ pub async fn get_team_plan_status(_db: &crate::DB, _w_id: &str) -> Result<TeamPl
 // Protection Rules Cache
 
 lazy_static::lazy_static! {
-    pub static ref PROTECTION_RULES_CACHE: Cache<String, std::sync::Arc<Vec<ProtectionRuleset>>> = Cache::new(100);
+    pub static ref PROTECTION_RULES_CACHE: Cache<String, (std::sync::Arc<Vec<ProtectionRuleset>>, i64)> = Cache::new(100);
 }
 
-/// Get all protection rules for a workspace with caching
+/// Get all protection rules for a workspace with caching (60s TTL)
 pub async fn get_protection_rules(
     workspace_id: &str,
     db: &DB,
 ) -> Result<std::sync::Arc<Vec<ProtectionRuleset>>> {
-    // Check cache first
-    if let Some(cached) = PROTECTION_RULES_CACHE.get(workspace_id) {
-        return Ok(cached);
+    let now = chrono::Utc::now().timestamp();
+
+    // Check cache and expiry
+    if let Some((cached_rules, expiry)) = PROTECTION_RULES_CACHE.get(workspace_id) {
+        if expiry > now {
+            return Ok(cached_rules);
+        }
     }
 
     // Query database
@@ -303,9 +319,10 @@ pub async fn get_protection_rules(
     .await
     .map_err(|e| Error::internal_err(format!("Failed to fetch protection rules: {}", e)))?;
 
-    // Cache and return
+    // Cache with 60s TTL
     let arc_rules = std::sync::Arc::new(rulesets);
-    PROTECTION_RULES_CACHE.insert(workspace_id.to_string(), arc_rules.clone());
+    let expiry = now + 60;
+    PROTECTION_RULES_CACHE.insert(workspace_id.to_string(), (arc_rules.clone(), expiry));
 
     Ok(arc_rules)
 }
@@ -313,16 +330,12 @@ pub async fn get_protection_rules(
 /// Invalidate the protection rules cache for a workspace
 pub fn invalidate_protection_rules_cache(workspace_id: &str) {
     PROTECTION_RULES_CACHE.remove(workspace_id);
-    tracing::debug!(
-        "Invalidated protection rules cache for workspace: {}",
-        workspace_id
-    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuleCheckResult {
     Allowed,
-    Blocked,
+    Blocked(String),
 }
 
 /// Check if a user can bypass a protection rule
@@ -343,12 +356,10 @@ pub async fn check_user_against_rule(
     is_admin: bool,
     db: &DB,
 ) -> Result<RuleCheckResult> {
-    // Check if admin can bypass
     if is_admin {
         return Ok(RuleCheckResult::Allowed);
     }
 
-    // Get all protection rules for the workspace
     let rulesets = get_protection_rules(workspace_id, db).await?;
 
     for ruleset in rulesets.iter() {
@@ -359,27 +370,17 @@ pub async fn check_user_against_rule(
                     .iter()
                     .any(|g| user_groups.contains(g))
             {
-                //Bypass logic and return
+                return Ok(RuleCheckResult::Allowed);
             }
+            return Ok(RuleCheckResult::Blocked(format!(
+                "Ruleset {} of {workspace_id} blocked this action: {}",
+                ruleset.name,
+                { rule.msg() }
+            )));
         }
     }
 
-    // Check if user is in bypass users list
-    // let user_with_prefix = format!("u/{}", username);
-    // if rule.bypassers.users.contains(&user_with_prefix) {
-    //     return Ok(RuleCheckResult::Allowed);
-    // }
-    //
-    // // Check if any of user's groups are in bypass groups list
-    // for group in user_groups {
-    //     let group_with_prefix = format!("g/{}", group);
-    //     if rule.bypassers.groups.contains(&group_with_prefix) {
-    //         return Ok(RuleCheckResult::Allowed);
-    //     }
-    // }
-
-    // User is blocked by this rule
-    Ok(RuleCheckResult::Blocked)
+    Ok(RuleCheckResult::Allowed)
 }
 
 #[derive(Deserialize, Serialize, Debug)]
