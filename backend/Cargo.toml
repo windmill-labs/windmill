@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.612.2"
+version = "1.613.4"
 authors.workspace = true
 edition.workspace = true
 
@@ -35,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.612.2"
+version = "1.613.4"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -161,6 +161,7 @@ k8s-openapi.workspace = true
 libloading.workspace = true
 bitflags.workspace = true
 globset.workspace = true
+opentelemetry-proto.workspace = true
 
 
 [target.'cfg(windows)'.dependencies]
@@ -219,6 +220,8 @@ memchr = "2.7.4"
 axum = { version = "^0.7", features = ["multipart", "macros"] }
 headers = "^0"
 hyper = { version = "^1", features = ["full"] }
+hyper-tls = "^0.6"
+hyper-util = { version = "^0.1", features = ["client-legacy", "http1", "tokio"] }
 tokio = { version = "=1.46.1", features = ["full", "tracing", "time"] }
 tokio-stream = { version = "0.1.17" }
 tower = "^0"
@@ -233,6 +236,7 @@ thiserror = "^2"
 anyhow = "^1"
 chrono = { version = "^0.4", features = ["serde"] }
 chrono-tz = "^0.10.1"
+derive_more = { version = "1", features = ["deref", "deref_mut"], default-features = false }
 tracing = "^0"
 tracing-subscriber = { version = "^0", features = ["env-filter", "json"] }
 tracing-appender = "^0"
@@ -416,6 +420,7 @@ opentelemetry_sdk = { version = "0.27.1", features = ["rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "tls"] }
 opentelemetry-appender-tracing = "0.27.0"
 opentelemetry-semantic-conventions = { version = "0.27.0", features = ["semconv_experimental"] }
+opentelemetry-proto = { version = "0.29.0", features = ["with-serde", "gen-tonic"] }
 
 bollard = "0.18.1"
 
@@ -457,3 +462,6 @@ oracle = { version = "0.6.3", features = ["chrono"] }
 rumqttc = { version = "0.24.0", features = ["use-native-tls"]}
 strum = { version = "0.27", features = ["derive"] }
 strum_macros = "^0"
+hudsucker = { version = "0.22", features = ["rcgen-ca", "native-tls-client"] }
+hyper-http-proxy = { version = "1", default-features = false, features = ["native-tls"] }
+rcgen = "0.13"

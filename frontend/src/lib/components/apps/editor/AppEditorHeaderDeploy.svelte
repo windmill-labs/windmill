@@ -43,7 +43,7 @@
 		pathError: string
 		newEditedPath: string
 		newPath: string
-		hideSecretUrl: boolean
+		hideSecretUrl?: boolean
 	} = $props()
 	let dirtyCustomPath = $state(false)
 	let path: Path | undefined = $state(undefined)

@@ -31,6 +31,8 @@ use crate::utils::require_devops_role;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::{send_critical_alert, CriticalAlertKind, CriticalErrorChannel};
+#[cfg(all(feature = "private", feature = "enterprise"))]
+use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
 use windmill_common::{
     email_oss::send_email_plain_text,
     error::{self, JsonResult, Result},
@@ -42,8 +44,6 @@ use windmill_common::{
     },
     server::Smtp,
 };
-#[cfg(all(feature = "private", feature = "enterprise"))]
-use windmill_common::secret_backend::{SecretMigrationReport, VaultSettings};
 use windmill_common::{error::to_anyhow, PgDatabase};
 
 pub fn global_service() -> Router {
@@ -748,7 +748,11 @@ async fn setup_custom_instance_pg_database_inner(
             "Cannot use reserved PostgreSQL database names".to_string(),
         ));
     }
-    if wmill_pg_creds.dbname.trim().eq_ignore_ascii_case(dbname.trim()) {
+    if wmill_pg_creds
+        .dbname
+        .trim()
+        .eq_ignore_ascii_case(dbname.trim())
+    {
         return Err(error::Error::BadRequest(
             "Database name cannot be the same as the main database".to_string(),
         ));
@@ -763,10 +767,7 @@ async fn setup_custom_instance_pg_database_inner(
     .await?
     .unwrap_or(false);
 
-    let pg_creds = PgDatabase {
-        dbname: dbname.to_string(),
-        ..wmill_pg_creds
-    };
+    let pg_creds = PgDatabase { dbname: dbname.to_string(), ..wmill_pg_creds };
 
     logs.created_database = "SKIP".to_string();
     if !db_exists {
@@ -789,7 +790,8 @@ async fn setup_custom_instance_pg_database_inner(
              GRANT CREATE ON SCHEMA public TO custom_instance_user;
              GRANT CREATE ON DATABASE \"{dbname}\" TO custom_instance_user;
              ALTER DEFAULT PRIVILEGES IN SCHEMA public
-                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;"
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO custom_instance_user;
+             ALTER ROLE custom_instance_user CREATEROLE;"
         ))
         .await
         .map_err(|e| {

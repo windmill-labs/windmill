@@ -3,7 +3,7 @@
 	import { base } from '$app/paths'
 	import { page } from '$app/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { logout, logoutWithRedirect } from '$lib/logout'
+	import { logout, logoutWithRedirect } from '$lib/logoutKit'
 	import { UserService, type WorkspaceInvite, WorkspaceService } from '$lib/gen'
 	import {
 		superadmin,

@@ -24,6 +24,7 @@
 		historyManager?: RawAppHistoryManager
 		historySelectedId?: number | undefined
 		onHistorySelect?: (id: number) => void
+		onHistorySelectCurrent?: () => void
 		onManualSnapshot?: () => void
 		dataTableRefs?: DataTableRef[]
 		onDataTableRefsChange?: (refs: DataTableRef[]) => void
@@ -44,6 +45,7 @@
 		historyManager,
 		historySelectedId,
 		onHistorySelect,
+		onHistorySelectCurrent,
 		onManualSnapshot,
 		dataTableRefs = [],
 		onDataTableRefsChange,
@@ -444,6 +446,7 @@
 			branches={historyManager.allBranches}
 			selectedId={historySelectedId}
 			onSelect={onHistorySelect}
+			onSelectCurrent={onHistorySelectCurrent}
 		/>
 	</PanelSection>
 {/if}

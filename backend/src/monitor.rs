@@ -53,7 +53,7 @@ use windmill_common::{
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -81,10 +81,10 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
-    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL,
+    handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
+    OTEL_TRACING_PROXY_SETTINGS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -320,6 +320,7 @@ pub async fn initial_load(
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
+        reload_otel_tracing_proxy_setting(&conn).await;
     }
 }
 
@@ -778,6 +779,35 @@ pub async fn load_keep_job_dir(conn: &Connection) {
     };
 }
 
+pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
+    match load_value_from_global_settings_with_conn(conn, OTEL_TRACING_PROXY_SETTING, true).await {
+        Ok(Some(settings)) => {
+            match serde_json::from_value::<OtelTracingProxySettings>(settings) {
+                Ok(new_settings) => {
+                    let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
+                    if current.enabled != new_settings.enabled
+                        || current.enabled_languages != new_settings.enabled_languages
+                    {
+                        tracing::info!(
+                            "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
+                            new_settings.enabled,
+                            new_settings.enabled_languages
+                        );
+                        *current = new_settings;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing OTEL tracing proxy settings: {e:#}");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Error loading OTEL tracing proxy setting: {e:#}");
+        }
+        _ => (),
+    };
+}
+
 pub async fn load_require_preexisting_user(db: &DB) {
     let value =
         load_value_from_global_settings(db, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING).await;
@@ -827,6 +857,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
         Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
+    }
+
+    // Clean up expired MCP OAuth refresh tokens
+    let mcp_refresh_tokens_r: std::result::Result<Vec<i64>, _> = sqlx::query_scalar(
+        "DELETE FROM mcp_oauth_refresh_token WHERE expires_at <= now() RETURNING id",
+    )
+    .fetch_all(db)
+    .await;
+
+    match mcp_refresh_tokens_r {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("deleted {} expired MCP OAuth refresh tokens", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting MCP OAuth refresh tokens: {}", e.to_string()),
     }
 
     let deleted_cache = sqlx::query_scalar!(
@@ -920,6 +966,23 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
         Err(e) => tracing::error!("Error deleting expired blacklisted agent tokens: {:?}", e),
+    }
+
+    match sqlx::query_scalar!(
+        "DELETE FROM mcp_oauth_server_code WHERE expires_at <= now() RETURNING code",
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(deleted_codes) => {
+            if deleted_codes.len() > 0 {
+                tracing::info!(
+                    "deleted {} expired MCP OAuth authorization codes",
+                    deleted_codes.len()
+                );
+            }
+        }
+        Err(e) => tracing::error!("Error deleting expired MCP OAuth authorization codes: {:?}", e),
     }
 
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
