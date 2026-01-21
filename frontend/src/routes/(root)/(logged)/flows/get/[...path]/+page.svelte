@@ -407,6 +407,7 @@
 
 	let topSectionHeight = $state(0)
 	let paneHeight = $state(0)
+	let flowGraphHeight = $state(0)
 
 	let graphMinHeight = $derived.by(() => {
 		if (!topSectionHeight || !paneHeight) return 400
@@ -725,6 +726,33 @@
 				noCapture={true}
 				isEditor={false}
 			/>
+		{/if}
+	{/snippet}
+
+	{#snippet flow_graph()}
+		{#if flow}
+			<div class="h-full overflow-auto" bind:clientHeight={flowGraphHeight}>
+				<FlowGraphViewer
+					triggerNode={true}
+					download
+					{flow}
+					noSide={false}
+					noBorder
+					minHeight={flowGraphHeight}
+					on:select={(e) => {
+						if (e.detail) {
+							stepDetail = e.detail
+							rightPaneSelected = 'flow_step'
+						} else {
+							stepDetail = undefined
+							rightPaneSelected = 'saved_inputs'
+						}
+					}}
+					on:triggerDetail={(e) => {
+						rightPaneSelected = 'triggers'
+					}}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 </DetailPageLayout>
