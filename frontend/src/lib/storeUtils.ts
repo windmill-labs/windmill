@@ -7,6 +7,7 @@ import {
 	devopsRole,
 	clearWorkspaceFromStorage
 } from './stores'
+import { protectionRulesStore, loadProtectionRules } from './workspaceProtectionRulesStore'
 
 export function switchWorkspace(workspace: string | undefined) {
 	try {
@@ -16,7 +17,20 @@ export function switchWorkspace(workspace: string | undefined) {
 		console.error('error interacting with local storage', e)
 	}
 	resourceTypesStore.set(undefined)
+
+	// Clear protection rules store
+	protectionRulesStore.set({
+		rulesets: undefined,
+		loading: false,
+		error: undefined
+	})
+
 	workspaceStore.set(workspace)
+
+	// Eagerly load protection rules for new workspace
+	if (workspace) {
+		loadProtectionRules(workspace)
+	}
 }
 
 export function clearStores(): void {
@@ -29,6 +43,11 @@ export function clearStores(): void {
 	}
 
 	resourceTypesStore.set(undefined)
+	protectionRulesStore.set({
+		rulesets: undefined,
+		loading: false,
+		error: undefined
+	})
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)
