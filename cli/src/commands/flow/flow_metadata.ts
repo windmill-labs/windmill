@@ -15,6 +15,7 @@ import {
   updateMetadataGlobalLock,
   LockfileGenerationError,
   getRawWorkspaceDependencies,
+  normalizeLockPath,
 } from "../../utils/metadata.ts";
 import { extractInlineScripts as extractInlineScriptsForFlows } from "../../../windmill-utils-internal/src/inline-scripts/extractor.ts";
 
@@ -39,7 +40,9 @@ async function generateFlowHash(
   for await (const f of elems.getChildren()) {
     if (exts.some((e) => f.path.endsWith(e))) {
       // Embed workspace dependencies into hash
-      hashes[f.path] = await generateHash(
+      // Normalize path to ensure OS-independent hashing
+      const normalizedPath = normalizeLockPath(f.path);
+      hashes[normalizedPath] = await generateHash(
         (await f.getContentText()) + JSON.stringify(rawWorkspaceDependencies)
       );
     }
