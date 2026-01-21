@@ -62,8 +62,13 @@ impl VersionConstraint {
     }
 
     pub async fn met(&self) -> bool {
-        // TODO: check if not 0.0.0
-        &*MIN_VERSION.read().await <= &self.available_since
+        let min = MIN_VERSION.read().await;
+        // If MIN_VERSION is 0.0.0, it hasn't been set yet - assume met
+        if *min == Version::new(0, 0, 0) {
+            tracing::warn!("MIN_VERSION not set yet, assuming feature '{}' is met", self.name);
+            return true;
+        }
+        &*min <= &self.available_since
     }
 
     pub async fn assert(&self) -> error::Result<()> {
@@ -148,7 +153,7 @@ pub async fn update_min_version(conn: &Connection, _worker_name: Option<&str>) {
                                 format!("Worker {worker_name} version {current} is now at or above minimum keep-alive version {min_keep_alive}."),
                                 &format!("worker-below-min-keep-alive-{worker_name}"),
                                 || current < min_keep_alive,
-                                None,
+                                Some("admins"),
                                 db,
                             ).await;
                         }
