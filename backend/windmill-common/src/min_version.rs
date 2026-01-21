@@ -58,11 +58,15 @@ pub type VC = VersionConstraint;
 
 #[derive(Clone)]
 pub struct VersionConstraint {
-    pub available_since: Version,
-    pub name: &'static str,
+    available_since: Version,
+    name: &'static str,
 }
 
 impl VersionConstraint {
+    pub fn version(&self) -> &Version {
+        &self.available_since
+    }
+
     pub async fn met(&self) -> bool {
         &*MIN_VERSION.read().await <= &self.available_since
     }

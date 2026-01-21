@@ -99,7 +99,7 @@
 	// Compute the worst version warning across alive workers only
 	let worstVersionWarning = $derived.by(() => {
 		if (!workers) return 'none' as VersionWarning
-		const priority: Record<VersionWarning, number> = { none: 0, newer: 1, note: 2, warning: 3, critical: 4 }
+		const priority: Record<VersionWarning, number> = { none: 0, note: 1, newer: 2, warning: 3, critical: 4 }
 		let worst: VersionWarning = 'none'
 		for (const w of workers) {
 			// Only check alive workers (pinged within last 60 seconds, accounting for time since refresh)
