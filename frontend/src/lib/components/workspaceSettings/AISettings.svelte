@@ -167,7 +167,10 @@
 	}
 
 	const autocompleteModels = $derived(
-		selectedAiModels.filter((m) => m.startsWith('codestral-') && !m.startsWith('codestral-embed'))
+		selectedAiModels.filter((m) => {
+			const lower = m.toLowerCase()
+			return lower.includes('codestral') && !lower.includes('embed')
+		})
 	)
 </script>
 

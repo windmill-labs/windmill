@@ -202,12 +202,9 @@ export class Autocompletor {
 	}
 
 	static isProviderModelSupported(providerModel: AIProviderModel | undefined) {
-		return (
-			providerModel &&
-			providerModel.provider === 'mistral' &&
-			providerModel.model.startsWith('codestral-') &&
-			!providerModel.model.startsWith('codestral-embed')
-		)
+		if (!providerModel) return false
+		const modelLower = providerModel.model.toLowerCase()
+		return modelLower.includes('codestral') && !modelLower.includes('embed')
 	}
 
 	dispose() {
