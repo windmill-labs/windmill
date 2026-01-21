@@ -44,7 +44,8 @@
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
-	import { useSearchParams, StaleWhileLoading } from '$lib/svelte5Utils.svelte'
+	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
+	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */

@@ -1,7 +1,7 @@
 import { goto as svelteGoto } from '$app/navigation'
 import { base as svelteBase } from '$app/paths'
 
-export function goto(path, options = {}) {
+export function goto(path: string, options = {}) {
 	if (svelteBase == '' || path.startsWith('?')) {
 		return svelteGoto(path, options)
 	} else {

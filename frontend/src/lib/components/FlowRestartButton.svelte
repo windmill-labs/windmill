@@ -5,7 +5,6 @@
 	import { FlowService, JobService, type FlowVersion } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { emptyString, sendUserToast } from '$lib/utils'
-	import { goto } from '$lib/navigation'
 
 	interface Props {
 		jobId: string
@@ -17,7 +16,10 @@
 		enterpriseOnly?: boolean
 		variant?: 'default' | 'accent'
 		unifiedSize?: 'xs' | 'sm' | 'md' | 'lg'
+		/** Called when flow is restarted. If not provided, will navigate to the new run using goto (requires SvelteKit) */
 		onRestart?: (stepId: string, branchOrIterationN: number, flowVersion?: number) => void
+		/** Called when flow restart completes with the new job ID. Used for navigation in non-SvelteKit contexts */
+		onRestartComplete?: (newJobId: string) => void
 	}
 
 	let {
@@ -30,7 +32,8 @@
 		enterpriseOnly = false,
 		variant = 'default',
 		unifiedSize = 'md',
-		onRestart
+		onRestart,
+		onRestartComplete
 	}: Props = $props()
 
 	let branchOrIterationN = $state(0)
@@ -49,7 +52,7 @@
 				flow_version: flowVersion
 			}
 		})
-		await goto('/run/' + run + '?workspace=' + $workspaceStore)
+		onRestartComplete?.(run)
 	}
 
 	async function loadFlowVersions() {
