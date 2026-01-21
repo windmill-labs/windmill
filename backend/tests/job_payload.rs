@@ -6,6 +6,7 @@ mod job_payload {
     use windmill_common::flows::{FlowModule, FlowModuleValue, FlowValue};
     use windmill_common::jobs::JobPayload;
     use windmill_common::scripts::{ScriptHash, ScriptLang};
+    use windmill_common::flow_status::RestartedFrom;
 
     use crate::common::*;
     use windmill_common::min_version::{
