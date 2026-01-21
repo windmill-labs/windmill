@@ -37,7 +37,7 @@
 				onClick={() => (manager.isSidebarExpanded = !manager.isSidebarExpanded)}
 				iconOnly={!manager.isSidebarExpanded}
 				btnClasses={'justify-start transition-all duration-150'}
-				label="Conversations"
+				title="Conversations"
 			>
 				<div transition:fade={{ duration: 100 }}> Conversations </div>
 			</Button>
@@ -100,15 +100,16 @@
 							variant="subtle"
 							onClick={() => manager.selectConversation(conversation.id, conversation.isDraft)}
 							selected={manager.selectedConversationId === conversation.id}
-							btnClasses="transition-all duration-150"
+							btnClasses="transition-all duration-150 group"
 						>
 							<span class="flex-1 text-left truncate">
 								{getConversationTitle(conversation)}
 							</span>
 							<Button
-								WrapperClasses="ml-2 {hover || manager.deletingConversationId === conversation.id
-									? 'opacity-100'
-									: 'opacity-0'}"
+								wrapperClasses={twMerge(
+									'ml-2 transition-all duration-100  opacity-0 group-hover:opacity-100',
+									manager.deletingConversationId === conversation.id ? 'opacity-100' : ' '
+								)}
 								disabled={manager.deletingConversationId === conversation.id}
 								onClick={(e) => {
 									e?.stopPropagation()
