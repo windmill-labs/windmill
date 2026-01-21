@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.613.1](https://github.com/windmill-labs/windmill/compare/v1.613.0...v1.613.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* fix microsoft SSO setting ([3f3df41](https://github.com/windmill-labs/windmill/commit/3f3df4163f9b6d99bc2c0f0284134b8b78f1ef6d))
+* isolate SvelteKit-specific imports for library usage ([203f678](https://github.com/windmill-labs/windmill/commit/203f6785c4ba9f7ace643259bf4e4a8f164288f3))
+
 ## [1.613.0](https://github.com/windmill-labs/windmill/compare/v1.612.2...v1.613.0) (2026-01-20)
 
 
