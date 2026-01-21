@@ -1402,9 +1402,13 @@ export async function elementsToMap(
           continue;
         }
       } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file, check if we should skip it
+        // This is a regular base file
         if (processedBasePaths.has(path)) {
           // Skip base file, we already processed branch-specific version
+          continue;
+        }
+        // If this base file is a specific item, skip it - we should only use branch-specific versions
+        if (isSpecificItem(path, specificItems)) {
           continue;
         }
         map[path] = content;
