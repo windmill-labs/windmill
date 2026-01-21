@@ -3,6 +3,8 @@
 	import { enterpriseLicense, isCriticalAlertsUIOpen } from '$lib/stores'
 	import { AlertCircle, BadgeCheck, BadgeX, Info } from 'lucide-svelte'
 	import type { Setting } from './instanceSettings'
+	import { OTEL_TRACING_PROXY_LANGUAGES } from './instanceSettings'
+	import { LanguageIcon } from './common/languageIcons'
 	import Tooltip from './Tooltip.svelte'
 	import ObjectStoreConfigSettings from './ObjectStoreConfigSettings.svelte'
 	import { sendUserToast } from '$lib/toast'
@@ -829,6 +831,39 @@
 								bind:value={$values[setting.key].otel_exporter_otlp_compression}
 							/>
 						</div> -->
+						{/if}
+					</div>
+				{:else if setting.fieldType == 'otel_tracing_proxy'}
+					{@const tracingProxyVal = $values[setting.key] ?? { enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] }}
+					<div class="flex flex-col gap-4">
+						<Toggle
+							id="otel_tracing_proxy_enabled"
+							checked={tracingProxyVal.enabled ?? false}
+							on:change={(e) => {
+								$values[setting.key] = { ...tracingProxyVal, enabled: e.detail }
+							}}
+							options={{ right: 'Enabled' }}
+						/>
+						{#if tracingProxyVal.enabled}
+							<div class="flex flex-wrap gap-2">
+								{#each OTEL_TRACING_PROXY_LANGUAGES as lang (lang)}
+									{@const isEnabled = (tracingProxyVal.enabled_languages ?? []).includes(lang)}
+									<button
+										class="flex flex-col items-center gap-1 p-2 rounded border transition-all {isEnabled
+											? 'border-blue-500 bg-blue-500/10'
+											: 'border-gray-300 opacity-40 hover:opacity-70'}"
+										onclick={() => {
+											const current = tracingProxyVal.enabled_languages ?? []
+											const newLangs = isEnabled
+												? current.filter((l) => l !== lang)
+												: [...current, lang]
+											$values[setting.key] = { ...tracingProxyVal, enabled_languages: newLangs }
+										}}
+									>
+										<LanguageIcon {lang} size={24} />
+									</button>
+								{/each}
+							</div>
 						{/if}
 					</div>
 				{:else if setting.fieldType == 'object_store_config'}

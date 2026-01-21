@@ -2,7 +2,7 @@
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import { UserService, WorkspaceService } from '$lib/gen'
-	import { logoutWithRedirect } from '$lib/logout'
+	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
 	import { sendUserToast } from '$lib/toast'

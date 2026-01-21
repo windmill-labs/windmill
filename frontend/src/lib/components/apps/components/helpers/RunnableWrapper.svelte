@@ -223,7 +223,6 @@
 		if (!sideEffect) return
 
 		if (sideEffect.selected == 'none') return
-
 		await executeSideEffect(sideEffect, success, errorMessage)
 	}
 
@@ -389,8 +388,8 @@
 
 			initializing = false
 		}}
-		on:success={(e) => {
-			onSuccess(e.detail)
+		onSuccess={(result) => {
+			onSuccess(result)
 			handleSideEffect(true)
 		}}
 		on:handleError={(e) => handleSideEffect(false, e.detail)}

@@ -8,4 +8,8 @@ mod core;
 mod utils;
 
 // Re-export only what's needed externally
-pub use core::{extract_and_store_workspace_id, list_tools_service, setup_mcp_server};
+pub mod oauth_server;
+pub use core::{
+    add_www_authenticate_header, extract_and_store_workspace_id, list_tools_service,
+    setup_mcp_server,
+};
