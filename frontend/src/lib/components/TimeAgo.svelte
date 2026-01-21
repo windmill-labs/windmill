@@ -78,7 +78,7 @@
 	}
 
 	async function displayDaysAgo(dateString: string): Promise<string> {
-		const date = await new Date(dateString)
+		const date = new Date(dateString)
 
 		// New noSeconds mode
 		if (noSeconds) {
