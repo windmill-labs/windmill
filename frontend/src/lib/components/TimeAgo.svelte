@@ -96,7 +96,7 @@
 			}
 			// If less than a month ago -> "x days ago"
 			else if (isLessThanMonthAgo(date)) {
-				return `${dAgo} days ago`
+				return `${dAgo} day${dAgo !== 1 ? 's' : ''} ago`
 			}
 			// If more than a month ago -> "the mm/dd/year"
 			else {
