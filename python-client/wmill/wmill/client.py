@@ -603,12 +603,14 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
+        interpolated: bool = True
     ) -> dict | None:
         """Get a resource value by path.
 
         Args:
             path: Resource path in Windmill
             none_if_undefined: Return None instead of raising if not found
+            interpolated: if variables and resources are fully unrolled
 
         Returns:
             Resource value dictionary or None
@@ -630,9 +632,14 @@ class Windmill:
                     f"MockedAPI present, but resource not found at ${path}, falling back to real API"
                 )
         try:
-            return self.get(
-                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
-            ).json()
+            if interpolated:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+                ).json()
+            else:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value/{path}"
+                ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -725,7 +732,7 @@ class Windmill:
         Returns:
             State value or None if not set
         """
-        return self.get_resource(path=path or self.state_path, none_if_undefined=True)
+        return self.get_resource(path=path or self.state_path, none_if_undefined=True, interpolated=True)
 
     def set_progress(self, value: int, job_id: Optional[str] = None):
         """Set job progress percentage (0-99).
@@ -1132,7 +1139,7 @@ class Windmill:
         Returns:
             State value or None if not set
         """
-        return self.get_resource(path=self.state_path, none_if_undefined=True)
+        return self.get_resource(path=self.state_path, none_if_undefined=True, interpolated=True)
 
     @state.setter
     def state(self, value: Any) -> None:
@@ -1754,9 +1761,10 @@ def get_state(path: str | None = None) -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
+    interpolated: bool = True
 ) -> dict | None:
     """Get resource from Windmill"""
-    return _client.get_resource(path, none_if_undefined)
+    return _client.get_resource(path, none_if_undefined, interpolated)
 
 
 @init_global_client
