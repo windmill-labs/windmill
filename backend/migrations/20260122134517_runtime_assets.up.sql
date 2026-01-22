@@ -16,9 +16,6 @@ ALTER TABLE asset
 -- Add index to optimize queries filtering by detection kind
 CREATE INDEX idx_asset_detection_kind ON asset (workspace_id, asset_detection_kind);
 
--- Add index to optimize queries by job_id for runtime assets
-CREATE INDEX idx_asset_job_id ON asset (job_id) WHERE job_id IS NOT NULL;
-
 -- Add constraint: runtime assets must have job_id, static assets must not
 ALTER TABLE asset
   ADD CONSTRAINT asset_job_id_check CHECK (

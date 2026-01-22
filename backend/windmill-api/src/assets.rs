@@ -25,11 +25,20 @@ async fn list_assets(
             jsonb_strip_nulls(jsonb_build_object(
                 'path', asset.path,
                 'kind', asset.kind,
-                'usages', ARRAY_AGG(jsonb_build_object(
+                'usages', ARRAY_AGG(DISTINCT jsonb_build_object(
                     'path', asset.usage_path,
                     'kind', asset.usage_kind,
-                    'access_type', asset.usage_access_type
-                )) FILTER (WHERE asset.asset_detection_kind = 'static'),
+                    'access_type', asset.usage_access_type,
+                    'detection_kinds', (
+                      SELECT ARRAY_AGG(DISTINCT a2.asset_detection_kind)
+                      FROM asset a2
+                      WHERE a2.workspace_id = asset.workspace_id
+                        AND a2.path = asset.path
+                        AND a2.kind = asset.kind
+                        AND a2.usage_path = asset.usage_path
+                        AND a2.usage_kind = asset.usage_kind
+                    )
+                )),
                 'metadata', (CASE
                   WHEN asset.kind = 'resource' THEN
                     jsonb_build_object('resource_type', resource.resource_type)

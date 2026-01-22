@@ -16038,6 +16038,10 @@ paths:
                             $ref: "#/components/schemas/AssetUsageKind"
                           access_type:
                             $ref: "#/components/schemas/AssetUsageAccessType"
+                          detection_kinds:
+                            type: array
+                            items:
+                              $ref: "#/components/schemas/AssetUsageDetectionKind"
                     metadata:
                       type: object
                       properties:
@@ -21925,6 +21929,11 @@ components:
         - r
         - w
         - rw
+    AssetUsageDetectionKind:
+      type: string
+      enum:
+        - static
+        - runtime
     AssetKind:
       type: string
       enum:

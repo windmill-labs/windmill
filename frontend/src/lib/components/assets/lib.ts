@@ -93,7 +93,6 @@ export function formatAssetAccessType(accessType: AssetUsageAccessType | undefin
 		case 'rw':
 			return 'R/W'
 	}
-	return '?'
 }
 
 export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {

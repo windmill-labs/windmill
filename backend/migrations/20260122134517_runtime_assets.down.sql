@@ -2,7 +2,6 @@
 
 -- Drop constraints and indexes
 ALTER TABLE asset DROP CONSTRAINT IF EXISTS asset_job_id_check;
-DROP INDEX IF EXISTS idx_asset_job_id;
 DROP INDEX IF EXISTS idx_asset_detection_kind;
 
 -- Drop the new primary key
