@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::{value::RawValue, Value};
-use windmill_parser::asset_parser::parse_asset_syntax;
+use windmill_parser::asset_parser::{parse_asset_syntax, ASSET_KINDS};
 
 use crate::assets::AssetKind;
 
@@ -33,43 +33,43 @@ pub fn extract_runtime_assets_from_args(
     let mut assets = Vec::new();
 
     for (_key, value) in args.iter() {
-        extract_assets_from_value(value, &mut assets);
+        extract_assets_from_raw_value(value, &mut assets).unwrap_or(());
     }
 
     assets
 }
 
-fn extract_assets_from_value(value: &Box<RawValue>, assets: &mut Vec<RuntimeAsset>) {
-    match get_asset_heuristic(value) {
-        Some((kind, path)) => {
-            assets.push(RuntimeAsset { path, kind });
+fn extract_assets_from_raw_value(
+    value: &Box<RawValue>,
+    assets: &mut Vec<RuntimeAsset>,
+) -> Option<()> {
+    let json = value.get().trim_start();
+    if json.len() < 256 && json.len() > 2 && json.starts_with('"') {
+        // Ensure the string starts with an asset scheme before parsing
+        let prefix = ASSET_KINDS
+            .iter()
+            .any(|(prefix, _)| json[1..].starts_with(prefix));
+        if prefix {
+            let s = serde_json::from_str::<String>(value.get()).ok()?;
+            let (kind, path) = parse_asset_syntax(&s, false)?;
+            let kind = convert_asset_kind(kind);
+            assets.push(RuntimeAsset { path: path.to_string(), kind });
         }
-        None => {}
+    } else if json.len() < 256 && json.starts_with('{') && json.contains("\"s3\"") {
+        let s = serde_json::from_str::<Value>(value.get()).ok()?;
+        let (kind, path) = parse_s3_json_object(&s)?;
+        assets.push(RuntimeAsset { path, kind });
     }
+    None
 }
 
-// Try to guess if a raw value is an asset before parsing it in case it's big
-fn get_asset_heuristic(value: &Box<RawValue>) -> Option<(AssetKind, String)> {
-    let json = value.get();
-    if json.len() < 256 && json.trim_start().starts_with('"') {
-        // parse_asset_syntax is super cheap, ensure the string starts with an asset scheme before parsing
-        let _ = parse_asset_syntax(json.trim_matches('"'), false)?;
-        let s = serde_json::from_str::<String>(value.get()).ok()?;
-        let (kind, path) = parse_asset_syntax(&s, false)?;
-        return Some((convert_asset_kind(kind), path.to_string()));
-    }
-
-    if json.len() < 256 && json.trim_start().starts_with('{') && json.contains("\"s3\"") {
-        let s = serde_json::from_str::<Value>(value.get()).ok()?;
-        match s.get("s3") {
-            Some(Value::String(s3_path)) => {
-                let storage = s.get("storage").and_then(|v| v.as_str()).unwrap_or("");
-                let asset_path = format!("{}/{}", storage, s3_path);
-                return Some((AssetKind::S3Object, asset_path));
-            }
-            _ => {}
+fn parse_s3_json_object(value: &Value) -> Option<(AssetKind, String)> {
+    match value.get("s3") {
+        Some(Value::String(s3_path)) => {
+            let storage = value.get("storage").and_then(|v| v.as_str()).unwrap_or("");
+            let asset_path = format!("{}/{}", storage, s3_path);
+            Some((AssetKind::S3Object, asset_path))
         }
+        _ => None,
     }
-
-    None
 }
