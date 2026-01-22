@@ -1,3 +1,5 @@
+use lazy_static::lazy_static;
+use regex::Regex;
 use serde::Serialize;
 
 #[derive(Serialize, PartialEq, Clone, Copy, Debug)]
@@ -113,3 +115,19 @@ pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
     ("ducklake://", AssetKind::Ducklake),
     ("datatable://", AssetKind::DataTable),
 ];
+
+lazy_static! {
+    pub static ref ASSET_HEURISTIC_REGEX: Regex = Regex::new(
+        r#"(?x)
+        (?:
+            "s3" |                # Match "s3" literally
+            \bs3:// |             # Match s3:// prefix at word boundary
+            \bres:// |            # Match res:// prefix at word boundary
+            \$res: |              # Match $res: prefix at word boundary
+            \bducklake:// |       # Match ducklake:// prefix at word boundary
+            \bdatatable://        # Match datatable:// prefix at word boundary
+        )
+        "#
+    )
+    .unwrap();
+}

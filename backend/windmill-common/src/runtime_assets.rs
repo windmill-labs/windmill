@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use serde_json::{value::RawValue, Value};
-use windmill_parser::asset_parser::{parse_asset_syntax, ASSET_KINDS};
+use windmill_parser::asset_parser::{parse_asset_syntax, ASSET_HEURISTIC_REGEX, ASSET_KINDS};
 
 use crate::assets::AssetKind;
 
@@ -59,8 +59,49 @@ fn extract_assets_from_raw_value(
         let s = serde_json::from_str::<Value>(value.get()).ok()?;
         let (kind, path) = parse_s3_json_object(&s)?;
         assets.push(RuntimeAsset { path, kind });
+    } else if (json.starts_with('{') || json.starts_with('[')) && json.len() < 4096 {
+        // Check if the JSON contains any asset-like patterns before parsing
+        let has_asset_hint = ASSET_HEURISTIC_REGEX.is_match(json);
+        if has_asset_hint {
+            // Parse and recursively extract assets from nested structures
+            let parsed = serde_json::from_str::<Value>(value.get()).ok()?;
+            extract_assets_from_value(&parsed, assets);
+        }
     }
     None
+}
+
+/// Recursively extract assets from a parsed JSON value
+fn extract_assets_from_value(value: &Value, assets: &mut Vec<RuntimeAsset>) {
+    match value {
+        Value::String(s) => {
+            // Try to parse as asset syntax
+            if let Some((kind, path)) = parse_asset_syntax(s, false) {
+                let kind = convert_asset_kind(kind);
+                assets.push(RuntimeAsset { path: path.to_string(), kind });
+            }
+        }
+        Value::Object(map) => {
+            // First, check if this object itself is an s3 asset
+            if let Some((kind, path)) = parse_s3_json_object(value) {
+                assets.push(RuntimeAsset { path, kind });
+            } else {
+                // Recursively process all object values
+                for (_key, val) in map {
+                    extract_assets_from_value(val, assets);
+                }
+            }
+        }
+        Value::Array(arr) => {
+            // Recursively process all array elements
+            for val in arr {
+                extract_assets_from_value(val, assets);
+            }
+        }
+        _ => {
+            // Ignore other value types (bool, null, number)
+        }
+    }
 }
 
 fn parse_s3_json_object(value: &Value) -> Option<(AssetKind, String)> {

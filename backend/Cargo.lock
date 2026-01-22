@@ -15978,6 +15978,9 @@ name = "windmill-parser"
 version = "1.613.4"
 dependencies = [
  "convert_case 0.6.0",
+ "lazy_static",
+ "regex",
+ "regex-lite",
  "serde",
  "serde_json",
 ]
