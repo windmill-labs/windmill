@@ -16020,7 +16020,7 @@ paths:
                 type: array
                 items:
                   type: object
-                  required: [path, kind]
+                  required: [path, kind, usages]
                   properties:
                     path:
                       type: string
@@ -16038,8 +16038,6 @@ paths:
                             $ref: "#/components/schemas/AssetUsageKind"
                           access_type:
                             $ref: "#/components/schemas/AssetUsageAccessType"
-                    runtime_usage_count:
-                      type: integer
                     metadata:
                       type: object
                       properties:

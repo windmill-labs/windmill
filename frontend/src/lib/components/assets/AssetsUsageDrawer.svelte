@@ -7,12 +7,11 @@
 
 	let usagesDrawerData:
 		| {
-				usages?: {
+				usages: {
 					path: string
 					kind: AssetUsageKind
 					access_type?: AssetUsageAccessType
 				}[]
-				runtime_usage_count?: number
 		  }
 		| undefined = $state()
 
@@ -27,16 +26,7 @@
 	on:close={() => (usagesDrawerData = undefined)}
 >
 	<DrawerContent title="Asset usage" on:close={() => (usagesDrawerData = undefined)}>
-		<h2 class="text-xs font-semibold text-emphasis mb-2">Static usages</h2>
-		{#if !usagesDrawerData?.usages?.length}
-			<p class="text-sm text-secondary mb-4">No static usages found for this asset.</p>
-		{/if}
-		<ul
-			class={twMerge(
-				'flex flex-col border rounded-md divide-y',
-				!usagesDrawerData?.usages?.length ? 'hidden' : ''
-			)}
-		>
+		<ul class="flex flex-col border rounded-md divide-y">
 			{#each usagesDrawerData?.usages ?? [] as u}
 				<li>
 					<a

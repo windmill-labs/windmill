@@ -24,17 +24,11 @@
 	)
 
 	let filterText: string = $state('')
-	let filteredAssets = $derived.by(() => {
-		let filtered = assets.current
-		if (filterText) {
-			filtered = filtered?.filter((asset) =>
-				formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
-			)
-		}
-		return filtered ?? []
-	})
-
-	$inspect('assets.current', assets.current)
+	let filteredAssets = $derived(
+		assets.current?.filter((asset) =>
+			formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
+		) ?? []
+	)
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
@@ -75,7 +69,6 @@
 				{/if}
 				{#each filteredAssets as asset}
 					{@const assetUri = formatAsset(asset)}
-					{@const usageTotal = (asset.runtime_usage_count ?? 0) + (asset.usages?.length ?? 0)}
 					<tr class="h-14">
 						<Cell first class="w-16">
 							<Tooltip>
@@ -89,7 +82,7 @@
 						</Cell>
 						<Cell>
 							<a href={`#${assetUri}`} onclick={() => assetsUsageDropdown?.open(asset)}>
-								{pluralize(usageTotal ?? 0, 'usage')}
+								{pluralize(asset.usages.length, 'usage')}
 							</a>
 						</Cell>
 						<Cell>
