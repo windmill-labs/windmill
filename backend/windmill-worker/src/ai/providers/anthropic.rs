@@ -11,6 +11,11 @@ use crate::ai::{
     utils::{extract_text_content, parse_data_url, should_use_structured_output_tool},
 };
 
+/// Anthropic API version for standard API
+const ANTHROPIC_VERSION_STANDARD: &str = "2023-06-01";
+/// Anthropic API version for Google Vertex AI
+const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
+
 /// Custom tool for Anthropic native API (flat structure with type: "custom")
 #[derive(Serialize, Debug)]
 pub struct AnthropicCustomTool {
@@ -96,10 +101,31 @@ pub struct AnthropicMessage {
     pub content: Vec<AnthropicRequestContent>,
 }
 
-/// Anthropic-specific request structure
+/// Anthropic-specific request structure for standard API
 #[derive(Serialize)]
 pub struct AnthropicRequest<'a> {
     pub model: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<Vec<AnthropicSystemContent>>,
+    pub messages: Vec<AnthropicMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<AnthropicTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<AnthropicToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
+    pub stream: bool,
+}
+
+/// Anthropic request structure for Google Vertex AI
+/// Key differences from standard API:
+/// - No model field (model is specified in the URL)
+/// - anthropic_version is in the body instead of a header
+#[derive(Serialize)]
+pub struct AnthropicVertexRequest {
+    pub anthropic_version: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system: Option<Vec<AnthropicSystemContent>>,
     pub messages: Vec<AnthropicMessage>,
@@ -298,11 +324,16 @@ pub struct AnthropicResponse {
 pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
+    platform: AnthropicPlatform,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider) -> Self {
-        Self { provider_kind }
+    pub fn new(provider_kind: AIProvider, platform: AnthropicPlatform) -> Self {
+        Self { provider_kind, platform }
+    }
+
+    fn is_vertex(&self) -> bool {
+        self.platform == AnthropicPlatform::GoogleVertexAi
     }
 
     async fn build_text_request(
@@ -362,19 +393,39 @@ impl AnthropicQueryBuilder {
             None
         };
 
-        let request = AnthropicRequest {
-            model: args.model,
-            system,
-            messages: anthropic_messages,
-            tools: if tools.is_empty() { None } else { Some(tools) },
-            tool_choice,
-            temperature: args.temperature,
-            max_tokens: Some(args.max_tokens.unwrap_or(64000)),
-            stream: true,
-        };
+        let tools_option = if tools.is_empty() { None } else { Some(tools) };
+        let max_tokens = Some(args.max_tokens.unwrap_or(64000));
 
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        // Build request based on platform
+        if self.is_vertex() {
+            // For Vertex AI: no model field, anthropic_version in body
+            let request = AnthropicVertexRequest {
+                anthropic_version: ANTHROPIC_VERSION_VERTEX,
+                system,
+                messages: anthropic_messages,
+                tools: tools_option,
+                tool_choice,
+                temperature: args.temperature,
+                max_tokens,
+                stream: true,
+            };
+            serde_json::to_string(&request)
+                .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        } else {
+            // For standard API: model in body, anthropic_version in header
+            let request = AnthropicRequest {
+                model: args.model,
+                system,
+                messages: anthropic_messages,
+                tools: tools_option,
+                tool_choice,
+                temperature: args.temperature,
+                max_tokens,
+                stream: true,
+            };
+            serde_json::to_string(&request)
+                .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        }
     }
 }
 
@@ -436,8 +487,15 @@ impl QueryBuilder for AnthropicQueryBuilder {
         })
     }
 
-    fn get_endpoint(&self, base_url: &str, _model: &str, _output_type: &OutputType) -> String {
-        format!("{}/messages", base_url)
+    fn get_endpoint(&self, base_url: &str, model: &str, _output_type: &OutputType) -> String {
+        if self.is_vertex() {
+            // For Vertex AI, the model is specified in the URL path
+            // Expected base_url format: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/anthropic/models
+            // We append the model and :streamRawPredict
+            format!("{}/{}:streamRawPredict", base_url.trim_end_matches('/'), model)
+        } else {
+            format!("{}/messages", base_url)
+        }
     }
 
     fn get_auth_headers(
@@ -446,9 +504,16 @@ impl QueryBuilder for AnthropicQueryBuilder {
         _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        vec![
-            ("x-api-key", api_key.to_string()),
-            ("anthropic-version", "2023-06-01".to_string()),
-        ]
+        if self.is_vertex() {
+            // For Vertex AI, use Bearer token authentication
+            // The api_key should be an OAuth2 access token
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        } else {
+            // Standard Anthropic API uses x-api-key and anthropic-version header
+            vec![
+                ("x-api-key", api_key.to_string()),
+                ("anthropic-version", ANTHROPIC_VERSION_STANDARD.to_string()),
+            ]
+        }
     }
 }

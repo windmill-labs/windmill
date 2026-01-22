@@ -212,8 +212,6 @@ pub struct GeminiPredictCandidate {
 // Query Builder Implementation
 // ============================================================================
 
-const GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
-
 pub struct GoogleAIQueryBuilder;
 
 impl GoogleAIQueryBuilder {
@@ -637,7 +635,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
     fn get_endpoint(
         &self,
-        _base_url: &str, // Ignored - always use Google's URL
+        base_url: &str,
         model: &str,
         output_type: &OutputType,
     ) -> String {
@@ -645,7 +643,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             OutputType::Text => {
                 format!(
                     "{}/models/{}:streamGenerateContent?alt=sse",
-                    GEMINI_BASE_URL, model
+                    base_url, model
                 )
             }
             OutputType::Image => {
@@ -654,7 +652,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
                 } else {
                     "generateContent"
                 };
-                format!("{}/models/{}:{}", GEMINI_BASE_URL, model, url_suffix)
+                format!("{}/models/{}:{}", base_url, model, url_suffix)
             }
         }
     }
