@@ -1,7 +1,10 @@
 use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 
-use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use aws_config::BehaviorVersion;
+use aws_credential_types::provider::ProvideCredentials;
+use axum::routing::get;
+use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -490,7 +493,70 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/proxy/*ai", post(proxy).get(proxy))
+    Router::new()
+        .route("/proxy/*ai", post(proxy).get(proxy))
+        .route("/check_bedrock_credentials", get(check_bedrock_credentials))
+}
+
+/// Response structure for Bedrock credentials check
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BedrockCredentialsCheckResponse {
+    pub available: bool,
+    pub access_key_id_prefix: Option<String>,
+    pub region: Option<String>,
+    pub has_session_token: bool,
+    pub error: Option<String>,
+}
+
+/// Check if AWS Bedrock credentials are available from environment variables.
+///
+/// This endpoint checks whether AWS credentials are configured in the environment
+/// (via AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, IAM role, or other AWS SDK credential sources).
+/// When available, Bedrock requests will use these credentials instead of requiring
+/// explicit credentials in the resource configuration.
+async fn check_bedrock_credentials(
+    _authed: ApiAuthed,
+    Path(_w_id): Path<String>,
+) -> Result<Json<BedrockCredentialsCheckResponse>> {
+    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+
+    let response = if let Some(creds_provider) = config.credentials_provider() {
+        match creds_provider.provide_credentials().await {
+            Ok(creds) => {
+                let access_key_id = creds.access_key_id();
+                let prefix = if access_key_id.len() >= 8 {
+                    format!("{}...", &access_key_id[..8])
+                } else {
+                    access_key_id.to_string()
+                };
+
+                BedrockCredentialsCheckResponse {
+                    available: true,
+                    access_key_id_prefix: Some(prefix),
+                    region: config.region().map(|r| r.to_string()),
+                    has_session_token: creds.session_token().is_some(),
+                    error: None,
+                }
+            }
+            Err(e) => BedrockCredentialsCheckResponse {
+                available: false,
+                access_key_id_prefix: None,
+                region: None,
+                has_session_token: false,
+                error: Some(format!("Failed to retrieve credentials: {}", e)),
+            },
+        }
+    } else {
+        BedrockCredentialsCheckResponse {
+            available: false,
+            access_key_id_prefix: None,
+            region: None,
+            has_session_token: false,
+            error: Some("No credentials provider configured".to_string()),
+        }
+    };
+
+    Ok(Json(response))
 }
 
 async fn global_proxy(

@@ -16201,6 +16201,48 @@ paths:
               schema:
                 type: string
 
+  /w/{workspace}/ai/check_bedrock_credentials:
+    get:
+      summary: check AWS Bedrock credentials availability
+      description: |
+        Checks if AWS credentials are available from the environment for Bedrock API calls.
+        When available, Bedrock requests will use these credentials instead of requiring
+        explicit credentials in the resource configuration.
+      operationId: checkBedrockCredentials
+      tags:
+        - ai
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: Bedrock credentials availability check result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                    description: Whether AWS credentials are available from environment
+                  access_key_id_prefix:
+                    type: string
+                    nullable: true
+                    description: First 8 characters of the access key ID (if available)
+                  region:
+                    type: string
+                    nullable: true
+                    description: AWS region from environment (if configured)
+                  has_session_token:
+                    type: boolean
+                    description: Whether a session token is present (for temporary credentials)
+                  error:
+                    type: string
+                    nullable: true
+                    description: Error message if credentials are not available
+                required:
+                  - available
+                  - has_session_token
+
 components:
   securitySchemes:
     bearerAuth:

@@ -7,13 +7,66 @@ use crate::ai::{
 };
 use aws_config::BehaviorVersion;
 use aws_credential_types::provider::token::ProvideToken;
+use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, ConverseStreamOutput, ImageBlock, ImageFormat, ImageSource,
     InferenceConfiguration, Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
 use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
+
+/// Result of checking AWS Bedrock credentials availability
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BedrockCredentialsCheck {
+    pub available: bool,
+    pub access_key_id_prefix: Option<String>,
+    pub region: Option<String>,
+    pub has_session_token: bool,
+    pub error: Option<String>,
+}
+
+/// Check if AWS credentials are available from the environment
+pub async fn check_env_credentials() -> BedrockCredentialsCheck {
+    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+
+    if let Some(creds_provider) = config.credentials_provider() {
+        match creds_provider.provide_credentials().await {
+            Ok(creds) => {
+                let access_key_id = creds.access_key_id();
+                let prefix = if access_key_id.len() >= 8 {
+                    format!("{}...", &access_key_id[..8])
+                } else {
+                    access_key_id.to_string()
+                };
+
+                BedrockCredentialsCheck {
+                    available: true,
+                    access_key_id_prefix: Some(prefix),
+                    region: config.region().map(|r| r.to_string()),
+                    has_session_token: creds.session_token().is_some(),
+                    error: None,
+                }
+            }
+            Err(e) => BedrockCredentialsCheck {
+                available: false,
+                access_key_id_prefix: None,
+                region: None,
+                has_session_token: false,
+                error: Some(format!("Failed to retrieve credentials: {}", e)),
+            },
+        }
+    } else {
+        BedrockCredentialsCheck {
+            available: false,
+            access_key_id_prefix: None,
+            region: None,
+            has_session_token: false,
+            error: Some("No credentials provider configured".to_string()),
+        }
+    }
+}
 
 /// Constants for commonly used strings to avoid allocations
 const FUNCTION_TYPE: &str = "function";
@@ -75,6 +128,44 @@ impl BedrockClient {
             .build();
 
         Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
+    }
+
+    pub async fn from_env(region: &str) -> Result<Self, Error> {
+        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+
+        // Verify that credentials are actually available
+        if let Some(creds_provider) = config.credentials_provider() {
+            match creds_provider.provide_credentials().await {
+                Ok(creds) => {
+                    tracing::info!(
+                        "AWS env credentials found: access_key_id={}...",
+                        &creds.access_key_id().get(..8).unwrap_or("N/A")
+                    );
+                    if let Some(r) = config.region() {
+                        tracing::info!("AWS Region from env: {}", r);
+                    }
+                    tracing::info!("Using region override: {}", region);
+                }
+                Err(e) => {
+                    return Err(Error::internal_err(format!(
+                        "AWS credentials not available from environment: {}",
+                        e
+                    )));
+                }
+            }
+        } else {
+            return Err(Error::internal_err(
+                "No AWS credentials provider configured in environment".to_string(),
+            ));
+        }
+
+        // Build client with region override
+        let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(&config)
+            .region(aws_config::Region::new(region.to_string()))
+            .build();
+
+        let client = aws_sdk_bedrockruntime::Client::from_conf(bedrock_config);
+        Ok(Self { client })
     }
 
     pub fn client(&self) -> &BedrockRuntimeClient {
@@ -517,17 +608,39 @@ impl BedrockQueryBuilder {
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
-        // Create Bedrock client - use IAM credentials if provided, otherwise fall back to bearer token
-        let bedrock_client = match (aws_access_key_id, aws_secret_access_key) {
-            (Some(access_key_id), Some(secret_access_key)) => {
-                BedrockClient::from_credentials(
-                    access_key_id.to_string(),
-                    secret_access_key.to_string(),
-                    region,
-                )
-                .await?
+        // Create Bedrock client with fallback logic:
+        // 1. Try environment credentials first
+        // 2. Fall back to provided IAM credentials if available
+        // 3. Fall back to bearer token authentication
+        let bedrock_client = match BedrockClient::from_env(region).await {
+            Ok(client) => {
+                tracing::info!("Using AWS credentials from environment for Bedrock");
+                client
             }
-            _ => BedrockClient::from_bearer_token(api_key.to_string(), region).await?,
+            Err(env_err) => {
+                tracing::info!(
+                    "AWS env credentials not available ({}), trying provided credentials",
+                    env_err
+                );
+                match (aws_access_key_id, aws_secret_access_key) {
+                    (Some(access_key_id), Some(secret_access_key)) => {
+                        tracing::info!(
+                            "Using provided IAM credentials for Bedrock: access_key_id={}...",
+                            &access_key_id.get(..8).unwrap_or("N/A")
+                        );
+                        BedrockClient::from_credentials(
+                            access_key_id.to_string(),
+                            secret_access_key.to_string(),
+                            region,
+                        )
+                        .await?
+                    }
+                    _ => {
+                        tracing::info!("Using bearer token for Bedrock authentication");
+                        BedrockClient::from_bearer_token(api_key.to_string(), region).await?
+                    }
+                }
+            }
         };
 
         // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
