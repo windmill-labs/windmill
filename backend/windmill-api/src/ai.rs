@@ -298,7 +298,7 @@ impl AIRequestConfig {
         let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
-        // GoogleAI uses OpenAI-compatible endpoint in the proxy
+        // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
         let base_url = if is_google_ai {
             format!("{}/openai", base_url)
         } else {
