@@ -16,7 +16,7 @@ use sha2::Digest;
 use sqlx::types::Json;
 use tokio::time::timeout;
 use uuid::Uuid;
-use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
+use windmill_common::assets::{clear_asset_usage, insert_static_asset_usage, AssetUsageKind};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -1430,7 +1430,7 @@ async fn lock_modules<'c>(
         };
 
         for asset in assets.iter().flatten() {
-            insert_asset_usage(
+            insert_static_asset_usage(
                 &mut *tx,
                 &job.workspace_id,
                 asset,

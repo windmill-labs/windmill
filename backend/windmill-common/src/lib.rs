@@ -32,6 +32,7 @@ pub mod apps;
 pub mod audit;
 pub mod assets;
 pub mod auth;
+pub mod runtime_assets;
 #[cfg(feature = "benchmark")]
 pub mod bench;
 pub mod cache;

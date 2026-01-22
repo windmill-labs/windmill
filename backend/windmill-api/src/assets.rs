@@ -29,7 +29,7 @@ async fn list_assets(
                     'path', asset.usage_path,
                     'kind', asset.usage_kind,
                     'access_type', asset.usage_access_type
-                )),
+                )) FILTER (WHERE asset.asset_detection_kind = 'static'),
                 'metadata', (CASE
                   WHEN asset.kind = 'resource' THEN
                     jsonb_build_object('resource_type', resource.resource_type)
@@ -85,6 +85,7 @@ async fn list_assets_by_usages(
                 ) as "list!: _"
             FROM asset
             WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
+              AND asset_detection_kind = 'static'
             ORDER BY path, kind"#,
             w_id,
             usage.path,

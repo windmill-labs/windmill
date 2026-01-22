@@ -9,7 +9,6 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import { AssetService } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -18,18 +17,15 @@
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle } from 'lucide-svelte'
-	import { untrack } from 'svelte'
+	import { resource } from 'runed'
 
-	let assets = usePromise(() => AssetService.listAssets({ workspace: $workspaceStore ?? '' }), {
-		loadInit: false
-	})
-	$effect(() => {
-		$workspaceStore && untrack(() => assets.refresh())
-	})
+	let assets = resource([() => $workspaceStore], () =>
+		AssetService.listAssets({ workspace: $workspaceStore ?? '' })
+	)
 
 	let filterText: string = $state('')
 	let filteredAssets = $derived(
-		assets.value?.filter((asset) =>
+		assets.current?.filter((asset) =>
 			formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())
 		) ?? []
 	)
@@ -66,7 +62,7 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#if assets.status == 'ok' && filteredAssets.length === 0}
+				{#if !assets.error && !assets.loading && filteredAssets.length === 0}
 					<tr class="h-14">
 						<Cell colspan="4">No assets found</Cell>
 					</tr>

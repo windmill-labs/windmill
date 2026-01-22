@@ -24,6 +24,14 @@ pub enum AssetUsageKind {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[sqlx(type_name = "ASSET_DETECTION_KIND", rename_all = "lowercase")]
+#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
+pub enum AssetDetectionKind {
+    Static,
+    Runtime,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
 #[sqlx(type_name = "ASSET_ACCESS_TYPE", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum AssetUsageAccessType {
@@ -51,7 +59,7 @@ pub struct AssetWithAltAccessType {
     pub alt_access_type: Option<AssetUsageAccessType>,
 }
 
-pub async fn insert_asset_usage<'e>(
+pub async fn insert_static_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
     asset: &AssetWithAltAccessType,
@@ -59,14 +67,39 @@ pub async fn insert_asset_usage<'e>(
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
     sqlx::query!(
-        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
-                VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id)
+                VALUES ($1, $2, $3, $4, $5, $6, 'static', NULL) ON CONFLICT DO NOTHING"#,
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
         (asset.access_type.or(asset.alt_access_type)) as Option<AssetUsageAccessType>,
         usage_path,
         usage_kind as AssetUsageKind
+    )
+    .execute(executor)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn insert_runtime_asset<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    job_id: uuid::Uuid,
+    asset_path: &str,
+    asset_kind: AssetKind,
+    usage_path: &str,
+    usage_kind: AssetUsageKind,
+) -> error::Result<()> {
+    sqlx::query!(
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id)
+                VALUES ($1, $2, $3, NULL, $4, $5, 'runtime', $6) ON CONFLICT DO NOTHING"#,
+        workspace_id,
+        asset_path,
+        asset_kind as AssetKind,
+        usage_path,
+        usage_kind as AssetUsageKind,
+        job_id
     )
     .execute(executor)
     .await?;
@@ -81,7 +114,7 @@ pub async fn clear_asset_usage<'e>(
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
     sqlx::query!(
-        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
+        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3 AND asset_detection_kind = 'static'"#,
         workspace_id,
         usage_path,
         usage_kind as AssetUsageKind

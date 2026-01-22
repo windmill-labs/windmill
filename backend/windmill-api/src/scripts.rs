@@ -41,7 +41,9 @@ use windmill_audit::ActionKind;
 use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
+    assets::{
+        clear_asset_usage, insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+    },
     error::{self, to_anyhow},
     runnable_settings::{
         min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
@@ -1043,7 +1045,8 @@ async fn create_script_internal<'c>(
 
     clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
     for asset in ns.assets.as_ref().into_iter().flatten() {
-        insert_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script).await?;
+        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
+            .await?;
     }
 
     let permissioned_as = username_to_permissioned_as(&authed.username);

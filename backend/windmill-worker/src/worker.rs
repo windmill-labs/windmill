@@ -637,7 +637,9 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
-pub async fn get_proxy_envs_for_lang(lang: &ScriptLang) -> anyhow::Result<Vec<(&'static str, String)>> {
+pub async fn get_proxy_envs_for_lang(
+    lang: &ScriptLang,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
         return get_otel_tracing_proxy_envs().await;
@@ -664,7 +666,10 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         // CA cert for various runtimes to trust the tracing proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("NODE_EXTRA_CA_CERTS", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        (
+            "NODE_EXTRA_CA_CERTS",
+            TRACING_PROXY_CA_CERT_PATH.to_string(),
+        ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
@@ -2729,6 +2734,58 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
+/// Detects and stores runtime assets from job arguments.
+/// This function is called when a job starts executing to track which assets
+/// are passed as inputs to the job at runtime.
+async fn detect_and_store_runtime_assets(
+    db: &sqlx::Pool<sqlx::Postgres>,
+    workspace_id: &str,
+    job_id: &Uuid,
+    Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
+    runnable_path: &str,
+    job_kind: &JobKind,
+) {
+    match job_kind {
+        JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
+        _ => return,
+    }
+
+    let runtime_assets =
+        windmill_common::runtime_assets::extract_runtime_assets_from_args(args_map);
+    if runtime_assets.is_empty() {
+        return;
+    }
+
+    // Determine usage kind based on job kind
+    let usage_kind = if job_kind.is_flow() {
+        windmill_common::assets::AssetUsageKind::Flow
+    } else {
+        windmill_common::assets::AssetUsageKind::Script
+    };
+
+    // Store each detected runtime asset
+    for asset in runtime_assets {
+        if let Err(e) = windmill_common::assets::insert_runtime_asset(
+            db,
+            workspace_id,
+            *job_id,
+            &asset.path,
+            asset.kind,
+            runnable_path,
+            usage_kind,
+        )
+        .await
+        {
+            tracing::warn!(
+                "Failed to insert runtime asset {} for job {}: {:?}",
+                asset.path,
+                job_id,
+                e
+            );
+        }
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -2988,6 +3045,21 @@ pub async fn handle_queued_job(
             job.id
         );
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
+
+        // Extract and store runtime assets from job arguments
+        if let (Connection::Sql(db), Some(args_json), Some(runnable_path)) =
+            (conn, &job.args, &job.runnable_path)
+        {
+            detect_and_store_runtime_assets(
+                db,
+                &job.workspace_id,
+                &job.id,
+                args_json,
+                &runnable_path,
+                &job.kind,
+            )
+            .await;
+        }
 
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
