@@ -745,7 +745,7 @@ async fn create_script_internal<'c>(
             .await?;
 
             sqlx::query!(
-                "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+                "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1) AND asset_detection_kind = 'static'",
                 &w_id,
                 p_hash.0
             )
@@ -1918,7 +1918,7 @@ async fn archive_script_by_path(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = $2",
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = $2 AND asset_detection_kind = 'static'",
         &w_id,
         path
     )
@@ -1984,7 +1984,7 @@ async fn archive_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1) AND asset_detection_kind = 'static'",
         &w_id,
         &hash.0
     )
@@ -2037,7 +2037,7 @@ async fn delete_script_by_hash(
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
     sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1) AND asset_detection_kind = 'static'",
         &w_id,
         hash.0
     )
