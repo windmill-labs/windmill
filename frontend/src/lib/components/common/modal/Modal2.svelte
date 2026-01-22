@@ -91,6 +91,7 @@
 												<slot name="header-right" />
 												<div class="w-8">
 													<button
+														id="modal-close-button"
 														on:click={() => {
 															close()
 														}}
