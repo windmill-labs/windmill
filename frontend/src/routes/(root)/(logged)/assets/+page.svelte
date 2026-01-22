@@ -76,7 +76,7 @@
 								<svelte:fragment slot="text">{formatAssetKind(asset)}</svelte:fragment>
 							</Tooltip>
 						</Cell>
-						<Cell class="w-[75%] flex flex-col">
+						<Cell class="flex flex-col">
 							<span>{truncate(asset.path, 92)}</span>
 							<span class="text-2xs text-secondary">{formatAssetKind(asset)}</span>
 						</Cell>
@@ -85,14 +85,13 @@
 								{pluralize(asset.usages.length, 'usage')}
 							</a>
 						</Cell>
-						<Cell>
+						<Cell class="w-24">
 							{#if assetCanBeExplored(asset, asset.metadata) && !$userStore?.operator}
 								<ExploreAssetButton
 									{asset}
 									{s3FilePicker}
 									{dbManagerDrawer}
 									_resourceMetadata={asset.metadata}
-									class="w-24"
 								/>
 							{/if}
 							{#if asset.kind === 'resource' && asset.metadata === undefined}
