@@ -107,6 +107,9 @@ fn extract_assets_from_value(value: &Value, assets: &mut Vec<RuntimeAsset>) {
 fn parse_s3_json_object(value: &Value) -> Option<(AssetKind, String)> {
     match value.get("s3") {
         Some(Value::String(s3_path)) => {
+            if s3_path.is_empty() || s3_path.starts_with("s3://") {
+                return None;
+            }
             let storage = value.get("storage").and_then(|v| v.as_str()).unwrap_or("");
             let asset_path = format!("{}/{}", storage, s3_path);
             Some((AssetKind::S3Object, asset_path))
