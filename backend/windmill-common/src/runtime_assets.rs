@@ -40,7 +40,7 @@ pub fn extract_runtime_assets_from_args(
 }
 
 fn extract_assets_from_value(value: &Box<RawValue>, assets: &mut Vec<RuntimeAsset>) {
-    match get_value_if_asset_heuristic(value) {
+    match get_asset_heuristic(value) {
         Some((kind, path)) => {
             assets.push(RuntimeAsset { path, kind });
         }
@@ -49,7 +49,7 @@ fn extract_assets_from_value(value: &Box<RawValue>, assets: &mut Vec<RuntimeAsse
 }
 
 // Try to guess if a raw value is an asset before parsing it in case it's big
-fn get_value_if_asset_heuristic(value: &Box<RawValue>) -> Option<(AssetKind, String)> {
+fn get_asset_heuristic(value: &Box<RawValue>) -> Option<(AssetKind, String)> {
     let json = value.get();
     if json.len() < 256 && json.trim_start().starts_with('"') {
         // parse_asset_syntax is super cheap, ensure the string starts with an asset scheme before parsing
@@ -63,7 +63,9 @@ fn get_value_if_asset_heuristic(value: &Box<RawValue>) -> Option<(AssetKind, Str
         let s = serde_json::from_str::<Value>(value.get()).ok()?;
         match s.get("s3") {
             Some(Value::String(s3_path)) => {
-                return Some((AssetKind::S3Object, s3_path.to_string()));
+                let storage = s.get("storage").and_then(|v| v.as_str()).unwrap_or("");
+                let asset_path = format!("{}/{}", storage, s3_path);
+                return Some((AssetKind::S3Object, asset_path));
             }
             _ => {}
         }
