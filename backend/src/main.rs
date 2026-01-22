@@ -16,7 +16,7 @@ use monitor::{
     send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::postgres::PgListener;
+use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
@@ -35,7 +35,6 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
-    get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -901,10 +900,9 @@ Windmill Community Edition {GIT_VERSION}
             match conn {
                 Connection::Sql(ref db) => {
                     let base_internal_url = base_internal_url.to_string();
-                    let db_url = get_database_url().await?;
                     let db = db.clone();
                     let h = tokio::spawn(async move {
-                        let mut listener = retry_listen_pg(&db_url.as_str().await).await;
+                        let mut listener = retry_listen_pg(&db).await;
                         let mut last_listener_refresh = Instant::now();
                         let mut monitor_iteration: u64 = 0;
                         let rd_shift: u8 = rand::rng().random_range(0..200);
@@ -1245,14 +1243,14 @@ Windmill Community Edition {GIT_VERSION}
                                         },
                                         Err(e) => {
                                             tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                            let db_url = db_url.clone();
+                                            let db = db.clone();
                                             tokio::select! {
                                                 biased;
                                                 _ = monitor_killpill_rx.recv() => {
                                                     tracing::info!("received killpill for monitor job");
                                                     break;
                                                 },
-                                                new_listener = async move { retry_listen_pg(&db_url.as_str().await).await } => {
+                                                new_listener = async move { retry_listen_pg(&db).await } => {
                                                     listener = new_listener;
                                                     continue;
                                                 }
@@ -1266,7 +1264,7 @@ Windmill Community Edition {GIT_VERSION}
                                         if let Err(e) = listener.unlisten_all().await {
                                             tracing::error!(error = %e, "Could not unlisten to database");
                                         }
-                                        listener = retry_listen_pg(&db_url.as_str().await).await;
+                                        listener = retry_listen_pg(&db).await;
                                         initial_load(
                                             &conn,
                                             tx.clone(),
@@ -1450,8 +1448,8 @@ Windmill Community Edition {GIT_VERSION}
     std::process::exit(0);
 }
 
-async fn listen_pg(url: &str) -> Option<PgListener> {
-    let mut listener = match PgListener::connect(url).await {
+async fn listen_pg(db: &Pool<Postgres>) -> Option<PgListener> {
+    let mut listener = match PgListener::connect_with(db).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "Could not connect to database");
@@ -1484,13 +1482,13 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
     return Some(listener);
 }
 
-async fn retry_listen_pg(url: &str) -> PgListener {
-    let mut listener = listen_pg(url).await;
+async fn retry_listen_pg(db: &Pool<Postgres>) -> PgListener {
+    let mut listener = listen_pg(db).await;
     loop {
         if listener.is_none() {
             tracing::info!("Retrying listening to pg listen in 5 seconds");
             tokio::time::sleep(Duration::from_secs(5)).await;
-            listener = listen_pg(url).await;
+            listener = listen_pg(db).await;
         } else {
             tracing::info!("Successfully connected to pg listen");
             return listener.unwrap();
