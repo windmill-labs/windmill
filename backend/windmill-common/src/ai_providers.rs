@@ -11,6 +11,7 @@ lazy_static::lazy_static! {
 }
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -62,9 +63,7 @@ impl AIProvider {
                 Ok(azure_base_path.unwrap_or("https://api.openai.com/v1".to_string()))
             }
             AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
-            AIProvider::GoogleAI => {
-                Ok("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
-            }
+            AIProvider::GoogleAI => Ok(GOOGLE_AI_BASE_URL.to_string()),
             AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
             AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),

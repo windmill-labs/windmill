@@ -296,6 +296,15 @@ impl AIRequestConfig {
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
+        let is_google_ai = matches!(provider, AIProvider::GoogleAI);
+
+        // GoogleAI uses OpenAI-compatible endpoint in the proxy
+        let base_url = if is_google_ai {
+            format!("{}/openai", base_url)
+        } else {
+            base_url.to_string()
+        };
+        let base_url = base_url.as_str();
 
         // Check if using IAM credentials for Bedrock (instead of bearer token)
         let use_iam_auth =
