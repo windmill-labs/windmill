@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 
-use std::{future::Future, str::FromStr, sync::Arc};
+use std::{future::Future, str::FromStr};
 
 use futures::Stream;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, Pool, Postgres};
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_api_client::types::NewScript;
 #[cfg(feature = "python")]
@@ -498,11 +497,11 @@ pub async fn initialize_tracing() {
 }
 
 pub async fn test_for_versions<F: Future<Output = ()>>(
-    version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
+    constraints: impl Iterator<Item = &'static windmill_common::min_version::VersionConstraint>,
     test: impl Fn() -> F,
 ) {
-    for version_flag in version_flags {
-        *version_flag.write().await = true;
+    for constraint in constraints {
+        *windmill_common::min_version::MIN_VERSION.write().await = constraint.version().clone();
         test().await;
     }
 }
