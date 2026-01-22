@@ -91,13 +91,14 @@
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
+	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
 	let job: (Job & { result?: any; result_stream?: string }) | undefined = $state()
 	let jobUpdateLastFetch: Date | undefined = $state()
 
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' = $state('result')
+	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('result')
 	let selectedJobStep: string | undefined = $state(undefined)
 
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -552,6 +553,7 @@
 								}, 3001)
 							}
 						}}
+						title={`Cancel the ${job?.job_kind === 'script' ? 'script' : job?.job_kind === 'flow' ? 'flow' : 'job'}`}
 					>
 						Cancel
 					</Button>
@@ -590,6 +592,9 @@
 					{selectedJobStep}
 					{selectedJobStepType}
 					{restartBranchNames}
+					onRestartComplete={(newJobId) => {
+						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
+					}}
 					flowPath={job.script_path}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
@@ -769,6 +774,7 @@
 						<Tab value="result" label="Result" />
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />
+						<Tab value="traces" label="Traces" />
 						<Tab value="assets" label="Assets" />
 						{#if isScriptPreview(job?.job_kind)}
 							<Tab value="code" label="Code" />
@@ -797,6 +803,10 @@
 							{:else if viewTab == 'assets'}
 								<div class="w-full">
 									<JobAssetsViewer {job} />
+								</div>
+							{:else if viewTab == 'traces'}
+								<div class="w-full">
+									<JobOtelTraces jobId={job.id} />
 								</div>
 							{:else if viewTab == 'code'}
 								{#if job && 'raw_code' in job && job.raw_code}

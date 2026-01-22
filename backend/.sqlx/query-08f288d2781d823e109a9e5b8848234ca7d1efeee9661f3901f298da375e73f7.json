@@ -177,6 +177,16 @@
         "ordinal": 34,
         "name": "teams_team_guid",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 35,
+        "name": "success_handler",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 36,
+        "name": "success_handler_extra_args",
+        "type_info": "Json"
       }
     ],
     "parameters": {
@@ -213,6 +223,8 @@
       true,
       true,
       false,
+      true,
+      true,
       true,
       true,
       true,

@@ -53,7 +53,8 @@
 		hideButton = false
 	}: Props = $props()
 
-	let seeTarget: boolean | undefined = $state(undefined)
+	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
+		$state(undefined)
 
 	let dependencies: { kind: Kind; path: string; include: boolean }[] | undefined = $state(undefined)
 
@@ -68,13 +69,20 @@
 			if (!$superadmin) {
 				await UserService.whoami({ workspace: workspaceToDeployTo! })
 			}
-			seeTarget = true
+			canSeeTarget = 'yes'
 		} catch {
-			seeTarget = false
+			canSeeTarget = 'cant-deploy-to-workspace'
 			return
 		}
 
-		const allDeps = await getDependencies(kind, path)
+		let allDeps
+		try {
+			allDeps = await getDependencies(kind, path)
+		} catch {
+			canSeeTarget = 'cant-see-all-deps'
+			return
+		}
+
 		let sortedSet: { kind: Kind; path: string }[] = []
 		allDeps.forEach((x) => {
 			if (!sortedSet.find((y) => y.kind == x.kind && y.path == x.path)) {
@@ -634,10 +642,10 @@
 	>
 	<input class="max-w-xs" type="text" disabled value={workspaceToDeployTo} />
 
-	{#if seeTarget == undefined}
+	{#if canSeeTarget == undefined}
 		<div class="mt-6"></div>
 		<Loader2 class="animate-spin" />
-	{:else if seeTarget == true}
+	{:else if canSeeTarget == 'yes'}
 		<h3 class="mb-6 mt-16">All related deployable items</h3>
 
 		<DiffDrawer bind:this={diffDrawer} {isFlow} />
@@ -714,6 +722,13 @@
 				><Button on:click={deployAll}>Deploy all toggled</Button></div
 			>
 		{/if}
+	{:else if canSeeTarget == 'cant-see-all-deps'}
+		<div class="my-2"></div>
+		<Alert type="error" title="User doesn't have visibility over all dependencies"
+			>You do not have visibility over some of the dependencies of this item. Ask a permissioned
+			user to deploy this item using the shareable link or get the proper permissions on the
+			dependencies</Alert
+		>
 	{:else}
 		<div class="my-2"></div>
 		<Alert type="error" title="User not allowed to deploy to this workspace"

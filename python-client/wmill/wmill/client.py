@@ -603,12 +603,14 @@ class Windmill:
         self,
         path: str,
         none_if_undefined: bool = False,
+        interpolated: bool = True
     ) -> dict | None:
         """Get a resource value by path.
 
         Args:
             path: Resource path in Windmill
             none_if_undefined: Return None instead of raising if not found
+            interpolated: if variables and resources are fully unrolled
 
         Returns:
             Resource value dictionary or None
@@ -630,9 +632,14 @@ class Windmill:
                     f"MockedAPI present, but resource not found at ${path}, falling back to real API"
                 )
         try:
-            return self.get(
-                f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
-            ).json()
+            if interpolated:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value_interpolated/{path}"
+                ).json()
+            else:
+                return self.get(
+                    f"/w/{self.workspace}/resources/get_value/{path}"
+                ).json()
         except Exception as e:
             if none_if_undefined:
                 return None
@@ -725,7 +732,7 @@ class Windmill:
         Returns:
             State value or None if not set
         """
-        return self.get_resource(path=path or self.state_path, none_if_undefined=True)
+        return self.get_resource(path=path or self.state_path, none_if_undefined=True, interpolated=True)
 
     def set_progress(self, value: int, job_id: Optional[str] = None):
         """Set job progress percentage (0-99).
@@ -975,7 +982,7 @@ class Windmill:
             ).json()
         except Exception as e:
             raise Exception("Could not write file to S3") from e
-        return S3Object(s3=response["file_key"])
+        return S3Object(s3=response["file_key"], storage=s3object.get("storage") if s3object else None)
 
     def sign_s3_objects(self, s3_objects: list[S3Object | str]) -> list[S3Object]:
         """Sign S3 objects for use by anonymous users in public apps.
@@ -1132,7 +1139,7 @@ class Windmill:
         Returns:
             State value or None if not set
         """
-        return self.get_resource(path=self.state_path, none_if_undefined=True)
+        return self.get_resource(path=self.state_path, none_if_undefined=True, interpolated=True)
 
     @state.setter
     def state(self, value: Any) -> None:
@@ -1179,20 +1186,26 @@ class Windmill:
         with open(f"/shared/{path}", "r", encoding="utf-8") as f:
             return json.load(f)
 
-    def get_resume_urls(self, approver: str = None) -> dict:
+    def get_resume_urls(self, approver: str = None, flow_level: bool = None) -> dict:
         """Get URLs needed for resuming a flow after suspension.
 
         Args:
             approver: Optional approver name
+            flow_level: If True, generate resume URLs for the parent flow instead of the
+                specific step. This allows pre-approvals that can be consumed by any later
+                suspend step in the same flow.
 
         Returns:
             Dictionary with approvalPage, resume, and cancel URLs
         """
         nonce = random.randint(0, 1000000000)
         job_id = os.environ.get("WM_JOB_ID") or "NO_ID"
+        params = {"approver": approver}
+        if flow_level is not None:
+            params["flow_level"] = flow_level
         return self.get(
             f"/w/{self.workspace}/jobs/resume_urls/{job_id}/{nonce}",
-            params={"approver": approver},
+            params=params,
         ).json()
 
     def request_interactive_slack_approval(
@@ -1748,9 +1761,10 @@ def get_state(path: str | None = None) -> Any:
 def get_resource(
     path: str,
     none_if_undefined: bool = False,
+    interpolated: bool = True
 ) -> dict | None:
     """Get resource from Windmill"""
-    return _client.get_resource(path, none_if_undefined)
+    return _client.get_resource(path, none_if_undefined, interpolated)
 
 
 @init_global_client
@@ -1887,16 +1901,19 @@ def get_state_path() -> str:
 
 
 @init_global_client
-def get_resume_urls(approver: str = None) -> dict:
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict:
     """Get URLs needed for resuming a flow after suspension.
 
     Args:
         approver: Optional approver name
+        flow_level: If True, generate resume URLs for the parent flow instead of the
+            specific step. This allows pre-approvals that can be consumed by any later
+            suspend step in the same flow.
 
     Returns:
         Dictionary with approvalPage, resume, and cancel URLs
     """
-    return _client.get_resume_urls(approver)
+    return _client.get_resume_urls(approver, flow_level)
 
 
 @init_global_client

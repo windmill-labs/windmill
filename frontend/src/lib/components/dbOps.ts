@@ -78,7 +78,9 @@ export function dbTableOpsWithPreviewScripts({
 			return count
 		},
 		getRows: async (params) => {
-			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType)
+			let query = makeSelectQuery(tableKey, colDefs, undefined, dbType, undefined, {
+				fixPgIntTypes: true
+			})
 			if (input.type === 'ducklake') query = wrapDucklakeQuery(query, input.ducklake)
 			let items = (await runScriptAndPollResult({
 				workspace,
@@ -131,7 +133,7 @@ export type IDbSchemaOps = {
 	onFetchTableEditorDefinition: (params: {
 		table: string
 		schema?: string
-		getColDefs: () => Promise<TableMetadata>
+		colDefs: TableMetadata
 	}) => Promise<TableEditorValues>
 }
 
@@ -190,16 +192,15 @@ export function dbSchemaOpsWithPreviewScripts({
 				requestBody: { args: { ...dbArg }, language, content: dropSchemaQuery }
 			})
 		},
-		onFetchTableEditorDefinition: async ({ table, schema, getColDefs }) => {
-			let { foreignKeys, pk_constraint_name, colDefs } = await fetchTableRelationalKeys(
+		onFetchTableEditorDefinition: async ({ table, schema, colDefs }) => {
+			let { foreignKeys, pk_constraint_name } = await fetchTableRelationalKeys(
 				input,
 				dbType,
 				table,
 				schema,
 				workspace,
 				dbArg,
-				language,
-				getColDefs
+				language
 			)
 
 			return buildTableEditorValues({

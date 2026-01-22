@@ -34,6 +34,9 @@ mod global_cache;
 mod go_executor;
 mod graphql_executor;
 mod handle_child;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod otel_tracing_proxy_ee;
+mod otel_tracing_proxy_oss;
 pub mod job_logger;
 #[cfg(feature = "private")]
 pub mod job_logger_ee;
@@ -67,6 +70,7 @@ mod schema;
 pub mod scoped_dependency_map;
 pub mod sql_utils;
 mod universal_pkg_installer;
+mod prepare_deps;
 mod worker;
 mod worker_flow;
 mod worker_lockfiles;
@@ -77,6 +81,9 @@ pub use worker::*;
 pub use worker_lockfiles::{
     process_relative_imports, trigger_dependents_to_recompute_dependencies,
 };
+pub use otel_tracing_proxy_oss::start_otel_tracing_proxy;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub use otel_tracing_proxy_oss::{set_current_job_context, TRACING_PROXY_PORT};
 
 pub use result_processor::handle_job_error;
 
@@ -85,6 +92,7 @@ pub use bun_executor::{
     prebundle_bun_script, prepare_job_dir,
 };
 pub use deno_executor::generate_deno_lock;
+pub use prepare_deps::run_prepare_deps_cli;
 
 #[cfg(feature = "python")]
 pub use python_versions::PyV;

@@ -31,6 +31,7 @@ use windmill_common::{
         self,
         Error::{self},
     },
+    scripts::ScriptLang,
     utils::calculate_hash,
     worker::{
         copy_dir_recursively, pad_string, split_python_requirements, write_file, Connection,
@@ -127,12 +128,12 @@ use windmill_common::s3_helpers::OBJECT_STORE_SETTINGS;
 use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
-        read_result, start_child_process, OccupancyMetrics, StreamNotifier,
+        read_result, start_child_process, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     worker_utils::ping_job_status,
     PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TZ_ENV, UV_CACHE_DIR,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR, get_proxy_envs_for_lang,
 };
 use windmill_common::client::AuthedClient;
 
@@ -803,7 +804,9 @@ mount {{
                 .replace(
                     "{ADDITIONAL_PYTHON_PATHS}",
                     additional_python_paths_folders.as_str(),
-                ),
+                )
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
     } else {
         reserved_variables.insert("PYTHONPATH".to_string(), additional_python_paths_folders);
@@ -822,7 +825,7 @@ mount {{
             .env_clear()
             // inject PYTHONPATH here - for some reason I had to do it in nsjail conf
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -848,6 +851,7 @@ mount {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Python3).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -1372,6 +1376,8 @@ async fn spawn_uv_install(
                 .replace("{PY_INSTALL_DIR}", &PY_INSTALL_DIR)
                 .replace("{TARGET_DIR}", &venv_p)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL)
                 .as_str(),
         )?;
 

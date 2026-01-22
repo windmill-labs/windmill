@@ -94,7 +94,7 @@
 						>
 					{/if}
 					<div class="flex">
-						<div class="ml-4 text-left flex-1">
+						<div class="text-left flex-1">
 							<div class="flex flex-row items-center justify-between">
 								<h3 class="text-emphasis text-lg font-semibold">{title}</h3>
 								{@render settings?.()}

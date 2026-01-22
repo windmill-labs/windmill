@@ -120,6 +120,7 @@ pub fn unauthed_service() -> Router {
         .route("/download_s3_file/*path", get(download_s3_file_from_app))
         .route("/public_app/:secret", get(get_public_app_by_secret))
         .route("/public_resource/*path", get(get_public_resource))
+        .route("/get_data/v/*id", get(get_raw_app_data))
 }
 pub fn global_service() -> Router {
     Router::new()
@@ -175,6 +176,9 @@ pub struct AppWithLastVersion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_path: Option<String>,
     pub raw_app: bool,
+    #[sqlx(skip)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bundle_secret: Option<String>,
 }
 
 #[derive(Serialize, FromRow)]
@@ -770,7 +774,7 @@ async fn get_public_app_by_secret(
         "SELECT app.id, app.path, app.summary, app.versions, app.policy, app.custom_path,
         null as extra_perms, coalesce(app_version_lite.value::json, app_version.value::json) as value,
         app_version.created_at, app_version.created_by, app_version.raw_app
-        FROM app, app_version 
+        FROM app, app_version
         LEFT JOIN app_version_lite ON app_version_lite.id = app_version.id
         WHERE app.id = $1 AND app.workspace_id = $2 AND app_version.id = app.versions[array_upper(app.versions, 1)]")
         .bind(&id)
@@ -778,36 +782,37 @@ async fn get_public_app_by_secret(
     .fetch_optional(&db)
     .await?;
 
-    let app = not_found_if_none(app_o, "App", id.to_string())?;
+    let mut app = not_found_if_none(app_o, "App", id.to_string())?;
 
     let policy = serde_json::from_str::<Policy>(app.policy.0.get()).map_err(to_anyhow)?;
 
-    if matches!(policy.execution_mode, ExecutionMode::Anonymous) {
-        return Ok(Json(app));
-    }
-
-    if opt_authed.is_none() {
-        {
+    if !matches!(policy.execution_mode, ExecutionMode::Anonymous) {
+        if opt_authed.is_none() {
             return Err(Error::NotAuthorized(
                 "App visibility does not allow public access and you are not logged in".to_string(),
             ));
+        } else {
+            let authed = opt_authed.unwrap();
+            let mut tx = user_db.begin(&authed).await?;
+            let is_visible = sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
+                id,
+                &w_id
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            if !is_visible.unwrap_or(false) {
+                return Err(Error::NotAuthorized(
+                    "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
+                ));
+            }
         }
-    } else {
-        let authed = opt_authed.unwrap();
-        let mut tx = user_db.begin(&authed).await?;
-        let is_visible = sqlx::query_scalar!(
-            "SELECT EXISTS(SELECT 1 FROM app WHERE id = $1 AND workspace_id = $2)",
-            id,
-            &w_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        if !is_visible.unwrap_or(false) {
-            return Err(Error::NotAuthorized(
-                "App visibility does not allow public access and you are logged in but you have no read-access to that app".to_string(),
-            ));
-        }
+    }
+
+    // Compute bundle_secret for raw apps
+    if app.raw_app {
+        app.bundle_secret = Some(compute_bundle_secret(&db, &w_id, &app.versions).await?);
     }
 
     Ok(Json(app))
@@ -891,6 +896,15 @@ async fn get_secret_id(
 }
 
 const BUNDLE_SECRET_PREFIX: &str = "bundle_";
+
+pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Result<String> {
+    let version_id = versions
+        .last()
+        .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
+    let mc = build_crypt(db, w_id).await?;
+    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    Ok(hx)
+}
 
 async fn get_latest_version_secret_id(
     authed: ApiAuthed,
@@ -1303,6 +1317,18 @@ async fn delete_app(
         ));
     }
 
+    // Check if it's a raw app before deletion
+    let is_raw_app = sqlx::query_scalar!(
+        "SELECT app_version.raw_app FROM app
+         JOIN app_version ON app_version.id = app.versions[array_upper(app.versions, 1)]
+         WHERE app.path = $1 AND app.workspace_id = $2",
+        path,
+        &w_id
+    )
+    .fetch_optional(&db)
+    .await?
+    .unwrap_or(false);
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1333,16 +1359,26 @@ async fn delete_app(
     .await?;
     tx.commit().await?;
 
+    let deployed_object = if is_raw_app {
+        DeployedObject::RawApp {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    } else {
+        DeployedObject::App {
+            path: path.to_string(),
+            parent_path: Some(path.to_string()),
+            version: 0, // dummy version as it will not get inserted in db
+        }
+    };
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
         &db,
         &w_id,
-        DeployedObject::App {
-            path: path.to_string(),
-            parent_path: Some(path.to_string()),
-            version: 0, // dummy version as it will not get inserted in db
-        },
+        deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
     )
@@ -2227,6 +2263,7 @@ async fn upload_s3_file_from_app(
                     );
                     let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
                         &db_with_opt_authed,
+                        Some(&on_behalf_authed),
                         &w_id,
                         None,
                         &[(&file_key, S3Permission::WRITE)],
@@ -2258,6 +2295,7 @@ async fn upload_s3_file_from_app(
                 DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
             let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
                 &db_with_opt_authed,
+                Some(&on_behalf_authed),
                 &w_id,
                 None,
                 &[(&file_key, S3Permission::WRITE)],
@@ -2297,6 +2335,7 @@ async fn upload_s3_file_from_app(
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
                 let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
+                Some(&authed),
                     &w_id,
                     None,
                     &[(&file_key, S3Permission::WRITE)],
@@ -2337,7 +2376,7 @@ async fn upload_s3_file_from_app(
     ])
     .into();
 
-    upload_file_from_req(s3_client, &file_key, request, options).await?;
+    let _put_result = upload_file_from_req(s3_client, &file_key, request, options).await?;
 
     let delete_token = jwt::encode_with_internal_secret(S3DeleteTokenClaims {
         file_key: file_key.clone(),
@@ -2407,6 +2446,7 @@ async fn delete_s3_file_from_app(
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
         let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
+                Some(&on_behalf_authed),
             &w_id,
             None,
             &[(&path.to_string(), S3Permission::DELETE)],

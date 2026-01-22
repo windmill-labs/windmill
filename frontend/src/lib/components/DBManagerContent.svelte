@@ -2,11 +2,7 @@
 	import { dbSchemas, workspaceStore, type DBSchema } from '$lib/stores'
 	import { sendUserToast, sortArray } from '$lib/utils'
 	import { Loader2 } from 'lucide-svelte'
-	import {
-		dbSupportsSchemas,
-		getDbFeatures,
-		type TableMetadata
-	} from './apps/components/display/dbtable/utils'
+	import { dbSupportsSchemas } from './apps/components/display/dbtable/utils'
 	import DbManager from './DBManager.svelte'
 	import {
 		dbSchemaOpsWithPreviewScripts,
@@ -17,21 +13,18 @@
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import SqlRepl from './SqlRepl.svelte'
 	import SimpleAgTable from './SimpleAgTable.svelte'
-	import { untrack, type Snippet } from 'svelte'
+	import { type Snippet } from 'svelte'
 	import type { DbInput } from './dbTypes'
-	import {
-		getDbSchemas,
-		loadAllTablesMetaData,
-		loadTableMetaData
-	} from './apps/components/display/dbtable/metadata'
+	import { getDbSchemas, loadAllTablesMetaData } from './apps/components/display/dbtable/metadata'
 
 	import type { SelectedTable } from './DBManager.svelte'
+	import { getDbFeatures } from './apps/components/display/dbtable/dbFeatures'
+	import { resource } from 'runed'
 
 	interface Props {
 		input?: DbInput
 		showRepl?: boolean
 		hasReplResult?: boolean
-		isRefreshing?: boolean
 		selectedSchemaKey?: string | undefined
 		selectedTableKey?: string | undefined
 		dbSelector?: Snippet<[]>
@@ -47,7 +40,6 @@
 		input,
 		showRepl = true,
 		hasReplResult = $bindable(false),
-		isRefreshing = $bindable(false),
 		selectedSchemaKey = $bindable(undefined),
 		selectedTableKey = $bindable(undefined),
 		dbSelector,
@@ -67,56 +59,39 @@
 		}
 	}
 
-	// `refreshCount` is a derived state. `refreshing` is the source of truth
-	let refreshCount = $state(0)
-	$effect(() => {
-		if (refreshing) untrack(() => (refreshCount += 1))
-	})
-
-	let refreshing = $state(false)
-	$effect(() => {
-		if (refreshing) getSchema()
-	})
-	// Sync refreshing state with bindable prop
-	$effect(() => {
-		isRefreshing = refreshing
-	})
-	export const refresh = () => !refreshing && (refreshing = true)
-
-	// Initial schema load
-	$effect(() => {
-		if (input) {
-			untrack(() => getSchema())
+	let colDefs = resource(
+		() => [input],
+		async () => {
+			if (!input) return
+			return await loadAllTablesMetaData($workspaceStore, input)
 		}
-	})
-
-	async function getSchema() {
-		if (!input) return
-		const dbSchemasPath = getDbSchemasPath(input)
-		if ($dbSchemas[dbSchemasPath] && !refreshing) return
-
-		const oldDbSchema = $dbSchemas[dbSchemasPath]
-		if (input.type == 'database') {
-			await getDbSchemas(
-				input.resourceType,
-				input.resourcePath,
-				$workspaceStore,
-				$dbSchemas,
-				(message: string) => {
-					sendUserToast(message, true)
-				}
-			)
-		} else if (input.type == 'ducklake') {
-			$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
-				workspace: $workspaceStore!,
-				ducklake: input.ducklake
-			})
+	)
+	let dbSchemasPromise = resource(
+		() => [input],
+		async () => {
+			if (!input) return
+			const dbSchemasPath = getDbSchemasPath(input)
+			if (input.type == 'database') {
+				$dbSchemas[dbSchemasPath] = await getDbSchemas(
+					input.resourceType,
+					input.resourcePath,
+					$workspaceStore,
+					(message: string) => sendUserToast(message, true)
+				)
+			} else if (input.type == 'ducklake') {
+				$dbSchemas[dbSchemasPath] = await getDucklakeSchema({
+					workspace: $workspaceStore!,
+					ducklake: input.ducklake
+				})
+			}
 		}
-
-		// avoid infinite loop on error due to the way getDbSchemas is implemented
-		// and relying on an assignement side effect
-		if (oldDbSchema !== $dbSchemas[dbSchemasPath]) $dbSchemas = $dbSchemas
-		refreshing = false
+	)
+	export const refresh = () => {
+		colDefs.refetch()
+		dbSchemasPromise.refetch()
+	}
+	export function isLoading() {
+		return colDefs.loading || dbSchemasPromise.loading
 	}
 
 	let replPanelSize = $state(36)
@@ -128,30 +103,6 @@
 	$effect(() => {
 		hasReplResult = !!replResultData
 	})
-
-	let cachedColDefs: Record<string, TableMetadata> = {}
-	let cachedLastRefreshCount = 0
-
-	async function getColDefs(tableKey: string): Promise<TableMetadata> {
-		if (cachedLastRefreshCount !== refreshCount) cachedColDefs = {}
-		cachedLastRefreshCount = refreshCount
-
-		if (cachedColDefs[tableKey]) return cachedColDefs[tableKey]
-		if (!input) return []
-
-		try {
-			cachedColDefs = (await loadAllTablesMetaData($workspaceStore, input)) ?? cachedColDefs
-			return cachedColDefs[tableKey]
-		} catch (e) {
-			if (input?.type == 'ducklake')
-				throw 'Impossible that loadAllTablesMetaData fails for Ducklake'
-			// Query is not implemented for all dbs, need a fallback
-			const result = await loadTableMetaData(input, $workspaceStore, tableKey)
-
-			if (result) cachedColDefs[tableKey] = result
-			return result ?? []
-		}
-	}
 
 	// Export for parent components
 	export function clearReplResult() {
@@ -197,7 +148,7 @@
 			<DbManager
 				dbSupportsSchemas={input?.type == 'database' && dbSupportsSchemas(input.resourceType)}
 				{dbSchema}
-				{getColDefs}
+				colDefs={colDefs.current}
 				dbTableOpsFactory={({ colDefs, tableKey }) =>
 					dbTableOpsWithPreviewScripts({
 						colDefs,

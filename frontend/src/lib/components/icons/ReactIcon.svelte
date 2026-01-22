@@ -1,13 +1,23 @@
 <script lang="ts">
 	interface Props {
-		height?: string;
-		width?: string;
+		height?: string
+		width?: string
+		size?: number
 	}
 
-	let { height = '24px', width = '24px' }: Props = $props();
+	let { height = '24px', width = '24px', size = undefined }: Props = $props()
+
+	const derivedWidth = $derived(size ? size : width)
+	const derivedHeight = $derived(size ? size : height)
 </script>
 
-<svg {width} {height} viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" version="1.1">
+<svg
+	width={derivedWidth}
+	height={derivedHeight}
+	viewBox="0 0 600 600"
+	xmlns="http://www.w3.org/2000/svg"
+	version="1.1"
+>
 	<g transform="translate(300, 300)">
 		<!-- Central circle -->
 		<circle fill="#61DAFB" r="50" />

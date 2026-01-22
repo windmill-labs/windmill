@@ -89,6 +89,10 @@
 		appConnect?.open?.(resourceType)
 	}
 
+	export async function refreshResources() {
+		await loadResources(resourceType)
+	}
+
 	let loading = $state(true)
 	async function loadResources(resourceType: string | undefined) {
 		loading = true
@@ -206,6 +210,7 @@
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
+			id="resource-picker-select"
 		>
 			{#snippet endSnippet({ item, close })}
 				<Button

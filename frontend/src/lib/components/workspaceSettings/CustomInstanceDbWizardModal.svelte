@@ -137,7 +137,8 @@
 										'GRANT CREATE ON SCHEMA public TO custom_instance_user;\n' +
 										`GRANT CREATE ON DATABASE "${dbname}" TO custom_instance_user;\n` +
 										'ALTER DEFAULT PRIVILEGES IN SCHEMA public \n' +
-										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;'
+										'  	GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES\n    TO custom_instance_user;\n' +
+										'ALTER ROLE custom_instance_user CREATEROLE;'
 								}
 							],
 							status?.error ?? undefined
@@ -160,6 +161,7 @@
 				{/if}
 				<Button
 					size="sm"
+					id="run-custom-instance-db-setup-button"
 					variant={!status?.success ? 'accent' : 'default'}
 					endIcon={status?.success ? undefined : { icon: ArrowRight }}
 					disabled={!$isCustomInstanceDbEnabled}

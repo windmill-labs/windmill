@@ -10,9 +10,11 @@ path = "src/lib.rs"
 
 [features]
 default = []
-server = ["rmcp/transport-streamable-http-server", "rmcp/transport-streamable-http-server-session", "rmcp/transport-worker"]
+server = ["rmcp/transport-streamable-http-server", "rmcp/transport-streamable-http-server-session", "rmcp/transport-worker", "dep:sqlx", "dep:async-trait", "dep:http", "dep:tokio-util", "dep:tokio"]
+auth = ["rmcp/auth", "dep:oauth2"]
 
 [dependencies]
+oauth2 = { version = "5.0", optional = true }
 windmill-common = { workspace = true, default-features = false }
 anyhow.workspace = true
 reqwest = { version = "=0.12", features = ["json", "stream", "gzip"] }
@@ -20,3 +22,9 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 rmcp.workspace = true
+sqlx = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["rt"], optional = true }
+tokio = { workspace = true, optional = true }
+futures.workspace = true

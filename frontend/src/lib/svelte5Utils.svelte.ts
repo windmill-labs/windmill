@@ -2,8 +2,8 @@
 
 import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
-import { type StateStore } from './utils'
-import { resource, type ResourceReturn } from 'runed'
+import type { StateStore } from './utils'
+import { resource, watch, type ResourceReturn } from 'runed'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -185,5 +185,45 @@ export class ChangeOnDeepInequality<T> {
 
 	get value(): T {
 		return this._cached!
+	}
+}
+
+export function useReducedMotion(): { val: boolean } {
+	if (typeof window === 'undefined') return { val: false }
+
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+	let s = $state(query.matches)
+	$effect(() => {
+		const handler = (event: MediaQueryListEvent) => {
+			s = event.matches
+		}
+		query.addEventListener('change', handler)
+		return () => query.removeEventListener('change', handler)
+	})
+	return {
+		get val() {
+			return s
+		}
+	}
+}
+
+// Prevents flickering when data is unloaded (undefined) then reloaded quickly
+// But still becomes undefined if data is not reloaded within the timeout
+// so the user has feedback that the data is not available anymore.
+export class StaleWhileLoading<T> {
+	private _current: T | undefined = $state()
+	private _currentTimeout: ReturnType<typeof setTimeout> | undefined
+	constructor(getter: () => T, timeout = 400) {
+		watch(getter, (value) => {
+			if (this._currentTimeout) clearTimeout(this._currentTimeout)
+			if (value === undefined) {
+				this._currentTimeout = setTimeout(() => (this._current = undefined), timeout)
+			} else {
+				this._current = value
+			}
+		})
+	}
+	get current(): T | undefined {
+		return this._current
 	}
 }
