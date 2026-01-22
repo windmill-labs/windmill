@@ -20,7 +20,7 @@
 		created_at: string
 		created_by: string
 		runnable_path?: string
-		status?: 'success' | 'failure' | 'canceled' | 'skipped'
+		status?: 'success' | 'failure' | 'canceled'
 	}
 
 	interface AssetJobListResponse {
@@ -77,23 +77,11 @@
 		}
 	}
 
-	function getStatusColor(status?: string): string {
-		switch (status) {
-			case 'success':
-				return 'text-green-600'
-			case 'failure':
-				return 'text-red-600'
-			case 'canceled':
-				return 'text-yellow-600'
-			case 'skipped':
-				return 'text-gray-600'
-			default:
-				return 'text-blue-600'
-		}
-	}
-
-	function getStatusLabel(status?: string): string {
-		return status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Running'
+	const jobStatusColor = {
+		running: 'text-yellow-500',
+		success: 'text-green-500',
+		failure: 'text-red-500',
+		canceled: 'text-red-500'
 	}
 </script>
 
@@ -152,13 +140,11 @@
 									href={`/run/${job.id}?workspace=${$workspaceStore}`}
 									class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
 								>
+									<span class="mr-1 text-lg {jobStatusColor[job.status || 'running']}">•</span>
 									<div class="flex flex-col justify-center flex-1">
 										<div class="flex items-center gap-2">
 											<span class="font-semibold text-emphasis">
 												{job.runnable_path || 'Inline script'}
-											</span>
-											<span class={twMerge('text-2xs font-medium', getStatusColor(job.status))}>
-												{getStatusLabel(job.status)}
 											</span>
 										</div>
 										<div class="text-2xs text-secondary flex items-center gap-2">
@@ -167,7 +153,7 @@
 											<span>{displayDate(job.created_at)}</span>
 										</div>
 									</div>
-									{@render badge(job.id.substring(0, 8), 'Job ID')}
+									{@render badge(job.id, 'Job ID')}
 								</a>
 							{/each}
 						</div>
