@@ -120,7 +120,7 @@
 									href={`/run/${job.id}?workspace=${$workspaceStore}`}
 									class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
 								>
-									<span class="mr-1 text-lg {jobStatusColor[job.status || 'running']}">•</span>
+								<span class="mr-1 text-lg {jobStatusColor[job.status || 'running'] || jobStatusColor['running']}">•</span>
 									<div class="flex flex-col justify-center flex-1">
 										<div class="flex items-center gap-2">
 											<span class="font-semibold text-emphasis">
