@@ -233,11 +233,11 @@
 					ducklake: dbPath.split('ducklake://')[1]
 				})
 			} else {
-				await getDbSchemas(
+				const resourcePath = dbPath.split('$res:')[1]
+				dbSchemas[resourcePath] = await getDbSchemas(
 					resolvedConfig?.type?.selected,
-					dbPath.split('$res:')[1],
+					resourcePath,
 					$workspaceStore,
-					dbSchemas,
 					() => {},
 					{ useLegacyScripts: true }
 				)
