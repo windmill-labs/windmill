@@ -207,7 +207,7 @@
 
 <svelte:window onkeydown={handleKeydown} />
 
-<div class="w-full flex flex-col gap-1 h-full overflow-y-auto">
+<div class="w-full flex flex-col gap-1 h-full overflow-y-auto pb-4">
 	{#if !noButton}
 		<div>
 			<Popover class="w-full" placement="bottom" disablePopup={runnableId && previewArgs}>
