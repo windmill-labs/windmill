@@ -63,7 +63,6 @@
 		schedulable?: boolean
 		detailed?: boolean
 		autofocus?: boolean
-		topButton?: boolean
 		loading?: boolean
 		noVariablePicker?: boolean
 		viewKeybinding?: boolean
@@ -82,7 +81,6 @@
 		schedulable = true,
 		detailed = true,
 		autofocus = false,
-		topButton = false,
 		loading = false,
 		noVariablePicker = false,
 		viewKeybinding = false,
@@ -226,17 +224,7 @@
 			>
 		{/if}
 	{/if}
-	{#if topButton}
-		<Button
-			btnClasses="!px-6 !py-1 w-full"
-			disabled={!isValid && !jsonView}
-			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
-		>
-			{buttonText}
-		</Button>
-	{/if}
 	{#if runnable?.schema}
-		<div class="my-2"></div>
 		{#if jsonView}
 			<div
 				class="py-2"
@@ -255,7 +243,7 @@
 				/>
 			</div>
 		{:else if !runnable.schema.properties || Object.keys(runnable.schema.properties).length === 0}
-			<div class="text-sm py-4 italic">No arguments</div>
+			<div class="text-sm italic">{`This ${runnable.kind ?? 'runnable'} takes no arguments`}</div>
 		{:else}
 			{#key reloadArgs}
 				<div bind:clientHeight={schemaHeight}>
@@ -279,14 +267,14 @@
 		<div class="text-xs text-primary">No arguments</div>
 	{/if}
 	{#if schedulable}
-		<div class="mt-10"></div>
-		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6 mb-6">
+		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
 					id="run-form-run-button"
 					{loading}
 					variant="accent"
-					btnClasses="!px-6 !py-1 !h-8 inline-flex gap-2"
+					unifiedSize="md"
+					btnClasses="!inline-flex"
 					disabled={!isValid && !jsonView}
 					on:click={() => runAction(scheduledForStr, args ?? {}, invisible_to_owner, overrideTag)}
 					shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
@@ -296,7 +284,7 @@
 				<div>
 					<Popover placement="bottom" closeButton usePointerDownOutside>
 						{#snippet trigger()}
-							<Button nonCaptureEvent startIcon={{ icon: Calendar }} size="xs" color="light">
+							<Button nonCaptureEvent startIcon={{ icon: Calendar }} unifiedSize="md" color="light">
 								Advanced
 							</Button>
 						{/snippet}
@@ -322,9 +310,10 @@
 				</div>
 			{/if}
 		</div>
-	{:else if !topButton}
+	{:else}
 		<Button
 			btnClasses="!px-6 !py-1 w-full"
+			variant="accent"
 			disabled={!isValid && !jsonView}
 			on:click={() => runAction(undefined, args ?? {}, invisible_to_owner, overrideTag)}
 			shortCut={{ Icon: CornerDownLeft, hide: !viewKeybinding }}
