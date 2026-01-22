@@ -513,6 +513,9 @@ pub enum DatabaseUrl {
 }
 
 impl DatabaseUrl {
+    /// Get the database URL as a string.
+    /// Note: For IAM RDS, this returns the original URL (for metadata extraction).
+    /// For actual database connections, use connect_options() instead.
     pub async fn as_str(&self) -> String {
         match self {
             #[cfg(all(feature = "enterprise", feature = "private"))]
@@ -521,6 +524,24 @@ impl DatabaseUrl {
                 guard.as_str().to_string()
             }
             DatabaseUrl::Static(url) => url.clone(),
+        }
+    }
+
+    /// Get PgConnectOptions for this database URL.
+    /// For IAM RDS, this returns options built directly from the token to avoid double-encoding
+    /// issues with temporary credentials (IRSA/Pod Identity).
+    /// For static URLs, this parses the URL string.
+    pub async fn connect_options(&self) -> Result<sqlx::postgres::PgConnectOptions, Error> {
+        match self {
+            #[cfg(all(feature = "enterprise", feature = "private"))]
+            DatabaseUrl::IamRds(rds_url) => {
+                let guard = rds_url.read().await;
+                Ok(guard.connect_options())
+            }
+            DatabaseUrl::Static(url) => {
+                sqlx::postgres::PgConnectOptions::from_str(url)
+                    .map_err(|e| Error::InternalErr(format!("Failed to parse database URL: {}", e)))
+            }
         }
     }
 
@@ -620,10 +641,10 @@ pub async fn get_database_url() -> Result<DatabaseUrl, Error> {
 }
 
 pub async fn initial_connection() -> Result<sqlx::Pool<sqlx::Postgres>, error::Error> {
-    let database_url = get_database_url().await?.as_str().await;
+    let connect_options = get_database_url().await?.connect_options().await?;
     sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
-        .connect_with(sqlx::postgres::PgConnectOptions::from_str(&database_url)?)
+        .connect_with(connect_options)
         .await
         .map_err(|err| Error::ConnectingToDatabase(err.to_string()))
 }
@@ -677,14 +698,16 @@ pub async fn connect_db(
                             let new_url = tokio::time::timeout(std::time::Duration::from_secs(10), get_database_url()).await;
                             match new_url {
                                 Ok(Ok(new_url)) => {
-                                    let new_url = new_url.as_str().await;
-                                    let connect_options = sqlx::postgres::PgConnectOptions::from_str(&new_url);
-                                    if let Err(e) = connect_options {
-                                        tracing::error!("Error parsing IAM RDS URL as connect options, retrying in 10s: {}", e);
-                                        continue;
+                                    match new_url.connect_options().await {
+                                        Ok(connect_options) => {
+                                            pool2.set_connect_options(connect_options);
+                                            tracing::info!("Refreshed IAM RDS URL successfully");
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Error getting IAM RDS connect options, retrying in 10s: {}", e);
+                                            continue;
+                                        }
                                     }
-                                    pool2.set_connect_options(connect_options.unwrap());
-                                    tracing::info!("Refreshed IAM RDS URL successfully");
                                 }
                                 Ok(Err(e)) => {
                                     tracing::error!("Error refreshing IAM RDS URL, trying again in 10s: {}", e);
@@ -755,7 +778,7 @@ pub async fn connect(
             }
         })
         .connect_with(
-            sqlx::postgres::PgConnectOptions::from_str(&database_url.as_str().await)?
+            database_url.connect_options().await?
                 .statement_cache_capacity(400),
         )
         .await
