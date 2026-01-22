@@ -591,25 +591,12 @@
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
 			if (dbSchema === undefined) {
-				if (lang === 'graphql') {
-					$dbSchemas[resourcePath] = await getDbSchemas(
-						'graphql',
-						resourcePath,
-						$workspaceStore,
-						(e) => {
-							console.error('error getting graphql db schema', e)
-						}
-					)
-				} else if (lang === 'sql') {
-					$dbSchemas[resourcePath] = await getDbSchemas(
-						scriptLang ?? '',
-						resourcePath,
-						$workspaceStore,
-						(e) => {
-							console.error(`error getting SQL (${scriptLang}) db schema`, e)
-						}
-					)
-				}
+				$dbSchemas[resourcePath] = await getDbSchemas(
+					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
+					resourcePath,
+					$workspaceStore,
+					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e)
+				)
 			}
 			dbSchema = $dbSchemas[resourcePath]
 		} else {
