@@ -162,6 +162,9 @@
 			sendUserToast(`App hasn't been loaded yet`, true)
 			return
 		}
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
+		}
 		await computeTriggerables()
 		try {
 			const { js, css } = await getBundle()
@@ -266,6 +269,9 @@
 		}
 		const { js, css } = await getBundle()
 		await computeTriggerables()
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
+		}
 		await AppService.updateAppRaw({
 			workspace: $workspaceStore!,
 			path: appPath!,
@@ -712,7 +718,6 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
-			hideSecretUrl={true}
 		/>
 	</DrawerContent>
 </Drawer>

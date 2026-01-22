@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { setLicense } from '$lib/enterpriseUtils'
 	import { enterpriseLicense, whitelabelNameStore } from '$lib/stores'
+	import { twMerge } from 'tailwind-merge'
 	import WindmillIcon from './icons/WindmillIcon.svelte'
 	import LoginPageHeader from './LoginPageHeader.svelte'
 
@@ -25,14 +26,17 @@
 	}: Props = $props()
 
 	setLicense()
+
+	let height = $state(0)
 </script>
 
 <div
 	class="flex justify-center h-screen p-4 relative bg-surface-secondary overflow-auto"
 	class:items-center={centerVertically}
 	style="scrollbar-gutter: stable both-edges;"
+	bind:clientHeight={height}
 >
-	<div class="flex flex-col gap-2 items-center w-full pb-8 h-fit">
+	<div class={twMerge("flex flex-col gap-2 items-center w-full pb-8  h-fit", height > 1080 ? 'pt-28' : 'pt-12')} >
 		{#if (!disableLogo && !$enterpriseLicense) || !$whitelabelNameStore}
 			<div class="hidden lg:block">
 				<div>

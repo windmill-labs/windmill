@@ -53,6 +53,7 @@ import {
   getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
   isCurrentBranchFile,
+  isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
@@ -932,6 +933,29 @@ function ZipFSElement(
               };
             }
 
+            // Helper to simplify fields for YAML output
+            // { type: 'static', value: X } -> { value: X }
+            // { type: 'ctx', ctx: X } -> { ctx: X }
+            function simplifyFields(fields: Record<string, any> | undefined) {
+              if (!fields) return undefined;
+              const simplified: Record<string, any> = {};
+              for (const [k, v] of Object.entries(fields)) {
+                if (typeof v === "object" && v !== null) {
+                  if (v.type === "static" && v.value !== undefined) {
+                    simplified[k] = { value: v.value };
+                  } else if (v.type === "ctx" && v.ctx !== undefined) {
+                    simplified[k] = { ctx: v.ctx };
+                  } else {
+                    // Keep other field types as-is
+                    simplified[k] = v;
+                  }
+                } else {
+                  simplified[k] = v;
+                }
+              }
+              return simplified;
+            }
+
             // Yield each runnable as a separate YAML file in the backend folder
             // For inline scripts, simplify the YAML - inlineScript is not needed since
             // content/lock/language can be derived from sibling files
@@ -967,6 +991,11 @@ function ZipFSElement(
               } else {
                 // For other runnables, keep as-is
                 simplifiedRunnable = runnableObj;
+              }
+
+              // Simplify fields for cleaner YAML output
+              if (simplifiedRunnable.fields) {
+                simplifiedRunnable.fields = simplifyFields(simplifiedRunnable.fields);
               }
 
               yield {
@@ -1387,32 +1416,38 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (specificItems) {
-      if (isCurrentBranchFile(path, branchOverride)) {
-        // This is a branch-specific file for current branch
-        // Safe to compute branch here since isCurrentBranchFile already validated it exists
-        const currentBranch = branchOverride || getCurrentGitBranch()!;
-        const basePath = fromBranchSpecificPath(path, currentBranch);
-        if (isSpecificItem(basePath, specificItems)) {
-          // Map to base path for push operations
-          map[basePath] = content;
-          processedBasePaths.add(basePath);
-        } else {
-          // Branch-specific file doesn't match pattern, skip it
-          continue;
-        }
-      } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file, check if we should skip it
-        if (processedBasePaths.has(path)) {
-          // Skip base file, we already processed branch-specific version
-          continue;
-        }
-        map[path] = content;
+    if (isCurrentBranchFile(path, branchOverride)) {
+      // This is a branch-specific file for current branch
+      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const basePath = fromBranchSpecificPath(path, currentBranch);
+
+      // Only use branch-specific files if the item type IS configured as branch-specific
+      // AND matches the pattern. Otherwise, skip and use base file instead.
+      if (!isItemTypeConfigured(basePath, specificItems)) {
+        // Type not configured as branch-specific - skip, use base file instead
+        continue;
       }
-    } else {
-      // No specific items configuration, use regular path
-      map[entry.path] = content;
+      if (!isSpecificItem(basePath, specificItems)) {
+        // Type configured but doesn't match pattern - skip
+        continue;
+      }
+
+      // Type configured AND matches - map to base path
+      map[basePath] = content;
+      processedBasePaths.add(basePath);
+    } else if (!isBranchSpecificFile(path)) {
+      // This is a regular base file
+      if (processedBasePaths.has(path)) {
+        // Skip base file, we already processed branch-specific version
+        continue;
+      }
+      // Skip base file if it's configured as branch-specific (expect branch version)
+      if (isSpecificItem(path, specificItems)) {
+        continue;
+      }
+      map[path] = content;
     }
+    // Note: branch-specific files for other branches are already filtered out earlier
   }
   return map;
 }

@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.612.2
+  version: 1.613.4
   title: Windmill API
 
   contact:
@@ -3505,23 +3505,6 @@ paths:
                 properties:
                   default_app_path:
                     type: string
-
-  /w/{workspace}/workspaces/get_large_file_storage_config:
-    get:
-      summary: get large file storage config
-      operationId: getLargeFileStorageConfig
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-
-      responses:
-        "200":
-          description: status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LargeFileStorage"
 
   /w/{workspace}/workspaces/usage:
     get:
@@ -9343,6 +9326,25 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /w/{workspace}/jobs/get_otel_traces/{id}:
+    get:
+      summary: get OpenTelemetry traces for a job
+      operationId: getJobOtelTraces
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: list of OTEL Span objects (compatible with OpenTelemetry Span proto)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
 
   /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{trigger_path}:
     post:
@@ -17564,6 +17566,7 @@ components:
         - visible_to_owner
         - tag
 
+
     ExportableCompletedJob:
       type: object
       description: Completed job with full data for export/import operations
@@ -20953,6 +20956,10 @@ components:
             type: boolean
         custom_path:
           type: string
+        raw_app:
+          type: boolean
+        bundle_secret:
+          type: string
       required:
         - id
         - workspace_id
@@ -20965,6 +20972,7 @@ components:
         - policy
         - execution_mode
         - extra_perms
+        - raw_app
 
     AppWithLastVersionWDraft:
       allOf:

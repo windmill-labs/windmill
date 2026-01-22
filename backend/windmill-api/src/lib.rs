@@ -78,6 +78,9 @@ pub mod args;
 mod assets;
 mod audit;
 pub mod auth;
+#[cfg(all(feature = "private", feature = "parquet"))]
+pub mod azure_proxy_ee;
+mod azure_proxy_oss;
 mod bedrock;
 mod capture;
 mod concurrency_groups;
@@ -148,8 +151,8 @@ pub mod scim_ee;
 mod scim_oss;
 mod scopes;
 mod scripts;
-mod service_logs;
 mod secret_backend_ext;
+mod service_logs;
 mod settings;
 mod slack_approvals;
 #[cfg(all(feature = "smtp", feature = "private"))]
@@ -411,13 +414,15 @@ pub async fn run_server(
     let (mcp_router, mcp_cancellation_token) = {
         #[cfg(feature = "mcp")]
         if server_mode || mcp_mode {
+            use mcp::add_www_authenticate_header;
             let (mcp_router, mcp_cancellation_token) =
                 setup_mcp_server(db.clone(), user_db).await?;
-            let mcp_middleware = axum::middleware::from_fn(extract_and_store_workspace_id);
-            (
-                mcp_router.layer(mcp_middleware),
-                Some(mcp_cancellation_token),
-            )
+            // Apply middleware: auth check inside WWW-Authenticate wrapper so 401s get the header
+            let mcp_router = mcp_router
+                .route_layer(from_extractor::<ApiAuthed>())
+                .layer(axum::middleware::from_fn(add_www_authenticate_header))
+                .layer(axum::middleware::from_fn(extract_and_store_workspace_id));
+            (mcp_router, Some(mcp_cancellation_token))
         } else {
             (Router::new(), None)
         }
@@ -497,6 +502,16 @@ pub async fn run_server(
                             #[cfg(not(feature = "oauth2"))]
                             Router::new()
                         })
+                        .nest("/mcp/oauth/server", {
+                            #[cfg(feature = "mcp")]
+                            {
+                                // Only /approve requires authentication (called by frontend)
+                                mcp::oauth_server::workspaced_authed_service()
+                            }
+
+                            #[cfg(not(feature = "mcp"))]
+                            Router::new()
+                        })
                         .nest("/ai", ai::workspaced_service())
                         .nest("/npm_proxy", npm_proxy::workspaced_service())
                         .nest("/raw_apps", raw_apps::workspaced_service())
@@ -542,10 +557,20 @@ pub async fn run_server(
                 .nest("/embeddings", embeddings::global_service())
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
-                .nest("/mcp/w/:workspace_id/sse", mcp_router)
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
+                // Workspace-scoped OAuth endpoints that don't require authentication
+                // (authorize and token are called by MCP client before user is authenticated)
+                .nest("/w/:workspace_id/mcp/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::workspaced_unauthed_service()
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
                 .nest("/jobs", jobs::global_root_service())
                 .nest(
                     "/srch/w/:workspace_id/index",
@@ -584,6 +609,9 @@ pub async fn run_server(
                         .layer(cors.clone()),
                 )
                 .layer(from_extractor::<OptAuthed>())
+                // Deprecated, here for backwards compatibility: user should use /mcp/w/:workspace_id/mcp instead
+                .nest("/mcp/w/:workspace_id/sse", mcp_router.clone())
+                .nest("/mcp/w/:workspace_id/mcp", mcp_router)
                 .nest("/agent_workers", {
                     #[cfg(feature = "agent_worker_server")]
                     {
@@ -686,6 +714,15 @@ pub async fn run_server(
                     #[cfg(not(feature = "mcp"))]
                     Router::new()
                 })
+                .nest("/mcp/oauth/server", {
+                    #[cfg(feature = "mcp")]
+                    {
+                        mcp::oauth_server::global_service().layer(cors.clone())
+                    }
+
+                    #[cfg(not(feature = "mcp"))]
+                    Router::new()
+                })
                 .nest("/r", {
                     #[cfg(feature = "http_trigger")]
                     {
@@ -720,6 +757,36 @@ pub async fn run_server(
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi))
                 .route("/openapi.json", get(openapi_json)),
+        )
+        // Clients must use workspace-scoped OAuth metadata at:
+        // /.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server
+        // This is discovered via /.well-known/oauth-protected-resource?workspace_id=...
+        .route(
+            "/.well-known/oauth-authorization-server/api/w/:workspace_id/mcp/oauth/server",
+            {
+                #[cfg(feature = "mcp")]
+                {
+                    get(mcp::oauth_server::workspaced_oauth_metadata)
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    get(|| async { axum::http::StatusCode::NOT_FOUND })
+                }
+            },
+        )
+        // RFC 9728 path-based discovery: /.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp
+        .route(
+            "/.well-known/oauth-protected-resource/api/mcp/w/:workspace_id/mcp",
+            {
+                #[cfg(feature = "mcp")]
+                {
+                    get(mcp::oauth_server::protected_resource_metadata_by_path)
+                }
+                #[cfg(not(feature = "mcp"))]
+                {
+                    get(|| async { axum::http::StatusCode::NOT_FOUND })
+                }
+            },
         )
         // JWKS endpoint for HashiCorp Vault JWT authentication (must be outside /api prefix)
         .route("/.well-known/jwks.json", get(settings::get_jwks))

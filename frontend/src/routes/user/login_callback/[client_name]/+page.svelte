@@ -7,7 +7,7 @@
 
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
-	import { logoutWithRedirect } from '$lib/logout'
+	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
