@@ -1216,6 +1216,9 @@ Windmill Community Edition {GIT_VERSION}
                                                                 tracing::error!(error = %e, "Could not reload critical alert UI setting");
                                                             }
                                                         },
+                                                        "workspace_telemetry_enabled" => {
+                                                            tracing::info!("Workspace telemetry setting changed");
+                                                        },
                                                         a @_ => {
                                                             tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
                                                         }
