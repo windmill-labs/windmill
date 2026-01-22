@@ -14,21 +14,9 @@
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
 	import Button from '../common/button/Button.svelte'
-
-	interface AssetJobInfo {
-		id: string
-		created_at: string
-		created_by: string
-		runnable_path?: string
-		status?: 'success' | 'failure' | 'canceled'
-	}
-
-	interface AssetJobListResponse {
-		jobs: AssetJobInfo[]
-		total: number
-		page: number
-		per_page: number
-	}
+	import RefreshButton from '../common/button/RefreshButton.svelte'
+	import { resource } from 'runed'
+	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 
 	let usagesDrawerData:
 		| {
@@ -43,38 +31,27 @@
 		  }
 		| undefined = $state()
 
-	let runtimeJobs: AssetJobListResponse | undefined = $state()
-	let loadingJobs = $state(false)
-	let currentPage = $state(1)
-
-	export function open(data: typeof usagesDrawerData) {
-		usagesDrawerData = data
-		currentPage = 1
-		runtimeJobs = undefined
-		if (data && data.usages.some((u) => u.detection_kinds?.includes('runtime'))) {
-			loadRuntimeJobs(1)
-		}
-	}
-
-	async function loadRuntimeJobs(page: number) {
-		if (!usagesDrawerData || !$workspaceStore) return
-
-		loadingJobs = true
-		try {
-			const response = await AssetService.listAssetJobs({
-				workspace: $workspaceStore,
-				assetPath: usagesDrawerData.path,
-				assetKind: usagesDrawerData.kind,
+	let _runtimeJobs = resource(
+		[() => runtimeJobsCurrentPage, () => usagesDrawerData],
+		async ([page, data]) => {
+			if (!data || !data.usages.some((u) => u.detection_kinds?.includes('runtime')))
+				return undefined
+			return await AssetService.listAssetJobs({
+				workspace: $workspaceStore!,
+				assetPath: data.path,
+				assetKind: data.kind,
 				page,
 				perPage: 20
 			})
-			runtimeJobs = response as AssetJobListResponse
-			currentPage = page
-		} catch (error) {
-			console.error('Failed to load runtime jobs:', error)
-		} finally {
-			loadingJobs = false
 		}
+	)
+	const runtimeJobs = new StaleWhileLoading(() => _runtimeJobs.current)
+
+	let runtimeJobsCurrentPage = $state(1)
+
+	export function open(data: typeof usagesDrawerData) {
+		usagesDrawerData = data
+		runtimeJobsCurrentPage = 1
 	}
 
 	const jobStatusColor = {
@@ -127,15 +104,18 @@
 			<!-- Runtime Job Usage -->
 			{#if usagesDrawerData?.usages.some((u) => u.detection_kinds?.includes('runtime'))}
 				<section>
-					<h3 class="text-sm font-semibold mb-2">Recent Job Executions</h3>
+					<h3 class="text-sm font-semibold mb-2 flex justify-between items-center">
+						Recent Job Executions
+						<RefreshButton loading={_runtimeJobs.loading} onClick={() => _runtimeJobs.refetch()} />
+					</h3>
 
-					{#if loadingJobs}
+					{#if !runtimeJobs.current && _runtimeJobs.loading}
 						<div class="flex items-center justify-center py-8 text-sm text-secondary">
 							Loading jobs...
 						</div>
-					{:else if runtimeJobs}
+					{:else if runtimeJobs.current}
 						<div class="flex flex-col border rounded-md divide-y">
-							{#each runtimeJobs.jobs as job}
+							{#each runtimeJobs.current.jobs as job}
 								<a
 									href={`/run/${job.id}?workspace=${$workspaceStore}`}
 									class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
@@ -159,27 +139,32 @@
 						</div>
 
 						<!-- Pagination -->
-						{#if runtimeJobs.total > runtimeJobs.per_page}
+						{#if runtimeJobs.current.total > runtimeJobs.current.per_page}
 							<div class="flex items-center justify-between mt-3 text-sm">
 								<span class="text-secondary">
-									Showing {(runtimeJobs.page - 1) * runtimeJobs.per_page + 1} -
-									{Math.min(runtimeJobs.page * runtimeJobs.per_page, runtimeJobs.total)} of {runtimeJobs.total}
+									Showing {(runtimeJobs.current.page - 1) * runtimeJobs.current.per_page + 1} -
+									{Math.min(
+										runtimeJobs.current.page * runtimeJobs.current.per_page,
+										runtimeJobs.current.total
+									)} of {runtimeJobs.current.total}
 									jobs
 								</span>
 								<div class="flex gap-2">
 									<Button
 										size="xs"
 										color="light"
-										disabled={runtimeJobs.page <= 1}
-										on:click={() => loadRuntimeJobs(currentPage - 1)}
+										disabled={runtimeJobs.current.page <= 1}
+										on:click={() =>
+											(runtimeJobsCurrentPage = Math.max(1, runtimeJobsCurrentPage - 1))}
 									>
 										Previous
 									</Button>
 									<Button
 										size="xs"
 										color="light"
-										disabled={runtimeJobs.page * runtimeJobs.per_page >= runtimeJobs.total}
-										on:click={() => loadRuntimeJobs(currentPage + 1)}
+										disabled={runtimeJobs.current.page * runtimeJobs.current.per_page >=
+											runtimeJobs.current.total}
+										on:click={() => (runtimeJobsCurrentPage = runtimeJobsCurrentPage + 1)}
 									>
 										Next
 									</Button>
