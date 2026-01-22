@@ -47,10 +47,10 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::worker::{
-    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-    SCRIPT_TOKEN_EXPIRY,
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -71,9 +71,10 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_432,
-        MIN_VERSION_IS_AT_LEAST_1_440, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
+        WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -2749,7 +2750,7 @@ impl PulledJobResult {
                 .is_some();
 
         if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
             let needs_debounce = sqlx::query_scalar!(
@@ -2773,7 +2774,7 @@ impl PulledJobResult {
             }
 
             if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
-                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                 && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
                 // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
@@ -3367,7 +3368,7 @@ pub async fn check_debouncing_within_limits(
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
 
-    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    let no_legacy_compat = MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
     if !no_legacy_compat {
@@ -4436,7 +4437,7 @@ pub async fn push<'c, 'd>(
             let status = Some(FlowStatus::new(value));
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -4556,7 +4557,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await && !skip_compat {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await && !skip_compat {
                 let mut ntx = tx.into_tx().await?;
                 // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
@@ -4827,7 +4828,7 @@ pub async fn push<'c, 'd>(
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
-                || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
+                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
             {
                 cache::flow::fetch_version(&mut *ntx, version).await
             } else {
@@ -4865,7 +4866,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 let mut value = value;
                 add_virtual_items_if_necessary(&mut value.modules);
                 if same_worker {
@@ -4950,7 +4951,7 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if version.is_none() || !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -5002,7 +5003,7 @@ pub async fn push<'c, 'd>(
         cfg!(feature = "private")
             && job_kind.is_dependency()
             && !*WMDEBUG_NO_DEBOUNCING
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
         concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrency_settings.concurrent_limit = Some(1);

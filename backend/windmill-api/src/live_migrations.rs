@@ -10,7 +10,7 @@ use sqlx::Postgres;
 use std::time::Duration;
 use tokio::task::JoinHandle;
 use windmill_common::error::Error;
-use windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_461;
+use windmill_common::min_version::MIN_VERSION_IS_AT_LEAST_1_461;
 
 use crate::db::{CustomMigrator, DB};
 use sqlx::migrate::Migrate;
@@ -36,7 +36,7 @@ pub async fn custom_migrations(
         let db2 = db.clone();
         let v2jh = tokio::task::spawn(async move {
             loop {
-                if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
+                if !MIN_VERSION_IS_AT_LEAST_1_461.met().await {
                     tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
                     tokio::time::sleep(Duration::from_secs(5)).await;
                     continue;

@@ -9,6 +9,7 @@ use crate::{
         set_cached_is_unnamed_workspace_dependencies_exists,
     },
     error,
+    min_version::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES,
     scripts::ScriptLang,
     utils::calculate_hash,
     worker::Connection,
@@ -31,9 +32,7 @@ pub const MIN_VERSION_WORKSPACE_DEPENDENCIES: &str = "1.587.0";
 pub async fn min_version_supports_v0_workspace_dependencies() -> error::Result<()> {
     // Check if workers support workspace dependencies feature
     if !*WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES
-        && !*crate::worker::MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES
-            .read()
-            .await
+        && !MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.met().await
     {
         tracing::warn!(
             "Workspace dependencies feature will be disabled because not all workers support it (minimum version {} required)",
