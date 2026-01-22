@@ -4,6 +4,7 @@
 	import Disposable from './Disposable.svelte'
 	import ConditionalPortal from './ConditionalPortal.svelte'
 	import { chatState } from '$lib/components/copilot/chat/sharedChatState.svelte'
+	import { useReducedMotion } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		open?: boolean
@@ -23,7 +24,7 @@
 
 	let {
 		open = $bindable(undefined),
-		duration = 0.3,
+		duration: _duration = 0.3,
 		placement = 'right',
 		size = '600px',
 		alwaysOpen = false,
@@ -43,6 +44,8 @@
 
 	let disposable: Disposable | undefined = $state(undefined)
 
+	let reducedMotion = useReducedMotion()
+	let duration = $derived(reducedMotion.val ? 0 : _duration)
 	let durationMs = $derived(duration * 1000)
 
 	export function toggleDrawer() {

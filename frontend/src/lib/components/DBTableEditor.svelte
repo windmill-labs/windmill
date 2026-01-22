@@ -39,20 +39,15 @@
 </script>
 
 <script lang="ts">
-	import { ArrowRight, ClipboardCopy, Info, Plus, Settings, X } from 'lucide-svelte'
+	import { ArrowRight, ClipboardCopy, Plus, Settings, X } from 'lucide-svelte'
 
 	import { Button } from './common'
 	import { Cell } from './table'
 	import DataTable from './table/DataTable.svelte'
 	import Head from './table/Head.svelte'
-	import {
-		datatypeHasLength,
-		dbSupportsSchemas,
-		type DbFeatures
-	} from './apps/components/display/dbtable/utils'
+	import { datatypeHasLength } from './apps/components/display/dbtable/utils'
 	import { DB_TYPES } from '$lib/consts'
 	import Popover from './meltComponents/Popover.svelte'
-	import Tooltip from './meltComponents/Tooltip.svelte'
 	import ConfirmationModal from './common/confirmationModal/ConfirmationModal.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { copyToClipboard } from '$lib/utils'
@@ -70,6 +65,8 @@
 		datatypeDefaultLength
 	} from './apps/components/display/dbtable/tableEditor'
 	import Alert from './common/alert/Alert.svelte'
+	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
+	import Label from './Label.svelte'
 
 	type Props = {
 		dbType: DbType
@@ -122,8 +119,7 @@
 			...(datatypeHasLength(defaultColumnType) && {
 				datatype_length: datatypeDefaultLength(defaultColumnType)
 			}),
-			...(primaryKey && { primaryKey }),
-			...(!features?.defaultToNotNull && { nullable: true })
+			...(primaryKey && { primaryKey })
 		})
 	}
 	if (!initialValues) {
@@ -158,7 +154,7 @@
 			/>
 		</label>
 
-		<div class="flex flex-col">
+		<div class="flex flex-col" id="columns-section">
 			<!-- svelte-ignore a11y_label_has_associated_control -->
 			<label>Columns</label>
 			<DataTable>
@@ -222,11 +218,19 @@
 							</Cell>
 							<Cell last class="flex items-center mt-1.5">
 								{#if features?.primaryKeys}
-									<input type="checkbox" class="!w-4 !h-4" bind:checked={column.primaryKey} />
+									<input
+										type="checkbox"
+										class="!w-4 !h-4 primary-key-checkbox"
+										bind:checked={column.primaryKey}
+									/>
 								{/if}
-								<Popover class="ml-8" contentClasses="py-3 px-5 flex flex-col gap-6">
+								<Popover
+									class="ml-8"
+									contentClasses="py-3 px-5 flex flex-col gap-6"
+									enableFlyTransition
+								>
 									{#snippet trigger()}
-										<Settings size={18} />
+										<Settings size={18} class="settings-menu-btn" />
 									{/snippet}
 									{#snippet content()}
 										{#if datatypeHasLength(column.datatype)}
@@ -236,27 +240,26 @@
 											</label>
 										{/if}
 										{#if features?.defaultValues}
-											<label class="text-xs">
-												<span class="flex gap-1 mb-1">
-													Default value
-													<Tooltip>
-														<Info size={14} />
-														{#snippet text()}
-															Surround your expressions with curly brackets:
-															<code>
-																{'{NOW()}'}
-															</code>.
-															<br />
-															By default, it will be parsed as a literal
-														{/snippet}
-													</Tooltip>
-												</span>
-												<input type="text" placeholder="NULL" bind:value={column.defaultValue} />
-											</label>
+											<Label
+												class="flex gap-1 mb-1"
+												label="Default Value"
+												tooltip="Parsed as literal by default. Use curly brackets for expressions (e.g. {'{NOW()}'} )."
+											>
+												<input
+													class="default-value"
+													type="text"
+													placeholder="NULL"
+													bind:value={column.defaultValue}
+												/>
+											</Label>
 										{/if}
 										{#if !column.primaryKey}
 											<label class="flex gap-2 items-center text-xs">
-												<input type="checkbox" class="!w-4 !h-4" bind:checked={column.nullable} />
+												<input
+													type="checkbox"
+													class="nullable-checkbox !w-4 !h-4"
+													bind:checked={column.nullable}
+												/>
 												Nullable
 											</label>
 										{/if}
@@ -266,7 +269,7 @@
 									color="light"
 									startIcon={{ icon: X }}
 									wrapperClasses="w-fit ml-2"
-									btnClasses="p-0"
+									btnClasses="delete-column-btn p-0"
 									on:click={() => values.columns.splice(i, 1)}
 								/>
 							</Cell>
@@ -288,7 +291,7 @@
 			</DataTable>
 		</div>
 		{#if features?.foreignKeys}
-			<div class="flex flex-col">
+			<div class="flex flex-col" id="foreign-keys-section">
 				<!-- svelte-ignore a11y_label_has_associated_control -->
 				<label>Foreign Keys</label>
 				<DataTable>
@@ -304,14 +307,15 @@
 							<tr>
 								<Cell first class="flex">
 									<Select
-										inputClass={twMerge('!w-48')}
+										inputClass={twMerge('fk-table-select !w-48')}
 										error={fkErrors?.emptyTarget}
 										placeholder=""
 										bind:value={foreignKey.targetTable}
 										items={getFlatTableNamesFromSchema(dbSchema).map((o) => ({
 											value: o,
 											label:
-												(currentSchema && o.startsWith(currentSchema)) || !dbSupportsSchemas(dbType)
+												!features?.schemas ||
+												(currentSchema && o.toLowerCase().startsWith(currentSchema.toLowerCase()))
 													? o.split('.')[1]
 													: o
 										}))}
@@ -326,7 +330,7 @@
 												 		 from x-overflowing -->
 													<div class="grow h-[2rem] relative">
 														<Select
-															class="!absolute inset-0"
+															class="fk-source-col-select !absolute inset-0"
 															error={fkErrors?.nonExistingSourceColumns.includes(
 																column.sourceColumn
 															)}
@@ -341,7 +345,7 @@
 													<ArrowRight size={16} class="h-fit shrink-0" />
 													<div class="grow h-[2rem] relative">
 														<Select
-															class="!absolute inset-0"
+															class="fk-target-col-select !absolute inset-0"
 															error={fkErrors?.nonExistingTargetColumns.includes(
 																column.targetColumn
 															)}
@@ -357,26 +361,35 @@
 													</div>
 												</div>
 												<div class="ml-auto flex">
-													{#if columnIndex === 0}
-														<Popover contentClasses="py-3 px-5 w-52 flex flex-col gap-6">
+													{#if columnIndex === 0 && features.enforcedForeignKeys}
+														<Popover
+															contentClasses="py-3 px-5 w-52 flex flex-col gap-4"
+															enableFlyTransition
+														>
 															{#snippet trigger()}
-																<Settings size={18} />
+																<Settings class="fk-settings-btn" size={18} />
 															{/snippet}
 															{#snippet content()}
-																<span>
-																	ON DELETE <select bind:value={foreignKey.onDelete}>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
+																<Label label="On delete">
+																	<select
+																		class="fk-on-delete-select"
+																		bind:value={foreignKey.onDelete}
+																	>
+																		<option value="NO ACTION" selected>No action</option>
+																		<option value="CASCADE" selected>Cascade</option>
+																		<option value="SET NULL" selected>Set null</option>
 																	</select>
-																</span>
-																<span>
-																	ON UPDATE <select bind:value={foreignKey.onUpdate}>
-																		<option value="NO ACTION" selected>NO ACTION</option>
-																		<option value="CASCADE" selected>CASCADE</option>
-																		<option value="SET NULL" selected>SET NULL</option>
+																</Label>
+																<Label label="On update">
+																	<select
+																		class="fk-on-update-select"
+																		bind:value={foreignKey.onUpdate}
+																	>
+																		<option value="NO ACTION" selected>No action</option>
+																		<option value="CASCADE" selected>Cascade</option>
+																		<option value="SET NULL" selected>Set null</option>
 																	</select>
-																</span>
+																</Label>
 															{/snippet}
 														</Popover>
 													{/if}
@@ -384,7 +397,7 @@
 														color="light"
 														startIcon={{ icon: X }}
 														wrapperClasses="w-fit ml-2"
-														btnClasses="p-0"
+														btnClasses="fk-delete-btn p-0"
 														on:click={foreignKey.columns.length > 1
 															? () => foreignKey.columns.splice(columnIndex, 1)
 															: () => values.foreignKeys.splice(foreignKeyIndex, 1)}
@@ -454,6 +467,7 @@
 
 <Portal>
 	<ConfirmationModal
+		id="db-table-editor-confirmation-modal"
 		{...askingForConfirmation ?? { confirmationText: '', title: '' }}
 		on:canceled={() => (askingForConfirmation = undefined)}
 		on:confirmed={askingForConfirmation?.onConfirm ?? (() => {})}

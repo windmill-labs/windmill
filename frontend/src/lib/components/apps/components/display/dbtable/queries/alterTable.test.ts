@@ -48,7 +48,7 @@ describe('makeAlterTableQueries', () => {
 			'postgresql'
 		)
 
-		expect(normalize(queries[0])).toBe(normalize('ALTER TABLE users DROP COLUMN age;'))
+		expect(normalize(queries[0])).toBe(normalize('ALTER TABLE users DROP COLUMN "age";'))
 	})
 
 	it('renames a column', () => {

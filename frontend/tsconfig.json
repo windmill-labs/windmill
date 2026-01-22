@@ -29,7 +29,7 @@
 		"strictPropertyInitialization": true,
 		"useUnknownInCatchVariables": false,
 		"strict": true,
-		"types": []
+		"types": ["vite/client"]
 	},
 	"include": ["src/**/*.js", "src/**/*.ts", "src/**/*.d.ts", "src/**/*.svelte"],
 	"exclude": ["src/lib/monaco_workers/*.js"],

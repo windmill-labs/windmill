@@ -123,14 +123,23 @@ export function makeAlterTableQueries(
 				break
 
 			case 'renameTable':
-				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${op.to};`)
+				const tableNewRef = dbType === 'snowflake' && schema ? `${schema.trim()}.${op.to}` : op.to
+				queries.push(`ALTER TABLE ${tableRef} RENAME TO ${tableNewRef};`)
 				break
 
 			case 'addPrimaryKey':
-				const notEnforced = dbType === 'bigquery' ? ' NOT ENFORCED' : ''
-				queries.push(
-					`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')})${notEnforced};`
-				)
+				if (dbType === 'snowflake') {
+					// Snowflake requires CONSTRAINT syntax with explicit name
+					const constraintName = `${values.name}_pk`
+					queries.push(
+						`ALTER TABLE ${tableRef} ADD CONSTRAINT ${constraintName} PRIMARY KEY (${op.columns.join(', ')});`
+					)
+				} else {
+					const notEnforced = dbType === 'bigquery' ? ' NOT ENFORCED' : ''
+					queries.push(
+						`ALTER TABLE ${tableRef} ADD PRIMARY KEY (${op.columns.join(', ')})${notEnforced};`
+					)
+				}
 				break
 
 			case 'dropPrimaryKey':
@@ -218,7 +227,7 @@ function renderDropDefaultValue(
 		case 'bigquery':
 			return `ALTER TABLE ${tableRef} ALTER COLUMN ${columnName} DROP DEFAULT;`
 		case 'ms_sql_server':
-			return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${defaultConstraintName};`
+			return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${renderDbQuotedIdentifier(defaultConstraintName ?? '', dbType)};`
 		default:
 			throw new Error(`Unsupported database type: ${dbType}`)
 	}
@@ -295,7 +304,7 @@ function renderDropForeignKey(
 ): string {
 	if (dbType === 'mysql')
 		return `ALTER TABLE ${tableRef} DROP FOREIGN KEY ${renderDbQuotedIdentifier(fk_constraint_name, dbType)};`
-	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${fk_constraint_name};`
+	return `ALTER TABLE ${tableRef} DROP CONSTRAINT ${renderDbQuotedIdentifier(fk_constraint_name, dbType)};`
 }
 
 function renderDropPrimaryKey(

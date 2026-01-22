@@ -270,6 +270,7 @@
 		<div class="flex gap-2 items-start flex-wrap justify-between mt-2 md:mt-6">
 			<div class="flex-row-reverse flex-wrap flex w-full gap-4">
 				<Button
+					id="run-form-run-button"
 					{loading}
 					variant="accent"
 					unifiedSize="md"

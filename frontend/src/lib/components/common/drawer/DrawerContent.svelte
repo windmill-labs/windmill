@@ -19,6 +19,7 @@
 		CloseIcon?: any | undefined
 		fullScreen?: boolean
 		eeOnly?: boolean
+		id?: string | undefined
 		actions?: import('svelte').Snippet
 		titleExtra?: import('svelte').Snippet
 		children?: import('svelte').Snippet
@@ -36,6 +37,7 @@
 		CloseIcon = undefined,
 		fullScreen = true,
 		eeOnly = false,
+		id,
 		actions,
 		titleExtra,
 		children
@@ -44,7 +46,10 @@
 	const dispatch = createEventDispatcher()
 </script>
 
-<div class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}>
+<div
+	class={classNames('flex flex-col divide-y', fullScreen ? 'h-screen max-h-screen' : 'h-full')}
+	{id}
+>
 	<div class="flex justify-between w-full items-center pl-2 pr-4 py-2 gap-2">
 		<div class="flex items-center gap-2 w-full truncate">
 			<div
@@ -56,7 +61,7 @@
 					}
 				}}
 			>
-				<CloseButton on:close Icon={CloseIcon} />
+				<CloseButton on:close Icon={CloseIcon} id="{id}-close-btn" />
 			</div>
 			<span class="font-semibold text-emphasis truncate text-lg max-w-sm"
 				>{title ?? ''}

@@ -210,6 +210,7 @@
 			inputClass={selectInputClass}
 			placeholder={placeholder ?? `${resourceType ?? 'any'} resource`}
 			itemLabelWrapperClasses="flex-1"
+			id="resource-picker-select"
 		>
 			{#snippet endSnippet({ item, close })}
 				<Button

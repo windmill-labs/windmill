@@ -192,7 +192,7 @@
 		{#each tempSettings.dataTables as dataTable, dataTableIndex}
 			<Row>
 				<Cell first class="w-48 relative">
-					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name' }} />
+					<TextInput bind:value={dataTable.name} inputProps={{ placeholder: 'Name', id: 'name' }} />
 				</Cell>
 				<Cell>
 					<div class="flex gap-2">
@@ -221,6 +221,7 @@
 										}
 									}
 								}
+								id="database-type-select"
 								class="w-28"
 							/>
 						</div>

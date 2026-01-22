@@ -1957,6 +1957,10 @@ export function countChars(str: string, char: string): number {
 	return count
 }
 
+export function onlyAlphaNumAndUnderscore(str: string): string {
+	return str.replace(/[^a-zA-Z0-9_]/g, '')
+}
+
 export function buildReactiveObj<T extends object>(fields: {
 	[name in keyof T]: [() => T[name], (v: T[name]) => void]
 }): T {

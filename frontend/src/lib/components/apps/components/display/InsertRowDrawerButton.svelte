@@ -45,7 +45,7 @@
 </Button>
 
 <Drawer bind:this={insertDrawer} size="800px">
-	<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer}>
+	<DrawerContent title="Insert row" on:close={insertDrawer.closeDrawer} id="insert-row-drawer">
 		{#snippet actions()}
 			<Button
 				variant="accent"

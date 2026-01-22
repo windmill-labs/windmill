@@ -1,9 +1,0 @@
-{
-    "compilerOptions": {
-        "target": "esnext",
-        "module": "esnext",
-        "moduleResolution": "node",
-        "sourceMap": false,
-        "outDir": "../tests-out",
-    }
-}

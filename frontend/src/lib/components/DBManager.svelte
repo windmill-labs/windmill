@@ -1,18 +1,10 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import {
-		ChevronDownIcon,
-		EditIcon,
-		Loader2,
-		MoreVertical,
-		Plus,
-		Table2,
-		Trash2Icon
-	} from 'lucide-svelte'
+	import { ChevronDownIcon, EditIcon, Loader2, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
-	import { type ColumnDef, type DbFeatures } from './apps/components/display/dbtable/utils'
+	import { type ColumnDef } from './apps/components/display/dbtable/utils'
 	import DBTable from './DBTable.svelte'
 	import type { IDbSchemaOps, IDbTableOps } from './dbOps'
 	import DropdownV2 from './DropdownV2.svelte'
@@ -29,7 +21,8 @@
 		diffTableEditorValues
 	} from './apps/components/display/dbtable/queries/alterTable'
 	import { resource } from 'runed'
-	import { capitalize, pluralize } from '$lib/utils'
+	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
+	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -41,7 +34,7 @@
 		dbType: DbType
 		dbSchema: DBSchema
 		dbSupportsSchemas: boolean
-		getColDefs: (tableKey: string) => Promise<ColumnDef[]>
+		colDefs: Record<string, ColumnDef[]> | undefined
 		dbTableOpsFactory: (params: { colDefs: ColumnDef[]; tableKey: string }) => IDbTableOps
 		dbSchemaOps: IDbSchemaOps
 		refresh?: () => void
@@ -63,8 +56,8 @@
 		dbSchema,
 		dbTableOpsFactory,
 		dbSchemaOps,
-		getColDefs,
 		dbSupportsSchemas,
+		colDefs,
 		refresh,
 		initialSchemaKey,
 		initialTableKey,
@@ -209,15 +202,16 @@
 		open: false
 	})
 	let dbTableEditorAlterTableData = resource(
-		() => dbTableEditorState.alterTableKey,
-		async (table) => {
+		[() => dbTableEditorState.alterTableKey, () => colDefs],
+		async ([table]) => {
 			if (!table) return
 			let tableKey2 =
 				dbSupportsSchemas && selected.schemaKey ? `${selected.schemaKey}.${table}` : table
+			if (!colDefs?.[tableKey2]) return
 			return await dbSchemaOps.onFetchTableEditorDefinition({
 				table: table,
 				schema: selected.schemaKey,
-				getColDefs: () => getColDefs(tableKey2)
+				colDefs: colDefs[tableKey2]
 			})
 		}
 	)
@@ -226,14 +220,14 @@
 	let newSchemaName = $state('')
 
 	// Check if the sanitized schema name already exists
-	const sanitizedNewSchemaName = $derived(
-		newSchemaName
-			.trim()
-			.toLowerCase()
-			.replace(/[^a-zA-Z0-9_]/g, '')
-	)
+	const sanitizedNewSchemaName = $derived.by(() => {
+		let s = newSchemaName.trim().replace(/[^a-zA-Z0-9_]/g, '')
+		if (dbType === 'snowflake') s = s.toUpperCase()
+		return s
+	})
 	const schemaAlreadyExists = $derived(
-		sanitizedNewSchemaName !== '' && schemaKeys.includes(sanitizedNewSchemaName)
+		sanitizedNewSchemaName !== '' &&
+			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
 	)
 </script>
 
@@ -247,20 +241,20 @@
 				<Select
 					bind:value={selected.schemaKey}
 					items={safeSelectItems(schemaKeys)}
+					id="db-schema-select"
 					transformInputSelectedText={(s) => `Schema: ${s}`}
 					RightIcon={ChevronDownIcon}
 					placeholder="Search or create schema..."
 					showPlaceholderOnOpen
 					onCreateItem={(schema) => {
-						schema = schema
-							.trim()
-							.toLowerCase()
-							.replace(/[^a-zA-Z0-9_]/g, '')
+						schema = schema.trim().replace(/[^a-zA-Z0-9_]/g, '')
+						if (dbType === 'snowflake') schema = schema.toUpperCase()
 						askingForConfirmation = {
 							confirmationText: `Create ${schema}`,
 							type: 'reload',
 							title: `This will run 'CREATE SCHEMA ${schema}' on your database. Are you sure ?`,
 							open: true,
+							id: 'db-create-schema-confirmation-modal',
 							onConfirm: async () => {
 								askingForConfirmation && (askingForConfirmation.loading = true)
 								try {
@@ -451,7 +445,10 @@
 						onclick={() => (selected.tableKey = tableKey)}
 					>
 						<Table2 class="text-primary shrink-0" size={16} />
-						<p class="truncate text-ellipsis grow text-left text-emphasis text-xs">{tableKey}</p>
+						<p
+							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
+							>{tableKey}</p
+						>
 						<DropdownV2
 							items={() => [
 								{
@@ -462,6 +459,7 @@
 											title: `Are you sure you want to delete ${tableKey} ? This action is irreversible`,
 											confirmationText: 'Delete permanently',
 											open: true,
+											id: 'db-manager-delete-table-confirmation-modal',
 											onConfirm: async () => {
 												askingForConfirmation && (askingForConfirmation.loading = true)
 												try {
@@ -489,14 +487,8 @@
 								}
 							]}
 							class="w-fit"
-						>
-							<svelte:fragment slot="buttonReplacement">
-								<MoreVertical
-									size={8}
-									class="w-8 h-8 p-2 hover:bg-surface-hover cursor-pointer rounded-md"
-								/>
-							</svelte:fragment>
-						</DropdownV2>
+							btnId={'db-manager-table-actions-' + onlyAlphaNumAndUnderscore(tableKey)}
+						/>
 					</button>
 				{/each}
 			{/if}
@@ -513,13 +505,9 @@
 		{/if}
 	</Pane>
 	<Pane class="p-3 pt-1">
-		{#if tableKey}
-			{#await getColDefs(tableKey) then colDefs}
-				{#if colDefs && colDefs?.length}
-					{@const dbTableOps = dbTableOpsFactory({ colDefs, tableKey })}
-					<DBTable {dbTableOps} />
-				{/if}
-			{/await}
+		{#if tableKey && colDefs?.[tableKey]?.length}
+			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
+			<DBTable {dbTableOps} />
 		{/if}
 	</Pane>
 </Splitpanes>
@@ -538,6 +526,7 @@
 	on:close={() => (dbTableEditorState = { open: false })}
 >
 	<DrawerContent
+		id="db-table-editor-drawer"
 		on:close={() => (dbTableEditorState = { open: false })}
 		title={dbTableEditorState.alterTableKey
 			? `Alter ${dbTableEditorState.alterTableKey}`
@@ -602,7 +591,7 @@
 						}
 					}}
 				/>
-			{:else if dbTableEditorAlterTableData.loading}
+			{:else if dbTableEditorAlterTableData.loading || !colDefs}
 				<Loader2 class="animate-spin" size={32} />
 			{:else}
 				<p class="text-sm text-tertiary">Failed to load table definition.</p>
@@ -643,6 +632,7 @@
 								type: 'reload',
 								title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
 								open: true,
+								id: 'db-create-schema-confirmation-modal',
 								onConfirm: async () => {
 									askingForConfirmation && (askingForConfirmation.loading = true)
 									try {
@@ -680,6 +670,7 @@
 						type: 'reload',
 						title: `This will run 'CREATE SCHEMA ${sanitizedNewSchemaName}' on your database. Are you sure?`,
 						open: true,
+						id: 'db-create-schema-confirmation-modal',
 						onConfirm: async () => {
 							askingForConfirmation && (askingForConfirmation.loading = true)
 							try {

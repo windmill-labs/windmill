@@ -37,7 +37,7 @@ export function createSchemasResource(getDatatable: () => string | undefined) {
 
 		if (!dbSchema) {
 			try {
-				await getDbSchemas('postgresql', resourcePath, workspace, schemas, (msg) =>
+				schemas[resourcePath] = await getDbSchemas('postgresql', resourcePath, workspace, (msg) =>
 					console.error('Schema error:', msg)
 				)
 				dbSchema = get(dbSchemas)[resourcePath]
