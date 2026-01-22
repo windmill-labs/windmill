@@ -354,6 +354,10 @@ impl AIRequestConfig {
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
             (bedrock_url, body)
+        } else if is_anthropic_vertex && method != Method::GET {
+            let (model, transformed_body) = transform_anthropic_for_vertex(&body)?;
+            let vertex_url = format!("{}/{}:streamRawPredict", base_url, model);
+            (vertex_url, transformed_body)
         } else if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
@@ -479,6 +483,34 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+}
+
+/// Anthropic API version for Google Vertex AI
+const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
+
+/// Transforms an Anthropic request for Google Vertex AI:
+/// - Extracts the model from the body (needed for the URL)
+/// - Adds anthropic_version to the body
+fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
+    let mut json_body: HashMap<String, serde_json::Value> = serde_json::from_slice(body)
+        .map_err(|e| Error::internal_err(format!("Failed to parse Anthropic request: {}", e)))?;
+
+    // Extract and remove model from body
+    let model = json_body
+        .remove("model")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| Error::BadRequest("Missing 'model' field in Anthropic request".to_string()))?;
+
+    // Add anthropic_version to body (required for Vertex AI)
+    json_body.insert(
+        "anthropic_version".to_string(),
+        serde_json::Value::String(ANTHROPIC_VERSION_VERTEX.to_string()),
+    );
+
+    let transformed_body = serde_json::to_vec(&json_body)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize Vertex request: {}", e)))?;
+
+    Ok((model, Bytes::from(transformed_body)))
 }
 
 // FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM
