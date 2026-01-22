@@ -33,7 +33,6 @@ pub enum AIProvider {
 
 impl AIProvider {
     /// Get the base URL for the AI provider
-    /// If a base URL is provided in the resource, it takes precedence over the default
     pub async fn get_base_url(
         &self,
         resource_base_url: Option<String>,
