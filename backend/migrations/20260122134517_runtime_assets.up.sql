@@ -3,15 +3,26 @@ CREATE TYPE ASSET_DETECTION_KIND AS ENUM ('static', 'runtime');
 
 -- Add new columns to asset table
 ALTER TABLE asset
+  ADD COLUMN id BIGSERIAL,
   ADD COLUMN asset_detection_kind ASSET_DETECTION_KIND NOT NULL DEFAULT 'static',
   ADD COLUMN job_id UUID REFERENCES v2_job(id) ON DELETE CASCADE;
 
 -- Drop existing primary key
 ALTER TABLE asset DROP CONSTRAINT asset_pkey;
 
--- Create new primary key that includes asset_detection_kind
+-- Create new primary key using id
 ALTER TABLE asset
-  ADD PRIMARY KEY (workspace_id, path, kind, usage_path, usage_kind, asset_detection_kind);
+  ADD PRIMARY KEY (id);
+
+-- Create unique constraint for static assets
+CREATE UNIQUE INDEX asset_static_unique_idx
+  ON asset (workspace_id, path, kind, usage_path, usage_kind)
+  WHERE asset_detection_kind = 'static';
+
+-- Create unique constraint for runtime assets
+CREATE UNIQUE INDEX asset_runtime_unique_idx
+  ON asset (workspace_id, path, kind, usage_path, usage_kind, asset_detection_kind, job_id)
+  WHERE asset_detection_kind = 'runtime';
 
 -- Add index to optimize queries filtering by detection kind
 CREATE INDEX idx_asset_detection_kind ON asset (workspace_id, asset_detection_kind);
