@@ -21,7 +21,7 @@ CREATE UNIQUE INDEX asset_static_unique_idx
 
 -- Create unique constraint for runtime assets
 CREATE UNIQUE INDEX asset_runtime_unique_idx
-  ON asset (workspace_id, path, kind, usage_path, usage_kind, asset_detection_kind, job_id)
+  ON asset (workspace_id, path, kind, usage_path, usage_kind, job_id)
   WHERE asset_detection_kind = 'runtime';
 
 -- Add index to optimize queries filtering by detection kind
