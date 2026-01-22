@@ -30,6 +30,7 @@ async fn list_assets(
                     'kind', asset.usage_kind,
                     'access_type', asset.usage_access_type
                 )) FILTER (WHERE asset.asset_detection_kind = 'static'),
+                'runtime_usage_count', COUNT(*) FILTER (WHERE asset.asset_detection_kind = 'runtime'),
                 'metadata', (CASE
                   WHEN asset.kind = 'resource' THEN
                     jsonb_build_object('resource_type', resource.resource_type)
