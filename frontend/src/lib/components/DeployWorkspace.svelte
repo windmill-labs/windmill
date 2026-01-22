@@ -34,7 +34,6 @@
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
-	import { sendUserToast } from '$lib/toast'
 
 	const dispatch = createEventDispatcher()
 
@@ -124,7 +123,6 @@
 				}
 			} else if (kind == 'flow') {
 				const flow = await FlowService.getFlowByPath({ workspace: $workspaceStore!, path })
-				console.log('getting modules')
 				return getAllModules(flow.value.modules, flow.value.failure_module).flatMap((x) => {
 					let result: { kind: Kind; path: string }[] = []
 					if (x.value.type == 'script' || x.value.type == 'rawscript' || x.value.type == 'flow') {

@@ -161,6 +161,7 @@
 				{/if}
 				<Button
 					size="sm"
+					id="run-custom-instance-db-setup-button"
 					variant={!status?.success ? 'accent' : 'default'}
 					endIcon={status?.success ? undefined : { icon: ArrowRight }}
 					disabled={!$isCustomInstanceDbEnabled}
