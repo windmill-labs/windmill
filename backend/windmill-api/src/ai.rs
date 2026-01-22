@@ -125,6 +125,15 @@ struct AIOAuthResource {
     user: Option<String>,
 }
 
+/// Platform for Anthropic API
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum AnthropicPlatform {
+    #[default]
+    Standard,
+    GoogleVertexAi,
+}
+
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
     #[serde(alias = "baseUrl")]
@@ -137,6 +146,9 @@ struct AIStandardResource {
     aws_access_key_id: Option<String>,
     #[serde(alias = "awsSecretAccessKey")]
     aws_secret_access_key: Option<String>,
+    /// Platform for Anthropic API (standard or google_vertex_ai)
+    #[serde(default)]
+    platform: AnthropicPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -161,6 +173,7 @@ struct AIRequestConfig {
     pub region: Option<String>,
     pub aws_access_key_id: Option<String>,
     pub aws_secret_access_key: Option<String>,
+    pub platform: AnthropicPlatform,
 }
 
 impl AIRequestConfig {
@@ -179,9 +192,11 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            platform,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
+                let platform = resource.platform.clone();
                 let base_url = provider
                     .get_base_url(resource.base_url, resource.region, db)
                     .await?;
@@ -216,6 +231,7 @@ impl AIRequestConfig {
                     region,
                     aws_access_key_id,
                     aws_secret_access_key,
+                    platform,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -227,7 +243,17 @@ impl AIRequestConfig {
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
                 let base_url = provider.get_base_url(None, None, db).await?;
 
-                (None, Some(token), None, base_url, user, None, None, None)
+                (
+                    None,
+                    Some(token),
+                    None,
+                    base_url,
+                    user,
+                    None,
+                    None,
+                    None,
+                    AnthropicPlatform::Standard,
+                )
             }
         };
 
@@ -240,6 +266,7 @@ impl AIRequestConfig {
             region,
             aws_access_key_id,
             aws_secret_access_key,
+            platform,
         })
     }
 
@@ -294,8 +321,18 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
+        let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
+        let is_google_ai = matches!(provider, AIProvider::GoogleAI);
+
+        // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
+        let base_url = if is_google_ai {
+            format!("{}/openai", base_url)
+        } else {
+            base_url.to_string()
+        };
+        let base_url = base_url.as_str();
 
         // Check if using IAM credentials for Bedrock (instead of bearer token)
         let use_iam_auth =
@@ -317,6 +354,10 @@ impl AIRequestConfig {
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
             (bedrock_url, body)
+        } else if is_anthropic_vertex && method != Method::GET {
+            let (model, transformed_body) = transform_anthropic_for_vertex(&body)?;
+            let vertex_url = format!("{}/{}:streamRawPredict", base_url, model);
+            (vertex_url, transformed_body)
         } else if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
@@ -336,7 +377,12 @@ impl AIRequestConfig {
             .header("content-type", "application/json");
 
         for (header_name, header_value) in headers.iter() {
+            // Forward anthropic-* headers, but skip anthropic-version for Vertex AI
+            // (Vertex AI requires anthropic_version in the request body, not as a header)
             if header_name.to_string().starts_with("anthropic-") {
+                if is_anthropic_vertex && header_name.as_str() == "anthropic-version" {
+                    continue;
+                }
                 request = request.header(header_name, header_value);
             }
         }
@@ -360,13 +406,14 @@ impl AIRequestConfig {
             }
         } else {
             // For non-IAM auth, use bearer token or API key
-            if let Some(api_key) = self.api_key {
+            if let Some(api_key) = self.api_key.clone() {
                 if is_azure {
                     request = request.header("api-key", api_key.clone())
                 } else {
                     request = request.header("authorization", format!("Bearer {}", api_key.clone()))
                 }
-                if is_anthropic {
+                // For standard Anthropic API, also add X-API-Key header
+                if is_anthropic && !is_anthropic_vertex {
                     request = request.header("X-API-Key", api_key);
                 }
             }
@@ -436,6 +483,34 @@ pub struct AIConfig {
     pub custom_prompts: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens_per_model: Option<HashMap<String, i32>>,
+}
+
+/// Anthropic API version for Google Vertex AI
+const ANTHROPIC_VERSION_VERTEX: &str = "vertex-2023-10-16";
+
+/// Transforms an Anthropic request for Google Vertex AI:
+/// - Extracts the model from the body (needed for the URL)
+/// - Adds anthropic_version to the body
+fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
+    let mut json_body: HashMap<String, serde_json::Value> = serde_json::from_slice(body)
+        .map_err(|e| Error::internal_err(format!("Failed to parse Anthropic request: {}", e)))?;
+
+    // Extract and remove model from body
+    let model = json_body
+        .remove("model")
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| Error::BadRequest("Missing 'model' field in Anthropic request".to_string()))?;
+
+    // Add anthropic_version to body (required for Vertex AI)
+    json_body.insert(
+        "anthropic_version".to_string(),
+        serde_json::Value::String(ANTHROPIC_VERSION_VERTEX.to_string()),
+    );
+
+    let transformed_body = serde_json::to_vec(&json_body)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize Vertex request: {}", e)))?;
+
+    Ok((model, Bytes::from(transformed_body)))
 }
 
 // FIM (Fill-in-the-Middle) simulation for providers that don't support native FIM

@@ -210,6 +210,14 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
     }
 }
 
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AnthropicPlatform {
+    #[default]
+    Standard,
+    GoogleVertexAi,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
     #[serde(alias = "apiKey")]
@@ -221,6 +229,9 @@ pub struct ProviderResource {
     pub aws_access_key_id: Option<String>,
     #[serde(alias = "awsSecretAccessKey")]
     pub aws_secret_access_key: Option<String>,
+    /// Platform for Anthropic API (standard or google_vertex_ai)
+    #[serde(default)]
+    pub platform: AnthropicPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -259,6 +270,10 @@ impl ProviderWithResource {
 
     pub fn get_aws_secret_access_key(&self) -> Option<&str> {
         self.resource.aws_secret_access_key.as_deref()
+    }
+
+    pub fn get_platform(&self) -> &AnthropicPlatform {
+        &self.resource.platform
     }
 }
 
