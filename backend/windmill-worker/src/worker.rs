@@ -14,7 +14,7 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::timeout;
-use windmill_common::assets::{init_runtime_asset_inserter, RUNTIME_ASSET_SENDER};
+use windmill_common::assets::{init_runtime_asset_inserter, RUNTIME_ASSET_CHANNEL_CAPACITY};
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
@@ -1089,7 +1089,7 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
-pub fn start_interactive_worker_shell(
+fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
     worker_name: String,
@@ -1097,6 +1097,7 @@ pub fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
+    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
@@ -1202,6 +1203,7 @@ pub fn start_interactive_worker_shell(
                             flow_runners,
                             #[cfg(feature = "benchmark")]
                             &mut bench,
+                            &runtime_asset_tx,
                         )
                         .await;
 
@@ -1554,6 +1556,8 @@ pub async fn run_worker(
 
     let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
 
+    let (runtime_asset_tx, runtime_asset_rx) = mpsc::channel(RUNTIME_ASSET_CHANNEL_CAPACITY);
+
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
     let last_processing_duration = Arc::new(AtomicU16::new(0));
@@ -1594,6 +1598,7 @@ pub async fn run_worker(
             job_completed_tx.clone(),
             base_internal_url.to_owned(),
             worker_dir.clone(),
+            runtime_asset_tx.clone(),
         );
 
         Some(it_shell)
@@ -1662,7 +1667,7 @@ pub async fn run_worker(
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
         if let Connection::Sql(db) = conn {
-            init_runtime_asset_inserter(db.clone());
+            init_runtime_asset_inserter(db.clone(), runtime_asset_rx);
         }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();
@@ -2318,6 +2323,7 @@ pub async fn run_worker(
                         flow_runners,
                         #[cfg(feature = "benchmark")]
                         &mut bench,
+                        &runtime_asset_tx,
                     )
                     .instrument(span)
                     .await;
@@ -2747,6 +2753,7 @@ async fn detect_and_store_runtime_assets(
     Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
     runnable_path: &str,
     job_kind: &JobKind,
+    runtime_asset_tx: &mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
 ) {
     match job_kind {
         JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
@@ -2776,7 +2783,7 @@ async fn detect_and_store_runtime_assets(
             usage_path: runnable_path.to_string(),
             usage_kind,
         };
-        if let Err(e) = RUNTIME_ASSET_SENDER.try_send(asset) {
+        if let Err(e) = runtime_asset_tx.try_send(asset) {
             // Log the error but do not fail the job execution
             tracing::error!("Failed to send runtime asset to channel for job {job_id}: {e}",);
         }
@@ -2803,6 +2810,7 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
+    runtime_asset_tx: &mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
 ) -> windmill_common::error::Result<bool> {
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));
@@ -3044,7 +3052,7 @@ pub async fn handle_queued_job(
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
 
         // Extract and store runtime assets from job arguments
-        if let (Connection::Sql(db), Some(args_json), Some(runnable_path)) =
+        if let (Connection::Sql(_), Some(args_json), Some(runnable_path)) =
             (conn, &job.args, &job.runnable_path)
         {
             detect_and_store_runtime_assets(
@@ -3053,6 +3061,7 @@ pub async fn handle_queued_job(
                 args_json,
                 &runnable_path,
                 &job.kind,
+                runtime_asset_tx,
             )
             .await;
         }

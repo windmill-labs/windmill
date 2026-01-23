@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{PgExecutor, Pool, Postgres, QueryBuilder};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 use crate::error;
 
@@ -113,31 +113,22 @@ async fn insert_runtime_assets(
     Ok(())
 }
 
+pub const RUNTIME_ASSET_CHANNEL_CAPACITY: usize = 10_000;
 // To avoid workers having to insert lots of runtime asset rows when detecting them,
 // we use a channel to batch insert them periodically.
-pub fn init_runtime_asset_inserter(executor: Pool<Postgres>) {
+pub fn init_runtime_asset_inserter(
+    executor: Pool<Postgres>,
+    mut rx: mpsc::Receiver<InsertRuntimeAssetParams>,
+) {
     tokio::spawn(async move {
-        let _ = &*RUNTIME_ASSET_SENDER; // Force initialization
         let flush_interval = tokio::time::Duration::from_secs(120);
         let mut flush_timer = tokio::time::interval(flush_interval);
 
         let mut buffer = Vec::with_capacity(RUNTIME_ASSET_CHANNEL_CAPACITY);
-        let mut rx = match RUNTIME_ASSET_RECEIVER.try_lock() {
-            Ok(mut guard) => match guard.take() {
-                Some(rx) => rx,
-                None => {
-                    tracing::error!("Runtime asset rx not initialized (Impossible state)");
-                    return;
-                }
-            },
-            Err(e) => {
-                tracing::error!("Failed to acquire lock for runtime asset receiver: {e}");
-                return;
-            }
-        };
         loop {
             tokio::select! {
                 _ = flush_timer.tick() => {
+                    println!("DEBUUUG : Flushing runtime asset buffer with {} items", buffer.len());
                     if rx.is_closed() { break; }
                     rx.recv_many(&mut buffer, RUNTIME_ASSET_CHANNEL_CAPACITY).await;
                     if buffer.is_empty() { continue; }
@@ -149,16 +140,6 @@ pub fn init_runtime_asset_inserter(executor: Pool<Postgres>) {
             }
         }
     });
-}
-
-const RUNTIME_ASSET_CHANNEL_CAPACITY: usize = 10_000;
-lazy_static::lazy_static! {
-    pub static ref RUNTIME_ASSET_SENDER: mpsc::Sender<InsertRuntimeAssetParams> = {
-        let (tx, rx) = mpsc::channel(RUNTIME_ASSET_CHANNEL_CAPACITY);
-        *RUNTIME_ASSET_RECEIVER.blocking_lock() = Some(rx);
-        tx
-    };
-    static ref RUNTIME_ASSET_RECEIVER: Mutex<Option<mpsc::Receiver<InsertRuntimeAssetParams>>> = Mutex::new(None);
 }
 
 pub async fn clear_static_asset_usage<'e>(
