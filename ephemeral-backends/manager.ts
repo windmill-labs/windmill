@@ -18,11 +18,13 @@ const MANAGER_PORT = 8001;
 interface ManagerResources {
   cloudflaredProcess?: any;
   tunnelUrl?: string;
-  ephemeralBackends?: EphemeralBackend[];
+  ephemeralBackends: Map<string, EphemeralBackend>;
 }
 
 class EphemeralBackendManager {
-  private resources: ManagerResources = {};
+  private resources: ManagerResources = {
+    ephemeralBackends: new Map(),
+  };
   private server?: any;
 
   async start(): Promise<void> {
@@ -79,7 +81,12 @@ class EphemeralBackendManager {
           const spawnMatch = url.pathname.match(/^\/spawn\/([a-f0-9]+)$/);
           if (spawnMatch && req.method === "POST") {
             const commitHash = spawnMatch[1];
-            console.log(`\n🔹 Received request to spawn ephemeral backend for commit: ${commitHash}`);
+            console.log(
+              `\n🔹 Received request to spawn ephemeral backend for commit: ${commitHash}`
+            );
+            if (self.resources.ephemeralBackends.has(commitHash)) {
+              throw new Error(`Backend ${commitHash} is already running`);
+            }
 
             const tunnelUrl = await new Promise<string>((res, err) => {
               const timeout = setTimeout(() => {
@@ -92,15 +99,14 @@ class EphemeralBackendManager {
                 commitHash: commitHash,
                 onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
                 onCleanup: () => {
-                  const index =
-                    self.resources.ephemeralBackends?.indexOf(ephemeralBackend);
-                  if (index && index !== -1)
-                    self.resources.ephemeralBackends?.splice(index, 1);
+                  self.resources.ephemeralBackends.delete(commitHash);
                 },
               });
               ephemeralBackend.spawn().catch((e) => err(e));
-              self.resources.ephemeralBackends ??= [];
-              self.resources.ephemeralBackends.push(ephemeralBackend);
+              self.resources.ephemeralBackends.set(
+                commitHash,
+                ephemeralBackend
+              );
             });
 
             return new Response(
@@ -275,15 +281,16 @@ class EphemeralBackendManager {
       }
     }
 
-    for (const backend of this.resources.ephemeralBackends || []) {
+    for (const [commitHash, backend] of this.resources.ephemeralBackends) {
+      const hash = commitHash.substring(0, 8);
       console.log(
-        `  Cleaning up ephemeral backend on server port ${backend.getServerPort()}...`
+        `  Cleaning up ephemeral backend ${hash} on port ${backend.getServerPort()}...`
       );
       try {
         await backend.cleanup();
       } catch (error) {
         console.error(
-          `  Failed to clean up backend on port ${backend.getServerPort()}:`,
+          `  Failed to clean up backend ${hash} on port ${backend.getServerPort()}:`,
           error
         );
       }
@@ -297,7 +304,9 @@ class EphemeralBackendManager {
     const minPort = 5433;
     for (let port = minPort; port < minPort + 100; port++) {
       if (
-        !this.resources.ephemeralBackends?.some((eb) => port === eb.getDbPort())
+        ![...this.resources.ephemeralBackends.values()].some(
+          (eb) => port === eb.getDbPort()
+        )
       ) {
         return port;
       }
@@ -309,7 +318,7 @@ class EphemeralBackendManager {
     const minPort = 8002;
     for (let port = minPort; port < minPort + 100; port++) {
       if (
-        !this.resources.ephemeralBackends?.some(
+        ![...this.resources.ephemeralBackends.values()].some(
           (eb) => port === eb.getServerPort()
         )
       ) {
