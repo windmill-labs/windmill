@@ -220,13 +220,17 @@ export class EphemeralBackend {
     }
 
     return new Promise((resolve, reject) => {
-      this.resources.cloudflaredProcess = spawn("cloudflared", [
-        "tunnel",
-        "--url",
-        `http://localhost:${this.config.serverPort}`,
-        "--config",
-        "/dev/null",
-      ]);
+      this.resources.cloudflaredProcess = spawn(
+        "cloudflared",
+        [
+          "tunnel",
+          "--url",
+          `http://localhost:${this.config.serverPort}`,
+          "--config",
+          "/dev/null",
+        ],
+        { timeout: 45 * 60 * 1000 } // 45 minutes
+      );
 
       const rl = readline.createInterface({
         input: this.resources.cloudflaredProcess.stdout,
