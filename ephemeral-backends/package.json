@@ -1,0 +1,14 @@
+{
+  "name": "windmill-ephemeral-backends",
+  "version": "1.0.0",
+  "description": "Ephemeral backend spawner for Windmill",
+  "type": "module",
+  "scripts": {
+    "start": "bun run spawn.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "bun-types": "^1.0.0"
+  }
+}
