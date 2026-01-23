@@ -22,6 +22,7 @@ interface SpawnedResources {
   cloudflaredProcess?: any;
   tunnelUrl?: string;
   worktreePath?: string;
+  eeWorktreePath?: string;
 }
 
 // No default config needed since commitHash is always required
@@ -50,6 +51,7 @@ export class EphemeralBackend {
 
       await this.startCloudflared();
       await this.createWorktree();
+      await this.setupEECode();
       await this.spawnPostgres();
       await this.waitForPostgres();
       if (!this.config.skipBuild) {
@@ -73,6 +75,10 @@ export class EphemeralBackend {
 
   private getWorktreePath(): string {
     return `../windmill-ephemeral-backends/${this.config.commitHash}`;
+  }
+
+  private getEEWorktreePath(): string {
+    return `${this.getWorktreePath()}_private`;
   }
 
   private async createWorktree(): Promise<void> {
@@ -108,6 +114,73 @@ export class EphemeralBackend {
       `git worktree add ${worktreePath} ${this.config.commitHash}`
     );
     console.log(`✓ Worktree created at ${worktreePath}`);
+  }
+
+  private async setupEECode(): Promise<void> {
+    console.log("\n🔐 Setting up Enterprise Edition code...");
+
+    const worktreePath = this.getWorktreePath();
+    const eeRefPath = `${worktreePath}/backend/ee-repo-ref.txt`;
+    const eeWorktreePath = this.getEEWorktreePath();
+    this.resources.eeWorktreePath = eeWorktreePath;
+
+    // Read the EE commit hash from ee-repo-ref.txt
+    console.log(`  Reading EE commit reference from ${eeRefPath}`);
+    let eeCommitHash: string;
+    try {
+      const { stdout } = await execAsync(`cat ${eeRefPath}`);
+      eeCommitHash = stdout.trim();
+      if (!eeCommitHash) {
+        throw new Error("ee-repo-ref.txt is empty");
+      }
+      console.log(`  ✓ EE commit hash: ${eeCommitHash}`);
+    } catch (error) {
+      throw new Error(
+        `Failed to read ee-repo-ref.txt: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // Clone the windmill-ee-private repo at the specific commit
+    console.log(`  Cloning windmill-ee-private at commit ${eeCommitHash}`);
+    try {
+      await execAsync(
+        `git clone git@github.com:windmill-labs/windmill-ee-private.git ${eeWorktreePath}`
+      );
+      console.log(`  ✓ Repository cloned to ${eeWorktreePath}`);
+    } catch (error) {
+      throw new Error(
+        `Failed to clone windmill-ee-private: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // Checkout the specific commit
+    console.log(`  Checking out commit ${eeCommitHash}`);
+    try {
+      await execAsync(`git checkout ${eeCommitHash}`, {
+        cwd: eeWorktreePath,
+      });
+      console.log(`  ✓ Checked out commit ${eeCommitHash}`);
+    } catch (error) {
+      throw new Error(
+        `Failed to checkout EE commit: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    // Run the substitute_ee_code.sh script to copy EE files
+    console.log(`  Running substitute_ee_code.sh to copy EE files`);
+    try {
+      await execAsync(
+        `./substitute_ee_code.sh --copy -d ${eeWorktreePath}`,
+        { cwd: `${worktreePath}/backend` }
+      );
+      console.log(`  ✓ EE code substituted successfully`);
+    } catch (error) {
+      throw new Error(
+        `Failed to substitute EE code: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+
+    console.log("✓ Enterprise Edition code setup complete");
   }
 
   private async spawnPostgres(): Promise<void> {
@@ -347,6 +420,17 @@ export class EphemeralBackend {
         console.log("  ✓ PostgreSQL container stopped");
       } catch (error) {
         console.error("  Failed to stop PostgreSQL container:", error);
+      }
+    }
+
+    // Remove EE private repository clone
+    if (this.resources.eeWorktreePath) {
+      console.log("  Removing EE private repository clone...");
+      try {
+        await execAsync(`rm -rf ${this.resources.eeWorktreePath}`);
+        console.log("  ✓ EE private repository clone removed");
+      } catch (error) {
+        console.error("  Failed to remove EE private repository clone:", error);
       }
     }
 
