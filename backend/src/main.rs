@@ -321,6 +321,17 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Raw resource type from hub API (schema is a JSON string)
+#[derive(serde::Deserialize)]
+struct HubResourceTypeRaw {
+    pub id: i64,
+    pub name: String,
+    pub schema: Option<String>,
+    pub app: String,
+    pub description: Option<String>,
+}
+
+/// Processed resource type with parsed schema
 #[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct HubResourceType {
     pub id: i64,
@@ -349,10 +360,34 @@ async fn cache_hub_resource_types() -> anyhow::Result<()> {
         );
     }
 
-    let resource_types: Vec<HubResourceType> = response
-        .json::<Vec<HubResourceType>>()
+    let raw_types: Vec<HubResourceTypeRaw> = response
+        .json::<Vec<HubResourceTypeRaw>>()
         .await
         .with_context(|| "Failed to parse resource types from hub")?;
+
+    // Parse schema strings into JSON values
+    let resource_types: Vec<HubResourceType> = raw_types
+        .into_iter()
+        .filter_map(|rt| {
+            let schema = match rt.schema {
+                Some(s) => match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        println!("Warning: failed to parse schema for {}: {}", rt.name, e);
+                        return None;
+                    }
+                },
+                None => None,
+            };
+            Some(HubResourceType {
+                id: rt.id,
+                name: rt.name,
+                schema,
+                app: rt.app,
+                description: rt.description,
+            })
+        })
+        .collect();
 
     println!("Fetched {} resource types from hub", resource_types.len());
 
