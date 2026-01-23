@@ -1,5 +1,6 @@
 use crate::ai::providers::openai::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
+use crate::ai::types::McpToolSource;
 use crate::ai::types::*;
 use crate::ai::utils::{
     add_message_to_conversation, execute_mcp_tool, get_step_name_from_flow,
@@ -19,10 +20,10 @@ use anyhow::Context;
 use mappable_rc::Marc;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 use windmill_common::flows::InputTransform;
 use windmill_common::jobs::JobPayload;
-use crate::ai::types::McpToolSource;
 
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
@@ -85,6 +86,7 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
 ) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
@@ -149,6 +151,7 @@ pub async fn execute_tool_calls(
                     actions,
                     &mut messages,
                     final_events_str,
+                    runtime_asset_tx.clone(),
                 )
                 .await?;
             } else {
@@ -270,6 +273,7 @@ async fn execute_windmill_tool(
     actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
+    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
 ) -> Result<(), Error> {
     // Regular Windmill tools must have a module
     let tool_module = tool.module.as_ref().ok_or_else(|| {
@@ -528,6 +532,7 @@ async fn execute_windmill_tool(
             None,
             #[cfg(feature = "benchmark")]
             &mut bench_spawn,
+            &runtime_asset_tx,
         )
         .await;
 

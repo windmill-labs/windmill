@@ -3175,6 +3175,7 @@ pub async fn handle_queued_job(
                         hostname,
                         killpill_rx,
                         &mut has_stream,
+                        runtime_asset_tx.clone(),
                     ))
                     .await
                 }
