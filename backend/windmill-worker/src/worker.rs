@@ -2744,7 +2744,6 @@ pub struct PreviousResult<'a> {
 /// This function is called when a job starts executing to track which assets
 /// are passed as inputs to the job at runtime.
 async fn detect_and_store_runtime_assets(
-    db: &sqlx::Pool<sqlx::Postgres>,
     workspace_id: &str,
     job_id: &Uuid,
     Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
@@ -3051,7 +3050,6 @@ pub async fn handle_queued_job(
             (conn, &job.args, &job.runnable_path)
         {
             detect_and_store_runtime_assets(
-                db,
                 &job.workspace_id,
                 &job.id,
                 args_json,
