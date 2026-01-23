@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.613.4
+  version: 1.614.0
   title: Windmill API
 
   contact:
@@ -1410,6 +1410,20 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
+
+  /min_keep_alive_version:
+    get:
+      summary: get minimum worker version required to stay alive
+      operationId: getMinKeepAliveVersion
+      tags:
+        - setting
+      responses:
+        "200":
+          description: minimum keep-alive version
+          content:
+            text/plain:
+              schema:
+                type: string
 
   /.well-known/jwks.json:
     get:

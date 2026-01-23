@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.614.0](https://github.com/windmill-labs/windmill/compare/v1.613.4...v1.614.0) (2026-01-23)
+
+
+### Features
+
+* add cache-rt command and SYNC_CACHED_RT env variable for resource types ([#7666](https://github.com/windmill-labs/windmill/issues/7666)) ([85e460d](https://github.com/windmill-labs/windmill/commit/85e460d853cbd9f8d245efb9009690c0bb468bfc))
+* **aichat:** handle codestral from any provider ([#7649](https://github.com/windmill-labs/windmill/issues/7649)) ([389499e](https://github.com/windmill-labs/windmill/commit/389499e57696dc4805080a9e6b737b1aef4566be))
+* **ai:** handle google vertex for claude models + base url overrides ([#7654](https://github.com/windmill-labs/windmill/issues/7654)) ([0797e89](https://github.com/windmill-labs/windmill/commit/0797e89aa00e57b4e162df32d7b0a041ad6db71e))
+* better mixed versions handling ([#7628](https://github.com/windmill-labs/windmill/issues/7628)) ([7249b82](https://github.com/windmill-labs/windmill/commit/7249b82dbaee2d14cb5768233c2026a6ab44231f))
+
+
+### Bug Fixes
+
+* add support for OIDC session tokens in S3 proxy headers ([#7652](https://github.com/windmill-labs/windmill/issues/7652)) ([3b8a99e](https://github.com/windmill-labs/windmill/commit/3b8a99e174682ad90a9a0d3957902e09c9e0a195))
+* Avoid logout when using deploy ui and no access to some deps ([#7655](https://github.com/windmill-labs/windmill/issues/7655)) ([bb21486](https://github.com/windmill-labs/windmill/commit/bb2148639441b86c6c966119df4711066fc94c85))
+* **frontend:** improve ai chat ui ([#7648](https://github.com/windmill-labs/windmill/issues/7648)) ([af14b09](https://github.com/windmill-labs/windmill/commit/af14b0941581eec98061d4cbae159a061f1d5eee))
+* **frontend:** Improve flow detail page ([#7647](https://github.com/windmill-labs/windmill/issues/7647)) ([7385726](https://github.com/windmill-labs/windmill/commit/738572674123a00a5e37a0c875b2649608c70f0a))
+* use pgoptions for iam rds connection ([#7660](https://github.com/windmill-labs/windmill/issues/7660)) ([08b483e](https://github.com/windmill-labs/windmill/commit/08b483eacafcd161537b9a09f63640eeacad087f))
+
 ## [1.613.4](https://github.com/windmill-labs/windmill/compare/v1.613.3...v1.613.4) (2026-01-21)
 
 
