@@ -1660,23 +1660,21 @@ pub async fn run_worker(
     ) = (HashMap::new(), false, vec![]);
 
     if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_inserter(db.clone());
+        }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
-
         spawn_periodic_script_task(
             worker_name.clone(),
             conn.clone(),
             same_worker_tx.clone(),
             killpill_rx.resubscribe(),
         );
-
-        // Initialize runtime asset inserter for batched database inserts
-        if let Connection::Sql(db) = conn {
-            init_runtime_asset_inserter(db.clone());
-        }
     }
 
     #[cfg(feature = "prometheus")]

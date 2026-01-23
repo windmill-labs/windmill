@@ -116,8 +116,8 @@ async fn insert_runtime_assets(
 // To avoid workers having to insert lots of runtime asset rows when detecting them,
 // we use a channel to batch insert them periodically.
 pub fn init_runtime_asset_inserter(executor: Pool<Postgres>) {
-    let _ = &*RUNTIME_ASSET_SENDER; // Force initialization
     tokio::spawn(async move {
+        let _ = &*RUNTIME_ASSET_SENDER; // Force initialization
         let flush_interval = tokio::time::Duration::from_secs(120);
         let mut flush_timer = tokio::time::interval(flush_interval);
 
