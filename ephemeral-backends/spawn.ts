@@ -34,13 +34,8 @@ class EphemeralBackend {
   }
 
   async spawn(): Promise<void> {
-    // Setup cleanup handlers early
-    const cleanupHandler = async () => {
-      await this.cleanup();
-    };
-
-    process.on("SIGINT", cleanupHandler);
-    process.on("SIGTERM", cleanupHandler);
+    process.on("SIGINT", () => this.cleanup());
+    process.on("SIGTERM", () => this.cleanup());
 
     try {
       console.log("🚀 Starting ephemeral backend...");
@@ -256,7 +251,7 @@ class EphemeralBackend {
     });
   }
 
-  private async cleanup(): Promise<void> {
+  async cleanup(): Promise<void> {
     console.log("\n🧹 Cleaning up resources...");
 
     // Kill backend process
