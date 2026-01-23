@@ -89,9 +89,6 @@ class EphemeralBackendManager {
             }
 
             const tunnelUrl = await new Promise<string>((res, err) => {
-              const timeout = setTimeout(() => {
-                err(new Error("Timeout waiting for backend URL"));
-              }, 20000);
               const ephemeralBackend = new EphemeralBackend({
                 dbPort: self.findFreeDbPorts(),
                 serverPort: self.findFreeServerPorts(),
@@ -102,11 +99,27 @@ class EphemeralBackendManager {
                   self.resources.ephemeralBackends.delete(commitHash);
                 },
               });
-              ephemeralBackend.spawn().catch((e) => err(e));
-              self.resources.ephemeralBackends.set(
-                commitHash,
-                ephemeralBackend
-              );
+              function onError(e: any) {
+                onError(e);
+                ephemeralBackend.cleanup().catch(() => {
+                  console.error(
+                    `Failed to cleanup backend for commit ${commitHash}`
+                  );
+                });
+                clearTimeout(timeout);
+              }
+              const timeout = setTimeout(() => {
+                onError(new Error("Timeout waiting for backend URL"));
+              }, 20000);
+              try {
+                ephemeralBackend.spawn().catch((e) => onError(e));
+                self.resources.ephemeralBackends.set(
+                  commitHash,
+                  ephemeralBackend
+                );
+              } catch (e) {
+                onError(e);
+              }
             });
 
             return new Response(

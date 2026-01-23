@@ -167,11 +167,7 @@ export class EphemeralBackend {
     // Detect OS to use correct deno_core feature
     const isMacOS = process.platform === "darwin";
 
-    const env = {
-      ...process.env,
-      SQLX_OFFLINE: "true",
-      DATABASE_URL: `postgres://postgres:changeme@localhost:${this.config.dbPort}/windmill?sslmode=disable`,
-    };
+    const env = { ...process.env, SQLX_OFFLINE: "true" };
 
     const features = [
       "enterprise",
