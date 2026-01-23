@@ -24,12 +24,135 @@ use bytes;
 use futures;
 use std::time::SystemTime;
 use uuid;
+use serde::Deserialize;
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, format_bedrock_error,
     BedrockClient, OpenAIMessage, OpenAIToolCall,
 };
 use windmill_common::error::{Error, Result};
+
+// ============================================================================
+// Shared Request Types for SDK-Based Handlers
+// ============================================================================
+
+/// OpenAI-format request body for Bedrock SDK handlers
+#[derive(Deserialize, Debug)]
+struct OpenAIRequest {
+    messages: Vec<OpenAIMessage>,
+    #[serde(default)]
+    tools: Option<Vec<OpenAIToolDef>>,
+    #[serde(default)]
+    tool_choice: Option<serde_json::Value>,
+    #[serde(default)]
+    max_tokens: Option<i32>,
+    #[serde(default)]
+    temperature: Option<f32>,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAIToolDef {
+    #[serde(default)]
+    #[allow(dead_code)]
+    r#type: Option<String>,
+    function: OpenAIToolFunction,
+}
+
+#[derive(Deserialize, Debug)]
+struct OpenAIToolFunction {
+    name: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    parameters: Option<serde_json::Value>,
+}
+
+// ============================================================================
+// Shared Helper Functions for SDK-Based Handlers
+// ============================================================================
+
+/// Create a BedrockClient with auth priority: bearer token → IAM credentials → environment
+async fn create_bedrock_client(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    region: &str,
+    context: &str, // "streaming" or "non-streaming" for logging
+) -> Result<BedrockClient> {
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        // 1. Bearer token if API key provided
+        tracing::info!(
+            "Bedrock SDK {}: auth=bearer token, region={}",
+            context,
+            region
+        );
+        BedrockClient::from_bearer_token(key.to_string(), region).await
+    } else if let (Some(access_key_id), Some(secret_access_key)) = (
+        aws_access_key_id.filter(|s| !s.is_empty()),
+        aws_secret_access_key.filter(|s| !s.is_empty()),
+    ) {
+        // 2. IAM credentials if provided and not empty
+        tracing::info!(
+            "Bedrock SDK {}: auth=IAM credentials, region={}, access_key_id={}...",
+            context,
+            region,
+            access_key_id.get(..8).unwrap_or("N/A")
+        );
+        BedrockClient::from_credentials(
+            access_key_id.to_string(),
+            secret_access_key.to_string(),
+            region,
+        )
+        .await
+    } else {
+        // 3. Environment credentials as fallback
+        tracing::info!(
+            "Bedrock SDK {}: auth=environment credentials, region={}",
+            context,
+            region
+        );
+        BedrockClient::from_env(region).await
+    }
+}
+
+/// Convert OpenAIToolDef array to tool configuration for Bedrock SDK
+fn build_tool_config_from_request(
+    tools: Option<&[OpenAIToolDef]>,
+    tool_choice: Option<&serde_json::Value>,
+) -> Result<Option<aws_sdk_bedrockruntime::types::ToolConfiguration>> {
+    if let Some(tools) = tools {
+        let tool_defs: Vec<windmill_common::ai_bedrock::ToolDef> = tools
+            .iter()
+            .map(|t| windmill_common::ai_bedrock::ToolDef {
+                r#type: "function".to_string(),
+                function: windmill_common::ai_bedrock::ToolDefFunction {
+                    name: t.function.name.clone(),
+                    description: t.function.description.clone(),
+                    parameters: Box::from(
+                        serde_json::value::RawValue::from_string(
+                            serde_json::to_string(
+                                &t.function.parameters.clone().unwrap_or(serde_json::json!({})),
+                            )
+                            .unwrap_or_default(),
+                        )
+                        .unwrap_or_else(|_| {
+                            serde_json::value::RawValue::from_string("{}".to_string()).unwrap()
+                        }),
+                    ),
+                },
+            })
+            .collect();
+
+        // Determine if we should force tool use based on tool_choice
+        let force_tool_use = tool_choice
+            .map(|tc| tc == "required" || tc.as_str() == Some("required"))
+            .unwrap_or(false);
+
+        windmill_common::ai_bedrock::build_tool_config(Some(&tool_defs), force_tool_use)
+    } else {
+        Ok(None)
+    }
+}
 
 /// Sign a request for AWS Bedrock using SigV4
 ///
@@ -724,77 +847,18 @@ pub async fn handle_bedrock_sdk_streaming(
     http::HeaderMap,
     axum::body::Body,
 )> {
-    use serde::Deserialize;
-
-    // Parse the OpenAI-format request body to extract messages and tools
-    #[derive(Deserialize, Debug)]
-    struct OpenAIRequest {
-        messages: Vec<OpenAIMessage>,
-        #[serde(default)]
-        tools: Option<Vec<OpenAIToolDef>>,
-        #[serde(default)]
-        tool_choice: Option<serde_json::Value>,
-        #[serde(default)]
-        max_tokens: Option<i32>,
-        #[serde(default)]
-        temperature: Option<f32>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenAIToolDef {
-        #[serde(default)]
-        #[allow(dead_code)]
-        r#type: Option<String>,
-        function: OpenAIToolFunction,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenAIToolFunction {
-        name: String,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        parameters: Option<serde_json::Value>,
-    }
-
     let openai_req: OpenAIRequest = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
-    // Create Bedrock client with priority: bearer token → IAM credentials → environment
-    let bedrock_client = if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        // 1. Bearer token if API key provided
-        tracing::info!(
-            "Bedrock SDK streaming: auth=bearer token, model={}, region={}",
-            model,
-            region
-        );
-        BedrockClient::from_bearer_token(key.to_string(), region).await?
-    } else if let (Some(access_key_id), Some(secret_access_key)) = (
-        aws_access_key_id.filter(|s| !s.is_empty()),
-        aws_secret_access_key.filter(|s| !s.is_empty()),
-    ) {
-        // 2. IAM credentials if provided and not empty
-        tracing::info!(
-            "Bedrock SDK streaming: auth=IAM credentials, model={}, region={}, access_key_id={}...",
-            model,
-            region,
-            access_key_id.get(..8).unwrap_or("N/A")
-        );
-        BedrockClient::from_credentials(
-            access_key_id.to_string(),
-            secret_access_key.to_string(),
-            region,
-        )
-        .await?
-    } else {
-        // 3. Environment credentials as fallback
-        tracing::info!(
-            "Bedrock SDK streaming: auth=environment credentials, model={}, region={}",
-            model,
-            region
-        );
-        BedrockClient::from_env(region).await?
-    };
+    // Create Bedrock client using shared helper
+    let bedrock_client = create_bedrock_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        region,
+        "streaming",
+    )
+    .await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
@@ -806,35 +870,11 @@ pub async fn handle_bedrock_sdk_streaming(
         openai_req.max_tokens,
     );
 
-    // Convert tools if present
-    let tool_config = if let Some(ref tools) = openai_req.tools {
-        let tool_defs: Vec<windmill_common::ai_bedrock::ToolDef> = tools
-            .iter()
-            .map(|t| windmill_common::ai_bedrock::ToolDef {
-                r#type: "function".to_string(),
-                function: windmill_common::ai_bedrock::ToolDefFunction {
-                    name: t.function.name.clone(),
-                    description: t.function.description.clone(),
-                    parameters: Box::from(
-                        serde_json::value::RawValue::from_string(
-                            serde_json::to_string(&t.function.parameters.clone().unwrap_or(serde_json::json!({}))).unwrap_or_default()
-                        ).unwrap_or_else(|_| serde_json::value::RawValue::from_string("{}".to_string()).unwrap())
-                    ),
-                },
-            })
-            .collect();
-
-        // Determine if we should force tool use based on tool_choice
-        let force_tool_use = openai_req
-            .tool_choice
-            .as_ref()
-            .map(|tc| tc == "required" || tc.as_str() == Some("required"))
-            .unwrap_or(false);
-
-        windmill_common::ai_bedrock::build_tool_config(Some(&tool_defs), force_tool_use)?
-    } else {
-        None
-    };
+    // Convert tools using shared helper
+    let tool_config = build_tool_config_from_request(
+        openai_req.tools.as_deref(),
+        openai_req.tool_choice.as_ref(),
+    )?;
 
     // Build the SDK request
     let mut request_builder = bedrock_client
@@ -1066,77 +1106,18 @@ pub async fn handle_bedrock_sdk_non_streaming(
     aws_secret_access_key: Option<&str>,
     region: &str,
 ) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
-    use serde::Deserialize;
-
-    // Parse the OpenAI-format request body
-    #[derive(Deserialize, Debug)]
-    struct OpenAIRequest {
-        messages: Vec<OpenAIMessage>,
-        #[serde(default)]
-        tools: Option<Vec<OpenAIToolDef>>,
-        #[serde(default)]
-        tool_choice: Option<serde_json::Value>,
-        #[serde(default)]
-        max_tokens: Option<i32>,
-        #[serde(default)]
-        temperature: Option<f32>,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenAIToolDef {
-        #[serde(default)]
-        #[allow(dead_code)]
-        r#type: Option<String>,
-        function: OpenAIToolFunction,
-    }
-
-    #[derive(Deserialize, Debug)]
-    struct OpenAIToolFunction {
-        name: String,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        parameters: Option<serde_json::Value>,
-    }
-
     let openai_req: OpenAIRequest = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
-    // Create Bedrock client with priority: bearer token → IAM credentials → environment
-    let bedrock_client = if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        // 1. Bearer token if API key provided
-        tracing::info!(
-            "Bedrock SDK non-streaming: auth=bearer token, model={}, region={}",
-            model,
-            region
-        );
-        BedrockClient::from_bearer_token(key.to_string(), region).await?
-    } else if let (Some(access_key_id), Some(secret_access_key)) = (
-        aws_access_key_id.filter(|s| !s.is_empty()),
-        aws_secret_access_key.filter(|s| !s.is_empty()),
-    ) {
-        // 2. IAM credentials if provided and not empty
-        tracing::info!(
-            "Bedrock SDK non-streaming: auth=IAM credentials, model={}, region={}, access_key_id={}...",
-            model,
-            region,
-            access_key_id.get(..8).unwrap_or("N/A")
-        );
-        BedrockClient::from_credentials(
-            access_key_id.to_string(),
-            secret_access_key.to_string(),
-            region,
-        )
-        .await?
-    } else {
-        // 3. Environment credentials as fallback
-        tracing::info!(
-            "Bedrock SDK non-streaming: auth=environment credentials, model={}, region={}",
-            model,
-            region
-        );
-        BedrockClient::from_env(region).await?
-    };
+    // Create Bedrock client using shared helper
+    let bedrock_client = create_bedrock_client(
+        api_key,
+        aws_access_key_id,
+        aws_secret_access_key,
+        region,
+        "non-streaming",
+    )
+    .await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
@@ -1148,40 +1129,11 @@ pub async fn handle_bedrock_sdk_non_streaming(
         openai_req.max_tokens,
     );
 
-    // Convert tools if present
-    let tool_config = if let Some(ref tools) = openai_req.tools {
-        let tool_defs: Vec<windmill_common::ai_bedrock::ToolDef> = tools
-            .iter()
-            .map(|t| windmill_common::ai_bedrock::ToolDef {
-                r#type: "function".to_string(),
-                function: windmill_common::ai_bedrock::ToolDefFunction {
-                    name: t.function.name.clone(),
-                    description: t.function.description.clone(),
-                    parameters: Box::from(
-                        serde_json::value::RawValue::from_string(
-                            serde_json::to_string(
-                                &t.function.parameters.clone().unwrap_or(serde_json::json!({})),
-                            )
-                            .unwrap_or_default(),
-                        )
-                        .unwrap_or_else(|_| {
-                            serde_json::value::RawValue::from_string("{}".to_string()).unwrap()
-                        }),
-                    ),
-                },
-            })
-            .collect();
-
-        let force_tool_use = openai_req
-            .tool_choice
-            .as_ref()
-            .map(|tc| tc == "required" || tc.as_str() == Some("required"))
-            .unwrap_or(false);
-
-        windmill_common::ai_bedrock::build_tool_config(Some(&tool_defs), force_tool_use)?
-    } else {
-        None
-    };
+    // Convert tools using shared helper
+    let tool_config = build_tool_config_from_request(
+        openai_req.tools.as_deref(),
+        openai_req.tool_choice.as_ref(),
+    )?;
 
     // Build the SDK request (non-streaming)
     let mut request_builder = bedrock_client

@@ -20,44 +20,13 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
-/// URL citation annotation for web search results
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct UrlCitation {
-    pub start_index: usize,
-    pub end_index: usize,
-    pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-}
+// Re-export shared types from windmill_common::ai_bedrock
+pub use windmill_common::ai_bedrock::{
+    ContentPart, ImageUrlData, OpenAIContent, ToolDef, ToolDefFunction, UrlCitation,
+};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentPart {
-    Text {
-        text: String,
-    },
-    #[serde(rename = "image_url")]
-    ImageUrl {
-        image_url: ImageUrlData,
-    },
-    #[serde(rename = "s3_object")]
-    S3Object {
-        s3_object: S3Object,
-    },
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ImageUrlData {
-    pub url: String, // data:image/png;base64,... or https://...
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum OpenAIContent {
-    Text(String),
-    Parts(Vec<ContentPart>),
-}
-
+/// OpenAI message format with additional agent_action field for worker-specific tracking.
+/// This extends the base OpenAIMessage from windmill_common with flow-specific metadata.
 #[derive(Deserialize, Serialize, Clone, Default, Debug)]
 pub struct OpenAIMessage {
     pub role: String,
@@ -94,19 +63,6 @@ pub struct JsonSchemaFormat {
     pub schema: OpenAPISchema,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ToolDefFunction {
-    pub name: String,
-    pub description: Option<String>,
-    pub parameters: Box<RawValue>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ToolDef {
-    pub r#type: String,
-    pub function: ToolDefFunction,
 }
 
 #[derive(Serialize, Clone, Debug)]
