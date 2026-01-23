@@ -14,6 +14,7 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::timeout;
+use windmill_common::assets::{init_runtime_asset_inserter, RUNTIME_ASSET_SENDER};
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
@@ -1671,6 +1672,11 @@ pub async fn run_worker(
             same_worker_tx.clone(),
             killpill_rx.resubscribe(),
         );
+
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_inserter(db.clone());
+        }
     }
 
     #[cfg(feature = "prometheus")]
@@ -2765,23 +2771,17 @@ async fn detect_and_store_runtime_assets(
 
     // Store each detected runtime asset
     for asset in runtime_assets {
-        if let Err(e) = windmill_common::assets::insert_runtime_asset(
-            db,
-            workspace_id,
-            *job_id,
-            &asset.path,
-            asset.kind,
-            runnable_path,
+        let asset = windmill_common::assets::InsertRuntimeAssetParams {
+            workspace_id: workspace_id.to_string(),
+            job_id: *job_id,
+            asset_path: asset.path,
+            asset_kind: asset.kind,
+            usage_path: runnable_path.to_string(),
             usage_kind,
-        )
-        .await
-        {
-            tracing::warn!(
-                "Failed to insert runtime asset {} for job {}: {:?}",
-                asset.path,
-                job_id,
-                e
-            );
+        };
+        if let Err(e) = RUNTIME_ASSET_SENDER.try_send(asset) {
+            // Log the error but do not fail the job execution
+            tracing::error!("Failed to send runtime asset to channel for job {job_id}: {e}",);
         }
     }
 }

@@ -42,7 +42,7 @@ use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDep
 
 use windmill_common::{
     assets::{
-        clear_asset_usage, insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        clear_static_asset_usage, insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
     },
     error::{self, to_anyhow},
     runnable_settings::{
@@ -1043,7 +1043,7 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
+    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
     for asset in ns.assets.as_ref().into_iter().flatten() {
         insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
             .await?;
