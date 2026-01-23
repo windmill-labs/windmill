@@ -33,6 +33,15 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 
+lazy_static! {
+    /// Environment variable to enable QuickJS for flow expression evaluation.
+    /// Set USE_QUICKJS_FOR_FLOW_EVAL=true to use QuickJS instead of deno_core.
+    /// QuickJS offers ~10-16x faster startup for simple expressions.
+    pub static ref USE_QUICKJS: bool = std::env::var("USE_QUICKJS_FOR_FLOW_EVAL")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+}
+
 #[cfg(feature = "deno_core")]
 use tokio::{
     sync::{mpsc, oneshot},
@@ -256,7 +265,7 @@ fn contains_semicolon_outside_strings(expr: &str) -> bool {
     false
 }
 
-fn try_exact_property_access(
+pub(crate) fn try_exact_property_access(
     expr: &str,
     flow_input: Option<&mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
@@ -304,7 +313,7 @@ fn try_exact_property_access(
     None
 }
 
-async fn handle_full_regex(
+pub(crate) async fn handle_full_regex(
     expr: &str,
     authed_client: &AuthedClient,
     by_id: &IdContext,
@@ -341,6 +350,7 @@ async fn handle_full_regex(
     return None;
 }
 
+#[allow(unreachable_code)]
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
@@ -350,6 +360,37 @@ pub async fn eval_timeout(
     by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
+    // Use QuickJS if:
+    // 1. quickjs feature is enabled AND deno_core is not available, OR
+    // 2. quickjs feature is enabled AND USE_QUICKJS_FOR_FLOW_EVAL env var is set
+    #[cfg(all(feature = "quickjs", not(feature = "deno_core")))]
+    {
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
+    }
+
+    #[cfg(all(feature = "quickjs", feature = "deno_core"))]
+    if *USE_QUICKJS {
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
+    }
+
     let expr = expr.trim().to_string();
 
     tracing::debug!(
@@ -522,8 +563,10 @@ pub async fn eval_timeout(
     }
 }
 
-#[cfg(feature = "deno_core")]
-fn replace_with_await(expr: String, fn_name: &str) -> String {
+/// Wraps function calls like variable(...) and resource(...) with (await ...)
+/// This is used by both deno_core and quickjs implementations.
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+pub fn replace_with_await(expr: String, fn_name: &str) -> String {
     let sep = format!("{}(", fn_name);
     let mut split = expr.split(&sep);
     let mut s = split.next().unwrap_or_else(|| "").to_string();
@@ -545,12 +588,14 @@ lazy_static! {
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
 
-#[cfg(feature = "deno_core")]
-fn replace_with_await_result(expr: String) -> String {
+/// Wraps results.xxx and flow_env.xxx patterns with (await ...)
+/// This is used by both deno_core and quickjs implementations.
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
+pub fn replace_with_await_result(expr: String) -> String {
     RE.replace_all(&expr, "(await $r)").to_string()
 }
 
-#[cfg(feature = "deno_core")]
+#[cfg(any(feature = "deno_core", feature = "quickjs"))]
 fn add_closing_bracket(s: &str) -> String {
     let mut s = s.to_string();
     let mut level = 1;

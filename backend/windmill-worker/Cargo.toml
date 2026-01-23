@@ -36,6 +36,7 @@ nu = ["dep:windmill-parser-nu"]
 java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
+quickjs = ["dep:rquickjs"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -142,6 +143,7 @@ opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
+rquickjs = { workspace = true, optional = true }
 hudsucker.workspace = true
 hyper-http-proxy.workspace = true
 hyper-tls.workspace = true
