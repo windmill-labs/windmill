@@ -34,8 +34,14 @@ axum = "0.7"
 tower = "0.4"
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
-# For script execution (will integrate with windmill-worker later)
-# windmill-common = { path = "../windmill-common" }
+# Windmill types (flows, scripts, etc.)
+windmill-common = { path = "../windmill-common", default-features = false }
+
+# For input transforms (JavaScript evaluation)
+rquickjs = { version = "0.8", features = ["bindgen", "classes", "loader", "array-buffer", "futures"] }
+
+# For recursive async functions
+async-recursion = "1"
 
 [dev-dependencies]
 tokio-test = "0.4"

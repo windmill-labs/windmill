@@ -20,6 +20,7 @@ pub mod schema;
 pub mod jobs;
 pub mod queue;
 pub mod executor;
+pub mod flow_executor;
 pub mod worker;
 pub mod server;
 pub mod error;

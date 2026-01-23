@@ -10,8 +10,10 @@ use chrono::Utc;
 use crate::db::LocalDb;
 use crate::error::Result;
 use crate::executor::{execute_script, ExecutionResult};
+use crate::flow_executor;
 use crate::jobs::{complete_job, JobKind, JobStatus, QueuedJob};
 use crate::queue::pull_job;
+use windmill_common::flows::FlowValue;
 
 /// Worker that processes jobs from the queue
 pub struct Worker {
@@ -112,134 +114,49 @@ impl Worker {
         }
     }
 
-    /// Process a flow preview job
-    ///
-    /// This is a simplified flow executor that handles basic linear flows.
-    /// A full implementation would need to handle branching, loops, etc.
+    /// Process a flow preview job using the full flow executor
     async fn process_flow_preview_job(&self, job: QueuedJob, started_at: chrono::DateTime<Utc>) -> Result<()> {
-        let Some(flow_value) = &job.raw_flow else {
+        let Some(flow_json) = &job.raw_flow else {
             let error_result = serde_json::json!({"error": "No flow definition provided"});
             return complete_job(&self.db, job.id, JobStatus::Failure, error_result, started_at).await;
         };
 
-        // Extract modules from flow value
-        let modules = flow_value
-            .get("modules")
-            .and_then(|m| m.as_array())
-            .cloned()
-            .unwrap_or_default();
+        // Parse the flow value using windmill-common types
+        let flow_value: FlowValue = match serde_json::from_value(flow_json.clone()) {
+            Ok(fv) => fv,
+            Err(e) => {
+                let error_result = serde_json::json!({"error": format!("Failed to parse flow: {}", e)});
+                return complete_job(&self.db, job.id, JobStatus::Failure, error_result, started_at).await;
+            }
+        };
 
-        if modules.is_empty() {
+        if flow_value.modules.is_empty() {
             let error_result = serde_json::json!({"error": "Flow has no modules"});
             return complete_job(&self.db, job.id, JobStatus::Failure, error_result, started_at).await;
         }
 
-        // Execute modules sequentially (simplified - no branching support)
-        let mut current_result = job.args.clone();
-        let mut flow_status = serde_json::json!({
-            "modules": [],
-            "failure_module": serde_json::Value::Null
-        });
+        tracing::info!("Executing flow with {} modules", flow_value.modules.len());
 
-        for (idx, module) in modules.iter().enumerate() {
-            let default_id = format!("module_{}", idx);
-            let module_id = module
-                .get("id")
-                .and_then(|id| id.as_str())
-                .unwrap_or(&default_id);
+        // Execute the flow using the full flow executor
+        match flow_executor::execute_flow(&self.db, &flow_value, job.args.clone()).await {
+            Ok((result, status)) => {
+                let is_failure = status.failure_module.is_some();
+                let final_result = serde_json::json!({
+                    "result": result,
+                    "flow_status": status
+                });
 
-            tracing::info!("Executing flow module: {}", module_id);
-
-            // Update flow status
-            if let Some(modules_arr) = flow_status.get_mut("modules").and_then(|m| m.as_array_mut()) {
-                modules_arr.push(serde_json::json!({
-                    "id": module_id,
-                    "type": "InProgress"
-                }));
-            }
-
-            // Extract module value (the actual script/action)
-            let module_value = module.get("value");
-
-            match self.execute_flow_module(module_value, &current_result).await {
-                Ok(result) => {
-                    current_result = result;
-                    // Update status to success
-                    if let Some(modules_arr) = flow_status.get_mut("modules").and_then(|m| m.as_array_mut()) {
-                        if let Some(last) = modules_arr.last_mut() {
-                            last["type"] = serde_json::json!("Success");
-                            last["result"] = current_result.clone();
-                        }
-                    }
-                }
-                Err(e) => {
-                    // Module failed
-                    flow_status["failure_module"] = serde_json::json!({
-                        "id": module_id,
-                        "error": e.to_string()
-                    });
-                    let error_result = serde_json::json!({
-                        "error": e.to_string(),
-                        "flow_status": flow_status
-                    });
-                    return complete_job(&self.db, job.id, JobStatus::Failure, error_result, started_at).await;
-                }
-            }
-        }
-
-        // Flow completed successfully
-        let final_result = serde_json::json!({
-            "result": current_result,
-            "flow_status": flow_status
-        });
-        complete_job(&self.db, job.id, JobStatus::Success, final_result, started_at).await
-    }
-
-    /// Execute a single flow module
-    async fn execute_flow_module(
-        &self,
-        module_value: Option<&serde_json::Value>,
-        input: &serde_json::Value,
-    ) -> std::result::Result<serde_json::Value, String> {
-        let Some(value) = module_value else {
-            return Err("Module has no value".to_string());
-        };
-
-        // Check module type
-        let module_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-        match module_type {
-            "rawscript" => {
-                // Inline script
-                let code = value
-                    .get("content")
-                    .and_then(|c| c.as_str())
-                    .ok_or("rawscript module missing content")?;
-
-                let lang_str = value
-                    .get("language")
-                    .and_then(|l| l.as_str())
-                    .unwrap_or("deno");
-
-                let lang = crate::jobs::ScriptLang::from_str(lang_str)
-                    .ok_or_else(|| format!("Unknown language: {}", lang_str))?;
-
-                let result = execute_script(lang, code, input)
-                    .await
-                    .map_err(|e| e.to_string())?;
-
-                if result.success {
-                    Ok(result.result)
+                let job_status = if is_failure {
+                    JobStatus::Failure
                 } else {
-                    Err(result.result.to_string())
-                }
+                    JobStatus::Success
+                };
+
+                complete_job(&self.db, job.id, job_status, final_result, started_at).await
             }
-            "identity" => {
-                // Pass through input
-                Ok(input.clone())
-            }
-            _ => {
-                Err(format!("Unsupported module type in local mode: {}", module_type))
+            Err(e) => {
+                let error_result = serde_json::json!({"error": e.to_string()});
+                complete_job(&self.db, job.id, JobStatus::Failure, error_result, started_at).await
             }
         }
     }
