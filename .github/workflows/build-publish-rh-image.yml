@@ -79,25 +79,21 @@ jobs:
         run: |
           mkdir -p extracted
 
-          # Extract arm64 binary
+          # Extract arm64 binary (include deps/ for hard link resolution)
+          mkdir -p /tmp/arm64
           crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C extracted windmill/target/release/windmill
-          mv extracted/windmill/target/release/windmill extracted/windmill-ee-arm64-rhel9
+            | tar -xf - -C /tmp/arm64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+          cp /tmp/arm64/windmill/target/release/windmill extracted/windmill-ee-arm64-rhel9
+          cp /tmp/arm64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-arm64.so
+          rm -rf /tmp/arm64
 
           # Extract amd64 binary
+          mkdir -p /tmp/amd64
           crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C extracted windmill/target/release/windmill
-          mv extracted/windmill/target/release/windmill extracted/windmill-ee-amd64-rhel9
-
-          # Extract arm64 duckdb ffi library
-          crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C extracted usr/src/app/libwindmill_duckdb_ffi_internal.so
-          mv extracted/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-arm64.so
-
-          # Extract amd64 duckdb ffi library
-          crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
-            | tar -xf - -C extracted usr/src/app/libwindmill_duckdb_ffi_internal.so
-          mv extracted/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
+            | tar -xf - -C /tmp/amd64 windmill/target/release/ usr/src/app/libwindmill_duckdb_ffi_internal.so
+          cp /tmp/amd64/windmill/target/release/windmill extracted/windmill-ee-amd64-rhel9
+          cp /tmp/amd64/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
+          rm -rf /tmp/amd64
 
       - uses: actions/upload-artifact@v4
         with:
