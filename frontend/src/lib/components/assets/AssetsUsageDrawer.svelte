@@ -17,6 +17,7 @@
 	import RefreshButton from '../common/button/RefreshButton.svelte'
 	import { resource } from 'runed'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
+	import Alert from '../common/alert/Alert.svelte'
 
 	let usagesDrawerData:
 		| {
@@ -108,6 +109,7 @@
 						Recent Job Executions
 						<RefreshButton loading={_runtimeJobs.loading} onClick={() => _runtimeJobs.refetch()} />
 					</h3>
+					<Alert type="info" class="mb-2" title="Jobs can take up to 2 minutes to appear"></Alert>
 
 					{#if !runtimeJobs.current && _runtimeJobs.loading}
 						<div class="flex items-center justify-center py-8 text-sm text-secondary">
@@ -120,7 +122,12 @@
 									href={`/run/${job.id}?workspace=${$workspaceStore}`}
 									class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
 								>
-								<span class="mr-1 text-lg {jobStatusColor[job.status || 'running'] || jobStatusColor['running']}">•</span>
+									<span
+										class="mr-1 text-lg {jobStatusColor[job.status || 'running'] ||
+											jobStatusColor['running']}"
+									>
+										•
+									</span>
 									<div class="flex flex-col justify-center flex-1">
 										<div class="flex items-center gap-2">
 											<span class="font-semibold text-emphasis">

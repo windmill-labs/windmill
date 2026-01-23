@@ -128,7 +128,6 @@ pub fn init_runtime_asset_inserter(
         loop {
             tokio::select! {
                 _ = flush_timer.tick() => {
-                    println!("DEBUUUG : Flushing runtime asset buffer with {} items", buffer.len());
                     if rx.is_closed() { break; }
                     rx.recv_many(&mut buffer, RUNTIME_ASSET_CHANNEL_CAPACITY).await;
                     if buffer.is_empty() { continue; }
