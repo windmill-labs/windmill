@@ -159,6 +159,8 @@ struct AIAgentArgsRaw {
     memory: Option<Memory>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
+    #[serde(default)]
+    credentials_check: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +177,7 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
+    pub credentials_check: bool,
 }
 
 impl From<AIAgentArgsRaw> for AIAgentArgs {
@@ -206,6 +209,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
+            credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
 }

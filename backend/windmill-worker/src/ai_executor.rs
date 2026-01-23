@@ -1,3 +1,4 @@
+use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
     add_message_to_conversation, any_tool_needs_previous_result, cleanup_mcp_clients,
@@ -103,8 +104,17 @@ pub async fn handle_ai_agent_job(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
 ) -> Result<Box<RawValue>, Error> {
-    let args = build_args_map(job, client, conn).await?;
+    // build_args_map returns None if no $res:/$var: transforms needed, in which case use original args
+    let args = match build_args_map(job, client, conn).await? {
+        Some(transformed) => transformed,
+        None => job.args.as_ref().map(|a| a.0.clone()).unwrap_or_default(),
+    };
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
+
+    // Handle dry_run mode - check credentials without making API calls
+    if args.credentials_check {
+        return handle_credentials_check(&args.provider).await;
+    }
 
     let Some(flow_step_id) = &job.flow_step_id else {
         return Err(Error::internal_err(
@@ -315,7 +325,8 @@ pub async fn handle_ai_agent_job(
     let mut tools = tools;
 
     let mcp_clients = if !mcp_configs.is_empty() {
-        let (clients, mcp_tools) = load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
+        let (clients, mcp_tools) =
+            load_mcp_tools(db, &job.workspace_id, mcp_configs, &client.token).await?;
         tools.extend(mcp_tools);
         clients
     } else {
@@ -1040,4 +1051,33 @@ pub async fn run_agent(
             None
         },
     }))
+}
+
+/// Handle credentials check mode - check credentials without making API calls
+async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box<RawValue>, Error> {
+    let result = match &provider.kind {
+        AIProvider::AWSBedrock => {
+            let check = check_env_credentials().await;
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": "aws_bedrock",
+                "credentials": {
+                    "available": check.available,
+                    "access_key_id_prefix": check.access_key_id_prefix,
+                    "region": check.region,
+                    "has_session_token": check.has_session_token,
+                    "error": check.error
+                }
+            })
+        }
+        other => {
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": format!("{:?}", other),
+                "message": "Credentials check not implemented for this provider"
+            })
+        }
+    };
+
+    serde_json::value::to_raw_value(&result).map_err(|e| Error::internal_err(e.to_string()))
 }

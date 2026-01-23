@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService, type Preview } from '$lib/gen'
+	import { JobService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 	import { Check, LoaderCircle, Server, X, Cpu } from 'lucide-svelte'
@@ -47,64 +47,40 @@
 		workerStatus = 'loading'
 		workerResult = null
 
-		const pythonScript = `
-import os
-import boto3
-from botocore.exceptions import NoCredentialsError
-
-def main():
-    # Check environment variables first
-    env_access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    env_region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
-    env_session_token = os.environ.get("AWS_SESSION_TOKEN")
-
-    # If env vars are set, return them directly
-    if env_access_key:
-        return {
-            "available": True,
-            "access_key_id_prefix": f"{env_access_key[:8]}..." if len(env_access_key) >= 8 else env_access_key,
-            "region": env_region,
-            "has_session_token": env_session_token is not None,
-            "source": "environment",
-            "error": None
-        }
-
-    # Try boto3 session as fallback
-    try:
-        session = boto3.Session()
-        credentials = session.get_credentials()
-        if credentials:
-            frozen_credentials = credentials.get_frozen_credentials()
-            access_key = frozen_credentials.access_key
-            return {
-                "available": True,
-                "access_key_id_prefix": f"{access_key[:8]}..." if access_key and len(access_key) >= 8 else access_key,
-                "region": session.region_name,
-                "has_session_token": frozen_credentials.token is not None,
-                "source": "boto3",
-                "error": None
-            }
-        else:
-            return {
-                "available": False,
-                "has_session_token": False,
-                "error": "No credentials found in environment or boto3"
-            }
-    except Exception as e:
-        return {
-            "available": False,
-            "has_session_token": False,
-            "error": str(e)
-        }
-`
-
 		try {
-			const job = await JobService.runScriptPreview({
+			// Create minimal flow with AI agent dry_run step
+			const flowValue = {
+				modules: [
+					{
+						id: 'a',
+						value: {
+							type: 'aiagent' as const,
+							input_transforms: {
+								provider: {
+									type: 'static' as const,
+									value: {
+										kind: 'aws_bedrock',
+										resource: {
+											api_key: 'dry_run_placeholder',
+											region: 'us-east-1'
+										},
+										model: 'dry_run_placeholder'
+									}
+								},
+								user_message: { type: 'static' as const, value: 'dry_run_placeholder' },
+								output_type: { type: 'static' as const, value: 'text' },
+								dry_run: { type: 'static' as const, value: true }
+							},
+							tools: []
+						}
+					}
+				]
+			}
+
+			const job = await JobService.runFlowPreview({
 				workspace: $workspaceStore!,
 				requestBody: {
-					path: 'check_bedrock_credentials',
-					language: 'python3' as Preview['language'],
-					content: pythonScript,
+					value: flowValue,
 					args: {}
 				}
 			})
@@ -117,11 +93,26 @@ def main():
 					})
 
 					if (testResult.success && testResult.result) {
-						workerResult = {
-							...(testResult.result as CredentialsCheckResult),
-							worker: testResult.worker ?? undefined
+						const result = testResult.result as {
+							dry_run?: boolean
+							credentials?: CredentialsCheckResult
 						}
-						workerStatus = workerResult.available ? 'success' : 'error'
+						if (result?.dry_run && result?.credentials) {
+							workerResult = {
+								...result.credentials,
+								source: 'worker_process',
+								worker: testResult.worker ?? undefined
+							}
+							workerStatus = workerResult.available ? 'success' : 'error'
+						} else {
+							workerResult = {
+								available: false,
+								has_session_token: false,
+								error: 'Unexpected response format',
+								worker: testResult.worker ?? undefined
+							}
+							workerStatus = 'error'
+						}
 					} else {
 						workerResult = {
 							available: false,
