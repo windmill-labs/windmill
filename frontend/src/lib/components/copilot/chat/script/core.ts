@@ -444,16 +444,16 @@ export function createDbSchemaTool<T>(): Tool<T> {
 				workspace: workspace,
 				path: args.resourcePath
 			})
-			const newDbSchemas = {}
-			await getDbSchemas(
-				resource.resource_type,
-				args.resourcePath,
-				workspace,
-				newDbSchemas,
-				(error) => {
-					console.error(error)
-				}
-			)
+			const newDbSchemas = {
+				[args.resourcePath]: await getDbSchemas(
+					resource.resource_type,
+					args.resourcePath,
+					workspace,
+					(error) => {
+						console.error(error)
+					}
+				)
+			}
 			dbSchemas.update((schemas) => ({ ...schemas, ...newDbSchemas }))
 			const dbs = get(dbSchemas)
 			const db = dbs[args.resourcePath]

@@ -81,6 +81,7 @@ mail-send = { workspace = true, optional = true }
 futures-core.workspace = true
 async-stream.workspace = true
 const_format.workspace = true
+const-str.workspace = true
 crc.workspace = true
 windmill-macros.workspace = true
 windmill-parser-sql.workspace = true

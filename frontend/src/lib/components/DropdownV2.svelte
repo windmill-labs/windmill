@@ -35,6 +35,7 @@
 		customWidth?: number | undefined
 		customMenu?: boolean
 		class?: string | undefined
+		btnId?: string | undefined
 		enableFlyTransition?: boolean
 		size?: ButtonType.UnifiedSize
 		btnText?: string
@@ -60,6 +61,7 @@
 		enableFlyTransition = false,
 		size = 'md',
 		btnText = '',
+		btnId = undefined,
 		buttonReplacement,
 		menu,
 		maxHeight = undefined
@@ -142,6 +144,7 @@
 			}
 		}
 	}}
+	id={btnId}
 	data-menu
 >
 	{#if buttonReplacement}

@@ -2263,6 +2263,7 @@ async fn upload_s3_file_from_app(
                     );
                     let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
                         &db_with_opt_authed,
+                        Some(&on_behalf_authed),
                         &w_id,
                         None,
                         &[(&file_key, S3Permission::WRITE)],
@@ -2294,6 +2295,7 @@ async fn upload_s3_file_from_app(
                 DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
             let (_, s3_resource_opt) = get_workspace_s3_resource_and_check_paths(
                 &db_with_opt_authed,
+                Some(&on_behalf_authed),
                 &w_id,
                 None,
                 &[(&file_key, S3Permission::WRITE)],
@@ -2333,6 +2335,7 @@ async fn upload_s3_file_from_app(
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
                 let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
+                Some(&authed),
                     &w_id,
                     None,
                     &[(&file_key, S3Permission::WRITE)],
@@ -2443,6 +2446,7 @@ async fn delete_s3_file_from_app(
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
         let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
+                Some(&on_behalf_authed),
             &w_id,
             None,
             &[(&path.to_string(), S3Permission::DELETE)],

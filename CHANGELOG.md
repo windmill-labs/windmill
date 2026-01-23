@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.614.0](https://github.com/windmill-labs/windmill/compare/v1.613.4...v1.614.0) (2026-01-23)
+
+
+### Features
+
+* add cache-rt command and SYNC_CACHED_RT env variable for resource types ([#7666](https://github.com/windmill-labs/windmill/issues/7666)) ([85e460d](https://github.com/windmill-labs/windmill/commit/85e460d853cbd9f8d245efb9009690c0bb468bfc))
+* **aichat:** handle codestral from any provider ([#7649](https://github.com/windmill-labs/windmill/issues/7649)) ([389499e](https://github.com/windmill-labs/windmill/commit/389499e57696dc4805080a9e6b737b1aef4566be))
+* **ai:** handle google vertex for claude models + base url overrides ([#7654](https://github.com/windmill-labs/windmill/issues/7654)) ([0797e89](https://github.com/windmill-labs/windmill/commit/0797e89aa00e57b4e162df32d7b0a041ad6db71e))
+* better mixed versions handling ([#7628](https://github.com/windmill-labs/windmill/issues/7628)) ([7249b82](https://github.com/windmill-labs/windmill/commit/7249b82dbaee2d14cb5768233c2026a6ab44231f))
+
+
+### Bug Fixes
+
+* add support for OIDC session tokens in S3 proxy headers ([#7652](https://github.com/windmill-labs/windmill/issues/7652)) ([3b8a99e](https://github.com/windmill-labs/windmill/commit/3b8a99e174682ad90a9a0d3957902e09c9e0a195))
+* Avoid logout when using deploy ui and no access to some deps ([#7655](https://github.com/windmill-labs/windmill/issues/7655)) ([bb21486](https://github.com/windmill-labs/windmill/commit/bb2148639441b86c6c966119df4711066fc94c85))
+* **frontend:** improve ai chat ui ([#7648](https://github.com/windmill-labs/windmill/issues/7648)) ([af14b09](https://github.com/windmill-labs/windmill/commit/af14b0941581eec98061d4cbae159a061f1d5eee))
+* **frontend:** Improve flow detail page ([#7647](https://github.com/windmill-labs/windmill/issues/7647)) ([7385726](https://github.com/windmill-labs/windmill/commit/738572674123a00a5e37a0c875b2649608c70f0a))
+* use pgoptions for iam rds connection ([#7660](https://github.com/windmill-labs/windmill/issues/7660)) ([08b483e](https://github.com/windmill-labs/windmill/commit/08b483eacafcd161537b9a09f63640eeacad087f))
+
+## [1.613.4](https://github.com/windmill-labs/windmill/compare/v1.613.3...v1.613.4) (2026-01-21)
+
+
+### Bug Fixes
+
+* update git sync CLI to 1.613.2 ([7848d36](https://github.com/windmill-labs/windmill/commit/7848d361a546ef8a2ef9fa20a0399f2e8473f685))
+
+## [1.613.3](https://github.com/windmill-labs/windmill/compare/v1.613.2...v1.613.3) (2026-01-21)
+
+
+### Bug Fixes
+
+* **cli:** normalize paths in wmill-lock for cross-platform compatibility ([#7645](https://github.com/windmill-labs/windmill/issues/7645)) ([8cf456d](https://github.com/windmill-labs/windmill/commit/8cf456d74c79921806edbcd0c9fde462f7202188))
+* update git sync CLI to 1.613.2 ([1e4fe01](https://github.com/windmill-labs/windmill/commit/1e4fe01293e65ac130b368fbef45a1571ee2b6d7))
+
+## [1.613.2](https://github.com/windmill-labs/windmill/compare/v1.613.1...v1.613.2) (2026-01-21)
+
+
+### Bug Fixes
+
+* azure read s3 proxy ([#7641](https://github.com/windmill-labs/windmill/issues/7641)) ([9e617a3](https://github.com/windmill-labs/windmill/commit/9e617a3979622a58ae022f9a74e2dde87a43c60e))
+* **cli:** skip branch-specific files when type is not configured ([#7643](https://github.com/windmill-labs/windmill/issues/7643)) ([287b7e7](https://github.com/windmill-labs/windmill/commit/287b7e7d971469db979e6951ee14764f6b91ed67))
+
+## [1.613.1](https://github.com/windmill-labs/windmill/compare/v1.613.0...v1.613.1) (2026-01-21)
+
+
+### Bug Fixes
+
+* fix microsoft SSO setting ([3f3df41](https://github.com/windmill-labs/windmill/commit/3f3df4163f9b6d99bc2c0f0284134b8b78f1ef6d))
+* isolate SvelteKit-specific imports for library usage ([203f678](https://github.com/windmill-labs/windmill/commit/203f6785c4ba9f7ace643259bf4e4a8f164288f3))
+
+## [1.613.0](https://github.com/windmill-labs/windmill/compare/v1.612.2...v1.613.0) (2026-01-20)
+
+
+### Features
+
+* **api:** add include_args query parameter to job list endpoints ([96dabee](https://github.com/windmill-labs/windmill/commit/96dabee22591adff5d6221e8628f7a1571b8d5a8))
+* **cli:** add workspace list command to show remote workspaces ([a08c52e](https://github.com/windmill-labs/windmill/commit/a08c52ec8f5323c645457b1dd7b32ef703fd86c4))
+* DuckDB support write to Azure ([#7618](https://github.com/windmill-labs/windmill/issues/7618)) ([73e86d9](https://github.com/windmill-labs/windmill/commit/73e86d9fc867aedb7221cf3da9df8ab573734d0f))
+* **mcp:** handle server oauth ([#7585](https://github.com/windmill-labs/windmill/issues/7585)) ([09adc58](https://github.com/windmill-labs/windmill/commit/09adc58a678da2d59d20e27a6b528b79843f122f))
+* otel REST tracing ([#7571](https://github.com/windmill-labs/windmill/issues/7571)) ([95df7b9](https://github.com/windmill-labs/windmill/commit/95df7b9a6a8ffcbca92b3249a61d97c32c9dbc4f))
+* **raw-apps:** add ctx input type for secure backend-resolved user context ([#7621](https://github.com/windmill-labs/windmill/issues/7621)) ([c143e78](https://github.com/windmill-labs/windmill/commit/c143e78d7fdd866b2e30c036ef48e907dda6ad6c))
+* **raw-apps:** add public URL and custom path support for raw apps ([#7630](https://github.com/windmill-labs/windmill/issues/7630)) ([baf060d](https://github.com/windmill-labs/windmill/commit/baf060df7474620b144e4a438274866bdfc41881))
+* **raw-apps:** enable hash-based routing with URL sync for shareable URLs ([#7624](https://github.com/windmill-labs/windmill/issues/7624)) ([3205949](https://github.com/windmill-labs/windmill/commit/32059499d5fa9aed1f8149f427732d1f0500dce5))
+
+
+### Bug Fixes
+
+* **cli:** recognize branch-specific folder files in getTypeStrFromPath ([6f35279](https://github.com/windmill-labs/windmill/commit/6f35279126b875d09af23d4618e86f87be064679))
+* **cli:** recognize branch-specific settings and encryption_key files ([5c1c682](https://github.com/windmill-labs/windmill/commit/5c1c682dcaa1a4ce80ee4de78b80c9ace395092a))
+* **frontend:** improve raw app history  ([#7625](https://github.com/windmill-labs/windmill/issues/7625)) ([687175c](https://github.com/windmill-labs/windmill/commit/687175c6a85f47c707bb429008c93ec0981c50e2))
+* **frontend:** set editor font size to the same default as text ([#7631](https://github.com/windmill-labs/windmill/issues/7631)) ([d884ddb](https://github.com/windmill-labs/windmill/commit/d884ddb7eb611f17a8e0ed41998953fb47b6cc21))
+* S3 advanced custom permissions ([#7632](https://github.com/windmill-labs/windmill/issues/7632)) ([1526d3a](https://github.com/windmill-labs/windmill/commit/1526d3ae2b3139bbfa23aef012bbe7f9b2132732))
+
 ## [1.612.2](https://github.com/windmill-labs/windmill/compare/v1.612.1...v1.612.2) (2026-01-19)
 
 

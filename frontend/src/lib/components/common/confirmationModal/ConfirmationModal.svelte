@@ -14,6 +14,7 @@
 		open?: boolean
 		type?: 'danger' | 'reload'
 		showIcon?: boolean
+		id?: string
 		children?: Snippet
 		onConfirmed?: () => void | Promise<void>
 		onCanceled?: () => void
@@ -27,6 +28,7 @@
 		open = false,
 		type: _type,
 		showIcon = true,
+		id,
 		children,
 		onConfirmed,
 		onCanceled
@@ -84,6 +86,7 @@
 		transition:fadeFast|local
 		class={'fixed top-0 bottom-0 left-0 right-0 z-[5000]'}
 		role="dialog"
+		{id}
 	>
 		<div
 			class={classNames(

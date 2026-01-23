@@ -28,7 +28,6 @@
 	// For DB manager
 	let dbManagerContent: DBManagerContent | undefined = $state()
 	let hasReplResult = $state(false)
-	let isRefreshing = $state(false)
 	let windowWidth = $state(window.innerWidth)
 	let expand = $state(false)
 
@@ -168,7 +167,6 @@
 					bind:this={dbManagerContent}
 					input={dbInput}
 					bind:hasReplResult
-					bind:isRefreshing
 					bind:selectedSchemaKey
 					bind:selectedTableKey
 					multiSelectMode={true}
@@ -216,7 +214,7 @@
 			</Button>
 
 			<Button
-				loading={isRefreshing}
+				loading={dbManagerContent?.isLoading() ?? false}
 				on:click={() => dbManagerContent?.refresh()}
 				startIcon={{ icon: RefreshCcw }}
 				size="xs"
