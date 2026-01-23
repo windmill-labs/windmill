@@ -13,6 +13,7 @@ export interface Config {
   commitHash: string;
   onCloudflaredUrl?: (url: string) => void;
   onCleanup?: () => void;
+  onError?: (error: Error) => void;
 }
 
 interface SpawnedResources {
@@ -61,13 +62,28 @@ export class EphemeralBackend {
 
       console.log("\n✅ Ephemeral backend is ready!");
       console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
-      console.log("\n💡 Press Ctrl+C to stop and cleanup...");
+      console.log("\n💡 Backend will run until cleaned up...");
+
+      // Monitor backend process and cleanup if it crashes
+      if (this.resources.backendProcess) {
+        this.resources.backendProcess.on("exit", async (code: number) => {
+          if (code !== 0 && code !== null) {
+            console.error(`❌ Backend process exited with code ${code}`);
+            const error = new Error(`Backend process exited with code ${code}`);
+            this.config.onError?.(error);
+            await this.cleanup();
+          }
+        });
+      }
 
       // Keep the process running indefinitely
       await new Promise(() => {}); // Never resolves
     } catch (error) {
       console.error("❌ Error spawning ephemeral backend:", error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      this.config.onError?.(err);
       await this.cleanup();
+      throw error; // Re-throw to let the caller know it failed
     }
   }
 
@@ -315,17 +331,26 @@ export class EphemeralBackend {
   async cleanup(): Promise<void> {
     console.log("\n🧹 Cleaning up resources...");
 
+    // Ensure cleanup doesn't throw errors to prevent cascading failures
+    const errors: string[] = [];
+
     // Kill backend process
     if (this.resources.backendProcess) {
       console.log("  Stopping backend...");
       try {
+        this.resources.backendProcess.removeAllListeners(); // Remove exit handler to prevent re-entry
         this.resources.backendProcess.kill("SIGTERM");
         // Give it a moment to gracefully shutdown
         await new Promise((resolve) => setTimeout(resolve, 1000));
         // Force kill if still running
-        this.resources.backendProcess.kill("SIGKILL");
+        try {
+          this.resources.backendProcess.kill("SIGKILL");
+        } catch (e) {
+          // Already dead
+        }
+        console.log("  ✓ Backend stopped");
       } catch (error) {
-        // Process might already be dead
+        errors.push(`Failed to stop backend: ${error}`);
       }
     }
 
@@ -333,11 +358,17 @@ export class EphemeralBackend {
     if (this.resources.cloudflaredProcess) {
       console.log("  Stopping cloudflared...");
       try {
+        this.resources.cloudflaredProcess.removeAllListeners();
         this.resources.cloudflaredProcess.kill("SIGTERM");
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        this.resources.cloudflaredProcess.kill("SIGKILL");
+        try {
+          this.resources.cloudflaredProcess.kill("SIGKILL");
+        } catch (e) {
+          // Already dead
+        }
+        console.log("  ✓ Cloudflared stopped");
       } catch (error) {
-        // Process might already be dead
+        errors.push(`Failed to stop cloudflared: ${error}`);
       }
     }
 
@@ -345,12 +376,17 @@ export class EphemeralBackend {
     if (this.resources.dbProcess) {
       console.log("  Stopping PostgreSQL container...");
       try {
+        this.resources.dbProcess.removeAllListeners();
         this.resources.dbProcess.kill("SIGTERM");
         await new Promise((resolve) => setTimeout(resolve, 1000));
-        this.resources.dbProcess.kill("SIGKILL");
+        try {
+          this.resources.dbProcess.kill("SIGKILL");
+        } catch (e) {
+          // Already dead
+        }
         console.log("  ✓ PostgreSQL container stopped");
       } catch (error) {
-        console.error("  Failed to stop PostgreSQL container:", error);
+        errors.push(`Failed to stop PostgreSQL: ${error}`);
       }
     }
 
@@ -363,12 +399,22 @@ export class EphemeralBackend {
         );
         console.log("  ✓ Git worktree removed");
       } catch (error) {
-        console.error("  Failed to remove git worktree:", error);
+        errors.push(`Failed to remove git worktree: ${error}`);
       }
     }
 
-    this.config.onCleanup?.();
+    if (errors.length > 0) {
+      console.error("⚠️  Cleanup completed with errors:");
+      errors.forEach((err) => console.error(`  - ${err}`));
+    } else {
+      console.log("✅ Cleanup complete");
+    }
 
-    console.log("✅ Cleanup complete");
+    // Always call onCleanup callback regardless of errors
+    try {
+      this.config.onCleanup?.();
+    } catch (error) {
+      console.error("  Error in cleanup callback:", error);
+    }
   }
 }

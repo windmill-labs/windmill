@@ -84,38 +84,70 @@ class EphemeralBackendManager {
             console.log(
               `\n🔹 Received request to spawn ephemeral backend for commit: ${commitHash}`
             );
-            if (self.resources.ephemeralBackends.has(commitHash)) {
-              throw new Error(`Backend ${commitHash} is already running`);
-            }
 
-            const tunnelUrl = await new Promise<string>((res, err) => {
-              const timeout = setTimeout(() => {
-                err(new Error("Timeout waiting for backend URL"));
-              }, 20000);
-              const ephemeralBackend = new EphemeralBackend({
-                dbPort: self.findFreeDbPorts(),
-                serverPort: self.findFreeServerPorts(),
-                skipBuild: !!process.env.SKIP_BACKEND_BUILD,
-                commitHash: commitHash,
-                onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
-                onCleanup: () => {
+            try {
+              if (self.resources.ephemeralBackends.has(commitHash)) {
+                return new Response(
+                  JSON.stringify({
+                    error: `Backend ${commitHash} is already running`,
+                    timestamp: new Date().toISOString(),
+                  }),
+                  { headers: { "Content-Type": "application/json" }, status: 409 }
+                );
+              }
+
+              const tunnelUrl = await new Promise<string>((res, rej) => {
+                const timeout = setTimeout(() => {
+                  rej(new Error("Timeout waiting for backend URL"));
+                }, 20000);
+
+                const ephemeralBackend = new EphemeralBackend({
+                  dbPort: self.findFreeDbPorts(),
+                  serverPort: self.findFreeServerPorts(),
+                  skipBuild: !!process.env.SKIP_BACKEND_BUILD,
+                  commitHash: commitHash,
+                  onCloudflaredUrl: (url) => {
+                    res(url);
+                    clearTimeout(timeout);
+                  },
+                  onCleanup: () => {
+                    self.resources.ephemeralBackends.delete(commitHash);
+                  },
+                  onError: (error) => {
+                    clearTimeout(timeout);
+                    rej(error);
+                  },
+                });
+
+                self.resources.ephemeralBackends.set(
+                  commitHash,
+                  ephemeralBackend
+                );
+
+                ephemeralBackend.spawn().catch((e) => {
+                  console.error(`❌ Error spawning backend for ${commitHash}:`, e);
                   self.resources.ephemeralBackends.delete(commitHash);
-                },
+                  rej(e);
+                });
               });
-              ephemeralBackend.spawn().catch((e) => err(e));
-              self.resources.ephemeralBackends.set(
-                commitHash,
-                ephemeralBackend
-              );
-            });
 
-            return new Response(
-              JSON.stringify({
-                tunnelUrl: `https://${tunnelUrl}`,
-                timestamp: new Date().toISOString(),
-              }),
-              { headers: { "Content-Type": "application/json" }, status: 202 }
-            );
+              return new Response(
+                JSON.stringify({
+                  tunnelUrl: `https://${tunnelUrl}`,
+                  timestamp: new Date().toISOString(),
+                }),
+                { headers: { "Content-Type": "application/json" }, status: 202 }
+              );
+            } catch (error: any) {
+              console.error(`❌ Failed to spawn backend for ${commitHash}:`, error);
+              return new Response(
+                JSON.stringify({
+                  error: error.message || "Failed to spawn ephemeral backend",
+                  timestamp: new Date().toISOString(),
+                }),
+                { headers: { "Content-Type": "application/json" }, status: 500 }
+              );
+            }
           }
 
           // Default 404
