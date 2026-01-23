@@ -59,9 +59,10 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, TMP_DIR,
+        TMP_LOGS_DIR, WORKER_GROUP,
     },
-    KillpillSender, METRICS_ENABLED,
+    KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
 
 #[cfg(feature = "enterprise")]
@@ -319,6 +320,160 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Raw resource type from hub API (schema is a JSON string)
+#[derive(serde::Deserialize)]
+struct HubResourceTypeRaw {
+    pub id: i64,
+    pub name: String,
+    pub schema: Option<String>,
+    pub app: String,
+    pub description: Option<String>,
+}
+
+/// Processed resource type with parsed schema
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct HubResourceType {
+    pub id: i64,
+    pub name: String,
+    pub schema: Option<serde_json::Value>,
+    pub app: String,
+    pub description: Option<String>,
+}
+
+const HUB_RT_CACHE_FILE: &str = "resource_types.json";
+
+async fn cache_hub_resource_types() -> anyhow::Result<()> {
+    println!("Caching resource types from hub...");
+
+    let response = HTTP_CLIENT
+        .get(format!("{}/resource_types/list", DEFAULT_HUB_BASE_URL))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .with_context(|| "Failed to fetch resource types from hub")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch resource types from hub: {}",
+            response.status()
+        );
+    }
+
+    let raw_types: Vec<HubResourceTypeRaw> = response
+        .json::<Vec<HubResourceTypeRaw>>()
+        .await
+        .with_context(|| "Failed to parse resource types from hub")?;
+
+    // Parse schema strings into JSON values
+    let resource_types: Vec<HubResourceType> = raw_types
+        .into_iter()
+        .filter_map(|rt| {
+            let schema = match rt.schema {
+                Some(s) => match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        println!("Warning: failed to parse schema for {}: {}", rt.name, e);
+                        return None;
+                    }
+                },
+                None => None,
+            };
+            Some(HubResourceType {
+                id: rt.id,
+                name: rt.name,
+                schema,
+                app: rt.app,
+                description: rt.description,
+            })
+        })
+        .collect();
+
+    println!("Fetched {} resource types from hub", resource_types.len());
+
+    create_dir_all(HUB_RT_CACHE_DIR)?;
+
+    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let content = serde_json::to_string_pretty(&resource_types)
+        .with_context(|| "Failed to serialize resource types")?;
+
+    std::fs::write(&cache_path, content)
+        .with_context(|| format!("Failed to write cache file to {}", cache_path))?;
+
+    println!("Cached resource types to {}", cache_path);
+    Ok(())
+}
+
+pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+
+    if tokio::fs::metadata(&cache_path).await.is_err() {
+        tracing::info!("No cached resource types found at {}, skipping sync", cache_path);
+        return Ok(());
+    }
+
+    tracing::info!("Syncing cached resource types to admins workspace...");
+
+    let content = tokio::fs::read_to_string(&cache_path)
+        .await
+        .with_context(|| format!("Failed to read cache file from {}", cache_path))?;
+
+    let cached_types: Vec<HubResourceType> = serde_json::from_str(&content)
+        .with_context(|| "Failed to parse cached resource types")?;
+
+    tracing::info!("Found {} cached resource types", cached_types.len());
+
+    // Get existing resource types in admins workspace
+    let existing_types: Vec<(String, Option<serde_json::Value>, Option<String>)> = sqlx::query_as(
+        "SELECT name, schema, description FROM resource_type WHERE workspace_id = 'admins'",
+    )
+    .fetch_all(db)
+    .await
+    .with_context(|| "Failed to fetch existing resource types")?;
+
+    let existing_map: std::collections::HashMap<String, (Option<serde_json::Value>, Option<String>)> =
+        existing_types
+            .into_iter()
+            .map(|(name, schema, desc)| (name, (schema, desc)))
+            .collect();
+
+    let mut synced_count = 0;
+    let mut skipped_count = 0;
+
+    for rt in cached_types {
+        // Check if resource type already exists with same schema and description
+        if let Some((existing_schema, existing_desc)) = existing_map.get(&rt.name) {
+            if existing_schema == &rt.schema && existing_desc == &rt.description {
+                skipped_count += 1;
+                continue;
+            }
+        }
+
+        // Insert or update resource type
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
+             VALUES ('admins', $1, $2, $3, now())
+             ON CONFLICT (workspace_id, name) DO UPDATE
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+        )
+        .bind(&rt.name)
+        .bind(&rt.schema)
+        .bind(&rt.description)
+        .execute(db)
+        .await
+        .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;
+
+        synced_count += 1;
+    }
+
+    tracing::info!(
+        "Synced {} resource types to admins workspace ({} skipped as unchanged)",
+        synced_count,
+        skipped_count
+    );
+
+    Ok(())
+}
+
 fn print_help() {
 	println!("Windmill - a fast, open-source workflow engine and job runner.");
 	println!();
@@ -329,6 +484,7 @@ fn print_help() {
 	println!("  help | -h | --help   Show this help information and exit");
 	println!("  version              Show Windmill version and exit");
 	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
+	println!("  cache-rt             Pre-cache hub resource types");
 	println!();
 	println!("Environment variables (name = default):");
 	println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -344,6 +500,7 @@ fn print_help() {
 	println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
+	println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
 	println!();
 	println!("Notes:");
 	println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
@@ -436,6 +593,10 @@ async fn windmill_main() -> anyhow::Result<()> {
             // CLI command for preparing dependencies without database access
             // Used by the debugger to install dependencies for scripts
             windmill_worker::run_prepare_deps_cli().await?;
+            return Ok(());
+        }
+        "cache-rt" => {
+            cache_hub_resource_types().await?;
             return Ok(());
         }
         _ => {}
@@ -541,6 +702,17 @@ async fn windmill_main() -> anyhow::Result<()> {
                 migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+            }
+
+            // Sync cached resource types to admins workspace if SYNC_CACHED_RT is set
+            if std::env::var("SYNC_CACHED_RT")
+                .ok()
+                .map(|v| v.to_lowercase() == "true" || v == "1")
+                .unwrap_or(false)
+            {
+                if let Err(e) = sync_cached_resource_types(db).await {
+                    tracing::warn!("Failed to sync cached resource types: {:#}", e);
+                }
             }
         }
     }
