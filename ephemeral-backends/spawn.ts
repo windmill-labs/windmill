@@ -101,8 +101,12 @@ export class EphemeralBackend {
     }
 
     // Create the worktree
-    console.log(`  Creating worktree at ${worktreePath} for commit ${this.config.commitHash}`);
-    await execAsync(`git worktree add ${worktreePath} ${this.config.commitHash}`);
+    console.log(
+      `  Creating worktree at ${worktreePath} for commit ${this.config.commitHash}`
+    );
+    await execAsync(
+      `git worktree add ${worktreePath} ${this.config.commitHash}`
+    );
     console.log(`✓ Worktree created at ${worktreePath}`);
   }
 
@@ -261,11 +265,11 @@ export class EphemeralBackend {
   }
 
   private async startCloudflared(): Promise<void> {
-    console.log("\n🌐 Starting Cloudflare tunnel...");
     if (process.env.SKIP_CLOUDFLARED) {
       this.config.onCloudflaredUrl?.("SKIP_CLOUDFLARED");
       return;
     }
+    console.log("\n🌐 Starting Cloudflare tunnel...");
 
     return new Promise((resolve, reject) => {
       this.resources.cloudflaredProcess = spawn("cloudflared", [
@@ -354,7 +358,9 @@ export class EphemeralBackend {
     if (this.resources.worktreePath) {
       console.log("  Removing git worktree...");
       try {
-        await execAsync(`git worktree remove ${this.resources.worktreePath} --force`);
+        await execAsync(
+          `git worktree remove ${this.resources.worktreePath} --force`
+        );
         console.log("  ✓ Git worktree removed");
       } catch (error) {
         console.error("  Failed to remove git worktree:", error);
