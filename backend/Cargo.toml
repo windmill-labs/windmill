@@ -395,7 +395,8 @@ datafusion = "47.0.0"
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
 openidconnect = { version = "4.0.0-rc.1" }
 aws-config = "^1"
-aws-sdk-bedrockruntime = "=1.113.0"
+aws-sdk-bedrock = "1.129.0"
+aws-sdk-bedrockruntime = "=1.122.0"
 aws-credential-types = "^1"
 aws-smithy-types = "^1"
 aws-sdk-sqs = "=1.77.0"

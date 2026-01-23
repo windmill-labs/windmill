@@ -1,14 +1,15 @@
-//! AWS Bedrock SDK-based streaming for the AI chat proxy.
+//! AWS Bedrock SDK-based operations for the AI chat proxy.
 //!
 //! This module provides SDK-based request handling for Bedrock:
 //!
-//! ## SDK-Based (primary approach):
+//! ## Inference (Runtime SDK):
 //! - `handle_bedrock_sdk_streaming`: Uses BedrockClient for streaming requests
 //! - `handle_bedrock_sdk_non_streaming`: Uses BedrockClient for non-streaming requests
 //! - `sdk_stream_to_sse`: Converts SDK ConverseStream events to SSE format
 //!
-//! ## HTTP-Based (for GET requests only):
-//! - `sign_bedrock_request`: Manual SigV4 signing for IAM authentication
+//! ## Control Plane (Bedrock SDK):
+//! - `list_foundation_models`: Lists available foundation models
+//! - `list_inference_profiles`: Lists inference profiles
 //!
 //! Shared AWS SDK code is available in `windmill_common::ai_bedrock`, including:
 //! - `BedrockClient`: SDK wrapper with bearer token and IAM auth
@@ -16,9 +17,6 @@
 //! - Helper utilities
 
 use axum::body::Bytes;
-use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
-use aws_sigv4::sign::v4;
-use std::time::SystemTime;
 use serde::Deserialize;
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
@@ -152,79 +150,166 @@ fn build_tool_config_from_request(
 /// Sign a request for AWS Bedrock using SigV4
 ///
 /// Returns a vector of (header_name, header_value) tuples to add to the request
-pub fn sign_bedrock_request(
-    method: &str,
-    uri: &str,
-    body: &[u8],
-    access_key_id: &str,
-    secret_access_key: &str,
+// ============================================================================
+// Control Plane Operations (using aws-sdk-bedrock)
+// ============================================================================
+
+/// Create a Bedrock control plane client with auth priority: bearer token → IAM credentials → environment
+async fn create_bedrock_control_client(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
     region: &str,
-) -> Result<Vec<(String, String)>> {
-    tracing::info!(
-        "Bedrock HTTP path (SigV4 signing): method={}, region={}, access_key_id={}...",
-        method,
-        region,
-        access_key_id.get(..8).unwrap_or("N/A")
-    );
-    tracing::debug!("Bedrock HTTP path: uri={}", uri);
+) -> Result<aws_sdk_bedrock::Client> {
+    use aws_config::BehaviorVersion;
+    use windmill_common::ai_bedrock::BearerTokenProvider;
 
-    let identity = aws_credential_types::Credentials::new(
-        access_key_id,
-        secret_access_key,
-        None, // session token
-        None, // expiration
-        "windmill",
-    )
-    .into();
+    let region_provider = aws_sdk_bedrock::config::Region::new(region.to_string());
 
-    let signing_settings = SigningSettings::default();
-    let signing_params = v4::SigningParams::builder()
-        .identity(&identity)
-        .region(region)
-        .name("bedrock")
-        .time(SystemTime::now())
-        .settings(signing_settings)
-        .build()
-        .map_err(|e| Error::internal_err(format!("Failed to build signing params: {}", e)))?;
-
-    // Parse the URI to extract path and query
-    let parsed_uri: http::Uri = uri
-        .parse()
-        .map_err(|e| Error::internal_err(format!("Failed to parse URI: {}", e)))?;
-
-    let path_and_query = parsed_uri
-        .path_and_query()
-        .map(|pq| pq.as_str())
-        .unwrap_or("/");
-
-    let signable_request = SignableRequest::new(
-        method,
-        path_and_query,
-        std::iter::once(("host", parsed_uri.host().unwrap_or(""))),
-        SignableBody::Bytes(body),
-    )
-    .map_err(|e| Error::internal_err(format!("Failed to create signable request: {}", e)))?;
-
-    let (signing_instructions, _signature) = sign(signable_request, &signing_params.into())
-        .map_err(|e| Error::internal_err(format!("Failed to sign request: {}", e)))?
-        .into_parts();
-
-    // Collect the headers to add
-    let mut headers = Vec::new();
-    for (name, value) in signing_instructions.headers() {
-        headers.push((name.to_string(), value.to_string()));
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        // 1. Bearer token if API key provided
+        tracing::info!(
+            "Bedrock control plane: auth=bearer token, region={}",
+            region
+        );
+        let config = aws_sdk_bedrock::config::Builder::new()
+            .region(region_provider)
+            .behavior_version(BehaviorVersion::latest())
+            .token_provider(BearerTokenProvider::new(key.to_string()))
+            .build();
+        Ok(aws_sdk_bedrock::Client::from_conf(config))
+    } else if let (Some(access_key_id), Some(secret_access_key)) = (
+        aws_access_key_id.filter(|s| !s.is_empty()),
+        aws_secret_access_key.filter(|s| !s.is_empty()),
+    ) {
+        // 2. IAM credentials if provided and not empty
+        tracing::info!(
+            "Bedrock control plane: auth=IAM credentials, region={}, access_key_id={}...",
+            region,
+            access_key_id.get(..8).unwrap_or("N/A")
+        );
+        let credentials = aws_credential_types::Credentials::new(
+            access_key_id,
+            secret_access_key,
+            None,
+            None,
+            "windmill",
+        );
+        let config = aws_sdk_bedrock::config::Builder::new()
+            .region(region_provider)
+            .behavior_version(BehaviorVersion::latest())
+            .credentials_provider(credentials)
+            .build();
+        Ok(aws_sdk_bedrock::Client::from_conf(config))
+    } else {
+        // 3. Environment credentials as fallback
+        tracing::info!(
+            "Bedrock control plane: auth=environment credentials, region={}",
+            region
+        );
+        let config = aws_config::defaults(BehaviorVersion::latest())
+            .region(region_provider)
+            .load()
+            .await;
+        Ok(aws_sdk_bedrock::Client::new(&config))
     }
+}
 
-    Ok(headers)
+/// List foundation models using the Bedrock SDK
+pub async fn list_foundation_models(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    region: &str,
+) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
+    let client =
+        create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
+            .await?;
+
+    let response = client.list_foundation_models().send().await.map_err(|e| {
+        Error::internal_err(format!("Failed to list foundation models: {}", e))
+    })?;
+
+    // Convert to JSON response
+    let models: Vec<serde_json::Value> = response
+        .model_summaries()
+        .iter()
+        .map(|m| {
+            serde_json::json!({
+                "modelId": m.model_id(),
+                "modelName": m.model_name(),
+                "providerName": m.provider_name(),
+                "modelArn": m.model_arn(),
+                "inputModalities": m.input_modalities().iter().map(|i| i.as_str()).collect::<Vec<_>>(),
+                "outputModalities": m.output_modalities().iter().map(|o| o.as_str()).collect::<Vec<_>>(),
+                "responseStreamingSupported": m.response_streaming_supported(),
+                "inferenceTypesSupported": m.inference_types_supported().iter().map(|i| i.as_str()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+
+    let body = serde_json::json!({ "modelSummaries": models });
+    let body_bytes = serde_json::to_vec(&body)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize response: {}", e)))?;
+
+    let mut headers = http::HeaderMap::new();
+    headers.insert("content-type", "application/json".parse().unwrap());
+
+    Ok((
+        http::StatusCode::OK,
+        headers,
+        axum::body::Body::from(body_bytes),
+    ))
+}
+
+/// List inference profiles using the Bedrock SDK
+pub async fn list_inference_profiles(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+    region: &str,
+) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
+    let client =
+        create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
+            .await?;
+
+    let response = client.list_inference_profiles().send().await.map_err(|e| {
+        Error::internal_err(format!("Failed to list inference profiles: {}", e))
+    })?;
+
+    // Convert to JSON response
+    let profiles: Vec<serde_json::Value> = response
+        .inference_profile_summaries()
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "inferenceProfileId": p.inference_profile_id(),
+                "inferenceProfileName": p.inference_profile_name(),
+                "inferenceProfileArn": p.inference_profile_arn(),
+                "description": p.description(),
+                "status": p.status().as_str(),
+                "type": p.r#type().as_str(),
+            })
+        })
+        .collect();
+
+    let body = serde_json::json!({ "inferenceProfileSummaries": profiles });
+    let body_bytes = serde_json::to_vec(&body)
+        .map_err(|e| Error::internal_err(format!("Failed to serialize response: {}", e)))?;
+
+    let mut headers = http::HeaderMap::new();
+    headers.insert("content-type", "application/json".parse().unwrap());
+
+    Ok((
+        http::StatusCode::OK,
+        headers,
+        axum::body::Body::from(body_bytes),
+    ))
 }
 
 // ============================================================================
-// SDK-Based Streaming (for IAM credentials auth)
+// Inference Operations (using aws-sdk-bedrockruntime)
 // ============================================================================
-
-// Note: HTTP-based transform functions (transform_openai_to_bedrock, transform_bedrock_to_openai,
-// transform_bedrock_stream_to_openai) have been removed as Bedrock POST requests now use
-// the SDK-based approach (handle_bedrock_sdk_streaming, handle_bedrock_sdk_non_streaming).
 
 /// Handle Bedrock streaming request using the AWS SDK.
 ///

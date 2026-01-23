@@ -296,21 +296,10 @@ impl AIRequestConfig {
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-        let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
-
-        // Check if using IAM credentials for Bedrock (instead of bearer token)
-        let use_iam_auth =
-            is_bedrock && self.aws_access_key_id.is_some() && self.aws_secret_access_key.is_some();
 
         // Build URL based on provider
-        // Note: Bedrock POST requests are handled by SDK before reaching here,
-        // so we only need to handle GET requests (foundation-models, inference-profiles)
-        let (url, body) = if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
-            // AWS Bedrock foundation-models and inference-profiles endpoints use different base URL (without -runtime)
-            let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
-            let bedrock_url = format!("{}/{}", bedrock_base_url, path);
-            (bedrock_url, body)
-        } else if is_azure {
+        // Note: Bedrock requests are handled by SDK before reaching here
+        let (url, body) = if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
         } else if is_anthropic_sdk {
@@ -334,39 +323,20 @@ impl AIRequestConfig {
             }
         }
 
-        // For Bedrock with IAM credentials, sign the request using SigV4
-        if use_iam_auth {
-            let region = self.region.as_deref().ok_or_else(|| {
-                Error::internal_err("AWS region must be set for IAM authentication with Bedrock")
-            })?;
-            let signed_headers = bedrock::sign_bedrock_request(
-                method.as_str(),
-                &url,
-                &body,
-                self.aws_access_key_id.as_ref().unwrap(),
-                self.aws_secret_access_key.as_ref().unwrap(),
-                region,
-            )?;
+        // Add authentication headers
+        if let Some(api_key) = self.api_key {
+            if is_azure {
+                request = request.header("api-key", api_key.clone())
+            } else {
+                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+            }
+            if is_anthropic {
+                request = request.header("X-API-Key", api_key);
+            }
+        }
 
-            for (header_name, header_value) in signed_headers {
-                request = request.header(header_name, header_value);
-            }
-        } else {
-            // For non-IAM auth, use bearer token or API key
-            if let Some(api_key) = self.api_key {
-                if is_azure {
-                    request = request.header("api-key", api_key.clone())
-                } else {
-                    request = request.header("authorization", format!("Bearer {}", api_key.clone()))
-                }
-                if is_anthropic {
-                    request = request.header("X-API-Key", api_key);
-                }
-            }
-
-            if let Some(access_token) = self.access_token {
-                request = request.header("authorization", format!("Bearer {}", access_token))
-            }
+        if let Some(access_token) = self.access_token {
+            request = request.header("authorization", format!("Bearer {}", access_token))
         }
 
         request = request.body(body);
@@ -687,19 +657,11 @@ async fn proxy(
             (None, false)
         };
 
-    // For Bedrock POST requests, use the SDK-based approach with auth priority:
-    // bearer token → IAM credentials → environment credentials
-    if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST && model.is_some() {
+    // For Bedrock requests, use the SDK-based approach
+    if matches!(provider, AIProvider::AWSBedrock) {
         let region = request_config.region.as_deref().ok_or_else(|| {
             Error::internal_err("AWS region must be set for Bedrock")
         })?;
-
-        tracing::info!(
-            "AI proxy: Bedrock SDK path - model={}, region={}, streaming={}",
-            model.as_ref().unwrap(),
-            region,
-            is_streaming
-        );
 
         // Audit log before making the SDK request
         let mut tx = db.begin().await?;
@@ -715,27 +677,59 @@ async fn proxy(
         .await?;
         tx.commit().await?;
 
-        // Use SDK-based handler for Bedrock requests with auth priority
-        if is_streaming {
-            return bedrock::handle_bedrock_sdk_streaming(
+        // Handle GET requests for control plane operations
+        if method == Method::GET {
+            if ai_path == "foundation-models" {
+                tracing::info!("AI proxy: Bedrock SDK - listing foundation models, region={}", region);
+                return bedrock::list_foundation_models(
+                    request_config.api_key.as_deref(),
+                    request_config.aws_access_key_id.as_deref(),
+                    request_config.aws_secret_access_key.as_deref(),
+                    region,
+                )
+                .await;
+            } else if ai_path == "inference-profiles" {
+                tracing::info!("AI proxy: Bedrock SDK - listing inference profiles, region={}", region);
+                return bedrock::list_inference_profiles(
+                    request_config.api_key.as_deref(),
+                    request_config.aws_access_key_id.as_deref(),
+                    request_config.aws_secret_access_key.as_deref(),
+                    region,
+                )
+                .await;
+            }
+        }
+
+        // Handle POST requests for inference
+        if method == Method::POST && model.is_some() {
+            tracing::info!(
+                "AI proxy: Bedrock SDK path - model={}, region={}, streaming={}",
                 model.as_ref().unwrap(),
-                &body,
-                request_config.api_key.as_deref(),
-                request_config.aws_access_key_id.as_deref(),
-                request_config.aws_secret_access_key.as_deref(),
                 region,
-            )
-            .await;
-        } else {
-            return bedrock::handle_bedrock_sdk_non_streaming(
-                model.as_ref().unwrap(),
-                &body,
-                request_config.api_key.as_deref(),
-                request_config.aws_access_key_id.as_deref(),
-                request_config.aws_secret_access_key.as_deref(),
-                region,
-            )
-            .await;
+                is_streaming
+            );
+
+            if is_streaming {
+                return bedrock::handle_bedrock_sdk_streaming(
+                    model.as_ref().unwrap(),
+                    &body,
+                    request_config.api_key.as_deref(),
+                    request_config.aws_access_key_id.as_deref(),
+                    request_config.aws_secret_access_key.as_deref(),
+                    region,
+                )
+                .await;
+            } else {
+                return bedrock::handle_bedrock_sdk_non_streaming(
+                    model.as_ref().unwrap(),
+                    &body,
+                    request_config.api_key.as_deref(),
+                    request_config.aws_access_key_id.as_deref(),
+                    request_config.aws_secret_access_key.as_deref(),
+                    region,
+                )
+                .await;
+            }
         }
     }
 
