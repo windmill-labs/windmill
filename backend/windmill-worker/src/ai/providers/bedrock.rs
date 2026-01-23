@@ -1,3 +1,12 @@
+//! AWS Bedrock provider for the AI agent.
+//!
+//! Uses shared SDK code from windmill_common::ai_bedrock for:
+//! - BedrockClient (SDK wrapper with auth)
+//! - Stream event parsing
+//! - Helper utilities
+//!
+//! Keeps conversion functions local since they depend on worker-specific types.
+
 use crate::ai::{
     image_handler::prepare_messages_for_api,
     providers::openai::{OpenAIFunction, OpenAIToolCall},
@@ -5,235 +14,32 @@ use crate::ai::{
     types::StreamingEvent,
     types::{ContentPart, OpenAIContent, OpenAIMessage, ToolDef},
 };
-use aws_config::BehaviorVersion;
-use aws_credential_types::provider::token::ProvideToken;
-use aws_credential_types::provider::ProvideCredentials;
 use aws_sdk_bedrockruntime::types::{
-    ContentBlock, ConversationRole, ConverseStreamOutput, ImageBlock, ImageFormat, ImageSource,
-    InferenceConfiguration, Message, SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
+    ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, Message,
+    SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
 };
-use aws_sdk_bedrockruntime::Client as BedrockRuntimeClient;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
 
-/// Result of checking AWS Bedrock credentials availability
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BedrockCredentialsCheck {
-    pub available: bool,
-    pub access_key_id_prefix: Option<String>,
-    pub region: Option<String>,
-    pub has_session_token: bool,
-    pub error: Option<String>,
-}
-
-/// Check if AWS credentials are available from the environment
-pub async fn check_env_credentials() -> BedrockCredentialsCheck {
-    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-
-    if let Some(creds_provider) = config.credentials_provider() {
-        match creds_provider.provide_credentials().await {
-            Ok(creds) => {
-                let access_key_id = creds.access_key_id();
-                let prefix = if access_key_id.len() >= 8 {
-                    format!("{}...", &access_key_id[..8])
-                } else {
-                    access_key_id.to_string()
-                };
-
-                BedrockCredentialsCheck {
-                    available: true,
-                    access_key_id_prefix: Some(prefix),
-                    region: config.region().map(|r| r.to_string()),
-                    has_session_token: creds.session_token().is_some(),
-                    error: None,
-                }
-            }
-            Err(e) => BedrockCredentialsCheck {
-                available: false,
-                access_key_id_prefix: None,
-                region: None,
-                has_session_token: false,
-                error: Some(format!("Failed to retrieve credentials: {}", e)),
-            },
-        }
-    } else {
-        BedrockCredentialsCheck {
-            available: false,
-            access_key_id_prefix: None,
-            region: None,
-            has_session_token: false,
-            error: Some("No credentials provider configured".to_string()),
-        }
-    }
-}
+// Re-export from shared module for use by other parts of the worker
+pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
+use windmill_common::ai_bedrock::{
+    bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
+    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start,
+    create_inference_config, format_bedrock_error, json_to_document, StreamingToolCall,
+};
 
 /// Constants for commonly used strings to avoid allocations
 const FUNCTION_TYPE: &str = "function";
 
-#[derive(Debug, Clone)]
-pub struct BearerTokenProvider {
-    token: String,
-}
-
-impl BearerTokenProvider {
-    pub fn new(token: String) -> Self {
-        Self { token }
-    }
-}
-
-impl ProvideToken for BearerTokenProvider {
-    fn provide_token<'a>(&'a self) -> aws_credential_types::provider::future::ProvideToken<'a>
-    where
-        Self: 'a,
-    {
-        aws_credential_types::provider::future::ProvideToken::ready(Ok(
-            aws_credential_types::Token::new(self.token.clone(), None),
-        ))
-    }
-}
-
-pub struct BedrockClient {
-    client: BedrockRuntimeClient,
-}
-
-impl BedrockClient {
-    pub async fn from_bearer_token(bearer_token: String, region: &str) -> Result<Self, Error> {
-        let config = aws_sdk_bedrockruntime::config::Builder::new()
-            .region(aws_config::Region::new(region.to_string()))
-            .behavior_version(BehaviorVersion::latest())
-            .token_provider(BearerTokenProvider::new(bearer_token))
-            .build();
-
-        Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
-    }
-
-    pub async fn from_credentials(
-        access_key_id: String,
-        secret_access_key: String,
-        region: &str,
-    ) -> Result<Self, Error> {
-        let credentials = aws_credential_types::Credentials::new(
-            access_key_id,
-            secret_access_key,
-            None, // session token
-            None, // expiration
-            "windmill",
-        );
-
-        let config = aws_sdk_bedrockruntime::config::Builder::new()
-            .region(aws_config::Region::new(region.to_string()))
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(credentials)
-            .build();
-
-        Ok(Self { client: BedrockRuntimeClient::from_conf(config) })
-    }
-
-    pub async fn from_env(region: &str) -> Result<Self, Error> {
-        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-
-        // Verify that credentials are actually available
-        if let Some(creds_provider) = config.credentials_provider() {
-            match creds_provider.provide_credentials().await {
-                Ok(creds) => {
-                    tracing::info!(
-                        "AWS env credentials found: access_key_id={}...",
-                        &creds.access_key_id().get(..8).unwrap_or("N/A")
-                    );
-                    if let Some(r) = config.region() {
-                        tracing::info!("AWS Region from env: {}", r);
-                    }
-                    tracing::info!("Using region override: {}", region);
-                }
-                Err(e) => {
-                    return Err(Error::internal_err(format!(
-                        "AWS credentials not available from environment: {}",
-                        e
-                    )));
-                }
-            }
-        } else {
-            return Err(Error::internal_err(
-                "No AWS credentials provider configured in environment".to_string(),
-            ));
-        }
-
-        // Build client with region override
-        let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(&config)
-            .region(aws_config::Region::new(region.to_string()))
-            .build();
-
-        let client = aws_sdk_bedrockruntime::Client::from_conf(bedrock_config);
-        Ok(Self { client })
-    }
-
-    pub fn client(&self) -> &BedrockRuntimeClient {
-        &self.client
-    }
-}
-
-/// Format AWS SDK errors with detailed information
-fn format_bedrock_error<E, R>(error: &aws_sdk_bedrockruntime::error::SdkError<E, R>) -> String
-where
-    E: std::fmt::Debug + std::fmt::Display,
-    R: std::fmt::Debug,
-{
-    use aws_sdk_bedrockruntime::error::SdkError;
-
-    match error {
-        SdkError::ServiceError(err) => {
-            // Include both the display and debug representations for maximum detail
-            format!("Service error: {} (details: {:?})", err.err(), err)
-        }
-        SdkError::ConstructionFailure(err) => {
-            format!("Request construction failed: {:?}", err)
-        }
-        SdkError::DispatchFailure(err) => {
-            format!("Request dispatch failed: {:?}", err)
-        }
-        SdkError::ResponseError(err) => {
-            format!("Response error: {:?}", err)
-        }
-        SdkError::TimeoutError(err) => {
-            format!("Request timeout: {:?}", err)
-        }
-        _ => format!("{:?}", error),
-    }
-}
-
-/// Convert serde_json::Value to AWS Smithy Document
-fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document {
-    use aws_smithy_types::Document;
-    use serde_json::Value;
-
-    match value {
-        Value::Object(map) => {
-            let mut doc_map = std::collections::HashMap::new();
-            for (k, v) in map {
-                doc_map.insert(k, json_to_document(v));
-            }
-            Document::Object(doc_map)
-        }
-        Value::Array(arr) => Document::Array(arr.into_iter().map(json_to_document).collect()),
-        Value::Number(num) => {
-            if let Some(i) = num.as_i64() {
-                Document::Number(aws_smithy_types::Number::PosInt(i as u64))
-            } else if let Some(f) = num.as_f64() {
-                Document::Number(aws_smithy_types::Number::Float(f))
-            } else {
-                Document::Number(aws_smithy_types::Number::PosInt(0))
-            }
-        }
-        Value::String(s) => Document::String(s),
-        Value::Bool(b) => Document::Bool(b),
-        Value::Null => Document::Null,
-    }
-}
+// ============================================================================
+// Message Conversion (Worker-specific - uses worker's OpenAIMessage type)
+// ============================================================================
 
 /// Convert OpenAI-style messages to Bedrock format
 ///
 /// Separates system messages from conversation messages as required by Bedrock API.
+/// This is kept in the worker because it uses worker-specific types (OpenAIMessage with agent_action).
 ///
 /// # Returns
 /// Tuple of (conversation_messages, system_prompts)
@@ -246,7 +52,6 @@ pub fn openai_messages_to_bedrock(
     for msg in messages {
         match msg.role.as_str() {
             "system" => {
-                // Extract system messages separately
                 if let Some(ref content) = msg.content {
                     let text = content_to_text(content);
                     if !text.is_empty() {
@@ -258,7 +63,6 @@ pub fn openai_messages_to_bedrock(
                 bedrock_messages.push(convert_message(msg)?);
             }
             "tool" => {
-                // Tool results are handled as user messages with ToolResult content
                 bedrock_messages.push(convert_tool_message(msg)?);
             }
             _ => {
@@ -275,7 +79,6 @@ fn content_to_text(content: &OpenAIContent) -> String {
     match content {
         OpenAIContent::Text(text) => text.to_string(),
         OpenAIContent::Parts(parts) => {
-            // Extract only text parts and join them
             let text_parts: Vec<&str> = parts
                 .iter()
                 .filter_map(|part| match part {
@@ -294,7 +97,6 @@ fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>), Error> {
         return Err(Error::internal_err("Image URL must be a data URL"));
     }
 
-    // Parse data:image/png;base64,<data>
     let base64_start = url
         .find("base64,")
         .ok_or_else(|| Error::internal_err("Invalid data URL format"))?;
@@ -306,22 +108,19 @@ fn parse_image_data_url(url: &str) -> Result<(ImageFormat, Vec<u8>), Error> {
         .and_then(|s| s.strip_prefix("data:"))
         .unwrap_or("image/png");
 
-    // Extract format from MIME type (e.g., "image/png" -> "png")
     let format_str = mime_type
         .rsplit_once('/')
         .map(|(_, format)| format)
         .unwrap_or("png");
 
-    // Map to ImageFormat enum
     let format = match format_str {
         "png" => ImageFormat::Png,
         "jpeg" | "jpg" => ImageFormat::Jpeg,
         "gif" => ImageFormat::Gif,
         "webp" => ImageFormat::Webp,
-        _ => ImageFormat::Png, // Default to PNG
+        _ => ImageFormat::Png,
     };
 
-    // Decode base64
     let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, base64_data)
         .map_err(|e| Error::internal_err(format!("Failed to decode base64 image: {}", e)))?;
 
@@ -352,7 +151,6 @@ fn content_part_to_block(part: &ContentPart) -> Result<Option<ContentBlock>, Err
         }
         ContentPart::S3Object { .. } => {
             // S3Objects are already converted to ImageUrl by prepare_messages_for_api
-            // If we somehow get here, skip it
             Ok(None)
         }
     }
@@ -373,7 +171,6 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
 
     let mut content_blocks = Vec::new();
 
-    // Handle content (text and/or images)
     if let Some(ref content) = msg.content {
         match content {
             OpenAIContent::Text(text) => {
@@ -391,14 +188,12 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         }
     }
 
-    // Handle tool calls (for assistant messages)
     if let Some(ref tool_calls) = msg.tool_calls {
         for tc in tool_calls {
             content_blocks.push(convert_tool_call_to_content(tc)?);
         }
     }
 
-    // Bedrock requires at least one content block
     if content_blocks.is_empty() {
         content_blocks.push(ContentBlock::Text(String::new()));
     }
@@ -439,7 +234,6 @@ fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         .map(|c| content_to_text(c))
         .unwrap_or_default();
 
-    // Try to parse as JSON, otherwise use text
     let tool_result_content =
         if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&content_str) {
             if json_val.is_object() {
@@ -447,7 +241,6 @@ fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
                     json_to_document(json_val),
                 )]
             } else {
-                // Wrap primitives and arrays in an object
                 vec![aws_sdk_bedrockruntime::types::ToolResultContentBlock::Json(
                     json_to_document(serde_json::json!({"result": json_val})),
                 )]
@@ -473,6 +266,10 @@ fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         .map_err(|e| Error::internal_err(format!("Failed to build tool result message: {}", e)))
 }
 
+// ============================================================================
+// Tool Conversion (Worker-specific - uses worker's ToolDef type)
+// ============================================================================
+
 /// Convert OpenAI tool definitions to Bedrock format
 pub fn openai_tools_to_bedrock(tools: &[ToolDef]) -> Result<Vec<Tool>, Error> {
     tools
@@ -480,7 +277,6 @@ pub fn openai_tools_to_bedrock(tools: &[ToolDef]) -> Result<Vec<Tool>, Error> {
         .map(|tool_def| {
             let spec = &tool_def.function;
 
-            // Convert parameters (RawValue) to Document via serde_json::Value
             let param_value: serde_json::Value = serde_json::from_str(spec.parameters.get())
                 .map_err(|e| Error::internal_err(format!("Invalid tool schema: {}", e)))?;
             let input_schema = ToolInputSchema::Json(json_to_document(param_value));
@@ -497,95 +293,25 @@ pub fn openai_tools_to_bedrock(tools: &[ToolDef]) -> Result<Vec<Tool>, Error> {
         .collect()
 }
 
-/// Create inference configuration from parameters
-pub fn create_inference_config(
-    temperature: Option<f32>,
-    max_tokens: Option<i32>,
-) -> Option<InferenceConfiguration> {
-    if temperature.is_none() && max_tokens.is_none() {
-        return None;
-    }
-
-    let mut builder = InferenceConfiguration::builder();
-
-    if let Some(temp) = temperature {
-        builder = builder.temperature(temp);
-    }
-
-    if let Some(max_tok) = max_tokens {
-        builder = builder.max_tokens(max_tok);
-    }
-
-    Some(builder.build())
-}
-
-/// Extract text delta from Bedrock stream event
-pub fn bedrock_stream_event_to_text(event: &ConverseStreamOutput) -> Option<String> {
-    match event {
-        ConverseStreamOutput::ContentBlockDelta(delta) => delta
-            .delta()
-            .and_then(|d| d.as_text().ok())
-            .map(|s| s.to_string()),
-        _ => None,
-    }
-}
-
-/// Represents a streaming tool call being accumulated
-#[derive(Debug, Clone)]
-pub struct StreamingToolCall {
-    pub id: String,
-    pub name: String,
-    pub arguments: String,
-}
-
-/// Extract tool use start event from stream
-pub fn bedrock_stream_event_to_tool_start(
-    event: &ConverseStreamOutput,
-) -> Option<StreamingToolCall> {
-    match event {
-        ConverseStreamOutput::ContentBlockStart(start) => {
-            if let Some(tool_use) = start.start().and_then(|s| s.as_tool_use().ok()) {
-                Some(StreamingToolCall {
-                    id: tool_use.tool_use_id().to_string(),
-                    name: tool_use.name().to_string(),
-                    arguments: String::new(),
-                })
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
-}
-
-/// Extract tool use input delta from stream
-pub fn bedrock_stream_event_to_tool_delta(event: &ConverseStreamOutput) -> Option<String> {
-    match event {
-        ConverseStreamOutput::ContentBlockDelta(delta) => delta
-            .delta()
-            .and_then(|d| d.as_tool_use().ok())
-            .map(|tool_use| tool_use.input().to_string()),
-        _ => None,
-    }
-}
-
-/// Check if stream event indicates content block stop
-pub fn bedrock_stream_event_is_block_stop(event: &ConverseStreamOutput) -> bool {
-    matches!(event, ConverseStreamOutput::ContentBlockStop(_))
-}
-
-/// Convert accumulated streaming tool calls to OpenAI format
-pub fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
+/// Convert accumulated streaming tool calls to OpenAI format (worker types)
+fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
     tool_calls
         .into_iter()
         .map(|tc| OpenAIToolCall {
             id: tc.id,
-            function: OpenAIFunction { name: tc.name, arguments: tc.arguments },
+            function: OpenAIFunction {
+                name: tc.name,
+                arguments: tc.arguments,
+            },
             r#type: FUNCTION_TYPE.to_string(),
-            extra_content: None, // Bedrock doesn't use thought signatures
+            extra_content: None,
         })
         .collect()
 }
+
+// ============================================================================
+// Query Builder (Worker-specific orchestration)
+// ============================================================================
 
 #[derive(Default)]
 pub struct BedrockQueryBuilder;
@@ -608,39 +334,39 @@ impl BedrockQueryBuilder {
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
-        // Create Bedrock client with fallback logic:
-        // 1. Try environment credentials first
-        // 2. Fall back to provided IAM credentials if available
-        // 3. Fall back to bearer token authentication
-        let bedrock_client = match BedrockClient::from_env(region).await {
-            Ok(client) => {
-                tracing::info!("Using AWS credentials from environment for Bedrock");
-                client
-            }
-            Err(env_err) => {
-                tracing::info!(
-                    "AWS env credentials not available ({}), trying provided credentials",
-                    env_err
-                );
-                match (aws_access_key_id, aws_secret_access_key) {
-                    (Some(access_key_id), Some(secret_access_key)) => {
-                        tracing::info!(
-                            "Using provided IAM credentials for Bedrock: access_key_id={}...",
-                            &access_key_id.get(..8).unwrap_or("N/A")
-                        );
-                        BedrockClient::from_credentials(
-                            access_key_id.to_string(),
-                            secret_access_key.to_string(),
-                            region,
-                        )
-                        .await?
-                    }
-                    _ => {
-                        tracing::info!("Using bearer token for Bedrock authentication");
-                        BedrockClient::from_bearer_token(api_key.to_string(), region).await?
-                    }
-                }
-            }
+        tracing::info!(
+            "Worker Bedrock: model={}, region={}, messages={}, tools={}, structured_output={}",
+            model,
+            region,
+            messages.len(),
+            tools.map(|t| t.len()).unwrap_or(0),
+            structured_output_tool_name.is_some()
+        );
+
+        // Create Bedrock client with priority: bearer token → IAM credentials → environment
+        let bedrock_client = if !api_key.is_empty() {
+            // 1. Bearer token if API key provided
+            tracing::info!("Worker Bedrock: auth=bearer token");
+            BedrockClient::from_bearer_token(api_key.to_string(), region).await?
+        } else if let (Some(access_key_id), Some(secret_access_key)) = (
+            aws_access_key_id.filter(|s| !s.is_empty()),
+            aws_secret_access_key.filter(|s| !s.is_empty()),
+        ) {
+            // 2. IAM credentials if provided and not empty
+            tracing::info!(
+                "Worker Bedrock: auth=IAM credentials, access_key_id={}...",
+                &access_key_id.get(..8).unwrap_or("N/A")
+            );
+            BedrockClient::from_credentials(
+                access_key_id.to_string(),
+                secret_access_key.to_string(),
+                region,
+            )
+            .await?
+        } else {
+            // 3. Environment credentials as fallback
+            tracing::info!("Worker Bedrock: auth=environment credentials");
+            BedrockClient::from_env(region).await?
         };
 
         // Prepare messages: convert S3Objects to ImageUrls by downloading from S3
@@ -649,7 +375,7 @@ impl BedrockQueryBuilder {
         // Convert messages to Bedrock format (separates system prompts)
         let (bedrock_messages, system_prompts) = openai_messages_to_bedrock(&prepared_messages)?;
 
-        // Build inference configuration
+        // Build inference configuration using shared helper
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
         // Build tool configuration with optional ToolChoice
@@ -679,7 +405,6 @@ impl BedrockQueryBuilder {
                 aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
                     .set_tools(Some(bedrock_tools));
 
-            // For structured output, force the model to use the tool
             if force_tool_use {
                 tool_config_builder = tool_config_builder.tool_choice(
                     aws_sdk_bedrockruntime::types::ToolChoice::Any(
@@ -696,7 +421,7 @@ impl BedrockQueryBuilder {
         }
     }
 
-    /// Execute streaming Bedrock request
+    /// Execute streaming Bedrock request using shared stream parsing functions
     async fn execute_converse_stream(
         &self,
         bedrock_client: &BedrockClient,
@@ -707,7 +432,13 @@ impl BedrockQueryBuilder {
         tool_config: Option<aws_sdk_bedrockruntime::types::ToolConfiguration>,
         stream_event_processor: Option<StreamEventProcessor>,
     ) -> Result<ParsedResponse, Error> {
-        // Build streaming request
+        tracing::debug!(
+            "Worker Bedrock: executing converse_stream, messages={}, system_prompts={}, has_tools={}",
+            bedrock_messages.len(),
+            system_prompts.len(),
+            tool_config.is_some()
+        );
+
         let mut request_builder = bedrock_client
             .client()
             .converse_stream()
@@ -726,46 +457,50 @@ impl BedrockQueryBuilder {
             request_builder = request_builder.set_tool_config(Some(config));
         }
 
-        // Execute streaming request
         let mut stream = request_builder
             .send()
             .await
             .map_err(|e| {
                 let error_msg =
                     format!("Bedrock streaming API error: {}", format_bedrock_error(&e));
+                tracing::error!("Worker Bedrock: {}", error_msg);
                 Error::internal_err(error_msg)
             })?
             .stream;
+
+        tracing::debug!("Worker Bedrock: stream established, processing events");
 
         let mut accumulated_text = String::new();
         let mut events_str = String::new();
         let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
         let mut current_tool_use_id: Option<String> = None;
 
-        // Process stream events
+        // Process stream events using shared parsing functions
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
-                    // Handle tool use start
+                    // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());
                         accumulated_tool_calls.insert(tool_call.id.clone(), tool_call);
                     }
 
-                    // Handle text delta
+                    // Handle text delta using shared parser
                     if let Some(text_delta) = bedrock_stream_event_to_text(&event) {
                         accumulated_text.push_str(&text_delta);
                         if let Some(processor) = stream_event_processor.as_ref() {
                             processor
                                 .send(
-                                    StreamingEvent::TokenDelta { content: text_delta },
+                                    StreamingEvent::TokenDelta {
+                                        content: text_delta,
+                                    },
                                     &mut events_str,
                                 )
                                 .await?;
                         }
                     }
 
-                    // Handle tool use input delta
+                    // Handle tool use input delta using shared parser
                     if let Some(input_delta) = bedrock_stream_event_to_tool_delta(&event) {
                         if let Some(tool_id) = &current_tool_use_id {
                             if let Some(tool_call) = accumulated_tool_calls.get_mut(tool_id) {
@@ -774,12 +509,12 @@ impl BedrockQueryBuilder {
                         }
                     }
 
-                    // Handle content block stop
+                    // Handle content block stop using shared parser
                     if bedrock_stream_event_is_block_stop(&event) {
                         current_tool_use_id = None;
                     }
                 }
-                Ok(None) => break, // Stream ended
+                Ok(None) => break,
                 Err(e) => {
                     return Err(Error::internal_err(format!("Bedrock stream error: {}", e)));
                 }
@@ -810,6 +545,12 @@ impl BedrockQueryBuilder {
 
         let tool_calls =
             streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
+
+        tracing::info!(
+            "Worker Bedrock: completed, text_len={}, tool_calls={}",
+            content.as_ref().map(|s| s.len()).unwrap_or(0),
+            tool_calls.len()
+        );
 
         Ok(ParsedResponse::Text {
             content,

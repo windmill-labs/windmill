@@ -42,7 +42,7 @@ python = []
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }
 windmill-queue.workspace = true
-windmill-common = { workspace = true, default-features = false }
+windmill-common = { workspace = true, default-features = false, features = ["bedrock"] }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true
@@ -151,6 +151,8 @@ aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 aws-config = { workspace = true }
 aws-credential-types.workspace = true
+aws-sdk-bedrockruntime.workspace = true
+aws-smithy-types.workspace = true
 async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }

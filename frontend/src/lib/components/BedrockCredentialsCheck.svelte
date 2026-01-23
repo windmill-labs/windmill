@@ -69,7 +69,7 @@
 								},
 								user_message: { type: 'static' as const, value: 'dry_run_placeholder' },
 								output_type: { type: 'static' as const, value: 'text' },
-								dry_run: { type: 'static' as const, value: true }
+								credentials_check: { type: 'static' as const, value: true }
 							},
 							tools: []
 						}
@@ -94,10 +94,10 @@
 
 					if (testResult.success && testResult.result) {
 						const result = testResult.result as {
-							dry_run?: boolean
+							credentials_check?: boolean
 							credentials?: CredentialsCheckResult
 						}
-						if (result?.dry_run && result?.credentials) {
+						if (result?.credentials_check && result?.credentials) {
 							workerResult = {
 								...result.credentials,
 								source: 'worker_process',

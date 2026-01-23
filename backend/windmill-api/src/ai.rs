@@ -1,8 +1,6 @@
 use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 
-use aws_config::BehaviorVersion;
-use aws_credential_types::provider::ProvideCredentials;
 use axum::routing::get;
 use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
 use http::{HeaderMap, Method};
@@ -498,64 +496,19 @@ pub fn workspaced_service() -> Router {
         .route("/check_bedrock_credentials", get(check_bedrock_credentials))
 }
 
-/// Response structure for Bedrock credentials check
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BedrockCredentialsCheckResponse {
-    pub available: bool,
-    pub access_key_id_prefix: Option<String>,
-    pub region: Option<String>,
-    pub has_session_token: bool,
-    pub error: Option<String>,
-}
-
 /// Check if AWS Bedrock credentials are available from environment variables.
 ///
 /// This endpoint checks whether AWS credentials are configured in the environment
 /// (via AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, IAM role, or other AWS SDK credential sources).
 /// When available, Bedrock requests will use these credentials instead of requiring
 /// explicit credentials in the resource configuration.
+///
+/// Uses shared code from windmill_common::ai_bedrock.
 async fn check_bedrock_credentials(
     _authed: ApiAuthed,
     Path(_w_id): Path<String>,
-) -> Result<Json<BedrockCredentialsCheckResponse>> {
-    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
-
-    let response = if let Some(creds_provider) = config.credentials_provider() {
-        match creds_provider.provide_credentials().await {
-            Ok(creds) => {
-                let access_key_id = creds.access_key_id();
-                let prefix = if access_key_id.len() >= 8 {
-                    format!("{}...", &access_key_id[..8])
-                } else {
-                    access_key_id.to_string()
-                };
-
-                BedrockCredentialsCheckResponse {
-                    available: true,
-                    access_key_id_prefix: Some(prefix),
-                    region: config.region().map(|r| r.to_string()),
-                    has_session_token: creds.session_token().is_some(),
-                    error: None,
-                }
-            }
-            Err(e) => BedrockCredentialsCheckResponse {
-                available: false,
-                access_key_id_prefix: None,
-                region: None,
-                has_session_token: false,
-                error: Some(format!("Failed to retrieve credentials: {}", e)),
-            },
-        }
-    } else {
-        BedrockCredentialsCheckResponse {
-            available: false,
-            access_key_id_prefix: None,
-            region: None,
-            has_session_token: false,
-            error: Some("No credentials provider configured".to_string()),
-        }
-    };
-
+) -> Result<Json<windmill_common::ai_bedrock::BedrockCredentialsCheck>> {
+    let response = windmill_common::ai_bedrock::check_env_credentials().await;
     Ok(Json(response))
 }
 
@@ -732,6 +685,7 @@ async fn proxy(
             #[derive(Deserialize, Debug)]
             struct BedrockRequest {
                 model: String,
+                #[serde(default)]
                 stream: bool,
             }
             let parsed: BedrockRequest = serde_json::from_slice(&body)
@@ -740,6 +694,58 @@ async fn proxy(
         } else {
             (None, false)
         };
+
+    // For Bedrock POST requests, use the SDK-based approach with auth priority:
+    // bearer token → IAM credentials → environment credentials
+    if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST && model.is_some() {
+        let region = request_config.region.as_deref().ok_or_else(|| {
+            Error::internal_err("AWS region must be set for Bedrock")
+        })?;
+
+        tracing::info!(
+            "AI proxy: Bedrock SDK path - model={}, region={}, streaming={}",
+            model.as_ref().unwrap(),
+            region,
+            is_streaming
+        );
+
+        // Audit log before making the SDK request
+        let mut tx = db.begin().await?;
+        audit_log(
+            &mut *tx,
+            &authed,
+            "ai.request",
+            ActionKind::Execute,
+            &w_id,
+            Some(&authed.email),
+            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+        )
+        .await?;
+        tx.commit().await?;
+
+        // Use SDK-based handler for Bedrock requests with auth priority
+        if is_streaming {
+            return bedrock::handle_bedrock_sdk_streaming(
+                model.as_ref().unwrap(),
+                &body,
+                request_config.api_key.as_deref(),
+                request_config.aws_access_key_id.as_deref(),
+                request_config.aws_secret_access_key.as_deref(),
+                region,
+            )
+            .await;
+        } else {
+            return bedrock::handle_bedrock_sdk_non_streaming(
+                model.as_ref().unwrap(),
+                &body,
+                request_config.api_key.as_deref(),
+                request_config.aws_access_key_id.as_deref(),
+                request_config.aws_secret_access_key.as_deref(),
+                region,
+            )
+            .await;
+        }
+    }
 
     let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
