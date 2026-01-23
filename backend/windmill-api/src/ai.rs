@@ -302,18 +302,10 @@ impl AIRequestConfig {
         let use_iam_auth =
             is_bedrock && self.aws_access_key_id.is_some() && self.aws_secret_access_key.is_some();
 
-        // Handle AWS Bedrock transformation
-        let (url, body) = if is_bedrock && method != Method::GET {
-            let (model, transformed_body, is_streaming) =
-                bedrock::transform_openai_to_bedrock(&body)?;
-            let endpoint = if is_streaming {
-                "converse-stream"
-            } else {
-                "converse"
-            };
-            let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
-            (bedrock_url, transformed_body)
-        } else if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
+        // Build URL based on provider
+        // Note: Bedrock POST requests are handled by SDK before reaching here,
+        // so we only need to handle GET requests (foundation-models, inference-profiles)
+        let (url, body) = if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
             // AWS Bedrock foundation-models and inference-profiles endpoints use different base URL (without -runtime)
             let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
             let bedrock_url = format!("{}/{}", bedrock_base_url, path);
@@ -770,45 +762,9 @@ async fn proxy(
         return Err(Error::AIError(err_msg));
     }
 
-    // Transform Bedrock responses back to OpenAI format
-    if matches!(provider, AIProvider::AWSBedrock) && model.is_some() {
-        if is_streaming {
-            // Transform streaming response
-            use http::StatusCode;
-
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert("content-type", "text/event-stream".parse().unwrap());
-            response_headers.insert("cache-control", "no-cache".parse().unwrap());
-            response_headers.insert("connection", "keep-alive".parse().unwrap());
-
-            let stream = response.bytes_stream();
-            let transformed_stream =
-                bedrock::transform_bedrock_stream_to_openai(stream, model.unwrap());
-
-            Ok((
-                StatusCode::OK,
-                response_headers,
-                axum::body::Body::from_stream(transformed_stream),
-            ))
-        } else {
-            // Transform non-streaming response
-            let transformed_body =
-                bedrock::transform_bedrock_to_openai(response, model.unwrap()).await?;
-
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert("content-type", "application/json".parse().unwrap());
-
-            Ok((
-                http::StatusCode::OK,
-                response_headers,
-                axum::body::Body::from(transformed_body),
-            ))
-        }
-    } else {
-        // Pass through for other providers
-        let status_code = response.status();
-        let headers = response.headers().clone();
-        let stream = response.bytes_stream();
-        Ok((status_code, headers, axum::body::Body::from_stream(stream)))
-    }
+    // Pass through response (Bedrock POST requests are handled by SDK before reaching here)
+    let status_code = response.status();
+    let headers = response.headers().clone();
+    let stream = response.bytes_stream();
+    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
 }

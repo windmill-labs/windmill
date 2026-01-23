@@ -42,7 +42,7 @@ python = []
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }
 windmill-queue.workspace = true
-windmill-common = { workspace = true, default-features = false, features = ["bedrock"] }
+windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
 windmill-parser-ts.workspace = true

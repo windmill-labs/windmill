@@ -40,7 +40,7 @@ duckdb = ["dep:libloading"]
 [dependencies]
 windmill-queue.workspace = true
 windmill-audit.workspace = true # there isn't really a reason for audit-worth actions to happen in the worker.
-windmill-common = { workspace = true, default-features = false, features = ["bedrock"] }
+windmill-common = { workspace = true, default-features = false }
 windmill-mcp = { workspace = true, optional = true }
 windmill-macros.workspace = true
 windmill-parser.workspace = true

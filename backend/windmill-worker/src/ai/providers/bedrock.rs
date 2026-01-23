@@ -16,7 +16,7 @@ use crate::ai::{
 };
 use aws_sdk_bedrockruntime::types::{
     ContentBlock, ConversationRole, ImageBlock, ImageFormat, ImageSource, Message,
-    SystemContentBlock, Tool, ToolInputSchema, ToolSpecification,
+    SystemContentBlock,
 };
 use std::collections::HashMap;
 use windmill_common::{client::AuthedClient, error::Error};
@@ -26,7 +26,8 @@ pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start,
-    create_inference_config, format_bedrock_error, json_to_document, StreamingToolCall,
+    create_inference_config, format_bedrock_error, json_to_document,
+    openai_tools_to_bedrock, StreamingToolCall,
 };
 
 /// Constants for commonly used strings to avoid allocations
@@ -267,31 +268,8 @@ fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
 }
 
 // ============================================================================
-// Tool Conversion (Worker-specific - uses worker's ToolDef type)
+// Tool Call Conversion (Worker-specific types)
 // ============================================================================
-
-/// Convert OpenAI tool definitions to Bedrock format
-pub fn openai_tools_to_bedrock(tools: &[ToolDef]) -> Result<Vec<Tool>, Error> {
-    tools
-        .iter()
-        .map(|tool_def| {
-            let spec = &tool_def.function;
-
-            let param_value: serde_json::Value = serde_json::from_str(spec.parameters.get())
-                .map_err(|e| Error::internal_err(format!("Invalid tool schema: {}", e)))?;
-            let input_schema = ToolInputSchema::Json(json_to_document(param_value));
-
-            let tool_spec = ToolSpecification::builder()
-                .name(&spec.name)
-                .set_description(spec.description.clone())
-                .input_schema(input_schema)
-                .build()
-                .map_err(|e| Error::internal_err(format!("Failed to build tool spec: {}", e)))?;
-
-            Ok(Tool::ToolSpec(tool_spec))
-        })
-        .collect()
-}
 
 /// Convert accumulated streaming tool calls to OpenAI format (worker types)
 fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
