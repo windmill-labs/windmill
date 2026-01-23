@@ -14,11 +14,18 @@ if (!githubToken) {
 }
 
 const MANAGER_PORT = 8001;
+const BACKEND_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour in milliseconds
+
+interface BackendInfo {
+  backend: EphemeralBackend;
+  timeoutId: NodeJS.Timeout;
+  createdAt: Date;
+}
 
 interface ManagerResources {
   cloudflaredProcess?: any;
   tunnelUrl?: string;
-  ephemeralBackends: Map<string, EphemeralBackend>;
+  ephemeralBackends: Map<string, BackendInfo>;
 }
 
 class EphemeralBackendManager {
@@ -77,6 +84,41 @@ class EphemeralBackendManager {
             );
           }
 
+          // Status endpoint - shows all running backends
+          if (url.pathname === "/status") {
+            const backends = Array.from(
+              self.resources.ephemeralBackends.entries()
+            ).map(([commitHash, backendInfo]) => {
+              const now = new Date();
+              const timeoutAt = new Date(
+                backendInfo.createdAt.getTime() + BACKEND_TIMEOUT_MS
+              );
+              const timeRemainingMs = timeoutAt.getTime() - now.getTime();
+              const timeRemainingMinutes = Math.floor(
+                timeRemainingMs / 1000 / 60
+              );
+
+              return {
+                commitHash,
+                shortHash: commitHash.substring(0, 8),
+                createdAt: backendInfo.createdAt.toISOString(),
+                timeoutAt: timeoutAt.toISOString(),
+                timeRemainingMinutes,
+                serverPort: backendInfo.backend.getServerPort(),
+                dbPort: backendInfo.backend.getDbPort(),
+              };
+            });
+
+            return new Response(
+              JSON.stringify({
+                activeBackends: backends.length,
+                backends,
+                timestamp: new Date().toISOString(),
+              }),
+              { headers: { "Content-Type": "application/json" } }
+            );
+          }
+
           // Match /spawn/{commit_hash}
           const spawnMatch = url.pathname.match(/^\/spawn\/([a-f0-9]+)$/);
           if (spawnMatch && req.method === "POST") {
@@ -96,7 +138,12 @@ class EphemeralBackendManager {
                 commitHash: commitHash,
                 onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
                 onCleanup: () => {
-                  self.resources.ephemeralBackends.delete(commitHash);
+                  const backendInfo =
+                    self.resources.ephemeralBackends.get(commitHash);
+                  if (backendInfo) {
+                    clearTimeout(backendInfo.timeoutId);
+                    self.resources.ephemeralBackends.delete(commitHash);
+                  }
                 },
               });
               function onError(e: any) {
@@ -113,10 +160,31 @@ class EphemeralBackendManager {
               }, 20000);
               try {
                 ephemeralBackend.spawn().catch((e) => onError(e));
-                self.resources.ephemeralBackends.set(
-                  commitHash,
-                  ephemeralBackend
-                );
+
+                // Set up 1-hour timeout for automatic cleanup
+                const cleanupTimeoutId = setTimeout(async () => {
+                  console.log(
+                    `\n⏰ Backend ${commitHash} has reached 1-hour timeout, cleaning up...`
+                  );
+                  try {
+                    await ephemeralBackend.cleanup();
+                    self.resources.ephemeralBackends.delete(commitHash);
+                    console.log(
+                      `✓ Backend ${commitHash} cleaned up after timeout`
+                    );
+                  } catch (error) {
+                    console.error(
+                      `❌ Failed to cleanup backend ${commitHash} after timeout:`,
+                      error
+                    );
+                  }
+                }, BACKEND_TIMEOUT_MS);
+
+                self.resources.ephemeralBackends.set(commitHash, {
+                  backend: ephemeralBackend,
+                  timeoutId: cleanupTimeoutId,
+                  createdAt: new Date(),
+                });
               } catch (e) {
                 onError(e);
               }
@@ -294,16 +362,17 @@ class EphemeralBackendManager {
       }
     }
 
-    for (const [commitHash, backend] of this.resources.ephemeralBackends) {
+    for (const [commitHash, backendInfo] of this.resources.ephemeralBackends) {
       const hash = commitHash.substring(0, 8);
       console.log(
-        `  Cleaning up ephemeral backend ${hash} on port ${backend.getServerPort()}...`
+        `  Cleaning up ephemeral backend ${hash} on port ${backendInfo.backend.getServerPort()}...`
       );
       try {
-        await backend.cleanup();
+        clearTimeout(backendInfo.timeoutId); // Clear the timeout before cleanup
+        await backendInfo.backend.cleanup();
       } catch (error) {
         console.error(
-          `  Failed to clean up backend ${hash} on port ${backend.getServerPort()}:`,
+          `  Failed to clean up backend ${hash} on port ${backendInfo.backend.getServerPort()}:`,
           error
         );
       }
@@ -318,7 +387,7 @@ class EphemeralBackendManager {
     for (let port = minPort; port < minPort + 100; port++) {
       if (
         ![...this.resources.ephemeralBackends.values()].some(
-          (eb) => port === eb.getDbPort()
+          (backendInfo) => port === backendInfo.backend.getDbPort()
         )
       ) {
         return port;
@@ -332,7 +401,7 @@ class EphemeralBackendManager {
     for (let port = minPort; port < minPort + 100; port++) {
       if (
         ![...this.resources.ephemeralBackends.values()].some(
-          (eb) => port === eb.getServerPort()
+          (backendInfo) => port === backendInfo.backend.getServerPort()
         )
       ) {
         return port;
