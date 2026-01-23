@@ -6,10 +6,12 @@ import * as readline from "readline";
 
 const execAsync = promisify(exec);
 
-interface Config {
+export interface Config {
   dbPort: number;
   serverPort: number;
   skipBuild: boolean;
+  onCloudflaredUrl?: (url: string) => void;
+  onCleanup?: () => void;
 }
 
 interface SpawnedResources {
@@ -25,23 +27,28 @@ const DEFAULT_CONFIG: Config = {
   skipBuild: false,
 };
 
-class EphemeralBackend {
+export class EphemeralBackend {
   private config: Config;
   private resources: SpawnedResources = { dbContainerId: "" };
+
+  getDbPort(): number {
+    return this.config.dbPort;
+  }
+  getServerPort(): number {
+    return this.config.serverPort;
+  }
 
   constructor(config: Partial<Config> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
   async spawn(): Promise<void> {
-    process.on("SIGINT", () => this.cleanup());
-    process.on("SIGTERM", () => this.cleanup());
-
     try {
       console.log("🚀 Starting ephemeral backend...");
       console.log(`📊 Database port: ${this.config.dbPort}`);
       console.log(`🌐 Server port: ${this.config.serverPort}`);
 
+      await this.startCloudflared();
       await this.spawnPostgres();
       await this.waitForPostgres();
       if (!this.config.skipBuild) {
@@ -50,7 +57,6 @@ class EphemeralBackend {
         console.log("\n⏭️  Skipping backend build (using existing binary)");
       }
       await this.startBackend();
-      await this.startCloudflared();
 
       console.log("\n✅ Ephemeral backend is ready!");
       console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
@@ -61,7 +67,6 @@ class EphemeralBackend {
     } catch (error) {
       console.error("❌ Error spawning ephemeral backend:", error);
       await this.cleanup();
-      process.exit(1);
     }
   }
 
@@ -209,6 +214,10 @@ class EphemeralBackend {
 
   private async startCloudflared(): Promise<void> {
     console.log("\n🌐 Starting Cloudflare tunnel...");
+    if (process.env.SKIP_CLOUDFLARED) {
+      this.config.onCloudflaredUrl?.("SKIP_CLOUDFLARED");
+      return;
+    }
 
     return new Promise((resolve, reject) => {
       this.resources.cloudflaredProcess = spawn("cloudflared", [
@@ -233,7 +242,7 @@ class EphemeralBackend {
         const match = line.match(/https:\/\/([a-z0-9-]+\.trycloudflare\.com)/);
         if (match) {
           this.resources.tunnelUrl = match[1];
-          console.log(`✓ Tunnel URL extracted: ${this.resources.tunnelUrl}`);
+          this.config.onCloudflaredUrl?.(this.resources.tunnelUrl);
           resolve();
         }
       });
@@ -291,46 +300,8 @@ class EphemeralBackend {
       }
     }
 
+    this.config.onCleanup?.();
+
     console.log("✅ Cleanup complete");
-    process.exit(0);
   }
 }
-
-// Main execution
-async function main() {
-  const args = process.argv.slice(2);
-  console.log("Ephemeral Backend Spawner", args);
-  const config: Partial<Config> = {};
-
-  // Parse command line arguments
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--db-port" && args[i + 1]) {
-      config.dbPort = parseInt(args[i + 1], 10);
-      i++;
-    } else if (args[i] === "--server-port" && args[i + 1]) {
-      config.serverPort = parseInt(args[i + 1], 10);
-      i++;
-    } else if (args[i] === "--skip-build") {
-      config.skipBuild = true;
-    } else if (args[i] === "--help") {
-      console.log(`
-Usage: spawn.ts [options]
-
-Options:
-  --db-port <port>      Database port (default: 5432)
-  --server-port <port>  Server port (default: 8000)
-  --skip-build          Skip building the backend (use existing binary)
-  --help                Show this help message
-      `);
-      process.exit(0);
-    }
-  }
-
-  const backend = new EphemeralBackend(config);
-  await backend.spawn();
-}
-
-main().catch((error) => {
-  console.error("Fatal error:", error);
-  process.exit(1);
-});

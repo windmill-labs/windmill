@@ -3,6 +3,7 @@
 import { spawn } from "child_process";
 import * as readline from "readline";
 import sodium from "libsodium-wrappers-sumo";
+import { EphemeralBackend } from "./spawn";
 
 const githubToken = process.env.GITHUB_TOKEN;
 if (!githubToken) {
@@ -17,6 +18,7 @@ const MANAGER_PORT = 8001;
 interface ManagerResources {
   cloudflaredProcess?: any;
   tunnelUrl?: string;
+  ephemeralBackends?: EphemeralBackend[];
 }
 
 class EphemeralBackendManager {
@@ -33,13 +35,11 @@ class EphemeralBackendManager {
       console.log(`📊 Manager port: ${MANAGER_PORT}`);
 
       await this.startHttpServer();
-      await this.startCloudflared();
+      if (!process.env.SKIP_CLOUDFLARED) await this.startCloudflared();
+      if (!process.env.SKIP_SET_GH_SECRET) await this.updateGitHubSecret();
 
       console.log("\n✅ Manager is ready!");
       console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
-
-      // Automatically update GitHub secret
-      await this.updateGitHubSecret();
 
       console.log("\n💡 Press Ctrl+C to stop...");
 
@@ -53,12 +53,14 @@ class EphemeralBackendManager {
   }
 
   private async startHttpServer(): Promise<void> {
+    const self = this;
     console.log("\n🌐 Starting HTTP server...");
 
     return new Promise((resolve) => {
       // Use Bun's built-in HTTP server
       this.server = Bun.serve({
         port: MANAGER_PORT,
+        idleTimeout: 30,
         async fetch(req) {
           const url = new URL(req.url);
 
@@ -73,17 +75,35 @@ class EphemeralBackendManager {
             );
           }
 
-          // Spawn backend endpoint
           if (url.pathname === "/spawn" && req.method === "POST") {
+            console.log("\n🔹 Received request to spawn new ephemeral backend");
+            const tunnelUrl = await new Promise<string>((res, err) => {
+              const timeout = setTimeout(() => {
+                err(new Error("Timeout waiting for backend URL"));
+              }, 20000);
+              const ephemeralBackend = new EphemeralBackend({
+                dbPort: self.findFreeDbPorts(),
+                serverPort: self.findFreeServerPorts(),
+                skipBuild: !!process.env.SKIP_BACKEND_BUILD,
+                onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
+                onCleanup: () => {
+                  const index =
+                    self.resources.ephemeralBackends?.indexOf(ephemeralBackend);
+                  if (index && index !== -1)
+                    self.resources.ephemeralBackends?.splice(index, 1);
+                },
+              });
+              ephemeralBackend.spawn().catch((e) => err(e));
+              self.resources.ephemeralBackends ??= [];
+              self.resources.ephemeralBackends.push(ephemeralBackend);
+            });
+
             return new Response(
               JSON.stringify({
-                message: "Spawn endpoint received (implementation pending)",
+                tunnelUrl: `https://${tunnelUrl}`,
                 timestamp: new Date().toISOString(),
               }),
-              {
-                headers: { "Content-Type": "application/json" },
-                status: 202, // Accepted
-              }
+              { headers: { "Content-Type": "application/json" }, status: 202 }
             );
           }
 
@@ -222,7 +242,10 @@ class EphemeralBackendManager {
     }
   }
 
+  isCleaningUp: boolean = false;
   private async cleanup(): Promise<void> {
+    if (this.isCleaningUp) return;
+    this.isCleaningUp = true;
     console.log("\n🧹 Cleaning up manager resources...");
 
     // Stop HTTP server
@@ -247,8 +270,48 @@ class EphemeralBackendManager {
       }
     }
 
+    for (const backend of this.resources.ephemeralBackends || []) {
+      console.log(
+        `  Cleaning up ephemeral backend on server port ${backend.getServerPort()}...`
+      );
+      try {
+        await backend.cleanup();
+      } catch (error) {
+        console.error(
+          `  Failed to clean up backend on port ${backend.getServerPort()}:`,
+          error
+        );
+      }
+    }
+
     console.log("✅ Cleanup complete");
     process.exit(0);
+  }
+
+  private findFreeDbPorts(): number {
+    const minPort = 5433;
+    for (let port = minPort; port < minPort + 100; port++) {
+      if (
+        !this.resources.ephemeralBackends?.some((eb) => port === eb.getDbPort())
+      ) {
+        return port;
+      }
+    }
+    throw new Error("No free DB ports available");
+  }
+
+  private findFreeServerPorts(): number {
+    const minPort = 8002;
+    for (let port = minPort; port < minPort + 100; port++) {
+      if (
+        !this.resources.ephemeralBackends?.some(
+          (eb) => port === eb.getServerPort()
+        )
+      ) {
+        return port;
+      }
+    }
+    throw new Error("No free server ports available");
   }
 }
 
