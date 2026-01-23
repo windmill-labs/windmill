@@ -9,7 +9,7 @@ permissions: write-all
 
 jobs:
   build_ee:
-    runs-on: ubicloud-standard-8-arm
+    runs-on: ubicloud
     steps:
       - uses: actions/checkout@v4
         with:
@@ -27,8 +27,7 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: depot/setup-action@v1
 
       - name: Docker meta
         id: meta-ee-public
@@ -56,46 +55,66 @@ jobs:
         run: |
           cp ./docker/RHEL9/Dockerfile ./Dockerfile
 
-      - name: Build and push EE arm64
-        uses: docker/build-push-action@v6
+      - name: Build and push EE (multi-arch)
+        uses: depot/build-push-action@v1
         with:
           context: .
-          platforms: linux/arm64
+          platforms: linux/amd64,linux/arm64
           push: true
-          load: true
           build-args: |
             features=enterprise,enterprise_saml,stripe,embedding,parquet,prometheus,openidconnect,cloud,jemalloc,license,otel,http_trigger,zip,oauth2,kafka,sqs_trigger,nats,postgres_trigger,gcp_trigger,mqtt_trigger,websocket,smtp,static_frontend,all_languages,deno_core,mcp,private
           secrets: |
             rh_username=${{ secrets.RH_USERNAME }}
             rh_password=${{ secrets.RH_PASSWORD }}
           tags: |
-            ${{ steps.meta-ee-public.outputs.tags }}-arm64
+            ${{ steps.meta-ee-public.outputs.tags }}
           labels: |
-            ${{ steps.meta-ee-public.outputs.labels }}-arm64
+            ${{ steps.meta-ee-public.outputs.labels }}
             org.opencontainers.image.licenses=Windmill-Enterprise-License
 
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-ee-arm64
-        with:
-          image: ${{ steps.meta-ee-public.outputs.tags }}-arm64
-          path: "/windmill/target/release/windmill"
+      - name: Install crane
+        uses: imjasonh/setup-crane@v0.4
 
-      - uses: shrink/actions-docker-extract@v3
-        id: extract-duckdb-ffi-internal
-        with:
-          image: ${{ steps.meta-ee-public.outputs.tags }}-arm64
-          path: "/usr/src/app/libwindmill_duckdb_ffi_internal.so"
-
-      - name: Rename binary with corresponding architecture
+      - name: Extract binaries with crane
         run: |
-          mv "${{ steps.extract-ee-arm64.outputs.destination }}/windmill" "${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9"
+          mkdir -p extracted
+
+          # Extract arm64 binary
+          crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
+            | tar -xf - -C extracted windmill/target/release/windmill
+          mv extracted/windmill/target/release/windmill extracted/windmill-ee-arm64-rhel9
+
+          # Extract amd64 binary
+          crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
+            | tar -xf - -C extracted windmill/target/release/windmill
+          mv extracted/windmill/target/release/windmill extracted/windmill-ee-amd64-rhel9
+
+          # Extract arm64 duckdb ffi library
+          crane export --platform linux/arm64 ${{ steps.meta-ee-public.outputs.tags }} - \
+            | tar -xf - -C extracted usr/src/app/libwindmill_duckdb_ffi_internal.so
+          mv extracted/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-arm64.so
+
+          # Extract amd64 duckdb ffi library
+          crane export --platform linux/amd64 ${{ steps.meta-ee-public.outputs.tags }} - \
+            | tar -xf - -C extracted usr/src/app/libwindmill_duckdb_ffi_internal.so
+          mv extracted/usr/src/app/libwindmill_duckdb_ffi_internal.so extracted/libwindmill_duckdb_ffi_internal-amd64.so
 
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-arm64 build
-          path: ${{ steps.extract-ee-arm64.outputs.destination }}/windmill-ee-arm64-rhel9
+          path: extracted/windmill-ee-arm64-rhel9
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RHEL9-amd64 build
+          path: extracted/windmill-ee-amd64-rhel9
 
       - uses: actions/upload-artifact@v4
         with:
           name: RHEL9-arm64 dynamic libraries build
-          path: ${{ steps.extract-duckdb-ffi-internal.outputs.destination }}/libwindmill_duckdb_ffi_internal.so
+          path: extracted/libwindmill_duckdb_ffi_internal-arm64.so
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RHEL9-amd64 dynamic libraries build
+          path: extracted/libwindmill_duckdb_ffi_internal-amd64.so
