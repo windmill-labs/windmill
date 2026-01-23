@@ -16,6 +16,7 @@ export interface Config {
 
 interface SpawnedResources {
   dbContainerId: string;
+  dbProcess?: any;
   backendProcess?: any;
   cloudflaredProcess?: any;
   tunnelUrl?: string;
@@ -73,20 +74,30 @@ export class EphemeralBackend {
   private async spawnPostgres(): Promise<void> {
     console.log("\n🐘 Spawning PostgreSQL container...");
 
-    const { stdout } = await execAsync(
-      `docker run --rm -d -p ${this.config.dbPort}:5432 ` +
-        `-e POSTGRES_PASSWORD=changeme ` +
-        `-e POSTGRES_DB=windmill ` +
-        `postgres:16`
-    );
+    this.resources.dbProcess = spawn("docker", [
+      "run",
+      "--rm",
+      "-p",
+      `${this.config.dbPort}:5432`,
+      "-e",
+      "POSTGRES_PASSWORD=changeme",
+      "-e",
+      "POSTGRES_DB=windmill",
+      "postgres:16",
+    ]);
 
-    this.resources.dbContainerId = stdout.trim();
-    console.log(
-      `✓ PostgreSQL container started: ${this.resources.dbContainerId.substring(
-        0,
-        12
-      )}`
-    );
+    // Capture container ID from first line of output
+    this.resources.dbProcess.stdout.on("data", (data: Buffer) => {
+      process.stdout.write(`[postgres] ${data}`);
+    });
+
+    this.resources.dbProcess.stderr.on("data", (data: Buffer) => {
+      process.stderr.write(`[postgres] ${data}`);
+    });
+
+    this.resources.dbProcess.on("close", (code: number) => {
+      console.log(`PostgreSQL process exited with code ${code}`);
+    });
   }
 
   private async waitForPostgres(): Promise<void> {
@@ -98,7 +109,7 @@ export class EphemeralBackend {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await execAsync(
-          `docker exec ${this.resources.dbContainerId} pg_isready -U postgres`
+          `docker run --rm postgres:16 pg_isready -h host.docker.internal -p ${this.config.dbPort} -U postgres`
         );
         console.log("✓ PostgreSQL is ready");
         return;
@@ -220,17 +231,13 @@ export class EphemeralBackend {
     }
 
     return new Promise((resolve, reject) => {
-      this.resources.cloudflaredProcess = spawn(
-        "cloudflared",
-        [
-          "tunnel",
-          "--url",
-          `http://localhost:${this.config.serverPort}`,
-          "--config",
-          "/dev/null",
-        ],
-        { timeout: 45 * 60 * 1000 } // 45 minutes
-      );
+      this.resources.cloudflaredProcess = spawn("cloudflared", [
+        "tunnel",
+        "--url",
+        `http://localhost:${this.config.serverPort}`,
+        "--config",
+        "/dev/null",
+      ]);
 
       const rl = readline.createInterface({
         input: this.resources.cloudflaredProcess.stdout,
@@ -293,11 +300,13 @@ export class EphemeralBackend {
       }
     }
 
-    // Stop and remove PostgreSQL container
-    if (this.resources.dbContainerId) {
+    // Kill PostgreSQL process
+    if (this.resources.dbProcess) {
       console.log("  Stopping PostgreSQL container...");
       try {
-        await execAsync(`docker stop ${this.resources.dbContainerId}`);
+        this.resources.dbProcess.kill("SIGTERM");
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        this.resources.dbProcess.kill("SIGKILL");
         console.log("  ✓ PostgreSQL container stopped");
       } catch (error) {
         console.error("  Failed to stop PostgreSQL container:", error);
