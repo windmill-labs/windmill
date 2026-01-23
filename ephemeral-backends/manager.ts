@@ -75,8 +75,12 @@ class EphemeralBackendManager {
             );
           }
 
-          if (url.pathname === "/spawn" && req.method === "POST") {
-            console.log("\n🔹 Received request to spawn new ephemeral backend");
+          // Match /spawn/{commit_hash}
+          const spawnMatch = url.pathname.match(/^\/spawn\/([a-f0-9]+)$/);
+          if (spawnMatch && req.method === "POST") {
+            const commitHash = spawnMatch[1];
+            console.log(`\n🔹 Received request to spawn ephemeral backend for commit: ${commitHash}`);
+
             const tunnelUrl = await new Promise<string>((res, err) => {
               const timeout = setTimeout(() => {
                 err(new Error("Timeout waiting for backend URL"));
@@ -85,6 +89,7 @@ class EphemeralBackendManager {
                 dbPort: self.findFreeDbPorts(),
                 serverPort: self.findFreeServerPorts(),
                 skipBuild: !!process.env.SKIP_BACKEND_BUILD,
+                commitHash: commitHash,
                 onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
                 onCleanup: () => {
                   const index =

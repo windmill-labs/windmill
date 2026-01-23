@@ -10,6 +10,7 @@ export interface Config {
   dbPort: number;
   serverPort: number;
   skipBuild: boolean;
+  commitHash: string;
   onCloudflaredUrl?: (url: string) => void;
   onCleanup?: () => void;
 }
@@ -20,13 +21,10 @@ interface SpawnedResources {
   backendProcess?: any;
   cloudflaredProcess?: any;
   tunnelUrl?: string;
+  worktreePath?: string;
 }
 
-const DEFAULT_CONFIG: Config = {
-  dbPort: 5432,
-  serverPort: 8000,
-  skipBuild: false,
-};
+// No default config needed since commitHash is always required
 
 export class EphemeralBackend {
   private config: Config;
@@ -39,8 +37,8 @@ export class EphemeralBackend {
     return this.config.serverPort;
   }
 
-  constructor(config: Partial<Config> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(config: Config) {
+    this.config = config;
   }
 
   async spawn(): Promise<void> {
@@ -48,8 +46,10 @@ export class EphemeralBackend {
       console.log("🚀 Starting ephemeral backend...");
       console.log(`📊 Database port: ${this.config.dbPort}`);
       console.log(`🌐 Server port: ${this.config.serverPort}`);
+      console.log(`📌 Commit hash: ${this.config.commitHash}`);
 
       await this.startCloudflared();
+      await this.createWorktree();
       await this.spawnPostgres();
       await this.waitForPostgres();
       if (!this.config.skipBuild) {
@@ -69,6 +69,41 @@ export class EphemeralBackend {
       console.error("❌ Error spawning ephemeral backend:", error);
       await this.cleanup();
     }
+  }
+
+  private getWorktreePath(): string {
+    return `../windmill-ephemeral-backends/${this.config.commitHash}`;
+  }
+
+  private async createWorktree(): Promise<void> {
+    console.log("\n📂 Creating git worktree...");
+
+    const worktreeBasePath = "../windmill-ephemeral-backends";
+    const worktreePath = this.getWorktreePath();
+    this.resources.worktreePath = worktreePath;
+
+    // Check if worktree already exists
+    try {
+      const { stdout } = await execAsync("git worktree list");
+      if (stdout.includes(worktreePath)) {
+        console.log(`✓ Worktree already exists at ${worktreePath}`);
+        return;
+      }
+    } catch (error) {
+      // Worktree doesn't exist, we'll create it
+    }
+
+    // Create the base directory if it doesn't exist
+    try {
+      await execAsync(`mkdir -p ${worktreeBasePath}`);
+    } catch (error) {
+      // Directory might already exist
+    }
+
+    // Create the worktree
+    console.log(`  Creating worktree at ${worktreePath} for commit ${this.config.commitHash}`);
+    await execAsync(`git worktree add ${worktreePath} ${this.config.commitHash}`);
+    console.log(`✓ Worktree created at ${worktreePath}`);
   }
 
   private async spawnPostgres(): Promise<void> {
@@ -167,10 +202,11 @@ export class EphemeralBackend {
     ].join(",");
 
     return new Promise((resolve, reject) => {
+      const backendDir = `${this.getWorktreePath()}/backend`;
       const buildProcess = spawn(
         "cargo",
         ["build", "--features", features, "--release"],
-        { cwd: "./backend", env }
+        { cwd: backendDir, env }
       );
 
       buildProcess.stdout.on("data", (data) => {
@@ -201,8 +237,9 @@ export class EphemeralBackend {
       PORT: this.config.serverPort.toString(),
     };
 
+    const releaseDir = `${this.getWorktreePath()}/backend/target/release`;
     this.resources.backendProcess = spawn("./windmill", [], {
-      cwd: "./backend/target/release",
+      cwd: releaseDir,
       env,
     });
 
@@ -310,6 +347,17 @@ export class EphemeralBackend {
         console.log("  ✓ PostgreSQL container stopped");
       } catch (error) {
         console.error("  Failed to stop PostgreSQL container:", error);
+      }
+    }
+
+    // Remove git worktree
+    if (this.resources.worktreePath) {
+      console.log("  Removing git worktree...");
+      try {
+        await execAsync(`git worktree remove ${this.resources.worktreePath} --force`);
+        console.log("  ✓ Git worktree removed");
+      } catch (error) {
+        console.error("  Failed to remove git worktree:", error);
       }
     }
 
