@@ -3,6 +3,7 @@
 import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import * as readline from "readline";
+import path from "path";
 
 const execAsync = promisify(exec);
 
@@ -74,7 +75,9 @@ export class EphemeralBackend {
   }
 
   private getWorktreePath(): string {
-    return `../windmill-ephemeral-backends/${this.config.commitHash}`;
+    return path.resolve(
+      `../windmill-ephemeral-backends/${this.config.commitHash}`
+    );
   }
 
   private getEEWorktreePath(): string {
@@ -136,7 +139,9 @@ export class EphemeralBackend {
       console.log(`  ✓ EE commit hash: ${eeCommitHash}`);
     } catch (error) {
       throw new Error(
-        `Failed to read ee-repo-ref.txt: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to read ee-repo-ref.txt: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
 
@@ -149,7 +154,9 @@ export class EphemeralBackend {
       console.log(`  ✓ Repository cloned to ${eeWorktreePath}`);
     } catch (error) {
       throw new Error(
-        `Failed to clone windmill-ee-private: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to clone windmill-ee-private: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
 
@@ -162,21 +169,24 @@ export class EphemeralBackend {
       console.log(`  ✓ Checked out commit ${eeCommitHash}`);
     } catch (error) {
       throw new Error(
-        `Failed to checkout EE commit: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to checkout EE commit: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
 
     // Run the substitute_ee_code.sh script to copy EE files
     console.log(`  Running substitute_ee_code.sh to copy EE files`);
     try {
-      await execAsync(
-        `./substitute_ee_code.sh --copy -d ${eeWorktreePath}`,
-        { cwd: `${worktreePath}/backend` }
-      );
+      await execAsync(`./substitute_ee_code.sh --copy -d ${eeWorktreePath}`, {
+        cwd: `${worktreePath}/backend`,
+      });
       console.log(`  ✓ EE code substituted successfully`);
     } catch (error) {
       throw new Error(
-        `Failed to substitute EE code: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to substitute EE code: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
 

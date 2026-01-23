@@ -192,7 +192,7 @@ class EphemeralBackendManager {
 
             return new Response(
               JSON.stringify({
-                tunnelUrl: `https://${tunnelUrl}`,
+                tunnelUrl,
                 timestamp: new Date().toISOString(),
               }),
               { headers: { "Content-Type": "application/json" }, status: 202 }
