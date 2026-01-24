@@ -199,7 +199,7 @@ class EphemeralBackendManager {
                         body: JSON.stringify({
                           status: "ready",
                           commitHash,
-                          tunnelUrl,
+                          tunnelUrl: `https://${tunnelUrl}`,
                         }),
                       }).catch((e) => {
                         onError(e);
