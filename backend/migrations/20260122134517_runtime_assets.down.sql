@@ -2,6 +2,7 @@
 
 -- Drop constraints and indexes
 ALTER TABLE asset DROP CONSTRAINT IF EXISTS asset_job_id_check;
+DROP INDEX IF EXISTS idx_asset_runtime_lookup;
 DROP INDEX IF EXISTS idx_asset_detection_kind;
 DROP INDEX IF EXISTS asset_runtime_unique_idx;
 DROP INDEX IF EXISTS asset_static_unique_idx;

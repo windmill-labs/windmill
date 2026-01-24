@@ -27,6 +27,9 @@ CREATE UNIQUE INDEX asset_runtime_unique_idx
 -- Add index to optimize queries filtering by detection kind
 CREATE INDEX idx_asset_detection_kind ON asset (workspace_id, asset_detection_kind);
 
+CREATE INDEX idx_asset_runtime_lookup ON asset (workspace_id, path, kind, job_id) 
+  WHERE asset_detection_kind = 'runtime';
+
 -- Add constraint: runtime assets must have job_id, static assets must not
 ALTER TABLE asset
   ADD CONSTRAINT asset_job_id_check CHECK (
