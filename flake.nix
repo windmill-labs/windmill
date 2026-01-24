@@ -187,6 +187,7 @@
             cargo-watch
             nsjail
             sccache
+            pg_activity
           ]);
           packages = [
             (pkgs.writeScriptBin "wm-caddy" ''
