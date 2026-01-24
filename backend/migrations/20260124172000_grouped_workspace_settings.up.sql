@@ -14,7 +14,7 @@ UPDATE workspace_settings SET
     'domain', auto_invite_domain,
     'operator', COALESCE(auto_invite_operator, false),
     'mode', CASE WHEN auto_add THEN 'add' ELSE 'invite' END,
-    'instance_groups', auto_add_instance_groups,
+    'instance_groups', CASE WHEN auto_add_instance_groups IS NOT NULL THEN to_jsonb(auto_add_instance_groups) ELSE NULL END,
     'instance_groups_roles', auto_add_instance_groups_roles
   )),
   error_handler_new = CASE
@@ -53,3 +53,7 @@ ALTER TABLE workspace_settings
   RENAME COLUMN error_handler_new TO error_handler;
 ALTER TABLE workspace_settings
   RENAME COLUMN success_handler_new TO success_handler;
+
+-- Step 6: Add GIN index on auto_invite for efficient JSONB queries (e.g., ? operator for instance_groups)
+-- Using default GIN opclass (not jsonb_path_ops) to support the ? operator
+CREATE INDEX IF NOT EXISTS idx_workspace_settings_auto_invite ON workspace_settings USING GIN (auto_invite);

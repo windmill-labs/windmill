@@ -1,3 +1,6 @@
+-- Step 0: Drop the GIN index on auto_invite
+DROP INDEX IF EXISTS idx_workspace_settings_auto_invite;
+
 -- Step 1: Rename current JSONB columns to temporary names to avoid collision
 ALTER TABLE workspace_settings
   RENAME COLUMN error_handler TO error_handler_jsonb;
