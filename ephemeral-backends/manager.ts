@@ -13,6 +13,13 @@ if (!githubToken) {
   process.exit(1);
 }
 
+if (!process.env.GIT_EE_DEPLOY_KEY_FILE) {
+  console.log("⚠️  GIT_EE_DEPLOY_KEY_FILE environment variable not set");
+  console.log("\n📝 Set a read-only SSH deploy key:");
+  console.log("   export GIT_EE_DEPLOY_KEY_FILE=/home/...");
+  process.exit(1);
+}
+
 const MANAGER_PORT = 8001;
 const BACKEND_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 

@@ -149,7 +149,13 @@ export class EphemeralBackend {
     console.log(`  Cloning windmill-ee-private at commit ${eeCommitHash}`);
     try {
       await execAsync(
-        `git clone git@github.com:windmill-labs/windmill-ee-private.git ${eeWorktreePath}`
+        `git clone git@github.com:windmill-labs/windmill-ee-private.git ${eeWorktreePath}`,
+        {
+          env: {
+            ...process.env,
+            GIT_SSH_COMMAND: `ssh -i ${process.env.GIT_EE_DEPLOY_KEY_FILE} -o StrictHostKeyChecking=accept-new`,
+          },
+        }
       );
       console.log(`  ✓ Repository cloned to ${eeWorktreePath}`);
     } catch (error) {
