@@ -589,6 +589,11 @@ async fn create_script_internal<'c>(
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
 )> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create scripts for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     guard_script_from_debounce_data(&ns).await?;
