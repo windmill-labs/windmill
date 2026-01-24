@@ -13,7 +13,6 @@
 	import { AssetService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
-	import Button from '../common/button/Button.svelte'
 	import RefreshButton from '../common/button/RefreshButton.svelte'
 	import { resource } from 'runed'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
@@ -33,26 +32,23 @@
 		| undefined = $state()
 
 	let _runtimeJobs = resource(
-		[() => runtimeJobsCurrentPage, () => usagesDrawerData],
-		async ([page, data]) => {
+		() => usagesDrawerData,
+		async (data) => {
 			if (!data || !data.usages.some((u) => u.detection_kinds?.includes('runtime')))
 				return undefined
 			return await AssetService.listAssetJobs({
 				workspace: $workspaceStore!,
 				assetPath: data.path,
 				assetKind: data.kind,
-				page,
+				page: 1,
 				perPage: 20
 			})
 		}
 	)
 	const runtimeJobs = new StaleWhileLoading(() => _runtimeJobs.current)
 
-	let runtimeJobsCurrentPage = $state(1)
-
 	export function open(data: typeof usagesDrawerData) {
 		usagesDrawerData = data
-		runtimeJobsCurrentPage = 1
 	}
 
 	const jobStatusColor = {
@@ -150,40 +146,6 @@
 								</a>
 							{/each}
 						</div>
-
-						<!-- Pagination -->
-						{#if runtimeJobs.current.total > runtimeJobs.current.per_page}
-							<div class="flex items-center justify-between mt-3 text-sm">
-								<span class="text-secondary">
-									Showing {(runtimeJobs.current.page - 1) * runtimeJobs.current.per_page + 1} -
-									{Math.min(
-										runtimeJobs.current.page * runtimeJobs.current.per_page,
-										runtimeJobs.current.total
-									)} of {runtimeJobs.current.total}
-									jobs
-								</span>
-								<div class="flex gap-2">
-									<Button
-										size="xs"
-										color="light"
-										disabled={runtimeJobs.current.page <= 1}
-										on:click={() =>
-											(runtimeJobsCurrentPage = Math.max(1, runtimeJobsCurrentPage - 1))}
-									>
-										Previous
-									</Button>
-									<Button
-										size="xs"
-										color="light"
-										disabled={runtimeJobs.current.page * runtimeJobs.current.per_page >=
-											runtimeJobs.current.total}
-										on:click={() => (runtimeJobsCurrentPage = runtimeJobsCurrentPage + 1)}
-									>
-										Next
-									</Button>
-								</div>
-							</div>
-						{/if}
 					{/if}
 				</section>
 			{/if}
