@@ -427,8 +427,9 @@ pub struct NewWorkspaceUser {
     pub operator: bool,
 }
 
+// New format for error handler (grouped)
 #[derive(Deserialize)]
-pub struct EditErrorHandler {
+pub struct EditErrorHandlerNew {
     pub path: Option<String>,
     pub extra_args: Option<serde_json::Value>,
     #[serde(default)]
@@ -437,10 +438,69 @@ pub struct EditErrorHandler {
     pub muted_on_user_path: bool,
 }
 
+// Legacy format for error handler (flat fields from old CLI)
 #[derive(Deserialize)]
-pub struct EditSuccessHandler {
+pub struct EditErrorHandlerLegacy {
+    pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error_handler_muted_on_cancel: bool,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditErrorHandler {
+    New(EditErrorHandlerNew),
+    Legacy(EditErrorHandlerLegacy),
+}
+
+impl EditErrorHandler {
+    pub fn into_normalized(self) -> EditErrorHandlerNew {
+        match self {
+            EditErrorHandler::New(new) => new,
+            EditErrorHandler::Legacy(legacy) => EditErrorHandlerNew {
+                path: legacy.error_handler,
+                extra_args: legacy.error_handler_extra_args,
+                muted_on_cancel: legacy.error_handler_muted_on_cancel,
+                muted_on_user_path: false, // Old format doesn't have this field
+            },
+        }
+    }
+}
+
+// New format for success handler (grouped)
+#[derive(Deserialize)]
+pub struct EditSuccessHandlerNew {
     pub path: Option<String>,
     pub extra_args: Option<serde_json::Value>,
+}
+
+// Legacy format for success handler (flat fields from old CLI)
+#[derive(Deserialize)]
+pub struct EditSuccessHandlerLegacy {
+    pub success_handler: Option<String>,
+    pub success_handler_extra_args: Option<serde_json::Value>,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditSuccessHandler {
+    New(EditSuccessHandlerNew),
+    Legacy(EditSuccessHandlerLegacy),
+}
+
+impl EditSuccessHandler {
+    pub fn into_normalized(self) -> EditSuccessHandlerNew {
+        match self {
+            EditSuccessHandler::New(new) => new,
+            EditSuccessHandler::Legacy(legacy) => EditSuccessHandlerNew {
+                path: legacy.success_handler,
+                extra_args: legacy.success_handler_extra_args,
+            },
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -2140,6 +2200,9 @@ async fn edit_error_handler(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let ee = ee.into_normalized();
+
     let mut tx = db.begin().await?;
 
     sqlx::query_as!(
@@ -2246,6 +2309,9 @@ async fn edit_success_handler(
     Json(es): Json<EditSuccessHandler>,
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
+
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let es = es.into_normalized();
 
     let mut tx = db.begin().await?;
 

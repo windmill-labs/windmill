@@ -16724,8 +16724,14 @@ components:
           $ref: "#/components/schemas/ScriptArgs"
 
     EditErrorHandler:
+      description: Request body for editing the workspace error handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditErrorHandlerNew"
+        - $ref: "#/components/schemas/EditErrorHandlerLegacy"
+
+    EditErrorHandlerNew:
       type: object
-      description: Request body for editing the workspace error handler
+      description: New grouped format for editing error handler
       properties:
         path:
           type: string
@@ -16739,14 +16745,43 @@ components:
           type: boolean
           default: false
 
-    EditSuccessHandler:
+    EditErrorHandlerLegacy:
       type: object
-      description: Request body for editing the workspace success handler
+      description: Legacy flat format for editing error handler (deprecated, use new format)
+      properties:
+        error_handler:
+          type: string
+          description: Path to the error handler script or flow
+        error_handler_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        error_handler_muted_on_cancel:
+          type: boolean
+          default: false
+
+    EditSuccessHandler:
+      description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditSuccessHandlerNew"
+        - $ref: "#/components/schemas/EditSuccessHandlerLegacy"
+
+    EditSuccessHandlerNew:
+      type: object
+      description: New grouped format for editing success handler
       properties:
         path:
           type: string
           description: Path to the success handler script or flow
         extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    EditSuccessHandlerLegacy:
+      type: object
+      description: Legacy flat format for editing success handler (deprecated, use new format)
+      properties:
+        success_handler:
+          type: string
+          description: Path to the success handler script or flow
+        success_handler_extra_args:
           $ref: "#/components/schemas/ScriptArgs"
 
     VaultSettings:
