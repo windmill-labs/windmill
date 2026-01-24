@@ -248,7 +248,7 @@ pub fn init_runtime_asset_inserter(
                         if buffer.len() >= RUNTIME_ASSET_CHANNEL_CAPACITY { break; }
                     }
                     if buffer.is_empty() { continue; }
-                    let buffer = match prune_runtime_assets(&executor, buffer, 5).await {
+                    let buffer = match prune_runtime_assets(&executor, buffer, 10).await {
                         Ok(buf) => buf,
                         Err(e) => { tracing::error!("Failed to prune runtime assets: {e}"); continue; }
                     };

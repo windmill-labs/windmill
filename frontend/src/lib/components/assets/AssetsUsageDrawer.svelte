@@ -106,10 +106,16 @@
 			{#if usagesDrawerData?.usages.some((u) => u.detection_kinds?.includes('runtime'))}
 				<section>
 					<h3 class="text-sm font-semibold mb-2 flex justify-between items-center">
-						Recent Job Executions
+						Latest Job Executions
 						<RefreshButton loading={_runtimeJobs.loading} onClick={() => _runtimeJobs.refetch()} />
 					</h3>
-					<Alert type="info" class="mb-2" title="Jobs can take up to 2 minutes to appear"></Alert>
+					<Alert
+						type="info"
+						class="mb-2"
+						title="Assets are processed asynchronously after job completion"
+					>
+						It may take a few minutes for jobs to show up here.
+					</Alert>
 
 					{#if !runtimeJobs.current && _runtimeJobs.loading}
 						<div class="flex items-center justify-center py-8 text-sm text-secondary">
