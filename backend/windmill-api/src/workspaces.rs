@@ -429,6 +429,7 @@ pub struct NewWorkspaceUser {
 
 // New format for error handler (grouped)
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditErrorHandlerNew {
     pub path: Option<String>,
     pub extra_args: Option<serde_json::Value>,
@@ -471,6 +472,7 @@ impl EditErrorHandler {
 
 // New format for success handler (grouped)
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct EditSuccessHandlerNew {
     pub path: Option<String>,
     pub extra_args: Option<serde_json::Value>,

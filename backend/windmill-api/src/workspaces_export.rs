@@ -177,6 +177,8 @@ pub(crate) struct ArchiveQueryParams {
     include_key: Option<bool>,
     include_workspace_dependencies: Option<bool>,
     default_ts: Option<String>,
+    /// Settings format version: "v1" (default) returns legacy flat format, "v2" returns grouped format
+    settings_version: Option<String>,
 }
 
 #[inline]
@@ -253,6 +255,7 @@ struct SimplifiedGroup {
     admins: Vec<String>,
 }
 
+// V2 format: New grouped format
 #[derive(Serialize)]
 struct SimplifiedSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -263,6 +266,8 @@ struct SimplifiedSettings {
     deploy_to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error_handler: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    success_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -279,6 +284,59 @@ struct SimplifiedSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     color: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    operator_settings: Option<serde_json::Value>,
+}
+
+// V1 format: Legacy flat format for backward compatibility (matches main branch exactly)
+#[derive(Serialize)]
+struct SimplifiedSettingsLegacy {
+    auto_invite_enabled: bool,
+    auto_invite_as: String,
+    auto_invite_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    webhook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deploy_to: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_handler: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error_handler_extra_args: Option<Value>,
+    error_handler_muted_on_cancel: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    ai_config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    large_file_storage: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    git_sync: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_app: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_scripts: Option<Value>,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mute_critical_alerts: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    operator_settings: Option<serde_json::Value>,
+}
+
+// Internal struct for querying database
+#[derive(sqlx::FromRow)]
+struct SettingsRow {
+    auto_invite: Option<Value>,
+    webhook: Option<String>,
+    deploy_to: Option<String>,
+    error_handler: Option<Value>,
+    success_handler: Option<Value>,
+    ai_config: Option<serde_json::Value>,
+    large_file_storage: Option<Value>,
+    git_sync: Option<Value>,
+    default_app: Option<String>,
+    default_scripts: Option<Value>,
+    name: Option<String>,
+    mute_critical_alerts: Option<bool>,
+    color: Option<String>,
     operator_settings: Option<serde_json::Value>,
 }
 
@@ -303,6 +361,7 @@ pub(crate) async fn tarball_workspace(
         include_key,
         include_workspace_dependencies,
         default_ts,
+        settings_version,
     }): Query<ArchiveQueryParams>,
 ) -> Result<([(HeaderName, String); 2], impl IntoResponse)> {
     // require_admin(authed.is_admin, &authed.username)?;
@@ -835,33 +894,103 @@ pub(crate) async fn tarball_workspace(
     }
 
     if include_settings.unwrap_or(false) {
-        let settings = sqlx::query_as!(
-             SimplifiedSettings,
+        let row = sqlx::query_as::<_, SettingsRow>(
              r#"SELECT
                  auto_invite,
                  webhook,
                  deploy_to,
                  error_handler,
+                 success_handler,
                  ai_config,
                  large_file_storage,
                  git_sync,
                  default_app,
                  default_scripts,
-                 workspace.name as "name!",
+                 workspace.name as name,
                  mute_critical_alerts,
                  color,
                  operator_settings
              FROM workspace_settings
              LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id
              WHERE workspace_id = $1"#,
-             &w_id
-         ).fetch_one(&mut *tx).await?;
+         )
+         .bind(&w_id)
+         .fetch_one(&mut *tx)
+         .await?;
 
-        let settings_str = serde_json::to_value(settings)
-            .map(|v| serde_json::to_string_pretty(&v).ok())
-            .ok()
-            .flatten()
-            .ok_or_else(|| Error::internal_err("Error serializing settings".to_string()))?;
+        // Use v2 format only if explicitly requested, otherwise use v1 (legacy) for backward compatibility
+        let settings_str = if settings_version.as_deref() == Some("v2") {
+            let settings = SimplifiedSettings {
+                auto_invite: row.auto_invite,
+                webhook: row.webhook,
+                deploy_to: row.deploy_to,
+                error_handler: row.error_handler,
+                success_handler: row.success_handler,
+                ai_config: row.ai_config,
+                large_file_storage: row.large_file_storage,
+                git_sync: row.git_sync,
+                default_app: row.default_app,
+                default_scripts: row.default_scripts,
+                name: row.name.clone().unwrap_or_default(),
+                mute_critical_alerts: row.mute_critical_alerts,
+                color: row.color.clone(),
+                operator_settings: row.operator_settings.clone(),
+            };
+            serde_json::to_value(settings)
+                .map(|v| serde_json::to_string_pretty(&v).ok())
+                .ok()
+                .flatten()
+        } else {
+            // V1 (legacy) format: convert JSONB to flat fields (matches main branch exactly)
+            let (auto_invite_enabled, auto_invite_as, auto_invite_mode) =
+                if let Some(ref ai) = row.auto_invite {
+                    let enabled = ai.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let operator = ai.get("operator").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let mode = ai.get("mode").and_then(|v| v.as_str()).unwrap_or("invite");
+                    (
+                        enabled,
+                        if operator { "operator".to_string() } else { "developer".to_string() },
+                        mode.to_string(),
+                    )
+                } else {
+                    (false, "developer".to_string(), "invite".to_string())
+                };
+
+            let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+                if let Some(ref eh) = row.error_handler {
+                    let path = eh.get("path").and_then(|v| v.as_str()).map(String::from);
+                    let extra_args = eh.get("extra_args").cloned();
+                    let muted_on_cancel = eh.get("muted_on_cancel").and_then(|v| v.as_bool()).unwrap_or(false);
+                    (path, extra_args, muted_on_cancel)
+                } else {
+                    (None, None, false)
+                };
+
+            let settings = SimplifiedSettingsLegacy {
+                auto_invite_enabled,
+                auto_invite_as,
+                auto_invite_mode,
+                webhook: row.webhook,
+                deploy_to: row.deploy_to,
+                error_handler,
+                error_handler_extra_args,
+                error_handler_muted_on_cancel,
+                ai_config: row.ai_config,
+                large_file_storage: row.large_file_storage,
+                git_sync: row.git_sync,
+                default_app: row.default_app,
+                default_scripts: row.default_scripts,
+                name: row.name.unwrap_or_default(),
+                mute_critical_alerts: row.mute_critical_alerts,
+                color: row.color,
+                operator_settings: row.operator_settings,
+            };
+            serde_json::to_value(settings)
+                .map(|v| serde_json::to_string_pretty(&v).ok())
+                .ok()
+                .flatten()
+        }
+        .ok_or_else(|| Error::internal_err("Error serializing settings".to_string()))?;
 
         archive
             .write_to_archive(&settings_str, "settings.json")
