@@ -108,6 +108,7 @@ async fn insert_runtime_assets(
                 .push_bind(AssetDetectionKind::Runtime)
                 .push_bind(&asset.job_id);
         });
+        query_builder.push(" ON CONFLICT DO NOTHING");
         query_builder.build().execute(executor).await?;
     }
     Ok(())
