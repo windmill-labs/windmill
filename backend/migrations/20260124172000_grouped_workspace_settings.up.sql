@@ -1,10 +1,13 @@
--- Step 1: Add new JSONB columns with temporary names (to avoid collision with existing TEXT columns)
+-- Step 1: Add error_handler_muted_on_user_path column if it doesn't exist (was previously a separate migration)
+ALTER TABLE workspace_settings ADD COLUMN IF NOT EXISTS error_handler_muted_on_user_path BOOL NOT NULL DEFAULT false;
+
+-- Step 2: Add new JSONB columns with temporary names (to avoid collision with existing TEXT columns)
 ALTER TABLE workspace_settings
   ADD COLUMN IF NOT EXISTS auto_invite JSONB,
   ADD COLUMN IF NOT EXISTS error_handler_new JSONB,
   ADD COLUMN IF NOT EXISTS success_handler_new JSONB;
 
--- Step 2: Migrate existing data to new columns (use jsonb_strip_nulls to omit null values)
+-- Step 3: Migrate existing data to new columns (use jsonb_strip_nulls to omit null values)
 UPDATE workspace_settings SET
   auto_invite = jsonb_strip_nulls(jsonb_build_object(
     'enabled', auto_invite_domain IS NOT NULL,
@@ -31,7 +34,7 @@ UPDATE workspace_settings SET
     ELSE NULL
   END;
 
--- Step 3: Drop old columns that are now consolidated
+-- Step 4: Drop old columns that are now consolidated
 ALTER TABLE workspace_settings
   DROP COLUMN IF EXISTS auto_invite_domain,
   DROP COLUMN IF EXISTS auto_invite_operator,
@@ -45,7 +48,7 @@ ALTER TABLE workspace_settings
   DROP COLUMN IF EXISTS success_handler,
   DROP COLUMN IF EXISTS success_handler_extra_args;
 
--- Step 4: Rename new columns to their final names
+-- Step 5: Rename new columns to their final names
 ALTER TABLE workspace_settings
   RENAME COLUMN error_handler_new TO error_handler;
 ALTER TABLE workspace_settings
