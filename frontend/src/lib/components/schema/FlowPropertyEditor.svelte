@@ -274,6 +274,8 @@
 								? 'kind'
 								: 'label'
 						]}
+						isFlowInput={true}
+						isAppInput={true}
 					/>
 				</div>
 			{/if}
@@ -324,6 +326,8 @@
 								requiredProperty = v.required
 							}
 						}
+						isFlowInput={true}
+						isAppInput={true}
 					/>
 				{:else if customObjectSelected === 'json-schema-resource'}
 					{#if format == undefined}
