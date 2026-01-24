@@ -129,6 +129,15 @@ class EphemeralBackendManager {
           // Match /spawn/{commit_hash}
           const spawnMatch = url.pathname.match(/^\/spawn\/([a-f0-9]+)$/);
           if (spawnMatch && req.method === "POST") {
+            let body = await req.json();
+            if (typeof body !== "object")
+              return new Response("Invalid JSON body", { status: 400 });
+            let resumeUrl = body?.resume_url;
+            if (typeof resumeUrl !== "string")
+              return new Response("Invalid resume_url", { status: 400 });
+            let cancelUrl = body?.cancel_url;
+            if (typeof cancelUrl !== "string")
+              return new Response("Invalid cancel_url", { status: 400 });
             const commitHash = spawnMatch[1];
             console.log(
               `\n🔹 Received request to spawn ephemeral backend for commit: ${commitHash}`
@@ -161,12 +170,43 @@ class EphemeralBackendManager {
                   );
                 });
                 clearTimeout(timeout);
+                fetch(cancelUrl, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    status: "error",
+                    commitHash,
+                    error: e.message,
+                  }),
+                }).catch((e) => {
+                  console.error(
+                    `Failed to notify cancel URL for commit ${commitHash}:`,
+                    e
+                  );
+                });
               }
               const timeout = setTimeout(() => {
                 onError(new Error("Timeout waiting for backend URL"));
               }, 20000);
               try {
-                ephemeralBackend.spawn().catch((e) => onError(e));
+                ephemeralBackend
+                  .spawn()
+                  .then(({ tunnelUrl }) => {
+                    if (resumeUrl) {
+                      fetch(resumeUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          status: "ready",
+                          commitHash,
+                          tunnelUrl,
+                        }),
+                      }).catch((e) => {
+                        onError(e);
+                      });
+                    }
+                  })
+                  .catch((e) => onError(e));
 
                 // Set up 1-hour timeout for automatic cleanup
                 const cleanupTimeoutId = setTimeout(async () => {

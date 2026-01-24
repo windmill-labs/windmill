@@ -43,7 +43,9 @@ export class EphemeralBackend {
     this.config = config;
   }
 
-  async spawn(): Promise<void> {
+  async spawn(): Promise<{
+    tunnelUrl: string;
+  }> {
     try {
       console.log("🚀 Starting ephemeral backend...");
       console.log(`📊 Database port: ${this.config.dbPort}`);
@@ -51,6 +53,8 @@ export class EphemeralBackend {
       console.log(`📌 Commit hash: ${this.config.commitHash}`);
 
       await this.startCloudflared();
+      if (!this.resources.tunnelUrl)
+        throw new Error("Cloudflare tunnel URL not available");
       await this.createWorktree();
       await this.setupEECode();
       await this.spawnPostgres();
@@ -64,13 +68,13 @@ export class EphemeralBackend {
 
       console.log("\n✅ Ephemeral backend is ready!");
       console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
-      console.log("\n💡 Press Ctrl+C to stop and cleanup...");
 
-      // Keep the process running indefinitely
-      await new Promise(() => {}); // Never resolves
+      return {
+        tunnelUrl: this.resources.tunnelUrl,
+      };
     } catch (error) {
       console.error("❌ Error spawning ephemeral backend:", error);
-      await this.cleanup();
+      throw error;
     }
   }
 
