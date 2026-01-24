@@ -4,6 +4,7 @@ CREATE TYPE ASSET_DETECTION_KIND AS ENUM ('static', 'runtime');
 -- Add new columns to asset table
 ALTER TABLE asset
   ADD COLUMN id BIGSERIAL,
+  ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   ADD COLUMN asset_detection_kind ASSET_DETECTION_KIND NOT NULL DEFAULT 'static',
   ADD COLUMN job_id UUID REFERENCES v2_job(id) ON DELETE CASCADE;
 

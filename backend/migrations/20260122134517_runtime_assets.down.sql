@@ -17,6 +17,7 @@ ALTER TABLE asset
 -- Remove new columns
 ALTER TABLE asset
   DROP COLUMN IF EXISTS id,
+  DROP COLUMN IF EXISTS created_at,
   DROP COLUMN IF EXISTS job_id,
   DROP COLUMN IF EXISTS asset_detection_kind;
 
