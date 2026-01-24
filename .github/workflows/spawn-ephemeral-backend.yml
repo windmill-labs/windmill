@@ -3,6 +3,7 @@ name: Spawn Ephemeral Backend
 on:
   issue_comment:
     types: [created]
+  workflow_dispatch:
 
 jobs:
   spawn-backend:
@@ -37,22 +38,16 @@ jobs:
       - name: Trigger Windmill flow
         id: trigger-flow
         run: |
-          RESPONSE=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+          JOB_UUID=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
             -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
               "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
               "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
               "pr_number": ${{ steps.pr-details.outputs.pr_number }}
-            }')
+            }' | tr -d '"')
 
-          JOB_UUID=$(echo "$RESPONSE" | jq -r '.id // empty')
-
-          if [ -z "$JOB_UUID" ]; then
-            echo "Failed to get job UUID from response: $RESPONSE"
-            exit 1
-          fi
-
+          echo "Job UUID: $JOB_UUID"
           echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
 
       - name: Post comment with job link
