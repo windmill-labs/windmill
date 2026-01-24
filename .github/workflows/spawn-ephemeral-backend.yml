@@ -43,7 +43,7 @@ jobs:
         id: trigger-flow
         run: |
           JOB_UUID=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
-            -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
+            -H "Authorization: Bearer ${{ secrets.WINDMILL_RUN_FLOW_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
               "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
