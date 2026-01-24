@@ -86,7 +86,7 @@ pub async fn execute_tool_calls(
     actions: &mut Vec<AgentAction>,
     final_events_str: &mut String,
     structured_output_tool_name: &Option<String>,
-    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> Result<(Vec<OpenAIMessage>, Option<OpenAIContent>, bool), Error> {
     let mut messages = Vec::new();
     let mut used_structured_output_tool = false;
@@ -273,7 +273,7 @@ async fn execute_windmill_tool(
     actions: &mut Vec<AgentAction>,
     messages: &mut Vec<OpenAIMessage>,
     final_events_str: &mut String,
-    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> Result<(), Error> {
     // Regular Windmill tools must have a module
     let tool_module = tool.module.as_ref().ok_or_else(|| {

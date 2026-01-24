@@ -14,10 +14,12 @@ use futures::TryFutureExt;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio::time::timeout;
-use windmill_common::assets::{init_runtime_asset_inserter, RUNTIME_ASSET_CHANNEL_CAPACITY};
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::runtime_assets::{
+    init_runtime_asset_inserter, RUNTIME_ASSET_CHANNEL_CAPACITY,
+};
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -1097,7 +1099,7 @@ fn start_interactive_worker_shell(
     job_completed_tx: JobCompletedSender,
     base_internal_url: String,
     worker_dir: String,
-    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut occupancy_metrics = OccupancyMetrics::new(Instant::now());
@@ -2753,7 +2755,7 @@ async fn detect_and_store_runtime_assets(
     Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
     runnable_path: &str,
     job_kind: &JobKind,
-    runtime_asset_tx: &mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: &mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) {
     match job_kind {
         JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
@@ -2775,7 +2777,7 @@ async fn detect_and_store_runtime_assets(
 
     // Store each detected runtime asset
     for asset in runtime_assets {
-        let asset = windmill_common::assets::InsertRuntimeAssetParams {
+        let asset = windmill_common::runtime_assets::InsertRuntimeAssetParams {
             workspace_id: workspace_id.to_string(),
             job_id: *job_id,
             asset_path: asset.path,
@@ -2810,7 +2812,7 @@ pub async fn handle_queued_job(
     precomputed_agent_info: Option<PrecomputedAgentInfo>,
     flow_runners: Option<Arc<FlowRunners>>,
     #[cfg(feature = "benchmark")] _bench: &mut BenchmarkIter,
-    runtime_asset_tx: &mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: &mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> windmill_common::error::Result<bool> {
     if job.canceled_by.is_some() {
         return Err(Error::JsonErr(canceled_job_to_result(&job)));

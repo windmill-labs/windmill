@@ -103,7 +103,7 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
-    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
@@ -401,7 +401,7 @@ pub async fn run_agent(
     has_stream: &mut bool,
     has_websearch: bool,
 
-    runtime_asset_tx: mpsc::Sender<windmill_common::assets::InsertRuntimeAssetParams>,
+    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;

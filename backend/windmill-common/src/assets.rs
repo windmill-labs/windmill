@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
-use sqlx::{PgExecutor, Pool, Postgres, QueryBuilder};
-use tokio::sync::mpsc;
+use sqlx::PgExecutor;
 
 use crate::error;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
+)]
 #[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum AssetKind {
@@ -16,7 +17,9 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
+)]
 #[sqlx(type_name = "ASSET_USAGE_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum AssetUsageKind {
@@ -81,65 +84,6 @@ pub async fn insert_static_asset_usage<'e>(
     .await?;
 
     Ok(())
-}
-
-pub struct InsertRuntimeAssetParams {
-    pub workspace_id: String,
-    pub job_id: uuid::Uuid,
-    pub asset_path: String,
-    pub asset_kind: AssetKind,
-    pub usage_path: String,
-    pub usage_kind: AssetUsageKind,
-}
-
-async fn insert_runtime_assets(
-    executor: &Pool<Postgres>,
-    assets: &[InsertRuntimeAssetParams],
-) -> error::Result<()> {
-    for chunk in assets.chunks(1000) {
-        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id) ");
-        query_builder.push_values(chunk, |mut b, asset| {
-            b.push_bind(&asset.workspace_id)
-                .push_bind(&asset.asset_path)
-                .push_bind(&asset.asset_kind)
-                .push_bind(Option::<AssetUsageAccessType>::None)
-                .push_bind(&asset.usage_path)
-                .push_bind(&asset.usage_kind)
-                .push_bind(AssetDetectionKind::Runtime)
-                .push_bind(&asset.job_id);
-        });
-        query_builder.push(" ON CONFLICT DO NOTHING");
-        query_builder.build().execute(executor).await?;
-    }
-    Ok(())
-}
-
-pub const RUNTIME_ASSET_CHANNEL_CAPACITY: usize = 10_000;
-// To avoid workers having to insert lots of runtime asset rows when detecting them,
-// we use a channel to batch insert them periodically.
-pub fn init_runtime_asset_inserter(
-    executor: Pool<Postgres>,
-    mut rx: mpsc::Receiver<InsertRuntimeAssetParams>,
-) {
-    tokio::spawn(async move {
-        let flush_interval = tokio::time::Duration::from_secs(120);
-        let mut flush_timer = tokio::time::interval(flush_interval);
-
-        let mut buffer = Vec::with_capacity(RUNTIME_ASSET_CHANNEL_CAPACITY);
-        loop {
-            tokio::select! {
-                _ = flush_timer.tick() => {
-                    if rx.is_closed() { break; }
-                    rx.recv_many(&mut buffer, RUNTIME_ASSET_CHANNEL_CAPACITY).await;
-                    if buffer.is_empty() { continue; }
-                    if let Err(e) = insert_runtime_assets(&executor, &buffer).await {
-                        tracing::error!("Failed to insert runtime assets batch: {e}");
-                    }
-                    buffer.clear();
-                }
-            }
-        }
-    });
 }
 
 pub async fn clear_static_asset_usage<'e>(
