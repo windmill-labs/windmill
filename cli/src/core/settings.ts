@@ -204,12 +204,6 @@ export async function pushWorkspaceSettings(
     log.debug(`Updating auto invite...`);
 
     const localAutoInvite = localSettings.auto_invite;
-    if (localAutoInvite?.as && !["operator", "developer"].includes(localAutoInvite.as)) {
-      throw new Error(
-        `Invalid value for auto_invite.as. Valid values are "operator" and "developer"`
-      );
-    }
-
     if (localAutoInvite?.mode && !["add", "invite"].includes(localAutoInvite.mode)) {
       throw new Error(
         `Invalid value for auto_invite.mode. Valid values are "invite" and "add"`
@@ -220,7 +214,7 @@ export async function pushWorkspaceSettings(
         workspace,
         requestBody: localAutoInvite?.enabled
           ? {
-              operator: localAutoInvite.as === "operator",
+              operator: localAutoInvite.operator ?? false,
               invite_all: true,
               auto_add: localAutoInvite.mode === "add",
             }
@@ -235,7 +229,7 @@ export async function pushWorkspaceSettings(
         workspace,
         requestBody: localAutoInvite?.enabled
           ? {
-              operator: localAutoInvite.as === "operator",
+              operator: localAutoInvite.operator ?? false,
               invite_all: false,
               auto_add: localAutoInvite.mode === "add",
             }

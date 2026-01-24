@@ -21,7 +21,7 @@ ALTER TABLE workspace_settings
 -- Step 3: Migrate data back from JSONB columns to flat columns
 UPDATE workspace_settings SET
   auto_invite_domain = auto_invite->>'domain',
-  auto_invite_operator = (auto_invite->>'as') = 'operator',
+  auto_invite_operator = COALESCE((auto_invite->>'operator')::boolean, false),
   auto_add = (auto_invite->>'mode') = 'add',
   auto_add_instance_groups = CASE
     WHEN auto_invite->'instance_groups' IS NOT NULL AND auto_invite->'instance_groups' != 'null'::jsonb

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_settings SET\n             auto_invite = jsonb_set(\n                 jsonb_set(\n                     auto_invite,\n                     '{instance_groups}',\n                     (SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb) FROM jsonb_array_elements(auto_invite->'instance_groups') elem WHERE elem #>> '{}' != $1)\n                 ),\n                 '{instance_groups_roles}',\n                 COALESCE(auto_invite->'instance_groups_roles', '{}'::jsonb) - $1\n             )\n             WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "609c038c86bab17331cf71661fc0b4da7bcb81908ab41d14554e835f08ffd4ad"
+}
