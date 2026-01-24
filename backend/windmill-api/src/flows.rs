@@ -289,10 +289,10 @@ async fn toggle_workspace_error_handler(
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
         r#"
             SELECT
-                error_handler 
-            FROM 
-                workspace_settings 
-            WHERE 
+                error_handler->>'path'
+            FROM
+                workspace_settings
+            WHERE
                 workspace_id = $1
         "#,
         w_id

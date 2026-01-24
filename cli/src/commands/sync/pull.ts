@@ -40,7 +40,7 @@ export async function downloadZip(
     }&skip_secrets=${skipSecrets ?? false}&include_schedules=${includeSchedules ?? false
     }&include_triggers=${includeTriggers ?? false}&include_users=${includeUsers ?? false
     }&include_groups=${includeGroups ?? false}&include_settings=${includeSettings ?? false
-    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}`;
+    }&include_key=${includeKey ?? false}&include_workspace_dependencies=${includeWorkspaceDependenciesValue}&default_ts=${defaultTs ?? "bun"}&skip_resource_types=${skipResourceTypes ?? false}&settings_version=v2`;
 
   const zipResponse = await fetch(url, {
       headers: requestHeaders,
