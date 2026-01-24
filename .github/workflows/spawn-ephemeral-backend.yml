@@ -37,21 +37,27 @@ jobs:
               pull_number: prNumber
             });
             core.setOutput('commit_hash', pr.data.head.sha);
-            core.setOutput('pr_number', prNumber);
+            core.setOutput('pr_number', context.issue.number);
 
       - name: Trigger Windmill flow
         id: trigger-flow
         run: |
-          JOB_UUID=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+          RESPONSE=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
             -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
               "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
               "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
               "pr_number": ${{ steps.pr-details.outputs.pr_number }}
-            }' | tr -d '"')
+            }')
 
-          echo "Job UUID: $JOB_UUID"
+          JOB_UUID=$(echo "$RESPONSE" | jq -r '.id // empty')
+
+          if [ -z "$JOB_UUID" ]; then
+            echo "Failed to get job UUID from response: $RESPONSE"
+            exit 1
+          fi
+
           echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
 
       - name: Post comment with job link
@@ -60,13 +66,10 @@ jobs:
           script: |
             const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
             const jobUrl = `https://app.windmill.dev/run/${jobUuid}?workspace=windmill-labs`;
-            const prNumber = context.eventName === 'workflow_dispatch'
-              ? Number(context.payload.inputs.pr_number)
-              : context.issue.number;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: prNumber,
+              issue_number: context.issue.number,
               body: `🚀 Ephemeral backend spawning started!\n\nView job progress: ${jobUrl}`
             });

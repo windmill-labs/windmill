@@ -2337,20 +2337,8 @@ paths:
                     type: string
                   teams_team_guid:
                     type: string
-                  auto_invite_domain:
-                    type: string
-                  auto_invite_operator:
-                    type: boolean
-                  auto_add:
-                    type: boolean
-                  auto_add_instance_groups:
-                    type: array
-                    items:
-                      type: string
-                  auto_add_instance_groups_roles:
-                    type: object
-                    additionalProperties:
-                      type: string
+                  auto_invite:
+                    $ref: "#/components/schemas/AutoInviteConfig"
                   plan:
                     type: string
                   customer_id:
@@ -2362,15 +2350,9 @@ paths:
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
-                    type: string
-                  error_handler_extra_args:
-                    $ref: "#/components/schemas/ScriptArgs"
-                  error_handler_muted_on_cancel:
-                    type: boolean
+                    $ref: "#/components/schemas/ErrorHandlerConfig"
                   success_handler:
-                    type: string
-                  success_handler_extra_args:
-                    $ref: "#/components/schemas/ScriptArgs"
+                    $ref: "#/components/schemas/SuccessHandlerConfig"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -2391,8 +2373,6 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
-                required:
-                  - error_handler_muted_on_cancel
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -3071,14 +3051,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                error_handler:
-                  type: string
-                error_handler_extra_args:
-                  $ref: "#/components/schemas/ScriptArgs"
-                error_handler_muted_on_cancel:
-                  type: boolean
+              $ref: "#/components/schemas/EditErrorHandler"
       responses:
         "200":
           description: status
@@ -3101,12 +3074,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                success_handler:
-                  type: string
-                success_handler_extra_args:
-                  $ref: "#/components/schemas/ScriptArgs"
+              $ref: "#/components/schemas/EditSuccessHandler"
       responses:
         "200":
           description: status
@@ -16702,6 +16670,119 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    AutoInviteConfig:
+      type: object
+      description: Configuration for auto-inviting users to the workspace
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        domain:
+          type: string
+        operator:
+          type: boolean
+          default: false
+          description: If true, auto-invited users are added as operators. If false, they are added as developers.
+        mode:
+          type: string
+          enum: ["invite", "add"]
+          default: "invite"
+        instance_groups:
+          type: array
+          items:
+            type: string
+        instance_groups_roles:
+          type: object
+          additionalProperties:
+            type: string
+
+    ErrorHandlerConfig:
+      type: object
+      description: Configuration for the workspace error handler
+      properties:
+        path:
+          type: string
+          description: Path to the error handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_cancel:
+          type: boolean
+          default: false
+        muted_on_user_path:
+          type: boolean
+          default: false
+
+    SuccessHandlerConfig:
+      type: object
+      description: Configuration for the workspace success handler
+      properties:
+        path:
+          type: string
+          description: Path to the success handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    EditErrorHandler:
+      description: Request body for editing the workspace error handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditErrorHandlerNew"
+        - $ref: "#/components/schemas/EditErrorHandlerLegacy"
+
+    EditErrorHandlerNew:
+      type: object
+      description: New grouped format for editing error handler
+      properties:
+        path:
+          type: string
+          description: Path to the error handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_cancel:
+          type: boolean
+          default: false
+        muted_on_user_path:
+          type: boolean
+          default: false
+
+    EditErrorHandlerLegacy:
+      type: object
+      description: Legacy flat format for editing error handler (deprecated, use new format)
+      properties:
+        error_handler:
+          type: string
+          description: Path to the error handler script or flow
+        error_handler_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        error_handler_muted_on_cancel:
+          type: boolean
+          default: false
+
+    EditSuccessHandler:
+      description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditSuccessHandlerNew"
+        - $ref: "#/components/schemas/EditSuccessHandlerLegacy"
+
+    EditSuccessHandlerNew:
+      type: object
+      description: New grouped format for editing success handler
+      properties:
+        path:
+          type: string
+          description: Path to the success handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    EditSuccessHandlerLegacy:
+      type: object
+      description: Legacy flat format for editing success handler (deprecated, use new format)
+      properties:
+        success_handler:
+          type: string
+          description: Path to the success handler script or flow
+        success_handler_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
 
     VaultSettings:
       type: object
