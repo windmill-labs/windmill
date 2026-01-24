@@ -4,36 +4,40 @@ on:
   issue_comment:
     types: [created]
   workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: number
 
 jobs:
   spawn-backend:
-    # Only run on PR comments that contain /spawn-backend
+    # Only run on PR comments that contain /spawn-backend, or manual dispatch
     if: |
-      github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/spawn-backend')
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, '/spawn-backend'))
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
       contents: read
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Get PR details
         id: pr-details
         uses: actions/github-script@v7
         with:
           script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs.pr_number
+              : context.issue.number;
+
             const pr = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              pull_number: context.issue.number
+              pull_number: prNumber
             });
             core.setOutput('commit_hash', pr.data.head.sha);
-            core.setOutput('pr_number', context.issue.number);
+            core.setOutput('pr_number', prNumber);
 
       - name: Trigger Windmill flow
         id: trigger-flow
