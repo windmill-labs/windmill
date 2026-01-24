@@ -255,22 +255,14 @@ struct SimplifiedGroup {
 
 #[derive(Serialize)]
 struct SimplifiedSettings {
-    // slack_team_id: Option<String>,
-    // slack_name: Option<String>,
-    // slack_command_script: Option<String>,
-    // slack_email: Option<String>,
-    auto_invite_enabled: bool,
-    auto_invite_as: String,
-    auto_invite_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_invite: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     webhook: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     deploy_to: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error_handler: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error_handler_extra_args: Option<Value>,
-    error_handler_muted_on_cancel: bool,
+    error_handler: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -846,24 +838,16 @@ pub(crate) async fn tarball_workspace(
         let settings = sqlx::query_as!(
              SimplifiedSettings,
              r#"SELECT
-                 -- slack_team_id,
-                 -- slack_name,
-                 -- slack_command_script,
-                 -- CASE WHEN slack_email = 'missing@email.xyz' THEN NULL ELSE slack_email END AS slack_email,
-                 auto_invite_domain IS NOT NULL AS "auto_invite_enabled!",
-                 CASE WHEN auto_invite_operator IS TRUE THEN 'operator' ELSE 'developer' END AS "auto_invite_as!",
-                 CASE WHEN auto_add IS TRUE THEN 'add' ELSE 'invite' END AS "auto_invite_mode!",
+                 auto_invite,
                  webhook,
                  deploy_to,
                  error_handler,
                  ai_config,
-                 error_handler_extra_args,
-                 error_handler_muted_on_cancel,
                  large_file_storage,
                  git_sync,
                  default_app,
                  default_scripts,
-                 workspace.name,
+                 workspace.name as "name!",
                  mute_critical_alerts,
                  color,
                  operator_settings

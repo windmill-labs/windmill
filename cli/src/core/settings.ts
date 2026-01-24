@@ -8,19 +8,37 @@ import { deepEqual } from "../utils/utils.ts";
 import { removeWorkerPrefix } from "../commands/worker-groups/worker-groups.ts";
 import { decrypt, encrypt } from "../utils/local_encryption.ts";
 
+// New grouped config interfaces
+export interface AutoInviteConfig {
+  enabled: boolean;
+  domain?: string;
+  operator: boolean;
+  mode: "invite" | "add";
+  instance_groups?: string[];
+  instance_groups_roles?: Record<string, string>;
+}
+
+export interface ErrorHandlerConfig {
+  path?: string;
+  extra_args?: any;
+  muted_on_cancel?: boolean;
+  muted_on_user_path?: boolean;
+}
+
+export interface SuccessHandlerConfig {
+  path?: string;
+  extra_args?: any;
+}
+
 export interface SimplifiedSettings {
-  // slack_team_id?: string;
-  // slack_name?: string;
-  // slack_command_script?: string;
-  // slack_email?: string;
-  auto_invite_enabled: boolean;
-  auto_invite_as: string;
-  auto_invite_mode: string;
+  // Grouped format (current)
+  auto_invite?: AutoInviteConfig;
+  error_handler?: ErrorHandlerConfig;
+  success_handler?: SuccessHandlerConfig;
+
+  // Other fields
   webhook?: string;
   deploy_to?: string;
-  error_handler?: string;
-  error_handler_extra_args?: any;
-  error_handler_muted_on_cancel?: boolean;
   ai_config?: AIConfig;
   large_file_storage?: any;
   git_sync?: any;
@@ -30,6 +48,84 @@ export interface SimplifiedSettings {
   mute_critical_alerts?: boolean;
   color?: string;
   operator_settings?: any;
+}
+
+// Legacy settings interface for reading old settings.yaml files
+interface LegacySimplifiedSettings {
+  auto_invite_enabled?: boolean;
+  auto_invite_as?: string;
+  auto_invite_mode?: string;
+  error_handler?: string;
+  error_handler_extra_args?: any;
+  error_handler_muted_on_cancel?: boolean;
+  success_handler?: string;
+  success_handler_extra_args?: any;
+  // Other fields same as SimplifiedSettings
+  webhook?: string;
+  deploy_to?: string;
+  ai_config?: AIConfig;
+  large_file_storage?: any;
+  git_sync?: any;
+  default_app?: string;
+  default_scripts?: any;
+  name?: string;
+  mute_critical_alerts?: boolean;
+  color?: string;
+  operator_settings?: any;
+}
+
+// Helper to convert legacy flat settings to new grouped format
+export function migrateToGroupedFormat(settings: any): SimplifiedSettings {
+  const result: SimplifiedSettings = { name: settings.name ?? "" };
+
+  // Copy non-legacy fields
+  if (settings.webhook !== undefined) result.webhook = settings.webhook;
+  if (settings.deploy_to !== undefined) result.deploy_to = settings.deploy_to;
+  if (settings.ai_config !== undefined) result.ai_config = settings.ai_config;
+  if (settings.large_file_storage !== undefined) result.large_file_storage = settings.large_file_storage;
+  if (settings.git_sync !== undefined) result.git_sync = settings.git_sync;
+  if (settings.default_app !== undefined) result.default_app = settings.default_app;
+  if (settings.default_scripts !== undefined) result.default_scripts = settings.default_scripts;
+  if (settings.mute_critical_alerts !== undefined) result.mute_critical_alerts = settings.mute_critical_alerts;
+  if (settings.color !== undefined) result.color = settings.color;
+  if (settings.operator_settings !== undefined) result.operator_settings = settings.operator_settings;
+
+  // Handle auto_invite: check if already grouped or needs migration
+  if (settings.auto_invite && typeof settings.auto_invite === "object") {
+    result.auto_invite = settings.auto_invite;
+  } else if (settings.auto_invite_enabled !== undefined) {
+    // Legacy format
+    result.auto_invite = {
+      enabled: settings.auto_invite_enabled,
+      operator: settings.auto_invite_as === "operator",
+      mode: (settings.auto_invite_mode as "invite" | "add") ?? "invite",
+    };
+  }
+
+  // Handle error_handler: check if already grouped or needs migration
+  if (settings.error_handler && typeof settings.error_handler === "object") {
+    result.error_handler = settings.error_handler;
+  } else if (typeof settings.error_handler === "string") {
+    // Legacy format (error_handler was a string path)
+    result.error_handler = {
+      path: settings.error_handler,
+      extra_args: settings.error_handler_extra_args,
+      muted_on_cancel: settings.error_handler_muted_on_cancel ?? false,
+    };
+  }
+
+  // Handle success_handler: check if already grouped or needs migration
+  if (settings.success_handler && typeof settings.success_handler === "object") {
+    result.success_handler = settings.success_handler;
+  } else if (typeof settings.success_handler === "string") {
+    // Legacy format (success_handler was a string path)
+    result.success_handler = {
+      path: settings.success_handler,
+      extra_args: settings.success_handler_extra_args,
+    };
+  }
+
+  return result;
 }
 
 const INSTANCE_SETTINGS_PATH = "instance_settings.yaml";
@@ -52,8 +148,11 @@ export async function pushWorkspaceSettings(
   workspace: string,
   _path: string,
   settings: SimplifiedSettings | undefined,
-  localSettings: SimplifiedSettings
+  localSettings: SimplifiedSettings | any
 ) {
+  // Migrate local settings from legacy format if needed
+  localSettings = migrateToGroupedFormat(localSettings);
+
   try {
     const remoteSettings = await wmill.getSettings({
       workspace,
@@ -63,22 +162,13 @@ export async function pushWorkspaceSettings(
       workspace,
     });
 
+    // Build settings from remote (now using grouped format)
     settings = {
-      // slack_team_id: remoteSettings.slack_team_id,
-      // slack_name: remoteSettings.slack_name,
-      // slack_command_script: remoteSettings.slack_command_script,
-      // slack_email: remoteSettings.slack_email,
-      auto_invite_enabled: remoteSettings.auto_invite_domain !== null,
-      auto_invite_as: remoteSettings.auto_invite_operator
-        ? "operator"
-        : "developer",
-      auto_invite_mode: remoteSettings.auto_add ? "add" : "invite",
+      auto_invite: remoteSettings.auto_invite as AutoInviteConfig | undefined,
+      error_handler: remoteSettings.error_handler as ErrorHandlerConfig | undefined,
+      success_handler: remoteSettings.success_handler as SuccessHandlerConfig | undefined,
       webhook: remoteSettings.webhook,
       deploy_to: remoteSettings.deploy_to,
-      error_handler: remoteSettings.error_handler,
-      error_handler_extra_args: remoteSettings.error_handler_extra_args,
-      error_handler_muted_on_cancel:
-        remoteSettings.error_handler_muted_on_cancel ?? false,
       ai_config: remoteSettings.ai_config,
       large_file_storage: remoteSettings.large_file_storage,
       git_sync: remoteSettings.git_sync,
@@ -98,8 +188,9 @@ export async function pushWorkspaceSettings(
     return;
   }
   log.debug(`Workspace settings are not up-to-date, updating...`);
+
   if (localSettings.webhook !== settings.webhook) {
-    log.debug(`Updateing webhook...`);
+    log.debug(`Updating webhook...`);
     await wmill.editWebhook({
       workspace,
       requestBody: {
@@ -107,32 +198,31 @@ export async function pushWorkspaceSettings(
       },
     });
   }
-  if (
-    localSettings.auto_invite_as !== settings.auto_invite_as ||
-    localSettings.auto_invite_enabled !== settings.auto_invite_enabled ||
-    localSettings.auto_invite_mode !== settings.auto_invite_mode
-  ) {
+
+  // Handle auto_invite using grouped format
+  if (!deepEqual(localSettings.auto_invite, settings.auto_invite)) {
     log.debug(`Updating auto invite...`);
 
-    if (!["operator", "developer"].includes(settings.auto_invite_as)) {
+    const localAutoInvite = localSettings.auto_invite;
+    if (localAutoInvite?.as && !["operator", "developer"].includes(localAutoInvite.as)) {
       throw new Error(
-        `Invalid value for auto_invite_as. Valid values are "operator" and "developer"`
+        `Invalid value for auto_invite.as. Valid values are "operator" and "developer"`
       );
     }
 
-    if (!["add", "invite"].includes(settings.auto_invite_mode)) {
+    if (localAutoInvite?.mode && !["add", "invite"].includes(localAutoInvite.mode)) {
       throw new Error(
-        `Invalid value for auto_invite_mode. Valid values are "invite" and "add"`
+        `Invalid value for auto_invite.mode. Valid values are "invite" and "add"`
       );
     }
     try {
       await wmill.editAutoInvite({
         workspace,
-        requestBody: localSettings.auto_invite_enabled
+        requestBody: localAutoInvite?.enabled
           ? {
-              operator: localSettings.auto_invite_as === "operator",
+              operator: localAutoInvite.as === "operator",
               invite_all: true,
-              auto_add: localSettings.auto_invite_mode === "add",
+              auto_add: localAutoInvite.mode === "add",
             }
           : {},
       });
@@ -143,16 +233,17 @@ export async function pushWorkspaceSettings(
       );
       await wmill.editAutoInvite({
         workspace,
-        requestBody: localSettings.auto_invite_enabled
+        requestBody: localAutoInvite?.enabled
           ? {
-              operator: localSettings.auto_invite_as === "operator",
+              operator: localAutoInvite.as === "operator",
               invite_all: false,
-              auto_add: localSettings.auto_invite_mode === "add",
+              auto_add: localAutoInvite.mode === "add",
             }
           : {},
       });
     }
   }
+
   if (!deepEqual(localSettings.ai_config, settings.ai_config)) {
     log.debug(`Updating copilot settings...`);
     await wmill.editCopilotConfig({
@@ -160,26 +251,35 @@ export async function pushWorkspaceSettings(
       requestBody: localSettings.ai_config ?? {},
     });
   }
-  if (
-    localSettings.error_handler != settings.error_handler ||
-    !deepEqual(
-      localSettings.error_handler_extra_args,
-      settings.error_handler_extra_args
-    ) ||
-    (localSettings.error_handler_muted_on_cancel ?? false) !=
-      (settings.error_handler_muted_on_cancel ?? false)
-  ) {
+
+  // Handle error_handler using grouped format
+  if (!deepEqual(localSettings.error_handler, settings.error_handler)) {
     log.debug(`Updating error handler...`);
+    const localErrorHandler = localSettings.error_handler;
     await wmill.editErrorHandler({
       workspace,
       requestBody: {
-        error_handler: localSettings.error_handler,
-        error_handler_extra_args: localSettings.error_handler_extra_args,
-        error_handler_muted_on_cancel:
-          localSettings.error_handler_muted_on_cancel ?? false,
+        path: localErrorHandler?.path,
+        extra_args: localErrorHandler?.extra_args,
+        muted_on_cancel: localErrorHandler?.muted_on_cancel ?? false,
+        muted_on_user_path: localErrorHandler?.muted_on_user_path ?? false,
       },
     });
   }
+
+  // Handle success_handler using grouped format
+  if (!deepEqual(localSettings.success_handler, settings.success_handler)) {
+    log.debug(`Updating success handler...`);
+    const localSuccessHandler = localSettings.success_handler;
+    await wmill.editSuccessHandler({
+      workspace,
+      requestBody: {
+        path: localSuccessHandler?.path,
+        extra_args: localSuccessHandler?.extra_args,
+      },
+    });
+  }
+
   if (localSettings.deploy_to != settings.deploy_to) {
     log.debug(`Updating deploy to...`);
     await wmill.editDeployTo({
@@ -189,6 +289,7 @@ export async function pushWorkspaceSettings(
       },
     });
   }
+
   if (
     !deepEqual(localSettings.large_file_storage, settings.large_file_storage)
   ) {
@@ -200,6 +301,7 @@ export async function pushWorkspaceSettings(
       },
     });
   }
+
   if (!deepEqual(localSettings.git_sync, settings.git_sync)) {
     log.debug(`Updating git sync...`);
     await wmill.editWorkspaceGitSyncConfig({
@@ -209,6 +311,7 @@ export async function pushWorkspaceSettings(
       },
     });
   }
+
   if (!deepEqual(localSettings.default_scripts, settings.default_scripts)) {
     log.debug(`Updating default scripts...`);
     await wmill.editDefaultScripts({
@@ -216,6 +319,7 @@ export async function pushWorkspaceSettings(
       requestBody: localSettings.default_scripts,
     });
   }
+
   if (localSettings.default_app != settings.default_app) {
     log.debug(`Updating default app...`);
     await wmill.editWorkspaceDefaultApp({
@@ -256,7 +360,7 @@ export async function pushWorkspaceSettings(
     });
   }
 
-  if (localSettings.operator_settings != settings.operator_settings) {
+  if (!deepEqual(localSettings.operator_settings, settings.operator_settings)) {
     log.debug(`Updating operator settings...`);
     await wmill.updateOperatorSettings({
       workspace,

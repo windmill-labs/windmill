@@ -1521,12 +1521,12 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     let w_id = &queued_job.workspace_id;
     let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         r#"
-                SELECT 
-                    error_handler, 
-                    error_handler_extra_args
-                FROM 
-                    workspace_settings 
-                WHERE 
+                SELECT
+                    error_handler->>'path',
+                    (error_handler->'extra_args')::text::json
+                FROM
+                    workspace_settings
+                WHERE
                     workspace_id = $1
                 "#,
     )
@@ -1579,9 +1579,13 @@ async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
 ) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
-    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool)>(
+    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<bool>, Option<bool>)>(
         r#"
-        SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path
+        SELECT
+            error_handler->>'path',
+            (error_handler->'extra_args')::text::json,
+            (error_handler->>'muted_on_cancel')::boolean,
+            (error_handler->>'muted_on_user_path')::boolean
         FROM workspace_settings
         WHERE workspace_id = $1
         "#,
@@ -1590,6 +1594,9 @@ async fn fetch_error_handler_from_db(
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
+    .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
+        (path, extra_args, muted_on_cancel.unwrap_or(false), muted_on_user_path.unwrap_or(false))
+    })
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
 
@@ -1694,7 +1701,9 @@ async fn fetch_success_handler_from_db(
 ) -> Result<(Option<String>, Option<Json<Box<RawValue>>>), Error> {
     sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         r#"
-        SELECT success_handler, success_handler_extra_args
+        SELECT
+            success_handler->>'path',
+            (success_handler->'extra_args')::text::json
         FROM workspace_settings
         WHERE workspace_id = $1
         "#,

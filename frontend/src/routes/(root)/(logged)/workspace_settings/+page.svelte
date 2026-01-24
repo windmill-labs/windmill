@@ -336,12 +336,14 @@
 		initialCodeCompletionModel = codeCompletionModel
 		initialCustomPrompts = clone(customPrompts)
 		initialMaxTokensPerModel = clone(maxTokensPerModel)
-		errorHandlerItemKind = settings.error_handler
-			? (settings.error_handler.split('/')[0] as 'flow' | 'script')
+		const errorHandler = settings.error_handler as { path?: string; extra_args?: any; muted_on_cancel?: boolean; muted_on_user_path?: boolean } | undefined
+		const errorHandlerPath = errorHandler?.path ?? ''
+		errorHandlerItemKind = errorHandlerPath
+			? (errorHandlerPath.split('/')[0] as 'flow' | 'script')
 			: 'script'
-		errorHandlerScriptPath = (settings.error_handler ?? '').split('/').slice(1).join('/')
-		errorHandlerMutedOnCancel = settings.error_handler_muted_on_cancel
-		errorHandlerMutedOnUserPath = settings.error_handler_muted_on_user_path
+		errorHandlerScriptPath = errorHandlerPath.split('/').slice(1).join('/')
+		errorHandlerMutedOnCancel = errorHandler?.muted_on_cancel
+		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
 		if (emptyString($enterpriseLicense)) {
@@ -349,8 +351,9 @@
 		} else {
 			errorHandlerSelected = getHandlerType(errorHandlerScriptPath)
 		}
-		errorHandlerExtraArgs = settings.error_handler_extra_args ?? {}
-		successHandlerScriptPath = (settings.success_handler ?? '').split('/').slice(1).join('/')
+		errorHandlerExtraArgs = errorHandler?.extra_args ?? {}
+		const successHandler = settings.success_handler as { path?: string; extra_args?: any } | undefined
+		successHandlerScriptPath = (successHandler?.path ?? '').split('/').slice(1).join('/')
 		workspaceDefaultAppPath = settings.default_app
 
 		s3ResourceSettings = convertBackendSettingsToFrontendSettings(
@@ -500,10 +503,10 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					error_handler: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
-					error_handler_extra_args: errorHandlerExtraArgs,
-					error_handler_muted_on_cancel: errorHandlerMutedOnCancel,
-					error_handler_muted_on_user_path: errorHandlerMutedOnUserPath
+					path: `${errorHandlerItemKind}/${errorHandlerScriptPath}`,
+					extra_args: errorHandlerExtraArgs,
+					muted_on_cancel: errorHandlerMutedOnCancel,
+					muted_on_user_path: errorHandlerMutedOnUserPath
 				}
 			})
 			sendUserToast(`workspace error handler set to ${errorHandlerScriptPath}`)
@@ -511,10 +514,10 @@
 			await WorkspaceService.editErrorHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					error_handler: undefined,
-					error_handler_extra_args: undefined,
-					error_handler_muted_on_cancel: undefined,
-					error_handler_muted_on_user_path: undefined
+					path: undefined,
+					extra_args: undefined,
+					muted_on_cancel: undefined,
+					muted_on_user_path: undefined
 				}
 			})
 			sendUserToast(`workspace error handler removed`)
@@ -526,7 +529,7 @@
 			await WorkspaceService.editSuccessHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					success_handler: `script/${successHandlerScriptPath}`
+					path: `script/${successHandlerScriptPath}`
 				}
 			})
 			sendUserToast(`workspace success handler set to ${successHandlerScriptPath}`)
@@ -534,7 +537,7 @@
 			await WorkspaceService.editSuccessHandler({
 				workspace: $workspaceStore!,
 				requestBody: {
-					success_handler: undefined
+					path: undefined
 				}
 			})
 			sendUserToast(`workspace success handler removed`)
