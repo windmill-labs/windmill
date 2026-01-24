@@ -92,11 +92,19 @@
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		auto_invite_domain = settings.auto_invite_domain
-		operatorOnly = settings.auto_invite_operator
-		autoAdd = settings.auto_add
-		autoAddInstanceGroups = settings.auto_add_instance_groups || []
-		autoAddInstanceGroupsRoles = settings.auto_add_instance_groups_roles || {}
+		const autoInvite = settings.auto_invite as {
+			enabled?: boolean
+			domain?: string
+			operator?: boolean
+			mode?: string
+			instance_groups?: string[]
+			instance_groups_roles?: Record<string, string>
+		} | undefined
+		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
+		operatorOnly = autoInvite?.operator ?? false
+		autoAdd = autoInvite?.mode === 'add'
+		autoAddInstanceGroups = autoInvite?.instance_groups || []
+		autoAddInstanceGroupsRoles = autoInvite?.instance_groups_roles || {}
 	}
 
 	let getUsagePromise: CancelablePromise<UserUsage[]> | undefined = undefined

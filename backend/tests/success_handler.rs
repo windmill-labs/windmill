@@ -12,12 +12,11 @@ async fn test_success_handler_cache(db: Pool<Postgres>) -> anyhow::Result<()> {
     // First, create a success handler script
     let _server = ApiServer::start(db.clone()).await?;
 
-    // Set up a success handler in workspace_settings
+    // Set up a success handler in workspace_settings using new JSONB column
     sqlx::query!(
         r#"
         UPDATE workspace_settings
-        SET success_handler = 'script/f/test/success_handler',
-            success_handler_extra_args = '{"key": "value"}'::json
+        SET success_handler = '{"path": "script/f/test/success_handler", "extra_args": {"key": "value"}}'::jsonb
         WHERE workspace_id = 'test-workspace'
         "#
     )
@@ -26,7 +25,7 @@ async fn test_success_handler_cache(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Verify the success handler was set
     let result = sqlx::query_scalar!(
-        r#"SELECT success_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
+        r#"SELECT success_handler->>'path' FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
     )
     .fetch_one(&db)
     .await?;
@@ -35,7 +34,7 @@ async fn test_success_handler_cache(db: Pool<Postgres>) -> anyhow::Result<()> {
 
     // Verify extra args were set
     let extra_args = sqlx::query_scalar!(
-        r#"SELECT success_handler_extra_args FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
+        r#"SELECT success_handler->'extra_args' FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
     )
     .fetch_one(&db)
     .await?;
@@ -55,7 +54,7 @@ async fn test_success_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()>
 
     // Initially success_handler should be NULL
     let initial = sqlx::query_scalar!(
-        r#"SELECT success_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
+        r#"SELECT success_handler->>'path' FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
     )
     .fetch_one(&db)
     .await?;
@@ -65,7 +64,7 @@ async fn test_success_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()>
     sqlx::query!(
         r#"
         UPDATE workspace_settings
-        SET success_handler = 'flow/f/test/success_flow'
+        SET success_handler = '{"path": "flow/f/test/success_flow"}'::jsonb
         WHERE workspace_id = 'test-workspace'
         "#
     )
@@ -73,7 +72,7 @@ async fn test_success_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()>
     .await?;
 
     let after_set = sqlx::query_scalar!(
-        r#"SELECT success_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
+        r#"SELECT success_handler->>'path' FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
     )
     .fetch_one(&db)
     .await?;
@@ -91,7 +90,7 @@ async fn test_success_handler_settings(db: Pool<Postgres>) -> anyhow::Result<()>
     .await?;
 
     let after_remove = sqlx::query_scalar!(
-        r#"SELECT success_handler FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
+        r#"SELECT success_handler->>'path' FROM workspace_settings WHERE workspace_id = 'test-workspace'"#
     )
     .fetch_one(&db)
     .await?;
@@ -152,7 +151,7 @@ export async function main(path: string, email: string, job_id: string, is_flow:
     sqlx::query!(
         r#"
         UPDATE workspace_settings
-        SET success_handler = 'script/f/test/success_handler'
+        SET success_handler = '{"path": "script/f/test/success_handler"}'::jsonb
         WHERE workspace_id = 'test-workspace'
         "#
     )

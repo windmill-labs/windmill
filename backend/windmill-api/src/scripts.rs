@@ -1467,7 +1467,7 @@ async fn toggle_workspace_error_handler(
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT error_handler->>'path' FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(&mut *tx)

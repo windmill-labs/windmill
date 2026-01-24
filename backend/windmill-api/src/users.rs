@@ -1465,11 +1465,11 @@ async fn convert_user_to_group(
         r#"
         SELECT
             eig.igroup as group_name,
-            ws.auto_add_instance_groups_roles
+            ws.auto_invite->'instance_groups_roles' as instance_groups_roles
         FROM email_to_igroup eig
         INNER JOIN workspace_settings ws ON ws.workspace_id = $1
         WHERE eig.email = $2
-        AND eig.igroup = ANY(ws.auto_add_instance_groups)
+        AND ws.auto_invite->'instance_groups' ? eig.igroup
         "#,
         &w_id,
         &user_info.email
@@ -1486,7 +1486,7 @@ async fn convert_user_to_group(
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
     let roles: std::collections::HashMap<String, String> =
-        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+        if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()
         } else {
             std::collections::HashMap::new()
