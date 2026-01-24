@@ -26,106 +26,40 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number
             });
+            core.setOutput('commit_hash', pr.data.head.sha);
+            core.setOutput('pr_number', context.issue.number);
 
-            const branchName = pr.data.head.ref;
-            const commitHash = pr.data.head.sha;
-
-            // Replace / with - in branch name for pages URL
-            const normalizedBranch = branchName.replace(/\//g, '-');
-
-            core.setOutput('branch_name', branchName);
-            core.setOutput('normalized_branch', normalizedBranch);
-            core.setOutput('commit_hash', commitHash);
-
-            console.log(`Branch: ${branchName}`);
-            console.log(`Normalized Branch: ${normalizedBranch}`);
-            console.log(`Commit Hash: ${commitHash}`);
-
-      - name: Spawn ephemeral backend
-        id: spawn
-        env:
-          QUEUE_URL: ${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}
-          COMMIT_HASH: ${{ steps.pr-details.outputs.commit_hash }}
+      - name: Trigger Windmill flow
+        id: trigger-flow
         run: |
-          echo "Spawning backend for commit: $COMMIT_HASH"
-          echo "Queue URL: $QUEUE_URL"
+          RESPONSE=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+            -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
+              "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
+              "pr_number": ${{ steps.pr-details.outputs.pr_number }}
+            }')
 
-          # Send POST request to spawn backend
-          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
-            "${QUEUE_URL}/spawn/${COMMIT_HASH}" \
-            -H "Content-Type: application/json")
+          JOB_UUID=$(echo "$RESPONSE" | jq -r '.id // empty')
 
-          # Extract HTTP status code (last line)
-          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
-          # Extract response body (everything except last line)
-          BODY=$(echo "$RESPONSE" | sed '$d')
-
-          echo "HTTP Status: $HTTP_CODE"
-          echo "Response Body: $BODY"
-
-          if [ "$HTTP_CODE" -eq 202 ]; then
-            # Extract tunnelUrl from JSON response
-            TUNNEL_URL=$(echo "$BODY" | jq -r '.tunnelUrl')
-            echo "tunnel_url=$TUNNEL_URL" >> $GITHUB_OUTPUT
-            echo "success=true" >> $GITHUB_OUTPUT
-            echo "✅ Backend spawned successfully: $TUNNEL_URL"
-          else
-            echo "success=false" >> $GITHUB_OUTPUT
-            echo "error_message=Failed to spawn backend. HTTP Status: $HTTP_CODE, Response: $BODY" >> $GITHUB_OUTPUT
-            echo "❌ Failed to spawn backend"
+          if [ -z "$JOB_UUID" ]; then
+            echo "Failed to get job UUID from response: $RESPONSE"
+            exit 1
           fi
 
-      - name: Comment success on PR
-        if: steps.spawn.outputs.success == 'true'
+          echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
+
+      - name: Post comment with job link
         uses: actions/github-script@v7
         with:
           script: |
-            const tunnelUrl = '${{ steps.spawn.outputs.tunnel_url }}';
-            const normalizedBranch = '${{ steps.pr-details.outputs.normalized_branch }}';
-            const commitHash = '${{ steps.pr-details.outputs.commit_hash }}';
-            const shortHash = commitHash.substring(0, 8);
-
-            const previewUrl = `https://${normalizedBranch}.windmill.pages.dev?remote_url=${encodeURIComponent(tunnelUrl)}`;
-
-            const commentBody = `## 🚀 Ephemeral Backend Spawned
-
-            Your ephemeral backend is now available!
-
-            - **Commit**: \`${shortHash}\`
-            - **Backend URL**: ${tunnelUrl}
-            - **Preview Link**: ${previewUrl}
-
-            > ⏰ This backend will automatically shut down after **1 hour**.
-
-            You can now test your changes with the full backend environment.`;
+            const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
+            const jobUrl = `https://app.windmill.dev/run/${jobUuid}?workspace=windmill-labs`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
-              body: commentBody
-            });
-
-      - name: Comment error on PR
-        if: steps.spawn.outputs.success == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const errorMessage = '${{ steps.spawn.outputs.error_message }}';
-            const commitHash = '${{ steps.pr-details.outputs.commit_hash }}';
-            const shortHash = commitHash.substring(0, 8);
-
-            const commentBody = `## ❌ Failed to Spawn Ephemeral Backend
-
-            Failed to spawn backend for commit \`${shortHash}\`.
-
-            **Error**: ${errorMessage}
-
-            Please check the [action logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for more details.`;
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: commentBody
+              body: `🚀 Ephemeral backend spawning started!\n\nView job progress: ${jobUrl}`
             });
