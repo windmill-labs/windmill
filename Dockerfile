@@ -96,7 +96,7 @@ COPY .git/ .git/
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
-    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release --features "$features"
+    CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --jobs $(nproc) --release --features "$features"
 
 FROM ${DEBIAN_IMAGE}
 

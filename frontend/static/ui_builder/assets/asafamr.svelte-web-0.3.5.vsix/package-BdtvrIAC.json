@@ -1,0 +1,179 @@
+{
+	"name": "svelte-web",
+	"description": "",
+	"version": "0.3.5",
+	"engines": {
+		"vscode": "^1.60.0"
+	},
+	"license": "MIT",
+	"repository": "https://github.com/asafamr/svelte-vscode-web",
+	"browser": "./dist/web/extension.js",
+	"displayName": "Svelte for VS Code Web",
+	"publisher": "asafamr",
+	"icon": "static/logo.png",
+	"galleryBanner": {
+		"color": "#004D5E",
+		"theme": "dark"
+	},
+	"categories": [
+		"Programming Languages",
+		"Formatters"
+	],
+	"activationEvents": [
+		"onLanguage:svelte",
+		"onCommand:svelte.restartLanguageServer"
+	],
+	"capabilities": {
+		"untrustedWorkspaces": {
+			"supported": true
+		}
+	},
+	"contributes": {
+		"configuration": {
+			"type": "object",
+			"title": "Svelte",
+			"properties": {}
+		},
+		"languages": [
+			{
+				"id": "svelte",
+				"aliases": [
+					"Svelte",
+					"svelte"
+				],
+				"extensions": [
+					".svelte"
+				],
+				"configuration": "./dist/language-configuration.json"
+			},
+			{
+				"id": "json",
+				"filenames": [
+					".prettierrc"
+				]
+			}
+		],
+		"jsonValidation": [],
+		"grammars": [
+			{
+				"language": "svelte",
+				"scopeName": "source.svelte",
+				"path": "./dist/svelte.tmLanguage.json",
+				"embeddedLanguages": {
+					"text.html.basic": "html",
+					"source.css": "css",
+					"source.js": "javascript",
+					"source.ts": "typescript"
+				}
+			}
+		],
+		"commands": [
+			{
+				"command": "svelte.restartLanguageServer",
+				"title": "Svelte: Restart Language Server"
+			},
+			{
+				"command": "svelte.showCompiledCodeToSide",
+				"title": "Svelte: Show Compiled Code",
+				"icon": {
+					"light": "./static/preview-right-light.svg",
+					"dark": "./static/preview-right-dark.svg"
+				}
+			},
+			{
+				"command": "svelte.extractComponent",
+				"title": "Svelte: Extract Component"
+			}
+		],
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "svelte.showCompiledCodeToSide",
+					"when": "editorLangId == svelte"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "svelte.showCompiledCodeToSide",
+					"when": "editorLangId == svelte",
+					"group": "navigation"
+				}
+			],
+			"editor/context": [
+				{
+					"command": "svelte.extractComponent",
+					"when": "editorLangId == svelte",
+					"group": "1_modification"
+				}
+			]
+		},
+		"breakpoints": [
+			{
+				"language": "svelte"
+			}
+		]
+	},
+	"scripts": {
+		"dev-watch": "node -r esbuild-register build.ts --dev",
+		"compile": "npm run bootstrap && rm -rf ./dist && node -r esbuild-register build.ts",
+		"bootstrap": "cd vendored/langauge-tools/packages/svelte-vscode && npm run build:grammar",
+		"run-in-browser": "vscode-test-web --browserType=chromium --extensionDevelopmentPath=. test",
+		"run-in-browser:ff": "vscode-test-web --browserType=firefox --extensionDevelopmentPath=. test",
+		"vscode:prepublish": "npm run compile",
+		"vspub": "vsce publish",
+		"build:test": "node -r esbuild-register build-test.ts",
+		"test": "npm run build:test && vscode-test-web --browserType=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js test",
+		"test:full-headless": "npm run build:test && vscode-test-web --headless --browserType=chromium --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js test && vscode-test-web --headless --browserType=firefox --extensionDevelopmentPath=. --extensionTestsPath=dist/web/test/suite/index.js test",
+		"test-cleaner-output": "npm run test | grep -v \"GET /\""
+	},
+	"devDependencies": {
+		"@babel/core": "^7.15.8",
+		"@tsconfig/node12": "^1.0.9",
+		"@types/chai": "^4.2.22",
+		"@types/fs-extra": "^9.0.13",
+		"@types/lz-string": "^1.3.34",
+		"@types/mocha": "^9.0.0",
+		"@types/prettier": "^2.4.1",
+		"@types/vscode": "^1.60.0",
+		"@types/webpack-env": "^1.16.2",
+		"@typescript-eslint/eslint-plugin": "^4.31.1",
+		"@typescript-eslint/parser": "^4.31.1",
+		"@typescript/vfs": "^1.3.5",
+		"@vscode/test-web": "^0.0.13",
+		"assert": "^2.0.0",
+		"buffer": "^5.7.1",
+		"chai": "^4.3.4",
+		"dedent": "^0.7.0",
+		"esbuild": "^0.13.4",
+		"esbuild-register": "^3.0.0",
+		"eslint": "^7.32.0",
+		"estree-walker": "^2.0.1",
+		"fast-glob": "^3.2.7",
+		"fs-extra": "^10.0.0",
+		"lodash": "^4.17.21",
+		"lodash-es": "^4.17.21",
+		"lz-string": "^1.4.4",
+		"mocha": "^9.1.1",
+		"path-browserify": "^1.0.1",
+		"postcss": "^8.3.9",
+		"prettier": "^2.3.2",
+		"prettier-plugin-svelte": "~2.4.0",
+		"process": "^0.11.10",
+		"source-map": "^0.7.3",
+		"stream-browserify": "^3.0.0",
+		"svelte": "~3.38.2",
+		"svelte-preprocess": "~4.7.3",
+		"svelte2tsx": "^0.4.7",
+		"ts-loader": "^9.2.5",
+		"typescript": "^4.4.4",
+		"vscode-css-languageservice": "5.0.0",
+		"vscode-emmet-helper": "2.1.2",
+		"vscode-html-languageservice": "4.0.0",
+		"vscode-languageclient": "^7.0.0",
+		"vscode-languageserver": "7.1.0-next.4",
+		"vscode-languageserver-types": "3.16.0",
+		"vscode-uri": "2.1.2",
+		"webpack": "^5.52.1",
+		"webpack-cli": "^4.8.0"
+	}
+}

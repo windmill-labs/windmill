@@ -1,0 +1,145 @@
+{
+	"comments": {
+		"blockComment": [
+			"<!--",
+			"-->"
+		]
+	},
+	"brackets": [
+		[
+			"<!--",
+			"-->"
+		],
+		[
+			"<",
+			">"
+		],
+		[
+			"{",
+			"}"
+		],
+		[
+			"(",
+			")"
+		]
+	],
+	"autoClosingPairs": [
+		// html
+		{
+			"open": "{",
+			"close": "}"
+		},
+		{
+			"open": "[",
+			"close": "]"
+		},
+		{
+			"open": "(",
+			"close": ")"
+		},
+		{
+			"open": "'",
+			"close": "'"
+		},
+		{
+			"open": "\"",
+			"close": "\""
+		},
+		{
+			"open": "<!--",
+			"close": "-->",
+			"notIn": [
+				"comment",
+				"string"
+			]
+		},
+		// javascript
+		{
+			"open": "`",
+			"close": "`",
+			"notIn": [
+				"string",
+				"comment"
+			]
+		},
+		{
+			"open": "/**",
+			"close": " */",
+			"notIn": [
+				"string"
+			]
+		}
+	],
+	"autoCloseBefore": ";:.,=}])><`'\" \n\t",
+	"surroundingPairs": [
+		// html
+		{
+			"open": "'",
+			"close": "'"
+		},
+		{
+			"open": "\"",
+			"close": "\""
+		},
+		{
+			"open": "{",
+			"close": "}"
+		},
+		{
+			"open": "[",
+			"close": "]"
+		},
+		{
+			"open": "(",
+			"close": ")"
+		},
+		{
+			"open": "<",
+			"close": ">"
+		},
+		// javascript
+		[
+			"`",
+			"`"
+		],
+	],
+	"colorizedBracketPairs": [],
+	"folding": {
+		"markers": {
+			"start": "^\\s*<!--\\s*#region\\b.*-->",
+			"end": "^\\s*<!--\\s*#endregion\\b.*-->"
+		}
+	},
+	"wordPattern": "(-?\\d*\\.\\d\\w*)|([^\\`\\~\\!\\@\\$\\^\\&\\*\\(\\)\\=\\+\\[\\{\\]\\}\\\\\\|\\;\\:\\'\\\"\\,\\.\\<\\>\\/\\s]+)",
+	"onEnterRules": [
+		{
+			"beforeText": {
+				"pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr|script|style))([_:\\w][_:\\w-.\\d]*)(?:(?:[^'\"/>]|\"[^\"]*\"|'[^']*')*?(?!\\/)>)[^<]*$",
+				"flags": "i"
+			},
+			"afterText": {
+				"pattern": "^<\\/([_:\\w][_:\\w-.\\d]*)\\s*>",
+				"flags": "i"
+			},
+			"action": {
+				"indent": "indentOutdent"
+			}
+		},
+		{
+			"beforeText": {
+				"pattern": "<(?!(?:area|base|br|col|embed|hr|img|input|keygen|link|menuitem|meta|param|source|track|wbr|script|style))([_:\\w][_:\\w-.\\d]*)(?:(?:[^'\"/>]|\"[^\"]*\"|'[^']*')*?(?!\\/)>)[^<]*$",
+				"flags": "i"
+			},
+			"action": {
+				"indent": "indent"
+			}
+		}
+	],
+	// https://github.com/vuejs/language-tools/issues/1762
+	"indentationRules": {
+		// "increaseIndentPattern": "<(?!\\?|(?:area|base|br|col|frame|hr|html|img|input|keygen|link|menuitem|meta|param|source|track|wbr|script|style)\\b|[^>]*\\/>)([-_\\.A-Za-z0-9]+)(?=\\s|>)\\b[^>]*>(?!.*<\\/\\1>)|<!--(?!.*-->)|\\{[^}\"']*$",
+		// add (?!\\s*\\() to fix https://github.com/vuejs/language-tools/issues/1847#issuecomment-1246101071
+		"increaseIndentPattern": "<(?!\\?|(?:area|base|br|col|frame|hr|html|img|input|keygen|link|menuitem|meta|param|source|track|wbr|script|style)\\b|[^>]*\\/>)([-_\\.A-Za-z0-9]+)(?=\\s|>)\\b[^>]*>(?!\\s*\\()(?!.*<\\/\\1>)|<!--(?!.*-->)|\\{[^}\"']*$",
+		"decreaseIndentPattern": "^\\s*(<\\/(?!html)[-_\\.A-Za-z0-9]+\\b[^>]*>|-->|\\})"
+	}
+}
