@@ -146,6 +146,7 @@
 			options={{
 				right: 'As JSON'
 			}}
+			class="as-json-toggle"
 		/>
 		<TestConnection {resourceType} {args} />
 		{#if resourceType == 'postgresql'}

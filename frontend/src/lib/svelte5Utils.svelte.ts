@@ -188,6 +188,25 @@ export class ChangeOnDeepInequality<T> {
 	}
 }
 
+export function useReducedMotion(): { val: boolean } {
+	if (typeof window === 'undefined') return { val: false }
+
+	const query = window.matchMedia('(prefers-reduced-motion: reduce)')
+	let s = $state(query.matches)
+	$effect(() => {
+		const handler = (event: MediaQueryListEvent) => {
+			s = event.matches
+		}
+		query.addEventListener('change', handler)
+		return () => query.removeEventListener('change', handler)
+	})
+	return {
+		get val() {
+			return s
+		}
+	}
+}
+
 // Prevents flickering when data is unloaded (undefined) then reloaded quickly
 // But still becomes undefined if data is not reloaded within the timeout
 // so the user has feedback that the data is not available anymore.

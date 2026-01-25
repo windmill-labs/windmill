@@ -49,7 +49,8 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
-    worker::{CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
+    min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
+    worker::CLOUD_HOSTED,
 };
 
 use windmill_common::{
@@ -588,6 +589,11 @@ async fn create_script_internal<'c>(
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
 )> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create scripts for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     guard_script_from_debounce_data(&ns).await?;
@@ -1466,7 +1472,7 @@ async fn toggle_workspace_error_handler(
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT error_handler->>'path' FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(&mut *tx)
@@ -2300,12 +2306,12 @@ async fn delete_scripts_bulk(
 /// Validates that script debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_script_from_debounce_data(ns: &NewScript) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await && !ns.debouncing_settings.is_default() {
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await && !ns.debouncing_settings.is_default() {
         tracing::warn!(
             "Script debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
-    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    } else if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         && !ns.debouncing_settings.is_legacy_compatible()
         && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
     {

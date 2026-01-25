@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.613.4"
+version = "1.614.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -35,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.613.4"
+version = "1.614.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -338,6 +338,7 @@ futures-core = "^0"
 lazy_static = "1.4.0"
 serde_derive = "1.0.147"
 const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
+const-str = "0.5"
 constant_time_eq = "0.3.1"
 dyn-iter = "0.2.0"
 rsa = "^0"

@@ -1,0 +1,75 @@
+name: Spawn Ephemeral Backend
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number"
+        required: true
+        type: number
+
+jobs:
+  spawn-backend:
+    # Only run on PR comments that contain /spawn-backend, or manual dispatch
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request && contains(github.event.comment.body, '/spawn-backend'))
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Get PR details
+        id: pr-details
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs.pr_number
+              : context.issue.number;
+
+            const pr = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            core.setOutput('commit_hash', pr.data.head.sha);
+            core.setOutput('pr_number', context.issue.number);
+
+      - name: Trigger Windmill flow
+        id: trigger-flow
+        run: |
+          RESPONSE=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+            -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
+              "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
+              "pr_number": ${{ steps.pr-details.outputs.pr_number }}
+            }')
+
+          JOB_UUID=$(echo "$RESPONSE" | jq -r '.id // empty')
+
+          if [ -z "$JOB_UUID" ]; then
+            echo "Failed to get job UUID from response: $RESPONSE"
+            exit 1
+          fi
+
+          echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
+
+      - name: Post comment with job link
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
+            const jobUrl = `https://app.windmill.dev/run/${jobUuid}?workspace=windmill-labs`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `🚀 Ephemeral backend spawning started!\n\nView job progress: ${jobUrl}`
+            });
