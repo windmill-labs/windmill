@@ -22,6 +22,22 @@ use crate::error::Error;
 use crate::s3_helpers::S3Object;
 
 // ============================================================================
+// Cached AWS SDK Config
+// ============================================================================
+
+/// Cached AWS SDK config loaded from environment
+/// Avoids repeated I/O for environment variable lookups and file reads
+static AWS_SDK_CONFIG: tokio::sync::OnceCell<aws_config::SdkConfig> =
+    tokio::sync::OnceCell::const_new();
+
+/// Get or initialize the cached AWS SDK config
+async fn get_aws_sdk_config() -> &'static aws_config::SdkConfig {
+    AWS_SDK_CONFIG
+        .get_or_init(|| async { aws_config::load_defaults(BehaviorVersion::latest()).await })
+        .await
+}
+
+// ============================================================================
 // Shared Types for OpenAI-compatible message format
 // ============================================================================
 
@@ -121,7 +137,7 @@ pub struct BedrockCredentialsCheck {
 
 /// Check if AWS credentials are available from the environment
 pub async fn check_env_credentials() -> BedrockCredentialsCheck {
-    let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+    let config = get_aws_sdk_config().await;
 
     if let Some(creds_provider) = config.credentials_provider() {
         match creds_provider.provide_credentials().await {
@@ -228,7 +244,7 @@ impl BedrockClient {
     }
 
     pub async fn from_env(region: &str) -> Result<Self, Error> {
-        let config = aws_config::load_defaults(BehaviorVersion::latest()).await;
+        let config = get_aws_sdk_config().await;
 
         // Verify that credentials are actually available
         if let Some(creds_provider) = config.credentials_provider() {
@@ -257,7 +273,7 @@ impl BedrockClient {
         }
 
         // Build client with region override
-        let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(&config)
+        let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(config)
             .region(aws_config::Region::new(region.to_string()))
             .build();
 
