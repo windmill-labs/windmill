@@ -25,14 +25,7 @@ pub enum AssetKind {
 pub enum AssetUsageKind {
     Script,
     Flow,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
-#[sqlx(type_name = "ASSET_DETECTION_KIND", rename_all = "lowercase")]
-#[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
-pub enum AssetDetectionKind {
-    Static,
-    Runtime,
+    Job,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -71,8 +64,8 @@ pub async fn insert_static_asset_usage<'e>(
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
     sqlx::query!(
-        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id)
-                VALUES ($1, $2, $3, $4, $5, $6, 'static', NULL) ON CONFLICT DO NOTHING"#,
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
+                VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
@@ -93,7 +86,7 @@ pub async fn clear_static_asset_usage<'e>(
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
     sqlx::query!(
-        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3 AND asset_detection_kind = 'static'"#,
+        r#"DELETE FROM asset WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3"#,
         workspace_id,
         usage_path,
         usage_kind as AssetUsageKind

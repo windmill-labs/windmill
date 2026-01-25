@@ -32,11 +32,11 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
-use windmill_common::runnable_settings::RunnableSettingsTrait;
-use windmill_common::utils::query_elems_from_hub;
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::runnable_settings::RunnableSettingsTrait;
+use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
@@ -1420,7 +1420,7 @@ async fn archive_flow_by_path(
     .await?;
 
     sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2 AND asset_detection_kind = 'static'",
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
         &w_id,
         path
     )

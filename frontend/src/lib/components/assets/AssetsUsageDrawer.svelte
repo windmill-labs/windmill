@@ -1,21 +1,12 @@
 <script lang="ts">
-	import type {
-		AssetKind,
-		AssetUsageAccessType,
-		AssetUsageDetectionKind,
-		AssetUsageKind
-	} from '$lib/gen'
+	import type { AssetKind, AssetUsageAccessType, AssetUsageKind } from '$lib/gen'
 	import { Drawer, DrawerContent } from '../common'
 	import RowIcon from '../common/table/RowIcon.svelte'
 	import { formatAssetAccessType, getAssetUsagePageUri } from './lib'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { AssetService } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { displayDate } from '$lib/utils'
-	import RefreshButton from '../common/button/RefreshButton.svelte'
-	import { resource } from 'runed'
-	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
 	import Alert from '../common/alert/Alert.svelte'
 
 	let usagesDrawerData:
@@ -26,37 +17,24 @@
 					path: string
 					kind: AssetUsageKind
 					access_type?: AssetUsageAccessType
-					detection_kinds?: AssetUsageDetectionKind[]
+					created_at?: string
 				}[]
 		  }
 		| undefined = $state()
-
-	let _runtimeJobs = resource(
-		() => usagesDrawerData,
-		async (data) => {
-			if (!data || !data.usages.some((u) => u.detection_kinds?.includes('runtime')))
-				return undefined
-			return await AssetService.listAssetJobs({
-				workspace: $workspaceStore!,
-				assetPath: data.path,
-				assetKind: data.kind,
-				page: 1,
-				perPage: 20
-			})
-		}
-	)
-	const runtimeJobs = new StaleWhileLoading(() => _runtimeJobs.current)
 
 	export function open(data: typeof usagesDrawerData) {
 		usagesDrawerData = data
 	}
 
-	const jobStatusColor = {
-		running: 'text-yellow-500',
-		success: 'text-green-500',
-		failure: 'text-red-500',
-		canceled: 'text-red-500'
-	}
+	// const jobStatusColor = {
+	// 	running: 'text-yellow-500',
+	// 	success: 'text-green-500',
+	// 	failure: 'text-red-500',
+	// 	canceled: 'text-red-500'
+	// }
+
+	let staticUsages = $derived(usagesDrawerData?.usages.filter((u) => u.kind !== 'job') ?? [])
+	let runtimeUsages = $derived(usagesDrawerData?.usages.filter((u) => u.kind === 'job') ?? [])
 </script>
 
 <Drawer
@@ -70,7 +48,7 @@
 			<section>
 				<h3 class="text-sm font-semibold mb-2">Scripts & Flows</h3>
 				<ul class="flex flex-col border rounded-md divide-y">
-					{#each usagesDrawerData?.usages ?? [] as u}
+					{#each staticUsages as u}
 						{@const accessType = formatAssetAccessType(u.access_type)}
 						<li>
 							<a
@@ -78,19 +56,11 @@
 								aria-label={`${u.kind}/${u.path}`}
 								class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
 							>
-								<RowIcon kind={u.kind} />
+								<RowIcon kind={u.kind as Exclude<typeof u.kind, 'job'>} />
 								<div class="flex flex-col justify-center flex-1">
 									<span class="font-semibold text-emphasis">{u.path}</span>
 									<span class="text-2xs text-secondary">{u.kind}</span>
 								</div>
-								{@render badge(
-									u.detection_kinds?.includes('runtime') ? 'Runtime' : undefined,
-									'The asset was used as a job input'
-								)}
-								{@render badge(
-									u.detection_kinds?.includes('static') ? 'Static' : undefined,
-									'The asset was detected while statically analyzing the code'
-								)}
 								{@render badge(accessType)}
 							</a>
 						</li>
@@ -99,56 +69,47 @@
 			</section>
 
 			<!-- Runtime Job Usage -->
-			{#if usagesDrawerData?.usages.some((u) => u.detection_kinds?.includes('runtime'))}
-				<section>
-					<h3 class="text-sm font-semibold mb-2 flex justify-between items-center">
-						Latest Job Executions
-						<RefreshButton loading={_runtimeJobs.loading} onClick={() => _runtimeJobs.refetch()} />
-					</h3>
-					<Alert
-						type="info"
-						class="mb-2"
-						title="Assets are processed asynchronously after job completion"
-					>
-						It may take a few minutes for jobs to show up here.
-					</Alert>
+			<section>
+				<h3 class="text-sm font-semibold mb-2 flex justify-between items-center">
+					Latest Job Executions
+				</h3>
+				<Alert
+					type="info"
+					class="mb-2"
+					title="Assets are processed asynchronously after job completion"
+				>
+					It may take a few minutes for jobs to show up here.
+				</Alert>
 
-					{#if !runtimeJobs.current && _runtimeJobs.loading}
-						<div class="flex items-center justify-center py-8 text-sm text-secondary">
-							Loading jobs...
-						</div>
-					{:else if runtimeJobs.current}
-						<div class="flex flex-col border rounded-md divide-y">
-							{#each runtimeJobs.current.jobs as job}
-								<a
-									href={`/run/${job.id}?workspace=${$workspaceStore}`}
-									class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
-								>
-									<span
-										class="mr-1 text-lg {jobStatusColor[job.status || 'running'] ||
-											jobStatusColor['running']}"
-									>
-										•
+				<div class="flex flex-col border rounded-md divide-y">
+					{#each runtimeUsages as u}
+						<a
+							href={`/run/${u.path}?workspace=${$workspaceStore}`}
+							class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
+						>
+							<!-- <span
+								class="mr-1 text-lg {jobStatusColor[job.status || 'running'] ||
+									jobStatusColor['running']}"
+							>
+								•
+							</span> -->
+							<div class="flex flex-col justify-center flex-1">
+								<!-- <div class="flex items-center gap-2">
+									<span class="font-semibold text-emphasis">
+										{job.runnable_path || 'Inline script'}
 									</span>
-									<div class="flex flex-col justify-center flex-1">
-										<div class="flex items-center gap-2">
-											<span class="font-semibold text-emphasis">
-												{job.runnable_path || 'Inline script'}
-											</span>
-										</div>
-										<div class="text-2xs text-secondary flex items-center gap-2">
-											<span>{job.created_by}</span>
-											<span>•</span>
-											<span>{displayDate(job.created_at)}</span>
-										</div>
-									</div>
-									{@render badge(job.id, 'Job ID')}
-								</a>
-							{/each}
-						</div>
-					{/if}
-				</section>
-			{/if}
+								</div> -->
+								<div class="text-2xs text-secondary flex items-center gap-2">
+									<!-- <span>{u.created_by}</span> -->
+									<!-- <span>•</span> -->
+									<span>{displayDate(u.created_at)}</span>
+								</div>
+							</div>
+							{@render badge(u.path, 'Job ID')}
+						</a>
+					{/each}
+				</div>
+			</section>
 		</div>
 	</DrawerContent>
 </Drawer>

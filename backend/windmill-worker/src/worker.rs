@@ -2776,8 +2776,7 @@ async fn detect_and_store_runtime_assets(
             job_id: *job_id,
             asset_path: asset.path,
             asset_kind: asset.kind,
-            usage_path: runnable_path.to_string(),
-            usage_kind,
+            access_type: None,
         };
         register_runtime_asset(asset);
     }

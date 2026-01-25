@@ -16052,10 +16052,10 @@ paths:
                             $ref: "#/components/schemas/AssetUsageKind"
                           access_type:
                             $ref: "#/components/schemas/AssetUsageAccessType"
-                          detection_kinds:
-                            type: array
-                            items:
-                              $ref: "#/components/schemas/AssetUsageDetectionKind"
+                          created_at:
+                            type: string
+                            format: date-time
+                            description: When the conversation was created
                     metadata:
                       type: object
                       properties:
@@ -16108,83 +16108,6 @@ paths:
                         $ref: "#/components/schemas/AssetKind"
                       access_type:
                         $ref: "#/components/schemas/AssetUsageAccessType"
-
-  /w/{workspace}/assets/list_jobs:
-    get:
-      summary: List jobs that used a specific asset (runtime detection only)
-      operationId: listAssetJobs
-      tags:
-        - asset
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: asset_path
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Path of the asset.
-        - name: asset_kind
-          in: query
-          required: true
-          schema:
-            $ref: "#/components/schemas/AssetKind"
-        - name: page
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 1
-            minimum: 1
-          description: Page number (1-indexed)
-        - name: per_page
-          in: query
-          required: false
-          schema:
-            type: integer
-            default: 20
-            minimum: 1
-            maximum: 100
-          description: Number of jobs per page
-      responses:
-        "200":
-          description: Paginated list of jobs that used this asset
-          content:
-            application/json:
-              schema:
-                type: object
-                required: [jobs, total, page, per_page]
-                properties:
-                  jobs:
-                    type: array
-                    items:
-                      type: object
-                      required: [id, created_at, created_by]
-                      properties:
-                        id:
-                          type: string
-                          format: uuid
-                        created_at:
-                          type: string
-                          format: date-time
-                        created_by:
-                          type: string
-                        runnable_path:
-                          type: string
-                        status:
-                          type: string
-                          enum: [success, failure, canceled, skipped]
-                  total:
-                    type: integer
-                    format: int64
-                    description: Total number of jobs that used this asset
-                  page:
-                    type: integer
-                    format: int64
-                    description: Current page number
-                  per_page:
-                    type: integer
-                    format: int64
-                    description: Number of jobs per page
 
   /mcp/w/{workspace}/list_tools:
     get:
@@ -22013,17 +21936,13 @@ components:
       enum:
         - script
         - flow
+        - job
     AssetUsageAccessType:
       type: string
       enum:
         - r
         - w
         - rw
-    AssetUsageDetectionKind:
-      type: string
-      enum:
-        - static
-        - runtime
     AssetKind:
       type: string
       enum:

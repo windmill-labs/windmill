@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use windmill_parser::asset_parser::parse_asset_syntax;
 
 use crate::{
-    assets::{AssetDetectionKind, AssetKind, AssetUsageAccessType, AssetUsageKind},
+    assets::{AssetKind, AssetUsageAccessType, AssetUsageKind},
     error,
 };
 
@@ -63,11 +63,10 @@ fn extract_assets_from_raw_value(
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct InsertRuntimeAssetParams {
     pub workspace_id: String,
-    pub job_id: uuid::Uuid,
     pub asset_path: String,
     pub asset_kind: AssetKind,
-    pub usage_path: String,
-    pub usage_kind: AssetUsageKind,
+    pub job_id: uuid::Uuid,
+    pub access_type: Option<AssetUsageAccessType>,
 }
 
 async fn insert_runtime_assets(
@@ -75,16 +74,14 @@ async fn insert_runtime_assets(
     assets: &[InsertRuntimeAssetParams],
 ) -> error::Result<()> {
     for chunk in assets.chunks(1000) {
-        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id) ");
+        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind) ");
         query_builder.push_values(chunk, |mut b, asset| {
             b.push_bind(&asset.workspace_id)
                 .push_bind(&asset.asset_path)
                 .push_bind(&asset.asset_kind)
-                .push_bind(Option::<AssetUsageAccessType>::None)
-                .push_bind(&asset.usage_path)
-                .push_bind(&asset.usage_kind)
-                .push_bind(AssetDetectionKind::Runtime)
-                .push_bind(&asset.job_id);
+                .push_bind(&asset.access_type)
+                .push_bind(asset.job_id.to_string())
+                .push_bind(&AssetUsageKind::Job);
         });
         query_builder.push(" ON CONFLICT DO NOTHING");
         query_builder.build().execute(executor).await?;
@@ -124,9 +121,9 @@ async fn prune_runtime_assets(
     let delete_result = sqlx::query!(
         r#"
         DELETE FROM asset
-        WHERE id IN (
-            SELECT id FROM (
-                SELECT a.id, ROW_NUMBER() OVER (
+        WHERE (workspace_id, path, kind) IN (
+            SELECT workspace_id, path, kind FROM (
+                SELECT a.workspace_id, a.path, a.kind, a.usage_kind, ROW_NUMBER() OVER (
                     PARTITION BY a.workspace_id, a.path, a.kind
                     ORDER BY a.created_at DESC
                 ) as rn,
@@ -143,7 +140,7 @@ async fn prune_runtime_assets(
                 ON a.workspace_id = limits.workspace_id 
                 AND a.path = limits.path 
                 AND a.kind = limits.kind
-                WHERE a.asset_detection_kind = 'runtime'
+                WHERE a.usage_kind = 'job'
             ) ranked
             WHERE rn > max_n
         )"#,
