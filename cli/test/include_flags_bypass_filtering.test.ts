@@ -64,13 +64,15 @@ includeKey: false`);
     const changePaths = output.changes.map((c: any) => c.path);
     
     // Assert that special files are included despite restrictive path filtering
-    const hasUser = changePaths.some((path: string) => path.includes('admin@windmill.dev.user.yaml'));
-    const hasGroup = changePaths.some((path: string) => path.includes('groups/test_group.group.yaml'));
+    // Normalize paths for cross-platform comparison (Windows uses backslashes)
+    const normalizedPaths = changePaths.map((p: string) => p.replace(/\\/g, '/'));
+    const hasUser = normalizedPaths.some((path: string) => path.includes('admin@windmill.dev.user.yaml'));
+    const hasGroup = normalizedPaths.some((path: string) => path.includes('groups/test_group.group.yaml'));
     const hasSettings = changePaths.some((path: string) => path === 'settings.yaml');
     const hasEncryptionKey = changePaths.some((path: string) => path === 'encryption_key.yaml');
     
-    assert(hasUser, `Admin user should be included despite restrictive includes. Found paths: ${changePaths.join(', ')}`);
-    assert(hasGroup, `'test_group' should be included despite restrictive includes. Found paths: ${changePaths.join(', ')}`);
+    assert(hasUser, `Admin user should be included despite restrictive includes. Found paths: ${normalizedPaths.join(', ')}`);
+    assert(hasGroup, `'test_group' should be included despite restrictive includes. Found paths: ${normalizedPaths.join(', ')}`);
     assert(hasSettings, `Settings should be included despite restrictive includes. Found paths: ${changePaths.join(', ')}`);
     assert(hasEncryptionKey, `Encryption key should be included despite restrictive includes. Found paths: ${changePaths.join(', ')}`);
   });
@@ -106,11 +108,13 @@ includeGroups: false`);
     const output = parseJsonFromCLIOutput(result.stdout);
     const changePaths = output.changes.map((c: any) => c.path);
     
-    const hasUser = changePaths.some((path: string) => path.includes('admin@windmill.dev.user.yaml'));
-    const hasGroup = changePaths.some((path: string) => path.includes('groups/test_group.group.yaml'));
-    
-    assert(hasUser, `CLI --include-users should override config includeUsers: false. Found paths: ${changePaths.join(', ')}`);
-    assert(hasGroup, `CLI --include-groups should override config includeGroups: false. Found paths: ${changePaths.join(', ')}`);
+    // Normalize paths for cross-platform comparison (Windows uses backslashes)
+    const normalizedPaths = changePaths.map((p: string) => p.replace(/\\/g, '/'));
+    const hasUser = normalizedPaths.some((path: string) => path.includes('admin@windmill.dev.user.yaml'));
+    const hasGroup = normalizedPaths.some((path: string) => path.includes('groups/test_group.group.yaml'));
+
+    assert(hasUser, `CLI --include-users should override config includeUsers: false. Found paths: ${normalizedPaths.join(', ')}`);
+    assert(hasGroup, `CLI --include-groups should override config includeGroups: false. Found paths: ${normalizedPaths.join(', ')}`);
   });
 }});
 

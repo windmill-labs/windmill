@@ -195,16 +195,18 @@ gitBranches:
       // Parse output
       const output = parseJsonFromCLIOutput(result.stdout);
       const changePaths = (output.changes || []).map((c: any) => c.path);
+      // Normalize paths for cross-platform comparison (Windows uses backslashes)
+      const normalizedPaths = changePaths.map((p: string) => p.replace(/\\/g, '/'));
 
       // Verify users/groups are included
-      const hasUserFiles = changePaths.some((path: string) => path.includes('users/'));
-      const hasGroupFiles = changePaths.some((path: string) => path.includes('groups/'));
+      const hasUserFiles = normalizedPaths.some((path: string) => path.includes('users/'));
+      const hasGroupFiles = normalizedPaths.some((path: string) => path.includes('groups/'));
 
-      assert(hasUserFiles || hasGroupFiles, `User or group files should be included. Found: ${changePaths.join(', ')}`);
+      assert(hasUserFiles || hasGroupFiles, `User or group files should be included. Found: ${normalizedPaths.join(', ')}`);
 
       // Verify f/** files are NOT included (due to restrictive includes)
-      const hasFolderFiles = changePaths.some((path: string) => path.startsWith('f/'));
-      assertEquals(hasFolderFiles, false, `f/ files should NOT be included due to restrictive includes. Found: ${changePaths.join(', ')}`);
+      const hasFolderFiles = normalizedPaths.some((path: string) => path.startsWith('f/'));
+      assertEquals(hasFolderFiles, false, `f/ files should NOT be included due to restrictive includes. Found: ${normalizedPaths.join(', ')}`);
     });
   }
 });

@@ -165,9 +165,11 @@ gitBranches:
 
       const releaseData = parseJsonFromCLIOutput(releaseResult.stdout);
       const releasePaths = (releaseData.changes || []).map((c: any) => c.path);
+      // Normalize paths for cross-platform comparison (Windows uses backslashes)
+      const normalizedReleasePaths = releasePaths.map((p: string) => p.replace(/\\/g, '/'));
 
-      const releaseHasVariables = releasePaths.some((path: string) => path.includes('.variable.yaml'));
-      const releaseHasUsers = releasePaths.some((path: string) => path.startsWith('users/'));
+      const releaseHasVariables = normalizedReleasePaths.some((path: string) => path.includes('.variable.yaml'));
+      const releaseHasUsers = normalizedReleasePaths.some((path: string) => path.startsWith('users/'));
 
       assertEquals(releaseHasVariables, true, "Release branch should include variables");
       assertEquals(releaseHasUsers, true, "Release branch should include users");
