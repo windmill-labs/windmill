@@ -9,7 +9,6 @@
 		available: boolean
 		access_key_id_prefix?: string | null
 		region?: string | null
-		has_session_token: boolean
 		source?: string | null
 		error?: string | null
 	}
@@ -38,7 +37,6 @@
 		} catch (err) {
 			apiResult = {
 				available: false,
-				has_session_token: false,
 				error: err instanceof Error ? err.message : 'Unknown error'
 			}
 			apiStatus = 'error'
@@ -109,7 +107,6 @@
 						} else {
 							workerResult = {
 								available: false,
-								has_session_token: false,
 								error: 'Unexpected response format',
 								worker: testResult.worker ?? undefined
 							}
@@ -118,7 +115,6 @@
 					} else {
 						workerResult = {
 							available: false,
-							has_session_token: false,
 							error:
 								(testResult.result as Record<string, any>)?.['error']?.['message'] ?? 'Job failed',
 							worker: testResult.worker ?? undefined
@@ -129,7 +125,6 @@
 				timeoutCode: async () => {
 					workerResult = {
 						available: false,
-						has_session_token: false,
 						error: 'Timeout: job did not complete within 10s'
 					}
 					workerStatus = 'error'
@@ -151,7 +146,6 @@
 		} catch (err) {
 			workerResult = {
 				available: false,
-				has_session_token: false,
 				error: err instanceof Error ? err.message : 'Unknown error'
 			}
 			workerStatus = 'error'
@@ -214,9 +208,6 @@
 						{#if apiResult.region}
 							<div class="text-secondary">Region: {apiResult.region}</div>
 						{/if}
-						{#if apiResult.has_session_token}
-							<div class="text-secondary">Session token present</div>
-						{/if}
 					{:else}
 						<div class="text-red-600 dark:text-red-400 break-words">
 							{apiResult.error ?? 'Not available'}
@@ -250,9 +241,6 @@
 						</div>
 						{#if workerResult.region}
 							<div class="text-secondary">Region: {workerResult.region}</div>
-						{/if}
-						{#if workerResult.has_session_token}
-							<div class="text-secondary">Session token present</div>
 						{/if}
 						{#if workerResult.source}
 							<div class="text-secondary">Source: {workerResult.source}</div>

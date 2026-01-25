@@ -2,7 +2,9 @@ use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 
 use axum::routing::get;
-use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Json, Router};
+use axum::{
+    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Json, Router,
+};
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -298,7 +300,6 @@ impl AIRequestConfig {
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
 
         // Build URL based on provider
-        // Note: Bedrock requests are handled by SDK before reaching here
         let (url, body) = if is_azure {
             let azure_url = AIProvider::build_azure_openai_url(base_url, path);
             (azure_url, body)
@@ -459,13 +460,6 @@ pub fn workspaced_service() -> Router {
 }
 
 /// Check if AWS Bedrock credentials are available from environment variables.
-///
-/// This endpoint checks whether AWS credentials are configured in the environment
-/// (via AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, IAM role, or other AWS SDK credential sources).
-/// When available, Bedrock requests will use these credentials instead of requiring
-/// explicit credentials in the resource configuration.
-///
-/// Uses shared code from windmill_common::ai_bedrock.
 async fn check_bedrock_credentials(
     _authed: ApiAuthed,
     Path(_w_id): Path<String>,
@@ -659,9 +653,10 @@ async fn proxy(
 
     // For Bedrock requests, use the SDK-based approach
     if matches!(provider, AIProvider::AWSBedrock) {
-        let region = request_config.region.as_deref().ok_or_else(|| {
-            Error::internal_err("AWS region must be set for Bedrock")
-        })?;
+        let region = request_config
+            .region
+            .as_deref()
+            .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
 
         // Audit log before making the SDK request
         let mut tx = db.begin().await?;
@@ -680,7 +675,6 @@ async fn proxy(
         // Handle GET requests for control plane operations
         if method == Method::GET {
             if ai_path == "foundation-models" {
-                tracing::info!("AI proxy: Bedrock SDK - listing foundation models, region={}", region);
                 return bedrock::list_foundation_models(
                     request_config.api_key.as_deref(),
                     request_config.aws_access_key_id.as_deref(),
@@ -689,7 +683,6 @@ async fn proxy(
                 )
                 .await;
             } else if ai_path == "inference-profiles" {
-                tracing::info!("AI proxy: Bedrock SDK - listing inference profiles, region={}", region);
                 return bedrock::list_inference_profiles(
                     request_config.api_key.as_deref(),
                     request_config.aws_access_key_id.as_deref(),
@@ -702,13 +695,6 @@ async fn proxy(
 
         // Handle POST requests for inference
         if method == Method::POST && model.is_some() {
-            tracing::info!(
-                "AI proxy: Bedrock SDK path - model={}, region={}, streaming={}",
-                model.as_ref().unwrap(),
-                region,
-                is_streaming
-            );
-
             if is_streaming {
                 return bedrock::handle_bedrock_sdk_streaming(
                     model.as_ref().unwrap(),
@@ -756,7 +742,6 @@ async fn proxy(
         return Err(Error::AIError(err_msg));
     }
 
-    // Pass through response (Bedrock POST requests are handled by SDK before reaching here)
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();

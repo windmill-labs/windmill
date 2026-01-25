@@ -1065,7 +1065,6 @@ async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box
                     "available": check.available,
                     "access_key_id_prefix": check.access_key_id_prefix,
                     "region": check.region,
-                    "has_session_token": check.has_session_token,
                     "error": check.error
                 }
             })

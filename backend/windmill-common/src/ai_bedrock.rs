@@ -131,7 +131,6 @@ pub struct BedrockCredentialsCheck {
     pub available: bool,
     pub access_key_id_prefix: Option<String>,
     pub region: Option<String>,
-    pub has_session_token: bool,
     pub error: Option<String>,
 }
 
@@ -153,7 +152,6 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
                     available: true,
                     access_key_id_prefix: Some(prefix),
                     region: config.region().map(|r| r.to_string()),
-                    has_session_token: creds.session_token().is_some(),
                     error: None,
                 }
             }
@@ -161,7 +159,6 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
                 available: false,
                 access_key_id_prefix: None,
                 region: None,
-                has_session_token: false,
                 error: Some(format!("Failed to retrieve credentials: {}", e)),
             },
         }
@@ -170,7 +167,6 @@ pub async fn check_env_credentials() -> BedrockCredentialsCheck {
             available: false,
             access_key_id_prefix: None,
             region: None,
-            has_session_token: false,
             error: Some("No credentials provider configured".to_string()),
         }
     }
@@ -251,9 +247,8 @@ impl BedrockClient {
             match creds_provider.provide_credentials().await {
                 Ok(creds) => {
                     tracing::debug!(
-                        "Bedrock: using env credentials, access_key={}..., region={}",
+                        "Bedrock: using env credentials, access_key={}...",
                         &creds.access_key_id().get(..8).unwrap_or("N/A"),
-                        region
                     );
                 }
                 Err(e) => {
@@ -269,10 +264,12 @@ impl BedrockClient {
             ));
         }
 
-        // Build client with region override
-        let bedrock_config = aws_sdk_bedrockruntime::config::Builder::from(config)
-            .region(aws_config::Region::new(region.to_string()))
-            .build();
+        // Build client, only override region if explicitly provided
+        let mut builder = aws_sdk_bedrockruntime::config::Builder::from(config);
+        if !region.is_empty() {
+            builder = builder.region(aws_config::Region::new(region.to_string()));
+        }
+        let bedrock_config = builder.build();
 
         let client = aws_sdk_bedrockruntime::Client::from_conf(bedrock_config);
         Ok(Self { client })
