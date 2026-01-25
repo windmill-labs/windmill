@@ -1416,8 +1416,8 @@ Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
     `my_flow__flow${SEP}flow.yaml`
   );
   assertEquals(
-    buildMetadataPath("f/test/my_app", "app", "yaml"),
-    `f/test/my_app__app${SEP}app.yaml`
+    buildMetadataPath(`f${SEP}test${SEP}my_app`, "app", "yaml"),
+    `f${SEP}test${SEP}my_app__app${SEP}app.yaml`
   );
   setNonDottedPaths(false); // Reset
 });
@@ -1425,51 +1425,51 @@ Deno.test("buildMetadataPath with nonDottedPaths creates correct paths", () => {
 Deno.test("isFlowPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isFlowPath(`f/test/my_flow.flow${SEP}flow.yaml`));
-  assert(!isFlowPath(`f/test/my_flow__flow${SEP}flow.yaml`));
+  assert(isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
+  assert(!isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isFlowPath(`f/test/my_flow__flow${SEP}flow.yaml`));
-  assert(!isFlowPath(`f/test/my_flow.flow${SEP}flow.yaml`));
+  assert(isFlowPath(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`));
+  assert(!isFlowPath(`f${SEP}test${SEP}my_flow.flow${SEP}flow.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("isAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isAppPath(`f/test/my_app.app${SEP}app.yaml`));
-  assert(!isAppPath(`f/test/my_app__app${SEP}app.yaml`));
+  assert(isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
+  assert(!isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isAppPath(`f/test/my_app__app${SEP}app.yaml`));
-  assert(!isAppPath(`f/test/my_app.app${SEP}app.yaml`));
+  assert(isAppPath(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`));
+  assert(!isAppPath(`f${SEP}test${SEP}my_app.app${SEP}app.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("isRawAppPath detects non-dotted paths when configured", () => {
   // Default (dotted) paths
   setNonDottedPaths(false);
-  assert(isRawAppPath(`f/test/my_raw_app.raw_app${SEP}raw_app.yaml`));
-  assert(!isRawAppPath(`f/test/my_raw_app__raw_app${SEP}raw_app.yaml`));
+  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
+  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
 
   // Non-dotted paths
   setNonDottedPaths(true);
-  assert(isRawAppPath(`f/test/my_raw_app__raw_app${SEP}raw_app.yaml`));
-  assert(!isRawAppPath(`f/test/my_raw_app.raw_app${SEP}raw_app.yaml`));
+  assert(isRawAppPath(`f${SEP}test${SEP}my_raw_app__raw_app${SEP}raw_app.yaml`));
+  assert(!isRawAppPath(`f${SEP}test${SEP}my_raw_app.raw_app${SEP}raw_app.yaml`));
   setNonDottedPaths(false); // Reset
 });
 
 Deno.test("extractResourceName works with non-dotted paths", () => {
   setNonDottedPaths(true);
   assertEquals(
-    extractResourceName(`f/test/my_flow__flow${SEP}flow.yaml`, "flow"),
-    "f/test/my_flow"
+    extractResourceName(`f${SEP}test${SEP}my_flow__flow${SEP}flow.yaml`, "flow"),
+    `f${SEP}test${SEP}my_flow`
   );
   assertEquals(
-    extractResourceName(`f/test/my_app__app${SEP}app.yaml`, "app"),
-    "f/test/my_app"
+    extractResourceName(`f${SEP}test${SEP}my_app__app${SEP}app.yaml`, "app"),
+    `f${SEP}test${SEP}my_app`
   );
   setNonDottedPaths(false); // Reset
 });
