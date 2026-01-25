@@ -6,6 +6,7 @@
 import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { DEFAULT_SYNC_OPTIONS } from "../src/core/conf.ts";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 
 // Mock the workspace object
@@ -79,7 +80,7 @@ Deno.test("Init: verify DEFAULT_SYNC_OPTIONS has expected values", () => {
 
 Deno.test({
   name: "Init: --use-backend flag applies git-sync settings",
-  ignore: true, // TODO: Git sync settings API requires EE features
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -139,7 +140,7 @@ Deno.test({
 
 Deno.test({
   name: "Init: --use-default bypasses backend settings check",
-  ignore: true, // TODO: Git sync settings API requires EE features
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {

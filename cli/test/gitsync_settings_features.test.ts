@@ -1,15 +1,17 @@
 import { assertEquals, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 
 // =============================================================================
 // GITSYNC-SETTINGS COMMAND FEATURES
 // Tests for additional gitsync-settings command functionality
+// These tests require EE features (private, enterprise) and are skipped in CI
 // =============================================================================
 
 Deno.test({
   name: "GitSync Settings: default mode writes to top-level",
-  ignore: true, // TODO: Git sync settings API requires EE features
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -70,7 +72,7 @@ skipVariables: false`);
 
 Deno.test({
   name: "GitSync Settings: pull shows correct diff output",
-  ignore: true, // TODO: Git sync settings API requires EE features
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -129,7 +131,7 @@ skipResources: false`);
 
 Deno.test({
   name: "GitSync Settings: replace mode overwrites existing config",
-  ignore: true, // TODO: Git sync settings API requires EE features
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {

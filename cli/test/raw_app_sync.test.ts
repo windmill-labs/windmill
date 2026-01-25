@@ -1,5 +1,6 @@
 import { assertEquals, assert, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
 import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
@@ -133,7 +134,7 @@ async function createRawAppOnDisk(appDir: string): Promise<void> {
 
 Deno.test({
   name: "Raw App: full sync workflow - push, pull, modify, push, clear, pull",
-  ignore: true, // TODO: Raw app API requires EE features or different endpoint setup
+  ignore: shouldSkipOnCI(), // Raw app API requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -275,7 +276,7 @@ excludes: []`);
 
 Deno.test({
   name: "Raw App: add new file and push",
-  ignore: true, // TODO: Raw app API requires EE features or different endpoint setup
+  ignore: shouldSkipOnCI(), // Raw app API requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -343,7 +344,7 @@ excludes: []`);
 
 Deno.test({
   name: "Raw App: delete file and push",
-  ignore: true, // TODO: Raw app API requires EE features or different endpoint setup
+  ignore: shouldSkipOnCI(), // Raw app API requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -413,7 +414,7 @@ excludes: []`);
 
 Deno.test({
   name: "Raw App: dry-run push shows expected changes",
-  ignore: true, // TODO: Raw app API requires EE features or different endpoint setup
+  ignore: shouldSkipOnCI(), // Raw app API requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {

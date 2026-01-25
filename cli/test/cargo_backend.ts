@@ -56,9 +56,14 @@ export class CargoBackend {
 
     const backendDir = config.backendDir || this.findBackendDir();
 
+    // Determine default features based on environment
+    // CI mode: minimal features (zip only)
+    // Local mode: full features (zip, private, enterprise)
+    const isCI = Deno.env.get("CI_MINIMAL_FEATURES") === "true";
+    const defaultFeatures = isCI ? ["zip"] : ["zip", "private", "enterprise"];
+
     // Parse additional features from environment variable
     const envFeatures = Deno.env.get("TEST_FEATURES")?.split(",").filter(f => f.trim()) || [];
-    const defaultFeatures = ["zip"];
     const allFeatures = [...new Set([...defaultFeatures, ...envFeatures, ...(config.features || [])])];
 
     this.config = {
@@ -744,4 +749,18 @@ export async function cleanupCargoBackend(): Promise<void> {
     await globalCargoBackend.stop();
     globalCargoBackend = null;
   }
+}
+
+/**
+ * Check if running in CI minimal mode (skip EE-dependent tests)
+ *
+ * When CI_MINIMAL_FEATURES=true:
+ * - Backend runs with only "zip" feature (no private/enterprise)
+ * - Tests requiring EE features should be skipped
+ *
+ * Use this in test definitions:
+ *   ignore: shouldSkipOnCI()
+ */
+export function shouldSkipOnCI(): boolean {
+  return Deno.env.get("CI_MINIMAL_FEATURES") === "true";
 }
