@@ -41,6 +41,21 @@ pub struct OpenAIToolCall {
     pub extra_content: Option<ExtraContent>,
 }
 
+#[cfg(feature = "bedrock")]
+impl windmill_common::ai_bedrock::BedrockToolCallConvertible for OpenAIToolCall {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn function_name(&self) -> &str {
+        &self.function.name
+    }
+
+    fn function_arguments(&self) -> &str {
+        &self.function.arguments
+    }
+}
+
 // Responses API structures
 #[derive(Deserialize)]
 #[allow(dead_code)]

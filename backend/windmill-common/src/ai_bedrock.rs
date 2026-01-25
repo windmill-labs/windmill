@@ -22,6 +22,68 @@ use crate::error::Error;
 // Re-export types from ai_types for backward compatibility
 pub use crate::ai_types::{ContentPart, ImageUrlData, OpenAIContent, ToolDef, ToolDefFunction, UrlCitation};
 
+// Re-export OpenAIToolCall for use by worker
+pub use self::OpenAIToolCall as BedrockOpenAIToolCall;
+
+// ============================================================================
+// Trait for Generic Message Conversion
+// ============================================================================
+
+/// Trait for tool call types that can be converted to Bedrock format.
+///
+/// This trait enables generic tool call conversion, allowing both the common module's
+/// `OpenAIToolCall` and the worker's version (with different `extra_content` type)
+/// to use the same conversion logic.
+pub trait BedrockToolCallConvertible {
+    /// Get the tool call ID
+    fn id(&self) -> &str;
+
+    /// Get the function name
+    fn function_name(&self) -> &str;
+
+    /// Get the function arguments as a JSON string
+    fn function_arguments(&self) -> &str;
+}
+
+impl BedrockToolCallConvertible for OpenAIToolCall {
+    fn id(&self) -> &str {
+        &self.id
+    }
+
+    fn function_name(&self) -> &str {
+        &self.function.name
+    }
+
+    fn function_arguments(&self) -> &str {
+        &self.function.arguments
+    }
+}
+
+/// Trait for types that can be converted to Bedrock message format.
+///
+/// This trait enables generic message conversion, allowing both the common module's
+/// `OpenAIMessage` and the worker's extended `OpenAIMessage` (with `agent_action` field)
+/// to use the same conversion logic.
+///
+/// The conversion functions only access the fields exposed by this trait, so the
+/// worker's extra `agent_action` field is simply ignored during conversion.
+pub trait BedrockConvertible {
+    /// The tool call type used by this message type
+    type ToolCall: BedrockToolCallConvertible;
+
+    /// Get the message role (e.g., "user", "assistant", "system", "tool")
+    fn role(&self) -> &str;
+
+    /// Get the message content, if any
+    fn content(&self) -> Option<&OpenAIContent>;
+
+    /// Get the tool calls for assistant messages, if any
+    fn tool_calls(&self) -> Option<&[Self::ToolCall]>;
+
+    /// Get the tool call ID for tool result messages, if any
+    fn tool_call_id(&self) -> Option<&str>;
+}
+
 // ============================================================================
 // Cached AWS SDK Config
 // ============================================================================
@@ -49,6 +111,26 @@ pub struct OpenAIMessage {
     pub tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<Vec<UrlCitation>>,
+}
+
+impl BedrockConvertible for OpenAIMessage {
+    type ToolCall = OpenAIToolCall;
+
+    fn role(&self) -> &str {
+        &self.role
+    }
+
+    fn content(&self) -> Option<&OpenAIContent> {
+        self.content.as_ref()
+    }
+
+    fn tool_calls(&self) -> Option<&[OpenAIToolCall]> {
+        self.tool_calls.as_deref()
+    }
+
+    fn tool_call_id(&self) -> Option<&str> {
+        self.tool_call_id.as_deref()
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
@@ -299,19 +381,29 @@ pub fn json_to_document(value: serde_json::Value) -> aws_smithy_types::Document 
 ///
 /// Separates system messages from conversation messages as required by Bedrock API.
 ///
+/// Important: Bedrock requires messages to alternate between user and assistant roles.
+/// When an assistant message has tool_use blocks, the next user message must contain
+/// ALL corresponding tool_result blocks. This function groups consecutive tool messages
+/// into a single user message.
+///
+/// This function is generic over any type implementing `BedrockConvertible`, allowing
+/// both the common module's `OpenAIMessage` and the worker's extended version to use
+/// the same conversion logic.
+///
 /// # Returns
 /// Tuple of (conversation_messages, system_prompts)
-pub fn openai_messages_to_bedrock(
-    messages: &[OpenAIMessage],
+pub fn openai_messages_to_bedrock<M: BedrockConvertible>(
+    messages: &[M],
 ) -> Result<(Vec<Message>, Vec<SystemContentBlock>), Error> {
     let mut bedrock_messages = Vec::new();
     let mut system_prompts = Vec::new();
+    let mut pending_tool_results: Vec<ContentBlock> = Vec::new();
 
     for msg in messages {
-        match msg.role.as_str() {
+        match msg.role() {
             "system" => {
                 // Extract system messages separately
-                if let Some(ref content) = msg.content {
+                if let Some(content) = msg.content() {
                     let text = content_to_text(content);
                     if !text.is_empty() {
                         system_prompts.push(SystemContentBlock::Text(text));
@@ -319,23 +411,53 @@ pub fn openai_messages_to_bedrock(
                 }
             }
             "user" | "assistant" => {
+                // Before adding a user/assistant message, flush any pending tool results
+                if !pending_tool_results.is_empty() {
+                    let tool_result_message = Message::builder()
+                        .role(ConversationRole::User)
+                        .set_content(Some(pending_tool_results.drain(..).collect()))
+                        .build()
+                        .map_err(|e| {
+                            Error::internal_err(format!(
+                                "Failed to build tool results message: {}",
+                                e
+                            ))
+                        })?;
+                    bedrock_messages.push(tool_result_message);
+                }
                 bedrock_messages.push(convert_message(msg)?);
             }
             "tool" => {
-                // Tool results are handled as user messages with ToolResult content
-                bedrock_messages.push(convert_tool_message(msg)?);
+                // Accumulate tool results - they will be flushed as a single message
+                // when we encounter a non-tool message or at the end
+                let tool_result = convert_tool_result_content(msg)?;
+                pending_tool_results.push(tool_result);
             }
             _ => {
-                return Err(Error::BadRequest(format!("Unsupported role: {}", msg.role)));
+                return Err(Error::BadRequest(format!("Unsupported role: {}", msg.role())));
             }
         }
+    }
+
+    // Flush any remaining tool results at the end
+    if !pending_tool_results.is_empty() {
+        let tool_result_message = Message::builder()
+            .role(ConversationRole::User)
+            .set_content(Some(pending_tool_results))
+            .build()
+            .map_err(|e| {
+                Error::internal_err(format!("Failed to build tool results message: {}", e))
+            })?;
+        bedrock_messages.push(tool_result_message);
     }
 
     Ok((bedrock_messages, system_prompts))
 }
 
 /// Helper to extract text from OpenAIContent (ignoring images)
-fn content_to_text(content: &OpenAIContent) -> String {
+///
+/// This is public so it can be reused by the worker module.
+pub fn content_to_text(content: &OpenAIContent) -> String {
     match content {
         OpenAIContent::Text(text) => text.to_string(),
         OpenAIContent::Parts(parts) => {
@@ -422,14 +544,14 @@ fn content_part_to_block(part: &ContentPart) -> Result<Option<ContentBlock>, Err
 }
 
 /// Convert a single OpenAI message to Bedrock Message
-fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
-    let role = match msg.role.as_str() {
+fn convert_message<M: BedrockConvertible>(msg: &M) -> Result<Message, Error> {
+    let role = match msg.role() {
         "user" => ConversationRole::User,
         "assistant" => ConversationRole::Assistant,
         _ => {
             return Err(Error::internal_err(format!(
                 "Unsupported role: {}",
-                msg.role
+                msg.role()
             )));
         }
     };
@@ -437,7 +559,7 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
     let mut content_blocks = Vec::new();
 
     // Handle content (text and/or images)
-    if let Some(ref content) = msg.content {
+    if let Some(content) = msg.content() {
         match content {
             OpenAIContent::Text(text) => {
                 if !text.is_empty() {
@@ -455,9 +577,9 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
     }
 
     // Handle tool calls (for assistant messages)
-    if let Some(ref tool_calls) = msg.tool_calls {
+    if let Some(tool_calls) = msg.tool_calls() {
         for tc in tool_calls {
-            content_blocks.push(convert_tool_call_to_content(tc)?);
+            content_blocks.push(convert_tool_call_to_content_generic(tc)?);
         }
     }
 
@@ -473,32 +595,41 @@ fn convert_message(msg: &OpenAIMessage) -> Result<Message, Error> {
         .map_err(|e| Error::internal_err(format!("Failed to build message: {}", e)))
 }
 
-/// Convert OpenAI tool call to Bedrock ToolUse content block
+/// Convert OpenAI tool call to Bedrock ToolUse content block (concrete type version)
+#[allow(dead_code)]
 fn convert_tool_call_to_content(tool_call: &OpenAIToolCall) -> Result<ContentBlock, Error> {
+    convert_tool_call_to_content_generic(tool_call)
+}
+
+/// Convert any tool call implementing BedrockToolCallConvertible to Bedrock ToolUse content block
+fn convert_tool_call_to_content_generic<T: BedrockToolCallConvertible>(
+    tool_call: &T,
+) -> Result<ContentBlock, Error> {
     let input = json_to_document(
-        serde_json::from_str(&tool_call.function.arguments)
+        serde_json::from_str(tool_call.function_arguments())
             .unwrap_or_else(|_| serde_json::json!({})),
     );
     Ok(ContentBlock::ToolUse(
         aws_sdk_bedrockruntime::types::ToolUseBlock::builder()
-            .tool_use_id(&tool_call.id)
-            .name(&tool_call.function.name)
+            .tool_use_id(tool_call.id())
+            .name(tool_call.function_name())
             .input(input)
             .build()
             .map_err(|e| Error::internal_err(format!("Failed to build tool use: {}", e)))?,
     ))
 }
 
-/// Convert tool result message to Bedrock format
-fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
+/// Convert tool result message to Bedrock ToolResult ContentBlock
+///
+/// Returns just the ContentBlock (not a full Message) so multiple tool results
+/// can be combined into a single user message.
+fn convert_tool_result_content<M: BedrockConvertible>(msg: &M) -> Result<ContentBlock, Error> {
     let tool_call_id = msg
-        .tool_call_id
-        .as_ref()
+        .tool_call_id()
         .ok_or_else(|| Error::internal_err("Tool message missing tool_call_id"))?;
 
     let content_str = msg
-        .content
-        .as_ref()
+        .content()
         .map(|c| content_to_text(c))
         .unwrap_or_default();
 
@@ -521,19 +652,13 @@ fn convert_tool_message(msg: &OpenAIMessage) -> Result<Message, Error> {
             )]
         };
 
-    let tool_result = ContentBlock::ToolResult(
+    Ok(ContentBlock::ToolResult(
         aws_sdk_bedrockruntime::types::ToolResultBlock::builder()
             .tool_use_id(tool_call_id)
             .set_content(Some(tool_result_content))
             .build()
             .map_err(|e| Error::internal_err(format!("Failed to build tool result: {}", e)))?,
-    );
-
-    Message::builder()
-        .role(ConversationRole::User)
-        .content(tool_result)
-        .build()
-        .map_err(|e| Error::internal_err(format!("Failed to build tool result message: {}", e)))
+    ))
 }
 
 // ============================================================================

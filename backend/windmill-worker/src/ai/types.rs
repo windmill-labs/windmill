@@ -42,6 +42,27 @@ pub struct OpenAIMessage {
     pub annotations: Option<Vec<UrlCitation>>,
 }
 
+#[cfg(feature = "bedrock")]
+impl windmill_common::ai_bedrock::BedrockConvertible for OpenAIMessage {
+    type ToolCall = OpenAIToolCall;
+
+    fn role(&self) -> &str {
+        &self.role
+    }
+
+    fn content(&self) -> Option<&OpenAIContent> {
+        self.content.as_ref()
+    }
+
+    fn tool_calls(&self) -> Option<&[OpenAIToolCall]> {
+        self.tool_calls.as_deref()
+    }
+
+    fn tool_call_id(&self) -> Option<&str> {
+        self.tool_call_id.as_deref()
+    }
+}
+
 /// same as OpenAIMessage but with agent_action field included in the serialization
 #[derive(Serialize)]
 pub struct Message<'a> {
