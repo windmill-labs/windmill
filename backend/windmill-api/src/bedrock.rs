@@ -148,9 +148,6 @@ fn build_tool_config_from_request(
     }
 }
 
-/// Sign a request for AWS Bedrock using SigV4
-///
-/// Returns a vector of (header_name, header_value) tuples to add to the request
 // ============================================================================
 // Control Plane Operations (using aws-sdk-bedrock)
 // ============================================================================
