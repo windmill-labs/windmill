@@ -160,6 +160,11 @@ export class CargoBackend {
     console.log(`   Server: ${this.baseUrl}`);
     console.log(`   Database: ${this.dbName}`);
     console.log(`   Workspace: ${this.config.workspace}`);
+
+    // Wait for backend to fully initialize (migrations, etc.)
+    console.log("⏳ Waiting 5s for backend to fully initialize...");
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    console.log("✅ Ready to run tests");
   }
 
   /**
