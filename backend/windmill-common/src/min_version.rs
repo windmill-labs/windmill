@@ -11,7 +11,6 @@ pub const MIN_VERSION_IS_AT_LEAST_1_595: VC = vc(1, 595, 0, "Flow status separat
 pub const MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: VC = vc(1, 592, 0, "Runnable settings V0");
 pub const MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: VC = vc(1, 587, 0, "Workspace dependencies");
 pub const MIN_VERSION_SUPPORTS_DEBOUNCING: VC = vc(1, 566, 0, "Debouncing");
-pub const MIN_VERSION_IS_AT_LEAST_1_461: VC = vc(1, 461, 0, "V2 job tables");
 pub const MIN_VERSION_IS_AT_LEAST_1_440: VC = vc(1, 440, 0, "Flow node value on pull");
 pub const MIN_VERSION_IS_AT_LEAST_1_432: VC = vc(1, 432, 0, "Flow script job kind");
 pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite table");
