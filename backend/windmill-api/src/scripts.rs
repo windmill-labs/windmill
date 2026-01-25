@@ -1905,6 +1905,11 @@ async fn archive_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive scripts for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1974,6 +1979,11 @@ async fn archive_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive scripts for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(
