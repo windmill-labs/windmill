@@ -15,7 +15,6 @@
 	import Toggle from './Toggle.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import TestConnection from './TestConnection.svelte'
-	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 	import { Pen } from 'lucide-svelte'
 	import Markdown from 'svelte-exmarkdown'
 	import autosize from '$lib/autosize'
@@ -261,10 +260,6 @@
 				</div>
 			{/if}
 		</div>
-
-		{#if resource_type?.includes('bedrock')}
-			<BedrockCredentialsCheck />
-		{/if}
 
 		<div class="flex flex-col gap-1">
 			<div class="w-full flex gap-4 flex-row-reverse items-center">
