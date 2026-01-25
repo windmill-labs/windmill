@@ -22,6 +22,8 @@
 	let workerStatus: CheckStatus = $state('idle')
 	let workerResult: (CredentialsCheckResult & { worker?: string }) | null = $state(null)
 
+	let isChecking = $state(false)
+
 	async function checkApiCredentials() {
 		apiStatus = 'loading'
 		apiResult = null
@@ -156,9 +158,14 @@
 		}
 	}
 
-	function checkBoth() {
-		checkApiCredentials()
-		checkWorkerCredentials()
+	async function checkBoth() {
+		if (isChecking) return
+		isChecking = true
+		try {
+			await Promise.all([checkApiCredentials(), checkWorkerCredentials()])
+		} finally {
+			isChecking = false
+		}
 	}
 </script>
 
@@ -169,9 +176,9 @@
 			size="xs"
 			variant="border"
 			on:click={checkBoth}
-			disabled={apiStatus === 'loading' || workerStatus === 'loading'}
+			disabled={isChecking}
 		>
-			{#if apiStatus === 'loading' || workerStatus === 'loading'}
+			{#if isChecking}
 				<LoaderCircle class="animate-spin mr-1.5 h-3.5 w-3.5" />
 			{/if}
 			Check Credentials
