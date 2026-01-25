@@ -250,14 +250,11 @@ impl BedrockClient {
         if let Some(creds_provider) = config.credentials_provider() {
             match creds_provider.provide_credentials().await {
                 Ok(creds) => {
-                    tracing::info!(
-                        "AWS env credentials found: access_key_id={}...",
-                        &creds.access_key_id().get(..8).unwrap_or("N/A")
+                    tracing::debug!(
+                        "Bedrock: using env credentials, access_key={}..., region={}",
+                        &creds.access_key_id().get(..8).unwrap_or("N/A"),
+                        region
                     );
-                    if let Some(r) = config.region() {
-                        tracing::info!("AWS Region from env: {}", r);
-                    }
-                    tracing::info!("Using region override: {}", region);
                 }
                 Err(e) => {
                     return Err(Error::internal_err(format!(

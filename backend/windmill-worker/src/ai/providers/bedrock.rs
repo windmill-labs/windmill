@@ -312,39 +312,20 @@ impl BedrockQueryBuilder {
         aws_access_key_id: Option<&str>,
         aws_secret_access_key: Option<&str>,
     ) -> Result<ParsedResponse, Error> {
-        tracing::info!(
-            "Worker Bedrock: model={}, region={}, messages={}, tools={}, structured_output={}",
-            model,
-            region,
-            messages.len(),
-            tools.map(|t| t.len()).unwrap_or(0),
-            structured_output_tool_name.is_some()
-        );
-
-        // Create Bedrock client with priority: bearer token → IAM credentials → environment
         let bedrock_client = if !api_key.is_empty() {
-            // 1. Bearer token if API key provided
-            tracing::info!("Worker Bedrock: auth=bearer token");
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
         } else if let (Some(access_key_id), Some(secret_access_key)) = (
             aws_access_key_id.filter(|s| !s.is_empty()),
             aws_secret_access_key.filter(|s| !s.is_empty()),
         ) {
-            // 2. IAM credentials if provided and not empty
-            tracing::info!(
-                "Worker Bedrock: auth=IAM credentials, access_key_id={}...",
-                &access_key_id.get(..8).unwrap_or("N/A")
-            );
             BedrockClient::from_credentials(
                 access_key_id.to_string(),
                 secret_access_key.to_string(),
-                None, // session token - could be added to resource config in future
+                None,
                 region,
             )
             .await?
         } else {
-            // 3. Environment credentials as fallback
-            tracing::info!("Worker Bedrock: auth=environment credentials");
             BedrockClient::from_env(region).await?
         };
 
@@ -524,12 +505,6 @@ impl BedrockQueryBuilder {
 
         let tool_calls =
             streaming_tool_calls_to_openai(accumulated_tool_calls.into_values().collect());
-
-        tracing::info!(
-            "Worker Bedrock: completed, text_len={}, tool_calls={}",
-            content.as_ref().map(|s| s.len()).unwrap_or(0),
-            tool_calls.len()
-        );
 
         Ok(ParsedResponse::Text {
             content,

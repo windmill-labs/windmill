@@ -73,38 +73,19 @@ async fn create_bedrock_client(
     context: &str, // "streaming" or "non-streaming" for logging
 ) -> Result<BedrockClient> {
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        // 1. Bearer token if API key provided
-        tracing::info!(
-            "Bedrock SDK {}: auth=bearer token, region={}",
-            context,
-            region
-        );
         BedrockClient::from_bearer_token(key.to_string(), region).await
     } else if let (Some(access_key_id), Some(secret_access_key)) = (
         aws_access_key_id.filter(|s| !s.is_empty()),
         aws_secret_access_key.filter(|s| !s.is_empty()),
     ) {
-        // 2. IAM credentials if provided and not empty
-        tracing::info!(
-            "Bedrock SDK {}: auth=IAM credentials, region={}, access_key_id={}...",
-            context,
-            region,
-            access_key_id.get(..8).unwrap_or("N/A")
-        );
         BedrockClient::from_credentials(
             access_key_id.to_string(),
             secret_access_key.to_string(),
-            None, // session token - could be added to resource config in future
+            None,
             region,
         )
         .await
     } else {
-        // 3. Environment credentials as fallback
-        tracing::info!(
-            "Bedrock SDK {}: auth=environment credentials, region={}",
-            context,
-            region
-        );
         BedrockClient::from_env(region).await
     }
 }
@@ -165,11 +146,6 @@ async fn create_bedrock_control_client(
     let region_provider = aws_sdk_bedrock::config::Region::new(region.to_string());
 
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        // 1. Bearer token if API key provided
-        tracing::info!(
-            "Bedrock control plane: auth=bearer token, region={}",
-            region
-        );
         let config = aws_sdk_bedrock::config::Builder::new()
             .region(region_provider)
             .behavior_version(BehaviorVersion::latest())
@@ -180,12 +156,6 @@ async fn create_bedrock_control_client(
         aws_access_key_id.filter(|s| !s.is_empty()),
         aws_secret_access_key.filter(|s| !s.is_empty()),
     ) {
-        // 2. IAM credentials if provided and not empty
-        tracing::info!(
-            "Bedrock control plane: auth=IAM credentials, region={}, access_key_id={}...",
-            region,
-            access_key_id.get(..8).unwrap_or("N/A")
-        );
         let credentials = aws_credential_types::Credentials::new(
             access_key_id,
             secret_access_key,
@@ -200,11 +170,6 @@ async fn create_bedrock_control_client(
             .build();
         Ok(aws_sdk_bedrock::Client::from_conf(config))
     } else {
-        // 3. Environment credentials as fallback
-        tracing::info!(
-            "Bedrock control plane: auth=environment credentials, region={}",
-            region
-        );
         let config = aws_config::defaults(BehaviorVersion::latest())
             .region(region_provider)
             .load()
