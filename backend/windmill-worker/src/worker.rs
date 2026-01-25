@@ -2748,7 +2748,6 @@ async fn detect_and_store_runtime_assets(
     workspace_id: &str,
     job_id: &Uuid,
     Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
-    runnable_path: &str,
     job_kind: &JobKind,
 ) {
     match job_kind {
@@ -2761,13 +2760,6 @@ async fn detect_and_store_runtime_assets(
     if runtime_assets.is_empty() {
         return;
     }
-
-    // Determine usage kind based on job kind
-    let usage_kind = if job_kind.is_flow() {
-        windmill_common::assets::AssetUsageKind::Flow
-    } else {
-        windmill_common::assets::AssetUsageKind::Script
-    };
 
     // Store each detected runtime asset
     for asset in runtime_assets {
@@ -3043,17 +3035,8 @@ pub async fn handle_queued_job(
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
 
         // Extract and store runtime assets from job arguments
-        if let (Connection::Sql(_), Some(args_json), Some(runnable_path)) =
-            (conn, &job.args, &job.runnable_path)
-        {
-            detect_and_store_runtime_assets(
-                &job.workspace_id,
-                &job.id,
-                args_json,
-                &runnable_path,
-                &job.kind,
-            )
-            .await;
+        if let (Connection::Sql(_), Some(args_json)) = (conn, &job.args) {
+            detect_and_store_runtime_assets(&job.workspace_id, &job.id, args_json, &job.kind).await;
         }
 
         let mut column_order: Option<Vec<String>> = None;

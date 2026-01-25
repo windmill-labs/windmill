@@ -61,6 +61,7 @@
 									<span class="font-semibold text-emphasis">{u.path}</span>
 									<span class="text-2xs text-secondary">{u.kind}</span>
 								</div>
+								{@render badge(displayDate(u.created_at), 'Asset detection time')}
 								{@render badge(accessType)}
 							</a>
 						</li>
@@ -81,31 +82,23 @@
 					It may take a few minutes for jobs to show up here.
 				</Alert>
 
-				<div class="flex flex-col border rounded-md divide-y">
+				<div
+					class={twMerge(
+						'flex flex-col border rounded-md divide-y',
+						!runtimeUsages.length ? 'hidden' : ''
+					)}
+				>
 					{#each runtimeUsages as u}
+						{@const accessType = formatAssetAccessType(u.access_type)}
 						<a
 							href={`/run/${u.path}?workspace=${$workspaceStore}`}
-							class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-3 hover:bg-surface-hover cursor-pointer"
+							class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
 						>
-							<!-- <span
-								class="mr-1 text-lg {jobStatusColor[job.status || 'running'] ||
-									jobStatusColor['running']}"
-							>
-								•
-							</span> -->
 							<div class="flex flex-col justify-center flex-1">
-								<!-- <div class="flex items-center gap-2">
-									<span class="font-semibold text-emphasis">
-										{job.runnable_path || 'Inline script'}
-									</span>
-								</div> -->
-								<div class="text-2xs text-secondary flex items-center gap-2">
-									<!-- <span>{u.created_by}</span> -->
-									<!-- <span>•</span> -->
-									<span>{displayDate(u.created_at)}</span>
-								</div>
+								<span class="text-emphasis">{u.path}</span>
 							</div>
-							{@render badge(u.path, 'Job ID')}
+							{@render badge(displayDate(u.created_at), 'Asset detection time')}
+							{@render badge(accessType)}
 						</a>
 					{/each}
 				</div>

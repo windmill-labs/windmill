@@ -1,15 +1,11 @@
 use axum::{
-    extract::{Path, Query},
+    extract::Path,
     routing::{get, post},
     Extension, Json, Router,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::Value;
-use windmill_common::{
-    assets::{AssetKind, AssetUsageKind},
-    db::UserDB,
-    error::JsonResult,
-};
+use windmill_common::{assets::AssetUsageKind, db::UserDB, error::JsonResult};
 
 use crate::db::ApiAuthed;
 
@@ -90,7 +86,6 @@ async fn list_assets_by_usages(
                 ) as "list!: _"
             FROM asset
             WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
-              AND usage_kind <> 'job'
             ORDER BY path, kind"#,
             w_id,
             usage.path,
