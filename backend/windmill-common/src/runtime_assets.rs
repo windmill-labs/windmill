@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::OnceLock};
 
 use itertools::Itertools;
 use serde_json::value::RawValue;
@@ -167,10 +167,12 @@ async fn prune_runtime_assets(
 pub const RUNTIME_ASSET_CHANNEL_CAPACITY: usize = 10_000;
 // To avoid workers having to insert lots of runtime asset rows when detecting them,
 // we use a channel to batch insert them periodically.
-pub fn init_runtime_asset_inserter(
+pub fn init_runtime_asset_loop(
     executor: Pool<Postgres>,
+    tx: mpsc::Sender<InsertRuntimeAssetParams>,
     mut rx: mpsc::Receiver<InsertRuntimeAssetParams>,
 ) {
+    let _ = RUNTIME_ASSET_SENDER.set(tx);
     tokio::spawn(async move {
         let flush_interval = tokio::time::Duration::from_secs(120);
         let mut flush_timer = tokio::time::interval(flush_interval);
@@ -196,3 +198,9 @@ pub fn init_runtime_asset_inserter(
         }
     });
 }
+
+pub fn get_runtime_asset_sender() -> Option<&mpsc::Sender<InsertRuntimeAssetParams>> {
+    RUNTIME_ASSET_SENDER.get()
+}
+
+static RUNTIME_ASSET_SENDER: OnceLock<mpsc::Sender<InsertRuntimeAssetParams>> = OnceLock::new();
