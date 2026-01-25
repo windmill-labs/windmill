@@ -17,6 +17,7 @@ import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
 import * as path from "https://deno.land/std@0.224.0/path/mod.ts";
 import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
+import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
 
 // =============================================================================
 // HELPER FUNCTIONS
@@ -241,6 +242,26 @@ async function getVariable(backend: any, varPath: string): Promise<any> {
   return response.json();
 }
 
+/**
+ * Helper to verify that a subsequent pull detects no changes (idempotency check)
+ */
+async function verifyNoDiffOnPull(backend: any, tempDir: string): Promise<void> {
+  const pullResult = await backend.runCLICommand(
+    ["sync", "pull", "--yes", "--dry-run", "--json-output"],
+    tempDir
+  );
+  assertEquals(pullResult.code, 0, `Pull for diff check should succeed: ${pullResult.stderr}`);
+
+  const output = parseJsonFromCLIOutput(pullResult.stdout);
+  const changes = output.changes || [];
+
+  assertEquals(
+    changes.length,
+    0,
+    `Should have no changes after push, but found: ${JSON.stringify(changes.map((c: any) => c.path))}`
+  );
+}
+
 // =============================================================================
 // TESTS
 // =============================================================================
@@ -302,6 +323,9 @@ excludes: []
         updatedScript.content.includes("modified content from test"),
         `Server should have modified content. Got: ${updatedScript.content}`
       );
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -366,6 +390,9 @@ excludes: []
         "Modified Data Processor Flow from test",
         `Server should have modified flow summary. Got: ${updatedFlow.summary}`
       );
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -424,6 +451,9 @@ excludes: []
         "Modified Dashboard App from test",
         `Server should have modified app summary. Got: ${updatedApp.summary}`
       );
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -481,6 +511,9 @@ excludes: []
         "modified-api-key-from-test",
         `Server should have modified variable value. Got: ${updatedVar.value}`
       );
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -540,6 +573,9 @@ excludes: []
         updatedScript.content.includes("deeply nested modified from test"),
         `Server should have modified nested content`
       );
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -619,6 +655,9 @@ excludes: []
 
       assert(script1.content.includes("script one MODIFIED"), "Script one should be modified on server");
       assert(script2.content.includes("script two MODIFIED"), "Script two should be modified on server");
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
@@ -675,6 +714,9 @@ excludes: []
       // Verify on server
       const updatedScript = await getScript(backend, scriptPath);
       assert(updatedScript.content.includes("handler v2 MODIFIED"), "Server should have modified content");
+
+      // Verify no diff on subsequent pull (idempotency)
+      await verifyNoDiffOnPull(backend, tempDir);
     });
   },
 });
