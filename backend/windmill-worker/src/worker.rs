@@ -17,7 +17,7 @@ use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
-use windmill_common::runtime_assets::get_runtime_asset_sender;
+use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::runtime_assets::{init_runtime_asset_loop, RUNTIME_ASSET_CHANNEL_CAPACITY};
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
@@ -2751,10 +2751,6 @@ async fn detect_and_store_runtime_assets(
     runnable_path: &str,
     job_kind: &JobKind,
 ) {
-    let Some(runtime_asset_tx) = get_runtime_asset_sender() else {
-        tracing::error!("Failed to send runtime asset to channel for job {job_id}: get_runtime_asset_sender() returned None");
-        return;
-    };
     match job_kind {
         JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
         _ => return,
@@ -2783,10 +2779,7 @@ async fn detect_and_store_runtime_assets(
             usage_path: runnable_path.to_string(),
             usage_kind,
         };
-        if let Err(e) = runtime_asset_tx.try_send(asset) {
-            // Log the error but do not fail the job execution
-            tracing::error!("Failed to send runtime asset to channel for job {job_id}: {e}",);
-        }
+        register_runtime_asset(asset);
     }
 }
 

@@ -199,8 +199,16 @@ pub fn init_runtime_asset_loop(
     });
 }
 
-pub fn get_runtime_asset_sender() -> Option<&'static mpsc::Sender<InsertRuntimeAssetParams>> {
-    RUNTIME_ASSET_SENDER.get()
+pub fn register_runtime_asset(asset: InsertRuntimeAssetParams) {
+    let job_id = asset.job_id;
+    let Some(runtime_asset_tx) = RUNTIME_ASSET_SENDER.get() else {
+        tracing::error!("Failed to send runtime asset to channel for job {job_id}: RUNTIME_ASSET_SENDER.get() returned None");
+        return;
+    };
+    if let Err(e) = runtime_asset_tx.try_send(asset) {
+        // Log the error but do not fail the job execution
+        tracing::error!("Failed to send runtime asset to channel for job {job_id}: {e}",);
+    }
 }
 
 static RUNTIME_ASSET_SENDER: OnceLock<mpsc::Sender<InsertRuntimeAssetParams>> = OnceLock::new();
