@@ -12,7 +12,6 @@ use async_recursion::async_recursion;
 use regex::Regex;
 use serde_json::value::RawValue;
 use std::{collections::HashMap, sync::Arc};
-use tokio::sync::mpsc;
 use uuid::Uuid;
 #[cfg(feature = "mcp")]
 use windmill_mcp::McpClient;
@@ -103,7 +102,6 @@ pub async fn handle_ai_agent_job(
     hostname: &str,
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
-    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> Result<Box<RawValue>, Error> {
     let args = build_args_map(job, client, conn).await?;
     let args = serde_json::from_str::<AIAgentArgs>(&serde_json::to_string(&args)?)?;
@@ -352,7 +350,6 @@ pub async fn handle_ai_agent_job(
         killpill_rx,
         has_stream,
         has_websearch,
-        runtime_asset_tx,
     );
 
     let result = run_future_with_polling_update_job_poller(
@@ -400,8 +397,6 @@ pub async fn run_agent(
     killpill_rx: &mut tokio::sync::broadcast::Receiver<()>,
     has_stream: &mut bool,
     has_websearch: bool,
-
-    runtime_asset_tx: mpsc::Sender<windmill_common::runtime_assets::InsertRuntimeAssetParams>,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
@@ -896,7 +891,6 @@ pub async fn run_agent(
                         &mut actions,
                         &mut final_events_str,
                         &structured_output_tool_name,
-                        runtime_asset_tx.clone(),
                     )
                     .await?;
 

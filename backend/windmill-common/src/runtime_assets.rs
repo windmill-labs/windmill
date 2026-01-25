@@ -199,7 +199,7 @@ pub fn init_runtime_asset_loop(
     });
 }
 
-pub fn get_runtime_asset_sender() -> Option<&mpsc::Sender<InsertRuntimeAssetParams>> {
+pub fn get_runtime_asset_sender() -> Option<&'static mpsc::Sender<InsertRuntimeAssetParams>> {
     RUNTIME_ASSET_SENDER.get()
 }
 
