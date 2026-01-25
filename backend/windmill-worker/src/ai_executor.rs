@@ -1,3 +1,4 @@
+#[cfg(feature = "bedrock")]
 use crate::ai::providers::bedrock::check_env_credentials;
 use crate::ai::tools::{execute_tool_calls, ToolExecutionContext};
 use crate::ai::utils::{
@@ -411,7 +412,6 @@ pub async fn run_agent(
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key();
-    let region = args.provider.get_region();
 
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
@@ -656,34 +656,43 @@ pub async fn run_agent(
             break;
         }
 
-        // Special handling for AWS Bedrock using the official SDK
+        // Handle AWS Bedrock provider specially using the official SDK
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
-            let Some(region) = region else {
+            #[cfg(feature = "bedrock")]
+            {
+                let region = args.provider.get_region();
+                let Some(region) = region else {
+                    return Err(Error::internal_err(
+                        "AWS Bedrock region is required".to_string(),
+                    ));
+                };
+                // Use Bedrock SDK via dedicated query builder
+                crate::ai::providers::bedrock::BedrockQueryBuilder::default()
+                    .execute_request(
+                        &messages,
+                        tool_defs.as_deref(),
+                        args.provider.get_model(),
+                        args.temperature,
+                        args.max_completion_tokens,
+                        api_key,
+                        region,
+                        stream_event_processor.clone(),
+                        client,
+                        &job.workspace_id,
+                        structured_output_tool_name.as_deref(),
+                        args.provider.get_aws_access_key_id(),
+                        args.provider.get_aws_secret_access_key(),
+                    )
+                    .await?
+            }
+            #[cfg(not(feature = "bedrock"))]
+            {
                 return Err(Error::internal_err(
-                    "AWS Bedrock region is required".to_string(),
+                    "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
                 ));
-            };
-            // Use Bedrock SDK via dedicated query builder
-            // Always use streaming for text output
-            crate::ai::providers::bedrock::BedrockQueryBuilder::default()
-                .execute_request(
-                    &messages,
-                    tool_defs.as_deref(),
-                    args.provider.get_model(),
-                    args.temperature,
-                    args.max_completion_tokens,
-                    api_key,
-                    region,
-                    stream_event_processor.clone(),
-                    client,
-                    &job.workspace_id,
-                    structured_output_tool_name.as_deref(),
-                    args.provider.get_aws_access_key_id(),
-                    args.provider.get_aws_secret_access_key(),
-                )
-                .await?
+            }
         } else {
-            // For non-Bedrock providers, use HTTP client
+            // For all other providers, use the HTTP client approach
             let build_args = BuildRequestArgs {
                 messages: &messages,
                 tools: tool_defs.as_deref(),
@@ -698,7 +707,6 @@ pub async fn run_agent(
                 has_websearch,
             };
 
-            // Always use streaming for text output
             let request_body = query_builder
                 .build_request(&build_args, client, &job.workspace_id)
                 .await?;
@@ -1056,6 +1064,7 @@ pub async fn run_agent(
 /// Handle credentials check mode - check credentials without making API calls
 async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box<RawValue>, Error> {
     let result = match &provider.kind {
+        #[cfg(feature = "bedrock")]
         AIProvider::AWSBedrock => {
             let check = check_env_credentials().await;
             serde_json::json!({
@@ -1067,6 +1076,14 @@ async fn handle_credentials_check(provider: &ProviderWithResource) -> Result<Box
                     "region": check.region,
                     "error": check.error
                 }
+            })
+        }
+        #[cfg(not(feature = "bedrock"))]
+        AIProvider::AWSBedrock => {
+            serde_json::json!({
+                "credentials_check": true,
+                "provider": "aws_bedrock",
+                "error": "AWS Bedrock support is not enabled. Build with 'bedrock' feature."
             })
         }
         other => {

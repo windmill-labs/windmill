@@ -81,6 +81,7 @@ pub mod auth;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod azure_proxy_ee;
 mod azure_proxy_oss;
+#[cfg(feature = "bedrock")]
 mod bedrock;
 mod capture;
 mod concurrency_groups;

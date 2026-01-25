@@ -70,7 +70,6 @@ async fn create_bedrock_client(
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
     region: &str,
-    context: &str, // "streaming" or "non-streaming" for logging
 ) -> Result<BedrockClient> {
     if let Some(key) = api_key.filter(|k| !k.is_empty()) {
         BedrockClient::from_bearer_token(key.to_string(), region).await
@@ -106,7 +105,10 @@ fn build_tool_config_from_request(
                     parameters: Box::from(
                         serde_json::value::RawValue::from_string(
                             serde_json::to_string(
-                                &t.function.parameters.clone().unwrap_or(serde_json::json!({})),
+                                &t.function
+                                    .parameters
+                                    .clone()
+                                    .unwrap_or(serde_json::json!({})),
                             )
                             .unwrap_or_default(),
                         )
@@ -189,9 +191,11 @@ pub async fn list_foundation_models(
         create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
             .await?;
 
-    let response = client.list_foundation_models().send().await.map_err(|e| {
-        Error::internal_err(format!("Failed to list foundation models: {}", e))
-    })?;
+    let response = client
+        .list_foundation_models()
+        .send()
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to list foundation models: {}", e)))?;
 
     // Convert to JSON response
     let models: Vec<serde_json::Value> = response
@@ -236,9 +240,10 @@ pub async fn list_inference_profiles(
         create_bedrock_control_client(api_key, aws_access_key_id, aws_secret_access_key, region)
             .await?;
 
-    let response = client.list_inference_profiles().send().await.map_err(|e| {
-        Error::internal_err(format!("Failed to list inference profiles: {}", e))
-    })?;
+    let response =
+        client.list_inference_profiles().send().await.map_err(|e| {
+            Error::internal_err(format!("Failed to list inference profiles: {}", e))
+        })?;
 
     // Convert to JSON response
     let profiles: Vec<serde_json::Value> = response
@@ -287,23 +292,13 @@ pub async fn handle_bedrock_sdk_streaming(
     aws_access_key_id: Option<&str>,
     aws_secret_access_key: Option<&str>,
     region: &str,
-) -> Result<(
-    http::StatusCode,
-    http::HeaderMap,
-    axum::body::Body,
-)> {
+) -> Result<(http::StatusCode, http::HeaderMap, axum::body::Body)> {
     let openai_req: OpenAIRequest = serde_json::from_slice(body)
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
     // Create Bedrock client using shared helper
-    let bedrock_client = create_bedrock_client(
-        api_key,
-        aws_access_key_id,
-        aws_secret_access_key,
-        region,
-        "streaming",
-    )
-    .await?;
+    let bedrock_client =
+        create_bedrock_client(api_key, aws_access_key_id, aws_secret_access_key, region).await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
@@ -555,14 +550,8 @@ pub async fn handle_bedrock_sdk_non_streaming(
         .map_err(|e| Error::internal_err(format!("Failed to parse OpenAI request: {}", e)))?;
 
     // Create Bedrock client using shared helper
-    let bedrock_client = create_bedrock_client(
-        api_key,
-        aws_access_key_id,
-        aws_secret_access_key,
-        region,
-        "non-streaming",
-    )
-    .await?;
+    let bedrock_client =
+        create_bedrock_client(api_key, aws_access_key_id, aws_secret_access_key, region).await?;
 
     // Convert messages using shared conversion
     let (bedrock_messages, system_prompts) =
