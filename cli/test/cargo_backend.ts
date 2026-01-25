@@ -12,6 +12,7 @@
  */
 
 import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
+import { fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 export interface CargoBackendConfig {
   /** PostgreSQL connection string (without database name) */
@@ -78,7 +79,8 @@ export class CargoBackend {
 
   private findBackendDir(): string {
     // Try to find backend directory relative to CLI
-    const cliDir = new URL(".", import.meta.url).pathname;
+    // Use fromFileUrl to properly handle Windows paths (e.g., file:///D:/...)
+    const cliDir = fromFileUrl(new URL(".", import.meta.url));
     const candidates = [
       `${cliDir}../../backend`,
       `${cliDir}../../../backend`,
@@ -620,7 +622,7 @@ export class CargoBackend {
     ];
 
     const denoPath = Deno.execPath();
-    const cliMainPath = new URL("../src/main.ts", import.meta.url).pathname;
+    const cliMainPath = fromFileUrl(new URL("../src/main.ts", import.meta.url));
 
     console.log("🔧 CLI Command:", [denoPath, "run", "-A", cliMainPath, ...fullArgs].join(" "));
 

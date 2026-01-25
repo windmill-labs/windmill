@@ -426,6 +426,7 @@ async function createMockRemoteZip(items: Record<string, string>): Promise<JSZip
 
 /**
  * Reads all files from a directory recursively
+ * Normalizes path separators to forward slashes for cross-platform compatibility
  */
 async function readDirRecursive(
   dir: string,
@@ -435,7 +436,8 @@ async function readDirRecursive(
 
   for await (const entry of Deno.readDir(dir)) {
     const fullPath = path.join(dir, entry.name);
-    const relativePath = fullPath.substring(baseDir.length + 1);
+    // Normalize path separators to forward slashes for cross-platform compatibility
+    const relativePath = fullPath.substring(baseDir.length + 1).replaceAll("\\", "/");
 
     if (entry.isDirectory) {
       const subFiles = await readDirRecursive(fullPath, baseDir);
