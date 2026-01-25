@@ -1,0 +1,167 @@
+name: CLI Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'backend/**'
+      - 'openapi.yaml'
+      - 'openflow.openapi.yaml'
+      - '.github/workflows/cli-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'cli/**'
+      - 'backend/**'
+      - 'openapi.yaml'
+      - 'openflow.openapi.yaml'
+      - '.github/workflows/cli-tests.yml'
+
+env:
+  CARGO_TERM_COLOR: always
+  SQLX_OFFLINE: true
+
+jobs:
+  build-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate Windmill client
+        working-directory: cli
+        run: ./gen_wm_client.sh
+
+      - name: Run CLI build
+        working-directory: cli
+        run: ./build.sh
+
+  test-linux:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: changeme
+          POSTGRES_DB: windmill
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          cache-workspaces: backend
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate Windmill clients
+        working-directory: cli
+        run: |
+          ./gen_wm_client.sh
+          ./windmill-utils-internal/gen_wm_client.sh
+
+      - name: Run CLI tests
+        working-directory: cli
+        env:
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432
+          CI_MINIMAL_FEATURES: "true"
+        run: |
+          deno test --no-check --allow-all test/ \
+            --ignore=test/cargo_backend_example.test.ts
+
+  test-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PostgreSQL
+        uses: ikalnytskyi/action-setup-postgres@v6
+        with:
+          username: postgres
+          password: changeme
+          database: windmill
+          port: 5432
+
+      - name: Setup Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          cache-workspaces: backend
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate Windmill clients
+        working-directory: cli
+        shell: bash
+        run: |
+          ./gen_wm_client.sh
+          ./windmill-utils-internal/gen_wm_client.sh
+
+      - name: Run CLI tests
+        working-directory: cli
+        shell: pwsh
+        env:
+          DATABASE_URL: postgres://postgres:changeme@localhost:5432
+          CI_MINIMAL_FEATURES: "true"
+        run: |
+          deno test --no-check --allow-all test/ `
+            --ignore=test/cargo_backend_example.test.ts
+
+  # Combined summary job for branch protection
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [build-check, test-linux, test-windows]
+    if: always()
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.build-check.result }}" != "success" ]; then
+            echo "Build check failed"
+            exit 1
+          fi
+          if [ "${{ needs.test-linux.result }}" != "success" ] || [ "${{ needs.test-windows.result }}" != "success" ]; then
+            echo "Some tests failed"
+            exit 1
+          fi
+          echo "All checks passed"

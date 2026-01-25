@@ -1,6 +1,6 @@
 import { assertEquals, assertStringIncludes, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { readConfigFile, getEffectiveSettings } from "../conf.ts";
-import { withContainerizedBackend } from "./containerized_backend.ts";
+import { readConfigFile, getEffectiveSettings } from "../src/core/conf.ts";
+import { withTestBackend } from "./test_backend.ts";
 import { addWorkspace } from "../workspace.ts";
 import { parseJsonFromCLIOutput } from "./test_config_helpers.ts";
 
@@ -26,8 +26,12 @@ async function setupWorkspaceProfile(backend: any): Promise<void> {
 // INTEGRATION TESTS WITH REAL BACKEND
 // =============================================================================
 
-Deno.test("Integration: wmill.yaml configuration produces expected results", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
+Deno.test({
+  name: "Integration: wmill.yaml configuration produces expected results",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
@@ -73,10 +77,14 @@ includeTriggers: true`);
     assertEquals(hasResources, false);
     assertEquals(hasVariables, false);
   });
-});
+}});
 
-Deno.test("Integration: settings.yaml inclusion respects includeSettings flag", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
+Deno.test({
+  name: "Integration: settings.yaml inclusion respects includeSettings flag",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
@@ -112,10 +120,14 @@ includeSettings: false`);
     );
     assertEquals(hasSettingsExclude, false);
   });
-});
+}});
 
-Deno.test("Integration: resource/variable filtering respects skip flags", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
+Deno.test({
+  name: "Integration: resource/variable filtering respects skip flags",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
@@ -144,15 +156,19 @@ skipVariables: false`);
     );
     assertEquals(hasVariables, true);
   });
-});
+}});
 
 // =============================================================================
 // CLI FLAG OVERRIDE TESTS
 // Tests for CLI flags overriding configuration file settings
 // =============================================================================
 
-Deno.test("CLI skip flags override wmill.yaml configuration", async () => {
-  await withContainerizedBackend(async (backend, tempDir) => {
+Deno.test({
+  name: "CLI skip flags override wmill.yaml configuration",
+  sanitizeResources: false,
+  sanitizeOps: false,
+  fn: async () => {
+  await withTestBackend(async (backend, tempDir) => {
     // Set up workspace profile with name "localhost_test"
     await setupWorkspaceProfile(backend);
 
@@ -200,4 +216,4 @@ includeSettings: true`);
     );
     assertEquals(hasResourceTypesOverride, false, "CLI --skip-resource-types flag should override wmill.yaml to exclude resource types");
   });
-});
+}});

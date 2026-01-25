@@ -40,7 +40,7 @@ use windmill_common::scripts::ScriptLang;
 use crate::common::OccupancyMetrics;
 use windmill_common::client::AuthedClient;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "csharp"))]
 use crate::SYSTEM_ROOT;
 
 #[cfg(feature = "csharp")]

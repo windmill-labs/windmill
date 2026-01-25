@@ -2915,10 +2915,24 @@ export async function push(
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
+                    // Delete the entire raw app
                     await wmill.deleteApp({
                       workspace: workspaceId,
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
+                  } else {
+                    // For individual file deletions within a raw app,
+                    // re-push the entire raw app so the backend gets the updated file list
+                    // (the deleted file won't be included in the push)
+                    await pushObj(
+                      workspaceId,
+                      target,
+                      undefined,
+                      undefined,
+                      opts.plainSecrets ?? false,
+                      alreadySynced,
+                      opts.message,
+                    );
                   }
                   break;
                 case "schedule":

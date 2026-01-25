@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
@@ -638,6 +639,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
     std::process::Command::new("cat")
         .args([path])

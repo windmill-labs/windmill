@@ -255,6 +255,7 @@ pub async fn handle_child(
             }
         };
 
+        #[allow(unused_variables)]
         if let Some(id) = child.id() {
             if *MAX_WAIT_FOR_SIGINT > 0 {
                 #[cfg(any(target_os = "linux", target_os = "macos"))]

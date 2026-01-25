@@ -107,3 +107,29 @@ To enable zsh completions add the following line to your `~/.zshrc`:
 ```
 source <(wmill completions zsh)
 ```
+
+## Development
+
+### Running Tests
+
+**Prerequisites:**
+- PostgreSQL running locally (default: `postgres://postgres:changeme@localhost:5432`)
+- Rust toolchain installed
+
+**Run tests locally (full features):**
+
+```bash
+deno test --allow-all --no-check
+```
+
+**Run tests in CI mode (minimal features, skips EE tests):**
+
+```bash
+CI_MINIMAL_FEATURES=true deno test --allow-all --no-check
+```
+
+| Variable | Description |
+|----------|-------------|
+| `CI_MINIMAL_FEATURES` | Set to `true` to skip EE-dependent tests |
+| `DATABASE_URL` | PostgreSQL connection string |
+| `EE_LICENSE_KEY` | Enterprise license key for EE features |
