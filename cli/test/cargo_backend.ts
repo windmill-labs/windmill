@@ -12,7 +12,7 @@
  */
 
 import { ensureDir } from "https://deno.land/std@0.224.0/fs/mod.ts";
-import { fromFileUrl } from "https://deno.land/std@0.224.0/path/mod.ts";
+import { fromFileUrl, resolve, dirname } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 export interface CargoBackendConfig {
   /** PostgreSQL connection string (without database name) */
@@ -80,17 +80,19 @@ export class CargoBackend {
   private findBackendDir(): string {
     // Try to find backend directory relative to CLI
     // Use fromFileUrl to properly handle Windows paths (e.g., file:///D:/...)
-    const cliDir = fromFileUrl(new URL(".", import.meta.url));
+    const cliTestDir = fromFileUrl(new URL(".", import.meta.url));
+    // Use resolve() for proper cross-platform path resolution
     const candidates = [
-      `${cliDir}../../backend`,
-      `${cliDir}../../../backend`,
-      "./backend",
-      "../backend",
+      resolve(cliTestDir, "..", "..", "backend"),
+      resolve(cliTestDir, "..", "..", "..", "backend"),
+      resolve(".", "backend"),
+      resolve("..", "backend"),
     ];
 
     for (const candidate of candidates) {
       try {
-        const stat = Deno.statSync(`${candidate}/Cargo.toml`);
+        const cargoPath = resolve(candidate, "Cargo.toml");
+        const stat = Deno.statSync(cargoPath);
         if (stat.isFile) {
           return candidate;
         }
