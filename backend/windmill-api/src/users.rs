@@ -250,6 +250,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 ExpiringAuthCache {
                     authed: api_authed.clone(),
                     expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                    job_id: None,
                 },
             );
 
@@ -933,7 +934,10 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
 /// Checks that a user has at least read access to the path for preview jobs.
 /// This prevents privilege escalation where a user could run preview code
 /// under a path they don't have access to.
-pub fn require_path_read_access_for_preview(authed: &ApiAuthed, path: &Option<String>) -> Result<()> {
+pub fn require_path_read_access_for_preview(
+    authed: &ApiAuthed,
+    path: &Option<String>,
+) -> Result<()> {
     let Some(path) = path else {
         return Ok(());
     };

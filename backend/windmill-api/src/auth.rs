@@ -14,9 +14,12 @@ use tower_cookies::Cookies;
 use tracing::Span;
 
 use crate::db::{ApiAuthed, DB};
-use std::sync::{
-    atomic::{AtomicI64, AtomicU64, Ordering},
-    Arc,
+use std::{
+    str::FromStr,
+    sync::{
+        atomic::{AtomicI64, AtomicU64, Ordering},
+        Arc,
+    },
 };
 #[cfg(feature = "enterprise")]
 use tokio::sync::RwLock;
@@ -47,6 +50,7 @@ pub fn invalidate_token_from_cache(token: &str) {
 pub struct ExpiringAuthCache {
     pub authed: ApiAuthed,
     pub expiry: chrono::DateTime<chrono::Utc>,
+    pub job_id: Option<uuid::Uuid>,
 }
 
 pub struct AuthCache {
@@ -75,14 +79,22 @@ impl AuthCache {
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
+        self.get_authed_and_job_id(w_id, token).await.0
+    }
+
+    pub async fn get_authed_and_job_id(
+        &self,
+        w_id: Option<String>,
+        token: &str,
+    ) -> (Option<ApiAuthed>, Option<uuid::Uuid>) {
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
         );
         let s = AUTH_CACHE.get(&key).map(|c| c.to_owned());
         match s {
-            Some(ExpiringAuthCache { authed, expiry }) if expiry > chrono::Utc::now() => {
-                Some(authed)
+            Some(ExpiringAuthCache { authed, expiry, job_id }) if expiry > chrono::Utc::now() => {
+                (Some(authed), job_id)
             }
             #[cfg(feature = "enterprise")]
             _ if token.starts_with("jwt_ext_") => {
@@ -101,18 +113,19 @@ impl AuthCache {
                     }
                 };
 
-                if let Some((authed, exp)) = authed_and_exp.clone() {
+                if let Some((authed, exp, job_id)) = authed_and_exp.clone() {
                     AUTH_CACHE.insert(
                         key,
                         ExpiringAuthCache {
                             authed: authed.clone(),
                             expiry: chrono::Utc.timestamp_nanos(exp as i64 * 1_000_000_000),
+                            job_id,
                         },
                     );
 
-                    Some(authed)
+                    (Some(authed), job_id)
                 } else {
-                    None
+                    (None, None)
                 }
             }
             _ if token.starts_with("jwt_") => {
@@ -124,9 +137,10 @@ impl AuthCache {
                     Ok(claims) => {
                         if w_id.is_some_and(|w_id| !claims.allowed_in_workspace(&w_id)) {
                             tracing::error!("JWT auth error: workspace_id mismatch");
-                            return None;
+                            return (None, None);
                         }
                         let username_override = username_override_from_label(claims.label);
+
                         let authed = crate::db::ApiAuthed {
                             email: claims.email,
                             username: claims.username,
@@ -138,21 +152,22 @@ impl AuthCache {
                             username_override,
                             token_prefix: claims.audit_span,
                         };
-
+                        let job_id = claims.job_id.and_then(|j| uuid::Uuid::from_str(&j).ok());
                         AUTH_CACHE.insert(
                             key,
                             ExpiringAuthCache {
                                 authed: authed.clone(),
                                 expiry: chrono::Utc
                                     .timestamp_nanos(claims.exp as i64 * 1_000_000_000),
+                                job_id,
                             },
                         );
 
-                        Some(authed)
+                        (Some(authed), job_id)
                     }
                     Err(err) => {
                         tracing::error!("JWT auth error: {:?}", err);
-                        None
+                        (None, None)
                     }
                 }
             }
@@ -353,29 +368,33 @@ impl AuthCache {
                                 authed: authed.clone(),
                                 expiry: chrono::Utc::now()
                                     + chrono::Duration::try_seconds(120).unwrap(),
+                                job_id: None,
                             },
                         );
                     }
-                    authed_o
+                    (authed_o, None)
                 } else if self
                     .superadmin_secret
                     .as_ref()
                     .map(|x| x == token)
                     .unwrap_or(false)
                 {
-                    Some(ApiAuthed {
-                        email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                        username: "superadmin_secret".to_string(),
-                        is_admin: true,
-                        is_operator: false,
-                        groups: Vec::new(),
-                        folders: Vec::new(),
-                        scopes: None,
-                        username_override: None,
-                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
-                    })
+                    (
+                        Some(ApiAuthed {
+                            email: SUPERADMIN_SECRET_EMAIL.to_string(),
+                            username: "superadmin_secret".to_string(),
+                            is_admin: true,
+                            is_operator: false,
+                            groups: Vec::new(),
+                            folders: Vec::new(),
+                            scopes: None,
+                            username_override: None,
+                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                        }),
+                        None,
+                    )
                 } else {
-                    None
+                    (None, None)
                 }
             }
         }
