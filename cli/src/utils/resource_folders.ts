@@ -8,15 +8,7 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
-import { log, SEP, path } from "../../deps.ts";
-
-/**
- * Normalize a path to use forward slashes consistently.
- * This is useful for cross-platform path comparisons.
- */
-export function normalizePathSeparators(p: string): string {
-  return p.replaceAll("\\", "/");
-}
+import { log, SEP } from "../../deps.ts";
 
 // Resource types that use folder-based storage
 export type FolderResourceType = "flow" | "app" | "raw_app";
@@ -87,10 +79,9 @@ export function getFolderSuffix(type: FolderResourceType): string {
 
 /**
  * Get the folder suffix with path separator (e.g., ".flow/", ".app/", ".raw_app/")
- * Uses forward slashes for cross-platform compatibility
  */
 export function getFolderSuffixWithSep(type: FolderResourceType): string {
-  return getFolderSuffixes()[type] + "/";
+  return getFolderSuffixes()[type] + SEP;
 }
 
 /**
@@ -119,29 +110,23 @@ export function getMetadataPathSuffix(
 
 /**
  * Check if a path is inside a flow folder
- * Normalizes path separators for cross-platform compatibility
  */
 export function isFlowPath(p: string): boolean {
-  const normalized = normalizePathSeparators(p);
-  return normalized.includes(getFolderSuffixes().flow + "/");
+  return p.includes(getFolderSuffixes().flow + SEP);
 }
 
 /**
  * Check if a path is inside an app folder
- * Normalizes path separators for cross-platform compatibility
  */
 export function isAppPath(p: string): boolean {
-  const normalized = normalizePathSeparators(p);
-  return normalized.includes(getFolderSuffixes().app + "/");
+  return p.includes(getFolderSuffixes().app + SEP);
 }
 
 /**
  * Check if a path is inside a raw_app folder
- * Normalizes path separators for cross-platform compatibility
  */
 export function isRawAppPath(p: string): boolean {
-  const normalized = normalizePathSeparators(p);
-  return normalized.includes(getFolderSuffixes().raw_app + "/");
+  return p.includes(getFolderSuffixes().raw_app + SEP);
 }
 
 /**
@@ -212,33 +197,29 @@ export function isFlowInlineScriptPath(filePath: string): boolean {
 /**
  * Extract the resource name from a path (the part before the folder suffix)
  * e.g., "f/my_flow.flow/flow.yaml" -> "f/my_flow"
- * Normalizes path separators for cross-platform compatibility
  */
 export function extractResourceName(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const normalized = normalizePathSeparators(p);
-  const suffix = getFolderSuffixes()[type] + "/";
-  const index = normalized.indexOf(suffix);
+  const suffix = getFolderSuffixes()[type] + SEP;
+  const index = p.indexOf(suffix);
   if (index === -1) return null;
-  return normalized.substring(0, index);
+  return p.substring(0, index);
 }
 
 /**
  * Extract the folder path (resource name + folder suffix)
  * e.g., "f/my_flow.flow/flow.yaml" -> "f/my_flow.flow/"
- * Normalizes path separators for cross-platform compatibility
  */
 export function extractFolderPath(
   p: string,
   type: FolderResourceType
 ): string | null {
-  const normalized = normalizePathSeparators(p);
-  const suffix = getFolderSuffixes()[type] + "/";
-  const index = normalized.indexOf(suffix);
+  const suffix = getFolderSuffixes()[type] + SEP;
+  const index = p.indexOf(suffix);
   if (index === -1) return null;
-  return normalized.substring(0, index) + suffix;
+  return p.substring(0, index) + suffix;
 }
 
 /**
@@ -255,7 +236,6 @@ export function buildFolderPath(
 /**
  * Build a metadata file path from a resource name
  * e.g., ("f/my_flow", "flow", "yaml") -> "f/my_flow.flow/flow.yaml"
- * Uses forward slashes for cross-platform compatibility (works on all platforms)
  */
 export function buildMetadataPath(
   resourceName: string,
@@ -265,7 +245,7 @@ export function buildMetadataPath(
   return (
     resourceName +
     getFolderSuffixes()[type] +
-    "/" +
+    SEP +
     METADATA_FILES[type][format]
   );
 }
