@@ -20,8 +20,8 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
-// Re-export shared types from windmill_common::ai_bedrock
-pub use windmill_common::ai_bedrock::{
+// Re-export shared types from windmill_common::ai_types
+pub use windmill_common::ai_types::{
     ContentPart, ImageUrlData, OpenAIContent, ToolDef, ToolDefFunction, UrlCitation,
 };
 
@@ -176,9 +176,12 @@ pub struct ProviderResource {
     pub api_key: String,
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
+    #[allow(dead_code)]
     pub region: Option<String>,
+    #[allow(dead_code)]
     #[serde(alias = "awsAccessKeyId")]
     pub aws_access_key_id: Option<String>,
+    #[allow(dead_code)]
     #[serde(alias = "awsSecretAccessKey")]
     pub aws_secret_access_key: Option<String>,
 }
@@ -209,14 +212,17 @@ impl ProviderWithResource {
             .await
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_region(&self) -> Option<&str> {
         self.resource.region.as_deref()
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_aws_access_key_id(&self) -> Option<&str> {
         self.resource.aws_access_key_id.as_deref()
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_aws_secret_access_key(&self) -> Option<&str> {
         self.resource.aws_secret_access_key.as_deref()
     }

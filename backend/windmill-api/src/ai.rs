@@ -1,10 +1,14 @@
+#[cfg(feature = "bedrock")]
 use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 
+#[cfg(feature = "bedrock")]
 use axum::routing::get;
 use axum::{
-    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Json, Router,
+    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router,
 };
+#[cfg(feature = "bedrock")]
+use axum::Json;
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -161,8 +165,11 @@ struct AIRequestConfig {
     pub access_token: Option<String>,
     pub organization_id: Option<String>,
     pub user: Option<String>,
+    #[allow(dead_code)]
     pub region: Option<String>,
+    #[allow(dead_code)]
     pub aws_access_key_id: Option<String>,
+    #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
 }
 
@@ -454,12 +461,16 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new()
-        .route("/proxy/*ai", post(proxy).get(proxy))
-        .route("/check_bedrock_credentials", get(check_bedrock_credentials))
+    let router = Router::new().route("/proxy/*ai", post(proxy).get(proxy));
+
+    #[cfg(feature = "bedrock")]
+    let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
+
+    router
 }
 
 /// Check if AWS Bedrock credentials are available from environment variables.
+#[cfg(feature = "bedrock")]
 async fn check_bedrock_credentials(
     _authed: ApiAuthed,
     Path(_w_id): Path<String>,
@@ -635,88 +646,100 @@ async fn proxy(
         ai_path = chat_path;
     }
 
-    // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-    let (model, is_streaming) =
-        if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-            #[derive(Deserialize, Debug)]
-            struct BedrockRequest {
-                model: String,
-                #[serde(default)]
-                stream: bool,
-            }
-            let parsed: BedrockRequest = serde_json::from_slice(&body)
-                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-            (Some(parsed.model), parsed.stream)
-        } else {
-            (None, false)
-        };
-
-    // For Bedrock requests, use the SDK-based approach
-    if matches!(provider, AIProvider::AWSBedrock) {
-        let region = request_config
-            .region
-            .as_deref()
-            .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
-
-        // Audit log before making the SDK request
-        let mut tx = db.begin().await?;
-        audit_log(
-            &mut *tx,
-            &authed,
-            "ai.request",
-            ActionKind::Execute,
-            &w_id,
-            Some(&authed.email),
-            Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
-        )
-        .await?;
-        tx.commit().await?;
-
-        // Handle GET requests for control plane operations
-        if method == Method::GET {
-            if ai_path == "foundation-models" {
-                return bedrock::list_foundation_models(
-                    request_config.api_key.as_deref(),
-                    request_config.aws_access_key_id.as_deref(),
-                    request_config.aws_secret_access_key.as_deref(),
-                    region,
-                )
-                .await;
-            } else if ai_path == "inference-profiles" {
-                return bedrock::list_inference_profiles(
-                    request_config.api_key.as_deref(),
-                    request_config.aws_access_key_id.as_deref(),
-                    request_config.aws_secret_access_key.as_deref(),
-                    region,
-                )
-                .await;
-            }
-        }
-
-        // Handle POST requests for inference
-        if method == Method::POST && model.is_some() {
-            if is_streaming {
-                return bedrock::handle_bedrock_sdk_streaming(
-                    model.as_ref().unwrap(),
-                    &body,
-                    request_config.api_key.as_deref(),
-                    request_config.aws_access_key_id.as_deref(),
-                    request_config.aws_secret_access_key.as_deref(),
-                    region,
-                )
-                .await;
+    // Handle Bedrock-specific logic when the feature is enabled
+    #[cfg(feature = "bedrock")]
+    {
+        // Extract model and streaming flag for Bedrock transformation (only for POST requests)
+        let (model, is_streaming) =
+            if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
+                #[derive(Deserialize, Debug)]
+                struct BedrockRequest {
+                    model: String,
+                    #[serde(default)]
+                    stream: bool,
+                }
+                let parsed: BedrockRequest = serde_json::from_slice(&body)
+                    .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+                (Some(parsed.model), parsed.stream)
             } else {
-                return bedrock::handle_bedrock_sdk_non_streaming(
-                    model.as_ref().unwrap(),
-                    &body,
-                    request_config.api_key.as_deref(),
-                    request_config.aws_access_key_id.as_deref(),
-                    request_config.aws_secret_access_key.as_deref(),
-                    region,
-                )
-                .await;
+                (None, false)
+            };
+
+        // For Bedrock requests, use the SDK-based approach
+        if matches!(provider, AIProvider::AWSBedrock) {
+            let region = request_config
+                .region
+                .as_deref()
+                .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
+
+            // Audit log before making the SDK request
+            let mut tx = db.begin().await?;
+            audit_log(
+                &mut *tx,
+                &authed,
+                "ai.request",
+                ActionKind::Execute,
+                &w_id,
+                Some(&authed.email),
+                Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+            )
+            .await?;
+            tx.commit().await?;
+
+            // Handle GET requests for control plane operations
+            if method == Method::GET {
+                if ai_path == "foundation-models" {
+                    return bedrock::list_foundation_models(
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                } else if ai_path == "inference-profiles" {
+                    return bedrock::list_inference_profiles(
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                }
+            }
+
+            // Handle POST requests for inference
+            if method == Method::POST && model.is_some() {
+                if is_streaming {
+                    return bedrock::handle_bedrock_sdk_streaming(
+                        model.as_ref().unwrap(),
+                        &body,
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                } else {
+                    return bedrock::handle_bedrock_sdk_non_streaming(
+                        model.as_ref().unwrap(),
+                        &body,
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                }
             }
         }
+    }
+
+    // When bedrock feature is disabled, return error for Bedrock provider
+    #[cfg(not(feature = "bedrock"))]
+    if matches!(provider, AIProvider::AWSBedrock) {
+        return Err(Error::BadRequest(
+            "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+        ));
     }
 
     let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
