@@ -166,12 +166,7 @@
 <div class="flex flex-col gap-3 p-3 border rounded-md bg-surface-secondary">
 	<div class="flex items-center justify-between">
 		<h4 class="text-sm font-semibold">AWS Environment Credentials Check</h4>
-		<Button
-			size="xs"
-			variant="border"
-			on:click={checkBoth}
-			disabled={isChecking}
-		>
+		<Button size="xs" variant="border" on:click={checkBoth} disabled={isChecking}>
 			{#if isChecking}
 				<LoaderCircle class="animate-spin mr-1.5 h-3.5 w-3.5" />
 			{/if}
@@ -180,8 +175,8 @@
 	</div>
 
 	<p class="text-xs text-secondary">
-		Check if AWS credentials are available from environment variables. When available, Bedrock will
-		use these instead of configured credentials.
+		Check if AWS credentials are available from the environment. If available, you do not need to
+		configure credentials manually.
 	</p>
 
 	<div class="grid grid-cols-2 gap-3">
