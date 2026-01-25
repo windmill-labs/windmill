@@ -14,6 +14,7 @@ import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
+import { deepEqual } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
@@ -423,7 +424,11 @@ export async function pushRawApp(
   }
 
   if (app) {
-    if (isSuperset({ ...localApp, runnables }, app)) {
+    // Check both metadata/runnables AND files for changes
+    // Files need separate comparison because isSuperset only checks if local keys exist in remote
+    const metadataUpToDate = isSuperset({ ...localApp, runnables }, app);
+    const filesUpToDate = deepEqual(files, app.value?.files);
+    if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
       return;
     }

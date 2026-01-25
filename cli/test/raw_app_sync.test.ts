@@ -343,7 +343,7 @@ excludes: []`);
 
 Deno.test({
   name: "Raw App: delete file and push",
-  ignore: true, // TODO: Fix - isSuperset check doesn't include files, so deletions aren't detected
+  ignore: false,
   sanitizeResources: false,
   sanitizeOps: false,
   fn: async () => {
@@ -377,7 +377,13 @@ excludes: []`);
       assertEquals(pushResult1.code, 0, `Initial sync push should succeed: ${pushResult1.stderr}`);
 
       const indexCssPath = path.join(appDir, "index.css");
+      const appTsxPath = path.join(appDir, "App.tsx");
       assert(await fileExists(indexCssPath), "index.css should exist after initial push");
+
+      // First, update App.tsx to remove the CSS import (otherwise bundle will fail)
+      const appTsxContent = await readFileContent(appTsxPath);
+      const updatedAppTsx = appTsxContent.replace("import './index.css'\n", "");
+      await Deno.writeTextFile(appTsxPath, updatedAppTsx);
 
       // Delete the CSS file
       await Deno.remove(indexCssPath);
@@ -405,7 +411,6 @@ excludes: []`);
       assert(!(await fileExists(indexCssPath)), "Deleted index.css should not exist after pull");
 
       // But other files should still exist
-      const appTsxPath = path.join(appDir, "App.tsx");
       assert(await fileExists(appTsxPath), "App.tsx should still exist after pull");
     });
   }
