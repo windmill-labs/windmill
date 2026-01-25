@@ -205,12 +205,13 @@ impl BedrockClient {
     pub async fn from_credentials(
         access_key_id: String,
         secret_access_key: String,
+        session_token: Option<String>,
         region: &str,
     ) -> Result<Self, Error> {
         let credentials = aws_credential_types::Credentials::new(
             access_key_id,
             secret_access_key,
-            None, // session token
+            session_token,
             None, // expiration
             "windmill",
         );

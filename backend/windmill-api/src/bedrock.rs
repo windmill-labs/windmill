@@ -94,6 +94,7 @@ async fn create_bedrock_client(
         BedrockClient::from_credentials(
             access_key_id.to_string(),
             secret_access_key.to_string(),
+            None, // session token - could be added to resource config in future
             region,
         )
         .await
