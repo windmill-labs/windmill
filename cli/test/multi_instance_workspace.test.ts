@@ -145,9 +145,11 @@ gitBranches:
 
       const featureData = parseJsonFromCLIOutput(featureResult.stdout);
       const featurePaths = (featureData.changes || []).map((c: any) => c.path);
+      // Normalize paths for cross-platform comparison (Windows uses backslashes)
+      const normalizedFeaturePaths = featurePaths.map((p: string) => p.replace(/\\/g, '/'));
 
-      const featureHasVariables = featurePaths.some((path: string) => path.includes('.variable.yaml'));
-      const featureHasUsers = featurePaths.some((path: string) => path.startsWith('users/'));
+      const featureHasVariables = normalizedFeaturePaths.some((path: string) => path.includes('.variable.yaml'));
+      const featureHasUsers = normalizedFeaturePaths.some((path: string) => path.startsWith('users/'));
 
       assertEquals(featureHasVariables, false, "Feature branch should skip variables");
       assertEquals(featureHasUsers, false, "Feature branch should not include users (not in includes)");
