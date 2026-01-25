@@ -305,7 +305,7 @@ async function collectAppFiles(
         ) {
           continue;
         }
-        await readDirRecursive(fullPath + SEP, relativePath + SEP);
+        await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile) {
         // Skip generated/metadata files that shouldn't be part of the app
         if (
@@ -406,8 +406,9 @@ export async function pushRawApp(
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile =
-      frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+    const entryFile = frameworks.svelte || frameworks.vue
+      ? "index.ts"
+      : "index.tsx";
     const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
@@ -438,7 +439,9 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
+          ...(localApp.custom_path
+            ? { custom_path: localApp.custom_path }
+            : {}),
         },
         js,
         css,
@@ -455,7 +458,9 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
+          ...(localApp.custom_path
+            ? { custom_path: localApp.custom_path }
+            : {}),
         },
         js,
         css,
