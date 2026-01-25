@@ -95,10 +95,9 @@ jobs:
         working-directory: cli
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
+          CI_MINIMAL_FEATURES: "true"
         run: |
           deno test --no-check --allow-all test/ \
-            --ignore=test/raw_app_sync.test.ts \
-            --ignore=test/gitsync_settings_features.test.ts \
             --ignore=test/cargo_backend_example.test.ts
 
   test-windows:
@@ -144,10 +143,9 @@ jobs:
         shell: pwsh
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
+          CI_MINIMAL_FEATURES: "true"
         run: |
           deno test --no-check --allow-all test/ `
-            --ignore=test/raw_app_sync.test.ts `
-            --ignore=test/gitsync_settings_features.test.ts `
             --ignore=test/cargo_backend_example.test.ts
 
   # Combined summary job for branch protection
