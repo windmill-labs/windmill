@@ -1,0 +1,52 @@
+[package]
+name = "windmill-local"
+version = "0.1.0"
+edition = "2021"
+description = "Windmill local mode with libSQL/Turso support for preview execution"
+
+[dependencies]
+# libSQL - Turso's SQLite fork (used for local and remote Turso connections)
+# Note: libsql IS the Turso database driver - Turso is built on libSQL
+libsql = "0.9"
+
+# Async runtime
+tokio = { version = "1", features = ["full", "sync", "macros"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# UUID for job IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Timestamps
+chrono = { version = "0.4", features = ["serde"] }
+
+# Tracing
+tracing = "0.1"
+
+# HTTP server
+axum = "0.7"
+tower = "0.4"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# Windmill types (flows, scripts, etc.)
+windmill-common = { path = "../windmill-common", default-features = false }
+
+# For input transforms (JavaScript evaluation)
+rquickjs = { version = "0.8", features = ["bindgen", "classes", "loader", "array-buffer", "futures"] }
+
+# For recursive async functions
+async-recursion = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "local_server"
+path = "examples/local_server.rs"
