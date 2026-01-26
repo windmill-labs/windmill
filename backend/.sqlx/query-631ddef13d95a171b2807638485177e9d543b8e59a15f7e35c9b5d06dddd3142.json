@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n                 auto_invite,\n                 webhook,\n                 deploy_to,\n                 error_handler,\n                 ai_config,\n                 large_file_storage,\n                 git_sync,\n                 default_app,\n                 default_scripts,\n                 workspace.name as \"name!\",\n                 mute_critical_alerts,\n                 color,\n                 operator_settings\n             FROM workspace_settings\n             LEFT JOIN workspace ON workspace.id = workspace_settings.workspace_id\n             WHERE workspace_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "auto_invite",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 1,
+        "name": "webhook",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "deploy_to",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "error_handler",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 4,
+        "name": "ai_config",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "large_file_storage",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 6,
+        "name": "git_sync",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 7,
+        "name": "default_app",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "default_scripts",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "name!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "mute_critical_alerts",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 11,
+        "name": "color",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 12,
+        "name": "operator_settings",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "631ddef13d95a171b2807638485177e9d543b8e59a15f7e35c9b5d06dddd3142"
+}

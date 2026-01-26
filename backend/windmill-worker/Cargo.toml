@@ -88,7 +88,6 @@ rand.workspace = true # TODO: Remove. only used by token creation hack.
 const_format.workspace = true
 mappable-rc.workspace = true
 git-version.workspace = true
-dyn-iter.workspace = true
 once_cell.workspace = true
 tokio-postgres.workspace = true
 bit-vec.workspace = true

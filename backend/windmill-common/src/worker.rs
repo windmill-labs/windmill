@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
@@ -486,6 +487,7 @@ pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+pub const HUB_RT_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub_rt");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
@@ -637,6 +639,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
     std::process::Command::new("cat")
         .args([path])

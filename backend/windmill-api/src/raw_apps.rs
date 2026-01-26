@@ -156,6 +156,11 @@ async fn create_app(
     Path(w_id): Path<String>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create raw apps for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("raw_apps:write:{}", app.path))?;
     if *CLOUD_HOSTED {
         let nb_apps = sqlx::query_scalar!(
@@ -272,6 +277,11 @@ async fn update_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Json(app): Json<EditApp>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update raw apps for security reasons".to_string(),
+        ));
+    }
     use sql_builder::prelude::*;
 
     let path = path.to_path();
