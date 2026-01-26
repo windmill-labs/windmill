@@ -1,3 +1,12 @@
+---
+name: wmill-cli
+description: Reference for Windmill CLI commands and usage.
+---
+
+# Windmill CLI Reference
+
+Use these commands to manage your Windmill workspace.
+
 # Windmill CLI Commands
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.

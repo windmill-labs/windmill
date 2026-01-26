@@ -1,3 +1,122 @@
+---
+name: write-script-nativets
+description: Write lightweight TypeScript scripts using fetch only, no external imports.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, run:
+- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill sync push` - Deploy to Windmill
+
+Use `wmill resource-type list --schema` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- Scripts must export a main function (do not call it)
+- Libraries are installed automatically - do not show installation instructions
+- Credentials and configuration are stored in resources and passed as parameters
+- The windmill client (`wmill`) provides APIs for interacting with the platform
+
+## Function Naming
+
+- Main function: `main` (or `preprocessor` for preprocessor scripts)
+- Must be async for TypeScript variants
+
+## Return Values
+
+- Scripts can return any JSON-serializable value
+- Return values become available to subsequent flow steps via `results.step_id`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+The returned object determines the parameter values passed to the flow.
+e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
+
+The preprocessor receives a single parameter called `event`.
+
+
+# TypeScript (Native)
+
+Native TypeScript execution with fetch only - no external imports allowed.
+
+## Structure
+
+Export a single **async** function called `main`:
+
+```typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+```
+
+Do not call the main function.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the `RT` namespace for resource types:
+
+```typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+```
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+## Imports
+
+**No imports allowed.** Use the globally available `fetch` function:
+
+```typescript
+export async function main(url: string) {
+  const response = await fetch(url);
+  return await response.json();
+}
+```
+
+## Windmill Client
+
+The windmill client is not available in native TypeScript mode. Use fetch to call APIs directly.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
+
+```typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id
+  };
+}
+```
+
+
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'

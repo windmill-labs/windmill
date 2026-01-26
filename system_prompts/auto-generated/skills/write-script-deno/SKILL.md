@@ -1,3 +1,161 @@
+---
+name: write-script-deno
+description: Write TypeScript scripts using the Deno runtime with npm: prefix imports.
+---
+
+## CLI Commands
+
+Place scripts in a folder. After writing, run:
+- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill sync push` - Deploy to Windmill
+
+Use `wmill resource-type list --schema` to discover available resource types.
+
+# Windmill Script Writing Guide
+
+## General Principles
+
+- Scripts must export a main function (do not call it)
+- Libraries are installed automatically - do not show installation instructions
+- Credentials and configuration are stored in resources and passed as parameters
+- The windmill client (`wmill`) provides APIs for interacting with the platform
+
+## Function Naming
+
+- Main function: `main` (or `preprocessor` for preprocessor scripts)
+- Must be async for TypeScript variants
+
+## Return Values
+
+- Scripts can return any JSON-serializable value
+- Return values become available to subsequent flow steps via `results.step_id`
+
+## Preprocessor Scripts
+
+Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
+
+The returned object determines the parameter values passed to the flow.
+e.g., `{ b: 1, a: 2 }` calls the flow with `a = 2` and `b = 1`, assuming the flow has two inputs called `a` and `b`.
+
+The preprocessor receives a single parameter called `event`.
+
+
+# TypeScript (Deno)
+
+Deno runtime with npm support via `npm:` prefix and native Deno libraries.
+
+## Structure
+
+Export a single **async** function called `main`:
+
+```typescript
+export async function main(param1: string, param2: number) {
+  // Your code here
+  return { result: param1, count: param2 };
+}
+```
+
+Do not call the main function. Libraries are installed automatically.
+
+## Resource Types
+
+On Windmill, credentials and configuration are stored in resources and passed as parameters to main.
+
+Use the `RT` namespace for resource types:
+
+```typescript
+export async function main(stripe: RT.Stripe) {
+  // stripe contains API key and config from the resource
+}
+```
+
+Only use resource types if you need them to satisfy the instructions. Always use the RT namespace.
+
+## Imports
+
+```typescript
+// npm packages use npm: prefix
+import Stripe from "npm:stripe";
+import { someFunction } from "npm:some-package";
+
+// Deno standard library
+import { serve } from "https://deno.land/std/http/server.ts";
+```
+
+## Windmill Client
+
+Import the windmill client for platform interactions:
+
+```typescript
+import * as wmill from "windmill-client";
+```
+
+See the SDK documentation for available methods.
+
+## Preprocessor Scripts
+
+For preprocessor scripts, the function should be named `preprocessor` and receives an `event` parameter:
+
+```typescript
+type Event = {
+  kind:
+    | "webhook"
+    | "http"
+    | "websocket"
+    | "kafka"
+    | "email"
+    | "nats"
+    | "postgres"
+    | "sqs"
+    | "mqtt"
+    | "gcp";
+  body: any;
+  headers: Record<string, string>;
+  query: Record<string, string>;
+};
+
+export async function preprocessor(event: Event) {
+  return {
+    param1: event.body.field1,
+    param2: event.query.id,
+  };
+}
+```
+
+## S3 Object Operations
+
+Windmill provides built-in support for S3-compatible storage operations.
+
+### S3Object Type
+
+The S3Object type represents a file in S3 storage:
+
+```typescript
+type S3Object = {
+  s3: string; // Path within the bucket
+};
+```
+
+## TypeScript Operations
+
+```typescript
+import * as wmill from "windmill-client";
+
+// Load file content from S3
+const content: Uint8Array = await wmill.loadS3File(s3object);
+
+// Load file as stream
+const blob: Blob = await wmill.loadS3FileStream(s3object);
+
+// Write file to S3
+const result: S3Object = await wmill.writeS3File(
+  s3object, // Target path (or undefined to auto-generate)
+  fileContent, // string or Blob
+  s3ResourcePath // Optional: specific S3 resource to use
+);
+```
+
+
 # TypeScript SDK (windmill-client)
 
 Import: import * as wmill from 'windmill-client'
