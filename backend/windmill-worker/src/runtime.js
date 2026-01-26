@@ -49,6 +49,15 @@ Object.assign(globalThis, {
   setTimeout: timers.setTimeout,
 });
 
+// Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
+// We use dynamic import so deno_telemetry isn't loaded during snapshot creation.
+// Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
+globalThis.__bootstrapOtel = () => {
+  import("ext:deno_telemetry/telemetry.ts").then(({ bootstrap }) => {
+    bootstrap([1, 0, 0, 0]);
+  });
+};
+
 // Object.assign(globalThis, {
 //   console: nonEnumerable(
 //     new console.Console((msg, level) => core.print(msg, level > 1))
