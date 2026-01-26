@@ -18,7 +18,7 @@
 </script>
 
 {#if job && 'success' in job && job.success}
-	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
+	<div class="flex flex-row flex-wrap gap-y-1 gap-x-2">
 		<Badge large color="green" icon={{ icon: CheckCircle2, position: 'left' }}>
 			Success {job.is_skipped ? '(Skipped)' : ''}
 		</Badge>
@@ -29,7 +29,7 @@
 		/>
 	</div>
 {:else if job && 'success' in job}
-	<div class="flex flex-row flex-wrap gap-y-1 mb-1 gap-x-2">
+	<div class="flex flex-row flex-wrap gap-y-1 gap-x-2">
 		<Badge large color="red" icon={{ icon: XCircle, position: 'left' }}>Failed</Badge>
 		<DurationMs
 			duration_ms={job.duration_ms}

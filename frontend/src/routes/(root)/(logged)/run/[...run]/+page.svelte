@@ -27,16 +27,11 @@
 	import {
 		Activity,
 		Calendar,
-		CheckCircle2,
-		Circle,
-		FastForward,
-		Hourglass,
 		List,
 		Pen,
 		RefreshCw,
 		TimerOff,
 		Trash,
-		XCircle,
 		Code2,
 		ClipboardCopy,
 		GitBranch,
@@ -57,7 +52,7 @@
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
-	import FlowMetadata from '$lib/components/FlowMetadata.svelte'
+	import FlowDetailHeader from '$lib/components/runs/FlowDetailHeader.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
@@ -88,7 +83,6 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '$lib/components/assets/JobAssetsViewer.svelte'
 	import { page } from '$app/state'
-	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import FlowRestartButton from '$lib/components/FlowRestartButton.svelte'
 	import JobOtelTraces from '$lib/components/JobOtelTraces.svelte'
@@ -649,45 +643,20 @@
 		{/snippet}
 	</ActionRow>
 	<div class="w-full">
-		<div
-			class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-6 max-w-7xl mx-auto px-4"
-		>
-			<div class="flex flex-row flex-wrap gap-6 items-center">
-				{#if job}
-					{#if 'success' in job && job.success}
-						{#if job.is_skipped}
-							<FastForward class="text-green-600" size={20} />
-						{:else}
-							<CheckCircle2 class="text-green-600" size={20} />
-						{/if}
-					{:else if job && 'success' in job}
-						<XCircle class="text-red-700" size={20} />
-					{:else if job && 'running' in job && job.running && job.suspend}
-						<Hourglass class="text-violet-500" size={20} />
-					{:else if job && 'running' in job && job.running}
-						<Circle class="text-yellow-500 fill-current" size={20} />
-					{:else if job && 'running' in job && job.scheduled_for && forLater(job.scheduled_for)}
-						<Calendar class="text-secondary" size={20} />
-					{:else if job && 'running' in job && job.scheduled_for}
-						<Hourglass class="text-primary" size={20} />
-					{/if}
-					<span class="text-emphasis text-2xl font-semibold"
-						>{job.script_path ??
-							(job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}</span
-					>
-					<div class="flex flex-row gap-2 items-center flex-wrap">
-						<RunBadges
-							{job}
-							displayPersistentScriptDefinition={!!persistentScriptDefinition}
-							openPersistentScriptDrawer={() => {
-								persistentScriptDrawer?.open?.(persistentScriptDefinition)
-							}}
-							{concurrencyKey}
-							verySmall={false}
-						/>
-					</div>
-				{/if}
-			</div>
+		<!-- Flow Detail Header Card -->
+		<div class="max-w-7xl mx-auto px-4 py-0">
+			<Skeleton loading={!job} layout={[[24]]} />
+			{#if job}
+				<FlowDetailHeader
+					{job}
+					{scheduleEditor}
+					displayPersistentScriptDefinition={!!persistentScriptDefinition}
+					openPersistentScriptDrawer={() => {
+						persistentScriptDrawer?.open?.(persistentScriptDefinition)
+					}}
+					{concurrencyKey}
+				/>
+			{/if}
 		</div>
 		{#if job?.['deleted']}
 			<div class="max-w-7xl mx-auto w-full px-4">
@@ -699,46 +668,38 @@
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div
-			class="flex flex-col gap-y-8 sm:grid sm:grid-cols-3 sm:gap-10 max-w-7xl mx-auto w-full px-4"
-		>
-			<div class="col-span-2">
+		<div class="max-w-7xl mx-auto w-full px-4 mt-12">
+			<div class="flex flex-col gap-y-6">
 				<JobArgs
 					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
 					id={job?.id}
 					args={job?.args}
 				/>
-			</div>
-			<div>
-				<Skeleton loading={!job} layout={[[9.5]]} />
-				{#if job}
-					<FlowMetadata {job} {scheduleEditor} />
-					{#if currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
-						<Alert
-							class="mt-4 p-1 flex flex-row relative text-center"
-							size="xs"
-							type="info"
-							title="tip: Track progress of longer jobs"
-							tooltip="For better transparency and verbosity, you can try setting progress from within the script."
-							documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
+				{#if job && currentJobIsLongRunning && showExplicitProgressTip && !scriptProgress && 'running' in job}
+					<Alert
+						class="p-1 flex flex-row relative text-center"
+						size="xs"
+						type="info"
+						title="tip: Track progress of longer jobs"
+						tooltip="For better transparency and verbosity, you can try setting progress from within the script."
+						documentationLink="https://www.windmill.dev/docs/advanced/explicit_progress"
+					>
+						<button
+							type="button"
+							onclick={() => {
+								localStorage.setItem('hideExplicitProgressTip', 'true')
+								showExplicitProgressTip = false
+							}}
+							class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
 						>
-							<button
-								type="button"
-								onclick={() => {
-									localStorage.setItem('hideExplicitProgressTip', 'true')
-									showExplicitProgressTip = false
-								}}
-								class="absolute m-2 top-0 right-0 inline-flex rounded-md bg-surface-secondary text-primary hover:text-primary focus:outline-none"
-							>
-								<span class="sr-only">Close</span>
-								<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-									<path
-										d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
-									/>
-								</svg>
-							</button>
-						</Alert>
-					{/if}
+							<span class="sr-only">Close</span>
+							<svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+								<path
+									d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"
+								/>
+							</svg>
+						</button>
+					</Alert>
 				{/if}
 			</div>
 		</div>
