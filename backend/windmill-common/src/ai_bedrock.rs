@@ -19,10 +19,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 
-// Re-export types from ai_types
-pub use crate::ai_types::{
-    ContentPart, ExtraContent, ImageUrlData, OpenAIContent, OpenAIFunction, OpenAIMessage,
-    OpenAIToolCall, ToolDef, ToolDefFunction, UrlCitation,
+use crate::ai_types::{
+    ContentPart, OpenAIContent, OpenAIFunction, OpenAIMessage,
+    OpenAIToolCall, ToolDef,
 };
 
 // ============================================================================
