@@ -23,7 +23,7 @@ import { pushWorkspaceUser } from "./commands/user/user.ts";
 import { pushGroup } from "./commands/user/user.ts";
 import { pushWorkspaceDependencies } from "./commands/dependencies/dependencies.ts";
 import { pushWorkspaceSettings, pushWorkspaceKey } from "./core/settings.ts";
-import { pushTrigger } from "./commands/trigger/trigger.ts";
+import { pushTrigger, pushNativeTrigger } from "./commands/trigger/trigger.ts";
 import { pushRawApp } from "./commands/app/raw_apps.ts";
 import {
   isFlowPath,
@@ -65,6 +65,9 @@ export const TRIGGER_TYPES = [
   "gcp",
   "email",
 ] as const;
+
+export const NATIVE_TRIGGER_SERVICES = ["nextcloud"] as const;
+export type NativeTriggerService = (typeof NATIVE_TRIGGER_SERVICES)[number];
 
 export type GlobalOptions = {
   baseUrl: string | undefined;
@@ -195,6 +198,8 @@ export async function pushObj(
     await pushTrigger("gcp", workspace, p, befObj, newObj);
   } else if (typeEnding === "email_trigger") {
     await pushTrigger("email", workspace, p, befObj, newObj);
+  } else if (typeEnding === "native_trigger") {
+    await pushNativeTrigger(workspace, p, befObj, newObj);
   } else if (typeEnding === "user") {
     await pushWorkspaceUser(workspace, p, befObj, newObj);
   } else if (typeEnding === "group") {
@@ -251,6 +256,7 @@ export function getTypeStrFromPath(
   | "sqs_trigger"
   | "gcp_trigger"
   | "email_trigger"
+  | "native_trigger"
   | "user"
   | "group"
   | "settings"
@@ -303,6 +309,10 @@ export function getTypeStrFromPath(
   }
 
   const typeEnding = parsed.name.split(".").at(-1);
+  // Check for native trigger: {service}_native_trigger pattern
+  if (typeEnding?.endsWith("_native_trigger")) {
+    return "native_trigger";
+  }
   if (
     typeEnding === "script" ||
     typeEnding === "variable" ||
@@ -344,6 +354,35 @@ export function removeType(str: string, type: string) {
     throw new Error(str + " does not end with ." + type + ".(yaml|json)");
   }
   return normalizedStr.slice(0, normalizedStr.length - type.length - 6);
+}
+
+/**
+ * Extracts native trigger info from a path like:
+ * u/admin/script.flow.12345.nextcloud_native_trigger.json
+ * Returns { scriptPath: "u/admin/script", isFlow: true, externalId: "12345", serviceName: "nextcloud" }
+ */
+export function extractNativeTriggerInfo(p: string): {
+  scriptPath: string;
+  isFlow: boolean;
+  externalId: string;
+  serviceName: string;
+} | null {
+  // Remove extension (.json or .yaml)
+  const normalizedPath = path.normalize(p).replaceAll(SEP, "/");
+  const withoutExt = normalizedPath.replace(/\.(json|yaml)$/, "");
+
+  // Match pattern: {script_path}.{flow|script}.{external_id}.{service}_native_trigger
+  const match = withoutExt.match(/^(.+)\.(flow|script)\.([^.]+)\.(\w+)_native_trigger$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    scriptPath: match[1],
+    isFlow: match[2] === "flow",
+    externalId: match[3],
+    serviceName: match[4],
+  };
 }
 
 export function removePathPrefix(str: string, prefix: string) {

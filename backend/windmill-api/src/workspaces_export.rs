@@ -823,8 +823,9 @@ pub(crate) async fn tarball_workspace(
                         .write_to_archive(
                             &trigger_str,
                             &format!(
-                                "{}.{}.{}_native_trigger.json",
+                                "{}.{}.{}.{}_native_trigger.json",
                                 trigger.script_path,
+                                if trigger.is_flow { "flow" } else { "script" },
                                 trigger.external_id,
                                 service_name.as_str()
                             ),

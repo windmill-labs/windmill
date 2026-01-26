@@ -2091,7 +2091,11 @@ async fn list_queue_jobs(
         ));
     }
 
-    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+    let args_field = if include_args {
+        "v2_job.args"
+    } else {
+        "null as args"
+    };
 
     let sql = list_queue_jobs_query(
         &w_id,
@@ -2462,11 +2466,23 @@ async fn list_jobs(
     if include_args {
         cj_fields = UnifiedJob::completed_job_fields()
             .iter()
-            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .map(|f| {
+                if *f == "null as args" {
+                    "v2_job.args"
+                } else {
+                    *f
+                }
+            })
             .collect();
         qj_fields = UnifiedJob::queued_job_fields()
             .iter()
-            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .map(|f| {
+                if *f == "null as args" {
+                    "v2_job.args"
+                } else {
+                    *f
+                }
+            })
             .collect();
         cj_fields_ref = &cj_fields;
         qj_fields_ref = &qj_fields;
@@ -4250,8 +4266,7 @@ pub async fn run_flow_by_path(
     let (args, trigger_metadata) = get_args_and_trigger_metadata(
         &db,
         &authed,
-        user_db.clone(),
-        flow_path.to_path(),
+        RunnableId::from_flow_path(flow_path.to_path()),
         &run_query,
         &w_id,
         args,
@@ -4664,8 +4679,7 @@ pub async fn run_script_by_path(
     let (args, trigger_metadata) = get_args_and_trigger_metadata(
         &db,
         &authed,
-        user_db.clone(),
-        script_path.to_path(),
+        RunnableId::from_script_path(script_path.to_path()),
         &run_query,
         &w_id,
         args,
@@ -4692,8 +4706,7 @@ pub async fn run_script_by_path(
 pub async fn get_args_and_trigger_metadata(
     db: &DB,
     authed: &ApiAuthed,
-    _user_db: UserDB,
-    runnable_path: &str,
+    runnable_id: RunnableId,
     run_query: &RunJobQuery,
     w_id: &str,
     args: RawWebhookArgs,
@@ -4721,7 +4734,7 @@ pub async fn get_args_and_trigger_metadata(
             &authed,
             &db,
             &w_id,
-            RunnableId::from_script_path(runnable_path),
+            runnable_id,
             run_query.skip_preprocessor,
         )
         .await?;
@@ -8466,7 +8479,11 @@ async fn list_completed_jobs(
 
     let (per_page, offset) = paginate(pagination);
 
-    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+    let args_field = if include_args {
+        "v2_job.args"
+    } else {
+        "null as args"
+    };
 
     let sql = list_completed_jobs_query(
         &w_id,
