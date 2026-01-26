@@ -68,7 +68,6 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
-quickjs = ["windmill-worker/quickjs"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
@@ -389,7 +388,6 @@ nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
 rmcp = { version = "^0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
-rquickjs = { version = "0.8", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
 
 datafusion = "47.0.0"

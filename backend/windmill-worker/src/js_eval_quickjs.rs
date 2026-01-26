@@ -39,7 +39,11 @@ use serde_json::value::RawValue;
 use windmill_common::client::AuthedClient;
 use windmill_common::flow_status::JobResult;
 
+<<<<<<< Updated upstream
 use crate::js_eval::{replace_with_await, replace_with_await_result, IdContext};
+=======
+use crate::js_eval::{IdContext, PreparedEvalContext};
+>>>>>>> Stashed changes
 
 /// Shared state for async operations within QuickJS
 #[derive(Clone)]
@@ -47,6 +51,7 @@ struct AsyncOpState {
     client: AuthedClient,
 }
 
+<<<<<<< Updated upstream
 /// Evaluates a JavaScript expression using QuickJS runtime.
 ///
 /// This function provides the same interface as `eval_timeout` but uses QuickJS
@@ -146,6 +151,15 @@ pub async fn eval_timeout_quickjs(
 
     // Run the QuickJS evaluation with a timeout
     let result = tokio::time::timeout(
+=======
+/// Evaluates a JavaScript expression using QuickJS runtime with a prepared context.
+/// This is the main entry point called by eval_timeout after prepare_eval.
+pub async fn eval_quickjs_with_context(ctx: PreparedEvalContext) -> anyhow::Result<Box<RawValue>> {
+    let expr_for_error = ctx.expr.clone();
+
+    // Run the QuickJS evaluation with a timeout
+    tokio::time::timeout(
+>>>>>>> Stashed changes
         std::time::Duration::from_millis(10000),
         tokio::task::spawn_blocking(move || {
             // Create a new tokio runtime for async operations within the blocking context
@@ -155,6 +169,7 @@ pub async fn eval_timeout_quickjs(
 
             rt.block_on(async move {
                 eval_quickjs_inner(
+<<<<<<< Updated upstream
                     &expr_clone,
                     filtered_context,
                     flow_input_clone,
@@ -163,6 +178,16 @@ pub async fn eval_timeout_quickjs(
                     by_id_clone,
                     ctx,
                     context_keys,
+=======
+                    &ctx.expr,
+                    ctx.filtered_context,
+                    ctx.flow_input,
+                    ctx.flow_env,
+                    ctx.authed_client,
+                    ctx.by_id,
+                    ctx.ctx,
+                    ctx.context_keys,
+>>>>>>> Stashed changes
                 )
                 .await
             })
@@ -171,11 +196,49 @@ pub async fn eval_timeout_quickjs(
     .await
     .map_err(|_| {
         anyhow::anyhow!(
+<<<<<<< Updated upstream
             "The expression evaluation `{expr}` took too long to execute (>10000ms)"
         )
     })??;
 
     result
+=======
+            "The expression evaluation `{expr_for_error}` took too long to execute (>10000ms)"
+        )
+    })??
+}
+
+/// Evaluates a JavaScript expression using QuickJS runtime.
+/// This is kept for backwards compatibility with parity tests.
+/// In production, use eval_timeout which calls eval_quickjs_with_context.
+pub async fn eval_timeout_quickjs(
+    expr: String,
+    transform_context: HashMap<String, Arc<Box<RawValue>>>,
+    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+    flow_env: Option<&HashMap<String, Box<RawValue>>>,
+    authed_client: Option<&AuthedClient>,
+    by_id: Option<&IdContext>,
+    ctx: Option<Vec<(String, String)>>,
+) -> anyhow::Result<Box<RawValue>> {
+    use crate::js_eval::{prepare_eval, PrepareEvalResult};
+
+    // Use shared preparation logic
+    let prepared = prepare_eval(
+        expr,
+        transform_context,
+        flow_input,
+        flow_env,
+        authed_client,
+        by_id,
+        ctx,
+    )
+    .await?;
+
+    match prepared {
+        PrepareEvalResult::FastPath(result) => Ok(result),
+        PrepareEvalResult::NeedsEval(eval_ctx) => eval_quickjs_with_context(eval_ctx).await,
+    }
+>>>>>>> Stashed changes
 }
 
 async fn eval_quickjs_inner(
@@ -287,6 +350,7 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
+<<<<<<< Updated upstream
         // Wrap the expression to handle async operations
         // Use the same transformation as deno_core: wrap variable(), resource(),
         // and results.xxx/flow_env.xxx patterns with await
@@ -300,6 +364,14 @@ async fn eval_quickjs_inner(
             format!("(async function() {{ return {}; }})()", wrapped_expr)
         } else {
             format!("(async function() {{ {} }})()", wrapped_expr)
+=======
+        // The expression is already transformed by prepare_eval (replace_with_await done)
+        // Determine if we need to add return statement
+        let code = if should_add_return_quickjs(expr) {
+            format!("(async function() {{ return {}; }})()", expr)
+        } else {
+            format!("(async function() {{ {} }})()", expr)
+>>>>>>> Stashed changes
         };
 
         // Evaluate the expression (returns a Promise)
