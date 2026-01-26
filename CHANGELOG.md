@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.615.3](https://github.com/windmill-labs/windmill/compare/v1.615.2...v1.615.3) (2026-01-26)
+
+
+### Bug Fixes
+
+* change min worker version to 1.420.0 ([95e5d7e](https://github.com/windmill-labs/windmill/commit/95e5d7e469bcce827fef55a0f6e176ebb110ffc1))
+
 ## [1.615.2](https://github.com/windmill-labs/windmill/compare/v1.615.1...v1.615.2) (2026-01-26)
 
 
