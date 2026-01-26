@@ -1,32 +1,29 @@
 <script lang="ts">
-	import { base } from '$lib/base'
 	import { ConcurrencyGroupsService, type Job, type WorkflowStatus } from '../../gen'
 	import JobLoader from '../JobLoader.svelte'
 	import DisplayResult from '../DisplayResult.svelte'
 	import JobArgs from '../JobArgs.svelte'
 	import LogViewer from '../LogViewer.svelte'
-	import { Badge, Button, Skeleton, Tab, Tabs } from '../common'
+	import { Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
 	import { forLater } from '$lib/forLater'
 	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
-	import DurationMs from '../DurationMs.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
-	import Popover from '../Popover.svelte'
-	import { isFlowPreview, isScriptPreview, truncateRev } from '$lib/utils'
-	import { createEventDispatcher, setContext, untrack } from 'svelte'
-	import { Calendar, ListFilter, LoaderCircle } from 'lucide-svelte'
+	import { isFlowPreview, isScriptPreview } from '$lib/utils'
+	import { setContext, untrack } from 'svelte'
+	import { Calendar, LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
+	import JobDetailHeader from './JobDetailHeader.svelte'
 
 	interface Props {
 		id: string
-		blankLink?: boolean
 		workspace: string | undefined
 	}
 
-	let { id, blankLink = false, workspace }: Props = $props()
+	let { id, workspace }: Props = $props()
 
 	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
@@ -55,7 +52,6 @@
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
 	}
-	const dispatch = createEventDispatcher()
 	$effect(() => {
 		if (currentJob?.id == id) {
 			job = currentJob
@@ -109,87 +105,9 @@
 <div class="h-full overflow-y-auto">
 	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
 		{#if job}
-			<div class="flex gap-2 flex-wrap">
-				{#if job?.['priority']}
-					<Badge color="red">
-						priority: {job?.['priority']}
-					</Badge>
-				{/if}
-				{#if job && 'duration_ms' in job && job.duration_ms != undefined}
-					<DurationMs
-						duration_ms={job.duration_ms}
-						self_wait_time_ms={job?.self_wait_time_ms}
-						aggregate_wait_time_ms={job?.aggregate_wait_time_ms}
-					/>
-				{/if}
-				{#if job?.['mem_peak']}
-					<Badge large>
-						Mem: {job?.['mem_peak'] ? `${(job['mem_peak'] / 1024).toPrecision(4)}MB` : 'N/A'}
-					</Badge>
-				{/if}
-				{#if workspace && $workspaceStore != workspace}
-					<Badge large>
-						Workspace: {workspace}
-					</Badge>
-				{/if}
-				{#if job.tag}
-					<Badge large>
-						Tag: {job.tag}
-					</Badge>
-				{/if}
-				{#if job?.['labels'] && Array.isArray(job?.['labels']) && job?.['labels'].length > 0}
-					{#each job?.['labels'] as label}
-						<Badge baseClass="text-2xs">Label: {label}</Badge>
-					{/each}
-				{/if}
-				{#if concurrencyKey}
-					<Popover notClickable>
-						{#snippet text()}
-							This job has concurrency limits enabled with the key:
-							<Button
-								class="inline-text"
-								size="xs2"
-								color="light"
-								on:click={() => {
-									dispatch('filterByConcurrencyKey', concurrencyKey)
-								}}
-							>
-								{concurrencyKey}
-								<ListFilter class="inline-block" size={10} />
-							</Button>
-						{/snippet}
-						<Badge large>Concurrency: {truncateRev(concurrencyKey, 20)}</Badge>
-					</Popover>
-				{/if}
-				{#if job?.worker}
-					<Popover notClickable>
-						{#snippet text()}
-							This job was run on worker:
-							<Button
-								class="inline-text"
-								size="xs2"
-								color="light"
-								on:click={() => {
-									dispatch('filterByWorker', job?.worker)
-								}}
-							>
-								{job?.worker}
-								<ListFilter class="inline-block" size={10} />
-							</Button>
-						{/snippet}
-						<Badge large>Worker: {truncateRev(job.worker, 20)}</Badge>
-					</Popover>
-				{/if}
-			</div>
-			<a
-				href="{base}/run/{job?.id}?workspace={job?.workspace_id}"
-				class="text-xs font-semibold"
-				target={blankLink ? '_blank' : undefined}
-			>
-				ID: {job?.id ?? ''}
-			</a>
+			<JobDetailHeader {job} compact {concurrencyKey} />
 
-			<div class="w-full">
+			<div class="w-full mt-6">
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
