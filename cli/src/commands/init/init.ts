@@ -6,6 +6,7 @@ import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { CLI_COMMANDS } from "../../guidance/prompts.ts";
+import { SKILLS, SKILL_CONTENT } from "../../guidance/skills.ts";
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -238,17 +239,23 @@ async function initAction(opts: InitOptions) {
     }
   }
 
-  // Create .cursor/rules directory and files with SCRIPT_GUIDANCE content
+  // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
   try {
     const scriptGuidanceContent = SCRIPT_GUIDANCE;
     const flowGuidanceContent = FLOW_GUIDANCE;
     const cliCommandsContent = CLI_COMMANDS;
 
+    // Generate skills reference section for AGENTS.md
+    const skillsReference = SKILLS.map(
+      (s) => `- \`.claude/skills/${s.name}/SKILL.md\` - ${s.description}`
+    ).join("\n");
+
     // Create AGENTS.md file
     if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
       await Deno.writeTextFile(
         "AGENTS.md",
-        `
+        `# Windmill AI Agent Instructions
+
 You are a helpful assistant that can help with Windmill scripts and flows creation.
 
 ## Script Guidance
@@ -259,15 +266,52 @@ ${flowGuidanceContent}
 
 ## CLI Commands
 ${cliCommandsContent}
+
+## Claude Code Skills
+
+For Claude Code users, focused skills are available in \`.claude/skills/\`:
+
+${skillsReference}
+
+Invoke with \`/write-flow\`, \`/write-script-python\`, etc.
 `
       );
       log.info(colors.green("Created AGENTS.md"));
     }
 
-    // Create CLAUDE.md file, referencing AGENTS.md
+    // Create CLAUDE.md file, referencing AGENTS.md and skills
     if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
-      await Deno.writeTextFile("CLAUDE.md", "Instructions are in @AGENTS.md");
+      await Deno.writeTextFile(
+        "CLAUDE.md",
+        `Instructions are in @AGENTS.md
+
+Claude-specific skills available in .claude/skills/ - use /skill-name to invoke.
+`
+      );
       log.info(colors.green("Created CLAUDE.md"));
+    }
+
+    // Create .claude/skills/ directory and skill files
+    try {
+      await Deno.mkdir(".claude/skills", { recursive: true });
+
+      for (const skill of SKILLS) {
+        const skillDir = `.claude/skills/${skill.name}`;
+        await Deno.mkdir(skillDir, { recursive: true });
+
+        const skillContent = SKILL_CONTENT[skill.name];
+        if (skillContent) {
+          await Deno.writeTextFile(`${skillDir}/SKILL.md`, skillContent);
+        }
+      }
+
+      log.info(colors.green(`Created .claude/skills/ with ${SKILLS.length} skills`));
+    } catch (skillError) {
+      if (skillError instanceof Error) {
+        log.warn(`Could not create skills: ${skillError.message}`);
+      } else {
+        log.warn(`Could not create skills: ${skillError}`);
+      }
     }
   } catch (error) {
     if (error instanceof Error) {
