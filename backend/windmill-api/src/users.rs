@@ -9,7 +9,7 @@
 #![allow(non_snake_case)]
 
 use quick_cache::sync::Cache;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -387,6 +387,19 @@ pub struct NewToken {
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+}
+
+#[cfg(feature = "native_trigger")]
+impl NewToken {
+    pub fn new(
+        label: Option<String>,
+        expiration: Option<chrono::DateTime<chrono::Utc>>,
+        impersonate_email: Option<String>,
+        scopes: Option<Vec<String>>,
+        workspace_id: Option<String>,
+    ) -> NewToken {
+        NewToken { label, expiration, impersonate_email, scopes, workspace_id }
+    }
 }
 
 #[derive(Deserialize)]
@@ -1465,11 +1478,11 @@ async fn convert_user_to_group(
         r#"
         SELECT
             eig.igroup as group_name,
-            ws.auto_add_instance_groups_roles
+            ws.auto_invite->'instance_groups_roles' as instance_groups_roles
         FROM email_to_igroup eig
         INNER JOIN workspace_settings ws ON ws.workspace_id = $1
         WHERE eig.email = $2
-        AND eig.igroup = ANY(ws.auto_add_instance_groups)
+        AND ws.auto_invite->'instance_groups' ? eig.igroup
         "#,
         &w_id,
         &user_info.email
@@ -1486,7 +1499,7 @@ async fn convert_user_to_group(
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
     let roles: std::collections::HashMap<String, String> =
-        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+        if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()
         } else {
             std::collections::HashMap::new()
@@ -2122,13 +2135,13 @@ pub async fn create_session_token<'c>(
     Ok(token)
 }
 
-async fn create_token(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(new_token): Json<NewToken>,
-) -> Result<(StatusCode, String)> {
+pub async fn create_token_internal(
+    tx: &mut PgConnection,
+    db: &DB,
+    authed: &ApiAuthed,
+    token_config: NewToken,
+) -> Result<String> {
     let token = rd_string(32);
-    let mut tx = db.begin().await?;
 
     let is_super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
@@ -2140,7 +2153,7 @@ async fn create_token(
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
-                .fetch_one(&db)
+                .fetch_one(db)
                 .await?;
         if nb_tokens.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
@@ -2155,18 +2168,18 @@ async fn create_token(
             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         token,
         authed.email,
-        new_token.label,
-        new_token.expiration,
+        token_config.label,
+        token_config.expiration,
         is_super_admin,
-        new_token.scopes.as_ref().map(|x| x.as_slice()),
-        new_token.workspace_id,
+        token_config.scopes.as_ref().map(|x| x.as_slice()),
+        token_config.workspace_id,
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed,
+        authed,
         "users.token.create",
         ActionKind::Create,
         &"global",
@@ -2175,6 +2188,19 @@ async fn create_token(
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
+
+    Ok(token)
+}
+
+async fn create_token(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(token_config): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let mut tx = db.begin().await?;
+
+    let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
+
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
 }

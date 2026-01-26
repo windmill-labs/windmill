@@ -9,10 +9,11 @@
 		small?: boolean
 		Icon?: any | undefined
 		class?: string
+		id?: string | undefined
 		onClick?: () => void | undefined | any
 	}
 
-	let { noBg = false, small = false, Icon, class: className, onClick }: Props = $props()
+	let { noBg = false, small = false, Icon, class: className, id, onClick }: Props = $props()
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -20,6 +21,7 @@
 <Button
 	on:click={() => (dispatch('close'), onClick?.())}
 	on:pointerdown={(e) => e.stopPropagation()}
+	{id}
 	startIcon={{ icon: Icon ?? X }}
 	iconOnly
 	unifiedSize="sm"

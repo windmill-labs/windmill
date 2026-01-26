@@ -15,7 +15,7 @@
 	import Head from '$lib/components/table/Head.svelte'
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import WorkspaceGroup from '$lib/components/WorkerGroup.svelte'
-	import { WorkerService, type WorkerPing, ConfigService, SettingService } from '$lib/gen'
+	import { WorkerService, type WorkerPing, ConfigService, SettingService, SettingsService } from '$lib/gen'
 	import {
 		enterpriseLicense,
 		superadmin,
@@ -54,6 +54,67 @@
 	let intervalId: number | undefined
 	const splitter = '_%%%_'
 	let customTags: string[] | undefined = $state(undefined)
+	let serverVersion: string | undefined = $state(undefined)
+	let minKeepAliveVersion: string | undefined = $state(undefined)
+	let agentMinKeepAliveVersion: string | undefined = $state(undefined)
+
+	type VersionWarning = 'none' | 'note' | 'warning' | 'critical' | 'newer'
+
+	// TODO: add util in frontend or update backend endpoint with flag to return clean version
+	function parseVersion(v: string): [number, number, number] | null {
+		let clean = v.replace(/^(CE|EE)\s+/, '').replace(/^v/, '')
+		const parts = clean.split(/[.-]/)
+		const [major, minor, patch] = parts.map((p) => parseInt(p, 10))
+		if (isNaN(major) || isNaN(minor)) return null
+		return [major, minor || 0, patch || 0]
+	}
+
+	function getVersionWarning(workerVersion: string, isAgent: boolean = false): VersionWarning {
+		if (!serverVersion) return 'none'
+		const server = parseVersion(serverVersion)
+		const worker = parseVersion(workerVersion)
+		if (!server || !worker) return 'none'
+
+		// Worker newer than server
+		if (worker[0] > server[0] || (worker[0] === server[0] && worker[1] > server[1])) {
+			return 'newer'
+		}
+
+		const minorLag = server[1] - worker[1]
+		if (minorLag <= 0) return 'none'
+
+		// Check against min keep alive (different for agents vs normal workers)
+		const minVersion = isAgent ? agentMinKeepAliveVersion : minKeepAliveVersion
+		if (minVersion) {
+			const minKeepAlive = parseVersion(minVersion)
+			if (minKeepAlive && (worker[0] < minKeepAlive[0] ||
+				(worker[0] === minKeepAlive[0] && worker[1] < minKeepAlive[1]))) {
+				return 'critical'
+			}
+		}
+
+		// Agent workers: no warning for version lag, only critical if below min keep alive
+		if (isAgent) return 'none'
+
+		if (minorLag > 50) return 'warning'
+		if (minorLag > 0) return 'note'
+		return 'none'
+	}
+
+	// Compute the worst version warning across alive workers only
+	let worstVersionWarning = $derived.by(() => {
+		if (!workers) return 'none' as VersionWarning
+		const priority: Record<VersionWarning, number> = { none: 0, note: 1, newer: 2, warning: 3, critical: 4 }
+		let worst: VersionWarning = 'none'
+		for (const w of workers) {
+			// Only check alive workers (pinged within last 60 seconds, accounting for time since refresh)
+			if (w.last_ping == null || w.last_ping + timeSinceLastPing >= 60) continue
+			const isAgent = w.worker.startsWith('ag-')
+			const warning = getVersionWarning(w.wm_version, isAgent)
+			if (priority[warning] > priority[worst]) worst = warning
+		}
+		return worst
+	})
 
 	function groupWorkers(
 		workers: WorkerPing[] | undefined,
@@ -207,6 +268,11 @@
 	loadWorkers()
 	loadWorkerGroups()
 	loadCustomTags()
+	SettingsService.backendVersion().then((v) => (serverVersion = v)).catch((e) => console.error('Failed to fetch server version:', e))
+	SettingService.getMinKeepAliveVersion().then((v) => {
+		minKeepAliveVersion = v.worker
+		agentMinKeepAliveVersion = v.agent
+	}).catch((e) => console.error('Failed to fetch min keep-alive version:', e))
 
 	onDestroy(() => {
 		if (intervalId) {
@@ -627,6 +693,25 @@
 				{/if}
 			</PageHeader>
 
+			{#if worstVersionWarning === 'critical'}
+				<Alert type="error" title="Critical: Workers below minimum version" class="my-4">
+					One or more workers are running below the minimum supported version.
+					This may cause undefined behavior and cluster instability.
+					Upgrade these workers immediately—running workers this old is untested and strongly discouraged.
+				</Alert>
+			{:else if worstVersionWarning === 'warning'}
+				<Alert type="warning" title="Workers significantly behind" class="my-4">
+					One or more workers are significantly behind the server ({serverVersion}) by more than 50 minor versions.
+					While they should still function, the risk of issues is elevated.
+					Further server upgrades may push these workers into a critical state. Upgrading is recommended.
+				</Alert>
+			{:else if worstVersionWarning === 'newer'}
+				<Alert type="warning" title="Workers ahead of server" class="my-4">
+					One or more workers are running a newer version than the server ({serverVersion}).
+					Workers should be at or behind the server version. This may cause undefined behavior.
+				</Alert>
+			{/if}
+
 			{#if workers != undefined}
 				{#if groupedWorkers.length == 0}
 					<p>No workers seem to be available</p>
@@ -880,8 +965,38 @@
 														</div>
 													</Cell>
 													<Cell class="text-secondary">
-														<div class="!text-2xs" title={wm_version}>
-															{wm_version.split('-')[0]}
+														{@const versionWarning = getVersionWarning(wm_version, worker.startsWith('ag-'))}
+														<div class="flex items-center gap-1">
+															<div class="!text-2xs" title={wm_version}>
+																{wm_version.split('-')[0]}
+															</div>
+															{#if versionWarning !== 'none'}
+																<MeltTooltip>
+																	<Badge color={versionWarning === 'critical' ? 'red' : versionWarning === 'warning' ? 'yellow' : versionWarning === 'newer' ? 'yellow' : 'blue'}>
+																		<TriangleAlert size={12} />
+																	</Badge>
+																	{#snippet text()}
+																		{@const isAgent = worker.startsWith('ag-')}
+																		<div class="max-w-xs text-xs">
+																			{#if versionWarning === 'critical'}
+																				<strong>Critical:</strong> This {isAgent ? 'agent worker' : 'worker'} is running below the minimum supported version ({isAgent ? agentMinKeepAliveVersion : minKeepAliveVersion}).
+																				This may cause undefined behavior and cluster instability.
+																				Upgrade this {isAgent ? 'agent worker' : 'worker'} immediately—running {isAgent ? 'agent workers' : 'workers'} this old is untested and strongly discouraged.
+																			{:else if versionWarning === 'warning'}
+																				<strong>Warning:</strong> This worker is significantly behind the server ({serverVersion}) by more than 50 minor versions.
+																				While it should still function, the risk of issues is elevated.
+																				Further server upgrades may push this worker into a critical state. Upgrading is recommended.
+																			{:else if versionWarning === 'newer'}
+																				<strong>Warning:</strong> This worker is running a newer version than the server ({serverVersion}).
+																				Workers should be at or behind the server version. This may cause undefined behavior.
+																			{:else}
+																				<strong>Note:</strong> This worker is behind the server version.
+																				While generally fine, keeping all workers aligned with the server provides the best stability and is most thoroughly tested.
+																			{/if}
+																		</div>
+																	{/snippet}
+																</MeltTooltip>
+															{/if}
 														</div>
 													</Cell>
 													<Cell class="text-secondary">

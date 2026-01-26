@@ -1,5 +1,64 @@
 # Changelog
 
+## [1.615.3](https://github.com/windmill-labs/windmill/compare/v1.615.2...v1.615.3) (2026-01-26)
+
+
+### Bug Fixes
+
+* change min worker version to 1.420.0 ([95e5d7e](https://github.com/windmill-labs/windmill/commit/95e5d7e469bcce827fef55a0f6e176ebb110ffc1))
+
+## [1.615.2](https://github.com/windmill-labs/windmill/compare/v1.615.1...v1.615.2) (2026-01-26)
+
+
+### Bug Fixes
+
+* add SSL_CERT_FILE to python install ([5e56d75](https://github.com/windmill-labs/windmill/commit/5e56d751f3085b64e05d6a7ef0b23838efe408a4))
+* mixed version error ([#7686](https://github.com/windmill-labs/windmill/issues/7686)) ([1ae157d](https://github.com/windmill-labs/windmill/commit/1ae157dadd17a7d759ea927976bbabaa47ac328d))
+* set 3.12 as python fallback if no version explicitely set ([f880655](https://github.com/windmill-labs/windmill/commit/f880655e32793ce50fec5a63040d041c29b7d2dc))
+
+## [1.615.1](https://github.com/windmill-labs/windmill/compare/v1.615.0...v1.615.1) (2026-01-26)
+
+
+### Bug Fixes
+
+* **aiagent:** fix usage for gemini 3 models ([#7682](https://github.com/windmill-labs/windmill/issues/7682)) ([29b274a](https://github.com/windmill-labs/windmill/commit/29b274a08a85d50ead1f1b71949b2c261b6728be))
+
+## [1.615.0](https://github.com/windmill-labs/windmill/compare/v1.614.0...v1.615.0) (2026-01-26)
+
+
+### Features
+
+* add workspace setting to disable error handler for u/ scripts/flows ([#7634](https://github.com/windmill-labs/windmill/issues/7634)) ([05fa3cd](https://github.com/windmill-labs/windmill/commit/05fa3cd0130220de924b495296c2aac5c4520ac7))
+* **ai:** native bedrock compatibility ([#7668](https://github.com/windmill-labs/windmill/issues/7668)) ([2553d98](https://github.com/windmill-labs/windmill/commit/2553d987d9c08987bf10fe2ef7c91d778aed04fc))
+
+
+### Bug Fixes
+
+* allow SERVER_BIND_ADDR to override worker bind address ([522fa98](https://github.com/windmill-labs/windmill/commit/522fa98d7194093ebb2cfe2eefea870f610d4216))
+* make DateInput reactive to external value changes and handle empty dateFormat ([22ea612](https://github.com/windmill-labs/windmill/commit/22ea61207ae4c7bad38eb4e0a85eeadfb9e9137b))
+* persist "Planned later" and "Schedule" toggles in localStorage on runs page ([35081ca](https://github.com/windmill-labs/windmill/commit/35081ca9d2cc506b9068fed5eb28ef9f7d650b24))
+* tighten operator permissions ([c621a74](https://github.com/windmill-labs/windmill/commit/c621a74804f4f6e8318819c01e3a23a17698588b))
+* update rmcp type aliases to non-deprecated versions ([bb9adca](https://github.com/windmill-labs/windmill/commit/bb9adca38f8694e21a8cea27ba13e029accc3e57))
+
+## [1.614.0](https://github.com/windmill-labs/windmill/compare/v1.613.4...v1.614.0) (2026-01-23)
+
+
+### Features
+
+* add cache-rt command and SYNC_CACHED_RT env variable for resource types ([#7666](https://github.com/windmill-labs/windmill/issues/7666)) ([85e460d](https://github.com/windmill-labs/windmill/commit/85e460d853cbd9f8d245efb9009690c0bb468bfc))
+* **aichat:** handle codestral from any provider ([#7649](https://github.com/windmill-labs/windmill/issues/7649)) ([389499e](https://github.com/windmill-labs/windmill/commit/389499e57696dc4805080a9e6b737b1aef4566be))
+* **ai:** handle google vertex for claude models + base url overrides ([#7654](https://github.com/windmill-labs/windmill/issues/7654)) ([0797e89](https://github.com/windmill-labs/windmill/commit/0797e89aa00e57b4e162df32d7b0a041ad6db71e))
+* better mixed versions handling ([#7628](https://github.com/windmill-labs/windmill/issues/7628)) ([7249b82](https://github.com/windmill-labs/windmill/commit/7249b82dbaee2d14cb5768233c2026a6ab44231f))
+
+
+### Bug Fixes
+
+* add support for OIDC session tokens in S3 proxy headers ([#7652](https://github.com/windmill-labs/windmill/issues/7652)) ([3b8a99e](https://github.com/windmill-labs/windmill/commit/3b8a99e174682ad90a9a0d3957902e09c9e0a195))
+* Avoid logout when using deploy ui and no access to some deps ([#7655](https://github.com/windmill-labs/windmill/issues/7655)) ([bb21486](https://github.com/windmill-labs/windmill/commit/bb2148639441b86c6c966119df4711066fc94c85))
+* **frontend:** improve ai chat ui ([#7648](https://github.com/windmill-labs/windmill/issues/7648)) ([af14b09](https://github.com/windmill-labs/windmill/commit/af14b0941581eec98061d4cbae159a061f1d5eee))
+* **frontend:** Improve flow detail page ([#7647](https://github.com/windmill-labs/windmill/issues/7647)) ([7385726](https://github.com/windmill-labs/windmill/commit/738572674123a00a5e37a0c875b2649608c70f0a))
+* use pgoptions for iam rds connection ([#7660](https://github.com/windmill-labs/windmill/issues/7660)) ([08b483e](https://github.com/windmill-labs/windmill/commit/08b483eacafcd161537b9a09f63640eeacad087f))
+
 ## [1.613.4](https://github.com/windmill-labs/windmill/compare/v1.613.3...v1.613.4) (2026-01-21)
 
 

@@ -47,10 +47,10 @@ use windmill_common::runnable_settings::{
 };
 use windmill_common::triggers::TriggerMetadata;
 use windmill_common::utils::{calculate_hash, configure_client, now_from_db};
-use windmill_common::worker::{
-    Connection, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-    SCRIPT_TOKEN_EXPIRY,
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::worker::{Connection, SCRIPT_TOKEN_EXPIRY};
 
 use windmill_common::{
     auth::{fetch_authed_from_permissioned_as, permissioned_as_to_username},
@@ -71,9 +71,10 @@ use windmill_common::{
     scripts::{get_full_hub_script_by_path, ScriptHash, ScriptLang},
     users::{SUPERADMIN_NOTIFICATION_EMAIL, SUPERADMIN_SECRET_EMAIL},
     utils::{not_found_if_none, report_critical_error, StripPath, WarnAfterExt},
+    min_version::{MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440},
     worker::{
-        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, MIN_VERSION_IS_AT_LEAST_1_432,
-        MIN_VERSION_IS_AT_LEAST_1_440, NO_LOGS, WORKER_PULL_QUERIES, WORKER_SUSPENDED_PULL_QUERY,
+        to_raw_value, CLOUD_HOSTED, DISABLE_FLOW_SCRIPT, NO_LOGS, WORKER_PULL_QUERIES,
+        WORKER_SUSPENDED_PULL_QUERY,
     },
     DB, METRICS_ENABLED,
 };
@@ -776,8 +777,8 @@ lazy_static::lazy_static! {
     static ref RESTART_UNLESS_CANCELLED_CACHE: Cache<(i64, String), bool> = Cache::new(10000);
 
     // Cache for workspace error handler settings with 60s TTL
-    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, expiry_timestamp)
-    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, i64)> = Cache::new(1000);
+    // Key: workspace_id, Value: (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path, expiry_timestamp)
+    static ref WORKSPACE_ERROR_HANDLER_CACHE: Cache<String, (Option<String>, Option<Json<Box<RawValue>>>, bool, bool, i64)> = Cache::new(1000);
 
     // Cache for workspace success handler settings with 60s TTL
     // Key: workspace_id, Value: (success_handler, success_handler_extra_args, expiry_timestamp)
@@ -1520,12 +1521,12 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
     let w_id = &queued_job.workspace_id;
     let row_result = sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         r#"
-                SELECT 
-                    error_handler, 
-                    error_handler_extra_args
-                FROM 
-                    workspace_settings 
-                WHERE 
+                SELECT
+                    error_handler->>'path',
+                    (error_handler->'extra_args')::text::json
+                FROM
+                    workspace_settings
+                WHERE
                     workspace_id = $1
                 "#,
     )
@@ -1577,10 +1578,14 @@ pub async fn report_error_to_workspace_handler_or_critical_side_channel(
 async fn fetch_error_handler_from_db(
     db: &Pool<Postgres>,
     w_id: &str,
-) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool), Error> {
-    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, bool)>(
+) -> Result<(Option<String>, Option<Json<Box<RawValue>>>, bool, bool), Error> {
+    sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>, Option<bool>, Option<bool>)>(
         r#"
-        SELECT error_handler, error_handler_extra_args, error_handler_muted_on_cancel
+        SELECT
+            error_handler->>'path',
+            (error_handler->'extra_args')::text::json,
+            (error_handler->>'muted_on_cancel')::boolean,
+            (error_handler->>'muted_on_user_path')::boolean
         FROM workspace_settings
         WHERE workspace_id = $1
         "#,
@@ -1589,6 +1594,9 @@ async fn fetch_error_handler_from_db(
     .fetch_optional(db)
     .await
     .context("fetching error handler info from workspace_settings")?
+    .map(|(path, extra_args, muted_on_cancel, muted_on_user_path)| {
+        (path, extra_args, muted_on_cancel.unwrap_or(false), muted_on_user_path.unwrap_or(false))
+    })
     .ok_or_else(|| Error::internal_err(format!("no workspace settings for id {w_id}")))
 }
 
@@ -1601,16 +1609,16 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
     let w_id = &queued_job.workspace_id;
 
     let now = chrono::Utc::now().timestamp();
-    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel) =
+    let (error_handler, error_handler_extra_args, error_handler_muted_on_cancel, error_handler_muted_on_user_path) =
         if let Some(cached) = WORKSPACE_ERROR_HANDLER_CACHE.get(w_id) {
-            if cached.3 > now {
-                (cached.0.clone(), cached.1.clone(), cached.2)
+            if cached.4 > now {
+                (cached.0.clone(), cached.1.clone(), cached.2, cached.3)
             } else {
                 let row = fetch_error_handler_from_db(db, w_id).await?;
                 let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
                 WORKSPACE_ERROR_HANDLER_CACHE.insert(
                     w_id.clone(),
-                    (row.0.clone(), row.1.clone(), row.2, expiry),
+                    (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
                 );
                 row
             }
@@ -1619,13 +1627,22 @@ pub async fn send_error_to_workspace_handler<'a, 'c, T: Serialize + Send + Sync>
             let expiry = now + WORKSPACE_HANDLER_CACHE_TTL_SECONDS;
             WORKSPACE_ERROR_HANDLER_CACHE.insert(
                 w_id.clone(),
-                (row.0.clone(), row.1.clone(), row.2, expiry),
+                (row.0.clone(), row.1.clone(), row.2, row.3, expiry),
             );
             row
         };
 
     if is_canceled && error_handler_muted_on_cancel {
         return Ok(());
+    }
+
+    // Skip error handler for scripts/flows starting with u/
+    if error_handler_muted_on_user_path {
+        if let Some(ref path) = queued_job.runnable_path {
+            if path.starts_with("u/") {
+                return Ok(());
+            }
+        }
     }
 
     if let Some(error_handler) = error_handler {
@@ -1684,7 +1701,9 @@ async fn fetch_success_handler_from_db(
 ) -> Result<(Option<String>, Option<Json<Box<RawValue>>>), Error> {
     sqlx::query_as::<_, (Option<String>, Option<Json<Box<RawValue>>>)>(
         r#"
-        SELECT success_handler, success_handler_extra_args
+        SELECT
+            success_handler->>'path',
+            (success_handler->'extra_args')::text::json
         FROM workspace_settings
         WHERE workspace_id = $1
         "#,
@@ -2749,7 +2768,7 @@ impl PulledJobResult {
                 .is_some();
 
         if (is_djob_to_debounce || debounce_delay_s.filter(|x| *x > 0).is_some())
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
             && !*WMDEBUG_NO_DEBOUNCING
         {
             let needs_debounce = sqlx::query_scalar!(
@@ -2773,7 +2792,7 @@ impl PulledJobResult {
             }
 
             if matches!(kind, JobKind::FlowDependencies | JobKind::AppDependencies)
-                && !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                && !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                 && !*WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT
             {
                 // Simply disable optimization for apps and flows if min version doesn't support debouncing v2
@@ -3367,7 +3386,7 @@ pub async fn check_debouncing_within_limits(
 ) -> DebouncingLimitsReport {
     use DebouncingLimitsReport::*;
 
-    let no_legacy_compat = *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    let no_legacy_compat = MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT;
 
     if !no_legacy_compat {
@@ -4436,7 +4455,7 @@ pub async fn push<'c, 'd>(
             let status = Some(FlowStatus::new(value));
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the flow node id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -4556,7 +4575,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await && !skip_compat {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await && !skip_compat {
                 let mut ntx = tx.into_tx().await?;
                 // The version has been inserted only within the transaction.
                 let data = cache::flow::fetch_version(&mut *ntx, version).await?;
@@ -4827,7 +4846,7 @@ pub async fn push<'c, 'd>(
             let mut ntx = tx.into_tx().await?;
             // Do not use the lite version unless all workers are updated.
             let data = if *DISABLE_FLOW_SCRIPT
-                || (!*MIN_VERSION_IS_AT_LEAST_1_432.read().await && !*CLOUD_HOSTED)
+                || (!MIN_VERSION_IS_AT_LEAST_1_432.met().await && !*CLOUD_HOSTED)
             {
                 cache::flow::fetch_version(&mut *ntx, version).await
             } else {
@@ -4865,7 +4884,7 @@ pub async fn push<'c, 'd>(
 
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 let mut value = value;
                 add_virtual_items_if_necessary(&mut value.modules);
                 if same_worker {
@@ -4950,7 +4969,7 @@ pub async fn push<'c, 'd>(
             let cache_ttl = value.cache_ttl.map(|x| x as i32);
             // Keep inserting `value` if not all workers are updated.
             // Starting at `v1.440`, the value is fetched on pull from the version id.
-            let value_o = if version.is_none() || !*MIN_VERSION_IS_AT_LEAST_1_440.read().await {
+            let value_o = if version.is_none() || !MIN_VERSION_IS_AT_LEAST_1_440.met().await {
                 Some(value.clone())
             } else {
                 // `raw_flow` is fetched on pull.
@@ -5002,7 +5021,7 @@ pub async fn push<'c, 'd>(
         cfg!(feature = "private")
             && job_kind.is_dependency()
             && !*WMDEBUG_NO_DEBOUNCING
-            && *MIN_VERSION_SUPPORTS_DEBOUNCING.read().await,
+            && MIN_VERSION_SUPPORTS_DEBOUNCING.met().await,
     ) {
         concurrency_settings.concurrency_key = Some(format!("dependency:{workspace_id}/{path}"));
         concurrency_settings.concurrent_limit = Some(1);

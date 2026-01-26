@@ -34,9 +34,10 @@ use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::{
-    to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -288,10 +289,10 @@ async fn toggle_workspace_error_handler(
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
         r#"
             SELECT
-                error_handler 
-            FROM 
-                workspace_settings 
-            WHERE 
+                error_handler->>'path'
+            FROM
+                workspace_settings
+            WHERE
                 workspace_id = $1
         "#,
         w_id
@@ -420,6 +421,11 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create flows for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
     validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
@@ -845,6 +851,11 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update flows for security reasons".to_string(),
+        ));
+    }
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
     validate_flow(&nf).await?;
@@ -1476,14 +1487,14 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
         && !nf.parse_flow_value()?.debouncing_settings.is_default()
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
-    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    } else if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         && !nf
             .parse_flow_value()?
             .debouncing_settings

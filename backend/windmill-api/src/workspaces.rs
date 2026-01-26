@@ -249,12 +249,6 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slack_oauth_client_secret: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_invite_domain: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_invite_operator: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub customer_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan: Option<String>,
@@ -265,25 +259,15 @@ pub struct WorkspaceSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ai_config: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_extra_args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub error_handler_muted_on_cancel: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub success_handler: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub success_handler_extra_args: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub large_file_storage: Option<serde_json::Value>, // effectively: DatasetsStorage
+    pub large_file_storage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ducklake: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub datatable: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub git_sync: Option<serde_json::Value>, // effectively: WorkspaceGitSyncSettings
+    pub git_sync: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub deploy_ui: Option<serde_json::Value>, // effectively: WorkspaceDeploymentUISettings
+    pub deploy_ui: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_app: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -296,13 +280,16 @@ pub struct WorkspaceSettings {
     pub operator_settings: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub git_app_installations: Option<serde_json::Value>,
+    // Grouped config fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add_instance_groups: Option<Vec<String>>,
+    pub auto_invite: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub auto_add_instance_groups_roles: Option<serde_json::Value>,
+    pub error_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub success_handler: Option<serde_json::Value>,
 }
 
-// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
+/// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
 // #[sqlx(type_name = "WORKSPACE_KEY_KIND", rename_all = "lowercase")]
 // pub enum WorkspaceKeyKind {
 //     Cloud,
@@ -440,17 +427,82 @@ pub struct NewWorkspaceUser {
     pub operator: bool,
 }
 
+// New format for error handler (grouped)
 #[derive(Deserialize)]
-pub struct EditErrorHandler {
-    pub error_handler: Option<String>,
-    pub error_handler_extra_args: Option<serde_json::Value>,
-    pub error_handler_muted_on_cancel: Option<bool>,
+#[serde(deny_unknown_fields)]
+pub struct EditErrorHandlerNew {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub muted_on_cancel: bool,
+    #[serde(default)]
+    pub muted_on_user_path: bool,
 }
 
+// Legacy format for error handler (flat fields from old CLI)
 #[derive(Deserialize)]
-pub struct EditSuccessHandler {
+pub struct EditErrorHandlerLegacy {
+    pub error_handler: Option<String>,
+    pub error_handler_extra_args: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error_handler_muted_on_cancel: bool,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditErrorHandler {
+    New(EditErrorHandlerNew),
+    Legacy(EditErrorHandlerLegacy),
+}
+
+impl EditErrorHandler {
+    pub fn into_normalized(self) -> EditErrorHandlerNew {
+        match self {
+            EditErrorHandler::New(new) => new,
+            EditErrorHandler::Legacy(legacy) => EditErrorHandlerNew {
+                path: legacy.error_handler,
+                extra_args: legacy.error_handler_extra_args,
+                muted_on_cancel: legacy.error_handler_muted_on_cancel,
+                muted_on_user_path: false, // Old format doesn't have this field
+            },
+        }
+    }
+}
+
+// New format for success handler (grouped)
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EditSuccessHandlerNew {
+    pub path: Option<String>,
+    pub extra_args: Option<serde_json::Value>,
+}
+
+// Legacy format for success handler (flat fields from old CLI)
+#[derive(Deserialize)]
+pub struct EditSuccessHandlerLegacy {
     pub success_handler: Option<String>,
     pub success_handler_extra_args: Option<serde_json::Value>,
+}
+
+// Accepts both old and new formats
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum EditSuccessHandler {
+    New(EditSuccessHandlerNew),
+    Legacy(EditSuccessHandlerLegacy),
+}
+
+impl EditSuccessHandler {
+    pub fn into_normalized(self) -> EditSuccessHandlerNew {
+        match self {
+            EditSuccessHandler::New(new) => new,
+            EditSuccessHandler::Legacy(legacy) => EditSuccessHandlerNew {
+                path: legacy.success_handler,
+                extra_args: legacy.success_handler_extra_args,
+            },
+        }
+    }
 }
 
 lazy_static::lazy_static! {
@@ -555,19 +607,11 @@ async fn get_settings(
             slack_email,
             slack_oauth_client_id,
             slack_oauth_client_secret,
-            auto_invite_domain,
-            auto_invite_operator,
-            auto_add,
             customer_id,
             plan,
             webhook,
             deploy_to,
             ai_config,
-            error_handler,
-            error_handler_extra_args,
-            error_handler_muted_on_cancel,
-            success_handler,
-            success_handler_extra_args,
             large_file_storage,
             datatable,
             ducklake,
@@ -579,8 +623,9 @@ async fn get_settings(
             color,
             operator_settings,
             git_app_installations,
-            auto_add_instance_groups,
-            auto_add_instance_groups_roles
+            auto_invite,
+            error_handler,
+            success_handler
         FROM
             workspace_settings
         WHERE
@@ -745,9 +790,8 @@ async fn get_slack_oauth_config(
 ) -> JsonResult<GetSlackOAuthConfigResponse> {
     require_admin(authed.is_admin, &authed.username)?;
 
-    let settings = sqlx::query_as!(
-        WorkspaceSettings,
-        "SELECT * FROM workspace_settings WHERE workspace_id = $1",
+    let settings = sqlx::query!(
+        "SELECT slack_oauth_client_id, slack_oauth_client_secret FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_one(&db)
@@ -2158,6 +2202,9 @@ async fn edit_error_handler(
 ) -> Result<String> {
     require_admin(is_admin, &username)?;
 
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let ee = ee.into_normalized();
+
     let mut tx = db.begin().await?;
 
     sqlx::query_as!(
@@ -2171,8 +2218,8 @@ async fn edit_error_handler(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(error_handler) = &ee.error_handler {
-        match ee.error_handler_extra_args.as_ref() {
+    if let Some(path) = &ee.path {
+        match ee.extra_args.as_ref() {
             Some(extra_args) if extra_args.is_object() => {
                 let Ok(email_recipients) = serde_json::from_value::<Option<Vec<String>>>(
                     extra_args["email_recipients"].to_owned(),
@@ -2196,41 +2243,34 @@ async fn edit_error_handler(
             None => {}
             _ => {
                 return Err(Error::BadRequest(
-                    "Field `error_handler_extra_args` expected to be JSON object".to_string(),
+                    "Field `extra_args` expected to be JSON object".to_string(),
                 ))
             }
         }
 
+        let mut error_handler = serde_json::json!({
+            "path": path,
+        });
+        if let Some(extra_args) = &ee.extra_args {
+            error_handler["extra_args"] = extra_args.clone();
+        }
+        if ee.muted_on_cancel {
+            error_handler["muted_on_cancel"] = serde_json::json!(true);
+        }
+        if ee.muted_on_user_path {
+            error_handler["muted_on_user_path"] = serde_json::json!(true);
+        }
+
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                error_handler = $1,
-                error_handler_extra_args = $2,
-                error_handler_muted_on_cancel = $3
-            WHERE
-                workspace_id = $4
-            "#,
+            "UPDATE workspace_settings SET error_handler = $1 WHERE workspace_id = $2",
             error_handler,
-            ee.error_handler_extra_args,
-            ee.error_handler_muted_on_cancel.unwrap_or(false),
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                error_handler = NULL,
-                error_handler_extra_args = NULL,
-                error_handler_muted_on_cancel = false
-            WHERE
-                workspace_id = $1
-        "#,
+            "UPDATE workspace_settings SET error_handler = NULL WHERE workspace_id = $1",
             &w_id
         )
         .execute(&mut *tx)
@@ -2244,7 +2284,7 @@ async fn edit_error_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("error_handler", &format!("{:?}", ee.error_handler)[..])].into()),
+        Some([("error_handler", &format!("{:?}", ee.path)[..])].into()),
     )
     .await?;
     tx.commit().await?;
@@ -2272,6 +2312,9 @@ async fn edit_success_handler(
 ) -> Result<String> {
     require_admin(authed.is_admin, &authed.username)?;
 
+    // Normalize to new format (handles both old CLI and new CLI requests)
+    let es = es.into_normalized();
+
     let mut tx = db.begin().await?;
 
     sqlx::query_as!(
@@ -2285,34 +2328,24 @@ async fn edit_success_handler(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(success_handler) = &es.success_handler {
+    if let Some(path) = &es.path {
+        let mut success_handler = serde_json::json!({
+            "path": path,
+        });
+        if let Some(extra_args) = &es.extra_args {
+            success_handler["extra_args"] = extra_args.clone();
+        }
+
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                success_handler = $1,
-                success_handler_extra_args = $2
-            WHERE
-                workspace_id = $3
-            "#,
+            "UPDATE workspace_settings SET success_handler = $1 WHERE workspace_id = $2",
             success_handler,
-            es.success_handler_extra_args,
             &w_id
         )
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query!(
-            r#"
-            UPDATE
-                workspace_settings
-            SET
-                success_handler = NULL,
-                success_handler_extra_args = NULL
-            WHERE
-                workspace_id = $1
-        "#,
+            "UPDATE workspace_settings SET success_handler = NULL WHERE workspace_id = $1",
             &w_id
         )
         .execute(&mut *tx)
@@ -2326,7 +2359,7 @@ async fn edit_success_handler(
         ActionKind::Update,
         &w_id,
         Some(&authed.email),
-        Some([("success_handler", &format!("{:?}", es.success_handler)[..])].into()),
+        Some([("success_handler", &format!("{:?}", es.path)[..])].into()),
     )
     .await?;
     tx.commit().await?;
@@ -2535,6 +2568,7 @@ struct UsedTriggers {
     pub sqs_used: bool,
     pub gcp_used: bool,
     pub email_used: bool,
+    pub nextcloud_used: bool,
 }
 
 async fn get_used_triggers(
@@ -2543,7 +2577,7 @@ async fn get_used_triggers(
     Path(w_id): Path<String>,
 ) -> JsonResult<UsedTriggers> {
     let mut tx = user_db.begin(&authed).await?;
-    let websocket_used = sqlx::query_as!(
+    let triggers_used = sqlx::query_as!(
         UsedTriggers,
         r#"
         SELECT
@@ -2555,7 +2589,8 @@ async fn get_used_triggers(
             EXISTS(SELECT 1 FROM mqtt_trigger WHERE workspace_id = $1) AS "mqtt_used!",
             EXISTS(SELECT 1 FROM sqs_trigger WHERE workspace_id = $1) AS "sqs_used!",
             EXISTS(SELECT 1 FROM gcp_trigger WHERE workspace_id = $1) AS "gcp_used!",
-            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!"
+            EXISTS(SELECT 1 FROM email_trigger WHERE workspace_id = $1) AS "email_used!",
+            EXISTS(SELECT 1 FROM native_trigger WHERE workspace_id = $1 AND service_name = 'nextcloud'::native_trigger_service) AS "nextcloud_used!"
         "#,
         w_id
     )
@@ -2563,7 +2598,7 @@ async fn get_used_triggers(
     .await?;
     tx.commit().await?;
 
-    Ok(Json(websocket_used))
+    Ok(Json(triggers_used))
 }
 
 async fn get_workspace_as_superadmin(

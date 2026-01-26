@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
@@ -5,7 +6,6 @@ use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
-use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
@@ -34,7 +34,7 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
     KillpillSender, BASE_INTERNAL_URL, DB,
 };
 
@@ -264,24 +264,6 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-    pub static ref MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
-    /// This flag is updated during worker initialization by checking the minimum version across all workers
-    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
-    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
-    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
-    /// This flag is updated during worker initialization by checking the minimum version across all workers
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 
@@ -505,6 +487,7 @@ pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+pub const HUB_RT_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub_rt");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
@@ -656,6 +639,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
     std::process::Command::new("cat")
         .args([path])
@@ -1242,82 +1226,6 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
-    use crate::utils::GIT_VERSION;
-
-    let fetched = match conn {
-        Connection::Sql(pool) => {
-            // fetch all pings with a different version than self from the last 5 minutes.
-            let pings = sqlx::query_scalar!(
-                "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
-                GIT_VERSION
-            ).fetch_all(pool).await?;
-
-            pings
-                .iter()
-                .filter(|x| !x.is_empty())
-                .filter_map(|x| {
-                    semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
-                })
-                .min()
-        }
-        Connection::Http(client) => {
-            // Fetch min version from server
-            Some(
-                client
-                    .get::<String>("/api/agent_workers/get_min_version")
-                    .await
-                    .map(|v| Version::parse(&v))??,
-            )
-        }
-    };
-
-    Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
-}
-
-pub async fn update_min_version(conn: &Connection) -> bool {
-    tracing::debug!("Updating min version");
-    use crate::utils::GIT_SEM_VERSION;
-
-    let cur_version = GIT_SEM_VERSION.clone();
-
-    let min_version = match get_min_version(conn).await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(
-                "Failed to fetch min version: {:#?}, using current version",
-                e
-            );
-            cur_version.clone()
-        }
-    };
-
-    if min_version != cur_version {
-        tracing::info!("Minimal worker version: {min_version}");
-    }
-
-    *MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 602, 0);
-    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
-    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
-        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
-
-    // Workspace dependencies feature requires minimum version across all workers
-    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
-        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
-            .unwrap();
-    // Debouncing feature requires minimum version 1.566.0 across all workers
-    // This ensures all workers can handle debounce keys and stale data accumulation
-    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
-
-    *MIN_VERSION.write().await = min_version.clone();
-    min_version >= cur_version
-}
 
 #[derive(Serialize, Deserialize)]
 pub enum PingType {

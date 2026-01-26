@@ -38,7 +38,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
 use axum::response::Response;
-use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
@@ -81,6 +81,7 @@ pub mod auth;
 #[cfg(all(feature = "private", feature = "parquet"))]
 pub mod azure_proxy_ee;
 mod azure_proxy_oss;
+#[cfg(feature = "bedrock")]
 mod bedrock;
 mod capture;
 mod concurrency_groups;
@@ -163,6 +164,8 @@ mod smtp_server_oss;
 pub mod teams_approvals_ee;
 mod teams_approvals_oss;
 
+#[cfg(feature = "native_trigger")]
+pub mod native_triggers;
 mod public_app_layer;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
@@ -493,6 +496,18 @@ pub async fn run_server(
                         .nest("/job_helpers", job_helpers_service)
                         .nest("/jobs", jobs::workspaced_service())
                         .nest("/debug", debug::workspaced_service())
+                        .nest("/native_triggers", {
+                            #[cfg(feature = "native_trigger")]
+                            {
+                                native_triggers::handler::generate_native_trigger_routers().merge(
+                                    native_triggers::workspace_integrations::workspaced_service(),
+                                )
+                            }
+                            #[cfg(not(feature = "native_trigger"))]
+                            {
+                                axum::Router::new()
+                            }
+                        })
                         .nest("/oauth", {
                             #[cfg(feature = "oauth2")]
                             {
@@ -753,6 +768,7 @@ pub async fn run_server(
                     }
                 })
                 .route("/version", get(git_v))
+                .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))
                 .route("/openapi.yaml", get(openapi))
@@ -902,6 +918,15 @@ async fn git_v() -> String {
 #[cfg(not(feature = "enterprise"))]
 async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
+}
+
+async fn min_keep_alive_version() -> Json<serde_json::Value> {
+    let worker = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
+    let agent = windmill_common::min_version::AGENT_MIN_KEEP_ALIVE_VERSION;
+    Json(serde_json::json!({
+        "worker": format!("{}.{}.{}", worker.0, worker.1, worker.2),
+        "agent": format!("{}.{}.{}", agent.0, agent.1, agent.2)
+    }))
 }
 
 #[cfg(not(feature = "enterprise"))]

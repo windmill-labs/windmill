@@ -61,6 +61,16 @@
 		filters.path = initialPath
 	}
 
+	// Initialize toggle filters from localStorage if not set via URL params
+	// Check if URL has the params explicitly set; if not, use localStorage values
+	const urlParams = new URLSearchParams(window.location.search)
+	if (!urlParams.has('show_schedules')) {
+		filters.show_schedules = getShowSchedules()
+	}
+	if (!urlParams.has('show_future_jobs')) {
+		filters.show_future_jobs = getShowFutureJobs()
+	}
+
 	let selectedIds: string[] = $state([])
 	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
@@ -94,6 +104,24 @@
 			return localStorage.getItem('auto_refresh_in_runs') != 'false'
 		} catch (e) {
 			console.error('Error getting auto refresh', e)
+			return true
+		}
+	}
+
+	function getShowSchedules() {
+		try {
+			return localStorage.getItem('show_schedules_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting show schedules', e)
+			return true
+		}
+	}
+
+	function getShowFutureJobs() {
+		try {
+			return localStorage.getItem('show_future_jobs_in_runs') != 'false'
+		} catch (e) {
+			console.error('Error getting show future jobs', e)
 			return true
 		}
 	}
@@ -272,6 +300,15 @@
 		if (filters.job_trigger_kind === 'schedule' && !filters.show_schedules) {
 			filters.show_schedules = true
 		}
+	})
+
+	// Persist toggle filters to localStorage
+	$effect(() => {
+		localStorage.setItem('show_schedules_in_runs', filters.show_schedules ? 'true' : 'false')
+	})
+
+	$effect(() => {
+		localStorage.setItem('show_future_jobs_in_runs', filters.show_future_jobs ? 'true' : 'false')
 	})
 
 	async function cancelJobs(uuidsToCancel: string[], forceCancel: boolean = false) {
