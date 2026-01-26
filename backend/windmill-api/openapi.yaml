@@ -1413,17 +1413,27 @@ paths:
 
   /min_keep_alive_version:
     get:
-      summary: get minimum worker version required to stay alive
+      summary: get minimum worker versions required to stay alive
       operationId: getMinKeepAliveVersion
       tags:
         - setting
       responses:
         "200":
-          description: minimum keep-alive version
+          description: minimum keep-alive versions for workers and agents
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                type: object
+                required:
+                  - worker
+                  - agent
+                properties:
+                  worker:
+                    type: string
+                    description: minimum version for normal workers
+                  agent:
+                    type: string
+                    description: minimum version for agent workers
 
   /.well-known/jwks.json:
     get:
