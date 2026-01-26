@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.616.0](https://github.com/windmill-labs/windmill/compare/v1.615.3...v1.616.0) (2026-01-26)
+
+
+### Features
+
+* add otlp/http internal collector ([#7690](https://github.com/windmill-labs/windmill/issues/7690)) ([c596395](https://github.com/windmill-labs/windmill/commit/c5963957b6d3e65d8dbc87b73376209a1006129f))
+* nextcloud native triggers ([#6797](https://github.com/windmill-labs/windmill/issues/6797)) ([6418c4b](https://github.com/windmill-labs/windmill/commit/6418c4bcc6ce71d11b25f05983b0dd7e7014040d))
+
+
+### Bug Fixes
+
+* improve python installation when running as nonRoot ([614011c](https://github.com/windmill-labs/windmill/commit/614011c5ca821decb8da9824c5d3d84cee3c8307))
+
 ## [1.615.3](https://github.com/windmill-labs/windmill/compare/v1.615.2...v1.615.3) (2026-01-26)
 
 
