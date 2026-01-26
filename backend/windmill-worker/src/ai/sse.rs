@@ -544,9 +544,9 @@ impl SSEParser for GeminiSSEParser {
 
                                     // Build extra_content with thought_signature if present
                                     let extra_content =
-                                        part.thought_signature.as_ref().map(|sig| ExtraContent {
+                                        part.thought_signature.map(|sig| ExtraContent {
                                             google: Some(GoogleExtraContent {
-                                                thought_signature: Some(sig.clone()),
+                                                thought_signature: Some(sig),
                                             }),
                                         });
 
