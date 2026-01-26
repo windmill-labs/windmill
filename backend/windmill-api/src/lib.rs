@@ -38,7 +38,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
 use axum::response::Response;
-use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
