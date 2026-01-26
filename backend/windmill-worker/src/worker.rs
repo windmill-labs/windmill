@@ -637,7 +637,9 @@ pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {
 /// Get proxy environment variables for job execution for a specific language.
 /// When OTEL tracing proxy is enabled for this language, routes all traffic through the proxy.
 /// Otherwise, uses the standard HTTP_PROXY/HTTPS_PROXY from environment.
-pub async fn get_proxy_envs_for_lang(lang: &ScriptLang) -> anyhow::Result<Vec<(&'static str, String)>> {
+pub async fn get_proxy_envs_for_lang(
+    lang: &ScriptLang,
+) -> anyhow::Result<Vec<(&'static str, String)>> {
     #[cfg(all(feature = "private", feature = "enterprise"))]
     if is_otel_tracing_proxy_enabled_for_lang(lang).await {
         return get_otel_tracing_proxy_envs().await;
@@ -664,7 +666,10 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
         // CA cert for various runtimes to trust the tracing proxy
         ("SSL_CERT_FILE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("REQUESTS_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
-        ("NODE_EXTRA_CA_CERTS", TRACING_PROXY_CA_CERT_PATH.to_string()),
+        (
+            "NODE_EXTRA_CA_CERTS",
+            TRACING_PROXY_CA_CERT_PATH.to_string(),
+        ),
         ("CURL_CA_BUNDLE", TRACING_PROXY_CA_CERT_PATH.to_string()),
         ("DENO_CERT", TRACING_PROXY_CA_CERT_PATH.to_string()),
     ])
@@ -1291,7 +1296,7 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyV::from(PyVAlias::Py311)
+            if let Err(e) = PyV::from(PyVAlias::default())
                 .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
@@ -1299,7 +1304,7 @@ pub async fn run_worker(
                     worker = %worker_name,
                     hostname = %hostname,
                     worker_dir = %worker_dir,
-                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                    "Cannot preinstall or find default version to worker: {e}"//
                 );
             }
         });
