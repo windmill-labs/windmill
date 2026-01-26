@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.615.1](https://github.com/windmill-labs/windmill/compare/v1.615.0...v1.615.1) (2026-01-26)
+
+
+### Bug Fixes
+
+* **aiagent:** fix usage for gemini 3 models ([#7682](https://github.com/windmill-labs/windmill/issues/7682)) ([29b274a](https://github.com/windmill-labs/windmill/commit/29b274a08a85d50ead1f1b71949b2c261b6728be))
+
 ## [1.615.0](https://github.com/windmill-labs/windmill/compare/v1.614.0...v1.615.0) (2026-01-26)
 
 
