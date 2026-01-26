@@ -2396,7 +2396,7 @@ for line in sys.stdin:
         PyV::parse_from_requirements(&split_python_requirements(requirements.as_str()))
     } else {
         tracing::warn!(workspace_id = %w_id, "lockfile is empty for dedicated worker, thus python version cannot be inferred. Fallback to 3.11");
-        PyVAlias::Py311.into()
+        PyVAlias::default().into()
     };
 
     let python_path = py_version
