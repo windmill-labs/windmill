@@ -173,7 +173,7 @@ impl Listener for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        let connection = connect_async(connect_url.as_ref())
+        let connection = connect_async(&*connect_url)
             .await
             .map(|conn| Some(conn))
             .map_err(|err| to_anyhow(err).into());

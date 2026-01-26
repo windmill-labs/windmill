@@ -251,7 +251,7 @@ impl TriggerCrud for WebsocketTrigger {
             Cow::Borrowed(&url)
         };
 
-        connect_async(connect_url.as_ref()).await.map_err(|err| {
+        connect_async(&*connect_url).await.map_err(|err| {
             Error::BadConfig(format!(
                 "Error connecting to WebSocket: {}",
                 err.to_string()
