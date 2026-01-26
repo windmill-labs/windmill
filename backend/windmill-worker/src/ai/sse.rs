@@ -8,7 +8,7 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
-    providers::openai::{ExtraContent, OpenAIFunction, OpenAIToolCall},
+    providers::openai::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventProcessor,
     types::{StreamingEvent, UrlCitation},
 };
@@ -24,8 +24,6 @@ pub struct OpenAIChoiceDeltaToolCall {
     pub index: Option<i64>,
     pub id: Option<String>,
     pub function: Option<OpenAIChoiceDeltaToolCallFunction>,
-    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
-    pub extra_content: Option<ExtraContent>,
 }
 
 #[derive(Deserialize)]
@@ -137,10 +135,6 @@ impl SSEParser for OpenAISSEParser {
                                     if let Some(arguments) = function.arguments {
                                         existing_tool_call.function.arguments += &arguments;
                                     }
-                                    // Update extra_content if provided in this delta (for thought signatures)
-                                    if let Some(extra) = tool_call.extra_content {
-                                        existing_tool_call.extra_content = Some(extra);
-                                    }
                                 } else {
                                     let fun_name = function.name.unwrap_or_default();
                                     let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
@@ -160,7 +154,7 @@ impl SSEParser for OpenAISSEParser {
                                                 arguments: function.arguments.unwrap_or_default(),
                                             },
                                             r#type: "function".to_string(),
-                                            extra_content: tool_call.extra_content,
+                                            extra_content: None,
                                         },
                                     );
                                 }
@@ -422,6 +416,9 @@ pub struct GeminiSSEPart {
     pub text: Option<String>,
     #[serde(rename = "functionCall")]
     pub function_call: Option<GeminiSSEFunctionCall>,
+    /// Thought signature for Gemini 3+ models - required for function calling
+    #[serde(rename = "thoughtSignature")]
+    pub thought_signature: Option<String>,
 }
 
 /// Function call in Gemini streaming response
@@ -544,6 +541,14 @@ impl SSEParser for GeminiSSEParser {
                                         .send(event, &mut self.events_str)
                                         .await?;
 
+                                    // Build extra_content with thought_signature if present
+                                    let extra_content =
+                                        part.thought_signature.as_ref().map(|sig| ExtraContent {
+                                            google: Some(GoogleExtraContent {
+                                                thought_signature: Some(sig.clone()),
+                                            }),
+                                        });
+
                                     // Store accumulated tool call
                                     self.accumulated_tool_calls.insert(
                                         idx,
@@ -557,7 +562,7 @@ impl SSEParser for GeminiSSEParser {
                                                 .unwrap_or_else(|_| "{}".to_string()),
                                             },
                                             r#type: "function".to_string(),
-                                            extra_content: None,
+                                            extra_content,
                                         },
                                     );
                                 }
