@@ -22,7 +22,7 @@ use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
     python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH, UV_PATH},
-    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
+    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {
@@ -308,6 +308,7 @@ impl PyV {
             Command::new(uv_cmd)
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
+                .env("UV_CACHE_DIR", UV_CACHE_DIR)
                 .args([
                     "python",
                     "list",
@@ -526,9 +527,9 @@ impl PyV {
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .envs(PROXY_ENVS.clone())
-            .args(["python", "install", &v, "--python-preference=only-managed"])
+            .args(["python", "install", &v, "--python-preference=only-managed", "--no-bin"])
             // TODO: Do we need these?
-            .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
+            .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR), ("UV_CACHE_DIR", UV_CACHE_DIR)])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -620,6 +621,7 @@ impl PyV {
             .envs([
                 ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
                 ("UV_PYTHON_PREFERENCE", "only-managed"),
+                ("UV_CACHE_DIR", UV_CACHE_DIR),
             ])
             // .stdout(Stdio::piped())
             .stderr(Stdio::piped())
