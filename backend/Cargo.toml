@@ -160,7 +160,7 @@ libloading.workspace = true
 bitflags.workspace = true
 globset.workspace = true
 opentelemetry-proto.workspace = true
-
+systemstat.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"
@@ -403,7 +403,8 @@ aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
 rustls = "=0.23.35"
 async-once-cell = "0.5.4"
-
+systemstat = "0.2.4"
+size = "0.5.0"
 
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
 crc = "^3"
