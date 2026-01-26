@@ -190,6 +190,7 @@
 			</a>
 
 			<div class="w-full">
+				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
 					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}

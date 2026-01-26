@@ -24,10 +24,11 @@
 
 	interface Props {
 		job: Job
-		scheduleEditor: ScheduleEditor
+		scheduleEditor?: ScheduleEditor
 		displayPersistentScriptDefinition?: boolean
 		openPersistentScriptDrawer?: () => void
 		concurrencyKey?: string
+		compact?: boolean
 	}
 
 	let {
@@ -35,7 +36,8 @@
 		scheduleEditor,
 		displayPersistentScriptDefinition = false,
 		openPersistentScriptDrawer,
-		concurrencyKey
+		concurrencyKey,
+		compact = false
 	}: Props = $props()
 </script>
 
@@ -46,7 +48,25 @@
 			{#if job}
 				<JobStatus {job} />
 				<span class="text-emphasis text-lg font-semibold">
-					{job.script_path ?? (job.job_kind == 'dependencies' ? 'lock dependencies' : 'No path')}
+					{#if job.script_path}
+						{job.script_path}
+					{:else if job.job_kind == 'dependencies'}
+						lock dependencies
+					{:else if job.job_kind == 'flowdependencies'}
+						flow dependencies
+					{:else if job.job_kind == 'appdependencies'}
+						app dependencies
+					{:else if job.job_kind == 'deploymentcallback'}
+						deployment callback
+					{:else if job.job_kind == 'identity'}
+						Identity job
+					{:else if job.job_kind == 'script_hub'}
+						Script from hub
+					{:else if job.job_kind == 'aiagent'}
+						AI Agent
+					{:else}
+						{job.job_kind || 'Unknown job type'}
+					{/if}
 				</span>
 				<div class="flex flex-row gap-2 items-center flex-wrap">
 					<RunBadges
@@ -62,6 +82,7 @@
 	</div>
 
 	<!-- Bottom section: Metadata Grid -->
+	{#if !compact}
 	<div class="px-6 py-4">
 		<div class="grid grid-cols-3 grid-rows-2 gap-x-8 gap-y-3 text-xs text-primary font-normal">
 			{#if job}
@@ -179,16 +200,16 @@
 							<button
 								class="text-accent"
 								onclick={() =>
-									scheduleEditor?.openEdit(job.schedule_path ?? '', job.job_kind == 'flow')}
+									scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
 							>
 								{truncateRev(job.schedule_path, 20)}
 								<ExternalLink size={12} class="inline-block" />
 							</button>
 						</span>
 					</div>
-				{:else if (job && job.job_kind == 'flow') || job?.job_kind == 'script'}
-					{@const stem = `${job?.job_kind}s`}
-					{@const isScript = job?.job_kind === 'script'}
+				{:else if job && (job.job_kind == 'flow' || job.job_kind == 'script' || job.job_kind == 'singlestepflow')}
+					{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
+					{@const isScript = job.job_kind === 'script'}
 					{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 					<div class="flex flex-row gap-2 items-center min-w-0">
 						{#if isScript}
@@ -222,4 +243,5 @@
 			{/if}
 		</div>
 	</div>
+	{/if}
 </div>

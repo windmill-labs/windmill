@@ -52,7 +52,7 @@
 	import JobLoader from '$lib/components/JobLoader.svelte'
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
-	import FlowDetailHeader from '$lib/components/runs/FlowDetailHeader.svelte'
+	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
@@ -647,7 +647,7 @@
 		<div class="max-w-7xl mx-auto px-4 py-0">
 			<Skeleton loading={!job} layout={[[24]]} />
 			{#if job}
-				<FlowDetailHeader
+				<JobDetailHeader
 					{job}
 					{scheduleEditor}
 					displayPersistentScriptDefinition={!!persistentScriptDefinition}
