@@ -1338,6 +1338,10 @@ try {{
                     "nativets job {}: OTEL tracing enabled={}",
                     job.id,
                     tracing_enabled
+                tracing::debug!(
+                    "nativets job {}: OTEL tracing enabled={}",
+                    job.id,
+                    tracing_enabled
                 );
                 if tracing_enabled {
                     crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
