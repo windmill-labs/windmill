@@ -22,6 +22,7 @@ import {
   pushObj,
   showConflict,
   showDiff,
+  extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 
@@ -67,7 +68,7 @@ import {
   readLockfile,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow } from "../../../gen/types.gen.ts";
+import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
@@ -1349,7 +1350,8 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
-        path.endsWith(".email_trigger" + ext))
+        path.endsWith(".email_trigger" + ext) ||
+        path.endsWith("_native_trigger" + ext))
     ) {
       continue;
     }
@@ -1694,7 +1696,8 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
-    typ == "email_trigger"
+    typ == "email_trigger" ||
+    typ == "native_trigger"
   ) {
     return 14;
   } else {
@@ -2995,6 +2998,20 @@ export async function push(
                     path: removeSuffix(target, ".email_trigger.json"),
                   });
                   break;
+                case "native_trigger": {
+                  const triggerInfo = extractNativeTriggerInfo(change.path);
+                  if (!triggerInfo) {
+                    throw new Error(
+                      `Invalid native trigger path: ${change.path}`
+                    );
+                  }
+                  await wmill.deleteNativeTrigger({
+                    workspace: workspaceId,
+                    serviceName: triggerInfo.serviceName as NativeServiceName,
+                    externalId: triggerInfo.externalId,
+                  });
+                  break;
+                }
                 case "variable":
                   await wmill.deleteVariable({
                     workspace: workspaceId,

@@ -925,7 +925,8 @@ impl<F: Future> Future for WarnAfterFuture<F> {
     }
 }
 
-#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(sqlx::Type, Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[sqlx(type_name = "runnable_kind", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum RunnableKind {
     Script,
