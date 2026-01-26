@@ -31,9 +31,109 @@ OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
 OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
+OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
+
+# Mapping of language file names to friendly names and descriptions
+LANGUAGE_METADATA = {
+    'bun': {
+        'name': 'TypeScript (Bun)',
+        'description': 'Write TypeScript scripts using the Bun runtime with full npm ecosystem and fastest execution.',
+        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
+    },
+    'deno': {
+        'name': 'TypeScript (Deno)',
+        'description': 'Write TypeScript scripts using the Deno runtime with npm: prefix imports.',
+        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
+    },
+    'nativets': {
+        'name': 'Native TypeScript',
+        'description': 'Write lightweight TypeScript scripts using fetch only, no external imports.',
+        'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
+    },
+    'bunnative': {
+        'name': 'Bun Native',
+        'description': 'Write Bun scripts using fetch only, no external imports.',
+        'use_cases': 'simple Bun scripts, lightweight, no dependencies'
+    },
+    'python3': {
+        'name': 'Python',
+        'description': 'Write Python scripts for Windmill with TypedDict resources and wmill SDK.',
+        'use_cases': 'Python automation, data processing, machine learning, scripting'
+    },
+    'bash': {
+        'name': 'Bash',
+        'description': 'Write Bash scripts with positional arguments and JSON output.',
+        'use_cases': 'shell scripts, system administration, CLI tools'
+    },
+    'go': {
+        'name': 'Go',
+        'description': 'Write Go scripts with package inner and error returns.',
+        'use_cases': 'Go automation, high performance, concurrent processing'
+    },
+    'rust': {
+        'name': 'Rust',
+        'description': 'Write Rust scripts with Cargo dependencies and anyhow::Result.',
+        'use_cases': 'Rust automation, high performance, memory safety'
+    },
+    'postgresql': {
+        'name': 'PostgreSQL',
+        'description': 'Write PostgreSQL queries with $1::TYPE parameter syntax.',
+        'use_cases': 'PostgreSQL database queries, data analysis'
+    },
+    'mysql': {
+        'name': 'MySQL',
+        'description': 'Write MySQL queries with ? placeholder syntax.',
+        'use_cases': 'MySQL database queries, data operations'
+    },
+    'mssql': {
+        'name': 'MS SQL Server',
+        'description': 'Write MS SQL Server queries with @P1, @P2 parameter syntax.',
+        'use_cases': 'SQL Server database queries, enterprise data'
+    },
+    'bigquery': {
+        'name': 'BigQuery',
+        'description': 'Write BigQuery queries with @name parameter syntax.',
+        'use_cases': 'BigQuery analytics, large-scale data analysis'
+    },
+    'snowflake': {
+        'name': 'Snowflake',
+        'description': 'Write Snowflake queries with :name parameter syntax.',
+        'use_cases': 'Snowflake data warehouse queries, analytics'
+    },
+    'duckdb': {
+        'name': 'DuckDB',
+        'description': 'Write DuckDB queries with $name parameter syntax and Ducklake support.',
+        'use_cases': 'DuckDB analytics, local data processing, Ducklake'
+    },
+    'graphql': {
+        'name': 'GraphQL',
+        'description': 'Write GraphQL queries and mutations for Windmill.',
+        'use_cases': 'GraphQL API calls, federated queries'
+    },
+    'php': {
+        'name': 'PHP',
+        'description': 'Write PHP scripts with Composer dependency management.',
+        'use_cases': 'PHP automation, web integrations'
+    },
+    'powershell': {
+        'name': 'PowerShell',
+        'description': 'Write PowerShell scripts with param() function syntax.',
+        'use_cases': 'Windows automation, system administration'
+    },
+    'csharp': {
+        'name': 'C#',
+        'description': 'Write C# scripts with NuGet #r directive for dependencies.',
+        'use_cases': 'C# automation, .NET integrations'
+    },
+    'java': {
+        'name': 'Java',
+        'description': 'Write Java scripts with Maven //requirements comments.',
+        'use_cases': 'Java automation, enterprise integrations'
+    },
+}
 
 # CLI source paths for extracting command documentation
 CLI_DIR = ROOT_DIR / "cli"
@@ -704,6 +804,237 @@ def read_markdown_file(path: Path) -> str:
     return ''
 
 
+def generate_skill_content(
+    skill_name: str,
+    description: str,
+    intro: str,
+    content: str,
+    sdk_content: str = ''
+) -> str:
+    """Generate a skill file with YAML frontmatter."""
+    parts = [
+        "---",
+        f"name: {skill_name}",
+        f"description: {description}",
+        "---",
+        "",
+    ]
+    if intro:
+        parts.extend([intro, ""])
+    parts.append(content)
+    if sdk_content:
+        parts.extend(["", sdk_content])
+    return '\n'.join(parts)
+
+
+def generate_skills(
+    languages: dict[str, str],
+    ts_sdk_md: str,
+    py_sdk_md: str,
+    flow_base: str,
+    openflow_content: str,
+    cli_commands: str
+):
+    """Generate individual skill files for Claude Code."""
+    print("Generating skill files...")
+
+    # Ensure skills directory exists
+    OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Read base files for additional skills
+    base_dir = SCRIPT_DIR / "base"
+    script_base = read_markdown_file(base_dir / "script-base.md")
+    raw_app_content = read_markdown_file(base_dir / "raw-app.md")
+    triggers_content = read_markdown_file(base_dir / "triggers.md")
+    schedules_content = read_markdown_file(base_dir / "schedules.md")
+    resources_content = read_markdown_file(base_dir / "resources.md")
+
+    # CLI intro for script skills
+    script_cli_intro = """## CLI Commands
+
+Place scripts in a folder. After writing, run:
+- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill sync push` - Deploy to Windmill
+
+Use `wmill resource-type list --schema` to discover available resource types."""
+
+    # CLI intro for flow skill
+    flow_cli_intro = """## CLI Commands
+
+Create a folder ending with `.flow` and add a YAML file with the flow definition.
+For rawscript modules, use `!inline path/to/script.ts` for the content key.
+After writing:
+- `wmill flow generate-locks --yes` - Generate lock files
+- `wmill sync push` - Deploy to Windmill"""
+
+    skills_generated = []
+
+    # Languages that use TypeScript SDK
+    ts_sdk_languages = ['bun', 'deno', 'nativets', 'bunnative']
+    # Languages that use Python SDK
+    py_sdk_languages = ['python3']
+
+    # Generate script skills for each language
+    for lang_key, lang_content in languages.items():
+        if lang_key not in LANGUAGE_METADATA:
+            print(f"  Warning: No metadata for language '{lang_key}', skipping")
+            continue
+
+        metadata = LANGUAGE_METADATA[lang_key]
+        skill_name = f"write-script-{lang_key}"
+        skill_dir = OUTPUT_SKILLS_DIR / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine which SDK to include
+        sdk_content = ''
+        if lang_key in ts_sdk_languages:
+            sdk_content = ts_sdk_md
+        elif lang_key in py_sdk_languages:
+            sdk_content = py_sdk_md
+
+        # Combine script base with language content
+        full_content = f"{script_base}\n\n{lang_content}"
+
+        skill_content = generate_skill_content(
+            skill_name=skill_name,
+            description=metadata['description'],
+            intro=script_cli_intro,
+            content=full_content,
+            sdk_content=sdk_content
+        )
+
+        (skill_dir / "SKILL.md").write_text(skill_content)
+        skills_generated.append(skill_name)
+
+    # Generate write-flow skill
+    flow_skill_dir = OUTPUT_SKILLS_DIR / "write-flow"
+    flow_skill_dir.mkdir(parents=True, exist_ok=True)
+    flow_skill_content = generate_skill_content(
+        skill_name="write-flow",
+        description="Create Windmill flows using OpenFlow YAML specification.",
+        intro=flow_cli_intro,
+        content=f"{flow_base}\n\n{openflow_content}"
+    )
+    (flow_skill_dir / "SKILL.md").write_text(flow_skill_content)
+    skills_generated.append("write-flow")
+
+    # Generate wmill-cli skill
+    cli_skill_dir = OUTPUT_SKILLS_DIR / "wmill-cli"
+    cli_skill_dir.mkdir(parents=True, exist_ok=True)
+    cli_skill_content = generate_skill_content(
+        skill_name="wmill-cli",
+        description="Reference for Windmill CLI commands and usage.",
+        intro="# Windmill CLI Reference\n\nUse these commands to manage your Windmill workspace.",
+        content=cli_commands
+    )
+    (cli_skill_dir / "SKILL.md").write_text(cli_skill_content)
+    skills_generated.append("wmill-cli")
+
+    # Generate raw-app skill (if content exists)
+    if raw_app_content:
+        raw_app_skill_dir = OUTPUT_SKILLS_DIR / "raw-app"
+        raw_app_skill_dir.mkdir(parents=True, exist_ok=True)
+        raw_app_skill_content = generate_skill_content(
+            skill_name="raw-app",
+            description="Create raw apps with React/Svelte/Vue frontend and backend runnables.",
+            intro="",
+            content=raw_app_content
+        )
+        (raw_app_skill_dir / "SKILL.md").write_text(raw_app_skill_content)
+        skills_generated.append("raw-app")
+
+    # Generate triggers skill (if content exists)
+    if triggers_content:
+        triggers_skill_dir = OUTPUT_SKILLS_DIR / "triggers"
+        triggers_skill_dir.mkdir(parents=True, exist_ok=True)
+        triggers_skill_content = generate_skill_content(
+            skill_name="triggers",
+            description="Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers.",
+            intro="",
+            content=triggers_content
+        )
+        (triggers_skill_dir / "SKILL.md").write_text(triggers_skill_content)
+        skills_generated.append("triggers")
+
+    # Generate schedules skill (if content exists)
+    if schedules_content:
+        schedules_skill_dir = OUTPUT_SKILLS_DIR / "schedules"
+        schedules_skill_dir.mkdir(parents=True, exist_ok=True)
+        schedules_skill_content = generate_skill_content(
+            skill_name="schedules",
+            description="Configure cron schedules for automated script and flow execution.",
+            intro="",
+            content=schedules_content
+        )
+        (schedules_skill_dir / "SKILL.md").write_text(schedules_skill_content)
+        skills_generated.append("schedules")
+
+    # Generate resources skill (if content exists)
+    if resources_content:
+        resources_skill_dir = OUTPUT_SKILLS_DIR / "resources"
+        resources_skill_dir.mkdir(parents=True, exist_ok=True)
+        resources_skill_content = generate_skill_content(
+            skill_name="resources",
+            description="Manage resource types and credentials for external services.",
+            intro="",
+            content=resources_content
+        )
+        (resources_skill_dir / "SKILL.md").write_text(resources_skill_content)
+        skills_generated.append("resources")
+
+    print(f"  Generated {len(skills_generated)} skills")
+    return skills_generated
+
+
+def generate_skills_ts_export(skills: list[str]) -> str:
+    """Generate TypeScript file that exports skill metadata for the CLI."""
+    ts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
+    ts += "export interface SkillMetadata {\n"
+    ts += "  name: string;\n"
+    ts += "  description: string;\n"
+    ts += "  languageKey?: string;\n"
+    ts += "}\n\n"
+
+    ts += "export const SKILLS: SkillMetadata[] = [\n"
+
+    for skill in skills:
+        if skill.startswith('write-script-'):
+            lang_key = skill.replace('write-script-', '')
+            if lang_key in LANGUAGE_METADATA:
+                metadata = LANGUAGE_METADATA[lang_key]
+                ts += f'  {{ name: "{skill}", description: "{metadata["description"]}", languageKey: "{lang_key}" }},\n'
+        elif skill == 'write-flow':
+            ts += f'  {{ name: "{skill}", description: "Create Windmill flows using OpenFlow YAML specification." }},\n'
+        elif skill == 'wmill-cli':
+            ts += f'  {{ name: "{skill}", description: "Reference for Windmill CLI commands and usage." }},\n'
+        elif skill == 'raw-app':
+            ts += f'  {{ name: "{skill}", description: "Create raw apps with React/Svelte/Vue frontend and backend runnables." }},\n'
+        elif skill == 'triggers':
+            ts += f'  {{ name: "{skill}", description: "Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers." }},\n'
+        elif skill == 'schedules':
+            ts += f'  {{ name: "{skill}", description: "Configure cron schedules for automated script and flow execution." }},\n'
+        elif skill == 'resources':
+            ts += f'  {{ name: "{skill}", description: "Manage resource types and credentials for external services." }},\n'
+
+    ts += "];\n\n"
+
+    # Generate the skills content inline for bundling
+    ts += "// Skill content for each skill (loaded inline for bundling)\n"
+    ts += "export const SKILL_CONTENT: Record<string, string> = {\n"
+
+    # We'll read the generated files and embed them
+    for skill in skills:
+        skill_path = OUTPUT_SKILLS_DIR / skill / "SKILL.md"
+        if skill_path.exists():
+            content = skill_path.read_text()
+            escaped = escape_for_ts(content)
+            ts += f'  "{skill}": `{escaped}`,\n'
+
+    ts += "};\n"
+
+    return ts
+
+
 def main():
     """Main generation function."""
     print("Generating system prompts documentation...")
@@ -856,6 +1187,20 @@ export function getFlowPrompt(): string {
     cli_prompts_ts = generate_ts_exports(cli_prompts)
     (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)
 
+    # Generate skill files for Claude Code
+    skills = generate_skills(
+        languages=languages,
+        ts_sdk_md=ts_sdk_md,
+        py_sdk_md=py_sdk_md,
+        flow_base=flow_base,
+        openflow_content=openflow_content,
+        cli_commands=cli_commands
+    )
+
+    # Generate skills TypeScript export for CLI
+    skills_ts = generate_skills_ts_export(skills)
+    (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
+
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
     print(f"  - auto-generated/sdks/python.md")
@@ -864,8 +1209,10 @@ export function getFlowPrompt(): string {
     print(f"  - auto-generated/index.ts")
     print(f"  - auto-generated/script.md")
     print(f"  - auto-generated/flow.md")
+    print(f"  - auto-generated/skills/ ({len(skills)} skills)")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/prompts.ts")
+    print(f"  - cli/src/guidance/skills.ts")
     print("\nDone!")
 
 
