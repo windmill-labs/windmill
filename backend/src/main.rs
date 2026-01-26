@@ -665,6 +665,25 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .flatten()
                 .unwrap_or_else(|| "UNKNOWN".to_string())
         );
+
+        // Load OTEL tracing proxy settings and initialize deno_telemetry if nativets tracing is enabled
+        // This must happen before any Deno runtime is created
+        #[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
+        {
+            reload_otel_tracing_proxy_setting(&Connection::Sql(db.clone())).await;
+
+            if windmill_worker::is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await {
+                match windmill_worker::load_internal_otel_exporter().await {
+                    Ok(()) => {
+                        tracing::info!("Internal OTEL exporter initialized for nativets tracing");
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to initialize internal OTEL exporter: {}", e);
+                    }
+                }
+            }
+        }
+
         load_otel(&db).await;
 
         println!("Database connected");
@@ -1565,13 +1584,13 @@ Windmill Community Edition {GIT_VERSION}
                 {
                     if let Some(db) = conn.as_sql() {
                         tracing::info!(
-                            "Starting OTEL tracing proxy (port will be dynamically assigned)"
+                            "Starting jobs OTEL tracing (ports will be dynamically assigned)"
                         );
                         if let Err(e) =
-                            windmill_worker::start_otel_tracing_proxy(db.clone(), otel_killpill_rx)
+                            windmill_worker::start_jobs_otel_tracing(db.clone(), otel_killpill_rx)
                                 .await
                         {
-                            tracing::error!("OTEL tracing proxy error: {}", e);
+                            tracing::error!("Jobs OTEL tracing error: {}", e);
                         }
                     }
                 } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS

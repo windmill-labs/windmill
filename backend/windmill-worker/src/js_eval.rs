@@ -1131,6 +1131,15 @@ pub async fn eval_fetch_timeout(
         let mut js_runtime: JsRuntime = JsRuntime::new(options);
         // tracing::info!("ttc: {:?}", instant.elapsed());
 
+        // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
+        // We call the function exposed by runtime.js since we can't dynamically import ext: modules.
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+            if let Err(e) = js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()") {
+                tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
+            }
+        }
+
         js_runtime.add_near_heap_limit_callback(move |x,y| {
             tracing::error!("heap limit reached: {x} {y}");
 
