@@ -13,7 +13,6 @@
 		result_stream?: string
 		logs: string | undefined
 		col?: boolean
-		noBorder?: boolean
 		loading: boolean
 		filename?: string | undefined
 		jobId?: string | undefined
@@ -36,7 +35,6 @@
 		result_stream,
 		logs,
 		col = false,
-		noBorder = false,
 		loading,
 		filename = undefined,
 		jobId = undefined,
@@ -55,7 +53,7 @@
 	)}
 >
 	<div class="relative flex flex-col gap-1">
-		<span class="text-primary text-xs font-normal">Result</span>
+		<span class="text-emphasis text-xs font-semibold">Result</span>
 		<div
 			class="{col
 				? 'max-h-1/2 grow'
@@ -71,9 +69,9 @@
 		</div>
 	</div>
 	<div class="relative flex flex-col gap-1">
-		<span class="text-primary text-xs font-normal">Logs</span>
+		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		{#if aiAgentStatus}
-			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} />
+			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} noPadding />
 		{:else}
 			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
 				<LogViewer

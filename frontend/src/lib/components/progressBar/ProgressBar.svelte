@@ -68,7 +68,7 @@
 				? 'text-red-700 dark:text-red-200'
 				: 'text-blue-700 dark:text-blue-200'}"
 		>
-			<span class="text-base">
+			<span class="text-sm">
 				{error != undefined
 					? 'Error occurred'
 					: finished

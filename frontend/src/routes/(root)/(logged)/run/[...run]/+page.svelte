@@ -667,8 +667,18 @@
 			<div class="my-4"></div>
 		{/if}
 
+		<!-- Flow Progress Bar (for flows only) -->
+		{#if job?.job_kind === 'flow' || job?.job_kind === 'flowpreview'}
+			<FlowProgressBar
+				{job}
+				bind:currentSubJobProgress={scriptProgress}
+				class="py-4 max-w-7xl mx-auto px-4"
+			/>
+		{/if}
+
 		<!-- Arguments and actions -->
 		<div class="max-w-7xl mx-auto w-full px-4 mt-12">
+			<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 			<div class="flex flex-col gap-y-6">
 				<JobArgs
 					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
@@ -801,11 +811,7 @@
 			</div>
 		{:else if !job?.['deleted']}
 			<div class="mt-10"></div>
-			<FlowProgressBar
-				{job}
-				bind:currentSubJobProgress={scriptProgress}
-				class="py-4 max-w-7xl mx-auto px-4"
-			/>
+
 			<div class="w-full mt-10">
 				{#if job?.id}
 					<FlowStatusViewer

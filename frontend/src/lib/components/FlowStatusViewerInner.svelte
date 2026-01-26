@@ -24,7 +24,7 @@
 	import ModuleStatus from './ModuleStatus.svelte'
 	import { clone, isScriptPreview, msToSec, readFieldsRecursively, truncateRev } from '$lib/utils'
 	import JobArgs from './JobArgs.svelte'
-	import { ChevronDown, Hourglass } from 'lucide-svelte'
+	import { ChevronDown, ExternalLink, Hourglass } from 'lucide-svelte'
 	import { deepEqual } from 'fast-equals'
 	import FlowTimeline from './FlowTimeline.svelte'
 	import { dfs } from './flows/dfs'
@@ -34,7 +34,6 @@
 	import FlowGraphV2 from './graph/FlowGraphV2.svelte'
 	import { buildPrefix } from './graph/graphBuilder.svelte'
 	import { parseInputArgsAssets } from './assets/lib'
-	import FlowPreviewResult from './FlowPreviewResult.svelte'
 	import FlowLogViewerWrapper from './FlowLogViewerWrapper.svelte'
 	import type { FlowGraphAssetContext } from './flows/types'
 	import { createState } from '$lib/svelte5Utils.svelte'
@@ -60,8 +59,7 @@
 		hideDownloadInGraph,
 		hideTimeline,
 		hideNodeDefinition,
-		hideDownloadLogs,
-		hideJobId
+		hideDownloadLogs
 	} = getContext<FlowStatusViewerContext>('FlowStatusViewer')
 
 	interface Props {
@@ -86,7 +84,6 @@
 		//only useful when forloops are optimized and the job doesn't contain the mod id anymore
 		innerModule?: FlowModuleValue | undefined
 		render?: boolean
-		isOwner?: boolean
 		selectedNode?: string | undefined
 		globalModuleStates: Record<string, GraphModuleState>[]
 		globalDurationStatuses?: Record<string, DurationStatus>[]
@@ -94,7 +91,6 @@
 		isSubflow?: boolean
 		reducedPolling?: boolean
 		wideResults?: boolean
-		hideFlowResult?: boolean
 		topModuleStates?: Record<string, GraphModuleState>
 		workspace?: string | undefined
 		prefix?: string | undefined
@@ -140,7 +136,6 @@
 		flowJobIds = undefined,
 		innerModule = undefined,
 		render = true,
-		isOwner = false,
 		selectedNode = $bindable(undefined),
 		globalModuleStates,
 		globalDurationStatuses = [],
@@ -149,7 +144,6 @@
 		isSubflow = false,
 		reducedPolling = false,
 		wideResults = false,
-		hideFlowResult = false,
 		workspace = $workspaceStore,
 		prefix = undefined,
 		topModuleStates = undefined,
@@ -1322,18 +1316,28 @@
 				</div>
 			{/if}
 		{:else if render}
-			<div class={'border rounded-md shadow p-2'}>
-				<FlowPreviewResult
-					{job}
-					{workspaceId}
-					{isOwner}
-					{hideFlowResult}
-					{hideDownloadLogs}
-					{innerModules}
-					{suspendStatus}
-					{hideJobId}
-					result_streams={resultStreams}
-				/>
+			<div class={'flex flex-col'}>
+				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+				<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4">
+					{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
+						<DisplayResult
+							workspaceId={job?.workspace_id}
+							result_stream={job.result_stream}
+							jobId={job?.id}
+							result={'result' in job ? job.result : undefined}
+							language={job?.language}
+							isTest={false}
+						/>
+					{:else if job}
+						<div class="w-full h-full flex items-center justify-center text-secondary">
+							No output is available yet
+						</div>
+					{:else}
+						<div class="w-full h-full flex items-center justify-center">
+							<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+						</div>
+					{/if}
+				</div>
 			</div>
 		{/if}
 		{#if render}
@@ -1839,7 +1843,7 @@
 								{:else if rightColumnSelect == 'node_status'}
 									<div class="p-4 grow flex flex-col gap-6">
 										{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
-											<div class="pt-2 px-4 pb-4">
+											<div class="pt-2 pb-4">
 												<Alert
 													type="info"
 													title="Message output is available on the AI agent node"
@@ -1867,12 +1871,10 @@
 												/>
 											{/if}
 										{:else if selectedNode?.startsWith(AI_WEBSEARCH_PREFIX)}
-											<div class="p-2">
-												<Alert
-													type="info"
-													title="Web search output is available on the AI agent node"
-												/>
-											</div>
+											<Alert
+												type="info"
+												title="Web search output is available on the AI agent node"
+											/>
 										{:else if selectedNode}
 											{@const node = localModuleStates[selectedNode]}
 											{#if selectedNode == 'end'}
@@ -1883,7 +1885,6 @@
 													filename={job.id}
 													loading={job['running']}
 													tag={job?.tag}
-													noBorder
 													col
 													result={job['result']}
 													logs={job.logs ?? ''}
@@ -1891,15 +1892,13 @@
 												/>
 											{:else if selectedNode == 'start'}
 												{#if job.args}
-													<div class="p-2">
-														<JobArgs
-															id={job.id}
-															workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-															args={job.args}
-														/>
-													</div>
+													<JobArgs
+														id={job.id}
+														workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+														args={job.args}
+													/>
 												{:else}
-													<p class="p-2 text-secondary">No arguments</p>
+													<p class="text-secondary">No arguments</p>
 												{/if}
 											{:else if node}
 												{@const module =
@@ -1932,7 +1931,7 @@
 														>
 													{/if}
 													<div class="flex flex-col gap-6">
-														<div class="flex flex-col gap-1">
+														<div class="flex flex-col gap-6">
 															<div class="flex gap-2 min-w-0 w-full items-center">
 																<ModuleStatus
 																	type={node.type}
@@ -1955,16 +1954,20 @@
 																				''}?workspace={job?.workspace_id}"
 																		>
 																			{truncateRev(node.job_id ?? '', 10)}
+																			<ExternalLink size={12} class="inline-block" />
 																		</a>
 																	</div>
 																{/if}
 															</div>
 															{#if !node.isListJob}
-																<JobArgs
-																	id={node.job_id}
-																	workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
-																	args={node.args}
-																/>
+																<div>
+																	<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
+																	<JobArgs
+																		id={node.job_id}
+																		workspace={job.workspace_id ?? $workspaceStore ?? 'no_w'}
+																		args={node.args}
+																	/>
+																</div>
 															{/if}
 														</div>
 														<FlowJobResult
