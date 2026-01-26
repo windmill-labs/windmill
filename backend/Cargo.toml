@@ -380,6 +380,7 @@ openssl = "=0.10"
 mail-parser = "^0"
 matchit = "=0.7.3"
 rdkafka = { version = "0.36.2", features = ["cmake-build", "ssl-vendored"] }
+rdkafka-sys = "=4.9.0"
 pg_escape = "0.1.1"
 async-nats = "0.38.0"
 nkeys = "0.4.4"
