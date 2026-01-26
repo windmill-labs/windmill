@@ -10756,9 +10756,9 @@ dependencies = [
 
 [[package]]
 name = "rdkafka-sys"
-version = "4.10.0+2.12.1"
+version = "4.9.0+2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e234cf318915c1059d4921ef7f75616b5219b10b46e9f3a511a15eb4b56a3f77"
+checksum = "5230dca48bc354d718269f3e4353280e188b610f7af7e2fcf54b7a79d5802872"
 dependencies = [
  "cmake",
  "libc",
@@ -15538,6 +15538,7 @@ dependencies = [
  "quick_cache",
  "rand 0.9.0",
  "rdkafka",
+ "rdkafka-sys",
  "regex",
  "reqwest 0.13.1",
  "rsa",
