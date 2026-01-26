@@ -9,7 +9,8 @@ pub const MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: VC = vc(1, 602, 0, "Sync jo
 pub const MIN_VERSION_SUPPORTS_DEBOUNCING_V2: VC = vc(1, 597, 0, "Debouncing V2");
 pub const MIN_VERSION_IS_AT_LEAST_1_595: VC = vc(1, 595, 0, "Flow status separate table");
 pub const MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: VC = vc(1, 592, 0, "Runnable settings V0");
-pub const MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: VC = vc(1, 587, 0, "Workspace dependencies");
+pub const MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: VC =
+    vc(1, 587, 0, "Workspace dependencies");
 pub const MIN_VERSION_SUPPORTS_DEBOUNCING: VC = vc(1, 566, 0, "Debouncing");
 pub const MIN_VERSION_IS_AT_LEAST_1_440: VC = vc(1, 440, 0, "Flow node value on pull");
 pub const MIN_VERSION_IS_AT_LEAST_1_432: VC = vc(1, 432, 0, "Flow script job kind");
@@ -21,7 +22,7 @@ pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite t
 /// Minimum version workers must have to stay connected.
 /// Served via: GET /api/min_keep_alive_version (returns { worker, agent })
 /// Also used by vc() for compile-time checks.
-pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 400, 0);
+pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 580, 0);
 
 /// Minimum version agent workers must have to stay connected.
 /// Served via: GET /api/min_keep_alive_version (returns { worker, agent })
@@ -33,9 +34,13 @@ pub const AGENT_MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 0, 0);
 // fails, wait until enough versions have passed rather than reducing the lag requirement.
 // Skip check if GIT_VERSION is "unknown-version" (no git tags available during build)
 const _: () = assert!(
-    !const_str::contains!(crate::utils::GIT_VERSION, ".") ||
-    (const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - MIN_KEEP_ALIVE_VERSION.1 >= 50
-    && const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64) - AGENT_MIN_KEEP_ALIVE_VERSION.1 >= 100)
+    !const_str::contains!(crate::utils::GIT_VERSION, ".")
+        || (const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64)
+            - MIN_KEEP_ALIVE_VERSION.1
+            >= 50
+            && const_str::parse!(const_str::split!(crate::utils::GIT_VERSION, ".")[1], u64)
+                - AGENT_MIN_KEEP_ALIVE_VERSION.1
+                >= 100)
 );
 
 // ============ Implementation ============
@@ -49,7 +54,9 @@ lazy_static::lazy_static! {
 pub const fn vc(major: u64, minor: u64, patch: u64, name: &'static str) -> VersionConstraint {
     let is_greater = major > MIN_KEEP_ALIVE_VERSION.0
         || (major == MIN_KEEP_ALIVE_VERSION.0 && minor > MIN_KEEP_ALIVE_VERSION.1)
-        || (major == MIN_KEEP_ALIVE_VERSION.0 && minor == MIN_KEEP_ALIVE_VERSION.1 && patch > MIN_KEEP_ALIVE_VERSION.2);
+        || (major == MIN_KEEP_ALIVE_VERSION.0
+            && minor == MIN_KEEP_ALIVE_VERSION.1
+            && patch > MIN_KEEP_ALIVE_VERSION.2);
     assert!(
         is_greater,
         "Feature version must be > MIN_KEEP_ALIVE_VERSION. Remove this obsolete constraint."
@@ -74,7 +81,10 @@ impl VersionConstraint {
         let min = MIN_VERSION.read().await;
         // If MIN_VERSION is 0.0.0, it hasn't been set yet - assume met
         if *min == Version::new(0, 0, 0) {
-            tracing::warn!("MIN_VERSION not set yet, assuming feature '{}' is met", self.name);
+            tracing::warn!(
+                "MIN_VERSION not set yet, assuming feature '{}' is met",
+                self.name
+            );
             return true;
         }
         &self.available_since <= &*min
@@ -92,11 +102,10 @@ impl VersionConstraint {
     }
 }
 
-
 // ============ Version Management ============
 
-use crate::worker::Connection;
 use crate::utils::{GIT_SEM_VERSION, GIT_VERSION};
+use crate::worker::Connection;
 
 /// Fetches the minimum version across all workers.
 // TODO: consider using HTTP for everything instead of Connection enum
@@ -111,19 +120,15 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
             pings
                 .iter()
                 .filter(|x| !x.is_empty())
-                .filter_map(|x| {
-                    Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
-                })
+                .filter_map(|x| Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok())
                 .min()
         }
-        Connection::Http(client) => {
-            Some(
-                client
-                    .get::<String>("/api/agent_workers/get_min_version")
-                    .await
-                    .map(|v| Version::parse(&v))??,
-            )
-        }
+        Connection::Http(client) => Some(
+            client
+                .get::<String>("/api/agent_workers/get_min_version")
+                .await
+                .map(|v| Version::parse(&v))??,
+        ),
     };
 
     Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
@@ -132,7 +137,12 @@ pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
 /// Updates MIN_VERSION and optionally checks min keep-alive version for workers.
 /// If `_worker_mode` is true, checks min keep-alive version and sends critical alerts.
 /// If `initial_load` is true, skips the min keep-alive check (server may not be ready).
-pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_names: Vec<String>, _initial_load: bool) {
+pub async fn update_min_version(
+    conn: &Connection,
+    _worker_mode: bool,
+    _worker_names: Vec<String>,
+    _initial_load: bool,
+) {
     // Update MIN_VERSION
     match get_min_version(conn).await {
         Ok(ref mut v) => {
@@ -156,17 +166,25 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
                 match crate::global_settings::load_value_from_global_settings(
                     db,
                     crate::global_settings::MIN_KEEP_ALIVE_VERSION_SETTING,
-                ).await {
+                )
+                .await
+                {
                     Ok(Some(v)) => v.as_str().and_then(|s| Version::parse(s).ok()),
                     Ok(None) => None,
                     Err(e) => {
-                        tracing::error!("Failed to load min keep-alive version from global_settings: {:#?}", e);
+                        tracing::error!(
+                            "Failed to load min keep-alive version from global_settings: {:#?}",
+                            e
+                        );
                         None
                     }
                 }
             }
             Connection::Http(client) => {
-                match client.get::<serde_json::Value>("/api/min_keep_alive_version").await {
+                match client
+                    .get::<serde_json::Value>("/api/min_keep_alive_version")
+                    .await
+                {
                     Ok(resp) => resp
                         .get("agent")
                         .and_then(|v| v.as_str())
@@ -211,15 +229,18 @@ pub async fn update_min_version(conn: &Connection, _worker_mode: bool, _worker_n
 pub async fn store_min_keep_alive_version(db: &sqlx::Pool<sqlx::Postgres>) {
     let version = format!(
         "{}.{}.{}",
-        MIN_KEEP_ALIVE_VERSION.0,
-        MIN_KEEP_ALIVE_VERSION.1,
-        MIN_KEEP_ALIVE_VERSION.2
+        MIN_KEEP_ALIVE_VERSION.0, MIN_KEEP_ALIVE_VERSION.1, MIN_KEEP_ALIVE_VERSION.2
     );
     if let Err(e) = crate::global_settings::set_value_in_global_settings(
         db,
         crate::global_settings::MIN_KEEP_ALIVE_VERSION_SETTING,
         serde_json::json!(version),
-    ).await {
-        tracing::error!("Failed to store min keep-alive version in global_settings: {:#?}", e);
+    )
+    .await
+    {
+        tracing::error!(
+            "Failed to store min keep-alive version in global_settings: {:#?}",
+            e
+        );
     }
 }
