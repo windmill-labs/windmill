@@ -55,10 +55,12 @@ pub trait SSEParser {
 
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
+        let mut consecutive_errors = 0;
 
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
+                    consecutive_errors = 0;
                     if *DEBUG_SSE_STREAM {
                         tracing::info!("SSE event: {:?}", event);
                     }
@@ -66,7 +68,15 @@ pub trait SSEParser {
                     self.parse_event_data(&event.data).await?;
                 }
                 Err(e) => {
+                    consecutive_errors += 1;
                     tracing::error!("Failed to parse SSE event: {}", e);
+                    if consecutive_errors >= 5 {
+                        tracing::error!(
+                            "Breaking SSE stream after {} consecutive parsing errors",
+                            consecutive_errors
+                        );
+                        break;
+                    }
                 }
             }
         }
