@@ -8,10 +8,11 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
-    providers::openai::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventProcessor,
     types::{StreamingEvent, UrlCitation},
 };
+
+use windmill_common::ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall};
 
 #[derive(Deserialize)]
 pub struct OpenAIChoiceDeltaToolCallFunction {

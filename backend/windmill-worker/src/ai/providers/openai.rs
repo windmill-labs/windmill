@@ -11,9 +11,7 @@ use crate::ai::{
     utils::extract_text_content,
 };
 
-pub use windmill_common::ai_types::{
-    ExtraContent, OpenAIFunction, OpenAIToolCall,
-};
+use windmill_common::ai_types::OpenAIToolCall;
 
 // Responses API structures
 #[derive(Deserialize)]
