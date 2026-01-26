@@ -21,9 +21,11 @@ use serde::Deserialize;
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
     bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, format_bedrock_error,
-    BedrockClient, OpenAIMessage, OpenAIToolCall,
+    BedrockClient
 };
 use windmill_common::error::{Error, Result};
+use windmill_common::ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction};
+use windmill_common::ai_bedrock::build_tool_config;
 
 // ============================================================================
 // Shared Request Types for SDK-Based Handlers
@@ -122,11 +124,11 @@ fn build_tool_config_from_request(
     tool_choice: Option<&serde_json::Value>,
 ) -> Result<Option<aws_sdk_bedrockruntime::types::ToolConfiguration>> {
     if let Some(tools) = tools {
-        let tool_defs: Vec<windmill_common::ai_bedrock::ToolDef> = tools
+        let tool_defs: Vec<ToolDef> = tools
             .iter()
-            .map(|t| windmill_common::ai_bedrock::ToolDef {
+            .map(|t| ToolDef {
                 r#type: "function".to_string(),
-                function: windmill_common::ai_bedrock::ToolDefFunction {
+                function: ToolDefFunction {
                     name: t.function.name.clone(),
                     description: t.function.description.clone(),
                     parameters: Box::from(
@@ -152,7 +154,7 @@ fn build_tool_config_from_request(
             .map(|tc| tc == "required" || tc.as_str() == Some("required"))
             .unwrap_or(false);
 
-        windmill_common::ai_bedrock::build_tool_config(Some(&tool_defs), force_tool_use)
+        build_tool_config(Some(&tool_defs), force_tool_use)
     } else {
         Ok(None)
     }
@@ -668,7 +670,7 @@ pub async fn handle_bedrock_sdk_non_streaming(
                         let input_json = document_to_json(tool_use.input());
                         tool_calls.push(OpenAIToolCall {
                             id: tool_use.tool_use_id().to_string(),
-                            function: windmill_common::ai_bedrock::OpenAIFunction {
+                            function: OpenAIFunction {
                                 name: tool_use.name().to_string(),
                                 arguments: serde_json::to_string(&input_json).unwrap_or_default(),
                             },
