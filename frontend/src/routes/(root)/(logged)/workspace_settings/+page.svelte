@@ -756,13 +756,6 @@
 				/>
 				<Tab
 					small
-					value="native_triggers"
-					aiId="workspace-settings-integrations"
-					aiDescription="Workspace integrations for native triggers"
-					label="Native Triggers"
-				/>
-				<Tab
-					small
 					value="windmill_lfs"
 					aiId="workspace-settings-windmill-lfs"
 					aiDescription="Object Storage (S3) workspace settings"
@@ -797,6 +790,13 @@
 					aiId="workspace-settings-dependencies"
 					aiDescription="Workspace dependencies settings"
 					label="Dependencies"
+				/>
+				<Tab
+					small
+					value="native_triggers"
+					aiId="workspace-settings-integrations"
+					aiDescription="Workspace integrations for native triggers"
+					label="Native Triggers (Beta)"
 				/>
 			</Tabs>
 		</div>
