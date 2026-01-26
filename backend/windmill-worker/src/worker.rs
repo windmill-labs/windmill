@@ -670,6 +670,7 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
     ])
 }
 
+
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
@@ -2697,6 +2698,19 @@ async fn do_nativets(
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);
+
+    // Set job context for OTEL tracing (EE only)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        let tracing_enabled = is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await;
+        tracing::info!(
+            "nativets job {}: OTEL tracing enabled={}",
+            job.id, tracing_enabled
+        );
+        if tracing_enabled {
+            crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
+        }
+    }
 
     Ok(eval_fetch_timeout(
         env_code,

@@ -81,9 +81,11 @@ pub use worker::*;
 pub use worker_lockfiles::{
     process_relative_imports, trigger_dependents_to_recompute_dependencies,
 };
-pub use otel_tracing_proxy_oss::start_otel_tracing_proxy;
 #[cfg(all(feature = "private", feature = "enterprise"))]
-pub use otel_tracing_proxy_oss::{set_current_job_context, TRACING_PROXY_PORT};
+pub use otel_tracing_proxy_ee::{
+    load_internal_otel_exporter, set_current_job_context, start_jobs_otel_tracing,
+    TRACING_PROXY_PORT,
+};
 
 pub use result_processor::handle_job_error;
 

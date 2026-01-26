@@ -320,7 +320,6 @@ pub async fn initial_load(
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
-        reload_otel_tracing_proxy_setting(&conn).await;
     }
 }
 
