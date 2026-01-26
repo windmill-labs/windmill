@@ -22,7 +22,7 @@ pub const MIN_VERSION_IS_AT_LEAST_1_427: VC = vc(1, 427, 0, "Flow version lite t
 /// Minimum version workers must have to stay connected.
 /// Served via: GET /api/min_keep_alive_version (returns { worker, agent })
 /// Also used by vc() for compile-time checks.
-pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 580, 0);
+pub const MIN_KEEP_ALIVE_VERSION: (u64, u64, u64) = (1, 420, 0);
 
 /// Minimum version agent workers must have to stay connected.
 /// Served via: GET /api/min_keep_alive_version (returns { worker, agent })
