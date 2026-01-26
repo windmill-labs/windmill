@@ -104,7 +104,8 @@
                 "postgres",
                 "sqs",
                 "gcp",
-                "mqtt"
+                "mqtt",
+                "nextcloud"
               ]
             }
           }

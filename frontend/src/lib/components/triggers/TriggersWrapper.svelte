@@ -16,6 +16,7 @@
 	import ClipboardPanel from '../details/ClipboardPanel.svelte'
 	import CliHelpBox from '../CliHelpBox.svelte'
 	import TriggerLabel from './TriggerLabel.svelte'
+	import NativeTriggersPanel from './native/NativeTriggersPanel.svelte'
 
 	interface Props {
 		selectedTrigger: Trigger
@@ -52,6 +53,10 @@
 		onEmailDomain,
 		...props
 	}: Props = $props()
+
+	$effect(() => {
+		console.log('selectedTrigger', selectedTrigger)
+	})
 </script>
 
 {#if selectedTrigger.type === 'http'}
@@ -167,6 +172,16 @@
 	/>
 {:else if selectedTrigger.type === 'poll'}
 	<ScheduledPollPanel />
+{:else if selectedTrigger.type === 'nextcloud'}
+	<NativeTriggersPanel
+		service="nextcloud"
+		{isFlow}
+		path={initialPath || fakeInitialPath}
+		{selectedTrigger}
+		defaultValues={selectedTrigger.draftConfig ?? selectedTrigger.captureConfig ?? undefined}
+		{customLabel}
+		{...props}
+	/>
 {:else if selectedTrigger.type === 'cli'}
 	<div class="py-1 flex flex-col gap-6">
 		<ClipboardPanel content={selectedTrigger.extra?.cliCommand ?? ''} />

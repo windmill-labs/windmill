@@ -241,6 +241,14 @@
 				isFlow,
 				$userStore
 			)
+		} else if (triggerType === 'nextcloud') {
+			await triggersState.fetchNativeTriggers(
+				'nextcloud',
+				$workspaceStore,
+				currentPath,
+				isFlow,
+				$userStore
+			)
 		}
 
 		triggersState.selectedTriggerIndex = triggersState.triggers.findIndex(
@@ -256,6 +264,7 @@
 		newConfig: Record<string, any>,
 		saveDisabled: boolean
 	) {
+		console.log('handleUpdateDraftConfig', triggerIndex, newConfig, saveDisabled)
 		if (triggerIndex && triggerIndex !== -1 && newConfig) {
 			triggersState.setDraftConfig(triggerIndex, { ...newConfig, canSave: !saveDisabled })
 		}
