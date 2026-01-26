@@ -7,8 +7,7 @@
 
 	import { userStore, usersWorkspaceStore, workspaceStore } from '$lib/stores'
 	import { getUserExt } from '$lib/user'
-	import { logoutWithRedirect } from '$lib/logout'
-	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
+	import { logoutWithRedirect } from '$lib/logoutKit'
 	import { parseQueryParams } from '$lib/utils'
 	import { page } from '$app/state'
 	import { isCloudHosted } from '$lib/cloud'
@@ -145,10 +144,4 @@
 	}
 </script>
 
-<CenteredModal title="Login from {clientName}">
-	<div class="w-full">
-		<div class="block m-auto w-20">
-			<WindmillIcon height="80px" width="80px" spin="fast" />
-		</div>
-	</div>
-</CenteredModal>
+<CenteredModal title="Login from {clientName}" loading={true}></CenteredModal>

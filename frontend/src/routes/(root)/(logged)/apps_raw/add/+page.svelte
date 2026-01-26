@@ -34,6 +34,7 @@
 	import { aiChatManager, AIMode } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import { Alert } from '$lib/components/common'
+	import { AIBtnClasses } from '$lib/components/copilot/chat/AIButtonStyle'
 
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
@@ -573,7 +574,7 @@
 							!initialPrompt.trim() ||
 							newSchemaAlreadyExists}
 						startIcon={{ icon: Sparkles }}
-						btnClasses="bg-ai text-white"
+						btnClasses={AIBtnClasses('accent')}
 					>
 						Start with AI
 					</Button>

@@ -14,6 +14,7 @@ import { Policy } from "../../../gen/types.gen.ts";
 import path from "node:path";
 
 import { GlobalOptions, isSuperset } from "../../types.ts";
+import { deepEqual } from "../../utils/utils.ts";
 
 import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { createBundle, detectFrameworks } from "./bundle.ts";
@@ -305,7 +306,7 @@ async function collectAppFiles(
         ) {
           continue;
         }
-        await readDirRecursive(fullPath + SEP, relativePath + SEP);
+        await readDirRecursive(fullPath + SEP, relativePath + "/");
       } else if (entry.isFile) {
         // Skip generated/metadata files that shouldn't be part of the app
         if (
@@ -406,8 +407,9 @@ export async function pushRawApp(
     log.info(colors.yellow.bold(`Creating raw app ${remotePath} bundle...`));
     // Detect frameworks to determine entry point
     const frameworks = detectFrameworks(localPath);
-    const entryFile =
-      frameworks.svelte || frameworks.vue ? "index.ts" : "index.tsx";
+    const entryFile = frameworks.svelte || frameworks.vue
+      ? "index.ts"
+      : "index.tsx";
     const entryPoint = localPath + entryFile;
     return await createBundle({
       entryPoint: entryPoint,
@@ -422,7 +424,11 @@ export async function pushRawApp(
   }
 
   if (app) {
-    if (isSuperset({ ...localApp, runnables }, app)) {
+    // Check both metadata/runnables AND files for changes
+    // Files need separate comparison because isSuperset only checks if local keys exist in remote
+    const metadataUpToDate = isSuperset({ ...localApp, runnables }, app);
+    const filesUpToDate = deepEqual(files, app.value?.files);
+    if (metadataUpToDate && filesUpToDate) {
       log.info(colors.green(`App ${remotePath} is up to date`));
       return;
     }
@@ -438,7 +444,9 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
+          ...(localApp.custom_path
+            ? { custom_path: localApp.custom_path }
+            : {}),
         },
         js,
         css,
@@ -455,7 +463,9 @@ export async function pushRawApp(
           summary: localApp.summary,
           policy: appForPolicy.policy,
           deployment_message: message,
-          ...(localApp.custom_path ? { custom_path: localApp.custom_path } : {}),
+          ...(localApp.custom_path
+            ? { custom_path: localApp.custom_path }
+            : {}),
         },
         js,
         css,

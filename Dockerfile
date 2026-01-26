@@ -190,7 +190,7 @@ ENV PATH="${PATH}:/usr/local/go/bin"
 ENV GO_PATH=/usr/local/go/bin/go
 
 # Install UV
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.6.2/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://github.com/astral-sh/uv/releases/download/0.9.24/uv-installer.sh | sh && mv /root/.local/bin/uv /usr/local/bin/uv
 
 # Preinstall python runtimes to temp build location (will copy with world-writable perms later)
 RUN UV_CACHE_DIR=/tmp/build_cache/uv UV_PYTHON_INSTALL_DIR=/tmp/build_cache/py_runtime uv python install 3.11
@@ -254,7 +254,7 @@ COPY ./frontend/src/lib/hubPaths.json ${APP}/hubPaths.json
 
 RUN windmill cache ${APP}/hubPaths.json && rm ${APP}/hubPaths.json
 
-
+RUN windmill cache-rt
 
 # Create a non-root user 'windmill' with UID and GID 1000
 RUN addgroup --gid 1000 windmill && \

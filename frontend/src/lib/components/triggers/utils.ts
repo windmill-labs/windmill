@@ -14,7 +14,7 @@ import type {
 } from '$lib/gen/types.gen'
 import type { Writable } from 'svelte/store'
 import SchedulePollIcon from '../icons/SchedulePollIcon.svelte'
-import { type TriggerKind } from '$lib/components/triggers'
+import type { TriggerKind } from '../triggers'
 import { saveScheduleFromCfg } from '$lib/components/flows/scheduleUtils'
 import { saveHttpRouteFromCfg } from './http/utils'
 import { saveWebsocketTriggerFromCfg } from './websocket/utils'

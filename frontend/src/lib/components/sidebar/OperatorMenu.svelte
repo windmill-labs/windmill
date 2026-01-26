@@ -28,7 +28,7 @@
 	} from '$lib/stores'
 	import { twMerge } from 'tailwind-merge'
 	import { USER_SETTINGS_HASH } from './settings'
-	import { logout } from '$lib/logout'
+	import { logout } from '$lib/logoutKit'
 	import DarkModeObserver from '../DarkModeObserver.svelte'
 	import BarsStaggered from '../icons/BarsStaggered.svelte'
 	import { Menu, Menubar, MenuItem } from '$lib/components/meltComponents'

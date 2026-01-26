@@ -52,7 +52,7 @@
 		loading = true
 		try {
 			if (!$workerTags || force) {
-				$workerTags = await WorkerService.getCustomTags({ workspace: $workspaceStore })
+				$workerTags = await WorkerService.getCustomTagsForWorkspace({ workspace: $workspaceStore! })
 			}
 		} catch (e) {
 			$workerTags = []

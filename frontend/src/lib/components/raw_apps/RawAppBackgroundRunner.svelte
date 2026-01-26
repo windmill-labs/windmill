@@ -29,6 +29,7 @@
 
 	let listener = async (event) => {
 		const data = event.data
+
 		function respond(o: object) {
 			iframe?.contentWindow?.postMessage({ type: data.type + 'Res', ...o, reqId: data.reqId }, '*')
 		}
@@ -67,6 +68,13 @@
 			const runnable_id = data.runnable_id
 			let runnable = runnables[runnable_id]
 			if (runnable) {
+				// Build args, converting ctx fields to $ctx:property format
+				const args = { ...(data.v ?? {}) }
+				for (const [key, field] of Object.entries(runnable?.fields ?? {})) {
+					if (field?.type === 'ctx' && field?.ctx) {
+						args[key] = `$ctx:${field.ctx}`
+					}
+				}
 				const uuid = await executeRunnable(
 					runnable,
 					workspace,
@@ -76,7 +84,7 @@
 					runnable_id,
 					{
 						component: runnable_id,
-						args: data.v ?? {},
+						args,
 						force_viewer_allow_user_resources: editor
 							? undefinedIfEmpty(
 									Object.keys(runnable?.fields ?? {}).filter(
@@ -112,13 +120,107 @@
 				if (editor) {
 					job.result = result
 				}
-			} else if (event.data.type == 'waitJob') {
-				await respondWithResult(data.jobId)
-			} else if (event.data.type == 'getJob') {
-				const job = await JobService.getJob({ workspace, id: data.jobId })
-				respond({ result: job })
 			} else {
 				console.error('No runnable found for', runnable_id)
+			}
+		} else if (event.data.type == 'waitJob') {
+			await respondWithResult(data.jobId)
+		} else if (event.data.type == 'getJob') {
+			const job = await JobService.getJob({ workspace, id: data.jobId })
+			respond({ result: job })
+		} else if (event.data.type == 'streamJob') {
+			// Stream job results using SSE
+			const jobId = data.jobId
+			const reqId = data.reqId
+			const params = new URLSearchParams()
+			params.set('fast', 'true')
+
+			const sseUrl = `/api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?${params.toString()}`
+			const eventSource = new EventSource(sseUrl)
+
+			eventSource.onmessage = (sseEvent) => {
+				try {
+					const update = JSON.parse(sseEvent.data)
+					const type = update.type
+
+					if (type === 'ping' || type === 'timeout') {
+						if (type === 'timeout') {
+							eventSource.close()
+						}
+						return
+					}
+
+					if (type === 'error') {
+						eventSource.close()
+						iframe?.contentWindow?.postMessage(
+							{
+								type: 'streamJobRes',
+								reqId,
+								error: true,
+								result: { message: update.error || 'SSE error' }
+							},
+							'*'
+						)
+						return
+					}
+
+					if (type === 'not_found') {
+						eventSource.close()
+						iframe?.contentWindow?.postMessage(
+							{
+								type: 'streamJobRes',
+								reqId,
+								error: true,
+								result: { message: 'Job not found' }
+							},
+							'*'
+						)
+						return
+					}
+
+					// Send stream update if there's new stream data
+					if (update.new_result_stream !== undefined) {
+						iframe?.contentWindow?.postMessage(
+							{
+								type: 'streamJobUpdate',
+								reqId,
+								new_result_stream: update.new_result_stream,
+								stream_offset: update.stream_offset
+							},
+							'*'
+						)
+					}
+
+					// Check if job is completed
+					if (update.completed) {
+						eventSource.close()
+						iframe?.contentWindow?.postMessage(
+							{
+								type: 'streamJobRes',
+								reqId,
+								error: false,
+								result: update.only_result
+							},
+							'*'
+						)
+					}
+				} catch (parseErr) {
+					console.warn('Failed to parse SSE data:', parseErr)
+				}
+			}
+
+			eventSource.onerror = (error) => {
+				console.warn('SSE stream error:', error)
+				eventSource.close()
+				iframe?.contentWindow?.postMessage(
+					{
+						type: 'streamJobRes',
+						reqId,
+						error: true,
+						result: { message: 'SSE connection error' }
+					},
+					'*'
+				)
 			}
 		}
 	}

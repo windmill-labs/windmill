@@ -1,5 +1,18 @@
 import type { ButtonType } from './common/button/model'
 
+// Languages that support HTTP request tracing via OTEL proxy
+export const OTEL_TRACING_PROXY_LANGUAGES = [
+	'python3',
+	'deno',
+	'bun',
+	'go',
+	'bash',
+	'rust',
+	'csharp',
+	'nu',
+	'ruby'
+] as const
+
 export interface Setting {
 	label: string
 	description?: string
@@ -34,6 +47,8 @@ export interface Setting {
 		| 'smtp_connect'
 		| 'indexer_rates'
 		| 'otel'
+		| 'otel_tracing_proxy'
+		| 'secret_backend'
 	storage: SettingStorage
 	advancedToggle?: {
 		label: string
@@ -445,7 +460,16 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting',
 			ee_only: ''
 		},
-
+		{
+			label: 'HTTP Request Tracing',
+			description:
+				'Capture HTTP/HTTPS requests from job scripts as OpenTelemetry spans. Visible in job details and exported to your OTEL collector if configured. Toggling restarts workers.',
+			key: 'otel_tracing_proxy',
+			fieldType: 'otel_tracing_proxy',
+			storage: 'setting',
+			ee_only: 'HTTP Request Tracing is an EE feature',
+			defaultValue: () => ({ enabled: false, enabled_languages: [...OTEL_TRACING_PROXY_LANGUAGES] })
+		},
 		{
 			label: 'Prometheus',
 			description:
@@ -472,6 +496,17 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting'
+		}
+	],
+	'Secret Storage': [
+		{
+			label: 'Secret Storage Backend',
+			description:
+				'Configure where secrets (secret variables) are stored. By default, secrets are encrypted and stored in the database. Enterprise Edition supports HashiCorp Vault as an external secret store.',
+			key: 'secret_backend',
+			fieldType: 'secret_backend',
+			storage: 'setting',
+			ee_only: 'HashiCorp Vault integration is an Enterprise Edition feature'
 		}
 	]
 }

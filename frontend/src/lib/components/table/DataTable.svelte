@@ -36,6 +36,7 @@
 		loading?: boolean
 		loadingMore?: boolean
 		containerClass?: string
+		preventXOverflow?: boolean
 		children?: import('svelte').Snippet
 		emptyMessage?: import('svelte').Snippet
 	}
@@ -62,7 +63,8 @@
 		loadingMore = false,
 		containerClass = '',
 		children,
-		emptyMessage
+		emptyMessage,
+		preventXOverflow = false
 	}: Props = $props()
 	setContext<DatatableContext>('datatable', {
 		size
@@ -127,7 +129,11 @@
 	bind:clientHeight={tableHeight}
 >
 	<List justify="between" gap="none" hFull={true}>
-		<div class="w-full overflow-auto h-fit" bind:this={tableContainer} onscroll={handleScroll}>
+		<div
+			class={twMerge('w-full overflow-auto h-fit', preventXOverflow ? 'overflow-x-hidden' : '')}
+			bind:this={tableContainer}
+			onscroll={handleScroll}
+		>
 			<table class={tableFixed ? 'table-fixed w-full' : 'min-w-full'}>
 				{@render children?.()}
 			</table>

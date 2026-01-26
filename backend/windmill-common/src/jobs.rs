@@ -827,6 +827,9 @@ lazy_static::lazy_static! {
     pub static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
         |v| v.parse().unwrap()
     ).unwrap_or(false);
+    pub static ref HIDE_WORKERS_FOR_NON_ADMINS: bool = std::env::var("HIDE_WORKERS_FOR_NON_ADMINS").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
 }
 
 pub async fn check_tag_available_for_workspace_internal(

@@ -19,6 +19,7 @@ use crate::db::ApiAuthed;
 
 pub use crate::auth::Tokened;
 
+use crate::secret_backend_ext::rename_vault_secrets_with_prefix;
 use crate::utils::{
     generate_instance_wide_unique_username, get_instance_username_or_create_pending,
 };
@@ -1477,11 +1478,11 @@ async fn convert_user_to_group(
         r#"
         SELECT
             eig.igroup as group_name,
-            ws.auto_add_instance_groups_roles
+            ws.auto_invite->'instance_groups_roles' as instance_groups_roles
         FROM email_to_igroup eig
         INNER JOIN workspace_settings ws ON ws.workspace_id = $1
         WHERE eig.email = $2
-        AND eig.igroup = ANY(ws.auto_add_instance_groups)
+        AND ws.auto_invite->'instance_groups' ? eig.igroup
         "#,
         &w_id,
         &user_info.email
@@ -1498,7 +1499,7 @@ async fn convert_user_to_group(
 
     // Determine the group with highest precedence (same logic as process_instance_group_auto_adds)
     let roles: std::collections::HashMap<String, String> =
-        if let Some(roles_json) = &eligible_groups[0].auto_add_instance_groups_roles {
+        if let Some(roles_json) = &eligible_groups[0].instance_groups_roles {
             serde_json::from_value(roles_json.clone()).unwrap_or_default()
         } else {
             std::collections::HashMap::new()
@@ -2687,6 +2688,7 @@ async fn rename_user(
         }
         update_username_in_workpsace(
             &mut tx,
+            &db,
             &user_email,
             &w_u.username,
             &ru.new_username,
@@ -2714,6 +2716,7 @@ async fn rename_user(
 
 async fn update_username_in_workpsace<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
+    db: &DB,
     email: &str,
     old_username: &str,
     new_username: &str,
@@ -2831,6 +2834,43 @@ async fn update_username_in_workpsace<'c>(
 
     // ---- variables ----
 
+    // Handle Vault secret renames before updating paths in DB
+    let old_prefix = format!("u/{}/", old_username);
+    let new_prefix = format!("u/{}/", new_username);
+
+    // Fetch all Vault-stored secret variables under this user's path
+    let vault_secrets: Vec<(String, String)> = sqlx::query!(
+        r#"SELECT path, value FROM variable
+           WHERE path LIKE ('u/' || $1 || '/%')
+           AND workspace_id = $2
+           AND is_secret = true
+           AND value LIKE '$vault:%'"#,
+        old_username,
+        w_id
+    )
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|r| (r.path, r.value))
+    .collect();
+
+    // Rename secrets in Vault and get the new values
+    let vault_updates =
+        rename_vault_secrets_with_prefix(db, w_id, &old_prefix, &new_prefix, vault_secrets).await?;
+
+    // Update the values in the DB for renamed Vault secrets (using OLD path, before path update)
+    for (old_path, new_value) in vault_updates {
+        sqlx::query!(
+            "UPDATE variable SET value = $1 WHERE path = $2 AND workspace_id = $3",
+            new_value,
+            old_path,
+            w_id
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    // Now update the paths in the database
     sqlx::query!(
         r#"UPDATE variable SET path = REGEXP_REPLACE(path,'u/' || $2 || '/(.*)','u/' || $1 || '/\1') WHERE path LIKE ('u/' || $2 || '/%') AND workspace_id = $3"#,
         new_username,

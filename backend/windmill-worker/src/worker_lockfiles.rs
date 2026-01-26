@@ -26,9 +26,8 @@ use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{
-    to_raw_value, to_raw_value_owned, write_file, Connection, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-};
+use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
@@ -1456,7 +1455,7 @@ async fn lock_modules<'c>(
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 if skip_creating_new_lock(&language, &content)
-                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                    && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                 {
                     tx = dependency_map
@@ -1979,7 +1978,7 @@ async fn lock_modules_app(
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
                                 if skip_creating_new_lock(&language, &content)
-                                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                    && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                                 {
                                     dependency_map
@@ -2178,10 +2177,13 @@ pub async fn handle_app_dependency_job(
     .execute(db)
     .await?;
 
-    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
-        .fetch_optional(db)
-        .await?
-        .map(|record| (record.app_id, record.value));
+    let record = sqlx::query!(
+        "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
+        id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|record| (record.app_id, record.value, record.raw_app));
 
     let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -2195,7 +2197,7 @@ pub async fn handle_app_dependency_job(
     .await?;
 
     // TODO: Use transaction for entire segment?
-    if let Some((app_id, value)) = record {
+    if let Some((app_id, value, is_raw_app)) = record {
         let value = lock_modules_app(
             value,
             &job,
@@ -2275,12 +2277,18 @@ pub async fn handle_app_dependency_job(
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
+        let deployed_object = if is_raw_app {
+            DeployedObject::RawApp { path: job_path, version: id, parent_path }
+        } else {
+            DeployedObject::App { path: job_path, version: id, parent_path }
+        };
+
         if let Err(e) = handle_deployment_metadata(
             &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id, parent_path },
+            deployed_object,
             deployment_message,
             false,
         )

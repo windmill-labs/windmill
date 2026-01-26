@@ -591,15 +591,12 @@
 			const resourcePath = newSchemaRes.replace('$res:', '')
 			dbSchema = $dbSchemas[resourcePath]
 			if (dbSchema === undefined) {
-				if (lang === 'graphql') {
-					await getDbSchemas('graphql', resourcePath, $workspaceStore, $dbSchemas, (e) => {
-						console.error('error getting graphql db schema', e)
-					})
-				} else if (lang === 'sql') {
-					await getDbSchemas(scriptLang ?? '', resourcePath, $workspaceStore, $dbSchemas, (e) => {
-						console.error(`error getting SQL (${scriptLang}) db schema`, e)
-					})
-				}
+				$dbSchemas[resourcePath] = await getDbSchemas(
+					lang === 'graphql' ? 'graphql' : (scriptLang ?? ''),
+					resourcePath,
+					$workspaceStore,
+					(e) => console.error(`error getting ${lang} (${scriptLang}) db schema`, e)
+				)
 			}
 			dbSchema = $dbSchemas[resourcePath]
 		} else {
@@ -1365,7 +1362,7 @@
 					$relativeLineNumbers
 				),
 				model,
-				fontSize: !small ? 14 : 12,
+				fontSize: !small ? 13.5 : 12,
 				lineNumbersMinChars,
 				// overflowWidgetsDomNode: widgets,
 				tabSize: lang == 'python' ? 4 : 2,

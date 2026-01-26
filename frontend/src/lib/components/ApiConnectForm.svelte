@@ -13,6 +13,7 @@
 	import { untrack } from 'svelte'
 	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
+	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
 
 	interface Props {
 		resourceType: string
@@ -145,6 +146,7 @@
 			options={{
 				right: 'As JSON'
 			}}
+			class="as-json-toggle"
 		/>
 		<TestConnection {resourceType} {args} />
 		{#if resourceType == 'postgresql'}
@@ -209,6 +211,9 @@
 			onDescriptionUpdate={(newDescription) => (description = newDescription)}
 		/>
 	</div>
+	{#if resourceType?.includes('bedrock')}
+		<BedrockCredentialsCheck />
+	{/if}
 {:else}
 	<p class="text-primary font-normal text-xs mb-4"
 		>No corresponding resource type found in your workspace for {resourceType}. Define the value in

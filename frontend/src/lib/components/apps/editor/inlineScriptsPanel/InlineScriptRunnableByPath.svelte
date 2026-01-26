@@ -13,7 +13,8 @@
 		RowAppInput,
 		RunnableByPath,
 		StaticAppInput,
-		UserAppInput
+		UserAppInput,
+		CtxAppInput
 	} from '../../inputType'
 	import type { AppViewerContext } from '../../types'
 	import { workspaceStore } from '$lib/stores'
@@ -35,7 +36,7 @@
 	interface Props {
 		runnable: RunnableByPath
 		fields:
-			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput>
+			| Record<string, StaticAppInput | ConnectedAppInput | RowAppInput | UserAppInput | CtxAppInput>
 			| undefined
 		id: string
 		rawApps?: boolean

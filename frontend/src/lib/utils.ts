@@ -146,7 +146,7 @@ export function retrieveCommonWorkerPrefix(workerName: string): string {
 }
 
 export function subtractDaysFromDateString(
-	dateString: string | undefined,
+	dateString: string | null,
 	days: number
 ): string | undefined {
 	if (dateString == undefined) {
@@ -1955,6 +1955,10 @@ export function countChars(str: string, char: string): number {
 		}
 	}
 	return count
+}
+
+export function onlyAlphaNumAndUnderscore(str: string): string {
+	return str.replace(/[^a-zA-Z0-9_]/g, '')
 }
 
 export function buildReactiveObj<T extends object>(fields: {

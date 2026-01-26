@@ -67,6 +67,7 @@
 	let enabled = $derived(value != undefined && !(eeOnly && !$enterpriseLicense))
 
 	$effect(() => {
+		tenant
 		if (name == 'microsoft' || name == 'teams') {
 			untrack(() => changeTenantId(tenant))
 		}

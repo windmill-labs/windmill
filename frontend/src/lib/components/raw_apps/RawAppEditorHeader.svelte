@@ -162,6 +162,9 @@
 			sendUserToast(`App hasn't been loaded yet`, true)
 			return
 		}
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
+		}
 		await computeTriggerables()
 		try {
 			const { js, css } = await getBundle()
@@ -266,6 +269,9 @@
 		}
 		const { js, css } = await getBundle()
 		await computeTriggerables()
+		if (!policy.execution_mode) {
+			policy.execution_mode = 'publisher'
+		}
 		await AppService.updateAppRaw({
 			workspace: $workspaceStore!,
 			path: appPath!,
@@ -712,7 +718,6 @@
 			bind:customPathError
 			bind:pathError
 			bind:newEditedPath
-			hideSecretUrl={true}
 		/>
 	</DrawerContent>
 </Drawer>
@@ -738,7 +743,7 @@
 />
 
 <div
-	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10"
+	class="border-b flex flex-row justify-between py-1 gap-2 gap-y-2 px-2 items-center overflow-y-visible overflow-x-auto min-h-10 shrink-0"
 >
 	<div class="flex flex-row gap-2 items-center">
 		<Summary bind:value={summary} />

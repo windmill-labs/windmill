@@ -53,10 +53,11 @@ import {
   getSpecificItemsForCurrentBranch,
   isBranchSpecificFile,
   isCurrentBranchFile,
+  isItemTypeConfigured,
   isSpecificItem,
   SpecificItemsConfig,
 } from "../../core/specific_items.ts";
-import { getCurrentGitBranch } from "../../utils/git.ts";
+import { getCurrentGitBranch, isGitRepository } from "../../utils/git.ts";
 import { Workspace } from "../workspace/workspace.ts";
 import { removePathPrefix } from "../../types.ts";
 import { listSyncCodebases, SyncCodebase } from "../../utils/codebase.ts";
@@ -109,8 +110,9 @@ async function resolveEffectiveSyncOptions(
   workspace: Workspace,
   localConfig: SyncOptions,
   promotion?: string,
+  branchOverride?: string,
 ): Promise<SyncOptions> {
-  return await getEffectiveSettings(localConfig, promotion);
+  return await getEffectiveSettings(localConfig, promotion, false, false, branchOverride);
 }
 
 type DynFSElement = {
@@ -767,7 +769,7 @@ function ZipFSElement(
             let inlineScripts;
             try {
               inlineScripts = extractInlineScriptsForFlows(
-                flow.value.modules,
+                flow.value.modules as any,
                 {},
                 SEP,
                 defaultTs,
@@ -931,6 +933,29 @@ function ZipFSElement(
               };
             }
 
+            // Helper to simplify fields for YAML output
+            // { type: 'static', value: X } -> { value: X }
+            // { type: 'ctx', ctx: X } -> { ctx: X }
+            function simplifyFields(fields: Record<string, any> | undefined) {
+              if (!fields) return undefined;
+              const simplified: Record<string, any> = {};
+              for (const [k, v] of Object.entries(fields)) {
+                if (typeof v === "object" && v !== null) {
+                  if (v.type === "static" && v.value !== undefined) {
+                    simplified[k] = { value: v.value };
+                  } else if (v.type === "ctx" && v.ctx !== undefined) {
+                    simplified[k] = { ctx: v.ctx };
+                  } else {
+                    // Keep other field types as-is
+                    simplified[k] = v;
+                  }
+                } else {
+                  simplified[k] = v;
+                }
+              }
+              return simplified;
+            }
+
             // Yield each runnable as a separate YAML file in the backend folder
             // For inline scripts, simplify the YAML - inlineScript is not needed since
             // content/lock/language can be derived from sibling files
@@ -966,6 +991,11 @@ function ZipFSElement(
               } else {
                 // For other runnables, keep as-is
                 simplifiedRunnable = runnableObj;
+              }
+
+              // Simplify fields for cleaner YAML output
+              if (simplifiedRunnable.fields) {
+                simplifiedRunnable.fields = simplifyFields(simplifiedRunnable.fields);
               }
 
               yield {
@@ -1248,6 +1278,7 @@ export async function elementsToMap(
   json: boolean,
   skips: Skips,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1350,8 +1381,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      const currentBranch = getCurrentGitBranch();
-      if (!currentBranch || !isCurrentBranchFile(path)) {
+      if (!isCurrentBranchFile(path, branchOverride)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1386,31 +1416,38 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (specificItems) {
-      const currentBranch = getCurrentGitBranch();
-      if (currentBranch && isCurrentBranchFile(path)) {
-        // This is a branch-specific file for current branch
-        const basePath = fromBranchSpecificPath(path, currentBranch);
-        if (isSpecificItem(basePath, specificItems)) {
-          // Map to base path for push operations
-          map[basePath] = content;
-          processedBasePaths.add(basePath);
-        } else {
-          // Branch-specific file doesn't match pattern, skip it
-          continue;
-        }
-      } else if (!isBranchSpecificFile(path)) {
-        // This is a regular base file, check if we should skip it
-        if (processedBasePaths.has(path)) {
-          // Skip base file, we already processed branch-specific version
-          continue;
-        }
-        map[path] = content;
+    if (isCurrentBranchFile(path, branchOverride)) {
+      // This is a branch-specific file for current branch
+      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const basePath = fromBranchSpecificPath(path, currentBranch);
+
+      // Only use branch-specific files if the item type IS configured as branch-specific
+      // AND matches the pattern. Otherwise, skip and use base file instead.
+      if (!isItemTypeConfigured(basePath, specificItems)) {
+        // Type not configured as branch-specific - skip, use base file instead
+        continue;
       }
-    } else {
-      // No specific items configuration, use regular path
-      map[entry.path] = content;
+      if (!isSpecificItem(basePath, specificItems)) {
+        // Type configured but doesn't match pattern - skip
+        continue;
+      }
+
+      // Type configured AND matches - map to base path
+      map[basePath] = content;
+      processedBasePaths.add(basePath);
+    } else if (!isBranchSpecificFile(path)) {
+      // This is a regular base file
+      if (processedBasePaths.has(path)) {
+        // Skip base file, we already processed branch-specific version
+        continue;
+      }
+      // Skip base file if it's configured as branch-specific (expect branch version)
+      if (isSpecificItem(path, specificItems)) {
+        continue;
+      }
+      map[path] = content;
     }
+    // Note: branch-specific files for other branches are already filtered out earlier
   }
   return map;
 }
@@ -1444,13 +1481,14 @@ async function compareDynFSElement(
   codebases: SyncCodebase[],
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
+  branchOverride?: string,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems),
-        elementsToMap(els2, ignore, json, skips, specificItems),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride), {}];
 
   const changes: Change[] = [];
 
@@ -1858,14 +1896,14 @@ async function buildTracker(changes: Change[]) {
 
 export async function pull(
   opts: GlobalOptions &
-    SyncOptions & { repository?: string; promotion?: string },
+    SyncOptions & { repository?: string; promotion?: string; branch?: string },
 ) {
   const originalCliOpts = { ...opts };
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -1878,7 +1916,7 @@ export async function pull(
     await ensureDir(path.join(Deno.cwd(), ".wmill"));
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -1886,10 +1924,11 @@ export async function pull(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration before merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -1947,6 +1986,7 @@ export async function pull(
     codebases,
     true,
     specificItems,
+    opts.branch,
   );
 
   log.info(
@@ -1969,6 +2009,7 @@ export async function pull(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -1981,7 +2022,7 @@ export async function pull(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2007,6 +2048,7 @@ export async function pull(
         const branchSpecificPath = getBranchSpecificPath(
           change.path,
           specificItems,
+          opts.branch,
         );
         if (branchSpecificPath) {
           targetPath = branchSpecificPath;
@@ -2216,6 +2258,7 @@ export async function pull(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -2241,7 +2284,7 @@ export async function pull(
   }
 }
 
-function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
+function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig, branchOverride?: string) {
   for (const change of changes) {
     let displayPath = change.path;
     let branchNote = "";
@@ -2251,6 +2294,7 @@ function prettyChanges(changes: Change[], specificItems?: SpecificItemsConfig) {
       const branchSpecificPath = getBranchSpecificPath(
         change.path,
         specificItems,
+        branchOverride,
       );
       if (branchSpecificPath) {
         displayPath = branchSpecificPath;
@@ -2334,7 +2378,7 @@ function removeSuffix(str: string, suffix: string) {
 }
 
 export async function push(
-  opts: GlobalOptions & SyncOptions & { repository?: string },
+  opts: GlobalOptions & SyncOptions & { repository?: string; branch?: string },
 ) {
   // Save original CLI options before merging with config file
   const originalCliOpts = { ...opts };
@@ -2342,9 +2386,9 @@ export async function push(
   // Load configuration from wmill.yaml and merge with CLI options
   opts = await mergeConfigWithConfigFile(opts);
 
-  // Validate branch configuration early
+  // Validate branch configuration early (skipped when --branch is used)
   try {
-    await validateBranchConfiguration(opts);
+    await validateBranchConfiguration(opts, opts.branch);
   } catch (error) {
     if (error instanceof Error && error.message.includes("overrides")) {
       log.error(error.message);
@@ -2353,7 +2397,7 @@ export async function push(
     throw error;
   }
 
-  const workspace = await resolveWorkspace(opts);
+  const workspace = await resolveWorkspace(opts, opts.branch);
   await requireLogin(opts);
 
   // Resolve effective sync options with branch awareness
@@ -2361,10 +2405,11 @@ export async function push(
     workspace,
     opts,
     opts.promotion,
+    opts.branch,
   );
 
   // Extract specific items configuration BEFORE merging overwrites gitBranches
-  const specificItems = getSpecificItemsForCurrentBranch(opts);
+  const specificItems = getSpecificItemsForCurrentBranch(opts, opts.branch);
 
   // Merge CLI flags with resolved settings (CLI flags take precedence only for explicit overrides)
   opts = mergeCliWithEffectiveOptions(originalCliOpts, effectiveOpts);
@@ -2432,6 +2477,7 @@ export async function push(
     codebases,
     false,
     specificItems,
+    opts.branch,
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();
@@ -2555,6 +2601,7 @@ export async function push(
               branch_specific_path: getBranchSpecificPath(
                 change.path,
                 specificItems,
+                opts.branch,
               ),
             }
           : {}),
@@ -2567,7 +2614,7 @@ export async function push(
 
   if (changes.length > 0) {
     if (!opts.jsonOutput) {
-      prettyChanges(changes, specificItems);
+      prettyChanges(changes, specificItems, opts.branch);
     }
     if (opts.dryRun) {
       log.info(colors.gray(`Dry run complete.`));
@@ -2709,7 +2756,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = getCurrentGitBranch();
+                  const currentBranch = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
@@ -2740,6 +2787,7 @@ export async function push(
                 originalBranchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
               }
 
@@ -2793,6 +2841,7 @@ export async function push(
                 const branchSpecificPath = getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 );
                 if (branchSpecificPath) {
                   localFilePath = branchSpecificPath;
@@ -2866,10 +2915,24 @@ export async function push(
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
+                    // Delete the entire raw app
                     await wmill.deleteApp({
                       workspace: workspaceId,
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
+                  } else {
+                    // For individual file deletions within a raw app,
+                    // re-push the entire raw app so the backend gets the updated file list
+                    // (the deleted file won't be included in the push)
+                    await pushObj(
+                      workspaceId,
+                      target,
+                      undefined,
+                      undefined,
+                      opts.plainSecrets ?? false,
+                      alreadySynced,
+                      opts.message,
+                    );
                   }
                   break;
                 case "schedule":
@@ -3029,6 +3092,7 @@ export async function push(
                 branch_specific_path: getBranchSpecificPath(
                   change.path,
                   specificItems,
+                  opts.branch,
                 ),
               }
             : {}),
@@ -3118,6 +3182,10 @@ const command = new Command()
     "--promotion <branch:string>",
     "Use promotionOverrides from the specified branch instead of regular overrides",
   )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
+  )
   // deno-lint-ignore no-explicit-any
   .action(pull as any)
   .command("push")
@@ -3170,6 +3238,10 @@ const command = new Command()
   .option(
     "--repository <repo:string>",
     "Specify repository path (e.g., u/user/repo) when multiple repositories exist",
+  )
+  .option(
+    "--branch <branch:string>",
+    "Override the current git branch (works even outside a git repository)",
   )
   // deno-lint-ignore no-explicit-any
   .action(push as any);

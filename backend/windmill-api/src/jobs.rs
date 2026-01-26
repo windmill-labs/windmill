@@ -64,7 +64,9 @@ use crate::{
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
-    users::{get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    users::{
+        get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
+    },
     utils::{check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
@@ -341,6 +343,7 @@ pub fn workspaced_service() -> Router {
             "/send_email_with_instance_smtp",
             post(send_email_with_instance_smtp),
         )
+        .route("/get_otel_traces/:id", get(get_otel_traces))
 }
 
 pub fn workspace_unauthed_service() -> Router {
@@ -1765,6 +1768,8 @@ pub struct ListableCompletedJob {
     pub priority: Option<i16>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -1854,6 +1859,7 @@ pub struct ListQueueQuery {
     pub allow_wildcards: Option<bool>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub trigger_path: Option<String>,
+    pub include_args: Option<bool>,
 }
 
 impl From<ListCompletedQuery> for ListQueueQuery {
@@ -1887,6 +1893,7 @@ impl From<ListCompletedQuery> for ListQueueQuery {
             allow_wildcards: lcq.allow_wildcards,
             trigger_kind: lcq.trigger_kind,
             trigger_path: lcq.trigger_path,
+            include_args: lcq.include_args,
         }
     }
 }
@@ -2076,6 +2083,16 @@ async fn list_queue_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListQueueQuery>,
 ) -> error::JsonResult<Vec<ListableQueuedJob>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
+    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+
     let sql = list_queue_jobs_query(
         &w_id,
         &lq,
@@ -2088,7 +2105,7 @@ async fn list_queue_jobs(
             "v2_job_queue.scheduled_for",
             "v2_job.runnable_id as script_hash",
             "v2_job.runnable_path as script_path",
-            "null as args",
+            args_field,
             "v2_job.kind as job_kind",
             "CASE WHEN v2_job.trigger_kind = 'schedule' THEN v2_job.trigger END as schedule_path",
             "v2_job.permissioned_as",
@@ -2415,6 +2432,14 @@ async fn list_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<Job>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
     let (per_page, offset) = paginate(pagination);
     let lqc = lq.clone();
 
@@ -2427,13 +2452,36 @@ async fn list_jobs(
             "cannot specify both success and running".to_string(),
         ));
     }
+
+    // Create dynamic field arrays when include_args is true
+    let cj_fields: Vec<&str>;
+    let qj_fields: Vec<&str>;
+    let cj_fields_ref: &[&str];
+    let qj_fields_ref: &[&str];
+
+    if include_args {
+        cj_fields = UnifiedJob::completed_job_fields()
+            .iter()
+            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .collect();
+        qj_fields = UnifiedJob::queued_job_fields()
+            .iter()
+            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .collect();
+        cj_fields_ref = &cj_fields;
+        qj_fields_ref = &qj_fields;
+    } else {
+        cj_fields_ref = UnifiedJob::completed_job_fields();
+        qj_fields_ref = UnifiedJob::queued_job_fields();
+    }
+
     let sqlc = if lq.running.is_none() {
         Some(list_completed_jobs_query(
             &w_id,
             Some(per_page),
             0,
             &ListCompletedQuery { order_desc: Some(true), ..lqc },
-            UnifiedJob::completed_job_fields(),
+            cj_fields_ref,
             true,
             get_scope_tags(&authed),
         ))
@@ -2451,7 +2499,7 @@ async fn list_jobs(
         let mut sqlq = list_queue_jobs_query(
             &w_id,
             &ListQueueQuery { order_desc: Some(true), ..lq.into() },
-            UnifiedJob::queued_job_fields(),
+            qj_fields_ref,
             Pagination { per_page: None, page: None },
             true,
             get_scope_tags(&authed),
@@ -2555,22 +2603,28 @@ async fn resume_suspended_job_internal(
     let value = value.unwrap_or(serde_json::Value::Null);
     verify_suspended_secret(&w_id, &db, job_id, resume_id, &approver, secret).await?;
 
-    let parent_flow_info = get_suspended_parent_flow_info(job_id, &db).await?;
-    let parent_flow = GetQuery::new()
-        .without_logs()
-        .without_code()
-        .without_flow()
-        .fetch(&db, &parent_flow_info.id, &w_id)
-        .await?;
-    let flow_status = parent_flow
-        .flow_status()
-        .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+    // Get flow info - works for both step-level (job_id is a step) and flow-level (job_id is the flow)
+    let (flow_info, is_flow_level) = get_flow_info_for_resume(job_id, &db).await?;
 
-    let trigger_email = match &parent_flow {
-        Job::CompletedJob(job) => &job.email,
-        Job::QueuedJob(job) => &job.email,
-    };
-    conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
+    // For step-level resumes, verify user auth and flow status
+    // For flow-level resumes (pre-approvals), the flow might not be at a suspended step yet
+    if !is_flow_level {
+        let parent_flow = GetQuery::new()
+            .without_logs()
+            .without_code()
+            .without_flow()
+            .fetch(&db, &flow_info.id, &w_id)
+            .await?;
+        let flow_status = parent_flow
+            .flow_status()
+            .ok_or_else(|| anyhow::anyhow!("unable to find the flow status in the flow job"))?;
+
+        let trigger_email = match &parent_flow {
+            Job::CompletedJob(job) => &job.email,
+            Job::QueuedJob(job) => &job.email,
+        };
+        conditionally_require_authed_user(authed.clone(), flow_status, trigger_email)?;
+    }
 
     let exists = sqlx::query_scalar!(
         r#"
@@ -2586,7 +2640,7 @@ async fn resume_suspended_job_internal(
         return Err(anyhow::anyhow!("resume request already sent").into());
     }
 
-    let approver = if authed.as_ref().is_none()
+    let approver_value = if authed.as_ref().is_none()
         || (approver
             .approver
             .clone()
@@ -2601,9 +2655,9 @@ async fn resume_suspended_job_internal(
     insert_resume_job(
         resume_id,
         job_id,
-        &parent_flow_info,
+        &flow_info,
         value,
-        approver.clone(),
+        approver_value.clone(),
         approved,
         &mut tx,
     )
@@ -2612,15 +2666,20 @@ async fn resume_suspended_job_internal(
     if !approved {
         sqlx::query!(
             "UPDATE v2_job_queue SET suspend = 0 WHERE id = $1",
-            parent_flow_info.id
+            flow_info.id
         )
         .execute(&mut *tx)
         .await?;
+    } else if is_flow_level {
+        // For flow-level resumes, decrement the suspend counter if the flow is currently suspended
+        // The approval will be matched when the worker checks for resumes (both step-level and flow-level)
+        resume_immediately_for_flow_level(&flow_info, &mut tx).await?;
     } else {
-        resume_immediately_if_relevant(parent_flow_info, job_id, &mut tx).await?;
+        // For step-level resumes, try to resume immediately if the step is waiting
+        resume_immediately_if_relevant(flow_info, job_id, &mut tx).await?;
     }
 
-    let approver = approver.unwrap_or_else(|| "anonymous".to_string());
+    let approver = approver_value.unwrap_or_else(|| "anonymous".to_string());
 
     let audit_author = match authed {
         Some(authed) => (&authed).into(),
@@ -2711,6 +2770,26 @@ async fn resume_immediately_if_relevant<'c>(
     )
 }
 
+/// For flow-level resumes, decrement the suspend counter if the flow is currently suspended.
+/// Unlike step-level resumes, we don't check if the job_id matches - we just need the flow
+/// to be in a suspended state.
+async fn resume_immediately_for_flow_level<'c>(
+    flow: &FlowInfo,
+    tx: &mut Transaction<'c, Postgres>,
+) -> error::Result<()> {
+    if flow.suspend > 0 {
+        let new_suspend = flow.suspend - 1;
+        sqlx::query!(
+            "UPDATE v2_job_queue SET suspend = $1 WHERE id = $2",
+            new_suspend,
+            flow.id,
+        )
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 async fn insert_resume_job<'c>(
     resume_id: u32,
     job_id: Uuid,
@@ -2747,23 +2826,46 @@ struct FlowInfo {
     script_path: Option<String>,
 }
 
-async fn get_suspended_parent_flow_info(job_id: Uuid, db: &DB) -> error::Result<FlowInfo> {
-    let flow = sqlx::query_as!(
-        FlowInfo,
+/// Get flow info from either a step job (by looking up its parent) or a flow job directly.
+/// Returns (FlowInfo, is_flow_level) where is_flow_level indicates if job_id was a flow job.
+async fn get_flow_info_for_resume(job_id: Uuid, db: &DB) -> error::Result<(FlowInfo, bool)> {
+    // Single query that determines if job_id is a flow or step, and fetches the appropriate flow info
+    let result = sqlx::query!(
         r#"
-            SELECT q.id, f.flow_status, q.suspend, j.runnable_path AS script_path
-            FROM v2_job_queue q
-                JOIN v2_job j USING (id)
-                JOIN v2_job_status f USING (id)
-            WHERE id = ( SELECT parent_job FROM v2_job WHERE id = $1 )
-            FOR UPDATE
-            "#,
+        WITH job_info AS (
+            SELECT id, kind::text AS kind, parent_job
+            FROM v2_job
+            WHERE id = $1
+        )
+        SELECT
+            q.id AS "id!",
+            s.flow_status,
+            q.suspend AS "suspend!",
+            j.runnable_path AS script_path,
+            (ji.kind IN ('flow', 'flowpreview')) AS "is_flow_level!"
+        FROM job_info ji
+        JOIN v2_job_queue q ON q.id = CASE
+            WHEN ji.kind IN ('flow', 'flowpreview') THEN ji.id
+            ELSE ji.parent_job
+        END
+        JOIN v2_job j ON j.id = q.id
+        JOIN v2_job_status s ON s.id = q.id
+        FOR UPDATE OF q
+        "#,
         job_id,
     )
     .fetch_optional(db)
     .await?
-    .ok_or_else(|| anyhow::anyhow!("parent flow job not found"))?;
-    Ok(flow)
+    .ok_or_else(|| anyhow::anyhow!("job not found or parent flow not in queue: {}", job_id))?;
+
+    let flow_info = FlowInfo {
+        id: result.id,
+        flow_status: result.flow_status,
+        suspend: result.suspend,
+        script_path: result.script_path,
+    };
+
+    Ok((flow_info, result.is_flow_level))
 }
 
 async fn get_suspended_flow_info<'c>(
@@ -2830,6 +2932,9 @@ pub struct SuspendedJobFlow {
 #[derive(Deserialize, Debug)]
 pub struct QueryApprover {
     pub approver: Option<String>,
+    /// If true, generate/verify resume URLs for the parent flow instead of the specific step.
+    /// This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+    pub flow_level: Option<bool>,
 }
 
 pub async fn get_suspended_job_flow(
@@ -3086,8 +3191,17 @@ pub async fn get_resume_urls_internal(
     Query(approver): Query<QueryApprover>,
 ) -> error::JsonResult<ResumeUrls> {
     let key = get_workspace_key(&w_id, &db).await?;
-    let signature = create_signature(key, job_id, resume_id, approver.approver.clone())?;
-    let approver = approver
+
+    // If flow_level is true, use the parent flow ID for the signature and URLs
+    // This allows pre-approvals that can be consumed by any later suspend step
+    let target_job_id = if approver.flow_level.unwrap_or(false) {
+        get_flow_id_for_job(&db, job_id).await?
+    } else {
+        job_id
+    };
+
+    let signature = create_signature(key, target_job_id, resume_id, approver.approver.clone())?;
+    let approver_query = approver
         .approver
         .as_ref()
         .map(|x| format!("?approver={}", encode(x)))
@@ -3097,17 +3211,56 @@ pub async fn get_resume_urls_internal(
     let base_url = base_url_str.as_str();
     let res = ResumeUrls {
         approvalPage: format!(
-            "{base_url}/approve/{w_id}/{job_id}/{resume_id}/{signature}{approver}"
+            "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
         ),
         cancel: build_resume_url(
-            "cancel", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+            "cancel",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
         resume: build_resume_url(
-            "resume", &w_id, &job_id, &resume_id, &signature, &approver, &base_url,
+            "resume",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
     };
 
     Ok(Json(res))
+}
+
+/// Get the flow ID for a job. If the job is a flow, returns the job_id.
+/// If the job is a step in a flow, returns the parent flow ID.
+async fn get_flow_id_for_job(db: &DB, job_id: Uuid) -> error::Result<Uuid> {
+    // First check if the job is a flow itself (kind = 'flow' or 'flowpreview')
+    let job_info = sqlx::query!(
+        r#"
+        SELECT kind::text as "kind!", parent_job
+        FROM v2_job
+        WHERE id = $1
+        "#,
+        job_id
+    )
+    .fetch_optional(db)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("job not found: {}", job_id))?;
+
+    // If it's a flow job, return the job_id itself
+    if job_info.kind == "flow" || job_info.kind == "flowpreview" {
+        return Ok(job_id);
+    }
+
+    // Otherwise, return the parent flow ID
+    job_info
+        .parent_job
+        .ok_or_else(|| anyhow::anyhow!("job {} has no parent flow", job_id).into())
 }
 
 #[derive(sqlx::FromRow, Debug, Serialize)]
@@ -3355,6 +3508,7 @@ pub struct UnifiedJob {
     pub running: Option<bool>,
     pub script_hash: Option<ScriptHash>,
     pub script_path: Option<String>,
+    pub args: Option<serde_json::Value>,
     pub duration_ms: Option<i64>,
     pub success: Option<bool>,
     pub deleted: bool,
@@ -3475,6 +3629,7 @@ impl UnifiedJob {
 
 impl<'a> From<UnifiedJob> for Job {
     fn from(uj: UnifiedJob) -> Self {
+        let args = uj.args.and_then(|v| serde_json::from_value(v).ok());
         match uj.typ.as_ref() {
             "CompletedJob" => Job::CompletedJob(JobExtended::new(
                 uj.self_wait_time_ms,
@@ -3491,7 +3646,7 @@ impl<'a> From<UnifiedJob> for Job {
                     success: uj.success.unwrap(),
                     script_hash: uj.script_hash,
                     script_path: uj.script_path,
-                    args: None,
+                    args: args.clone(),
                     result: None,
                     result_columns: None,
                     logs: None,
@@ -3531,7 +3686,7 @@ impl<'a> From<UnifiedJob> for Job {
                     script_hash: uj.script_hash,
                     script_path: uj.script_path,
                     script_entrypoint_override: None,
-                    args: None,
+                    args,
                     logs: None,
                     canceled: uj.canceled,
                     canceled_by: uj.canceled_by,
@@ -5068,7 +5223,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                     if success {
                         StatusCode::OK
                     } else {
-                        StatusCode::INTERNAL_SERVER_ERROR
+                        StatusCode::UNPROCESSABLE_ENTITY
                     },
                     Json(result),
                 )
@@ -5082,7 +5237,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 })
                 .unwrap_or_else(|| {
                     if !success {
-                        Ok(StatusCode::INTERNAL_SERVER_ERROR)
+                        Ok(StatusCode::UNPROCESSABLE_ENTITY)
                     } else if result_value.is_some() {
                         Ok(StatusCode::OK)
                     } else {
@@ -5132,7 +5287,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             if success {
                 StatusCode::OK
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                StatusCode::UNPROCESSABLE_ENTITY
             },
             Json(result),
         )
@@ -8291,6 +8446,7 @@ pub struct ListCompletedQuery {
     pub allow_wildcards: Option<bool>,
     pub trigger_kind: Option<JobTriggerKind>,
     pub trigger_path: Option<String>,
+    pub include_args: Option<bool>,
 }
 
 async fn list_completed_jobs(
@@ -8300,7 +8456,17 @@ async fn list_completed_jobs(
     Query(pagination): Query<Pagination>,
     Query(lq): Query<ListCompletedQuery>,
 ) -> error::JsonResult<Vec<ListableCompletedJob>> {
+    let include_args = lq.include_args.unwrap_or(false);
+
+    if include_args && *CLOUD_HOSTED {
+        return Err(error::Error::BadRequest(
+            "include_args is not supported on cloud hosted Windmill".to_string(),
+        ));
+    }
+
     let (per_page, offset) = paginate(pagination);
+
+    let args_field = if include_args { "v2_job.args" } else { "null as args" };
 
     let sql = list_completed_jobs_query(
         &w_id,
@@ -8337,6 +8503,7 @@ async fn list_completed_jobs(
             "v2_job.tag",
             "v2_job.priority",
             "v2_job_completed.result->'wm_labels' as labels",
+            args_field,
             "'CompletedJob' as type",
         ],
         false,
@@ -8470,7 +8637,7 @@ async fn get_completed_job_result(
                     &db,
                     suspended_job,
                     resume_id,
-                    &QueryApprover { approver },
+                    &QueryApprover { approver, flow_level: None },
                     secret,
                 )
                 .await?
@@ -8735,4 +8902,64 @@ async fn delete_completed_job<'a>(
         Path((w_id, id)),
     )
     .await;
+}
+
+async fn get_otel_traces(
+    OptAuthed(opt_authed): OptAuthed,
+    Extension(db): Extension<DB>,
+    Path((w_id, id)): Path<(String, Uuid)>,
+) -> error::Result<Json<Vec<serde_json::Value>>> {
+    // Check job exists and user has permission to view it
+    let job = sqlx::query_scalar!(
+        "SELECT created_by FROM v2_job WHERE id = $1 AND workspace_id = $2",
+        id,
+        w_id
+    )
+    .fetch_optional(&db)
+    .await?;
+
+    match job {
+        Some(created_by) => {
+            if opt_authed.is_none() && created_by != "anonymous" {
+                return Err(Error::BadRequest(
+                    "As a non logged in user, you can only see jobs ran by anonymous users"
+                        .to_string(),
+                ));
+            }
+        }
+        None => {
+            return Err(Error::NotFound(format!("Job {} not found", id)));
+        }
+    }
+
+    let trace_id = id.as_bytes().as_slice();
+
+    let traces = sqlx::query_scalar!(
+        r#"SELECT json_build_object(
+            'trace_id', encode(trace_id, 'hex'),           -- BYTEA to hex string
+            'span_id', encode(span_id, 'hex'),             -- BYTEA to hex string
+            'parent_span_id', encode(parent_span_id, 'hex'), -- BYTEA to hex string
+            'trace_state', trace_state,
+            'flags', flags,
+            'name', name,
+            'kind', kind,
+            'start_time_unix_nano', start_time_unix_nano,
+            'end_time_unix_nano', end_time_unix_nano,
+            'attributes', attributes,
+            'dropped_attributes_count', dropped_attributes_count,
+            'events', events,
+            'dropped_events_count', dropped_events_count,
+            'links', links,
+            'dropped_links_count', dropped_links_count,
+            'status', status
+        ) as "span!"
+        FROM otel_traces
+        WHERE trace_id = $1
+        ORDER BY start_time_unix_nano"#,
+        trace_id
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(traces))
 }

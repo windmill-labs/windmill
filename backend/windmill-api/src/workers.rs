@@ -7,7 +7,7 @@
  */
 
 use axum::{
-    extract::{Extension, Query},
+    extract::{Extension, Path, Query},
     routing::get,
     Json, Router,
 };
@@ -18,7 +18,7 @@ use uuid::Uuid;
 use windmill_common::{
     db::UserDB,
     error::JsonResult,
-    jobs::TAGS_ARE_SENSITIVE,
+    jobs::{HIDE_WORKERS_FOR_NON_ADMINS, TAGS_ARE_SENSITIVE},
     utils::{paginate, Pagination},
     worker::{ALL_TAGS, CUSTOM_TAGS_PER_WORKSPACE, DEFAULT_TAGS, DEFAULT_TAGS_PER_WORKSPACE},
     DB,
@@ -39,6 +39,10 @@ pub fn global_service() -> Router {
         .route("/queue_metrics", get(get_queue_metrics))
         .route("/queue_counts", get(get_queue_counts))
         .route("/queue_running_counts", get(get_queue_running_counts))
+}
+
+pub fn workspaced_service() -> Router {
+    Router::new().route("/custom_tags", get(get_custom_tags_for_workspace))
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -93,6 +97,9 @@ async fn list_worker_pings(
     Query(query): Query<ListWorkerQuery>,
 ) -> JsonResult<Vec<WorkerPing>> {
     let is_super_admin = require_super_admin(&db, &authed.email).await.is_ok();
+    if *HIDE_WORKERS_FOR_NON_ADMINS && !is_super_admin {
+        return Ok(Json(vec![]));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let (per_page, offset) = paginate(Pagination { page: query.page, per_page: query.per_page });
@@ -189,24 +196,15 @@ async fn exists_workers_with_tags(
 
 #[derive(Deserialize)]
 struct CustomTagQuery {
-    workspace: Option<String>,
     show_workspace_restriction: Option<bool>,
 }
+
 async fn get_custom_tags(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Query(query): Query<CustomTagQuery>,
 ) -> JsonResult<Vec<String>> {
-    if query.show_workspace_restriction.is_some_and(|x| x) && query.workspace.is_some() {
-        return Err(windmill_common::error::Error::BadRequest(
-            "Cannot use both workspace and show_workspace_restriction".to_string(),
-        ));
-    }
-    if let Some(workspace) = query.workspace {
-        let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
-        let all_tags = tags_o.to_string_vec(Some(workspace));
-        return Ok(Json(all_tags));
-    } else if query.show_workspace_restriction.is_some_and(|x| x) {
+    if query.show_workspace_restriction.is_some_and(|x| x) {
         let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
         let all_tags = tags_o.to_string_vec(None);
         return Ok(Json(all_tags));
@@ -218,6 +216,15 @@ async fn get_custom_tags(
         }
     }
     Ok(Json(ALL_TAGS.read().await.clone().into()))
+}
+
+async fn get_custom_tags_for_workspace(
+    _authed: ApiAuthed,
+    Path(w_id): Path<String>,
+) -> JsonResult<Vec<String>> {
+    let tags_o = CUSTOM_TAGS_PER_WORKSPACE.read().await;
+    let all_tags = tags_o.to_string_vec(Some(w_id));
+    Ok(Json(all_tags))
 }
 
 async fn get_default_tags_per_workspace() -> JsonResult<bool> {

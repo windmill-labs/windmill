@@ -16,7 +16,7 @@ use monitor::{
     send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::postgres::PgListener;
+use sqlx::{postgres::PgListener, Pool, Postgres};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
@@ -35,7 +35,6 @@ use windmill_common::ee_oss::{
 
 use windmill_common::{
     agent_workers::build_agent_http_client,
-    get_database_url,
     global_settings::{
         APP_WORKSPACED_ROUTE_SETTING, BASE_URL_SETTING, BUNFIG_INSTALL_SCOPES_SETTING,
         CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING, CRITICAL_ALERT_MUTE_UI_SETTING,
@@ -44,7 +43,7 @@ use windmill_common::{
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INDEXER_SETTING,
         INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
-        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MAVEN_REPOS_SETTING, OTEL_TRACING_PROXY_SETTING,
         MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NO_DEFAULT_MAVEN_SETTING,
         NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OAUTH_SETTING, OTEL_SETTING,
         PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
@@ -60,9 +59,10 @@ use windmill_common::{
         MODE_AND_ADDONS,
     },
     worker::{
-        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, TMP_DIR, TMP_LOGS_DIR, WORKER_GROUP,
+        reload_custom_tags_setting, Connection, HUB_CACHE_DIR, HUB_RT_CACHE_DIR, TMP_DIR,
+        TMP_LOGS_DIR, WORKER_GROUP,
     },
-    KillpillSender, METRICS_ENABLED,
+    KillpillSender, DEFAULT_HUB_BASE_URL, METRICS_ENABLED,
 };
 
 #[cfg(feature = "enterprise")]
@@ -99,9 +99,9 @@ use crate::monitor::{
     reload_bunfig_install_scopes_setting, reload_critical_alert_mute_ui_setting,
     reload_critical_error_channels_setting, reload_extra_pip_index_url_setting,
     reload_hub_api_secret_setting, reload_hub_base_url_setting, reload_job_default_timeout_setting,
-    reload_jwt_secret_setting, reload_license_key, reload_npm_config_registry_setting,
-    reload_pip_index_url_setting, reload_retention_period_setting, reload_scim_token_setting,
-    reload_smtp_config, reload_worker_config, MonitorIteration,
+    reload_jwt_secret_setting, reload_license_key, reload_otel_tracing_proxy_setting,
+    reload_npm_config_registry_setting, reload_pip_index_url_setting, reload_retention_period_setting,
+    reload_scim_token_setting, reload_smtp_config, reload_worker_config, MonitorIteration,
 };
 
 #[cfg(feature = "parquet")]
@@ -110,7 +110,10 @@ use windmill_common::s3_helpers::reload_object_store_setting;
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+const DEFAULT_WORKER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
+const BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
 
+#[cfg(target_os = "linux")]
 mod cgroups;
 #[cfg(feature = "private")]
 pub mod ee;
@@ -320,6 +323,160 @@ async fn cache_hub_scripts(file_path: Option<String>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Raw resource type from hub API (schema is a JSON string)
+#[derive(serde::Deserialize)]
+struct HubResourceTypeRaw {
+    pub id: i64,
+    pub name: String,
+    pub schema: Option<String>,
+    pub app: String,
+    pub description: Option<String>,
+}
+
+/// Processed resource type with parsed schema
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct HubResourceType {
+    pub id: i64,
+    pub name: String,
+    pub schema: Option<serde_json::Value>,
+    pub app: String,
+    pub description: Option<String>,
+}
+
+const HUB_RT_CACHE_FILE: &str = "resource_types.json";
+
+async fn cache_hub_resource_types() -> anyhow::Result<()> {
+    println!("Caching resource types from hub...");
+
+    let response = HTTP_CLIENT
+        .get(format!("{}/resource_types/list", DEFAULT_HUB_BASE_URL))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .with_context(|| "Failed to fetch resource types from hub")?;
+
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Failed to fetch resource types from hub: {}",
+            response.status()
+        );
+    }
+
+    let raw_types: Vec<HubResourceTypeRaw> = response
+        .json::<Vec<HubResourceTypeRaw>>()
+        .await
+        .with_context(|| "Failed to parse resource types from hub")?;
+
+    // Parse schema strings into JSON values
+    let resource_types: Vec<HubResourceType> = raw_types
+        .into_iter()
+        .filter_map(|rt| {
+            let schema = match rt.schema {
+                Some(s) => match serde_json::from_str(&s) {
+                    Ok(v) => Some(v),
+                    Err(e) => {
+                        println!("Warning: failed to parse schema for {}: {}", rt.name, e);
+                        return None;
+                    }
+                },
+                None => None,
+            };
+            Some(HubResourceType {
+                id: rt.id,
+                name: rt.name,
+                schema,
+                app: rt.app,
+                description: rt.description,
+            })
+        })
+        .collect();
+
+    println!("Fetched {} resource types from hub", resource_types.len());
+
+    create_dir_all(HUB_RT_CACHE_DIR)?;
+
+    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+    let content = serde_json::to_string_pretty(&resource_types)
+        .with_context(|| "Failed to serialize resource types")?;
+
+    std::fs::write(&cache_path, content)
+        .with_context(|| format!("Failed to write cache file to {}", cache_path))?;
+
+    println!("Cached resource types to {}", cache_path);
+    Ok(())
+}
+
+pub async fn sync_cached_resource_types(db: &sqlx::Pool<sqlx::Postgres>) -> anyhow::Result<()> {
+    let cache_path = format!("{}/{}", HUB_RT_CACHE_DIR, HUB_RT_CACHE_FILE);
+
+    if tokio::fs::metadata(&cache_path).await.is_err() {
+        tracing::info!("No cached resource types found at {}, skipping sync", cache_path);
+        return Ok(());
+    }
+
+    tracing::info!("Syncing cached resource types to admins workspace...");
+
+    let content = tokio::fs::read_to_string(&cache_path)
+        .await
+        .with_context(|| format!("Failed to read cache file from {}", cache_path))?;
+
+    let cached_types: Vec<HubResourceType> = serde_json::from_str(&content)
+        .with_context(|| "Failed to parse cached resource types")?;
+
+    tracing::info!("Found {} cached resource types", cached_types.len());
+
+    // Get existing resource types in admins workspace
+    let existing_types: Vec<(String, Option<serde_json::Value>, Option<String>)> = sqlx::query_as(
+        "SELECT name, schema, description FROM resource_type WHERE workspace_id = 'admins'",
+    )
+    .fetch_all(db)
+    .await
+    .with_context(|| "Failed to fetch existing resource types")?;
+
+    let existing_map: std::collections::HashMap<String, (Option<serde_json::Value>, Option<String>)> =
+        existing_types
+            .into_iter()
+            .map(|(name, schema, desc)| (name, (schema, desc)))
+            .collect();
+
+    let mut synced_count = 0;
+    let mut skipped_count = 0;
+
+    for rt in cached_types {
+        // Check if resource type already exists with same schema and description
+        if let Some((existing_schema, existing_desc)) = existing_map.get(&rt.name) {
+            if existing_schema == &rt.schema && existing_desc == &rt.description {
+                skipped_count += 1;
+                continue;
+            }
+        }
+
+        // Insert or update resource type
+        sqlx::query(
+            "INSERT INTO resource_type (workspace_id, name, schema, description, edited_at)
+             VALUES ('admins', $1, $2, $3, now())
+             ON CONFLICT (workspace_id, name) DO UPDATE
+             SET schema = EXCLUDED.schema, description = EXCLUDED.description, edited_at = now()",
+        )
+        .bind(&rt.name)
+        .bind(&rt.schema)
+        .bind(&rt.description)
+        .execute(db)
+        .await
+        .with_context(|| format!("Failed to upsert resource type {}", rt.name))?;
+
+        synced_count += 1;
+    }
+
+    tracing::info!(
+        "Synced {} resource types to admins workspace ({} skipped as unchanged)",
+        synced_count,
+        skipped_count
+    );
+
+    Ok(())
+}
+
 fn print_help() {
 	println!("Windmill - a fast, open-source workflow engine and job runner.");
 	println!();
@@ -330,13 +487,14 @@ fn print_help() {
 	println!("  help | -h | --help   Show this help information and exit");
 	println!("  version              Show Windmill version and exit");
 	println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
+	println!("  cache-rt             Pre-cache hub resource types");
 	println!();
 	println!("Environment variables (name = default):");
 	println!("  DATABASE_URL = <required>              The Postgres database url.");
 	println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
 	println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
 	println!("  PORT = {}                              HTTP port (server/indexer/MCP modes)", DEFAULT_PORT);
-	println!("  SERVER_BIND_ADDR = {}                  IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
+	println!("  SERVER_BIND_ADDR = <mode dependent>    IP to bind to (server: {}, worker: {})", DEFAULT_SERVER_BIND_ADDR, DEFAULT_WORKER_BIND_ADDR);
 	println!("  NUM_WORKERS = {}                       Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
 	println!("  WORKER_GROUP = default                 Worker group this worker belongs to",);
 	println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
@@ -345,6 +503,7 @@ fn print_help() {
 	println!("  LICENSE_KEY = None                     (EE only) Enterprise license key (workers require valid key)");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_AT_START = false  Run system CA update at startup");
 	println!("  RUN_UPDATE_CA_CERTIFICATE_PATH = /usr/sbin/update-ca-certificates  Path to CA update tool");
+	println!("  SYNC_CACHED_RT = false                 Sync cached resource types to admins workspace on server start");
 	println!();
 	println!("Notes:");
 	println!("- Advanced and less commonly used settings are managed via the database and are omitted here.");
@@ -439,6 +598,10 @@ async fn windmill_main() -> anyhow::Result<()> {
             windmill_worker::run_prepare_deps_cli().await?;
             return Ok(());
         }
+        "cache-rt" => {
+            cache_hub_resource_types().await?;
+            return Ok(());
+        }
         _ => {}
     }
 
@@ -452,6 +615,7 @@ async fn windmill_main() -> anyhow::Result<()> {
             .unwrap_or(DEFAULT_NUM_WORKERS as i32)
     };
 
+    // TODO: maybe gate behind debug_assertions?
     if num_workers > 1 && !std::env::var("WORKER_GROUP").is_ok_and(|x| x == "native") {
         println!(
             "We STRONGLY recommend using at most 1 worker per container, use at your own risks"
@@ -467,14 +631,15 @@ async fn windmill_main() -> anyhow::Result<()> {
     let indexer_mode = mode == Mode::Indexer;
     let mcp_mode = mode == Mode::MCP;
 
-    let server_bind_address: IpAddr = if server_mode || indexer_mode || mcp_mode {
-        std::env::var("SERVER_BIND_ADDR")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR))
+    let default_bind_addr = if server_mode || indexer_mode || mcp_mode {
+        DEFAULT_SERVER_BIND_ADDR
     } else {
-        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+        DEFAULT_WORKER_BIND_ADDR
     };
+    let server_bind_address: IpAddr = std::env::var(BIND_ADDR_ENV)
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(IpAddr::from(default_bind_addr));
 
     let (conn, first_suffix) = if mode == Mode::Agent {
         tracing::info!(
@@ -541,6 +706,17 @@ async fn windmill_main() -> anyhow::Result<()> {
                 migration_handle = windmill_api::migrate_db(&db, killpill_rx.resubscribe()).await?;
             } else {
                 tracing::info!("SKIP_MIGRATION set, skipping db migration...")
+            }
+
+            // Sync cached resource types to admins workspace if SYNC_CACHED_RT is set
+            if std::env::var("SYNC_CACHED_RT")
+                .ok()
+                .map(|v| v.to_lowercase() == "true" || v == "1")
+                .unwrap_or(false)
+            {
+                if let Err(e) = sync_cached_resource_types(db).await {
+                    tracing::warn!("Failed to sync cached resource types: {:#}", e);
+                }
             }
         }
     }
@@ -802,16 +978,13 @@ Windmill Community Edition {GIT_VERSION}
         #[cfg(not(all(feature = "tantivy", feature = "parquet")))]
         let log_indexer_f = async { Ok(()) as anyhow::Result<()> };
 
-        let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
+        // Resubscribe for OTEL tracing proxy before workers_f captures killpill_rx
+        #[cfg(all(feature = "private", feature = "enterprise"))]
+        let otel_killpill_rx = killpill_rx.resubscribe();
+
         let server_f = async {
             if !is_agent {
                 if let Some(db) = conn.as_sql() {
-                    if worker_mode {
-                        init_worker_internal_server_inline_utils(
-                            worker_internal_server_killpill_rx,
-                            base_internal_url.clone(),
-                        )?;
-                    }
                     windmill_api::run_server(
                         db.clone(),
                         index_reader,
@@ -842,6 +1015,11 @@ Windmill Community Edition {GIT_VERSION}
             if !killpill_rx.try_recv().is_ok() {
                 let base_internal_url = base_internal_rx.await?;
                 if worker_mode {
+                    let worker_internal_server_killpill_rx = killpill_rx.resubscribe();
+                    init_worker_internal_server_inline_utils(
+                        worker_internal_server_killpill_rx,
+                        base_internal_url.clone(),
+                    )?;
                     let mut workers = vec![];
 
                     for i in 0..num_workers {
@@ -898,10 +1076,9 @@ Windmill Community Edition {GIT_VERSION}
             match conn {
                 Connection::Sql(ref db) => {
                     let base_internal_url = base_internal_url.to_string();
-                    let db_url = get_database_url().await?;
                     let db = db.clone();
                     let h = tokio::spawn(async move {
-                        let mut listener = retry_listen_pg(&db_url.as_str().await).await;
+                        let mut listener = retry_listen_pg(&db).await;
                         let mut last_listener_refresh = Instant::now();
                         let mut monitor_iteration: u64 = 0;
                         let rd_shift: u8 = rand::rng().random_range(0..200);
@@ -1158,6 +1335,13 @@ Windmill Community Edition {GIT_VERSION}
                                                         KEEP_JOB_DIR_SETTING => {
                                                             load_keep_job_dir(&conn).await;
                                                         },
+                                                        OTEL_TRACING_PROXY_SETTING => {
+                                                            reload_otel_tracing_proxy_setting(&conn).await;
+                                                            if worker_mode {
+                                                                tracing::info!("OTEL tracing proxy setting changed, restarting worker");
+                                                                send_delayed_killpill(&tx, 4, "OTEL tracing proxy setting change").await;
+                                                            }
+                                                        },
                                                         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
                                                             load_require_preexisting_user(&db).await;
                                                         },
@@ -1235,14 +1419,14 @@ Windmill Community Edition {GIT_VERSION}
                                         },
                                         Err(e) => {
                                             tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                            let db_url = db_url.clone();
+                                            let db = db.clone();
                                             tokio::select! {
                                                 biased;
                                                 _ = monitor_killpill_rx.recv() => {
                                                     tracing::info!("received killpill for monitor job");
                                                     break;
                                                 },
-                                                new_listener = async move { retry_listen_pg(&db_url.as_str().await).await } => {
+                                                new_listener = async move { retry_listen_pg(&db).await } => {
                                                     listener = new_listener;
                                                     continue;
                                                 }
@@ -1256,7 +1440,7 @@ Windmill Community Edition {GIT_VERSION}
                                         if let Err(e) = listener.unlisten_all().await {
                                             tracing::error!(error = %e, "Could not unlisten to database");
                                         }
-                                        listener = retry_listen_pg(&db_url.as_str().await).await;
+                                        listener = retry_listen_pg(&db).await;
                                         initial_load(
                                             &conn,
                                             tx.clone(),
@@ -1331,7 +1515,8 @@ Windmill Community Edition {GIT_VERSION}
 
                                 // update min version explicitly.
                                 // for sql connection it is the part of monitor_db.
-                                windmill_common::worker::update_min_version(conn).await;
+                                // TODO: pass worker names for min keep-alive alerts (for HTTP connection)
+                                windmill_common::min_version::update_min_version(conn, false, vec![], false).await;
                             }
                         };
                     }
@@ -1366,6 +1551,42 @@ Windmill Community Edition {GIT_VERSION}
             Ok(()) as anyhow::Result<()>
         };
 
+        let otel_tracing_proxy_f = async {
+            #[cfg(all(feature = "private", feature = "enterprise"))]
+            {
+                // Start OTEL tracing proxy for HTTP request interception
+                // Only enabled when: setting is on, worker mode (not server), and single worker (to avoid race conditions)
+                if worker_mode
+                    && num_workers == 1
+                    && windmill_worker::OTEL_TRACING_PROXY_SETTINGS
+                        .read()
+                        .await
+                        .enabled
+                {
+                    if let Some(db) = conn.as_sql() {
+                        tracing::info!(
+                            "Starting OTEL tracing proxy (port will be dynamically assigned)"
+                        );
+                        if let Err(e) =
+                            windmill_worker::start_otel_tracing_proxy(db.clone(), otel_killpill_rx)
+                                .await
+                        {
+                            tracing::error!("OTEL tracing proxy error: {}", e);
+                        }
+                    }
+                } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS
+                    .read()
+                    .await
+                    .enabled
+                    && num_workers > 1
+                {
+                    tracing::warn!("OTEL tracing proxy is enabled but num_workers > 1. Disabling to avoid race conditions. Set NUM_WORKERS=1 to enable.");
+                }
+            }
+
+            Ok(()) as anyhow::Result<()>
+        };
+
         if server_mode {
             if let Some(db) = conn.as_sql() {
                 schedule_stats(&db, &HTTP_CLIENT).await;
@@ -1380,6 +1601,7 @@ Windmill Community Edition {GIT_VERSION}
                 monitor_f,
                 server_f,
                 metrics_f,
+                otel_tracing_proxy_f,
                 indexer_f,
                 log_indexer_f
             )?;
@@ -1403,8 +1625,8 @@ Windmill Community Edition {GIT_VERSION}
     std::process::exit(0);
 }
 
-async fn listen_pg(url: &str) -> Option<PgListener> {
-    let mut listener = match PgListener::connect(url).await {
+async fn listen_pg(db: &Pool<Postgres>) -> Option<PgListener> {
+    let mut listener = match PgListener::connect_with(db).await {
         Ok(l) => l,
         Err(e) => {
             tracing::error!(error = %e, "Could not connect to database");
@@ -1437,13 +1659,13 @@ async fn listen_pg(url: &str) -> Option<PgListener> {
     return Some(listener);
 }
 
-async fn retry_listen_pg(url: &str) -> PgListener {
-    let mut listener = listen_pg(url).await;
+async fn retry_listen_pg(db: &Pool<Postgres>) -> PgListener {
+    let mut listener = listen_pg(db).await;
     loop {
         if listener.is_none() {
             tracing::info!("Retrying listening to pg listen in 5 seconds");
             tokio::time::sleep(Duration::from_secs(5)).await;
-            listener = listen_pg(url).await;
+            listener = listen_pg(db).await;
         } else {
             tracing::info!("Successfully connected to pg listen");
             return listener.unwrap();

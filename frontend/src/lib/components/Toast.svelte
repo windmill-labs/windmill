@@ -45,6 +45,7 @@
 	import { type ToastAction } from '$lib/toast'
 	import { processMessage } from './toast'
 	import { onDestroy, untrack } from 'svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		message: string
@@ -90,7 +91,10 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-	class="pointer-events-auto w-full max-w-sm overflow-hidden bg-surface-tertiary drop-shadow-base shadow-lg ring-1 ring-black ring-opacity-5 border rounded-md"
+	class={twMerge(
+		'pointer-events-auto w-full max-w-sm overflow-hidden bg-surface-tertiary drop-shadow-base shadow-lg ring-1 ring-black ring-opacity-5 border rounded-md',
+		error ? 'toast-error' : 'toast-success'
+	)}
 	onmouseenter={() => state && (state.hover = true)}
 	onmouseleave={() => state && (state.hover = false)}
 >

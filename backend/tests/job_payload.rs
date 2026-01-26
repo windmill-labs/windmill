@@ -3,16 +3,15 @@ mod common;
 mod job_payload {
     use serde_json::json;
     use sqlx::{Pool, Postgres};
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-    use windmill_common::flow_status::RestartedFrom;
     use windmill_common::flows::{FlowModule, FlowModuleValue, FlowValue};
     use windmill_common::jobs::JobPayload;
     use windmill_common::scripts::{ScriptHash, ScriptLang};
+    use windmill_common::flow_status::RestartedFrom;
 
     use crate::common::*;
-    use windmill_common::worker::{
-        MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432, MIN_VERSION_IS_AT_LEAST_1_440,
+    use windmill_common::min_version::{
+        MIN_VERSION, MIN_VERSION_IS_AT_LEAST_1_427, MIN_VERSION_IS_AT_LEAST_1_432,
+        MIN_VERSION_IS_AT_LEAST_1_440,
     };
 
     pub async fn initialize_tracing() {
@@ -28,18 +27,15 @@ mod job_payload {
         });
     }
 
-    use lazy_static::lazy_static;
-
     use windmill_common::cache;
     use windmill_common::flows::FlowNodeId;
+    use windmill_common::min_version::VersionConstraint;
 
-    lazy_static! {
-        static ref VERSION_FLAGS: [Arc<RwLock<bool>>; 3] = [
-            MIN_VERSION_IS_AT_LEAST_1_427.clone(),
-            MIN_VERSION_IS_AT_LEAST_1_432.clone(),
-            MIN_VERSION_IS_AT_LEAST_1_440.clone(),
-        ];
-    }
+    const VERSION_FLAGS: [&VersionConstraint; 3] = [
+        &MIN_VERSION_IS_AT_LEAST_1_427,
+        &MIN_VERSION_IS_AT_LEAST_1_432,
+        &MIN_VERSION_IS_AT_LEAST_1_440,
+    ];
 
     #[cfg(feature = "deno_core")]
     #[sqlx::test(fixtures("base", "hello"))]
@@ -71,7 +67,7 @@ mod job_payload {
 
             assert_eq!(result, json!("Hello foo!"));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -116,7 +112,7 @@ mod job_payload {
                 .unwrap();
             assert_eq!(job.preprocessed, Some(true));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -183,7 +179,7 @@ mod job_payload {
 
             assert_eq!(result, json!("Hello foo!"));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         let test = || async {
             let result = RunJob::from(JobPayload::FlowScript {
                 id: flow_scripts[1],
@@ -206,7 +202,7 @@ mod job_payload {
                 json!("Did you just say \"You know nothing Jean Neige\"??!")
             );
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -252,7 +248,7 @@ mod job_payload {
 
             assert_eq!(result, json!("Did you just say \"Hello tests!\"??!"));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -282,19 +278,19 @@ mod job_payload {
 
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_427(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION_IS_AT_LEAST_1_427.write().await = true;
+        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_427.version().clone();
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_432(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION_IS_AT_LEAST_1_432.write().await = true;
+        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_432.version().clone();
         test_dependencies_payload(db).await?;
         Ok(())
     }
     #[sqlx::test(fixtures("base", "hello"))]
     async fn test_dependencies_payload_min_1_440(db: Pool<Postgres>) -> anyhow::Result<()> {
-        *MIN_VERSION_IS_AT_LEAST_1_440.write().await = true;
+        *MIN_VERSION.write().await = MIN_VERSION_IS_AT_LEAST_1_440.version().clone();
         test_dependencies_payload(db).await?;
         Ok(())
     }
@@ -323,7 +319,7 @@ mod job_payload {
                 &json!("Successful lock file generation")
             );
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -383,7 +379,7 @@ mod job_payload {
 
             assert_eq!(result, json!("Hello Jean Neige!"));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -414,7 +410,7 @@ mod job_payload {
                 json!({ "lock": "", "status": "Successful lock file generation" })
             );
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -447,7 +443,7 @@ mod job_payload {
             );
         };
         // Test the not "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         // Deploy the flow to produce the "lite" version.
         let _ = RunJob::from(JobPayload::FlowDependencies {
             path: "f/system/hello_with_nodes_flow".to_string(),
@@ -460,7 +456,7 @@ mod job_payload {
         .json_result()
         .unwrap();
         // Test the "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -520,7 +516,7 @@ mod job_payload {
             );
         };
         // Test the not "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         // Deploy the flow to produce the "lite" version.
         let _ = RunJob::from(JobPayload::FlowDependencies {
             path: "f/system/hello_with_preprocessor".to_string(),
@@ -533,7 +529,7 @@ mod job_payload {
         .json_result()
         .unwrap();
         // Test the "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -577,7 +573,7 @@ mod job_payload {
             );
         };
         // Test the not "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         // Deploy the flow to produce the "lite" version.
         let _ = RunJob::from(JobPayload::FlowDependencies {
             path: "f/system/hello_with_nodes_flow".to_string(),
@@ -590,7 +586,7 @@ mod job_payload {
         .json_result()
         .unwrap();
         // Test the "lite" flow.
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
@@ -638,7 +634,7 @@ mod job_payload {
 
             assert_eq!(result, json!("Hello Jean Neige!"));
         };
-        test_for_versions(VERSION_FLAGS.iter().cloned(), test).await;
+        test_for_versions(VERSION_FLAGS.iter().copied(), test).await;
         Ok(())
     }
 
