@@ -97,6 +97,8 @@ url.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
 pep440_rs.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 semver.workspace = true
 croner.workspace = true
