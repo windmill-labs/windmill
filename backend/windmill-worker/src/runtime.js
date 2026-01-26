@@ -4,6 +4,7 @@ import * as console from "ext:deno_console/01_console.js";
 import * as encoding from "ext:deno_web/08_text_encoding.js";
 import * as event from "ext:deno_web/02_event.js";
 import * as fetch from "ext:deno_fetch/26_fetch.js";
+import { bootstrap as bootstrapOtel } from "ext:deno_telemetry/telemetry.ts";
 import * as file from "ext:deno_web/09_file.js";
 import * as fileReader from "ext:deno_web/10_filereader.js";
 import * as formData from "ext:deno_fetch/21_formdata.js";
@@ -49,8 +50,10 @@ Object.assign(globalThis, {
   setTimeout: timers.setTimeout,
 });
 
-// Note: OpenTelemetry bootstrap (bootstrapOtel) is called at runtime from Rust
-// after JsRuntime creation if OTEL is enabled, not during snapshot creation
+// Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
+// We can't call it here because this code runs during snapshot creation when OTEL isn't initialized.
+// Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
+globalThis.__bootstrapOtel = () => bootstrapOtel([1, 0, 0, 0]);
 
 // Object.assign(globalThis, {
 //   console: nonEnumerable(

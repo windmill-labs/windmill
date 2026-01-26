@@ -1132,16 +1132,10 @@ pub async fn eval_fetch_timeout(
         // tracing::info!("ttc: {:?}", instant.elapsed());
 
         // Bootstrap OpenTelemetry for fetch auto-instrumentation if OTEL was initialized.
-        // This must be done at runtime (not in snapshot) because deno_telemetry::init
-        // is called during startup by load_internal_otel_exporter (EE feature).
+        // We call the function exposed by runtime.js since we can't dynamically import ext: modules.
         #[cfg(all(feature = "private", feature = "enterprise"))]
         if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
-            // Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
-            // tracingEnabled=1 enables tracing, consoleConfig: 0=ignore, 1=capture, 2=replace
-            if let Err(e) = js_runtime.execute_script(
-                "<otel_bootstrap>",
-                r#"import("ext:deno_telemetry/telemetry.ts").then(m => m.bootstrap([1, 0, 0, 0]))"#,
-            ) {
+            if let Err(e) = js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()") {
                 tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
             }
         }

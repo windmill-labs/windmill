@@ -666,8 +666,6 @@ async fn windmill_main() -> anyhow::Result<()> {
                 .unwrap_or_else(|| "UNKNOWN".to_string())
         );
 
-        load_otel(&db).await;
-
         // Load OTEL tracing proxy settings and initialize deno_telemetry if nativets tracing is enabled
         // This must happen before any Deno runtime is created
         #[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
@@ -692,6 +690,8 @@ async fn windmill_main() -> anyhow::Result<()> {
                 }
             }
         }
+
+        load_otel(&db).await;
 
         println!("Database connected");
         (Connection::Sql(db), None)
