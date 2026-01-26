@@ -75,7 +75,10 @@ pub trait SSEParser {
                             "Breaking SSE stream after {} consecutive parsing errors",
                             consecutive_errors
                         );
-                        break;
+                        return Err(Error::InternalErr(format!(
+                            "SSE stream terminated after {} consecutive parsing errors",
+                            consecutive_errors
+                        )));
                     }
                 }
             }
