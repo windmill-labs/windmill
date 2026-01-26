@@ -1334,10 +1334,6 @@ try {{
                 let tracing_enabled =
                     crate::worker::is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets)
                         .await;
-                tracing::info!(
-                    "nativets job {}: OTEL tracing enabled={}",
-                    job.id,
-                    tracing_enabled
                 tracing::debug!(
                     "nativets job {}: OTEL tracing enabled={}",
                     job.id,

@@ -2708,9 +2708,6 @@ async fn do_nativets(
     #[cfg(all(feature = "private", feature = "enterprise"))]
     {
         let tracing_enabled = is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await;
-        tracing::info!(
-            "nativets job {}: OTEL tracing enabled={}",
-            job.id, tracing_enabled
         tracing::debug!(
             "nativets job {}: OTEL tracing enabled={}",
             job.id, tracing_enabled
