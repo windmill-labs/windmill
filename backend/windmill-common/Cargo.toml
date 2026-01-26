@@ -20,6 +20,8 @@ smtp = ["dep:mail-send"]
 scoped_cache = []
 cloud = []
 openidconnect = ["dep:openidconnect"]
+bedrock = ["dep:aws-sdk-bedrockruntime"]
+
 [lib]
 name = "windmill_common"
 path = "src/lib.rs"
@@ -65,6 +67,7 @@ aws-config.workspace = true
 aws-sdk-sts = { workspace = true, optional = true }
 aws-credential-types.workspace = true
 aws-smithy-types.workspace = true
+aws-sdk-bedrockruntime = { workspace = true, optional = true }
 base64.workspace = true
 bitflags.workspace = true
 once_cell.workspace = true

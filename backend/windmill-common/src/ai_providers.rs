@@ -74,14 +74,32 @@ impl AIProvider {
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            AIProvider::AWSBedrock => Ok(format!(
-                "https://bedrock-runtime.{}.amazonaws.com",
-                region.unwrap_or_else(|| "us-east-1".to_string())
-            )),
-            AIProvider::CustomAI | AIProvider::AzureOpenAI => Err(Error::BadRequest(format!(
-                "{:?} provider requires a base URL in the resource",
-                self
-            ))),
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
+                if let Some(base_url) = resource_base_url {
+                    Ok(base_url)
+                } else {
+                    Err(Error::BadRequest(format!(
+                        "{:?} provider requires a base URL in the resource",
+                        p
+                    )))
+                }
+            }
+            AIProvider::AWSBedrock => {
+                #[cfg(feature = "bedrock")]
+                {
+                    Ok(format!(
+                        "https://bedrock-runtime.{}.amazonaws.com",
+                        region.unwrap_or_else(|| "us-east-1".to_string())
+                    ))
+                }
+                #[cfg(not(feature = "bedrock"))]
+                {
+                    let _ = region;
+                    Err(Error::BadRequest(
+                        "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string()
+                    ))
+                }
+            }
         }
     }
 

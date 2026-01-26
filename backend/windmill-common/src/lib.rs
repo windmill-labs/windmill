@@ -28,6 +28,9 @@ use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
+pub mod ai_types;
+#[cfg(feature = "bedrock")]
+pub mod ai_bedrock;
 pub mod apps;
 pub mod audit;
 pub mod assets;
