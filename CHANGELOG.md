@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.615.0](https://github.com/windmill-labs/windmill/compare/v1.614.0...v1.615.0) (2026-01-26)
+
+
+### Features
+
+* add workspace setting to disable error handler for u/ scripts/flows ([#7634](https://github.com/windmill-labs/windmill/issues/7634)) ([05fa3cd](https://github.com/windmill-labs/windmill/commit/05fa3cd0130220de924b495296c2aac5c4520ac7))
+* **ai:** native bedrock compatibility ([#7668](https://github.com/windmill-labs/windmill/issues/7668)) ([2553d98](https://github.com/windmill-labs/windmill/commit/2553d987d9c08987bf10fe2ef7c91d778aed04fc))
+
+
+### Bug Fixes
+
+* allow SERVER_BIND_ADDR to override worker bind address ([522fa98](https://github.com/windmill-labs/windmill/commit/522fa98d7194093ebb2cfe2eefea870f610d4216))
+* make DateInput reactive to external value changes and handle empty dateFormat ([22ea612](https://github.com/windmill-labs/windmill/commit/22ea61207ae4c7bad38eb4e0a85eeadfb9e9137b))
+* persist "Planned later" and "Schedule" toggles in localStorage on runs page ([35081ca](https://github.com/windmill-labs/windmill/commit/35081ca9d2cc506b9068fed5eb28ef9f7d650b24))
+* tighten operator permissions ([c621a74](https://github.com/windmill-labs/windmill/commit/c621a74804f4f6e8318819c01e3a23a17698588b))
+* update rmcp type aliases to non-deprecated versions ([bb9adca](https://github.com/windmill-labs/windmill/commit/bb9adca38f8694e21a8cea27ba13e029accc3e57))
+
 ## [1.614.0](https://github.com/windmill-labs/windmill/compare/v1.613.4...v1.614.0) (2026-01-23)
 
 
