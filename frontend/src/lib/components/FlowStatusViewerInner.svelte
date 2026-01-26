@@ -1736,9 +1736,9 @@
 				bind:clientHeight={tabsHeight.graphHeight}
 				style="min-height: {minTabHeight}px"
 			>
-				<div class="border h-full" bind:clientHeight={wrapperHeight}>
-					<Splitpanes class="!overflow-visible">
-						<Pane bind:size={graphPaneSize} minSize={30} class="!overflow-visible">
+				<div class="border h-full rounded-md" bind:clientHeight={wrapperHeight}>
+					<Splitpanes>
+						<Pane bind:size={graphPaneSize} minSize={30}>
 							<div class="bg-surface-secondary h-full overflow-auto">
 								<div class="flex flex-col">
 									{#each Object.values(retryStatus?.val ?? {}) as count}
@@ -1837,7 +1837,7 @@
 										durationStatuses={localDurationStatuses}
 									/>
 								{:else if rightColumnSelect == 'node_status'}
-									<div class="p-2 grow flex flex-col gap-6">
+									<div class="p-4 grow flex flex-col gap-6">
 										{#if selectedNode?.startsWith(AI_TOOL_MESSAGE_PREFIX)}
 											<div class="pt-2 px-4 pb-4">
 												<Alert
