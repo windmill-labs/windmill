@@ -6,6 +6,8 @@ import type { TableEditorValues, TableEditorValuesColumn } from '../tableEditor'
 export function makeCreateTableQuery(values: TableEditorValues, dbType: DbType, schema?: string) {
 	const pkCount = values.columns.reduce((p, c) => p + (c.primaryKey ? 1 : 0), 0)
 
+	if (dbType === 'snowflake') schema ??= 'PUBLIC'
+
 	function transformColumn(c: TableEditorValuesColumn): string {
 		const datatype = c.datatype_length ? `${c.datatype}(${c.datatype_length})` : c.datatype
 		const defValue = c.defaultValue && formatDefaultValue(c.defaultValue, datatype, dbType)

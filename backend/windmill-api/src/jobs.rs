@@ -64,7 +64,9 @@ use crate::{
     concurrency_groups::join_concurrency_key,
     db::{ApiAuthed, DB},
     triggers::trigger_helpers::RunnableId,
-    users::{get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed},
+    users::{
+        get_scope_tags, require_owner_of_path, require_path_read_access_for_preview, OptAuthed,
+    },
     utils::{check_scopes, content_plain, require_super_admin},
 };
 use anyhow::Context;
@@ -1787,6 +1789,8 @@ pub struct RunJobQuery {
     pub skip_preprocessor: Option<bool>,
     pub poll_delay_ms: Option<u64>,
     pub memory_id: Option<Uuid>,
+    pub trigger_external_id: Option<String>,
+    pub service_name: Option<String>,
     pub suspended_mode: Option<bool>,
 }
 
@@ -2087,7 +2091,11 @@ async fn list_queue_jobs(
         ));
     }
 
-    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+    let args_field = if include_args {
+        "v2_job.args"
+    } else {
+        "null as args"
+    };
 
     let sql = list_queue_jobs_query(
         &w_id,
@@ -2458,11 +2466,23 @@ async fn list_jobs(
     if include_args {
         cj_fields = UnifiedJob::completed_job_fields()
             .iter()
-            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .map(|f| {
+                if *f == "null as args" {
+                    "v2_job.args"
+                } else {
+                    *f
+                }
+            })
             .collect();
         qj_fields = UnifiedJob::queued_job_fields()
             .iter()
-            .map(|f| if *f == "null as args" { "v2_job.args" } else { *f })
+            .map(|f| {
+                if *f == "null as args" {
+                    "v2_job.args"
+                } else {
+                    *f
+                }
+            })
             .collect();
         cj_fields_ref = &cj_fields;
         qj_fields_ref = &qj_fields;
@@ -3210,10 +3230,22 @@ pub async fn get_resume_urls_internal(
             "{base_url}/approve/{w_id}/{target_job_id}/{resume_id}/{signature}{approver_query}"
         ),
         cancel: build_resume_url(
-            "cancel", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
+            "cancel",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
         resume: build_resume_url(
-            "resume", &w_id, &target_job_id, &resume_id, &signature, &approver_query, &base_url,
+            "resume",
+            &w_id,
+            &target_job_id,
+            &resume_id,
+            &signature,
+            &approver_query,
+            &base_url,
         ),
     };
 
@@ -4231,18 +4263,26 @@ pub async fn run_flow_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_flow_path(flow_path.to_path()),
-            run_query.skip_preprocessor,
-        )
-        .await?;
+    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+        &db,
+        &authed,
+        RunnableId::from_flow_path(flow_path.to_path()),
+        &run_query,
+        &w_id,
+        args,
+    )
+    .await?;
 
     let (uuid, _, _) = push_flow_job_by_path_into_queue(
-        authed, db, None, user_db, w_id, flow_path, run_query, args, None,
+        authed,
+        db,
+        None,
+        user_db,
+        w_id,
+        flow_path,
+        run_query,
+        args,
+        trigger_metadata,
     )
     .await?;
 
@@ -4636,15 +4676,15 @@ pub async fn run_script_by_path(
     Query(run_query): Query<RunJobQuery>,
     args: RawWebhookArgs,
 ) -> error::Result<(StatusCode, String)> {
-    let args = args
-        .to_args_from_runnable(
-            &authed,
-            &db,
-            &w_id,
-            RunnableId::from_script_path(script_path.to_path()),
-            run_query.skip_preprocessor,
-        )
-        .await?;
+    let (args, trigger_metadata) = get_args_and_trigger_metadata(
+        &db,
+        &authed,
+        RunnableId::from_script_path(script_path.to_path()),
+        &run_query,
+        &w_id,
+        args,
+    )
+    .await?;
 
     let (uuid, _, _) = push_script_job_by_path_into_queue(
         authed,
@@ -4655,11 +4695,51 @@ pub async fn run_script_by_path(
         script_path,
         run_query,
         args,
-        None,
+        trigger_metadata,
     )
     .await?;
 
     Ok((StatusCode::CREATED, uuid.to_string()))
+}
+
+#[allow(unused)]
+pub async fn get_args_and_trigger_metadata(
+    db: &DB,
+    authed: &ApiAuthed,
+    runnable_id: RunnableId,
+    run_query: &RunJobQuery,
+    w_id: &str,
+    args: RawWebhookArgs,
+) -> error::Result<(PushArgsOwned, Option<TriggerMetadata>)> {
+    use windmill_common::triggers::TriggerMetadata;
+
+    // Build trigger metadata if this is a native trigger request
+    #[cfg(feature = "native_trigger")]
+    let trigger_metadata = if let Some(service_name_str) = &run_query.service_name {
+        use crate::native_triggers::ServiceName;
+        let service_name = ServiceName::try_from(service_name_str.to_owned())?;
+        Some(TriggerMetadata::new(
+            run_query.trigger_external_id.clone(),
+            service_name.as_job_trigger_kind(),
+        ))
+    } else {
+        None
+    };
+
+    #[cfg(not(feature = "native_trigger"))]
+    let trigger_metadata: Option<TriggerMetadata> = None;
+
+    let args = args
+        .to_args_from_runnable(
+            &authed,
+            &db,
+            &w_id,
+            runnable_id,
+            run_query.skip_preprocessor,
+        )
+        .await?;
+
+    Ok((args, trigger_metadata))
 }
 
 pub async fn push_script_job_by_path_into_queue<'c>(
@@ -5156,7 +5236,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                     if success {
                         StatusCode::OK
                     } else {
-                        StatusCode::INTERNAL_SERVER_ERROR
+                        StatusCode::UNPROCESSABLE_ENTITY
                     },
                     Json(result),
                 )
@@ -5170,7 +5250,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
                 })
                 .unwrap_or_else(|| {
                     if !success {
-                        Ok(StatusCode::INTERNAL_SERVER_ERROR)
+                        Ok(StatusCode::UNPROCESSABLE_ENTITY)
                     } else if result_value.is_some() {
                         Ok(StatusCode::OK)
                     } else {
@@ -5220,7 +5300,7 @@ pub fn result_to_response(result: Box<RawValue>, success: bool) -> error::Result
             if success {
                 StatusCode::OK
             } else {
-                StatusCode::INTERNAL_SERVER_ERROR
+                StatusCode::UNPROCESSABLE_ENTITY
             },
             Json(result),
         )
@@ -8399,7 +8479,11 @@ async fn list_completed_jobs(
 
     let (per_page, offset) = paginate(pagination);
 
-    let args_field = if include_args { "v2_job.args" } else { "null as args" };
+    let args_field = if include_args {
+        "v2_job.args"
+    } else {
+        "null as args"
+    };
 
     let sql = list_completed_jobs_query(
         &w_id,

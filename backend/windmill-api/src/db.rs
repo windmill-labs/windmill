@@ -247,7 +247,8 @@ pub async fn migrate(
         }
     }
 
-    return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
+    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    Ok(None)
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]

@@ -9,7 +9,7 @@ use crate::{
         providers::{
             anthropic::AnthropicQueryBuilder,
             google_ai::GoogleAIQueryBuilder,
-            openai::{OpenAIQueryBuilder, OpenAIToolCall},
+            openai::{OpenAIQueryBuilder},
             openrouter::OpenRouterQueryBuilder,
             other::OtherQueryBuilder,
         },
@@ -17,6 +17,8 @@ use crate::{
     },
     job_logger::append_result_stream,
 };
+
+use windmill_common::ai_types::OpenAIToolCall;
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
@@ -95,8 +97,11 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         // OpenAI use the Responses API
         AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
-        // Anthropic uses its own API format
-        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(provider.kind.clone())),
+        // Anthropic uses its own API format (with platform-specific handling for Vertex AI)
+        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
+            provider.kind.clone(),
+            provider.get_platform().clone(),
+        )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         // All other providers use the completion endpoint
         _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),

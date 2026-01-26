@@ -5,7 +5,8 @@
 	import type { Placement } from '@floating-ui/core'
 	import { isCloudHosted } from '$lib/cloud'
 	import { CloudOff } from 'lucide-svelte'
-	import type { Item } from '$lib/utils'
+	import { isServiceAvailable } from './native/utils'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		setDropdownWidthToButtonWidth?: boolean
@@ -33,72 +34,87 @@
 	let dropdown: DropdownV2 | undefined
 
 	const cloudHosted = isCloudHosted()
+	let nextcloudAvailable = $state(false)
 
-	// Dropdown items for adding new triggers
-	const addTriggerItems: Item[] = [
-		{
-			displayName: 'Schedule',
-			action: () => onAddDraftTrigger?.('schedule'),
-			icon: triggerIconMap.schedule
-		},
-		{ displayName: 'HTTP', action: () => onAddDraftTrigger?.('http'), icon: triggerIconMap.http },
-		{
-			displayName: 'WebSocket',
-			action: () => onAddDraftTrigger?.('websocket'),
-			icon: triggerIconMap.websocket,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'Postgres',
-			action: () => onAddDraftTrigger?.('postgres'),
-			icon: triggerIconMap.postgres,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'Kafka',
-			action: () => onAddDraftTrigger?.('kafka'),
-			icon: triggerIconMap.kafka,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'NATS',
-			action: () => onAddDraftTrigger?.('nats'),
-			icon: triggerIconMap.nats,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'MQTT',
-			action: () => onAddDraftTrigger?.('mqtt'),
-			icon: triggerIconMap.mqtt,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'SQS',
-			action: () => onAddDraftTrigger?.('sqs'),
-			icon: triggerIconMap.sqs,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'GCP Pub/Sub',
-			action: () => onAddDraftTrigger?.('gcp'),
-			icon: triggerIconMap.gcp,
-			extra: cloudHosted ? extra : undefined
-		},
-		{
-			displayName: 'Email',
-			action: () => onAddDraftTrigger?.('email'),
-			icon: triggerIconMap.email
-		},
-		{
-			displayName: 'Scheduled Poll',
-			action: (e) => {
-				onAddDraftTrigger?.('poll')
-				onAddScheduledPoll?.()
+	async function setNextcloudState() {
+		nextcloudAvailable = await isServiceAvailable('nextcloud', $workspaceStore!)
+	}
+
+	setNextcloudState()
+
+	const addTriggerItems = $derived(
+		[
+			{
+				displayName: 'Schedule',
+				action: () => onAddDraftTrigger?.('schedule'),
+				icon: triggerIconMap.schedule
 			},
-			icon: SchedulePollIcon,
-			hidden: !isEditor
-		}
-	].filter((item) => !item.hidden)
+			{ displayName: 'HTTP', action: () => onAddDraftTrigger?.('http'), icon: triggerIconMap.http },
+			{
+				displayName: 'WebSocket',
+				action: () => onAddDraftTrigger?.('websocket'),
+				icon: triggerIconMap.websocket,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'Postgres',
+				action: () => onAddDraftTrigger?.('postgres'),
+				icon: triggerIconMap.postgres,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'Kafka',
+				action: () => onAddDraftTrigger?.('kafka'),
+				icon: triggerIconMap.kafka,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'NATS',
+				action: () => onAddDraftTrigger?.('nats'),
+				icon: triggerIconMap.nats,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'MQTT',
+				action: () => onAddDraftTrigger?.('mqtt'),
+				icon: triggerIconMap.mqtt,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'SQS',
+				action: () => onAddDraftTrigger?.('sqs'),
+				icon: triggerIconMap.sqs,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'GCP Pub/Sub',
+				action: () => onAddDraftTrigger?.('gcp'),
+				icon: triggerIconMap.gcp,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'Email',
+				action: () => onAddDraftTrigger?.('email'),
+				icon: triggerIconMap.email,
+				extra: cloudHosted ? extra : undefined
+			},
+			{
+				displayName: 'Scheduled Poll',
+				action: (e) => {
+					onAddDraftTrigger?.('poll')
+					onAddScheduledPoll?.()
+				},
+				icon: SchedulePollIcon,
+				hidden: !isEditor
+			},
+			{
+				displayName: 'Nextcloud',
+				action: () => onAddDraftTrigger?.('nextcloud'),
+				icon: triggerIconMap.nextcloud,
+				hidden: !nextcloudAvailable
+			}
+		].filter((item) => !item.hidden)
+	)
 
 	let triggersButtonWidth = $state(0)
 
