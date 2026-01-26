@@ -9,7 +9,7 @@
 #![allow(non_snake_case)]
 
 use quick_cache::sync::Cache;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgConnection, Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -387,6 +387,19 @@ pub struct NewToken {
     pub impersonate_email: Option<String>,
     pub scopes: Option<Vec<String>>,
     pub workspace_id: Option<String>,
+}
+
+#[cfg(feature = "native_trigger")]
+impl NewToken {
+    pub fn new(
+        label: Option<String>,
+        expiration: Option<chrono::DateTime<chrono::Utc>>,
+        impersonate_email: Option<String>,
+        scopes: Option<Vec<String>>,
+        workspace_id: Option<String>,
+    ) -> NewToken {
+        NewToken { label, expiration, impersonate_email, scopes, workspace_id }
+    }
 }
 
 #[derive(Deserialize)]
@@ -2122,13 +2135,13 @@ pub async fn create_session_token<'c>(
     Ok(token)
 }
 
-async fn create_token(
-    Extension(db): Extension<DB>,
-    authed: ApiAuthed,
-    Json(new_token): Json<NewToken>,
-) -> Result<(StatusCode, String)> {
+pub async fn create_token_internal(
+    tx: &mut PgConnection,
+    db: &DB,
+    authed: &ApiAuthed,
+    token_config: NewToken,
+) -> Result<String> {
     let token = rd_string(32);
-    let mut tx = db.begin().await?;
 
     let is_super_admin = sqlx::query_scalar!(
         "SELECT super_admin FROM password WHERE email = $1",
@@ -2140,7 +2153,7 @@ async fn create_token(
     if *CLOUD_HOSTED {
         let nb_tokens =
             sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
-                .fetch_one(&db)
+                .fetch_one(db)
                 .await?;
         if nb_tokens.unwrap_or(0) >= 10000 {
             return Err(Error::BadRequest(
@@ -2155,18 +2168,18 @@ async fn create_token(
             VALUES ($1, $2, $3, $4, $5, $6, $7)",
         token,
         authed.email,
-        new_token.label,
-        new_token.expiration,
+        token_config.label,
+        token_config.expiration,
         is_super_admin,
-        new_token.scopes.as_ref().map(|x| x.as_slice()),
-        new_token.workspace_id,
+        token_config.scopes.as_ref().map(|x| x.as_slice()),
+        token_config.workspace_id,
     )
     .execute(&mut *tx)
     .await?;
 
     audit_log(
         &mut *tx,
-        &authed,
+        authed,
         "users.token.create",
         ActionKind::Create,
         &"global",
@@ -2175,6 +2188,19 @@ async fn create_token(
     )
     .instrument(tracing::info_span!("token", email = &authed.email))
     .await?;
+
+    Ok(token)
+}
+
+async fn create_token(
+    Extension(db): Extension<DB>,
+    authed: ApiAuthed,
+    Json(token_config): Json<NewToken>,
+) -> Result<(StatusCode, String)> {
+    let mut tx = db.begin().await?;
+
+    let token = create_token_internal(&mut *tx, &db, &authed, token_config).await?;
+
     tx.commit().await?;
     Ok((StatusCode::CREATED, token))
 }
