@@ -64,6 +64,37 @@ struct OpenAIToolFunction {
 // Shared Helper Functions for SDK-Based Handlers
 // ============================================================================
 
+/// Authentication configuration for Bedrock clients
+enum BedrockAuthConfig {
+    BearerToken(String),
+    IamCredentials {
+        access_key_id: String,
+        secret_access_key: String,
+    },
+    Environment,
+}
+
+/// Determine auth configuration with priority: bearer token → IAM credentials → environment
+fn determine_auth_config(
+    api_key: Option<&str>,
+    aws_access_key_id: Option<&str>,
+    aws_secret_access_key: Option<&str>,
+) -> BedrockAuthConfig {
+    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
+        BedrockAuthConfig::BearerToken(key.to_string())
+    } else if let (Some(access_key_id), Some(secret_access_key)) = (
+        aws_access_key_id.filter(|s| !s.is_empty()),
+        aws_secret_access_key.filter(|s| !s.is_empty()),
+    ) {
+        BedrockAuthConfig::IamCredentials {
+            access_key_id: access_key_id.to_string(),
+            secret_access_key: secret_access_key.to_string(),
+        }
+    } else {
+        BedrockAuthConfig::Environment
+    }
+}
+
 /// Create a BedrockClient with auth priority: bearer token → IAM credentials → environment
 async fn create_bedrock_client(
     api_key: Option<&str>,
@@ -71,21 +102,17 @@ async fn create_bedrock_client(
     aws_secret_access_key: Option<&str>,
     region: &str,
 ) -> Result<BedrockClient> {
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        BedrockClient::from_bearer_token(key.to_string(), region).await
-    } else if let (Some(access_key_id), Some(secret_access_key)) = (
-        aws_access_key_id.filter(|s| !s.is_empty()),
-        aws_secret_access_key.filter(|s| !s.is_empty()),
-    ) {
-        BedrockClient::from_credentials(
-            access_key_id.to_string(),
-            secret_access_key.to_string(),
-            None,
-            region,
-        )
-        .await
-    } else {
-        BedrockClient::from_env(region).await
+    match determine_auth_config(api_key, aws_access_key_id, aws_secret_access_key) {
+        BedrockAuthConfig::BearerToken(key) => {
+            BedrockClient::from_bearer_token(key, region).await
+        }
+        BedrockAuthConfig::IamCredentials {
+            access_key_id,
+            secret_access_key,
+        } => {
+            BedrockClient::from_credentials(access_key_id, secret_access_key, None, region).await
+        }
+        BedrockAuthConfig::Environment => BedrockClient::from_env(region).await,
     }
 }
 
@@ -147,36 +174,40 @@ async fn create_bedrock_control_client(
 
     let region_provider = aws_sdk_bedrock::config::Region::new(region.to_string());
 
-    if let Some(key) = api_key.filter(|k| !k.is_empty()) {
-        let config = aws_sdk_bedrock::config::Builder::new()
-            .region(region_provider)
-            .behavior_version(BehaviorVersion::latest())
-            .token_provider(BearerTokenProvider::new(key.to_string()))
-            .build();
-        Ok(aws_sdk_bedrock::Client::from_conf(config))
-    } else if let (Some(access_key_id), Some(secret_access_key)) = (
-        aws_access_key_id.filter(|s| !s.is_empty()),
-        aws_secret_access_key.filter(|s| !s.is_empty()),
-    ) {
-        let credentials = aws_credential_types::Credentials::new(
+    match determine_auth_config(api_key, aws_access_key_id, aws_secret_access_key) {
+        BedrockAuthConfig::BearerToken(key) => {
+            let config = aws_sdk_bedrock::config::Builder::new()
+                .region(region_provider)
+                .behavior_version(BehaviorVersion::latest())
+                .token_provider(BearerTokenProvider::new(key))
+                .build();
+            Ok(aws_sdk_bedrock::Client::from_conf(config))
+        }
+        BedrockAuthConfig::IamCredentials {
             access_key_id,
             secret_access_key,
-            None,
-            None,
-            "windmill",
-        );
-        let config = aws_sdk_bedrock::config::Builder::new()
-            .region(region_provider)
-            .behavior_version(BehaviorVersion::latest())
-            .credentials_provider(credentials)
-            .build();
-        Ok(aws_sdk_bedrock::Client::from_conf(config))
-    } else {
-        let config = aws_config::defaults(BehaviorVersion::latest())
-            .region(region_provider)
-            .load()
-            .await;
-        Ok(aws_sdk_bedrock::Client::new(&config))
+        } => {
+            let credentials = aws_credential_types::Credentials::new(
+                access_key_id,
+                secret_access_key,
+                None,
+                None,
+                "windmill",
+            );
+            let config = aws_sdk_bedrock::config::Builder::new()
+                .region(region_provider)
+                .behavior_version(BehaviorVersion::latest())
+                .credentials_provider(credentials)
+                .build();
+            Ok(aws_sdk_bedrock::Client::from_conf(config))
+        }
+        BedrockAuthConfig::Environment => {
+            let config = aws_config::defaults(BehaviorVersion::latest())
+                .region(region_provider)
+                .load()
+                .await;
+            Ok(aws_sdk_bedrock::Client::new(&config))
+        }
     }
 }
 

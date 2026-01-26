@@ -11,50 +11,9 @@ use crate::ai::{
     utils::extract_text_content,
 };
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIFunction {
-    pub name: String,
-    pub arguments: String,
-}
-
-/// Google-specific extra content for thought signatures (Gemini 3 Pro / 2.5)
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct GoogleExtraContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thought_signature: Option<String>,
-}
-
-/// Extra content for provider-specific metadata (e.g., Google thought signatures)
-#[derive(Deserialize, Serialize, Clone, Debug, Default)]
-pub struct ExtraContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub google: Option<GoogleExtraContent>,
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct OpenAIToolCall {
-    pub id: String,
-    pub function: OpenAIFunction,
-    pub r#type: String,
-    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_content: Option<ExtraContent>,
-}
-
-#[cfg(feature = "bedrock")]
-impl windmill_common::ai_bedrock::BedrockToolCallConvertible for OpenAIToolCall {
-    fn id(&self) -> &str {
-        &self.id
-    }
-
-    fn function_name(&self) -> &str {
-        &self.function.name
-    }
-
-    fn function_arguments(&self) -> &str {
-        &self.function.arguments
-    }
-}
+pub use windmill_common::ai_types::{
+    ExtraContent, OpenAIFunction, OpenAIToolCall,
+};
 
 // Responses API structures
 #[derive(Deserialize)]

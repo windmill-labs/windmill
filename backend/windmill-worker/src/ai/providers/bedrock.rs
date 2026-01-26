@@ -2,13 +2,12 @@
 //!
 //! Uses shared SDK code from windmill_common::ai_bedrock for:
 //! - BedrockClient (SDK wrapper with auth)
-//! - Message conversion (generic over BedrockConvertible trait)
+//! - Message conversion (OpenAI format -> Bedrock format)
 //! - Stream event parsing
 //! - Helper utilities
 
 use crate::ai::{
     image_handler::prepare_messages_for_api,
-    providers::openai::{OpenAIFunction, OpenAIToolCall},
     query_builder::{ParsedResponse, StreamEventProcessor},
     types::StreamingEvent,
     types::{OpenAIMessage, ToolDef},
@@ -20,36 +19,10 @@ use windmill_common::{client::AuthedClient, error::Error};
 pub use windmill_common::ai_bedrock::{check_env_credentials, BedrockClient};
 use windmill_common::ai_bedrock::{
     bedrock_stream_event_is_block_stop, bedrock_stream_event_to_text,
-    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start,
+    bedrock_stream_event_to_tool_delta, bedrock_stream_event_to_tool_start, build_tool_config,
     create_inference_config, format_bedrock_error, openai_messages_to_bedrock,
-    openai_tools_to_bedrock, StreamingToolCall,
+    streaming_tool_calls_to_openai, StreamingToolCall,
 };
-
-/// Constants for commonly used strings to avoid allocations
-const FUNCTION_TYPE: &str = "function";
-
-// ============================================================================
-// Tool Call Conversion (Worker-specific types)
-// ============================================================================
-
-/// Convert accumulated streaming tool calls to OpenAI format (worker types)
-///
-/// This is kept local because it converts to the worker's `OpenAIToolCall` type
-/// which has a different `extra_content` field type than the common module's version.
-fn streaming_tool_calls_to_openai(tool_calls: Vec<StreamingToolCall>) -> Vec<OpenAIToolCall> {
-    tool_calls
-        .into_iter()
-        .map(|tc| OpenAIToolCall {
-            id: tc.id,
-            function: OpenAIFunction {
-                name: tc.name,
-                arguments: tc.arguments,
-            },
-            r#type: FUNCTION_TYPE.to_string(),
-            extra_content: None,
-        })
-        .collect()
-}
 
 // ============================================================================
 // Query Builder (Worker-specific orchestration)
@@ -103,7 +76,7 @@ impl BedrockQueryBuilder {
         let inference_config = create_inference_config(temperature, max_tokens.map(|t| t as i32));
 
         // Build tool configuration with optional ToolChoice
-        let tool_config = self.build_tool_config(tools, structured_output_tool_name.is_some())?;
+        let tool_config = build_tool_config(tools, structured_output_tool_name.is_some())?;
 
         self.execute_converse_stream(
             &bedrock_client,
@@ -115,34 +88,6 @@ impl BedrockQueryBuilder {
             stream_event_processor,
         )
         .await
-    }
-
-    /// Build tool configuration with optional ToolChoice for structured output
-    fn build_tool_config(
-        &self,
-        tools: Option<&[ToolDef]>,
-        force_tool_use: bool,
-    ) -> Result<Option<aws_sdk_bedrockruntime::types::ToolConfiguration>, Error> {
-        if let Some(tools) = tools {
-            let bedrock_tools = openai_tools_to_bedrock(tools)?;
-            let mut tool_config_builder =
-                aws_sdk_bedrockruntime::types::ToolConfiguration::builder()
-                    .set_tools(Some(bedrock_tools));
-
-            if force_tool_use {
-                tool_config_builder = tool_config_builder.tool_choice(
-                    aws_sdk_bedrockruntime::types::ToolChoice::Any(
-                        aws_sdk_bedrockruntime::types::AnyToolChoice::builder().build(),
-                    ),
-                );
-            }
-
-            Ok(Some(tool_config_builder.build().map_err(|e| {
-                Error::internal_err(format!("Failed to build tool configuration: {}", e))
-            })?))
-        } else {
-            Ok(None)
-        }
     }
 
     /// Execute streaming Bedrock request using shared stream parsing functions

@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
+use crate::flow_status::AgentAction;
 use crate::s3_helpers::S3Object;
 
 // ============================================================================
@@ -61,4 +62,55 @@ pub struct ToolDefFunction {
 pub struct ToolDef {
     pub r#type: String,
     pub function: ToolDefFunction,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct OpenAIFunction {
+    pub name: String,
+    pub arguments: String,
+}
+
+/// Google-specific extra content for thought signatures (Gemini 3 Pro / 2.5)
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct GoogleExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
+}
+
+/// Extra content for provider-specific metadata (e.g., Google thought signatures)
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
+pub struct ExtraContent {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google: Option<GoogleExtraContent>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct OpenAIToolCall {
+    pub id: String,
+    pub function: OpenAIFunction,
+    pub r#type: String,
+    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra_content: Option<ExtraContent>,
+}
+
+/// OpenAI-compatible message format used across all AI providers.
+///
+/// The `agent_action` field is used by the worker for flow-specific tracking
+/// and is never serialized to JSON (skip_serializing, default).
+#[derive(Deserialize, Serialize, Clone, Default, Debug)]
+pub struct OpenAIMessage {
+    pub role: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<OpenAIContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OpenAIToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    /// Worker-specific field for tracking agent actions in flows.
+    /// Never serialized; defaults to None when deserializing.
+    #[serde(skip_serializing, default)]
+    pub agent_action: Option<AgentAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<UrlCitation>>,
 }

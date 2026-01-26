@@ -1,4 +1,3 @@
-use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -22,46 +21,8 @@ use windmill_parser::Typ;
 
 // Re-export shared types from windmill_common::ai_types
 pub use windmill_common::ai_types::{
-    ContentPart, ImageUrlData, OpenAIContent, ToolDef, ToolDefFunction, UrlCitation,
+    ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
 };
-
-/// OpenAI message format with additional agent_action field for worker-specific tracking.
-/// This extends the base OpenAIMessage from windmill_common with flow-specific metadata.
-#[derive(Deserialize, Serialize, Clone, Default, Debug)]
-pub struct OpenAIMessage {
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<OpenAIContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<OpenAIToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    #[serde(skip_serializing)]
-    pub agent_action: Option<AgentAction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Vec<UrlCitation>>,
-}
-
-#[cfg(feature = "bedrock")]
-impl windmill_common::ai_bedrock::BedrockConvertible for OpenAIMessage {
-    type ToolCall = OpenAIToolCall;
-
-    fn role(&self) -> &str {
-        &self.role
-    }
-
-    fn content(&self) -> Option<&OpenAIContent> {
-        self.content.as_ref()
-    }
-
-    fn tool_calls(&self) -> Option<&[OpenAIToolCall]> {
-        self.tool_calls.as_deref()
-    }
-
-    fn tool_call_id(&self) -> Option<&str> {
-        self.tool_call_id.as_deref()
-    }
-}
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
 #[derive(Serialize)]
