@@ -151,8 +151,6 @@ memchr.workspace = true
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
 pep440_rs.workspace = true
-systemstat.workspace = true
-size.workspace = true
 strum.workspace = true
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
@@ -339,7 +337,6 @@ serde_derive = "1.0.147"
 const_format = { version = "0.2.35", features = ["rust_1_64", "rust_1_51"] }
 const-str = "0.5"
 constant_time_eq = "0.3.1"
-dyn-iter = "0.2.0"
 rsa = "^0"
 async_zip = { version = "0.0.17", features = ["tokio", "tokio-fs", "deflate", "chrono"] }
 once_cell = "1.17.1"
@@ -437,8 +434,6 @@ pin-project-lite = "^0"
 tantivy = { git="https://github.com/windmill-labs/tantivy", rev="6a24621231202ccd77bec90d8787e2281fb94e4e" }
 
 backon = "1.3.0"
-systemstat = "0.2.4"
-size = "0.5.0"
 
 flume = { version = "0.11.1", features = ["async"] }
 kube = { version = "1.1.0", features = ["runtime", "derive"] }
