@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.615.2](https://github.com/windmill-labs/windmill/compare/v1.615.1...v1.615.2) (2026-01-26)
+
+
+### Bug Fixes
+
+* add SSL_CERT_FILE to python install ([5e56d75](https://github.com/windmill-labs/windmill/commit/5e56d751f3085b64e05d6a7ef0b23838efe408a4))
+* mixed version error ([#7686](https://github.com/windmill-labs/windmill/issues/7686)) ([1ae157d](https://github.com/windmill-labs/windmill/commit/1ae157dadd17a7d759ea927976bbabaa47ac328d))
+* set 3.12 as python fallback if no version explicitely set ([f880655](https://github.com/windmill-labs/windmill/commit/f880655e32793ce50fec5a63040d041c29b7d2dc))
+
 ## [1.615.1](https://github.com/windmill-labs/windmill/compare/v1.615.0...v1.615.1) (2026-01-26)
 
 
