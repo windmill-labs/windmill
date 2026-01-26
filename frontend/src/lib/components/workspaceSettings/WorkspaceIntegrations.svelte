@@ -205,7 +205,7 @@
 
 <div class="flex flex-col gap-6 my-8">
 	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis">Native Triggers</div>
+		<div class="text-sm font-semibold text-emphasis">Native Triggers (Beta)</div>
 		<Description>
 			Connect your workspace to external services for native triggers and enhanced functionality.
 			These connections are shared across all workspace members and are required for native triggers
@@ -215,6 +215,11 @@
 			Learn more about native triggers and workspace integrations.
 		</Description>
 	</div>
+
+	<Alert type="warning" title="Beta Feature">
+		Native Triggers is currently in beta. Nextcloud integration requires a future version of
+		Nextcloud (not yet released).
+	</Alert>
 
 	{#if processingCallback}
 		<Alert type="info" title="Processing OAuth connection">
