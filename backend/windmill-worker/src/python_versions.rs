@@ -21,7 +21,7 @@ use windmill_queue::append_logs;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::{PYTHON_PATH, UV_PATH},
+    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH, UV_PATH},
     HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
 };
 
@@ -592,10 +592,19 @@ impl PyV {
                 );
         }
 
+        let mut vars: Vec<(&str, &str)> = vec![];
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            vars.push(("SSL_CERT_FILE", cert_path));
+        }
+
+        if *NATIVE_CERT {
+            vars.push(("UV_NATIVE_TLS", "true"));
+        }
         let output = child_cmd
             // .current_dir(job_dir)
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(vars)
             .args([
                 "python",
                 "find",

@@ -63,8 +63,8 @@ lazy_static::lazy_static! {
     static ref NON_ALPHANUM_CHAR: Regex = regex::Regex::new(r"[^0-9A-Za-z=.-]").unwrap();
 
     static ref TRUSTED_HOST: Option<String> = var("PY_TRUSTED_HOST").ok().or(var("PIP_TRUSTED_HOST").ok());
-    static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
-    static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
+    pub static ref INDEX_CERT: Option<String> = var("PY_INDEX_CERT").ok().or(var("PIP_INDEX_CERT").ok());
+    pub static ref NATIVE_CERT: bool = var("PY_NATIVE_CERT").ok().or(var("UV_NATIVE_TLS").ok()).map(|flag| flag == "true").unwrap_or(false);
 
     static ref RELATIVE_IMPORT_REGEX: Regex = Regex::new(r#"(import|from)\s(((u|f)\.)|\.)"#).unwrap();
 
@@ -130,10 +130,11 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables, read_file,
         read_result, start_child_process, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
     worker_utils::ping_job_status,
     PyV, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR, get_proxy_envs_for_lang,
+    PIP_INDEX_URL, PROXY_ENVS, PY_INSTALL_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, UV_CACHE_DIR,
 };
 use windmill_common::client::AuthedClient;
 
@@ -1996,7 +1997,7 @@ pub async fn handle_python_reqs(
                 },
                 (_, _, exitstatus) = async {
                     // See tokio::process::Child::wait_with_output() for more context
-                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited first 
+                    // Sometimes uv_install_proccess.wait() is not exiting if stderr is not awaited first
                     (stderr_future.await, stdout_future.await, Box::into_pin(uv_install_proccess.wait()).await)
                 } => match exitstatus {
                     Ok(status) => if !status.success() {
