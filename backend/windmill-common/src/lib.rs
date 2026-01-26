@@ -182,10 +182,8 @@ pub async fn shutdown_signal(
     tx: KillpillSender,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
-    use std::io;
-
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    async fn terminate() -> io::Result<()> {
+    async fn terminate() -> std::io::Result<()> {
         use tokio::signal::unix::SignalKind;
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()

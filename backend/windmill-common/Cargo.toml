@@ -100,6 +100,8 @@ url.workspace = true
 urlencoding.workspace = true
 async-recursion.workspace = true
 pep440_rs.workspace = true
+systemstat.workspace = true
+size.workspace = true
 
 semver.workspace = true
 croner.workspace = true
@@ -107,8 +109,6 @@ quick_cache.workspace = true
 pin-project-lite.workspace = true
 futures.workspace = true
 tempfile.workspace = true
-systemstat.workspace = true
-size.workspace = true
 globset.workspace = true
 
 opentelemetry-semantic-conventions = { workspace = true, optional = true }

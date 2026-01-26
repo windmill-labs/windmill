@@ -110,7 +110,10 @@ use windmill_common::s3_helpers::reload_object_store_setting;
 const DEFAULT_NUM_WORKERS: usize = 1;
 const DEFAULT_PORT: u16 = 8000;
 const DEFAULT_SERVER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(0, 0, 0, 0);
+const DEFAULT_WORKER_BIND_ADDR: Ipv4Addr = Ipv4Addr::new(127, 0, 0, 1);
+const BIND_ADDR_ENV: &str = "SERVER_BIND_ADDR";
 
+#[cfg(target_os = "linux")]
 mod cgroups;
 #[cfg(feature = "private")]
 pub mod ee;
@@ -491,7 +494,7 @@ fn print_help() {
 	println!("  MODE = standalone                      Mode: standalone | worker | server | agent");
 	println!("  BASE_URL = http://localhost:8000       Public base URL of your instance (overridden by instance settings)");
 	println!("  PORT = {}                              HTTP port (server/indexer/MCP modes)", DEFAULT_PORT);
-	println!("  SERVER_BIND_ADDR = {}                  IP to bind the server to", DEFAULT_SERVER_BIND_ADDR);
+	println!("  SERVER_BIND_ADDR = <mode dependent>    IP to bind to (server: {}, worker: {})", DEFAULT_SERVER_BIND_ADDR, DEFAULT_WORKER_BIND_ADDR);
 	println!("  NUM_WORKERS = {}                       Number of workers (standalone/worker modes)", DEFAULT_NUM_WORKERS);
 	println!("  WORKER_GROUP = default                 Worker group this worker belongs to",);
 	println!("  JSON_FMT = false                       Output logs in JSON instead of logfmt");
@@ -628,14 +631,15 @@ async fn windmill_main() -> anyhow::Result<()> {
     let indexer_mode = mode == Mode::Indexer;
     let mcp_mode = mode == Mode::MCP;
 
-    let server_bind_address: IpAddr = if server_mode || indexer_mode || mcp_mode {
-        std::env::var("SERVER_BIND_ADDR")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(IpAddr::from(DEFAULT_SERVER_BIND_ADDR))
+    let default_bind_addr = if server_mode || indexer_mode || mcp_mode {
+        DEFAULT_SERVER_BIND_ADDR
     } else {
-        IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))
+        DEFAULT_WORKER_BIND_ADDR
     };
+    let server_bind_address: IpAddr = std::env::var(BIND_ADDR_ENV)
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(IpAddr::from(default_bind_addr));
 
     let (conn, first_suffix) = if mode == Mode::Agent {
         tracing::info!(

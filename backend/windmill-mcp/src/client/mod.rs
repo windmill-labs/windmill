@@ -11,8 +11,8 @@ use anyhow::{Context, Result};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rmcp::{
     model::{
-        CallToolRequestParam, ClientCapabilities, ClientInfo, Implementation,
-        InitializeRequestParam, Tool as McpTool,
+        CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation,
+        InitializeRequestParams, Tool as McpTool,
     },
     service::RunningService,
     transport::{
@@ -28,7 +28,7 @@ use windmill_common::DB;
 /// MCP client for communicating with external MCP servers
 pub struct McpClient {
     /// The underlying rmcp client
-    client: RunningService<RoleClient, InitializeRequestParam>,
+    client: RunningService<RoleClient, InitializeRequestParams>,
     /// Cached list of available tools from the server
     available_tools: Vec<McpTool>,
 }
@@ -82,6 +82,7 @@ impl McpClient {
                 website_url: None,
                 icons: None,
             },
+            meta: None,
         };
 
         // Initialize the connection
@@ -113,10 +114,11 @@ impl McpClient {
 
         let result = self
             .client
-            .call_tool(CallToolRequestParam {
+            .call_tool(CallToolRequestParams {
                 name: name.to_string().into(),
                 arguments: mcp_args,
                 task: None,
+                meta: None,
             })
             .await
             .context(format!("Failed to call MCP tool: {}", name))?;

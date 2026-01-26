@@ -19,9 +19,9 @@ pub use tools::create_tool_from_item;
 // Re-export rmcp types for convenience
 pub use rmcp::handler::server::ServerHandler;
 pub use rmcp::model::{
-    Annotated, CallToolRequestParam, CallToolResult, Content, Implementation,
-    InitializeRequestParam, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
-    ListResourcesResult, ListToolsResult, PaginatedRequestParam, ProtocolVersion, RawContent,
+    Annotated, CallToolRequestParams, CallToolResult, Content, Implementation,
+    InitializeRequestParams, InitializeResult, ListPromptsResult, ListResourceTemplatesResult,
+    ListResourcesResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion, RawContent,
     RawTextContent, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
 };
 pub use rmcp::service::{RequestContext, RoleServer};
