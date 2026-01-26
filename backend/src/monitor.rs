@@ -219,6 +219,7 @@ pub async fn initial_load(
                     e
                 )
             }
+            windmill_common::min_version::store_min_keep_alive_version(db).await;
         }
     }
 
