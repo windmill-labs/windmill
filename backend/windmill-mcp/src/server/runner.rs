@@ -12,9 +12,9 @@ use crate::server::endpoints::endpoint_tool_to_mcp_tool;
 use crate::server::tools::create_tool_from_item;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
-    CallToolRequestParam, CallToolResult, Content, Implementation, InitializeRequestParam,
+    CallToolRequestParams, CallToolResult, Content, Implementation, InitializeRequestParams,
     InitializeResult, ListPromptsResult, ListResourceTemplatesResult, ListResourcesResult,
-    ListToolsResult, PaginatedRequestParam, ProtocolVersion, ServerCapabilities, ServerInfo,
+    ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::ErrorData;
@@ -97,7 +97,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn initialize(
         &self,
-        _request: InitializeRequestParam,
+        _request: InitializeRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<InitializeResult, ErrorData> {
         Ok(self.get_info())
@@ -105,7 +105,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn list_tools(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
         let (auth, workspace_id) = Self::extract_context(&context)?;
@@ -221,7 +221,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn call_tool(
         &self,
-        request: CallToolRequestParam,
+        request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, ErrorData> {
         let (auth, workspace_id) = Self::extract_context(&context)?;
@@ -349,7 +349,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn list_resources(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourcesResult, ErrorData> {
         Ok(ListResourcesResult { resources: vec![], next_cursor: None, meta: None })
@@ -357,7 +357,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn list_prompts(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListPromptsResult, ErrorData> {
         Ok(ListPromptsResult::default())
@@ -365,7 +365,7 @@ impl<B: McpBackend> ServerHandler for Runner<B> {
 
     async fn list_resource_templates(
         &self,
-        _request: Option<PaginatedRequestParam>,
+        _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
         Ok(ListResourceTemplatesResult::default())
