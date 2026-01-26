@@ -46,6 +46,7 @@
 	import InputValue from '../../helpers/InputValue.svelte'
 	import { stateSnapshot, withProps } from '$lib/svelte5Utils.svelte'
 	import { get } from 'svelte/store'
+	import SubGridEditor from '$lib/components/apps/editor/SubGridEditor.svelte'
 
 	interface Props {
 		// import 'ag-grid-community/dist/styles/ag-theme-alpine-dark.css'
@@ -598,6 +599,13 @@
 	/>
 {/each}
 
+{#if render == false || loading || initializing}
+	<div class="overflow-hidden h-0">
+		{#each actions?.filter((x) => x.type == 'modalcomponent') ?? [] as action}
+			<SubGridEditor id={action.id} subGridId={`${action.id}-0`} />
+		{/each}
+	</div>
+{/if}
 <RunnableWrapper
 	{outputs}
 	{render}

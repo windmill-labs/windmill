@@ -22,7 +22,7 @@
 	import AppModal from '../../layout/AppModal.svelte'
 
 	interface Props {
-		p: ICellRendererParams<any>
+		p?: ICellRendererParams<any>
 		id: string
 		render: boolean
 		actions?: TableAction[]
@@ -89,7 +89,7 @@
 					}
 				})}
 				onpointerdown={stopPropagation((e) => {
-					selectRow(p)
+					p && selectRow(p)
 
 					if (!$connectingInput.opened) {
 						$selectedComponent = [action.id]
@@ -195,7 +195,7 @@
 							noWFull
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow(p)
+								p && selectRow(p)
 							}}
 							id={action.id}
 							customCss={action.customCss}
@@ -219,7 +219,7 @@
 							verticalAlignment="center"
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow(p)
+								p && selectRow(p)
 							}}
 						/>
 					{:else if action.type == 'checkboxcomponent'}
@@ -234,7 +234,7 @@
 							onToggle={action.onToggle}
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow(p)
+								p && selectRow(p)
 							}}
 							verticalAlignment="center"
 							{controls}
@@ -254,7 +254,7 @@
 								onSelect={action.onSelect}
 								preclickAction={async () => {
 									dispatch('toggleRow')
-									selectRow(p)
+									p && selectRow(p)
 								}}
 								{controls}
 							/>
@@ -267,7 +267,7 @@
 						{render}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow(p)
+							p && selectRow(p)
 						}}
 						noWFull
 						id={action.id}
@@ -290,7 +290,7 @@
 						verticalAlignment="center"
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow(p)
+							p && selectRow(p)
 						}}
 					/>
 				{:else if action.type == 'checkboxcomponent'}
@@ -305,7 +305,7 @@
 						onToggle={action.onToggle}
 						preclickAction={async () => {
 							dispatch('toggleRow')
-							selectRow(p)
+							p && selectRow(p)
 						}}
 					/>
 				{:else if action.type == 'selectcomponent'}
@@ -323,7 +323,7 @@
 							onSelect={action.onSelect}
 							preclickAction={async () => {
 								dispatch('toggleRow')
-								selectRow(p)
+								p && selectRow(p)
 							}}
 						/>
 					</div>

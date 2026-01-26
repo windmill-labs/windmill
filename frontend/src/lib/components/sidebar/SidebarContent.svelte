@@ -99,7 +99,6 @@
 	async function loadAvailableNativeTriggers() {
 		try {
 			const services = await getAvailableNativeTriggerServices($workspaceStore!)
-			console.log({ services })
 			const serviceData = await Promise.all(
 				services.map(async (service) => ({
 					service,
