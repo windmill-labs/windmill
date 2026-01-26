@@ -373,7 +373,7 @@ impl PyV {
             // If there is no assigned version in lockfile we automatically fallback to 3.11
             // In this case we have dependencies or other metadata, but no associated python version
             // This is the case for old deployed scripts
-            PyVAlias::Py311.into(),
+            PyVAlias::default().into(),
         )
     }
 
@@ -449,6 +449,7 @@ impl PyV {
         }
         res
     }
+
     async fn get_python_inner(
         &self,
         job_id: &Uuid,
@@ -462,20 +463,24 @@ impl PyV {
         let py_path = self.find_python().await;
 
         // Runtime is not installed
-        if py_path.is_err() {
+        if let Err(py_err) = py_path {
             // Install it
             if let Err(err) = self
                 .install_python(job_id, mem_peak, conn, worker_name, w_id, occupancy_metrics)
                 .await
             {
-                tracing::error!("Cannot install python: {err}");
+                tracing::error!(
+                    "Cannot install python: {err}, after runtime wasn't found: {py_err}"
+                );
                 return Err(err);
             } else {
                 // Try to find one more time
                 let py_path = self.find_python().await;
 
                 if let Err(err) = py_path {
-                    tracing::error!("Cannot find python version {err}");
+                    tracing::error!(
+                        "Cannot find python version {err} after runtime wasn't found: {py_err}"
+                    );
                     return Err(err);
                 }
 
