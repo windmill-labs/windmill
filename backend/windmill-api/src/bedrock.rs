@@ -24,7 +24,7 @@ use windmill_common::ai_bedrock::{
     BedrockClient
 };
 use windmill_common::error::{Error, Result};
-use windmill_common::ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef};
+use windmill_common::ai_types::{OpenAIFunction, OpenAIMessage, OpenAIToolCall, ToolDef, ToolDefFunction};
 use windmill_common::ai_bedrock::build_tool_config;
 
 // ============================================================================
@@ -128,7 +128,7 @@ fn build_tool_config_from_request(
             .iter()
             .map(|t| ToolDef {
                 r#type: "function".to_string(),
-                function: windmill_common::ai_types::ToolDefFunction {
+                function: ToolDefFunction {
                     name: t.function.name.clone(),
                     description: t.function.description.clone(),
                     parameters: Box::from(
