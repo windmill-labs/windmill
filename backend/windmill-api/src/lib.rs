@@ -38,7 +38,7 @@ use axum::body::Body;
 use axum::extract::DefaultBodyLimit;
 use axum::http::HeaderValue;
 use axum::response::Response;
-use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Router};
+use axum::{middleware::from_extractor, routing::get, routing::post, Extension, Json, Router};
 use db::DB;
 use reqwest::Client;
 #[cfg(feature = "oauth2")]
@@ -906,9 +906,13 @@ async fn git_v() -> String {
     format!("CE {GIT_VERSION}")
 }
 
-async fn min_keep_alive_version() -> String {
-    let v = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
-    format!("{}.{}.{}", v.0, v.1, v.2)
+async fn min_keep_alive_version() -> Json<serde_json::Value> {
+    let worker = windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
+    let agent = windmill_common::min_version::AGENT_MIN_KEEP_ALIVE_VERSION;
+    Json(serde_json::json!({
+        "worker": format!("{}.{}.{}", worker.0, worker.1, worker.2),
+        "agent": format!("{}.{}.{}", agent.0, agent.1, agent.2)
+    }))
 }
 
 #[cfg(not(feature = "enterprise"))]
