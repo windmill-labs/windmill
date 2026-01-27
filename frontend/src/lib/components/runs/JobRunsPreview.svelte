@@ -44,7 +44,7 @@
 		concurrencyKey = await ConcurrencyGroupsService.getConcurrencyKey({ id: job.id })
 	}
 
-	let viewTab = $state('result')
+	let viewTab = $state('logs')
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -89,17 +89,11 @@
 	let tabsHeight = $state({
 		codeHeight: 0,
 		logsHeight: 0,
-		assetsHeight: 0,
-		resultHeight: 0
+		assetsHeight: 0
 	})
 
 	let minTabHeight = $derived(
-		Math.max(
-			tabsHeight.codeHeight,
-			tabsHeight.logsHeight,
-			tabsHeight.assetsHeight,
-			tabsHeight.resultHeight
-		)
+		Math.max(tabsHeight.codeHeight, tabsHeight.logsHeight, tabsHeight.assetsHeight)
 	)
 
 	let jobIsLoading = $state(false)
@@ -151,8 +145,25 @@
 							></FlowStatusViewer>
 						</div>
 					{:else}
+						<!-- Result Section (moved outside tabs) -->
+						<div class="w-full mt-6 mb-6">
+							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+							<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
+								{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
+									<DisplayResult
+										workspaceId={job?.workspace_id}
+										jobId={job?.id}
+										{result}
+										disableExpand
+										language={job?.language}
+									/>
+								{:else}
+									<div class="text-secondary">No output is available yet</div>
+								{/if}
+							</div>
+						</div>
+
 						<Tabs bind:selected={viewTab}>
-							<Tab value="result" label="Results" />
 							<Tab value="logs" label="Logs" />
 							<Tab value="assets" label="Assets" />
 							{#if isScriptPreview(job?.job_kind)}
@@ -162,7 +173,7 @@
 
 						<Skeleton loading={!job} layout={[[5]]} />
 						{#if job}
-							<div class="flex flex-col border rounded-md p-2 mt-2 overflow-auto">
+							<div class="flex flex-col rounded-md mt-2 overflow-auto">
 								{#if viewTab == 'logs'}
 									<div
 										class="w-full"
@@ -202,22 +213,8 @@
 											<Skeleton layout={[[5]]} />
 										{/if}
 									</div>
-								{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
-									<div
-										class="w-full"
-										bind:clientHeight={tabsHeight.resultHeight}
-										style="min-height: {minTabHeight}px"
-									>
-										<DisplayResult
-											workspaceId={job?.workspace_id}
-											jobId={job?.id}
-											{result}
-											disableExpand
-											language={job?.language}
-										/>
-									</div>
-								{:else if job}
-									No output is available yet
+								{:else}
+									<div class="w-full p-4 text-secondary">Select a tab to view content</div>
 								{/if}
 							</div>
 						{/if}
