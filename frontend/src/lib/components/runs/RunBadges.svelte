@@ -40,7 +40,7 @@
 		>
 	{:else}
 		<div>
-			<Badge color="gray">{truncateHash(job.script_hash)} {large}</Badge>
+			<Badge color="gray" {large}>{truncateHash(job.script_hash)}</Badge>
 		</div>
 	{/if}
 {/if}
