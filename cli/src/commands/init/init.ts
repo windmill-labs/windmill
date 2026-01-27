@@ -1,11 +1,9 @@
 import { colors, Command, log, yamlStringify, Confirm } from "../../../deps.ts";
 import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
-import { SCRIPT_GUIDANCE } from "../../guidance/script_guidance.ts";
-import { FLOW_GUIDANCE } from "../../guidance/flow_guidance.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import { CLI_COMMANDS } from "../../guidance/prompts.ts";
+import { SCRIPT_BASE, FLOW_BASE, CLI_COMMANDS } from "../../guidance/prompts.ts";
 import { SKILLS, SKILL_CONTENT } from "../../guidance/skills.ts";
 
 export interface InitOptions {
@@ -241,16 +239,13 @@ async function initAction(opts: InitOptions) {
 
   // Create guidance files (AGENTS.md, CLAUDE.md, and Claude skills)
   try {
-    const scriptGuidanceContent = SCRIPT_GUIDANCE;
-    const flowGuidanceContent = FLOW_GUIDANCE;
-    const cliCommandsContent = CLI_COMMANDS;
-
     // Generate skills reference section for AGENTS.md
+    const skills_base_dir = ".claude/skills";
     const skillsReference = SKILLS.map(
-      (s) => `- \`.claude/skills/${s.name}/SKILL.md\` - ${s.description}`
+      (s) => `- \`${skills_base_dir}/${s.name}/SKILL.md\` - ${s.description}`
     ).join("\n");
 
-    // Create AGENTS.md file
+    // Create AGENTS.md file with general instructions only
     if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
       await Deno.writeTextFile(
         "AGENTS.md",
@@ -258,34 +253,46 @@ async function initAction(opts: InitOptions) {
 
 You are a helpful assistant that can help with Windmill scripts and flows creation.
 
-## Script Guidance
-${scriptGuidanceContent}
+## Getting Started
 
-## Flow Guidance
-${flowGuidanceContent}
+Scripts and flows should be placed in folders. After writing:
+- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files for scripts
+- \`wmill flow generate-locks --yes\` - Generate lock files for flows
+- \`wmill sync push\` - Deploy to Windmill
 
-## CLI Commands
-${cliCommandsContent}
+Use \`wmill resource-type list --schema\` to discover available resource types.
 
-## Claude Code Skills
+## Script Writing Guide
 
-For Claude Code users, focused skills are available in \`.claude/skills/\`:
+${SCRIPT_BASE}
+
+You should use the write-script-<language> skill to write scripts in the language specified by the user.
+
+## Flow Writing Guide
+
+${FLOW_BASE}
+
+You should use the write-flow skill to create flows.
+
+## CLI Reference
+
+${CLI_COMMANDS}
+
+## Skills
+
+For specific guidance, ALWAYS use the skills listed below.
 
 ${skillsReference}
-
-Invoke with \`/write-flow\`, \`/write-script-python\`, etc.
 `
       );
       log.info(colors.green("Created AGENTS.md"));
     }
 
-    // Create CLAUDE.md file, referencing AGENTS.md and skills
+    // Create CLAUDE.md file, referencing AGENTS.md
     if (!(await Deno.stat("CLAUDE.md").catch(() => null))) {
       await Deno.writeTextFile(
         "CLAUDE.md",
         `Instructions are in @AGENTS.md
-
-Claude-specific skills available in .claude/skills/ - use /skill-name to invoke.
 `
       );
       log.info(colors.green("Created CLAUDE.md"));
