@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.617.3](https://github.com/windmill-labs/windmill/compare/v1.617.2...v1.617.3) (2026-01-27)
+
+
+### Bug Fixes
+
+* **backend:** include empty schemas in list_datatable_schemas endpoint ([#7708](https://github.com/windmill-labs/windmill/issues/7708)) ([705bc48](https://github.com/windmill-labs/windmill/commit/705bc481312bcadc514d949b0b6cec6e95bdf856))
+* **cli:** make `wmill app lint` and `wmill app generate-agents` respect nonDottedPaths setting ([#7706](https://github.com/windmill-labs/windmill/issues/7706)) ([abe6cc4](https://github.com/windmill-labs/windmill/commit/abe6cc49b93804b0706d97865c9bd5ff60f08906))
+* do not delete tokens on being promoted to superadmins ([564d826](https://github.com/windmill-labs/windmill/commit/564d8266dcc87b0b63b09a99c5bf71ef64b64369))
+
 ## [1.617.2](https://github.com/windmill-labs/windmill/compare/v1.617.1...v1.617.2) (2026-01-27)
 
 
