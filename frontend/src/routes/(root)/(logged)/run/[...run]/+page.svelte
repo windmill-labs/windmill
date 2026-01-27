@@ -441,9 +441,22 @@
 	</div>
 {:else}
 	<Skeleton
-		class="max-w-7xl px-4 mx-auto w-full"
+		class="max-w-7xl p-4 mx-auto w-full"
 		loading={!job}
-		layout={[0.75, [2, 0, 2], 2.25, [{ h: 1.5, w: 40 }]]}
+		layout={[
+			// 1. Top Action Bar (buttons on right side)
+			[
+				{ h: 2.5, w: 60 },
+				{ h: 2.5, w: 40 }
+			],
+			1,
+			// 2. Job Header
+			[{ h: 12, w: 100 }],
+			1,
+			// 3. Progress Bar
+			[{ h: 2, w: 100 }],
+			1.5
+		]}
 	/>
 	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
 		{#snippet left()}
