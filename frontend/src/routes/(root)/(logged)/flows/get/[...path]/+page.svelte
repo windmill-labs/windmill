@@ -545,7 +545,7 @@
 					<div
 						class={twMerge(
 							'w-full flex flex-col',
-							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[400px] justify-center',
+							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[300px] justify-center',
 							'mx-auto'
 						)}
 					>
