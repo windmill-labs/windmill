@@ -66,7 +66,7 @@ ${Object.entries(args)
 	>.
 {:else}
 	<div class="relative">
-		<DataTable size="sm">
+		<DataTable size="sm" containerClass="bg-surface-tertiary">
 			<Head>
 				<tr class="w-full">
 					<Cell head first>{argLabel ?? 'Arg'}</Cell>
