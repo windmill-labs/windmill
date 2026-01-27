@@ -17,6 +17,7 @@
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
 	import { Copy, Expand } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
+	import LanguageIcon from './common/languageIcons/LanguageIcon.svelte'
 
 	export let schema: any | undefined = undefined
 
@@ -63,7 +64,10 @@
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 
-				<h3 class="mb-1 text-xs font-normal text-primary mt-8">Code</h3>
+				<div class="mb-1 mt-8 flex items-center gap-1">
+					<LanguageIcon lang={stepDetail.value.language} size={14} />
+					<h3 class="text-xs font-normal text-primary">Code</h3>
+				</div>
 				<div class="!text-xs rounded-md p-2 border bg-surface-input">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
 				</div>
@@ -172,7 +176,10 @@
 
 			<div>
 				<div class="mb-1 mt-8 flex justify-between items-center">
-					<h3 class="font-normal text-xs text-primary">Code</h3>
+					<div class="flex items-center gap-2">
+						<h3 class="font-normal text-xs text-primary">Code</h3>
+						<LanguageIcon lang={stepDetail.value.language} width={14} height={14} />
+					</div>
 					<Button
 						unifiedSize="sm"
 						variant="subtle"
