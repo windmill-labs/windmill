@@ -1345,7 +1345,9 @@
 										isTest={false}
 									/>
 								{:else if job}
-									<div class="w-full h-full flex items-center justify-center text-secondary">
+									<div
+										class="w-full h-full flex items-center justify-center text-secondary text-sm"
+									>
 										No output is available yet
 									</div>
 								{:else}
@@ -1387,7 +1389,7 @@
 								isTest={false}
 							/>
 						{:else if job}
-							<div class="w-full h-full flex items-center justify-center text-secondary">
+							<div class="w-full h-full flex items-center justify-center text-secondary text-sm">
 								No output is available yet
 							</div>
 						{:else}
@@ -1401,7 +1403,7 @@
 		{/if}
 		{#if render}
 			{#if innerModules && innerModules.length > 0 && !isListJob}
-				<Tabs class="mx-auto {wideResults ? '' : 'max-w-7xl'}" bind:selected>
+				<Tabs class="mx-auto pt-2 {wideResults ? '' : 'max-w-7xl'}" bind:selected>
 					<Tab value="graph" label="Graph" />
 					<Tab
 						value="logs"
