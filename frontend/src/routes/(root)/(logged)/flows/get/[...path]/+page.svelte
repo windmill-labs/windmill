@@ -541,7 +541,9 @@
 		{#if flow}
 			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
 				<div
-					class="w-full {chatInputEnabled ? 'p-3 flex flex-col h-full' : 'max-w-3xl p-6'} mx-auto"
+					class="w-full {chatInputEnabled
+						? 'p-3 flex flex-col h-full'
+						: 'max-w-3xl p-6'} mx-auto min-h-[300px] flex flex-col justify-center"
 					bind:clientHeight={topSectionHeight}
 				>
 					{#if flow?.archived}
