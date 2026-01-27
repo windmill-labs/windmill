@@ -106,16 +106,24 @@
 		>
 			{#if icon}
 				{@const SvelteComponent = icon}
-				<div
-					style="background-color: {color}"
-					class={twMerge('rounded-full center-center', color ? 'p-1 -ml-1' : '')}
-				>
+				{#if color}
+					<svg width="26" height="26" viewBox="0 0 26 26" class="flex-shrink-0 -ml-[5px]">
+						<circle cx="13" cy="13" r="13" fill={color} />
+						<foreignObject x="5" y="5" width="16" height="16">
+							<SvelteComponent
+								size={16}
+								class={twMerge(sidebarClasses.text, 'transition-colors', iconClasses)}
+								{...iconProps}
+							/>
+						</foreignObject>
+					</svg>
+				{:else}
 					<SvelteComponent
 						size={16}
 						class={twMerge('flex-shrink-0', sidebarClasses.text, 'transition-colors', iconClasses)}
 						{...iconProps}
 					/>
-				</div>
+				{/if}
 			{/if}
 
 			<div class="flex flex-col text-left grow min-w-0">

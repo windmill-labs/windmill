@@ -316,13 +316,19 @@
 				workspace: $workspaceStore!,
 				requestBody: args
 			}
-			if (job?.job_kind == 'script' || job?.job_kind == 'flow') {
+			if (job?.job_kind == 'script' || job?.job_kind == 'script_hub' || job?.job_kind == 'flow') {
 				let id
 
 				if (job?.job_kind == 'script') {
 					id = await JobService.runScriptByHash({
 						...commonArgs,
 						hash: job.script_hash!,
+						skipPreprocessor: true
+					})
+				} else if (job?.job_kind == 'script_hub') {
+					id = await JobService.runScriptByPath({
+						...commonArgs,
+						path: job.script_path!,
 						skipPreprocessor: true
 					})
 				} else {
@@ -486,7 +492,7 @@
 			</div>
 		{/snippet}
 		{#snippet right()}
-			{@const stem = `/${job?.job_kind}s`}
+			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
@@ -596,7 +602,7 @@
 					enterpriseOnly={!$enterpriseLicense}
 				/>
 			{/if}
-			{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					on:click|once={() => {
 						goto(viewHref + `#${computeSharableHash(job?.args)}`)
@@ -630,16 +636,18 @@
 						>
 					{/if}
 				{/if}
+			{/if}
+			{#if job?.job_kind === 'script' || job?.job_kind === 'script_hub' || job?.job_kind === 'flow'}
 				<Button
 					href={viewHref}
 					unifiedSize="md"
 					variant="accent"
 					startIcon={{
 						icon:
-							job?.job_kind === 'script' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
+							job?.job_kind === 'script' || job?.job_kind === 'script_hub' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
 					}}
 				>
-					View {job?.job_kind}
+					View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
 				</Button>
 			{/if}
 		{/snippet}
