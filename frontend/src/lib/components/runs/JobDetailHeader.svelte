@@ -5,7 +5,7 @@
 	import ScheduleEditor from '$lib/components/triggers/schedules/ScheduleEditor.svelte'
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
-	import Tooltip from '$lib/components/Tooltip.svelte'
+	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
 	import {
 		Clock,
 		MemoryStick,
@@ -14,11 +14,20 @@
 		User,
 		Code,
 		IdCard,
-		ExternalLink
+		ExternalLink,
+		Tag,
+		Server,
+		Hash,
+		ListFilter,
+		HardHat,
+		ListFilterPlus
 	} from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
+	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
+	import { truncateHash } from '$lib/utils'
+	import Button from '$lib/components/common/button/Button.svelte'
 
 	const SMALL_ICON_SIZE = 14
 
@@ -32,6 +41,7 @@
 		extraCompact?: boolean
 		onFilterByConcurrencyKey?: (key: string) => void
 		onFilterByWorker?: (worker: string) => void
+		showScriptHashInBadges?: boolean
 	}
 
 	let {
@@ -43,7 +53,8 @@
 		compact = false,
 		extraCompact = false,
 		onFilterByConcurrencyKey,
-		onFilterByWorker
+		onFilterByWorker,
+		showScriptHashInBadges = false
 	}: Props = $props()
 </script>
 
@@ -76,15 +87,25 @@
 				? 'py-3 px-4'
 				: 'py-4 px-6'}"
 		>
-			<div
-				class="flex flex-wrap gap-y-2 {compact
-					? 'gap-3 flex-col items-start'
-					: 'flex-row gap-6 items-center'}"
-			>
+			<div class="flex flex-wrap gap-y-2 {compact ? 'gap-3 items-start' : 'gap-6 items-center'}">
 				{#if job}
-					<div class="flex flex-row gap-4 items-center w-full">
-						<JobStatus {job} />
-						<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
+					<div class="flex flex-wrap gap-x-4 gap-y-2 items-center">
+						<JobStatus {job} large={!compact} />
+
+						<RunBadges
+							{job}
+							{displayPersistentScriptDefinition}
+							{openPersistentScriptDrawer}
+							{concurrencyKey}
+							{onFilterByConcurrencyKey}
+							showScriptHash={showScriptHashInBadges}
+							large={!compact}
+						/>
+						<span
+							class="text-emphasis {compact
+								? 'text-sm'
+								: 'text-lg'} font-semibold whitespace-nowrap"
+						>
 							{#if job.script_path}
 								{job.script_path}
 							{:else if job.job_kind == 'dependencies'}
@@ -105,27 +126,6 @@
 								{job.job_kind || 'Unknown job type'}
 							{/if}
 						</span>
-						{#if compact}
-							<!-- Run ID for compact mode -->
-
-							<a
-								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-								class="text-accent text-xs flex items-center gap-1"
-							>
-								<span class="truncate" title={job.id}>{truncateRev(job.id, 10)}</span>
-								<ExternalLink size={10} class="flex-shrink-0" />
-							</a>
-						{/if}
-					</div>
-					<div class="flex flex-row gap-2 items-center flex-wrap">
-						<RunBadges
-							{job}
-							{displayPersistentScriptDefinition}
-							{openPersistentScriptDrawer}
-							{concurrencyKey}
-							{onFilterByConcurrencyKey}
-							{onFilterByWorker}
-						/>
 					</div>
 				{/if}
 			</div>
@@ -134,7 +134,7 @@
 		<!-- Bottom section: Metadata Grid -->
 		{#if !compact}
 			<div class="px-6 py-4">
-				<div class="grid grid-cols-3 grid-rows-2 gap-x-8 gap-y-3 text-xs text-primary font-normal">
+				<div class="grid grid-cols-3 grid-rows-3 gap-x-8 gap-y-3 text-xs text-primary font-normal">
 					{#if job}
 						<!-- Row 1, Column 1: Received at -->
 						<div class="flex flex-row gap-2 items-center">
@@ -145,7 +145,7 @@
 								{:else}
 									Received <TimeAgo date={job.created_at ?? ''} />
 								{/if}
-								<Tooltip small>{job?.created_at}</Tooltip>
+								<Tooltip small>{#snippet text()}{job?.created_at}{/snippet}</Tooltip>
 							</span>
 						</div>
 
@@ -156,7 +156,7 @@
 								By {truncateRev(job.created_by ?? 'unknown', 30)}
 								{#if (job?.created_by?.length ?? 0) > 30}
 									<Tooltip small>
-										<div class="break-all">{job.created_by}</div>
+										{#snippet text()}{job.created_by}{/snippet}
 									</Tooltip>
 								{/if}
 								{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
@@ -186,7 +186,7 @@
 								<Clock size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
 								<span class="whitespace-nowrap">
 									Started <TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-									<Tooltip small>{job?.started_at}</Tooltip>
+									<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
 								</span>
 							</div>
 						{:else}
@@ -201,13 +201,7 @@
 							<IdCard size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary flex-shrink-0" />
 							<div class="flex text-primary text-2xs min-w-0 flex-1 whitespace-nowrap">
 								<span class="whitespace-nowrap">Run ID:&nbsp;</span>
-								<a
-									href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-									class="text-accent flex items-center gap-1 min-w-0 flex-1"
-								>
-									<div class="truncate flex-shrink min-w-0">{job.id}</div>
-									<ExternalLink size={12} class="flex-shrink-0" />
-								</a>
+								<div class="truncate flex-shrink min-w-0">{job.id}</div>
 							</div>
 						</div>
 
@@ -290,6 +284,179 @@
 								<span>No path info</span>
 							</div>
 						{/if}
+
+						<!-- Row 3, Column 1: Tag -->
+						{#if job && job.tag != undefined}
+							<div class="flex flex-row gap-2 items-center">
+								<Tag size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>Tag: {job.tag}</span>
+							</div>
+						{:else}
+							<div class="flex flex-row gap-2 items-center opacity-50">
+								<Tag size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>No tag</span>
+							</div>
+						{/if}
+
+						<!-- Row 3, Column 2: Worker -->
+						{#if job && job.worker}
+							<div class="flex flex-row gap-2 items-center">
+								<HardHat size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>
+									Worker:
+									{#if onFilterByWorker}
+										<Tooltip>
+											{#snippet text()}
+												This job was run on worker:
+												<Button
+													class="inline-text"
+													size="xs2"
+													color="light"
+													onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+												>
+													{job?.worker}
+													<ListFilter class="inline-block" size={10} />
+												</Button>
+												<br />
+												<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+											{/snippet}
+											<button onclick={() => job?.worker && onFilterByWorker?.(job.worker)}>
+												{truncateRev(job.worker, 20)}
+												<ExternalLink size={12} class="inline-block" />
+											</button>
+										</Tooltip>
+									{:else}
+										<Tooltip>
+											{#snippet text()}
+												This job was run on worker:
+												<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+													{job?.worker}
+												</a>
+												<br />
+												<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+											{/snippet}
+											<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+												{truncateRev(job.worker, 20)}
+												<ExternalLink size={12} class="inline-block" />
+											</a>
+										</Tooltip>
+									{/if}
+								</span>
+							</div>
+						{:else}
+							<div class="flex flex-row gap-2 items-center opacity-50">
+								<Server size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>No worker</span>
+							</div>
+						{/if}
+
+						<!-- Row 3, Column 3: Script Hash -->
+						{#if job && job.script_hash && job.job_kind !== 'aiagent'}
+							<div class="flex flex-row gap-2 items-center">
+								<Hash size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>
+									Hash:
+									{#if job.job_kind == 'script'}
+										<a
+											href="{base}/scripts/get/{job.script_hash}?workspace={$workspaceStore}"
+											class="text-accent hover:underline"
+											title={`Script hash: ${job.script_hash}`}
+										>
+											{truncateHash(job.script_hash)}
+										</a>
+									{:else}
+										<span title={`Script hash: ${job.script_hash}`}>
+											{truncateHash(job.script_hash)}
+										</span>
+									{/if}
+								</span>
+							</div>
+						{:else}
+							<div class="flex flex-row gap-2 items-center opacity-50">
+								<Hash size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>No hash</span>
+							</div>
+						{/if}
+					{/if}
+				</div>
+			</div>
+		{:else}
+			<!-- Compact version: Worker and Job Kind in first row -->
+			<div class="px-4 pb-2">
+				<div class="grid grid-cols-3 gap-x-4 gap-y-2 text-xs text-primary font-normal">
+					{#if job}
+						<!-- Column 1: Worker -->
+						{#if job && job.worker}
+							<div class="flex flex-row gap-2 items-center">
+								<HardHat size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<div class="flex no-wrap">
+									Worker:&nbsp;
+									{#if onFilterByWorker}
+										<Tooltip>
+											{#snippet text()}
+												This job was run on worker:
+												<Button
+													class="inline-text"
+													size="xs2"
+													color="light"
+													onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+												>
+													{job?.worker}
+													<ListFilter class="inline-block" size={10} />
+												</Button>
+												<br />
+												<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+											{/snippet}
+											<button
+												onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+												class="flex items-center gap-1"
+											>
+												{truncateRev(job.worker, 15)}
+												<ListFilterPlus size={12} class="inline-block" />
+											</button>
+										</Tooltip>
+									{:else}
+										<Tooltip>
+											{#snippet text()}
+												This job was run on worker:
+												<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+													{job?.worker}
+												</a>
+												<br />
+												<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+											{/snippet}
+											<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+												{truncateRev(job.worker, 15)}
+												<ExternalLink size={12} class="inline-block" />
+											</a>
+										</Tooltip>
+									{/if}
+								</div>
+							</div>
+						{:else}
+							<div class="flex flex-row gap-2 items-center opacity-50">
+								<HardHat size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
+								<span>No worker</span>
+							</div>
+						{/if}
+
+						<!-- Column 2: Job ID -->
+						<div class="flex flex-row gap-2 items-center min-w-0">
+							<IdCard size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary flex-shrink-0" />
+							<div class="flex text-primary text-2xs min-w-0 flex-1">
+								<span class="whitespace-nowrap">Job ID:&nbsp;</span>
+								<a
+									href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+									class="text-accent flex items-center gap-1 min-w-0 flex-1 truncate"
+								>
+									<div class="truncate flex-shrink min-w-0">{job.id}</div>
+									<ExternalLink size={10} class="flex-shrink-0" />
+								</a>
+							</div>
+						</div>
+
+						<!-- Column 3: Empty for now -->
+						<div></div>
 					{/if}
 				</div>
 			</div>
