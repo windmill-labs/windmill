@@ -477,10 +477,31 @@ def extract_py_classes(content: str) -> list[dict]:
     return classes
 
 
-def parse_command_block(content: str) -> dict:
+def parse_default_imports(content: str) -> dict[str, str]:
+    """
+    Parse default imports from TypeScript content.
+    Returns a dict mapping variable names to relative file paths.
+    E.g., 'import devCommand from "./dev.ts"' -> {'devCommand': './dev.ts'}
+    """
+    imports = {}
+    # Match: import varName from "./path.ts" or import varName from './path.ts'
+    import_pattern = re.compile(
+        r'import\s+(\w+)\s+from\s+["\']([^"\']+)["\']',
+        re.MULTILINE
+    )
+    for match in import_pattern.finditer(content):
+        var_name, path = match.groups()
+        imports[var_name] = path
+    return imports
+
+
+def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
+
+    If file_path is provided, imported subcommands will be resolved by parsing
+    the imported files.
     """
     result = {
         'description': '',
@@ -521,22 +542,34 @@ def parse_command_block(content: str) -> dict:
     if alias_match:
         result['alias'] = alias_match.group(1)
 
-    # Extract options pattern
+    # Extract options pattern - handles multi-line options and options with config objects
+    # Matches: .option("flag", "desc") and .option("flag", "desc", { ... })
+    # Uses separate patterns for double and single quoted strings to handle apostrophes
     option_pattern = re.compile(
-        r'\.option\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
-        re.MULTILINE
+        r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+        r'|'
+        r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+        re.MULTILINE | re.DOTALL
     )
 
     # Extract top-level options (before any .command() or .action())
     top_section_until_action = re.split(r'\.action\(', top_section)[0]
     for match in option_pattern.finditer(top_section_until_action):
-        flag, desc = match.groups()
-        result['options'].append({'flag': flag, 'description': desc})
+        groups = match.groups()
+        # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
+        # Either double-quoted or single-quoted pair will be non-None
+        flag = groups[0] or groups[2]
+        desc = groups[1] or groups[3]
+        if flag and desc:
+            result['options'].append({'flag': flag, 'description': desc})
 
     # Extract top-level arguments
     args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', top_section)
     if args_match:
         result['arguments'] = args_match.group(1)
+
+    # Parse imports if we have a file path (for resolving imported subcommands)
+    imports = parse_default_imports(content) if file_path else {}
 
     # Extract subcommands with their arguments, options, and descriptions
     # Split by .command( to find subcommand boundaries
@@ -544,10 +577,40 @@ def parse_command_block(content: str) -> dict:
 
     for section in subcommand_sections:
         # Check if this starts a new subcommand
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*["\']([^"\']+)["\'])?\s*\)', section)
+        # Pattern matches both: .command("name", "description") and .command("name", variableName)
+        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*([^)]+))?\s*\)', section)
         if cmd_match:
             cmd_name = cmd_match.group(1)
-            cmd_desc = cmd_match.group(2) or ''
+            second_arg = cmd_match.group(2).strip() if cmd_match.group(2) else ''
+
+            # Check if second arg is a string (description) or a variable (imported command)
+            is_string_desc = second_arg.startswith('"') or second_arg.startswith("'")
+
+            if is_string_desc:
+                # Inline string description
+                cmd_desc = second_arg.strip('"\'')
+            elif second_arg and second_arg in imports and file_path:
+                # Imported command - resolve and parse the imported file
+                import_path = imports[second_arg]
+                if import_path.startswith('./') or import_path.startswith('../'):
+                    imported_file = (file_path.parent / import_path).resolve()
+                    if imported_file.exists():
+                        try:
+                            imported_content = imported_file.read_text()
+                            imported_cmd = parse_command_block(imported_content, imported_file)
+                            # Use the imported command's metadata
+                            result['subcommands'].append({
+                                'name': cmd_name,
+                                'description': imported_cmd.get('description', ''),
+                                'arguments': imported_cmd.get('arguments', ''),
+                                'options': imported_cmd.get('options', [])
+                            })
+                            continue  # Skip the normal processing below
+                        except Exception as e:
+                            print(f"  Warning: Could not parse imported command {second_arg}: {e}")
+                cmd_desc = ''
+            else:
+                cmd_desc = ''
 
             # Check for description in chained .description() call
             # Handle multi-line descriptions
@@ -564,8 +627,12 @@ def parse_command_block(content: str) -> dict:
             cmd_options = []
             section_until_action = re.split(r'\.action\(', section)[0]
             for opt_match in option_pattern.finditer(section_until_action):
-                flag, desc = opt_match.groups()
-                cmd_options.append({'flag': flag, 'description': desc})
+                groups = opt_match.groups()
+                # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
+                flag = groups[0] or groups[2]
+                desc = groups[1] or groups[3]
+                if flag and desc:
+                    cmd_options.append({'flag': flag, 'description': desc})
 
             result['subcommands'].append({
                 'name': cmd_name,
@@ -647,7 +714,7 @@ def extract_cli_commands() -> dict:
         if cmd_file:
             try:
                 cmd_content = cmd_file.read_text()
-                cmd_data = parse_command_block(cmd_content)
+                cmd_data = parse_command_block(cmd_content, cmd_file)
                 cmd_data['name'] = cmd_name
                 result['commands'].append(cmd_data)
             except Exception as e:
@@ -832,8 +899,7 @@ def generate_skills(
     ts_sdk_md: str,
     py_sdk_md: str,
     flow_base: str,
-    openflow_content: str,
-    cli_commands: str
+    openflow_content: str
 ):
     """Generate individual skill files for Claude Code."""
     print("Generating skill files...")
@@ -857,15 +923,6 @@ Place scripts in a folder. After writing, run:
 - `wmill sync push` - Deploy to Windmill
 
 Use `wmill resource-type list --schema` to discover available resource types."""
-
-    # CLI intro for flow skill
-    flow_cli_intro = """## CLI Commands
-
-Create a folder ending with `.flow` and add a YAML file with the flow definition.
-For rawscript modules, use `!inline path/to/script.ts` for the content key.
-After writing:
-- `wmill flow generate-locks --yes` - Generate lock files
-- `wmill sync push` - Deploy to Windmill"""
 
     skills_generated = []
 
@@ -892,14 +949,12 @@ After writing:
         elif lang_key in py_sdk_languages:
             sdk_content = py_sdk_md
 
-        # Combine script base with language content
-        full_content = f"{script_base}\n\n{lang_content}"
-
+        # Language skills only include language-specific content, not the general script-base
         skill_content = generate_skill_content(
             skill_name=skill_name,
             description=metadata['description'],
             intro=script_cli_intro,
-            content=full_content,
+            content=lang_content,
             sdk_content=sdk_content
         )
 
@@ -912,23 +967,11 @@ After writing:
     flow_skill_content = generate_skill_content(
         skill_name="write-flow",
         description="Create Windmill flows using OpenFlow YAML specification.",
-        intro=flow_cli_intro,
+        intro="",
         content=f"{flow_base}\n\n{openflow_content}"
     )
     (flow_skill_dir / "SKILL.md").write_text(flow_skill_content)
     skills_generated.append("write-flow")
-
-    # Generate wmill-cli skill
-    cli_skill_dir = OUTPUT_SKILLS_DIR / "wmill-cli"
-    cli_skill_dir.mkdir(parents=True, exist_ok=True)
-    cli_skill_content = generate_skill_content(
-        skill_name="wmill-cli",
-        description="Reference for Windmill CLI commands and usage.",
-        intro="# Windmill CLI Reference\n\nUse these commands to manage your Windmill workspace.",
-        content=cli_commands
-    )
-    (cli_skill_dir / "SKILL.md").write_text(cli_skill_content)
-    skills_generated.append("wmill-cli")
 
     # Generate raw-app skill (if content exists)
     if raw_app_content:
@@ -1176,10 +1219,12 @@ export function getFlowPrompt(): string {
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
-    # Generate CLI-specific prompts.ts with only SCRIPT_PROMPT and FLOW_PROMPT
+    # Generate CLI-specific prompts.ts with base prompts and full prompts
     print("Generating CLI prompts...")
     CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
     cli_prompts = {
+        'SCRIPT_BASE': script_base,
+        'FLOW_BASE': flow_base,
         'SCRIPT_PROMPT': script_md,
         'FLOW_PROMPT': flow_md,
         'CLI_COMMANDS': cli_commands,
@@ -1193,8 +1238,7 @@ export function getFlowPrompt(): string {
         ts_sdk_md=ts_sdk_md,
         py_sdk_md=py_sdk_md,
         flow_base=flow_base,
-        openflow_content=openflow_content,
-        cli_commands=cli_commands
+        openflow_content=openflow_content
     )
 
     # Generate skills TypeScript export for CLI
