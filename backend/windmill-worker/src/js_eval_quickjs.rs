@@ -39,11 +39,7 @@ use serde_json::value::RawValue;
 use windmill_common::client::AuthedClient;
 use windmill_common::flow_status::JobResult;
 
-<<<<<<< Updated upstream
 use crate::js_eval::{replace_with_await, replace_with_await_result, IdContext};
-=======
-use crate::js_eval::{IdContext, PreparedEvalContext};
->>>>>>> Stashed changes
 
 /// Shared state for async operations within QuickJS
 #[derive(Clone)]
@@ -51,7 +47,6 @@ struct AsyncOpState {
     client: AuthedClient,
 }
 
-<<<<<<< Updated upstream
 /// Evaluates a JavaScript expression using QuickJS runtime.
 ///
 /// This function provides the same interface as `eval_timeout` but uses QuickJS
@@ -76,19 +71,13 @@ pub async fn eval_timeout_quickjs(
         transform_context
     );
 
-    // Fast path: direct context lookup
-    if let Some(value) = transform_context.get(&expr) {
-        return Ok(value.as_ref().to_owned());
-    }
+    // Clone data for the blocking task
+    let by_id_clone = by_id.cloned();
+    let flow_input_clone = flow_input.clone();
+    let flow_env_clone = flow_env.cloned();
+    let authed_client_clone = authed_client.cloned();
 
-    // Fast path: exact property access (flow_input.key or flow_env.key)
-    if let Some(value) =
-        crate::js_eval::try_exact_property_access(&expr, flow_input.as_ref(), flow_env)
-    {
-        return Ok(value);
-    }
-
-    // Fast path: previous_result shortcut
+    // Determine which context keys are actually used in the expression
     let p_ids = by_id.map(|x| {
         [
             format!("results.{}", x.previous_id),
@@ -98,31 +87,6 @@ pub async fn eval_timeout_quickjs(
         ]
     });
 
-    if p_ids.is_some()
-        && transform_context.contains_key("previous_result")
-        && p_ids.as_ref().unwrap().iter().any(|x| x == &expr)
-    {
-        return Ok(transform_context
-            .get("previous_result")
-            .unwrap()
-            .as_ref()
-            .clone());
-    }
-
-    // Fast path: regex-based result access
-    if let (Some(by_id), Some(authed_client)) = (by_id, authed_client) {
-        if let Some(result) = crate::js_eval::handle_full_regex(&expr, authed_client, by_id).await {
-            return result;
-        }
-    }
-
-    // Clone data for the blocking task
-    let by_id_clone = by_id.cloned();
-    let flow_input_clone = flow_input.clone();
-    let flow_env_clone = flow_env.cloned();
-    let authed_client_clone = authed_client.cloned();
-
-    // Determine which context keys are actually used in the expression
     let mut context_keys: Vec<String> = transform_context
         .keys()
         .filter(|x| expr.contains(&x.to_string()))
@@ -150,16 +114,7 @@ pub async fn eval_timeout_quickjs(
     let expr_clone = expr.clone();
 
     // Run the QuickJS evaluation with a timeout
-    let result = tokio::time::timeout(
-=======
-/// Evaluates a JavaScript expression using QuickJS runtime with a prepared context.
-/// This is the main entry point called by eval_timeout after prepare_eval.
-pub async fn eval_quickjs_with_context(ctx: PreparedEvalContext) -> anyhow::Result<Box<RawValue>> {
-    let expr_for_error = ctx.expr.clone();
-
-    // Run the QuickJS evaluation with a timeout
     tokio::time::timeout(
->>>>>>> Stashed changes
         std::time::Duration::from_millis(10000),
         tokio::task::spawn_blocking(move || {
             // Create a new tokio runtime for async operations within the blocking context
@@ -169,7 +124,6 @@ pub async fn eval_quickjs_with_context(ctx: PreparedEvalContext) -> anyhow::Resu
 
             rt.block_on(async move {
                 eval_quickjs_inner(
-<<<<<<< Updated upstream
                     &expr_clone,
                     filtered_context,
                     flow_input_clone,
@@ -178,16 +132,6 @@ pub async fn eval_quickjs_with_context(ctx: PreparedEvalContext) -> anyhow::Resu
                     by_id_clone,
                     ctx,
                     context_keys,
-=======
-                    &ctx.expr,
-                    ctx.filtered_context,
-                    ctx.flow_input,
-                    ctx.flow_env,
-                    ctx.authed_client,
-                    ctx.by_id,
-                    ctx.ctx,
-                    ctx.context_keys,
->>>>>>> Stashed changes
                 )
                 .await
             })
@@ -196,49 +140,9 @@ pub async fn eval_quickjs_with_context(ctx: PreparedEvalContext) -> anyhow::Resu
     .await
     .map_err(|_| {
         anyhow::anyhow!(
-<<<<<<< Updated upstream
             "The expression evaluation `{expr}` took too long to execute (>10000ms)"
         )
-    })??;
-
-    result
-=======
-            "The expression evaluation `{expr_for_error}` took too long to execute (>10000ms)"
-        )
     })??
-}
-
-/// Evaluates a JavaScript expression using QuickJS runtime.
-/// This is kept for backwards compatibility with parity tests.
-/// In production, use eval_timeout which calls eval_quickjs_with_context.
-pub async fn eval_timeout_quickjs(
-    expr: String,
-    transform_context: HashMap<String, Arc<Box<RawValue>>>,
-    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
-    flow_env: Option<&HashMap<String, Box<RawValue>>>,
-    authed_client: Option<&AuthedClient>,
-    by_id: Option<&IdContext>,
-    ctx: Option<Vec<(String, String)>>,
-) -> anyhow::Result<Box<RawValue>> {
-    use crate::js_eval::{prepare_eval, PrepareEvalResult};
-
-    // Use shared preparation logic
-    let prepared = prepare_eval(
-        expr,
-        transform_context,
-        flow_input,
-        flow_env,
-        authed_client,
-        by_id,
-        ctx,
-    )
-    .await?;
-
-    match prepared {
-        PrepareEvalResult::FastPath(result) => Ok(result),
-        PrepareEvalResult::NeedsEval(eval_ctx) => eval_quickjs_with_context(eval_ctx).await,
-    }
->>>>>>> Stashed changes
 }
 
 async fn eval_quickjs_inner(
@@ -259,6 +163,12 @@ async fn eval_quickjs_inner(
 
     let op_state_clone = op_state.clone();
     let by_id_clone = by_id.clone();
+
+    // Transform expression to add await for variable/resource/results access
+    let expr_with_funcs = ["variable", "resource"]
+        .into_iter()
+        .fold(expr.to_string(), replace_with_await);
+    let transformed_expr = replace_with_await_result(expr_with_funcs);
 
     async_with!(context => |ctx| {
         let globals = ctx.globals();
@@ -350,28 +260,11 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
-<<<<<<< Updated upstream
-        // Wrap the expression to handle async operations
-        // Use the same transformation as deno_core: wrap variable(), resource(),
-        // and results.xxx/flow_env.xxx patterns with await
-        let expr_with_funcs = ["variable", "resource"]
-            .into_iter()
-            .fold(expr.to_string(), replace_with_await);
-        let wrapped_expr = replace_with_await_result(expr_with_funcs);
-
         // Determine if we need to add return statement
-        let code = if should_add_return_quickjs(&wrapped_expr) {
-            format!("(async function() {{ return {}; }})()", wrapped_expr)
+        let code = if should_add_return_quickjs(&transformed_expr) {
+            format!("(async function() {{ return {}; }})()", transformed_expr)
         } else {
-            format!("(async function() {{ {} }})()", wrapped_expr)
-=======
-        // The expression is already transformed by prepare_eval (replace_with_await done)
-        // Determine if we need to add return statement
-        let code = if should_add_return_quickjs(expr) {
-            format!("(async function() {{ return {}; }})()", expr)
-        } else {
-            format!("(async function() {{ {} }})()", expr)
->>>>>>> Stashed changes
+            format!("(async function() {{ {} }})()", transformed_expr)
         };
 
         // Evaluate the expression (returns a Promise)
@@ -508,41 +401,51 @@ fn setup_results_proxy<'js>(
                 let by_id = by_id_for_result.clone();
                 let step_id_clone = step_id.clone();
 
-                // Look up the job ID(s) for this step
+                // Look up the job ID(s) for this step from the local cache
                 let job_result = by_id.steps_results.get(&step_id).cloned();
+                let flow_job_id = by_id.flow_job.to_string();
 
                 async move {
-                    let job_result = match job_result {
-                        Some(jr) => jr,
-                        None => return format!("__ERROR__: Unknown step ID: '{}'", step_id_clone),
-                    };
+                    const ERR_PREFIX: &str = "\x00__WINDMILL_ERR__\x00";
 
                     let result: Result<serde_json::Value, String> = match job_result {
-                        JobResult::SingleJob(job_id) => {
+                        Some(jr) => {
+                            // Found in local cache, fetch result by job ID
+                            match jr {
+                                JobResult::SingleJob(job_id) => {
+                                    client
+                                        .get_completed_job_result::<serde_json::Value>(&job_id.to_string(), None)
+                                        .await
+                                        .map_err(|e| format!("Failed to fetch result for step '{}': {}", step_id_clone, e))
+                                }
+                                JobResult::ListJob(job_ids) => {
+                                    let futs = job_ids.iter().map(|job_id| {
+                                        let client = client.clone();
+                                        let job_id_str = job_id.to_string();
+                                        async move {
+                                            client
+                                                .get_completed_job_result::<serde_json::Value>(&job_id_str, None)
+                                                .await
+                                        }
+                                    });
+                                    let results: Vec<_> = futures::future::join_all(futs).await;
+                                    let collected: Result<Vec<_>, _> = results.into_iter().collect();
+                                    collected
+                                        .map(serde_json::Value::Array)
+                                        .map_err(|e| format!("Failed to fetch results for step '{}': {}", step_id_clone, e))
+                                }
+                            }
+                        }
+                        None => {
+                            // Not in local cache, fallback to querying by flow_job_id and step_id
+                            // This happens for branch modules that need to access parent flow step results
                             client
-                                .get_completed_job_result::<serde_json::Value>(&job_id.to_string(), None)
+                                .get_result_by_id::<serde_json::Value>(&flow_job_id, &step_id_clone, None)
                                 .await
                                 .map_err(|e| format!("Failed to fetch result for step '{}': {}", step_id_clone, e))
                         }
-                        JobResult::ListJob(job_ids) => {
-                            let futs = job_ids.iter().map(|job_id| {
-                                let client = client.clone();
-                                let job_id_str = job_id.to_string();
-                                async move {
-                                    client
-                                        .get_completed_job_result::<serde_json::Value>(&job_id_str, None)
-                                        .await
-                                }
-                            });
-                            let results: Vec<_> = futures::future::join_all(futs).await;
-                            let collected: Result<Vec<_>, _> = results.into_iter().collect();
-                            collected
-                                .map(serde_json::Value::Array)
-                                .map_err(|e| format!("Failed to fetch results for step '{}': {}", step_id_clone, e))
-                        }
                     };
 
-                    const ERR_PREFIX: &str = "\x00__WINDMILL_ERR__\x00";
                     match result {
                         Ok(value) => serde_json::to_string(&value).unwrap_or_else(|_| "null".to_string()),
                         Err(e) => format!("{}{}", ERR_PREFIX, e),
@@ -867,140 +770,6 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_eval_quickjs_string_operations() -> anyhow::Result<()> {
-        let mut env = HashMap::new();
-        env.insert(
-            "s".to_string(),
-            Arc::new(to_raw_value(&json!("hello world"))),
-        );
-
-        let result = eval_timeout_quickjs(
-            "s.toUpperCase()".to_string(),
-            env,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result.get(), "\"HELLO WORLD\"");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_eval_quickjs_multiline() -> anyhow::Result<()> {
-        let result = eval_timeout_quickjs(
-            r#"let x = 5;
-            return `result is ${x}`"#
-                .to_string(),
-            HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result.get(), "\"result is 5\"");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_eval_quickjs_object_literal() -> anyhow::Result<()> {
-        let result = eval_timeout_quickjs(
-            "({ foo: 'bar', num: 42 })".to_string(),
-            HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        let parsed: serde_json::Value = serde_json::from_str(result.get())?;
-        assert_eq!(parsed["foo"], "bar");
-        assert_eq!(parsed["num"], 42);
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_eval_quickjs_null_undefined() -> anyhow::Result<()> {
-        let result = eval_timeout_quickjs(
-            "null".to_string(),
-            HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result.get(), "null");
-
-        let result2 = eval_timeout_quickjs(
-            "undefined".to_string(),
-            HashMap::new(),
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result2.get(), "null");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_eval_quickjs_ternary() -> anyhow::Result<()> {
-        let mut env = HashMap::new();
-        env.insert("x".to_string(), Arc::new(to_raw_value(&json!(10))));
-
-        let result = eval_timeout_quickjs(
-            "x > 5 ? 'big' : 'small'".to_string(),
-            env,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result.get(), "\"big\"");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_eval_quickjs_filter_reduce() -> anyhow::Result<()> {
-        let mut env = HashMap::new();
-        env.insert(
-            "nums".to_string(),
-            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5, 6]))),
-        );
-
-        let result = eval_timeout_quickjs(
-            "nums.filter(x => x % 2 === 0).reduce((a, b) => a + b, 0)".to_string(),
-            env,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .await?;
-
-        assert_eq!(result.get(), "12");
-        Ok(())
-    }
-
     #[test]
     fn test_should_add_return_quickjs() {
         assert!(should_add_return_quickjs("5"));
@@ -1016,5 +785,4 @@ mod tests {
 
         assert!(!should_add_return_quickjs("let x = 5; x + 1"));
     }
-
 }

@@ -29,18 +29,11 @@ use deno_web::{BlobStore, TimersPermission};
 #[cfg(feature = "deno_core")]
 use itertools::Itertools;
 use lazy_static::lazy_static;
+#[cfg(feature = "quickjs")]
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
-
-lazy_static! {
-    /// Environment variable to enable QuickJS for flow expression evaluation.
-    /// Set USE_QUICKJS_FOR_FLOW_EVAL=true to use QuickJS instead of deno_core.
-    /// QuickJS offers ~10-16x faster startup for simple expressions.
-    pub static ref USE_QUICKJS: bool = std::env::var("USE_QUICKJS_FOR_FLOW_EVAL")
-        .map(|v| v.to_lowercase() == "true" || v == "1")
-        .unwrap_or(false);
-}
 
 #[cfg(feature = "deno_core")]
 use tokio::{
@@ -71,145 +64,6 @@ pub struct IdContext {
     #[allow(dead_code)]
     pub steps_results: HashMap<String, JobResult>,
     pub previous_id: String,
-}
-
-/// Prepared context for JS evaluation after all fast paths have been checked.
-/// This struct contains all the data needed by either deno_core or QuickJS engines.
-pub struct PreparedEvalContext {
-    /// The expression after `replace_with_await` transformations
-    pub expr: String,
-    /// Filtered transform context containing only keys used in the expression
-    pub filtered_context: HashMap<String, Arc<Box<RawValue>>>,
-    /// List of context keys that are used in the expression
-    pub context_keys: Vec<String>,
-    /// Flow input data (if expression uses flow_input)
-    pub flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
-    /// Flow environment variables
-    pub flow_env: Option<HashMap<String, Box<RawValue>>>,
-    /// Authenticated client for variable/resource/results access
-    pub authed_client: Option<AuthedClient>,
-    /// Flow context for results access
-    pub by_id: Option<IdContext>,
-    /// Additional context variables
-    pub ctx: Option<Vec<(String, String)>>,
-    /// Whether expression references flow_input
-    pub has_flow_input: bool,
-    /// Whether we have an authenticated client
-    pub has_client: bool,
-}
-
-/// Result of preparing an expression for evaluation.
-pub enum PrepareEvalResult {
-    /// Expression was resolved via fast path, no JS evaluation needed
-    FastPath(Box<RawValue>),
-    /// Expression needs JS evaluation with the prepared context
-    NeedsEval(PreparedEvalContext),
-}
-
-/// Prepares an expression for evaluation by checking fast paths and preparing context.
-/// This is shared between deno_core and QuickJS implementations.
-pub async fn prepare_eval(
-    expr: String,
-    transform_context: HashMap<String, Arc<Box<RawValue>>>,
-    flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
-    flow_env: Option<&HashMap<String, Box<RawValue>>>,
-    authed_client: Option<&AuthedClient>,
-    by_id: Option<&IdContext>,
-    ctx: Option<Vec<(String, String)>>,
-) -> anyhow::Result<PrepareEvalResult> {
-    let expr = expr.trim().to_string();
-
-    tracing::debug!(
-        "evaluating js eval: {} with context {:?}",
-        expr,
-        transform_context
-    );
-
-    // Fast path: direct context lookup
-    if let Some(value) = transform_context.get(&expr) {
-        return Ok(PrepareEvalResult::FastPath(value.as_ref().to_owned()));
-    }
-
-    // Fast path: exact property access (flow_input.key or flow_env.key)
-    if let Some(value) = try_exact_property_access(&expr, flow_input.as_ref(), flow_env) {
-        return Ok(PrepareEvalResult::FastPath(value));
-    }
-
-    // Fast path: previous_result shortcut
-    let p_ids = by_id.map(|x| {
-        [
-            format!("results.{}", x.previous_id),
-            format!("results?.{}", x.previous_id),
-            format!("results[\"{}\"]", x.previous_id),
-            format!("results?.[\"{}\"]", x.previous_id),
-        ]
-    });
-
-    if p_ids.is_some()
-        && transform_context.contains_key("previous_result")
-        && p_ids.as_ref().unwrap().iter().any(|x| x == &expr)
-    {
-        return Ok(PrepareEvalResult::FastPath(
-            transform_context
-                .get("previous_result")
-                .unwrap()
-                .as_ref()
-                .clone(),
-        ));
-    }
-
-    // Fast path: regex-based result access
-    if let (Some(by_id), Some(authed_client)) = (by_id, authed_client) {
-        if let Some(result) = handle_full_regex(&expr, authed_client, by_id).await {
-            return Ok(PrepareEvalResult::FastPath(result?));
-        }
-    }
-
-    // Determine which context keys are actually used in the expression
-    let mut context_keys: Vec<String> = transform_context
-        .keys()
-        .filter(|x| expr.contains(&x.to_string()))
-        .cloned()
-        .collect();
-
-    if !context_keys.contains(&"previous_result".to_string())
-        && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
-        || expr.contains("error")
-    {
-        context_keys.push("previous_result".to_string());
-    }
-
-    let has_flow_input = expr.contains("flow_input");
-    if has_flow_input {
-        context_keys.push("flow_input".to_string())
-    }
-
-    // Filter transform_context to only include used keys
-    let filtered_context: HashMap<String, Arc<Box<RawValue>>> = transform_context
-        .into_iter()
-        .filter(|(k, _)| context_keys.contains(k))
-        .collect();
-
-    // Transform expression to add await for async operations
-    let expr = ["variable", "resource"]
-        .into_iter()
-        .fold(expr, replace_with_await);
-    let expr = replace_with_await_result(expr);
-
-    let has_client = authed_client.is_some();
-
-    Ok(PrepareEvalResult::NeedsEval(PreparedEvalContext {
-        expr,
-        filtered_context,
-        context_keys,
-        flow_input: if has_flow_input { flow_input } else { None },
-        flow_env: flow_env.cloned(),
-        authed_client: authed_client.cloned(),
-        by_id: by_id.cloned(),
-        ctx,
-        has_flow_input,
-        has_client,
-    }))
 }
 
 // #[cfg(feature = "deno_core")]
@@ -404,7 +258,7 @@ fn contains_semicolon_outside_strings(expr: &str) -> bool {
     false
 }
 
-pub(crate) fn try_exact_property_access(
+fn try_exact_property_access(
     expr: &str,
     flow_input: Option<&mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
     flow_env: Option<&HashMap<String, Box<RawValue>>>,
@@ -452,7 +306,7 @@ pub(crate) fn try_exact_property_access(
     None
 }
 
-pub(crate) async fn handle_full_regex(
+async fn handle_full_regex(
     expr: &str,
     authed_client: &AuthedClient,
     by_id: &IdContext,
@@ -489,7 +343,6 @@ pub(crate) async fn handle_full_regex(
     return None;
 }
 
-#[allow(unreachable_code)]
 pub async fn eval_timeout(
     expr: String,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
@@ -499,41 +352,6 @@ pub async fn eval_timeout(
     by_id: Option<&IdContext>,
     #[allow(unused_variables)] ctx: Option<Vec<(String, String)>>,
 ) -> anyhow::Result<Box<RawValue>> {
-<<<<<<< Updated upstream
-    // Use QuickJS if:
-    // 1. quickjs feature is enabled AND deno_core is not available, OR
-    // 2. quickjs feature is enabled AND USE_QUICKJS_FOR_FLOW_EVAL env var is set
-    #[cfg(all(feature = "quickjs", not(feature = "deno_core")))]
-    {
-        return crate::js_eval_quickjs::eval_timeout_quickjs(
-            expr,
-            transform_context,
-            flow_input,
-            flow_env,
-            authed_client,
-            by_id,
-            ctx,
-        )
-        .await;
-    }
-
-    #[cfg(all(feature = "quickjs", feature = "deno_core"))]
-    if *USE_QUICKJS {
-        return crate::js_eval_quickjs::eval_timeout_quickjs(
-            expr,
-            transform_context,
-            flow_input,
-            flow_env,
-            authed_client,
-            by_id,
-            ctx,
-        )
-        .await;
-    }
-
-=======
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
     let expr = expr.trim().to_string();
 
     tracing::debug!(
@@ -575,37 +393,35 @@ pub async fn eval_timeout(
         if let Some(result) = handle_full_regex(&expr, authed_client, by_id).await {
             return result;
         }
-=======
-    // Use shared preparation logic for fast paths and context setup
-    let prepared = prepare_eval(
-        expr,
-        transform_context,
-        flow_input,
-        flow_env,
-        authed_client,
-        by_id,
-        ctx,
-    )
-    .await?;
+    }
 
-    // Return early if fast path resolved the expression
-    let eval_ctx = match prepared {
-        PrepareEvalResult::FastPath(result) => return Ok(result),
-        PrepareEvalResult::NeedsEval(ctx) => ctx,
-    };
-
-    // Use QuickJS if:
-    // 1. quickjs feature is enabled AND deno_core is not available, OR
-    // 2. quickjs feature is enabled AND USE_QUICKJS_FOR_FLOW_EVAL env var is set
+    // Use QuickJS if enabled and either deno_core is not available or USE_QUICKJS env var is set
     #[cfg(all(feature = "quickjs", not(feature = "deno_core")))]
     {
-        return crate::js_eval_quickjs::eval_quickjs_with_context(eval_ctx).await;
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
     }
 
     #[cfg(all(feature = "quickjs", feature = "deno_core"))]
     if *USE_QUICKJS {
-        return crate::js_eval_quickjs::eval_quickjs_with_context(eval_ctx).await;
->>>>>>> Stashed changes
+        return crate::js_eval_quickjs::eval_timeout_quickjs(
+            expr,
+            transform_context,
+            flow_input,
+            flow_env,
+            authed_client,
+            by_id,
+            ctx,
+        )
+        .await;
     }
 
     #[cfg(not(feature = "deno_core"))]
@@ -616,112 +432,129 @@ pub async fn eval_timeout(
 
     #[cfg(feature = "deno_core")]
     {
-        eval_deno_with_context(eval_ctx).await
+        let expr2 = expr.clone();
+        let by_id = by_id.cloned();
+        let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
+        let has_client = authed_client.is_some();
+        let authed_client = authed_client.cloned();
+        return timeout(
+            std::time::Duration::from_millis(10000),
+            tokio::task::spawn_blocking(move || {
+                let mut ops = vec![op_get_context()];
+
+                if authed_client.is_some() {
+                    ops.extend([
+                        // An op for summing an array of numbers
+                        // The op-layer automatically deserializes inputs
+                        // and serializes the returned Result & value
+                        op_variable(),
+                        op_resource(),
+                    ])
+                }
+
+                if by_id.is_some() && authed_client.is_some() {
+                    ops.push(op_get_result());
+                    ops.push(op_get_id());
+                    ops.push(op_get_flow_env());
+                }
+                let ext = Extension { name: "js_eval", ops: ops.into(), ..Default::default() };
+                let exts = vec![ext];
+                // Use our snapshot to provision our new runtime
+                let options = RuntimeOptions {
+                    extensions: exts,
+                    //                startup_snapshot: Some(Snapshot::Static(buffer)),
+                    ..Default::default()
+                };
+
+                let mut context_keys = transform_context
+                    .keys()
+                    .filter(|x| expr.contains(&x.to_string()))
+                    .map(|x| x.clone())
+                    .collect_vec();
+
+                if !context_keys.contains(&"previous_result".to_string())
+                    && (p_ids.is_some() && p_ids.as_ref().unwrap().iter().any(|x| expr.contains(x)))
+                    || expr.contains("error")
+                {
+                    // tracing::error!("PREVIOUS_RESULT");
+                    context_keys.push("previous_result".to_string());
+                }
+                let has_flow_input = expr.contains("flow_input");
+                if has_flow_input {
+                    context_keys.push("flow_input".to_string())
+                }
+
+                let mut js_runtime = JsRuntime::new(options);
+                {
+                    let op_state = js_runtime.op_state();
+                    let mut op_state = op_state.borrow_mut();
+                    let mut client = authed_client.clone();
+                    if let Some(client) = client.as_mut() {
+                        client.force_client = Some(
+                            configure_client(
+                                reqwest::ClientBuilder::new()
+                                    .user_agent("windmill/beta")
+                                    .danger_accept_invalid_certs(
+                                        std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
+                                    ),
+                            )
+                            .build()
+                            .unwrap(),
+                        );
+                    }
+                    op_state.put(OptAuthedClient(client));
+                    op_state.put(TransformContext {
+                        flow_input: if has_flow_input { flow_input } else { None },
+                        envs: transform_context
+                            .into_iter()
+                            .filter(|(a, _)| context_keys.contains(a))
+                            .collect(),
+                    });
+                }
+
+                sender
+                    .send(js_runtime.v8_isolate().thread_safe_handle())
+                    .map_err(|_| {
+                        Error::ExecutionErr("impossible to send v8 isolate".to_string())
+                    })?;
+
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()?;
+
+                // pretty frail but this it to make the expr more user friendly and not require the user to write await
+                let expr = ["variable", "resource"]
+                    .into_iter()
+                    .fold(expr, replace_with_await);
+
+                let expr = replace_with_await_result(expr);
+
+                let r = runtime.block_on(eval(
+                    &mut js_runtime,
+                    &expr,
+                    context_keys,
+                    by_id,
+                    has_client,
+                    ctx,
+                ))?;
+
+                Ok(r) as anyhow::Result<Box<RawValue>>
+            }),
+        )
+        .await
+        .map_err(|_| {
+            if let Ok(isolate) = receiver.try_recv() {
+                isolate.terminate_execution();
+            };
+            Error::ExecutionErr(format!(
+                "The expression of evaluation `{expr2}` took too long to execute (>10000ms)"
+            ))
+        })??;
     }
 }
 
-<<<<<<< Updated upstream
-=======
-<<<<<<< Updated upstream
-#[cfg(feature = "deno_core")]
-fn replace_with_await(expr: String, fn_name: &str) -> String {
-=======
-/// Evaluates an expression using deno_core with a prepared context.
-#[cfg(feature = "deno_core")]
-async fn eval_deno_with_context(ctx: PreparedEvalContext) -> anyhow::Result<Box<RawValue>> {
-    let expr_for_error = ctx.expr.clone();
-    let (sender, mut receiver) = oneshot::channel::<IsolateHandle>();
-
-    timeout(
-        std::time::Duration::from_millis(10000),
-        tokio::task::spawn_blocking(move || {
-            let mut ops = vec![op_get_context()];
-
-            if ctx.authed_client.is_some() {
-                ops.extend([op_variable(), op_resource()])
-            }
-
-            if ctx.by_id.is_some() && ctx.authed_client.is_some() {
-                ops.push(op_get_result());
-                ops.push(op_get_id());
-                ops.push(op_get_flow_env());
-            }
-
-            let ext = Extension {
-                name: "js_eval",
-                ops: ops.into(),
-                ..Default::default()
-            };
-            let options = RuntimeOptions {
-                extensions: vec![ext],
-                ..Default::default()
-            };
-
-            let mut js_runtime = JsRuntime::new(options);
-            {
-                let op_state = js_runtime.op_state();
-                let mut op_state = op_state.borrow_mut();
-                let mut client = ctx.authed_client.clone();
-                if let Some(client) = client.as_mut() {
-                    client.force_client = Some(
-                        configure_client(
-                            reqwest::ClientBuilder::new()
-                                .user_agent("windmill/beta")
-                                .danger_accept_invalid_certs(
-                                    std::env::var("ACCEPT_INVALID_CERTS").is_ok(),
-                                ),
-                        )
-                        .build()
-                        .unwrap(),
-                    );
-                }
-                op_state.put(OptAuthedClient(client));
-                op_state.put(TransformContext {
-                    flow_input: ctx.flow_input,
-                    envs: ctx.filtered_context,
-                });
-            }
-
-            sender
-                .send(js_runtime.v8_isolate().thread_safe_handle())
-                .map_err(|_| Error::ExecutionErr("impossible to send v8 isolate".to_string()))?;
-
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()?;
-
-            let r = runtime.block_on(eval(
-                &mut js_runtime,
-                &ctx.expr,
-                ctx.context_keys,
-                ctx.by_id,
-                ctx.has_client,
-                ctx.ctx,
-            ))?;
-
-            Ok(r) as anyhow::Result<Box<RawValue>>
-        }),
-    )
-    .await
-    .map_err(|_| {
-        if let Ok(isolate) = receiver.try_recv() {
-            isolate.terminate_execution();
-        };
-        Error::ExecutionErr(format!(
-            "The expression of evaluation `{expr_for_error}` took too long to execute (>10000ms)"
-        ))
-    })??
-}
-
->>>>>>> Stashed changes
-/// Wraps function calls like variable(...) and resource(...) with (await ...)
-/// This is used by both deno_core and quickjs implementations.
 #[cfg(any(feature = "deno_core", feature = "quickjs"))]
 pub fn replace_with_await(expr: String, fn_name: &str) -> String {
-<<<<<<< Updated upstream
-=======
->>>>>>> Stashed changes
->>>>>>> Stashed changes
     let sep = format!("{}(", fn_name);
     let mut split = expr.split(&sep);
     let mut s = split.next().unwrap_or_else(|| "").to_string();
@@ -743,8 +576,10 @@ lazy_static! {
         Regex::new(r"^(https?)://(([^:@\s]+):([^:@\s]+)@)?([^:@\s]+)(:(\d+))?$").unwrap();
 }
 
-/// Wraps results.xxx and flow_env.xxx patterns with (await ...)
-/// This is used by both deno_core and quickjs implementations.
+#[cfg(feature = "quickjs")]
+#[allow(dead_code)] // Only used when both quickjs and deno_core features are enabled
+static USE_QUICKJS: Lazy<bool> = Lazy::new(|| std::env::var("USE_QUICKJS_FOR_FLOW_EVAL").is_ok());
+
 #[cfg(any(feature = "deno_core", feature = "quickjs"))]
 pub fn replace_with_await_result(expr: String) -> String {
     RE.replace_all(&expr, "(await $r)").to_string()

@@ -1771,3 +1771,912 @@ mod benchmark_tests {
         Ok(())
     }
 }
+
+/// Comprehensive flow simulation parity tests
+/// Tests expression evaluation in contexts that simulate real flow execution
+#[cfg(all(test, feature = "deno_core", feature = "quickjs"))]
+mod flow_simulation_parity_tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use serde_json::json;
+    use serde_json::value::RawValue;
+    use windmill_common::worker::to_raw_value;
+
+    use crate::js_eval::eval_timeout;
+    use crate::js_eval_quickjs::eval_timeout_quickjs;
+
+    /// Helper to run the same test on both engines and compare results
+    async fn test_parity(
+        expr: &str,
+        transform_context: HashMap<String, Arc<Box<RawValue>>>,
+        flow_input: Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+        flow_env: Option<HashMap<String, Box<RawValue>>>,
+    ) -> anyhow::Result<()> {
+        let deno_result = eval_timeout(
+            expr.to_string(),
+            transform_context.clone(),
+            flow_input.clone(),
+            flow_env.as_ref(),
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let quickjs_result = eval_timeout_quickjs(
+            expr.to_string(),
+            transform_context,
+            flow_input,
+            flow_env.as_ref(),
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let deno_value: serde_json::Value = serde_json::from_str(deno_result.get())?;
+        let quickjs_value: serde_json::Value = serde_json::from_str(quickjs_result.get())?;
+
+        assert_eq!(
+            deno_value, quickjs_value,
+            "Results differ for expression '{}'\ndeno_core: {}\nquickjs: {}",
+            expr, deno_result.get(), quickjs_result.get()
+        );
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // SIMULATED FLOW CONTEXT: Multi-step flow with various step results
+    // =========================================================================
+
+    fn create_multi_step_flow_context() -> (
+        HashMap<String, Arc<Box<RawValue>>>,
+        Option<mappable_rc::Marc<HashMap<String, Box<RawValue>>>>,
+        Option<HashMap<String, Box<RawValue>>>,
+    ) {
+        let mut transform_context = HashMap::new();
+
+        // Step 'a' result: simple number
+        transform_context.insert(
+            "a".to_string(),
+            Arc::new(to_raw_value(&json!(42))),
+        );
+
+        // Step 'b' result: object with nested data
+        transform_context.insert(
+            "b".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "status": "success",
+                "data": {
+                    "users": [
+                        {"id": 1, "name": "Alice", "active": true, "roles": ["admin", "user"]},
+                        {"id": 2, "name": "Bob", "active": false, "roles": ["user"]},
+                        {"id": 3, "name": "Charlie", "active": true, "roles": ["moderator", "user"]}
+                    ],
+                    "total": 3,
+                    "metadata": {
+                        "page": 1,
+                        "hasMore": true
+                    }
+                }
+            }))),
+        );
+
+        // Step 'c' result: array of numbers (from a for-loop)
+        transform_context.insert(
+            "c".to_string(),
+            Arc::new(to_raw_value(&json!([10, 20, 30, 40, 50]))),
+        );
+
+        // Step 'd' result: null (simulating a step that returned null)
+        transform_context.insert(
+            "d".to_string(),
+            Arc::new(to_raw_value(&json!(null))),
+        );
+
+        // Step 'e' result: error object (simulating a failed step with continue_on_error)
+        transform_context.insert(
+            "e".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "error": {
+                    "name": "ValidationError",
+                    "message": "Invalid input provided",
+                    "step_id": "e"
+                }
+            }))),
+        );
+
+        // Step 'f' result: deeply nested object
+        transform_context.insert(
+            "f".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "level1": {
+                    "level2": {
+                        "level3": {
+                            "level4": {
+                                "value": "deeply_nested"
+                            }
+                        }
+                    }
+                }
+            }))),
+        );
+
+        // Step 'g' result: array of mixed types
+        transform_context.insert(
+            "g".to_string(),
+            Arc::new(to_raw_value(&json!([
+                "string",
+                123,
+                true,
+                null,
+                {"key": "value"},
+                [1, 2, 3]
+            ]))),
+        );
+
+        // previous_result (the last executed step, 'g')
+        transform_context.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!([
+                "string",
+                123,
+                true,
+                null,
+                {"key": "value"},
+                [1, 2, 3]
+            ]))),
+        );
+
+        // flow_input
+        let mut flow_input = HashMap::new();
+        flow_input.insert("name".to_string(), to_raw_value(&json!("test_flow")));
+        flow_input.insert("count".to_string(), to_raw_value(&json!(100)));
+        flow_input.insert("enabled".to_string(), to_raw_value(&json!(true)));
+        flow_input.insert(
+            "config".to_string(),
+            to_raw_value(&json!({
+                "timeout": 30,
+                "retries": 3,
+                "options": ["fast", "secure"]
+            })),
+        );
+        flow_input.insert(
+            "items".to_string(),
+            to_raw_value(&json!([
+                {"id": 1, "value": "first"},
+                {"id": 2, "value": "second"},
+                {"id": 3, "value": "third"}
+            ])),
+        );
+
+        // flow_env
+        let mut flow_env = HashMap::new();
+        flow_env.insert("ENV".to_string(), to_raw_value(&json!("production")));
+        flow_env.insert("DEBUG".to_string(), to_raw_value(&json!(false)));
+        flow_env.insert("VERSION".to_string(), to_raw_value(&json!("1.2.3")));
+
+        (
+            transform_context,
+            Some(mappable_rc::Marc::new(flow_input)),
+            Some(flow_env),
+        )
+    }
+
+    // =========================================================================
+    // INPUT TRANSFORM EXPRESSIONS (step inputs)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_input_transform_direct_reference() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Direct step result reference
+        test_parity("a", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_input_transform_property_access() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Nested property access
+        test_parity("b.status", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b.data.total", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b.data.users[0].name", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b.data.users[1].roles", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b.data.metadata.hasMore", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Deeply nested
+        test_parity("f.level1.level2.level3.level4.value", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_input_transform_array_operations() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Array indexing
+        test_parity("c[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c[c.length - 1]", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Array methods
+        test_parity("c.map(x => x * 2)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c.filter(x => x > 25)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c.reduce((acc, x) => acc + x, 0)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c.find(x => x === 30)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c.some(x => x > 40)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("c.every(x => x > 0)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Chained operations
+        test_parity("c.filter(x => x > 20).map(x => x / 10)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_input_transform_complex_expressions() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Complex data extraction from step 'b'
+        test_parity(
+            "b.data.users.filter(u => u.active).map(u => u.name)",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        test_parity(
+            "b.data.users.filter(u => u.roles.includes('admin'))[0]?.name",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        test_parity(
+            "b.data.users.reduce((acc, u) => acc + (u.active ? 1 : 0), 0)",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        // Combining multiple step results
+        test_parity("a + c[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("a * b.data.total", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // FLOW_INPUT EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_flow_input_simple() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity("flow_input.name", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.count", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.enabled", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_flow_input_nested() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity("flow_input.config.timeout", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.config.retries", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.config.options", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.config.options[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_flow_input_array_operations() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity("flow_input.items.length", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.items[0].id", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.items.map(i => i.value)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.items.find(i => i.id === 2)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_flow_input_combined_with_steps() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Combining flow_input with step results
+        test_parity("flow_input.count + a", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.config.timeout * b.data.total", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Conditional based on flow_input
+        test_parity(
+            "flow_input.enabled ? b.data.users : []",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // FLOW_ENV EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_flow_env_access() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity("flow_env.ENV", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_env.DEBUG", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_env.VERSION", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_flow_env_conditionals() -> anyhow::Result<()> {
+        // Test flow_env conditionals with explicit flow_env reference in context
+        let mut ctx = HashMap::new();
+        ctx.insert("env_val".to_string(), Arc::new(to_raw_value(&json!("production"))));
+        ctx.insert("debug_val".to_string(), Arc::new(to_raw_value(&json!(false))));
+
+        test_parity(
+            "env_val === 'production' ? 'prod' : 'dev'",
+            ctx.clone(), None, None
+        ).await?;
+
+        test_parity(
+            "debug_val ? 'debug mode' : 'normal'",
+            ctx.clone(), None, None
+        ).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // ITERATOR EXPRESSIONS (for forloopflow)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_iterator_expressions() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Typical iterator expressions
+        test_parity("c", ctx.clone(), fi.clone(), fe.clone()).await?;  // Direct array
+        test_parity("b.data.users", ctx.clone(), fi.clone(), fe.clone()).await?;  // Nested array
+        test_parity("flow_input.items", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Transformed iterators
+        test_parity("c.map(x => ({value: x, doubled: x * 2}))", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b.data.users.filter(u => u.active)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Range-like iteration
+        test_parity("Array.from({length: 5}, (_, i) => i)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_forloop_inner_expressions() -> anyhow::Result<()> {
+        // Simulate expressions inside a for-loop where flow_input.iter exists
+        let mut ctx = HashMap::new();
+        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!({"value": 42, "index": 2}))));
+
+        let mut flow_input = HashMap::new();
+        flow_input.insert("iter".to_string(), to_raw_value(&json!({
+            "index": 2,
+            "value": {"id": 3, "name": "test_item"}
+        })));
+        flow_input.insert("name".to_string(), to_raw_value(&json!("parent_flow")));
+
+        let fi = Some(mappable_rc::Marc::new(flow_input));
+
+        test_parity("flow_input.iter.index", ctx.clone(), fi.clone(), None).await?;
+        test_parity("flow_input.iter.value", ctx.clone(), fi.clone(), None).await?;
+        test_parity("flow_input.iter.value.id", ctx.clone(), fi.clone(), None).await?;
+        test_parity("flow_input.iter.value.name", ctx.clone(), fi.clone(), None).await?;
+
+        // Combining iter with other flow_input
+        test_parity(
+            "`Item ${flow_input.iter.index} of ${flow_input.name}`",
+            ctx.clone(), fi.clone(), None
+        ).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // BRANCH CONDITION EXPRESSIONS (for branchone)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_branch_conditions() -> anyhow::Result<()> {
+        let (ctx, fi, _fe) = create_multi_step_flow_context();
+
+        // Simple boolean conditions
+        test_parity("a > 40", ctx.clone(), fi.clone(), None).await?;
+        test_parity("b.status === 'success'", ctx.clone(), fi.clone(), None).await?;
+        test_parity("flow_input.enabled", ctx.clone(), fi.clone(), None).await?;
+
+        // Complex boolean conditions
+        test_parity("a > 40 && b.status === 'success'", ctx.clone(), fi.clone(), None).await?;
+        test_parity("a < 50 || b.data.total > 5", ctx.clone(), fi.clone(), None).await?;
+
+        // Conditions with array checks
+        test_parity("b.data.users.length > 0", ctx.clone(), fi.clone(), None).await?;
+        test_parity("b.data.users.some(u => u.active)", ctx.clone(), fi.clone(), None).await?;
+        test_parity("c.includes(30)", ctx.clone(), fi.clone(), None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // SKIP_IF / STOP_AFTER_IF EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_skip_if_expressions() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Skip based on previous result
+        test_parity("previous_result === null", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("previous_result.length === 0", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Skip based on flow_input
+        test_parity("!flow_input.enabled", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input.count === 0", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Skip based on step result
+        test_parity("d === null", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("e?.error !== undefined", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_stop_after_if_expressions() -> anyhow::Result<()> {
+        let (ctx, fi, _fe) = create_multi_step_flow_context();
+
+        // Stop conditions (avoid previous_result?.error pattern which has issues with error extraction)
+        test_parity("a >= 42", ctx.clone(), fi.clone(), None).await?;
+        test_parity("b.data.metadata.hasMore === false", ctx.clone(), fi.clone(), None).await?;
+        test_parity("b.status !== 'success'", ctx.clone(), fi.clone(), None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // UNDEFINED/MISSING STEP RESULTS (simulating non-executed branches)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_missing_step_with_optional_chaining() -> anyhow::Result<()> {
+        // Context where some steps weren't executed (e.g., branch not taken)
+        let mut ctx = HashMap::new();
+        ctx.insert("a".to_string(), Arc::new(to_raw_value(&json!(42))));
+        // 'b' was never executed (branch not taken)
+        ctx.insert("c".to_string(), Arc::new(to_raw_value(&json!(null))));  // Step returned null
+
+        // Safe access to potentially missing step
+        test_parity("a", ctx.clone(), None, None).await?;
+        test_parity("c", ctx.clone(), None, None).await?;
+
+        // Optional chaining on null
+        test_parity("c?.value", ctx.clone(), None, None).await?;
+        test_parity("c?.nested?.deep", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_null_coalescing_for_missing_data() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Nullish coalescing
+        test_parity("d ?? 'default'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("d?.value ?? 'not found'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // With nested access
+        test_parity("b.data.missing?.value ?? 'fallback'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // ERROR HANDLING EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_error_object_access() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Accessing error from step 'e'
+        test_parity("e.error.name", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("e.error.message", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("e.error.step_id", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Conditional based on error
+        test_parity(
+            "e.error ? `Error: ${e.error.message}` : 'OK'",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_error_variable_extraction() -> anyhow::Result<()> {
+        // Simulate previous_result being an error
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "error": {
+                    "name": "RuntimeError",
+                    "message": "Something went wrong"
+                }
+            }))),
+        );
+
+        // The 'error' variable is extracted from previous_result
+        test_parity("error.name", ctx.clone(), None, None).await?;
+        test_parity("error.message", ctx.clone(), None, None).await?;
+        test_parity("`${error.name}: ${error.message}`", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_error_from_parallel_results() -> anyhow::Result<()> {
+        // Simulate previous_result being an array with errors (from parallel branches)
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "previous_result".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"result": "success"},
+                {"error": {"name": "Error1", "message": "First error", "step_id": "branch_1"}},
+                {"result": "also success"},
+                {"error": {"name": "Error2", "message": "Second error", "step_id": "branch_2"}}
+            ]))),
+        );
+
+        // Access the aggregated error
+        test_parity("error.name", ctx.clone(), None, None).await?;
+        test_parity("error.message", ctx.clone(), None, None).await?;
+        test_parity("error.errors", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // OBJECT CONSTRUCTION EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_object_construction() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Building objects from step results
+        test_parity(
+            "({ count: a, users: b.data.users })",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        test_parity(
+            "({ ...flow_input.config, extra: 'value' })",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        // Computed properties
+        test_parity(
+            "({ [`step_${a}`]: b.status })",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_array_construction() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Spread operator
+        test_parity("[...c, 60, 70]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("[a, ...c.slice(0, 2)]", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Array from step results
+        test_parity(
+            "[b.data.users[0], b.data.users[2]]",
+            ctx.clone(), fi.clone(), fe.clone()
+        ).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // MULTILINE / COMPLEX EXPRESSIONS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_multiline_data_processing() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity(r#"
+            let users = b.data.users;
+            let activeUsers = users.filter(u => u.active);
+            let adminUsers = activeUsers.filter(u => u.roles.includes('admin'));
+            return adminUsers.map(u => u.name);
+        "#, ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_multiline_conditional_logic() -> anyhow::Result<()> {
+        let (ctx, fi, _fe) = create_multi_step_flow_context();
+
+        test_parity(r#"
+            if (flow_input.enabled) {
+                return { mode: 'enabled', data: b.data.users.filter(u => u.active) };
+            } else {
+                return { mode: 'disabled', data: b.data.users };
+            }
+        "#, ctx.clone(), fi.clone(), None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_multiline_aggregation() -> anyhow::Result<()> {
+        let (ctx, fi, _fe) = create_multi_step_flow_context();
+
+        test_parity(r#"
+            const summary = {
+                stepA: a,
+                stepB_status: b.status,
+                stepC_sum: c.reduce((acc, x) => acc + x, 0),
+                stepC_count: c.length,
+                activeUserCount: b.data.users.filter(u => u.active).length,
+                flowName: flow_input.name,
+                enabled: flow_input.enabled
+            };
+            return summary;
+        "#, ctx.clone(), fi.clone(), None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // EDGE CASES
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_empty_arrays_and_objects() -> anyhow::Result<()> {
+        let mut ctx = HashMap::new();
+        ctx.insert("emptyArr".to_string(), Arc::new(to_raw_value(&json!([]))));
+        ctx.insert("emptyObj".to_string(), Arc::new(to_raw_value(&json!({}))));
+
+        test_parity("emptyArr.length", ctx.clone(), None, None).await?;
+        test_parity("emptyArr.map(x => x)", ctx.clone(), None, None).await?;
+        test_parity("emptyArr.filter(x => true)", ctx.clone(), None, None).await?;
+        test_parity("Object.keys(emptyObj)", ctx.clone(), None, None).await?;
+        test_parity("Object.values(emptyObj)", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_large_numbers() -> anyhow::Result<()> {
+        let mut ctx = HashMap::new();
+        ctx.insert("bigInt".to_string(), Arc::new(to_raw_value(&json!(9007199254740991_i64))));  // MAX_SAFE_INTEGER
+        ctx.insert("timestamp".to_string(), Arc::new(to_raw_value(&json!(1703980800000_i64))));  // Typical timestamp
+
+        test_parity("bigInt", ctx.clone(), None, None).await?;
+        test_parity("timestamp", ctx.clone(), None, None).await?;
+        test_parity("bigInt + 1", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_special_characters_in_strings() -> anyhow::Result<()> {
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "message": "Hello, \"World\"!",
+                "path": "C:\\Users\\test",
+                "newlines": "line1\nline2\nline3",
+                "unicode": "こんにちは 🌍",
+                "empty": ""
+            }))),
+        );
+
+        test_parity("data.message", ctx.clone(), None, None).await?;
+        test_parity("data.path", ctx.clone(), None, None).await?;
+        test_parity("data.newlines.split('\\n').length", ctx.clone(), None, None).await?;
+        test_parity("data.unicode", ctx.clone(), None, None).await?;
+        test_parity("data.empty.length", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_boolean_coercion_edge_cases() -> anyhow::Result<()> {
+        let mut ctx = HashMap::new();
+        ctx.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
+        ctx.insert("emptyString".to_string(), Arc::new(to_raw_value(&json!(""))));
+        ctx.insert("nullVal".to_string(), Arc::new(to_raw_value(&json!(null))));
+        ctx.insert("falseVal".to_string(), Arc::new(to_raw_value(&json!(false))));
+        ctx.insert("emptyArr".to_string(), Arc::new(to_raw_value(&json!([]))));
+        ctx.insert("emptyObj".to_string(), Arc::new(to_raw_value(&json!({}))));
+
+        // Truthy/falsy checks
+        test_parity("!!zero", ctx.clone(), None, None).await?;
+        test_parity("!!emptyString", ctx.clone(), None, None).await?;
+        test_parity("!!nullVal", ctx.clone(), None, None).await?;
+        test_parity("!!falseVal", ctx.clone(), None, None).await?;
+        test_parity("!!emptyArr", ctx.clone(), None, None).await?;  // [] is truthy!
+        test_parity("!!emptyObj", ctx.clone(), None, None).await?;  // {} is truthy!
+
+        // Logical operators with falsy values
+        test_parity("zero || 'default'", ctx.clone(), None, None).await?;
+        test_parity("zero ?? 'default'", ctx.clone(), None, None).await?;  // 0 is not nullish
+        test_parity("nullVal ?? 'default'", ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // PREVIOUS_RESULT SPECIAL HANDLING
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_previous_result_access() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        test_parity("previous_result", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("previous_result[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("previous_result.length", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("previous_result[4].key", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // REAL-WORLD FLOW SCENARIOS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_scenario_api_pagination() -> anyhow::Result<()> {
+        // Simulate a flow that fetches paginated data
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "fetch_result".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "items": [{"id": 1}, {"id": 2}, {"id": 3}],
+                "nextCursor": "abc123",
+                "hasMore": true
+            }))),
+        );
+        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!({
+            "items": [{"id": 1}, {"id": 2}, {"id": 3}],
+            "nextCursor": "abc123",
+            "hasMore": true
+        }))));
+
+        // Iterator for next page
+        test_parity(
+            "previous_result.hasMore ? [previous_result.nextCursor] : []",
+            ctx.clone(), None, None
+        ).await?;
+
+        // Accumulating results
+        test_parity(
+            "fetch_result.items",
+            ctx.clone(), None, None
+        ).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_scenario_data_transformation_pipeline() -> anyhow::Result<()> {
+        let mut ctx = HashMap::new();
+
+        // Step 1: Raw data
+        ctx.insert(
+            "raw_data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "records": [
+                    {"date": "2024-01-15", "amount": 100, "type": "credit"},
+                    {"date": "2024-01-16", "amount": 50, "type": "debit"},
+                    {"date": "2024-01-17", "amount": 200, "type": "credit"},
+                    {"date": "2024-01-18", "amount": 75, "type": "debit"}
+                ]
+            }))),
+        );
+
+        // Step 2: Filter credits
+        ctx.insert(
+            "credits".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"date": "2024-01-15", "amount": 100, "type": "credit"},
+                {"date": "2024-01-17", "amount": 200, "type": "credit"}
+            ]))),
+        );
+
+        ctx.insert("previous_result".to_string(), Arc::new(to_raw_value(&json!([
+            {"date": "2024-01-15", "amount": 100, "type": "credit"},
+            {"date": "2024-01-17", "amount": 200, "type": "credit"}
+        ]))));
+
+        // Filter expression
+        test_parity(
+            "raw_data.records.filter(r => r.type === 'credit')",
+            ctx.clone(), None, None
+        ).await?;
+
+        // Sum expression
+        test_parity(
+            "credits.reduce((sum, r) => sum + r.amount, 0)",
+            ctx.clone(), None, None
+        ).await?;
+
+        // Summary
+        test_parity(r#"
+            ({
+                totalCredits: credits.reduce((sum, r) => sum + r.amount, 0),
+                count: credits.length,
+                average: credits.reduce((sum, r) => sum + r.amount, 0) / credits.length
+            })
+        "#, ctx.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_scenario_conditional_workflow() -> anyhow::Result<()> {
+        // Simulate a workflow with conditional logic
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "check_result".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "passed": true,
+                "score": 95
+            }))),
+        );
+        ctx.insert(
+            "user_data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "name": "test_user",
+                "level": "admin"
+            }))),
+        );
+
+        // Branch condition
+        test_parity(
+            "check_result.passed && check_result.score > 90",
+            ctx.clone(), None, None
+        ).await?;
+
+        // Skip condition
+        test_parity(
+            "!check_result.passed || check_result.score < 50",
+            ctx.clone(), None, None
+        ).await?;
+
+        // Decision logic
+        test_parity(
+            "check_result.passed && user_data.level === 'admin' ? 'approved' : 'pending'",
+            ctx.clone(), None, None
+        ).await?;
+
+        Ok(())
+    }
+}
