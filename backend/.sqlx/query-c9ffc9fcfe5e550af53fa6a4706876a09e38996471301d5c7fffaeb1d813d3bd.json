@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE folder SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE group_permission_history SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "5876d8271adcb75752d518fc52ac192e162469a504338b4a0a37e8bcec114385"
+  "hash": "c9ffc9fcfe5e550af53fa6a4706876a09e38996471301d5c7fffaeb1d813d3bd"
 }
