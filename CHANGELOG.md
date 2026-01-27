@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.617.1](https://github.com/windmill-labs/windmill/compare/v1.617.0...v1.617.1) (2026-01-27)
+
+
+### Bug Fixes
+
+* fix lowercase migration with existing duplicates ([a9d349d](https://github.com/windmill-labs/windmill/commit/a9d349d52111f11263cb56f41814f464bb23ee1f))
+* support run again for preview and running a hub path directly as preview ([7c55d12](https://github.com/windmill-labs/windmill/commit/7c55d12602f1803639b365254c540d9669740d3a))
+* **workspace-dependencies:** lock hash instead of seq ([#7697](https://github.com/windmill-labs/windmill/issues/7697)) ([0785809](https://github.com/windmill-labs/windmill/commit/0785809a9111d8dfcaf064c3f71ad8b6f0607753))
+
 ## [1.617.0](https://github.com/windmill-labs/windmill/compare/v1.616.0...v1.617.0) (2026-01-27)
 
 
