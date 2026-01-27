@@ -27,7 +27,6 @@ export const SKILLS: SkillMetadata[] = [
   { name: "write-script-csharp", description: "Write C# scripts with NuGet #r directive for dependencies.", languageKey: "csharp" },
   { name: "write-script-java", description: "Write Java scripts with Maven //requirements comments.", languageKey: "java" },
   { name: "write-flow", description: "Create Windmill flows using OpenFlow YAML specification." },
-  { name: "wmill-cli", description: "Reference for Windmill CLI commands and usage." },
   { name: "raw-app", description: "Create raw apps with React/Svelte/Vue frontend and backend runnables." },
   { name: "triggers", description: "Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers." },
   { name: "schedules", description: "Configure cron schedules for automated script and flow execution." },
@@ -48,35 +47,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # Python
 
@@ -795,35 +765,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # TypeScript (Bun)
 
 Bun runtime with full npm ecosystem and fastest execution.
@@ -1419,35 +1360,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # MySQL
 
 Arguments use \`?\` placeholders.
@@ -1472,35 +1384,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # PowerShell
 
@@ -1571,35 +1454,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # Snowflake
 
 Arguments use \`?\` placeholders.
@@ -1624,35 +1478,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # Go
 
@@ -1725,35 +1550,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # TypeScript (Deno)
 
@@ -2354,35 +2150,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # Bash
 
 ## Structure
@@ -2445,35 +2212,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # TypeScript (Bun Native)
 
@@ -3068,35 +2806,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # DuckDB
 
 Arguments are defined with comments and used with \`$name\` syntax:
@@ -3161,35 +2870,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # TypeScript (Native)
 
@@ -3751,35 +3431,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # BigQuery
 
 Arguments use \`@name\` syntax.
@@ -3804,35 +3455,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # Rust
 
@@ -3923,35 +3545,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # PHP
 
 ## Structure
@@ -4023,35 +3616,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # Microsoft SQL Server (MSSQL)
 
 Arguments use \`@P1\`, \`@P2\`, etc.
@@ -4077,35 +3641,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # PostgreSQL
 
 Arguments are obtained directly in the statement with \`$1::{type}\`, \`$2::{type}\`, etc.
@@ -4130,35 +3665,6 @@ Place scripts in a folder. After writing, run:
 - \`wmill sync push\` - Deploy to Windmill
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
-
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
 
 # GraphQL
 
@@ -4219,35 +3725,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # C#
 
 The script must contain a public static \`Main\` method inside a class:
@@ -4303,35 +3780,6 @@ Place scripts in a folder. After writing, run:
 
 Use \`wmill resource-type list --schema\` to discover available resource types.
 
-# Windmill Script Writing Guide
-
-## General Principles
-
-- Scripts must export a main function (do not call it)
-- Libraries are installed automatically - do not show installation instructions
-- Credentials and configuration are stored in resources and passed as parameters
-- The windmill client (\`wmill\`) provides APIs for interacting with the platform
-
-## Function Naming
-
-- Main function: \`main\` (or \`preprocessor\` for preprocessor scripts)
-- Must be async for TypeScript variants
-
-## Return Values
-
-- Scripts can return any JSON-serializable value
-- Return values become available to subsequent flow steps via \`results.step_id\`
-
-## Preprocessor Scripts
-
-Preprocessor scripts process raw trigger data from various sources (webhook, custom HTTP route, SQS, WebSocket, Kafka, NATS, MQTT, Postgres, or email) before passing it to the flow. This separates the trigger logic from the flow logic and keeps the auto-generated UI clean.
-
-The returned object determines the parameter values passed to the flow.
-e.g., \`{ b: 1, a: 2 }\` calls the flow with \`a = 2\` and \`b = 1\`, assuming the flow has two inputs called \`a\` and \`b\`.
-
-The preprocessor receives a single parameter called \`event\`.
-
-
 # Java
 
 The script must contain a Main public class with a \`public static main()\` method:
@@ -4376,6 +3824,8 @@ name: write-flow
 description: Create Windmill flows using OpenFlow YAML specification.
 ---
 
+# Windmill Flow Building Guide
+
 ## CLI Commands
 
 Create a folder ending with \`.flow\` and add a YAML file with the flow definition.
@@ -4384,7 +3834,7 @@ After writing:
 - \`wmill flow generate-locks --yes\` - Generate lock files
 - \`wmill sync push\` - Deploy to Windmill
 
-# Windmill Flow Building Guide
+## OpenFlow Schema
 
 The OpenFlow schema (openflow.openapi.yaml) is the source of truth for flow structure. Refer to OPENFLOW_SCHEMA for the complete type definitions.
 
@@ -4495,362 +3945,6 @@ Reference a specific resource using \`$res:\` prefix:
 ## OpenFlow Schema
 
 {"OpenFlow":{"type":"object","description":"Top-level flow definition containing metadata, configuration, and the flow structure","properties":{"summary":{"type":"string","description":"Short description of what this flow does"},"description":{"type":"string","description":"Detailed documentation for this flow"},"value":{"$ref":"#/components/schemas/FlowValue"},"schema":{"type":"object","description":"JSON Schema for flow inputs. Use this to define input parameters, their types, defaults, and validation. For resource inputs, set type to 'object' and format to 'resource-<type>' (e.g., 'resource-stripe')"}},"required":["summary","value"]},"FlowValue":{"type":"object","description":"The flow structure containing modules and optional preprocessor/failure handlers","properties":{"modules":{"type":"array","description":"Array of steps that execute in sequence. Each step can be a script, subflow, loop, or branch","items":{"$ref":"#/components/schemas/FlowModule"}},"failure_module":{"description":"Special module that executes when the flow fails. Receives error object with message, name, stack, and step_id. Must have id 'failure'. Only supports script/rawscript types","$ref":"#/components/schemas/FlowModule"},"preprocessor_module":{"description":"Special module that runs before the first step on external triggers. Must have id 'preprocessor'. Only supports script/rawscript types. Cannot reference other step results","$ref":"#/components/schemas/FlowModule"},"same_worker":{"type":"boolean","description":"If true, all steps run on the same worker for better performance"},"concurrent_limit":{"type":"number","description":"Maximum number of concurrent executions of this flow"},"concurrency_key":{"type":"string","description":"Expression to group concurrent executions (e.g., by user ID)"},"concurrency_time_window_s":{"type":"number","description":"Time window in seconds for concurrent_limit"},"debounce_delay_s":{"type":"number","description":"Delay in seconds to debounce flow executions"},"debounce_key":{"type":"string","description":"Expression to group debounced executions"},"debounce_args_to_accumulate":{"type":"array","description":"Arguments to accumulate across debounced executions","items":{"type":"string"}},"max_total_debouncing_time":{"type":"number","description":"Maximum total time in seconds that a job can be debounced"},"max_total_debounces_amount":{"type":"number","description":"Maximum number of times a job can be debounced"},"skip_expr":{"type":"string","description":"JavaScript expression to conditionally skip the entire flow"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for flow results"},"cache_ignore_s3_path":{"type":"boolean"},"flow_env":{"type":"object","description":"Environment variables available to all steps","additionalProperties":{"type":"string"}},"priority":{"type":"number","description":"Execution priority (higher numbers run first)"},"early_return":{"type":"string","description":"JavaScript expression to return early from the flow"},"chat_input_enabled":{"type":"boolean","description":"Whether this flow accepts chat-style input"},"notes":{"type":"array","description":"Sticky notes attached to the flow","items":{"$ref":"#/components/schemas/FlowNote"}}},"required":["modules"]},"Retry":{"type":"object","description":"Retry configuration for failed module executions","properties":{"constant":{"type":"object","description":"Retry with constant delay between attempts","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"seconds":{"type":"integer","description":"Seconds to wait between retries"}}},"exponential":{"type":"object","description":"Retry with exponential backoff (delay doubles each time)","properties":{"attempts":{"type":"integer","description":"Number of retry attempts"},"multiplier":{"type":"integer","description":"Multiplier for exponential backoff"},"seconds":{"type":"integer","minimum":1,"description":"Initial delay in seconds"},"random_factor":{"type":"integer","minimum":0,"maximum":100,"description":"Random jitter percentage (0-100) to avoid thundering herd"}}},"retry_if":{"$ref":"#/components/schemas/RetryIf"}}},"FlowNote":{"type":"object","description":"A sticky note attached to a flow for documentation and annotation","properties":{"id":{"type":"string","description":"Unique identifier for the note"},"text":{"type":"string","description":"Content of the note"},"position":{"type":"object","description":"Position of the note in the flow editor","properties":{"x":{"type":"number","description":"X coordinate"},"y":{"type":"number","description":"Y coordinate"}},"required":["x","y"]},"size":{"type":"object","description":"Size of the note in the flow editor","properties":{"width":{"type":"number","description":"Width in pixels"},"height":{"type":"number","description":"Height in pixels"}},"required":["width","height"]},"color":{"type":"string","description":"Color of the note (e.g., \\"yellow\\", \\"#ffff00\\")"},"type":{"type":"string","enum":["free","group"],"description":"Type of note - 'free' for standalone notes, 'group' for notes that group other nodes"},"locked":{"type":"boolean","default":false,"description":"Whether the note is locked and cannot be edited or moved"},"contained_node_ids":{"type":"array","items":{"type":"string"},"description":"For group notes, the IDs of nodes contained within this group"}},"required":["id","text","color","type"]},"RetryIf":{"type":"object","description":"Conditional retry based on error or result","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to retry. Has access to 'result' and 'error' variables"}},"required":["expr"]},"StopAfterIf":{"type":"object","description":"Early termination condition for a module","properties":{"skip_if_stopped":{"type":"boolean","description":"If true, following steps are skipped when this condition triggers"},"expr":{"type":"string","description":"JavaScript expression evaluated after the module runs. Can use 'result' (step's result) or 'flow_input'. Return true to stop"},"error_message":{"type":"string","description":"Custom error message shown when stopping"}},"required":["expr"]},"FlowModule":{"type":"object","description":"A single step in a flow. Can be a script, subflow, loop, or branch","properties":{"id":{"type":"string","description":"Unique identifier for this step. Used to reference results via 'results.step_id'. Must be a valid identifier (alphanumeric, underscore, hyphen)"},"value":{"$ref":"#/components/schemas/FlowModuleValue"},"stop_after_if":{"description":"Early termination condition evaluated after this step completes","$ref":"#/components/schemas/StopAfterIf"},"stop_after_all_iters_if":{"description":"For loops only - early termination condition evaluated after all iterations complete","$ref":"#/components/schemas/StopAfterIf"},"skip_if":{"type":"object","description":"Conditionally skip this step based on previous results or flow inputs","properties":{"expr":{"type":"string","description":"JavaScript expression that returns true to skip. Can use 'flow_input' or 'results.<step_id>'"}},"required":["expr"]},"sleep":{"description":"Delay before executing this step (in seconds or as expression)","$ref":"#/components/schemas/InputTransform"},"cache_ttl":{"type":"number","description":"Cache duration in seconds for this step's results"},"cache_ignore_s3_path":{"type":"boolean"},"timeout":{"description":"Maximum execution time in seconds (static value or expression)","$ref":"#/components/schemas/InputTransform"},"delete_after_use":{"type":"boolean","description":"If true, this step's result is deleted after use to save memory"},"summary":{"type":"string","description":"Short description of what this step does"},"mock":{"type":"object","description":"Mock configuration for testing without executing the actual step","properties":{"enabled":{"type":"boolean","description":"If true, return mock value instead of executing"},"return_value":{"description":"Value to return when mocked"}}},"suspend":{"type":"object","description":"Configuration for approval/resume steps that wait for user input","properties":{"required_events":{"type":"integer","description":"Number of approvals required before continuing"},"timeout":{"type":"integer","description":"Timeout in seconds before auto-continuing or canceling"},"resume_form":{"type":"object","description":"Form schema for collecting input when resuming","properties":{"schema":{"type":"object","description":"JSON Schema for the resume form"}}},"user_auth_required":{"type":"boolean","description":"If true, only authenticated users can approve"},"user_groups_required":{"description":"Expression or list of groups that can approve","$ref":"#/components/schemas/InputTransform"},"self_approval_disabled":{"type":"boolean","description":"If true, the user who started the flow cannot approve"},"hide_cancel":{"type":"boolean","description":"If true, hide the cancel button on the approval form"},"continue_on_disapprove_timeout":{"type":"boolean","description":"If true, continue flow on timeout instead of canceling"}}},"priority":{"type":"number","description":"Execution priority for this step (higher numbers run first)"},"continue_on_error":{"type":"boolean","description":"If true, flow continues even if this step fails"},"retry":{"description":"Retry configuration if this step fails","$ref":"#/components/schemas/Retry"}},"required":["value","id"]},"InputTransform":{"description":"Maps input parameters for a step. Can be a static value or a JavaScript expression that references previous results or flow inputs","oneOf":[{"$ref":"#/components/schemas/StaticTransform"},{"$ref":"#/components/schemas/JavascriptTransform"}],"discriminator":{"propertyName":"type","mapping":{"static":"#/components/schemas/StaticTransform","javascript":"#/components/schemas/JavascriptTransform"}}},"StaticTransform":{"type":"object","description":"Static value passed directly to the step. Use for hardcoded values or resource references like '$res:path/to/resource'","properties":{"value":{"description":"The static value. For resources, use format '$res:path/to/resource'"},"type":{"type":"string","enum":["static"]}},"required":["type"]},"JavascriptTransform":{"type":"object","description":"JavaScript expression evaluated at runtime. Can reference previous step results via 'results.step_id' or flow inputs via 'flow_input.property'. Inside loops, use 'flow_input.iter.value' for the current iteration value","properties":{"expr":{"type":"string","description":"JavaScript expression returning the value. Available variables - results (object with all previous step results), flow_input (flow inputs), flow_input.iter (in loops)"},"type":{"type":"string","enum":["javascript"]}},"required":["expr","type"]},"FlowModuleValue":{"description":"The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type","oneOf":[{"$ref":"#/components/schemas/RawScript"},{"$ref":"#/components/schemas/PathScript"},{"$ref":"#/components/schemas/PathFlow"},{"$ref":"#/components/schemas/ForloopFlow"},{"$ref":"#/components/schemas/WhileloopFlow"},{"$ref":"#/components/schemas/BranchOne"},{"$ref":"#/components/schemas/BranchAll"},{"$ref":"#/components/schemas/Identity"},{"$ref":"#/components/schemas/AiAgent"}],"discriminator":{"propertyName":"type","mapping":{"rawscript":"#/components/schemas/RawScript","script":"#/components/schemas/PathScript","flow":"#/components/schemas/PathFlow","forloopflow":"#/components/schemas/ForloopFlow","whileloopflow":"#/components/schemas/WhileloopFlow","branchone":"#/components/schemas/BranchOne","branchall":"#/components/schemas/BranchAll","identity":"#/components/schemas/Identity","aiagent":"#/components/schemas/AiAgent"}}},"RawScript":{"type":"object","description":"Inline script with code defined directly in the flow. Use 'bun' as default language if unspecified. The script receives arguments from input_transforms","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"content":{"type":"string","description":"The script source code. Should export a 'main' function"},"language":{"type":"string","description":"Programming language for this script","enum":["deno","bun","python3","go","bash","powershell","postgresql","mysql","bigquery","snowflake","mssql","oracledb","graphql","nativets","php"]},"path":{"type":"string","description":"Optional path for saving this script"},"lock":{"type":"string","description":"Lock file content for dependencies"},"type":{"type":"string","enum":["rawscript"]},"tag":{"type":"string","description":"Worker group tag for execution routing"},"concurrent_limit":{"type":"number","description":"Maximum concurrent executions of this script"},"concurrency_time_window_s":{"type":"number","description":"Time window for concurrent_limit"},"custom_concurrency_key":{"type":"string","description":"Custom key for grouping concurrent executions"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"},"assets":{"type":"array","description":"External resources this script accesses (S3 objects, resources, etc.)","items":{"type":"object","required":["path","kind"],"properties":{"path":{"type":"string","description":"Path to the asset"},"kind":{"type":"string","description":"Type of asset","enum":["s3object","resource","ducklake","datatable"]},"access_type":{"type":"string","description":"Access level for this asset","enum":["r","w","rw"]},"alt_access_type":{"type":"string","description":"Alternative access level","enum":["r","w","rw"]}}}}},"required":["type","content","language","input_transforms"]},"PathScript":{"type":"object","description":"Reference to an existing script by path. Use this when calling a previously saved script instead of writing inline code","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the script's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the script in the workspace (e.g., 'f/scripts/send_email')"},"hash":{"type":"string","description":"Optional specific version hash of the script to use"},"type":{"type":"string","enum":["script"]},"tag_override":{"type":"string","description":"Override the script's default worker group tag"},"is_trigger":{"type":"boolean","description":"If true, this script is a trigger that can start the flow"}},"required":["type","path","input_transforms"]},"PathFlow":{"type":"object","description":"Reference to an existing flow by path. Use this to call another flow as a subflow","properties":{"input_transforms":{"type":"object","description":"Map of parameter names to their values (static or JavaScript expressions). These become the subflow's input arguments","additionalProperties":{"$ref":"#/components/schemas/InputTransform"}},"path":{"type":"string","description":"Path to the flow in the workspace (e.g., 'f/flows/process_user')"},"type":{"type":"string","enum":["flow"]}},"required":["type","path","input_transforms"]},"ForloopFlow":{"type":"object","description":"Executes nested modules in a loop over an iterator. Inside the loop, use 'flow_input.iter.value' to access the current iteration value, and 'flow_input.iter.index' for the index. Supports parallel execution for better performance on I/O-bound operations","properties":{"modules":{"type":"array","description":"Steps to execute for each iteration. These can reference the iteration value via 'flow_input.iter.value'","items":{"$ref":"#/components/schemas/FlowModule"}},"iterator":{"description":"JavaScript expression that returns an array to iterate over. Can reference 'results.step_id' or 'flow_input'","$ref":"#/components/schemas/InputTransform"},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["forloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (faster for I/O-bound operations). Use with parallelism to control concurrency"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true. Limits resource usage. Can be static number or expression","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","iterator","skip_failures","type"]},"WhileloopFlow":{"type":"object","description":"Executes nested modules repeatedly while a condition is true. The loop checks the condition after each iteration. Use stop_after_if on modules to control loop termination","properties":{"modules":{"type":"array","description":"Steps to execute in each iteration. Use stop_after_if to control when the loop ends","items":{"$ref":"#/components/schemas/FlowModule"}},"skip_failures":{"type":"boolean","description":"If true, iteration failures don't stop the loop. Failed iterations return null"},"type":{"type":"string","enum":["whileloopflow"]},"parallel":{"type":"boolean","description":"If true, iterations run concurrently (use with caution in while loops)"},"parallelism":{"description":"Maximum number of concurrent iterations when parallel=true","$ref":"#/components/schemas/InputTransform"},"squash":{"type":"boolean"}},"required":["modules","skip_failures","type"]},"BranchOne":{"type":"object","description":"Conditional branching where only the first matching branch executes. Branches are evaluated in order, and the first one with a true expression runs. If no branches match, the default branch executes","properties":{"branches":{"type":"array","description":"Array of branches to evaluate in order. The first branch with expr evaluating to true executes","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch condition"},"expr":{"type":"string","description":"JavaScript expression that returns boolean. Can use 'results.step_id' or 'flow_input'. First true expr wins"},"modules":{"type":"array","description":"Steps to execute if this branch's expr is true","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules","expr"]}},"default":{"type":"array","description":"Steps to execute if no branch expressions match","items":{"$ref":"#/components/schemas/FlowModule"}},"type":{"type":"string","enum":["branchone"]}},"required":["branches","default","type"]},"BranchAll":{"type":"object","description":"Parallel branching where all branches execute simultaneously. Unlike BranchOne, all branches run regardless of conditions. Useful for executing independent tasks concurrently","properties":{"branches":{"type":"array","description":"Array of branches that all execute (either in parallel or sequentially)","items":{"type":"object","properties":{"summary":{"type":"string","description":"Short description of this branch's purpose"},"skip_failure":{"type":"boolean","description":"If true, failure in this branch doesn't fail the entire flow"},"modules":{"type":"array","description":"Steps to execute in this branch","items":{"$ref":"#/components/schemas/FlowModule"}}},"required":["modules"]}},"type":{"type":"string","enum":["branchall"]},"parallel":{"type":"boolean","description":"If true, all branches execute concurrently. If false, they execute sequentially"}},"required":["branches","type"]},"AgentTool":{"type":"object","description":"A tool available to an AI agent. Can be a flow module or an external MCP (Model Context Protocol) tool","properties":{"id":{"type":"string","description":"Unique identifier for this tool. Cannot contain spaces - use underscores instead (e.g., 'get_user_data' not 'get user data')"},"summary":{"type":"string","description":"Short description of what this tool does (shown to the AI)"},"value":{"$ref":"#/components/schemas/ToolValue"}},"required":["id","value"]},"ToolValue":{"description":"The implementation of a tool. Can be a flow module (script/flow) or an MCP tool reference","oneOf":[{"$ref":"#/components/schemas/FlowModuleTool"},{"$ref":"#/components/schemas/McpToolValue"},{"$ref":"#/components/schemas/WebsearchToolValue"}],"discriminator":{"propertyName":"tool_type","mapping":{"flowmodule":"#/components/schemas/FlowModuleTool","mcp":"#/components/schemas/McpToolValue","websearch":"#/components/schemas/WebsearchToolValue"}}},"FlowModuleTool":{"description":"A tool implemented as a flow module (script, flow, etc.). The AI can call this like any other flow module","allOf":[{"type":"object","properties":{"tool_type":{"type":"string","enum":["flowmodule"]}},"required":["tool_type"]},{"$ref":"#/components/schemas/FlowModuleValue"}]},"WebsearchToolValue":{"type":"object","description":"A tool implemented as a websearch tool. The AI can call this like any other websearch tool","properties":{"tool_type":{"type":"string","enum":["websearch"]}},"required":["tool_type"]},"McpToolValue":{"type":"object","description":"Reference to an external MCP (Model Context Protocol) tool. The AI can call tools from MCP servers","properties":{"tool_type":{"type":"string","enum":["mcp"]},"resource_path":{"type":"string","description":"Path to the MCP resource/server configuration"},"include_tools":{"type":"array","description":"Whitelist of specific tools to include from this MCP server","items":{"type":"string"}},"exclude_tools":{"type":"array","description":"Blacklist of tools to exclude from this MCP server","items":{"type":"string"}}},"required":["tool_type","resource_path"]},"AiAgent":{"type":"object","description":"AI agent step that can use tools to accomplish tasks. The agent receives inputs and can call any of its configured tools to complete the task","properties":{"input_transforms":{"type":"object","description":"Input parameters for the AI agent mapped to their values","properties":{"provider":{"$ref":"#/components/schemas/InputTransform"},"output_type":{"$ref":"#/components/schemas/InputTransform"},"user_message":{"$ref":"#/components/schemas/InputTransform"},"system_prompt":{"$ref":"#/components/schemas/InputTransform"},"streaming":{"$ref":"#/components/schemas/InputTransform"},"memory":{"$ref":"#/components/schemas/InputTransform"},"output_schema":{"$ref":"#/components/schemas/InputTransform"},"user_images":{"$ref":"#/components/schemas/InputTransform"},"max_completion_tokens":{"$ref":"#/components/schemas/InputTransform"},"temperature":{"$ref":"#/components/schemas/InputTransform"}},"required":["provider","user_message","output_type"]},"tools":{"type":"array","description":"Array of tools the agent can use. The agent decides which tools to call based on the task","items":{"$ref":"#/components/schemas/AgentTool"}},"type":{"type":"string","enum":["aiagent"]},"parallel":{"type":"boolean","description":"If true, the agent can execute multiple tool calls in parallel"}},"required":["tools","type","input_transforms"]},"Identity":{"type":"object","description":"Pass-through module that returns its input unchanged. Useful for flow structure or as a placeholder","properties":{"type":{"type":"string","enum":["identity"]},"flow":{"type":"boolean","description":"If true, marks this as a flow identity (special handling)"}},"required":["type"]},"FlowStatus":{"type":"object","properties":{"step":{"type":"integer"},"modules":{"type":"array","items":{"$ref":"#/components/schemas/FlowStatusModule"}},"user_states":{"additionalProperties":true},"preprocessor_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"}]},"failure_module":{"allOf":[{"$ref":"#/components/schemas/FlowStatusModule"},{"type":"object","properties":{"parent_module":{"type":"string"}}}]},"retry":{"type":"object","properties":{"fail_count":{"type":"integer"},"failed_jobs":{"type":"array","items":{"type":"string","format":"uuid"}}}}},"required":["step","modules","failure_module"]},"FlowStatusModule":{"type":"object","properties":{"type":{"type":"string","enum":["WaitingForPriorSteps","WaitingForEvents","WaitingForExecutor","InProgress","Success","Failure"]},"id":{"type":"string"},"job":{"type":"string","format":"uuid"},"count":{"type":"integer"},"progress":{"type":"integer"},"iterator":{"type":"object","properties":{"index":{"type":"integer"},"itered":{"type":"array","items":{}},"itered_len":{"type":"integer"},"args":{}}},"flow_jobs":{"type":"array","items":{"type":"string"}},"flow_jobs_success":{"type":"array","items":{"type":"boolean"}},"flow_jobs_duration":{"type":"object","properties":{"started_at":{"type":"array","items":{"type":"string"}},"duration_ms":{"type":"array","items":{"type":"integer"}}}},"branch_chosen":{"type":"object","properties":{"type":{"type":"string","enum":["branch","default"]},"branch":{"type":"integer"}},"required":["type"]},"branchall":{"type":"object","properties":{"branch":{"type":"integer"},"len":{"type":"integer"}},"required":["branch","len"]},"approvers":{"type":"array","items":{"type":"object","properties":{"resume_id":{"type":"integer"},"approver":{"type":"string"}},"required":["resume_id","approver"]}},"failed_retries":{"type":"array","items":{"type":"string","format":"uuid"}},"skipped":{"type":"boolean"},"agent_actions":{"type":"array","items":{"type":"object","oneOf":[{"type":"object","properties":{"job_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"type":{"type":"string","enum":["tool_call"]},"module_id":{"type":"string"}},"required":["job_id","function_name","type","module_id"]},{"type":"object","properties":{"call_id":{"type":"string","format":"uuid"},"function_name":{"type":"string"},"resource_path":{"type":"string"},"type":{"type":"string","enum":["mcp_tool_call"]},"arguments":{"type":"object"}},"required":["call_id","function_name","resource_path","type"]},{"type":"object","properties":{"type":{"type":"string","enum":["web_search"]}},"required":["type"]},{"type":"object","properties":{"type":{"type":"string","enum":["message"]}},"required":["content","type"]}]}},"agent_actions_success":{"type":"array","items":{"type":"boolean"}}},"required":["type"]}}`,
-  "wmill-cli": `---
-name: wmill-cli
-description: Reference for Windmill CLI commands and usage.
----
-
-# Windmill CLI Reference
-
-Use these commands to manage your Windmill workspace.
-
-# Windmill CLI Commands
-
-The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
-
-Current version: 1.615.0
-
-## Global Options
-
-- \`--workspace <workspace:string>\` - Specify the target workspace. This overrides the default workspace.
-- \`--debug --verbose\` - Show debug/verbose logs
-- \`--show-diffs\` - Show diff informations when syncing (may show sensitive informations)
-- \`--token <token:string>\` - Specify an API token. This will override any stored token.
-- \`--base-url <baseUrl:string>\` - Specify the base URL of the API. If used, --token and --workspace are required and no local remote/workspace already set will be used.
-- \`--config-dir <configDir:string>\` - Specify a custom config directory. Overrides WMILL_CONFIG_DIR environment variable and default ~/.config location.
-
-## Commands
-
-### app
-
-app related commands
-
-**Subcommands:**
-
-- \`app push <file_path:string> <remote_path:string>\` - push a local app 
-- \`app generate-locks [app_folder:string]\` - re-generate the lockfiles for app runnables inline scripts that have changed
-  - \`--yes\` - Skip confirmation prompt
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--default-ts <runtime:string>\` - Default TypeScript runtime (bun or deno)
-
-### dependencies
-
-workspace dependencies related commands
-
-**Alias:** \`deps\`
-
-**Subcommands:**
-
-- \`dependencies push <file_path:string>\` - Push workspace dependencies from a local file
-
-### dev
-
-Launch a dev server that will spawn a webserver with HMR
-
-**Options:**
-- \`--includes <pattern...:string>\` - Filter paths givena glob pattern or path
-
-### flow
-
-flow related commands
-
-**Options:**
-- \`--show-archived\` - Enable archived scripts in output
-
-**Subcommands:**
-
-- \`flow push <file_path:string> <remote_path:string>\` - push a local flow spec. This overrides any remote versions.
-- \`flow run <path:string>\` - run a flow by path.
-  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
-  - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
-- \`flow generate-locks [flow:file]\` - re-generate the lock files of all inline scripts of all updated flows
-  - \`--yes\` - Skip confirmation prompt
-  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which file to NOT take into account.
-- \`flow bootstrap <flow_path:string>\` - create a new empty flow
-  - \`--summary <summary:string>\` - script summary
-  - \`--description <description:string>\` - script description
-
-### folder
-
-folder related commands
-
-**Subcommands:**
-
-- \`folder push <file_path:string> <remote_path:string>\` - push a local folder spec. This overrides any remote versions.
-
-### gitsync-settings
-
-Manage git-sync settings between local wmill.yaml and Windmill backend
-
-**Subcommands:**
-
-- \`gitsync-settings pull\` - Pull git-sync settings from Windmill backend to local wmill.yaml
-  - \`--replace\` - Replace existing settings (non-interactive mode)
-  - \`--diff\` - Show differences without applying changes
-  - \`--json-output\` - Output in JSON format
-  - \`--yes\` - Skip interactive prompts and use default behavior
-  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
-- \`gitsync-settings push\` - Push git-sync settings from local wmill.yaml to Windmill backend
-  - \`--diff\` - Show what would be pushed without applying changes
-  - \`--json-output\` - Output in JSON format
-  - \`--yes\` - Skip interactive prompts and use default behavior
-  - \`--promotion <branch:string>\` - Use promotionOverrides from the specified branch instead of regular overrides
-
-### hub
-
-Hub related commands. EXPERIMENTAL. INTERNAL USE ONLY.
-
-**Subcommands:**
-
-- \`hub pull\` - pull any supported definitions. EXPERIMENTAL.
-
-### init
-
-Bootstrap a windmill project with a wmill.yaml file
-
-**Options:**
-- \`--use-default\` - Use default settings without checking backend
-- \`--use-backend\` - Use backend git-sync settings if available
-- \`--repository <repo:string>\` - Specify repository path (e.g., u/user/repo) when using backend settings
-- \`--bind-profile\` - Automatically bind active workspace profile to current Git branch
-- \`--no-bind-profile\` - Skip workspace profile binding prompt
-
-### instance
-
-sync local with a remote instance or the opposite (push or pull)
-
-**Subcommands:**
-
-- \`instance add [instance_name:string] [remote:string] [token:string]\` - Add a new instance
-- \`instance remove <instance:string:instance>\` - Remove an instance
-- \`instance switch <instance:string:instance>\` - Switch the current instance
-- \`instance pull\` - Pull instance settings, users, configs, instance groups and overwrite local
-  - \`--yes\` - Pull without needing confirmation
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--skip-users\` - Skip pulling users
-  - \`--skip-settings\` - Skip pulling settings
-  - \`--skip-configs\` - Skip pulling configs (worker groups and SMTP)
-  - \`--skip-groups\` - Skip pulling instance groups
-  - \`--include-workspaces\` - Also pull workspaces
-  - \`--folder-per-instance\` - Create a folder per instance
-- \`instance push\` - Push instance settings, users, configs, group and overwrite remote
-  - \`--yes\` - Push without needing confirmation
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--skip-users\` - Skip pushing users
-  - \`--skip-settings\` - Skip pushing settings
-  - \`--skip-configs\` - Skip pushing configs (worker groups and SMTP)
-  - \`--skip-groups\` - Skip pushing instance groups
-  - \`--include-workspaces\` - Also push workspaces
-  - \`--folder-per-instance\` - Create a folder per instance
-- \`instance whoami\` - Display information about the currently logged-in user
-
-### jobs
-
-Pull completed and queued jobs from workspace
-
-**Arguments:** \`[workspace:string]\`
-
-**Options:**
-- \`-c, --completed-output <file:string>\` - Completed jobs output file (default: completed_jobs.json)
-- \`-q, --queued-output <file:string>\` - Queued jobs output file (default: queued_jobs.json)
-- \`--skip-worker-check\` - Skip checking for active workers before export
-
-### queues
-
-List all queues with their metrics
-
-**Arguments:** \`[workspace:string] the optional workspace to filter by (default to all workspaces)\`
-
-**Options:**
-- \`--instance [instance]\` - Name of the instance to push to, override the active instance
-- \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
-
-### resource
-
-resource related commands
-
-**Subcommands:**
-
-- \`resource push <file_path:string> <remote_path:string>\` - push a local resource spec. This overrides any remote versions.
-
-### resource-type
-
-resource type related commands
-
-**Subcommands:**
-
-- \`resource-type list\` - list all resource types
-  - \`--schema\` - Show schema in the output
-- \`resource-type push <file_path:string> <name:string>\` - push a local resource spec. This overrides any remote versions.
-- \`resource-type generate-namespace\` - Create a TypeScript definition file with the RT namespace generated from the resource types
-
-### schedule
-
-schedule related commands
-
-**Subcommands:**
-
-- \`schedule push <file_path:string> <remote_path:string>\` - push a local schedule spec. This overrides any remote versions.
-
-### script
-
-script related commands
-
-**Options:**
-- \`--show-archived\` - Enable archived scripts in output
-
-**Subcommands:**
-
-- \`script push <path:file>\` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)
-- \`script show <path:file>\` - show a scripts content
-- \`script run <path:file>\` - run a script by path
-  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
-  - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
-- \`script bootstrap <path:file> <language:string>\` - create a new script
-  - \`--summary <summary:string>\` - script summary
-  - \`--description <description:string>\` - script description
-- \`script generate-metadata [script:file]\` - re-generate the metadata file updating the lock and the script schema (for flows, use \`wmill flow generate-locks\`)
-  - \`--yes\` - Skip confirmation prompt
-  - \`--dry-run\` - Perform a dry run without making changes
-  - \`--lock-only\` - re-generate only the lock
-  - \`--schema-only\` - re-generate only script schema
-  - \`-e --excludes <patterns:file[]>\` - Comma separated patterns to specify which file to NOT take into account.
-
-### sync
-
-sync local with a remote workspaces or the opposite (push or pull)
-
-**Subcommands:**
-
-- \`sync pull\` - Pull any remote changes and apply them locally.
-  - \`--yes\` - Pull without needing confirmation
-  - \`--plain-secrets\` - Pull secrets as plain text
-  - \`--json\` - Use JSON instead of YAML
-  - \`--skip-variables\` - Skip syncing variables (including secrets)
-  - \`--skip-secrets\` - Skip syncing only secrets variables
-  - \`--skip-resources\` - Skip syncing  resources
-  - \`--skip-resource-types\` - Skip syncing  resource types
-  - \`--skip-scripts\` - Skip syncing scripts
-  - \`--skip-flows\` - Skip syncing flows
-  - \`--skip-apps\` - Skip syncing apps
-  - \`--skip-folders\` - Skip syncing folders
-  - \`--skip-scripts-metadata\` - Skip syncing scripts metadata, focus solely on logic
-  - \`--include-schedules\` - Include syncing  schedules
-  - \`--include-triggers\` - Include syncing triggers
-  - \`--include-users\` - Include syncing users
-  - \`--include-groups\` - Include syncing groups
-  - \`--include-settings\` - Include syncing workspace settings
-  - \`--include-key\` - Include workspace encryption key
-  - \`--skip-branch-validation\` - Skip git branch validation and prompts
-  - \`--json-output\` - Output results in JSON format
-- \`sync push\` - Push any local changes and apply them remotely.
-  - \`--yes\` - Push without needing confirmation
-  - \`--plain-secrets\` - Push secrets as plain text
-  - \`--json\` - Use JSON instead of YAML
-  - \`--skip-variables\` - Skip syncing variables (including secrets)
-  - \`--skip-secrets\` - Skip syncing only secrets variables
-  - \`--skip-resources\` - Skip syncing  resources
-  - \`--skip-resource-types\` - Skip syncing  resource types
-  - \`--skip-scripts\` - Skip syncing scripts
-  - \`--skip-flows\` - Skip syncing flows
-  - \`--skip-apps\` - Skip syncing apps
-  - \`--skip-folders\` - Skip syncing folders
-  - \`--skip-scripts-metadata\` - Skip syncing scripts metadata, focus solely on logic
-  - \`--include-schedules\` - Include syncing schedules
-  - \`--include-triggers\` - Include syncing triggers
-  - \`--include-users\` - Include syncing users
-  - \`--include-groups\` - Include syncing groups
-  - \`--include-settings\` - Include syncing workspace settings
-  - \`--include-key\` - Include workspace encryption key
-  - \`--skip-branch-validation\` - Skip git branch validation and prompts
-  - \`--json-output\` - Output results in JSON format
-  - \`--parallel <number>\` - Number of changes to process in parallel
-
-### trigger
-
-trigger related commands
-
-**Subcommands:**
-
-- \`trigger push <file_path:string> <remote_path:string>\` - push a local trigger spec. This overrides any remote versions.
-
-### user
-
-user related commands
-
-**Subcommands:**
-
-- \`user add <email:string> [password:string]\` - Create a user
-  - \`--superadmin\` - Specify to make the new user superadmin.
-  - \`--company <company:string>\` - Specify to set the company of the new user.
-  - \`--name <name:string>\` - Specify to set the name of the new user.
-- \`user remove <email:string>\` - Delete a user
-- \`user create-token\`
-
-### variable
-
-variable related commands
-
-**Subcommands:**
-
-- \`variable push <file_path:string> <remote_path:string>\` - Push a local variable spec. This overrides any remote versions.
-  - \`--plain-secrets\` - Push secrets as plain text
-- \`variable add <value:string> <remote_path:string>\` - Create a new variable on the remote. This will update the variable if it already exists.
-  - \`--plain-secrets\` - Push secrets as plain text
-  - \`--public\` - Legacy option, use --plain-secrets instead
-
-### version
-
-Show version information
-
-### worker-groups
-
-display worker groups, pull and push worker groups configs
-
-**Subcommands:**
-
-- \`worker-groups pull\` - Pull worker groups (similar to \`wmill instance pull --skip-users --skip-settings --skip-groups\`)
-  - \`--instance\` - Name of the instance to push to, override the active instance
-  - \`--base-url\` - Base url to be passed to the instance settings instead of the local one
-  - \`--yes\` - Pull without needing confirmation
-- \`worker-groups push\` - Push instance settings, users, configs, group and overwrite remote
-  - \`--instance [instance]\` - Name of the instance to push to, override the active instance
-  - \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
-  - \`--yes\` - Push without needing confirmation
-
-### workers
-
-List all workers grouped by worker groups
-
-**Options:**
-- \`--instance [instance]\` - Name of the instance to push to, override the active instance
-- \`--base-url [baseUrl]\` - If used with --token, will be used as the base url for the instance
-
-### workspace
-
-workspace related commands
-
-**Alias:** \`profile\`
-
-**Subcommands:**
-
-- \`workspace switch <workspace_name:string:workspace>\` - Switch to another workspace
-- \`workspace add [workspace_name:string] [workspace_id:string] [remote:string]\` - Add a workspace
-  - \`-c --create\` - Create the workspace if it does not exist
-  - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
-- \`workspace remove <workspace_name:string>\` - Remove a workspace
-- \`workspace whoami\` - Show the currently active user
-- \`workspace list\` - List workspaces on the remote server that you have access to
-- \`workspace bind\` - Bind the current Git branch to the active workspace
-  - \`--branch <branch:string>\` - Specify branch (defaults to current)
-- \`workspace unbind\` - Remove workspace binding from the current Git branch
-  - \`--branch <branch:string>\` - Specify branch (defaults to current)
-- \`workspace fork [workspace_name:string] [workspace_id:string]\` - Create a forked workspace
-  - \`--create-workspace-name <workspace_name:string>\` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
-- \`workspace delete-fork <fork_name:string>\` - Delete a forked workspace and git branch
-  - \`-y --yes\` - Skip confirmation prompt
-
-`,
   "raw-app": `---
 name: raw-app
 description: Create raw apps with React/Svelte/Vue frontend and backend runnables.
