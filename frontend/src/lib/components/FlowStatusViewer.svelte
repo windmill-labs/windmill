@@ -33,6 +33,7 @@
 		onStart?: () => void
 		onJobsLoaded?: ({ job, force }: { job: Job; force: boolean }) => void
 		onDone?: ({ job }: { job: CompletedJob }) => void
+		showLogsWithResult?: boolean
 	}
 
 	let {
@@ -58,7 +59,8 @@
 		customUi,
 		onStart,
 		onJobsLoaded,
-		onDone
+		onDone,
+		showLogsWithResult = false
 	}: Props = $props()
 
 	let lastJobId: string = jobId
@@ -171,5 +173,6 @@
 				}
 			}
 		}}
+		{showLogsWithResult}
 	/>
 {/key}

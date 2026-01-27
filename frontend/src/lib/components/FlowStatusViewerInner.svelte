@@ -49,6 +49,7 @@
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
 	import JobOtelTraces from './JobOtelTraces.svelte'
 	import JobDetailHeader from './runs/JobDetailHeader.svelte'
+	import LogViewer from './LogViewer.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
@@ -128,6 +129,7 @@
 			isToolCallToBeLoaded: (storeKey: string) => boolean
 			addToolCallToLoad: (storeKey: string) => void
 		}
+		showLogsWithResult?: boolean
 	}
 
 	let {
@@ -165,7 +167,8 @@
 		onStart = undefined,
 		onJobsLoaded = undefined,
 		onDone = undefined,
-		toolCallStore
+		toolCallStore,
+		showLogsWithResult = false
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1317,33 +1320,79 @@
 				</div>
 			{/if}
 		{:else if render}
-			<div class={'flex flex-col'}>
-				{#if job}
-					<div class="mb-4">
-						<JobDetailHeader {job} extraCompact />
-					</div>
-				{/if}
-				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-				<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4">
-					{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
-						<DisplayResult
-							workspaceId={job?.workspace_id}
-							result_stream={job.result_stream}
-							jobId={job?.id}
-							result={'result' in job ? job.result : undefined}
-							language={job?.language}
-							isTest={false}
-						/>
-					{:else if job}
-						<div class="w-full h-full flex items-center justify-center text-secondary">
-							No output is available yet
-						</div>
-					{:else}
-						<div class="w-full h-full flex items-center justify-center">
-							<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+			<div class={'flex flex-col w-full'}>
+				{#if showLogsWithResult && job}
+					<!-- Side-by-side result and logs for simple jobs -->
+					{#if job}
+						<div class="mb-4">
+							<JobDetailHeader {job} extraCompact />
 						</div>
 					{/if}
-				</div>
+					<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full">
+						<!-- Result Column -->
+						<div class="flex flex-col min-h-0 max-h-full">
+							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+							<div class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary p-4">
+								{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
+									<DisplayResult
+										workspaceId={job?.workspace_id}
+										result_stream={job.result_stream}
+										jobId={job?.id}
+										result={'result' in job ? job.result : undefined}
+										language={job?.language}
+										isTest={false}
+									/>
+								{:else if job}
+									<div class="w-full h-full flex items-center justify-center text-secondary">
+										No output is available yet
+									</div>
+								{:else}
+									<div class="w-full h-full flex items-center justify-center">
+										<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+									</div>
+								{/if}
+							</div>
+						</div>
+
+						<!-- Logs Column -->
+						<div class="flex flex-col min-h-0 max-h-full">
+							<h3 class="text-xs font-semibold text-emphasis mb-1">Logs</h3>
+							<div class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary">
+								<LogViewer
+									jobId={job.id}
+									duration={job?.['duration_ms']}
+									mem={job?.['mem_peak']}
+									isLoading={job?.['running'] == false}
+									content={job?.logs}
+									tag={job?.tag}
+								/>
+							</div>
+						</div>
+					</div>
+				{:else}
+					<!-- Default single-column result -->
+					<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4">
+						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
+							<DisplayResult
+								workspaceId={job?.workspace_id}
+								result_stream={job.result_stream}
+								jobId={job?.id}
+								result={'result' in job ? job.result : undefined}
+								language={job?.language}
+								isTest={false}
+							/>
+						{:else if job}
+							<div class="w-full h-full flex items-center justify-center text-secondary">
+								No output is available yet
+							</div>
+						{:else}
+							<div class="w-full h-full flex items-center justify-center">
+								<div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+							</div>
+						{/if}
+					</div>
+				{/if}
 			</div>
 		{/if}
 		{#if render}
@@ -1627,6 +1676,9 @@
 										graphTabOpen={selected == 'graph' && graphTabOpen}
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 										{toolCallStore}
+										showLogsWithResult={['script', 'rawscript'].includes(
+											job.raw_flow?.modules[i]?.value?.type ?? ''
+										)}
 									/>
 									{#if mod.agent_actions && mod.agent_actions.length > 0 && mod.id}
 										{@const storeKeyPrefix = getParentLoopsPrefix(mod.id)}
