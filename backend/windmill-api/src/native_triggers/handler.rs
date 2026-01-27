@@ -43,6 +43,8 @@ async fn require_is_writer_on_runnable(
 pub struct ListQuery {
     pub page: Option<usize>,
     pub per_page: Option<usize>,
+    pub path: Option<String>,
+    pub is_flow: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -502,6 +504,8 @@ async fn list_native_triggers_handler<T: External>(
         service_name,
         query.page,
         query.per_page,
+        query.path.as_deref(),
+        query.is_flow,
     )
     .await?;
     tx.commit().await?;

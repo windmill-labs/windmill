@@ -810,7 +810,7 @@ pub(crate) async fn tarball_workspace(
 
             for service_name in ServiceName::iter() {
                 let native_triggers =
-                    list_native_triggers(&mut *tx, &w_id, service_name, None, None).await?;
+                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None).await?;
 
                 for trigger in native_triggers {
                     let trigger_str = &to_string_without_metadata(

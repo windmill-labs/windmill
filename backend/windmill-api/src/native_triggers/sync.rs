@@ -194,7 +194,7 @@ pub async fn sync_workspace_triggers<T: External>(
     );
 
     let windmill_triggers =
-        list_native_triggers(db, workspace_id, T::SERVICE_NAME, None, None).await?;
+        list_native_triggers(db, workspace_id, T::SERVICE_NAME, None, None, None, None).await?;
 
     if windmill_triggers.is_empty() {
         tracing::info!(

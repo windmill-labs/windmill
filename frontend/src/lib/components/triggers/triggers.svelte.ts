@@ -473,16 +473,14 @@ export class Triggers {
 	): Promise<void> {
 		if (!workspaceId) return
 		try {
-			const allTriggers: NativeTrigger[] = await NativeTriggerService.listNativeTriggers({
+			const triggers: NativeTrigger[] = await NativeTriggerService.listNativeTriggers({
 				workspace: workspaceId,
-				serviceName
+				serviceName,
+				path,
+				isFlow
 			})
-			// Filter triggers for this specific script/flow path
-			const filteredTriggers = allTriggers.filter(
-				(t) => t.script_path === path && t.is_flow === isFlow
-			)
 			// Convert to the trigger format used by updateTriggers
-			const triggerData = filteredTriggers.map((t) => ({
+			const triggerData = triggers.map((t) => ({
 				path: t.external_id,
 				script_path: t.script_path,
 				is_flow: t.is_flow,
@@ -511,15 +509,15 @@ export class Triggers {
 			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchNativeTriggers('nextcloud', workspaceId, path, isFlow, user),
 			...(get(enterpriseLicense)
 				? [
 						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user)
 					]
 				: [])
 		])
