@@ -39,53 +39,11 @@ import { regenerateAgentDocs } from "./generate_agents.ts";
 import {
   getFolderSuffix,
   hasFolderSuffix,
-  setNonDottedPaths,
+  loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
-
-/**
- * Search for wmill.yaml by traversing upward from the current directory.
- * Unlike the standard findWmillYaml() in conf.ts, this does not stop at
- * the git root - it continues searching until the filesystem root.
- * This is needed for `app dev` which runs from inside a raw_app folder
- * that may be deeply nested within a larger git repository.
- */
-async function findAndLoadNonDottedPathsSetting(): Promise<void> {
-  let currentDir = process.cwd();
-
-  while (true) {
-    const wmillYamlPath = path.join(currentDir, "wmill.yaml");
-
-    if (fs.existsSync(wmillYamlPath)) {
-      try {
-        const config = await yamlParseFile(wmillYamlPath) as {
-          nonDottedPaths?: boolean;
-        };
-        setNonDottedPaths(config?.nonDottedPaths ?? false);
-        log.debug(
-          `Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${
-            config?.nonDottedPaths ?? false
-          }`,
-        );
-      } catch (e) {
-        log.debug(`Failed to parse wmill.yaml at ${wmillYamlPath}: ${e}`);
-      }
-      return;
-    }
-
-    // Check if we've reached the filesystem root
-    const parentDir = path.dirname(currentDir);
-    if (parentDir === currentDir) {
-      // Reached filesystem root without finding wmill.yaml
-      log.debug("No wmill.yaml found, using default dotted paths");
-      return;
-    }
-
-    currentDir = parentDir;
-  }
-}
 
 // HTML template with live reload and SQL migration modal
 const createHTML = (jsPath: string, cssPath: string) => `
@@ -353,7 +311,7 @@ async function dev(opts: DevOptions) {
 
   // Search for wmill.yaml by traversing upward (without git root constraint)
   // to initialize nonDottedPaths setting before using folder suffix functions
-  await findAndLoadNonDottedPathsSetting();
+  await loadNonDottedPathsSetting();
 
   // Validate that we're in a .raw_app folder
   const cwd = process.cwd();
