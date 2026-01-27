@@ -946,7 +946,10 @@ pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
 /// Checks that a user has at least read access to the path for preview jobs.
 /// This prevents privilege escalation where a user could run preview code
 /// under a path they don't have access to.
-pub fn require_path_read_access_for_preview(authed: &ApiAuthed, path: &Option<String>) -> Result<()> {
+pub fn require_path_read_access_for_preview(
+    authed: &ApiAuthed,
+    path: &Option<String>,
+) -> Result<()> {
     let Some(path) = path else {
         return Ok(());
     };
@@ -989,6 +992,7 @@ pub fn require_path_read_access_for_preview(authed: &ApiAuthed, path: &Option<St
                 )))
             }
         }
+        "hub" => Ok(()),
         _ => Err(Error::BadRequest(format!(
             "Invalid path format for preview job: {}. Path must start with 'u/' or 'f/'",
             path
