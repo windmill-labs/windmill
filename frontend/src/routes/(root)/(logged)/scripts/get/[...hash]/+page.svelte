@@ -89,6 +89,7 @@
 	let script: Script | undefined = $state()
 	let topHash: string | undefined = $state()
 	let can_write = $state(false)
+	let isHubScript = $state(false)
 	let deploymentInProgress = $state(false)
 	let deploymentJobId: string | undefined = $state(undefined)
 	let intervalId: number
@@ -181,6 +182,42 @@
 	}
 
 	async function loadScript(hash: string): Promise<void> {
+		// Check if this is a hub script path
+		if (hash.startsWith('hub/')) {
+			isHubScript = true
+			try {
+				const hubScript = await ScriptService.getHubScriptByPath({ path: hash })
+				// Create a partial Script object from hub script data
+				script = {
+					hash: '',
+					path: hash,
+					summary: hubScript.summary ?? '',
+					description: '',
+					content: hubScript.content,
+					created_by: '',
+					created_at: '',
+					archived: false,
+					deleted: false,
+					is_template: false,
+					extra_perms: {},
+					lock: hubScript.lockfile,
+					language: hubScript.language as Script['language'],
+					kind: 'script',
+					starred: false,
+					schema: hubScript.schema as Script['schema'],
+					no_main_func: false,
+					has_preprocessor: false
+				}
+				starred = false
+				can_write = false
+				return
+			} catch (e) {
+				sendUserToast('Could not load hub script: ' + e.body, true)
+				return
+			}
+		}
+
+		isHubScript = false
 		try {
 			script = await ScriptService.getScriptByHash({
 				workspace: $workspaceStore!,
@@ -245,15 +282,28 @@
 		try {
 			runLoading = true
 			const scheduledFor = scheduledForStr ? new Date(scheduledForStr).toISOString() : undefined
-			let run = await JobService.runScriptByHash({
-				workspace: $workspaceStore!,
-				hash: script?.hash ?? '',
-				requestBody: args,
-				scheduledFor,
-				invisibleToOwner,
-				tag: overrideTag,
-				skipPreprocessor: true
-			})
+			let run: string
+			if (isHubScript) {
+				run = await JobService.runScriptByPath({
+					workspace: $workspaceStore!,
+					path: script?.path ?? '',
+					requestBody: args,
+					scheduledFor,
+					invisibleToOwner,
+					tag: overrideTag,
+					skipPreprocessor: true
+				})
+			} else {
+				run = await JobService.runScriptByHash({
+					workspace: $workspaceStore!,
+					hash: script?.hash ?? '',
+					requestBody: args,
+					scheduledFor,
+					invisibleToOwner,
+					tag: overrideTag,
+					skipPreprocessor: true
+				})
+			}
 			await goto('/run/' + run + '?workspace=' + $workspaceStore)
 		} catch (err) {
 			runLoading = false
@@ -763,13 +813,17 @@
 					</div>
 
 					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
-						<span class="text-2xs text-secondary">
-							Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
-						</span>
+						{#if !isHubScript}
+							<span class="text-2xs text-secondary">
+								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+							</span>
+						{/if}
 						<div class="flex flex-row gap-x-2 flex-wrap items-center">
-							<Badge small color="gray">
-								{truncateHash(script?.hash ?? '')}
-							</Badge>
+							{#if !isHubScript}
+								<Badge small color="gray">
+									{truncateHash(script?.hash ?? '')}
+								</Badge>
+							{/if}
 							{#if script?.is_template}
 								<Badge color="blue">Template</Badge>
 							{/if}
