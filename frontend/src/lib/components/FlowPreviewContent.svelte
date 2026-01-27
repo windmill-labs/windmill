@@ -530,7 +530,6 @@
 					}}
 					bind:selectedJobStep
 					bind:rightColumnSelect
-					bind:isOwner
 					{render}
 					{customUi}
 				/>

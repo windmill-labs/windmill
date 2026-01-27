@@ -109,8 +109,6 @@
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
 
-	let manuallySetLogs: boolean = $state(false)
-
 	setContext(
 		'FlowGraphAssetContext',
 		initFlowGraphAssetsCtx({ getModules: () => job?.raw_flow?.modules ?? [] })
@@ -749,7 +747,7 @@
 									isTest={false}
 								/>
 							{:else}
-								<div class="text-secondary">No output is available yet</div>
+								<div class="text-secondary text-sm">No output is available yet</div>
 							{/if}
 						</div>
 					</div>
@@ -757,12 +755,7 @@
 
 				<!-- Logs and outputs-->
 				<div class="mr-2 sm:mr-0 mt-6">
-					<Tabs
-						bind:selected={viewTab}
-						onTabClick={(value) => {
-							manuallySetLogs = value == 'logs'
-						}}
-					>
+					<Tabs bind:selected={viewTab}>
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />
 						<Tab value="traces" label="Traces" />

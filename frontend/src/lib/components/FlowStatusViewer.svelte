@@ -3,8 +3,7 @@
 	import type { FlowState } from './flows/flowState'
 	import { setContext, untrack } from 'svelte'
 	import type { DurationStatus, FlowStatusViewerContext, GraphModuleState } from './graph'
-	import { isOwner as loadIsOwner, type StateStore } from '$lib/utils'
-	import { userStore, workspaceStore } from '$lib/stores'
+	import { type StateStore } from '$lib/utils'
 	import type { CompletedJob, Job } from '$lib/gen'
 
 	interface Props {
@@ -13,14 +12,12 @@
 		workspaceId?: string | undefined
 		flowState?: FlowState
 		selectedJobStep?: string | undefined
-		hideFlowResult?: boolean
 		hideTimeline?: boolean
 		hideDownloadInGraph?: boolean
 		hideNodeDefinition?: boolean
 		hideJobId?: boolean
 		hideDownloadLogs?: boolean
 		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
-		isOwner?: boolean
 		wideResults?: boolean
 		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
@@ -42,14 +39,12 @@
 		workspaceId = undefined,
 		flowState = $bindable({}),
 		selectedJobStep = $bindable(undefined),
-		hideFlowResult = false,
 		hideTimeline = false,
 		hideDownloadInGraph = false,
 		hideNodeDefinition = false,
 		hideJobId = false,
 		hideDownloadLogs = false,
 		rightColumnSelect = $bindable('timeline'),
-		isOwner = $bindable(false),
 		wideResults = false,
 		localModuleStates = $bindable({}),
 		localDurationStatuses = $bindable({}),
@@ -79,10 +74,6 @@
 		hideDownloadLogs
 	})
 
-	function loadOwner(path: string) {
-		isOwner = loadIsOwner(path, $userStore!, workspaceId ?? $workspaceStore!)
-	}
-
 	async function updateJobId() {
 		if (jobId !== lastJobId) {
 			console.log('updateJobId 3', jobId)
@@ -95,8 +86,6 @@
 			localModuleStates = {}
 		}
 	}
-
-	let lastScriptPath: string | undefined = $state(undefined)
 
 	$effect.pre(() => {
 		jobId
@@ -120,14 +109,7 @@
 
 {#key jobId}
 	<FlowStatusViewerInner
-		{hideFlowResult}
-		onJobsLoaded={({ job, force }) => {
-			if (job.script_path != lastScriptPath && job.script_path) {
-				lastScriptPath = job.script_path
-				loadOwner(lastScriptPath ?? '')
-			}
-			onJobsLoaded?.({ job, force })
-		}}
+		{onJobsLoaded}
 		globalModuleStates={[]}
 		bind:localModuleStates
 		bind:selectedNode={selectedJobStep}
@@ -138,7 +120,6 @@
 		{initialJob}
 		{jobId}
 		{workspaceId}
-		{isOwner}
 		{wideResults}
 		bind:rightColumnSelect
 		{render}
