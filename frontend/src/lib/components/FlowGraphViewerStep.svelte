@@ -15,7 +15,7 @@
 
 	import { twMerge } from 'tailwind-merge'
 	import FlowModuleScript from './flows/content/FlowModuleScript.svelte'
-	import { Copy } from 'lucide-svelte'
+	import { Copy, Expand } from 'lucide-svelte'
 	import HighlightTheme from './HighlightTheme.svelte'
 
 	export let schema: any | undefined = undefined
@@ -41,14 +41,14 @@
 						<IconedPath path={stepDetail?.value?.path ?? ''} />
 					</a>
 				</div>
-				<div class="text-2xs mb-4 mt-2">
-					<h3 class="mb-2">Step Inputs</h3>
+				<div class="text-xs mb-4 mt-2">
+					<h3 class="mb-1 text-xs font-normal text-primary">Step Inputs</h3>
 
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 				{#if stepDetail.value.path.startsWith('hub/')}
 					<div class="mt-6">
-						<h3 class="mb-2">Code</h3>
+						<h3 class="mb-1 text-xs font-normal text-primary">Code</h3>
 						<iframe
 							class="w-full h-full text-sm"
 							title="embedded script from hub"
@@ -59,15 +59,15 @@
 				{/if}
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4 mt-2">
-					<h3 class="mb-2">Step Inputs</h3>
+					<h3 class="mb-1 text-xs font-normal text-primary">Step Inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 
-				<h3 class="mb-2">Code</h3>
-				<span class="!text-xs">
+				<h3 class="mb-1 text-xs font-normal text-primary mt-8">Code</h3>
+				<div class="!text-xs rounded-md p-2 border bg-surface-input">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
-				</span>
-				<h3 class="mt-4 mb-2">Lockfile</h3>
+				</div>
+				<h3 class="mt-8 mb-1 text-xs font-normal text-primary">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
 						<pre class="bg-surface-secondary text-sm p-2 h-full overflow-auto w-full"
@@ -111,7 +111,7 @@
 				{/if}
 				<span
 					class={twMerge(
-						'font-medium text-lg',
+						'font-semibold text-emphasis text-sm',
 						stepDetail.id !== 'failure' && stepDetail.id !== 'preprocessor' ? 'ml-2' : ''
 					)}
 				>
@@ -165,33 +165,36 @@
 		{:else if stepDetail.value.type == 'rawscript'}
 			{#if stepDetail.id !== 'preprocessor'}
 				<div class="text-xs">
-					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+					<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
 
 			<div>
-				<div class="mb-2 mt-4 flex justify-between items-center">
-					<h3 class="font-semibold">Code</h3>
-					<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
-						Expand
-					</Button>
+				<div class="mb-1 mt-8 flex justify-between items-center">
+					<h3 class="font-normal text-xs text-primary">Code</h3>
+					<Button
+						unifiedSize="sm"
+						variant="subtle"
+						onClick={codeViewer.openDrawer}
+						startIcon={{ icon: Expand }}>Expand</Button
+					>
 				</div>
-				<div class="border p-2 rounded-md">
+				<div class="border p-2 rounded-md bg-surface-input">
 					<HighlightCode
 						language={stepDetail.value.language}
 						code={stepDetail.value.content}
 						className="whitespace-pre-wrap"
 					/>
 				</div>
-				<h3 class="mb-2 mt-4">Lockfile</h3>
+				<h3 class="mb-2 mt-8 text-xs font-normal text-primary">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
-						<pre class="bg-surface-secondary text-xs p-2 h-full overflow-auto w-full"
+						<pre class="bg-surface-input rounded-md border text-xs p-2 h-full overflow-auto w-full"
 							>{stepDetail.value.lock}</pre
 						>
 					{:else}
-						<p class="bg-surface-secondary text-sm p-2 rounded">
+						<p class="bg-surface-secondary text-xs italic p-2 rounded">
 							There is no lockfile for this inline script
 						</p>
 					{/if}
@@ -199,18 +202,21 @@
 			</div>
 		{:else if stepDetail.value.type == 'script'}
 			{#if stepDetail.id !== 'preprocessor'}
-				<div class="text-2xs">
-					<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+				<div class="text-xs">
+					<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
 			{#if stepDetail.value.path.startsWith('hub/')}
 				<div class="flex flex-col grow">
-					<div class="mb-2 flex justify-between items-center">
-						<h3 class="font-semibold">Code</h3>
-						<Button size="xs2" color="light" variant="contained" on:click={codeViewer.openDrawer}>
-							Expand
-						</Button>
+					<div class="mb-1 mt-8 flex justify-between items-center">
+						<h3 class="font-normal text-xs text-primary">Code</h3>
+						<Button
+							unifiedSize="sm"
+							variant="subtle"
+							onClick={codeViewer.openDrawer}
+							startIcon={{ icon: Expand }}>Expand</Button
+						>
 					</div>
 					<iframe
 						class="w-full grow text-sm h-full"
@@ -223,8 +229,8 @@
 				<FlowModuleScript path={stepDetail.value.path} hash={jobScriptHash} />
 			{/if}
 		{:else if stepDetail.value.type == 'aiagent'}
-			<div class="text-2xs">
-				<h3 class="mb-2 font-semibold mt-2">Step Inputs</h3>
+			<div class="text-xs">
+				<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}

@@ -69,18 +69,22 @@ ${Object.entries(args)
 		<DataTable size="sm" containerClass="bg-surface-tertiary">
 			<Head>
 				<tr class="w-full">
-					<Cell head first>{argLabel ?? 'Arg'}</Cell>
+					<Cell head first>{argLabel ?? 'Input'}</Cell>
 					<Cell head last>Value</Cell>
 				</tr>
 				{#snippet headerAction()}
-					<button
-						onclick={() => {
-							jsonStr = JSON.stringify(args, null, 4)
-							jsonViewer?.openDrawer()
-						}}
-					>
-						<Expand size={18} />
-					</button>
+					<div class="center-center -m-1">
+						<Button
+							unifiedSize="md"
+							variant="subtle"
+							onClick={() => {
+								jsonStr = JSON.stringify(args, null, 4)
+								jsonViewer?.openDrawer()
+							}}
+							iconOnly
+							startIcon={{ icon: Expand }}
+						></Button>
+					</div>
 				{/snippet}
 			</Head>
 
