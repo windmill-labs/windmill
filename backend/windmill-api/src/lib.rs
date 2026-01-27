@@ -286,7 +286,7 @@ pub async fn run_server(
     port_tx: tokio::sync::oneshot::Sender<String>,
     server_mode: bool,
     mcp_mode: bool,
-    _base_internal_url: String,
+    base_internal_url: String,
     name: Option<String>,
 ) -> anyhow::Result<()> {
     let user_db = UserDB::new(db.clone());
@@ -365,7 +365,7 @@ pub async fn run_server(
                     db: db.clone(),
                     user_db: user_db.clone(),
                     auth_cache: auth_cache.clone(),
-                    base_internal_url: _base_internal_url.clone(),
+                    base_internal_url: base_internal_url.clone(),
                 });
                 if let Err(err) = smtp_server.start_listener_thread(addr).await {
                     tracing::error!("Error starting SMTP server: {err:#}");
@@ -419,7 +419,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::add_www_authenticate_header;
             let (mcp_router, mcp_cancellation_token) =
-                setup_mcp_server(db.clone(), user_db).await?;
+                setup_mcp_server(db.clone(), user_db, base_internal_url.clone()).await?;
             // Apply middleware: auth check inside WWW-Authenticate wrapper so 401s get the header
             let mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())
