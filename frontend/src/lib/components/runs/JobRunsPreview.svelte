@@ -12,7 +12,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
 	import { isFlowPreview, isScriptPreview } from '$lib/utils'
-	import { setContext, untrack } from 'svelte'
+	import { setContext, untrack, createEventDispatcher } from 'svelte'
 	import { Calendar, LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
@@ -24,6 +24,8 @@
 	}
 
 	let { id, workspace }: Props = $props()
+
+	const dispatch = createEventDispatcher()
 
 	let job: (Job & { result_stream?: string }) | undefined = $state(undefined)
 
@@ -51,6 +53,14 @@
 
 	function asWorkflowStatus(x: any): Record<string, WorkflowStatus> {
 		return x as Record<string, WorkflowStatus>
+	}
+
+	function handleFilterByConcurrencyKey(key: string) {
+		dispatch('filterByConcurrencyKey', key)
+	}
+
+	function handleFilterByWorker(worker: string) {
+		dispatch('filterByWorker', worker)
 	}
 	$effect(() => {
 		if (currentJob?.id == id) {
@@ -105,7 +115,13 @@
 <div class="h-full overflow-y-auto">
 	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
 		{#if job}
-			<JobDetailHeader {job} compact {concurrencyKey} />
+			<JobDetailHeader
+				{job}
+				compact
+				{concurrencyKey}
+				onFilterByConcurrencyKey={handleFilterByConcurrencyKey}
+				onFilterByWorker={handleFilterByWorker}
+			/>
 
 			<div class="w-full mt-6">
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>

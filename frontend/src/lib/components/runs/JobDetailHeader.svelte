@@ -29,6 +29,8 @@
 		openPersistentScriptDrawer?: () => void
 		concurrencyKey?: string
 		compact?: boolean
+		onFilterByConcurrencyKey?: (key: string) => void
+		onFilterByWorker?: (worker: string) => void
 	}
 
 	let {
@@ -37,11 +39,13 @@
 		displayPersistentScriptDefinition = false,
 		openPersistentScriptDrawer,
 		concurrencyKey,
-		compact = false
+		compact = false,
+		onFilterByConcurrencyKey,
+		onFilterByWorker
 	}: Props = $props()
 </script>
 
-<div class="rounded-md border bg-surface overflow-hidden">
+<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
 	<!-- Top section: Status, Path, Badges -->
 	<div
 		class="flex flex-row flex-wrap justify-between items-center gap-x-4 {compact
@@ -78,7 +82,22 @@
 						{displayPersistentScriptDefinition}
 						{openPersistentScriptDrawer}
 						{concurrencyKey}
+						{onFilterByConcurrencyKey}
+						{onFilterByWorker}
 					/>
+					{#if compact}
+						<!-- Run ID for compact mode -->
+						<div class="flex items-center gap-1">
+							<IdCard size={12} class="text-secondary flex-shrink-0" />
+							<a
+								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								class="text-accent text-xs flex items-center gap-1"
+							>
+								<span class="truncate">{job.id}</span>
+								<ExternalLink size={10} class="flex-shrink-0" />
+							</a>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

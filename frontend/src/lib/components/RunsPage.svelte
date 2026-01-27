@@ -998,6 +998,8 @@
 							<JobRunsPreview
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
+								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 							/>
 						{/if}
 					{:else if selectedIds.length > 1}
