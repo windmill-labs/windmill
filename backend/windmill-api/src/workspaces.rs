@@ -1336,30 +1336,54 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         }
     });
 
-    // Query the schema information
-    let rows = client
+    // First, get all non-system schemas (including empty ones)
+    let schema_rows = client
         .query(
             r#"
-            SELECT
-                nsp.nspname::text AS table_schema,
-                c.table_name::text,
-                c.column_name::text,
-                c.udt_name::text,
-                c.is_nullable::text,
-                c.column_default::text
-            FROM information_schema.columns c
-            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
-            WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
-              AND c.table_name IS NOT NULL
-            ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
             "#,
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
 
     // Build hierarchical structure: schema -> table -> column -> compact_type
     let mut schema_map: SchemaMap = HashMap::new();
+
+    // Collect schema names and initialize map
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            schema_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    // Query column information only for the schemas we found
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                table_schema::text,
+                table_name::text,
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name, ordinal_position
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
 
     for row in rows {
         let table_schema: String = row.get(0);
