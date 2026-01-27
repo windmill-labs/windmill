@@ -90,7 +90,7 @@
 	let scriptProgress: number | undefined = $state(undefined)
 	let currentJobIsLongRunning: boolean = $state(false)
 
-	let viewTab: 'result' | 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('result')
+	let viewTab: 'logs' | 'code' | 'stats' | 'assets' | 'traces' = $state('logs')
 	let selectedJobStep: string | undefined = $state(undefined)
 
 	let selectedJobStepIsTopLevel: boolean | undefined = $state(undefined)
@@ -141,26 +141,19 @@
 		}
 	}
 
-	// If we get results, focus on that tab. Else, focus on logs
+	// Initialize view tab to logs since result is now outside tabs
 	function initView(): void {
-		if (job && (job.result || job.result_stream)) {
-			viewTab = 'result'
-		} else if (viewTab == 'result') {
-			viewTab = 'logs'
-		}
+		// Result is now displayed outside tabs, so always default to logs
+		viewTab = 'logs'
 	}
 
 	async function getJob() {
 		await jobLoader?.watchJob(page.params.run ?? '', {
 			change(job: Job & { result_stream?: string }) {
-				if (!manuallySetLogs && viewTab == 'logs' && job.result_stream) {
-					viewTab = 'result'
-				}
+				// Result is now displayed outside tabs, no need to switch tabs
 			},
 			done(job) {
-				if (job?.['result'] != undefined) {
-					viewTab = 'result'
-				}
+				// Result is now displayed outside tabs, no need to switch tabs
 			}
 		})
 		initView()
@@ -640,7 +633,7 @@
 			{/if}
 		{/snippet}
 	</ActionRow>
-	<div class="w-full">
+	<div class="w-full pb-8">
 		<!-- Flow Detail Header Card -->
 		<div class="max-w-7xl mx-auto px-4 py-0">
 			<Skeleton loading={!job} layout={[[24]]} />
@@ -657,7 +650,7 @@
 			{/if}
 		</div>
 		{#if job?.['deleted']}
-			<div class="max-w-7xl mx-auto w-full px-4">
+			<div class="max-w-7xl mx-auto w-full px-4 mt-6">
 				<Alert type="error" title="Deleted">
 					The content of this run was deleted (by an admin, no less)
 				</Alert>
@@ -727,15 +720,36 @@
 				{#if scriptProgress}
 					<JobProgressBar {job} {scriptProgress} class="py-4" hideStepTitle={true} />
 				{/if}
+
+				<!-- Result Section (moved outside tabs) -->
+				{#if job}
+					<div class="mr-2 sm:mr-0 mt-12 mb-6">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
+							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
+								<DisplayResult
+									workspaceId={job?.workspace_id}
+									result_stream={job.result_stream}
+									jobId={job?.id}
+									result={job.result}
+									language={job?.language}
+									isTest={false}
+								/>
+							{:else}
+								<div class="text-secondary">No output is available yet</div>
+							{/if}
+						</div>
+					</div>
+				{/if}
+
 				<!-- Logs and outputs-->
-				<div class="mr-2 sm:mr-0 mt-12">
+				<div class="mr-2 sm:mr-0 mt-6">
 					<Tabs
 						bind:selected={viewTab}
 						onTabClick={(value) => {
 							manuallySetLogs = value == 'logs'
 						}}
 					>
-						<Tab value="result" label="Result" />
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />
 						<Tab value="traces" label="Traces" />
@@ -786,17 +800,8 @@
 								<div class="w-full">
 									<MemoryFootprintViewer jobId={job.id} bind:jobUpdateLastFetch />
 								</div>
-							{:else if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined))}
-								<DisplayResult
-									workspaceId={job?.workspace_id}
-									result_stream={job.result_stream}
-									jobId={job?.id}
-									result={job.result}
-									language={job?.language}
-									isTest={false}
-								/>
-							{:else if job}
-								No output is available yet
+							{:else}
+								<div class="w-full p-4 text-secondary">Select a tab to view content</div>
 							{/if}
 						</div>
 					{/if}
