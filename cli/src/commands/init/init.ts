@@ -274,6 +274,22 @@ ${FLOW_BASE}
 
 You should use the write-flow skill to create flows.
 
+## Raw App Development
+
+To create a new raw app with React, Svelte, or Vue frontend:
+
+\`\`\`bash
+wmill app new
+\`\`\`
+
+This creates a complete app structure with:
+- Frontend framework of your choice
+- Backend runnables folder for server-side scripts
+- Datatable configuration for database access
+- Type-safe \`wmill.ts\` for calling backend from frontend
+
+For raw app guidance, use the \`raw-app\` skill.
+
 ## CLI Reference
 
 ${CLI_COMMANDS}
