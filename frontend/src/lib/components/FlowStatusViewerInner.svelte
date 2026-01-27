@@ -48,6 +48,7 @@
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
 	import JobOtelTraces from './JobOtelTraces.svelte'
+	import JobDetailHeader from './runs/JobDetailHeader.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
 	import { useThrottle } from 'runed'
 	import { Splitpanes, Pane } from 'svelte-splitpanes'
@@ -1317,6 +1318,11 @@
 			{/if}
 		{:else if render}
 			<div class={'flex flex-col'}>
+				{#if job}
+					<div class="mb-4">
+						<JobDetailHeader {job} extraCompact />
+					</div>
+				{/if}
 				<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
 				<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4">
 					{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
