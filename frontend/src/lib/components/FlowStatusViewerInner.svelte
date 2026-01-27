@@ -1332,7 +1332,9 @@
 						<!-- Result Column -->
 						<div class="flex flex-col min-h-0 max-h-full">
 							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-							<div class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary p-4">
+							<div
+								class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary p-4"
+							>
 								{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 									<DisplayResult
 										workspaceId={job?.workspace_id}
@@ -1357,7 +1359,9 @@
 						<!-- Logs Column -->
 						<div class="flex flex-col min-h-0 max-h-full">
 							<h3 class="text-xs font-semibold text-emphasis mb-1">Logs</h3>
-							<div class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary">
+							<div
+								class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary"
+							>
 								<LogViewer
 									jobId={job.id}
 									duration={job?.['duration_ms']}
@@ -1372,7 +1376,7 @@
 				{:else}
 					<!-- Default single-column result -->
 					<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4">
+					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[400px]">
 						{#if job !== undefined && (job.result_stream || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
 								workspaceId={job?.workspace_id}
