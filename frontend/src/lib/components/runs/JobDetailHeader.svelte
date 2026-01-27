@@ -76,7 +76,7 @@
 				? 'py-3 px-4'
 				: 'py-4 px-6'}"
 		>
-			<div class="flex flex-row flex-wrap {compact ? 'gap-3' : 'gap-6'} items-center">
+			<div class="flex flex-row flex-wrap gap-y-2 {compact ? 'gap-3' : 'gap-6'} items-center">
 				{#if job}
 					<JobStatus {job} />
 					<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
@@ -156,7 +156,7 @@
 									</Tooltip>
 								{/if}
 								{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-									<br /><span class="text-secondary text-2xs"
+									<span class="text-secondary text-2xs"
 										>but permissioned as {job.permissioned_as}</span
 									>
 								{/if}
