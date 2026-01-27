@@ -906,10 +906,33 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-bedrockruntime"
-version = "1.113.0"
+name = "aws-sdk-bedrock"
+version = "1.129.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5d2b8f081b9e8ff455b8dd7387b6b02263c3dac73172d188d2b523ff1e775e9"
+checksum = "2d009c7cbb8332c805be2be32c0def27cb7bd4804d9333f5cf204abfd96b6d25"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-observability",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand",
+ "http 0.2.12",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
+name = "aws-sdk-bedrockruntime"
+version = "1.122.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c14680affe00d9bda89ddeb7a41004ac130165aef6678078da58df22dec3ff1"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -918,6 +941,7 @@ dependencies = [
  "aws-smithy-eventstream",
  "aws-smithy-http",
  "aws-smithy-json",
+ "aws-smithy-observability",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -12359,6 +12383,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56199f7ddabf13fe5074ce809e7d3f42b42ae711800501b5b16ea82ad029c39d"
 
 [[package]]
+name = "size"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b6709c7b6754dca1311b3c73e79fcce40dd414c782c66d88e8823030093b02b"
+
+[[package]]
 name = "sketches-ddsketch"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -15436,7 +15466,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "aws-sdk-config",
@@ -15499,7 +15529,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -15511,12 +15541,15 @@ dependencies = [
  "async_zip",
  "aws-config",
  "aws-credential-types",
+ "aws-sdk-bedrock",
+ "aws-sdk-bedrockruntime",
  "aws-sdk-config",
  "aws-sdk-sqs",
  "aws-sdk-sso",
  "aws-sdk-ssooidc",
  "aws-sdk-sts",
  "aws-sigv4",
+ "aws-smithy-types",
  "axum 0.7.9",
  "backon",
  "base32",
@@ -15568,6 +15601,7 @@ dependencies = [
  "quick_cache",
  "rand 0.9.0",
  "rdkafka",
+ "rdkafka-sys",
  "regex",
  "reqwest 0.13.1",
  "rsa",
@@ -15584,6 +15618,7 @@ dependencies = [
  "sha2 0.10.9",
  "sql-builder",
  "sqlx",
+ "strum 0.27.2",
  "tar",
  "tempfile",
  "thiserror 2.0.18",
@@ -15624,7 +15659,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -15634,7 +15669,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "chrono",
  "lazy_static",
@@ -15648,7 +15683,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -15667,7 +15702,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15675,6 +15710,7 @@ dependencies = [
  "async-trait",
  "aws-config",
  "aws-credential-types",
+ "aws-sdk-bedrockruntime",
  "aws-sdk-rds",
  "aws-sdk-sts",
  "aws-smithy-types",
@@ -15731,10 +15767,12 @@ dependencies = [
  "serde_json",
  "serde_yml",
  "sha2 0.10.9",
+ "size",
  "sqlx",
  "strum 0.27.2",
  "strum_macros 0.27.2",
  "sysinfo",
+ "systemstat",
  "tar",
  "tempfile",
  "thiserror 2.0.18",
@@ -15760,7 +15798,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "regex",
  "serde",
@@ -15775,7 +15813,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -15799,7 +15837,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15815,7 +15853,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-mcp"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -15835,7 +15873,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-oauth"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-oauth2",
@@ -15859,7 +15897,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15868,7 +15906,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15880,7 +15918,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15892,7 +15930,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15904,7 +15942,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15916,7 +15954,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15928,7 +15966,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15939,7 +15977,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15950,7 +15988,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -15963,7 +16001,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15987,7 +16025,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16001,7 +16039,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -16018,7 +16056,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16032,7 +16070,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16051,7 +16089,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -16062,7 +16100,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16099,7 +16137,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -16109,7 +16147,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.614.0"
+version = "1.616.0"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -16120,6 +16158,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
+ "axum 0.7.9",
  "backon",
  "base64 0.22.1",
  "bit-vec 0.6.3",
@@ -16174,6 +16213,7 @@ dependencies = [
  "postgres-native-tls 0.5.1",
  "process-wrap",
  "prometheus",
+ "prost",
  "rand 0.9.0",
  "rcgen",
  "regex",
@@ -16181,6 +16221,7 @@ dependencies = [
  "reqwest-middleware",
  "rquickjs",
  "rust_decimal",
+ "rustls-pemfile 2.2.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",

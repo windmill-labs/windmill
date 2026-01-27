@@ -2,6 +2,7 @@ import type { ButtonType } from './common/button/model'
 
 // Languages that support HTTP request tracing via OTEL proxy
 export const OTEL_TRACING_PROXY_LANGUAGES = [
+	'nativets',
 	'python3',
 	'deno',
 	'bun',

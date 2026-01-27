@@ -22,7 +22,7 @@ flow_testing = []
 cloud = []
 sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi"]
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi", "dep:rustls-pemfile"]
 libffi_mac = ["dep:libffi-sys"]
 otel = ["windmill-common/otel", "dep:opentelemetry", "dep:tracing-opentelemetry"]
 dind = ["dep:bollard"]
@@ -37,6 +37,7 @@ java = ["dep:windmill-parser-java"]
 ruby = ["dep:windmill-parser-ruby"]
 duckdb = ["dep:libloading"]
 quickjs = ["dep:rquickjs"]
+bedrock = ["dep:aws-sdk-bedrockruntime", "windmill-common/bedrock"]
 
 [dependencies]
 windmill-queue.workspace = true
@@ -60,7 +61,7 @@ windmill-parser-sql.workspace = true
 windmill-parser-graphql.workspace = true
 windmill-parser-php = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
-aws-sdk-bedrockruntime.workspace = true
+aws-sdk-bedrockruntime = { workspace = true, optional = true }
 aws-config.workspace = true
 aws-credential-types.workspace = true
 aws-smithy-types.workspace = true
@@ -105,6 +106,7 @@ deno_tls = { workspace = true, optional = true }
 deno_permissions = { workspace = true, optional = true }
 deno_io = { workspace = true, optional = true }
 deno_error = { workspace = true, optional = true }
+rustls-pemfile = { workspace = true, optional = true }
 async-stream.workspace = true
 
 postgres-native-tls.workspace = true
@@ -140,6 +142,8 @@ libloading = { workspace = true, optional = true }
 opentelemetry-proto.workspace = true
 opentelemetry = { workspace = true, optional = true }
 tracing-opentelemetry = { workspace = true, optional = true }
+prost.workspace = true
+axum.workspace = true
 bollard = { workspace = true, optional = true }
 oracle = { workspace = true, optional = true }
 rquickjs = { workspace = true, optional = true }

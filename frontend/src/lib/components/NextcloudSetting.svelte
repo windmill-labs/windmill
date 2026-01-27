@@ -90,7 +90,7 @@
 					>Client Secret from your Nextcloud OAuth2 app configuration</span
 				>
 				<TextInput
-					inputProps={{ type: 'text', placeholder: 'Client Secret' }}
+					inputProps={{ type: 'password', placeholder: 'Client Secret' }}
 					bind:value={value['secret']}
 				/>
 			</label>

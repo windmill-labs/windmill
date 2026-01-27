@@ -21,8 +21,8 @@ use windmill_queue::append_logs;
 use crate::{
     common::{start_child_process, OccupancyMetrics},
     handle_child::handle_child,
-    python_executor::{PYTHON_PATH, UV_PATH},
-    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, WIN_ENVS,
+    python_executor::{INDEX_CERT, NATIVE_CERT, PYTHON_PATH, UV_PATH},
+    HOME_ENV, INSTANCE_PYTHON_VERSION, PATH_ENV, PROXY_ENVS, PY_INSTALL_DIR, UV_CACHE_DIR, WIN_ENVS,
 };
 
 impl From<PyV> for PyVAlias {
@@ -308,6 +308,7 @@ impl PyV {
             Command::new(uv_cmd)
                 .env_clear()
                 .envs(WIN_ENVS.to_vec())
+                .env("UV_CACHE_DIR", UV_CACHE_DIR)
                 .args([
                     "python",
                     "list",
@@ -373,7 +374,7 @@ impl PyV {
             // If there is no assigned version in lockfile we automatically fallback to 3.11
             // In this case we have dependencies or other metadata, but no associated python version
             // This is the case for old deployed scripts
-            PyVAlias::Py311.into(),
+            PyVAlias::default().into(),
         )
     }
 
@@ -449,6 +450,7 @@ impl PyV {
         }
         res
     }
+
     async fn get_python_inner(
         &self,
         job_id: &Uuid,
@@ -462,20 +464,24 @@ impl PyV {
         let py_path = self.find_python().await;
 
         // Runtime is not installed
-        if py_path.is_err() {
+        if let Err(py_err) = py_path {
             // Install it
             if let Err(err) = self
                 .install_python(job_id, mem_peak, conn, worker_name, w_id, occupancy_metrics)
                 .await
             {
-                tracing::error!("Cannot install python: {err}");
+                tracing::error!(
+                    "Cannot install python: {err}, after runtime wasn't found: {py_err}"
+                );
                 return Err(err);
             } else {
                 // Try to find one more time
                 let py_path = self.find_python().await;
 
                 if let Err(err) = py_path {
-                    tracing::error!("Cannot find python version {err}");
+                    tracing::error!(
+                        "Cannot find python version {err} after runtime wasn't found: {py_err}"
+                    );
                     return Err(err);
                 }
 
@@ -521,9 +527,9 @@ impl PyV {
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
             .envs(PROXY_ENVS.clone())
-            .args(["python", "install", &v, "--python-preference=only-managed"])
+            .args(["python", "install", &v, "--python-preference=only-managed", "--no-bin"])
             // TODO: Do we need these?
-            .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR)])
+            .envs([("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR), ("UV_CACHE_DIR", UV_CACHE_DIR)])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -592,10 +598,19 @@ impl PyV {
                 );
         }
 
+        let mut vars: Vec<(&str, &str)> = vec![];
+        if let Some(cert_path) = INDEX_CERT.as_ref() {
+            vars.push(("SSL_CERT_FILE", cert_path));
+        }
+
+        if *NATIVE_CERT {
+            vars.push(("UV_NATIVE_TLS", "true"));
+        }
         let output = child_cmd
             // .current_dir(job_dir)
             .env("HOME", HOME_ENV.to_string())
             .env("PATH", PATH_ENV.to_string())
+            .envs(vars)
             .args([
                 "python",
                 "find",
@@ -606,6 +621,7 @@ impl PyV {
             .envs([
                 ("UV_PYTHON_INSTALL_DIR", PY_INSTALL_DIR),
                 ("UV_PYTHON_PREFERENCE", "only-managed"),
+                ("UV_CACHE_DIR", UV_CACHE_DIR),
             ])
             // .stdout(Stdio::piped())
             .stderr(Stdio::piped())
