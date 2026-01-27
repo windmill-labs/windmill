@@ -541,129 +541,131 @@
 	{#snippet form()}
 		{#if flow}
 			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
-				<div
-					class={twMerge(
-						'w-full flex flex-col',
-						chatInputEnabled
-							? 'p-3 flex flex-col h-full '
-							: 'max-w-3xl p-6 min-h-[300px] justify-center',
-						'mx-auto'
-					)}
-					bind:clientHeight={topSectionHeight}
-				>
-					{#if flow?.archived}
-						<Alert type="error" title="Archived">This flow was archived</Alert>
-						<div class="h-4"></div>
-					{/if}
+				<div bind:clientHeight={topSectionHeight} class={twMerge(chatInputEnabled ? 'h-full' : '')}>
+					<div
+						class={twMerge(
+							'w-full flex flex-col',
+							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[400px] justify-center',
+							'mx-auto'
+						)}
+					>
+						{#if flow?.archived}
+							<Alert type="error" title="Archived">This flow was archived</Alert>
+							<div class="h-4"></div>
+						{/if}
 
-					{#if !emptyString(flow?.description)}
-						<div class="p-4 rounded-md bg-surface-secondary">
-							<GfmMarkdown
-								md={defaultIfEmptyString(flow?.description, 'No description')}
-								noPadding
-							/>
-						</div>
-						<div class="h-4"></div>
-					{/if}
-
-					{#if deploymentInProgress}
-						<div class="pb-4" transition:slide={{ duration: 150 }}>
-							<HeaderBadge color="yellow">
-								<Loader2 size={12} class="inline animate-spin mr-1" />
-								Deployment in progress
-								{#if deploymentJobId}
-									<a
-										href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-										class="underline"
-										target="_blank">view job</a
-									>
-								{/if}
-							</HeaderBadge>
-						</div>
-					{/if}
-					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-						<Alert type="error" title="Deployment failed">
-							<p> This flow has not been deployed successfully because of the following errors: </p>
-							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-						</Alert>
-						<div class="h-4"></div>
-					{/if}
-
-					{#if chatInputEnabled}
-						<!-- Chat Layout with Sidebar -->
-						<FlowChat
-							onRunFlow={runFlowForChat}
-							{deploymentInProgress}
-							path={flow?.path ?? ''}
-							useStreaming={shouldUseStreaming}
-							inputSchema={flow?.schema}
-						/>
-					{:else}
-						{@const hasSchema = flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
-						<!-- Normal Mode: Form Layout -->
-						<div class="flex flex-col align-left">
-							{#if hasSchema || inputSelected}
-								<div
-									class="flex flex-row justify-between min-h-12"
-									transition:slide={{ duration: 150 }}
-								>
-									<InputSelectedBadge
-										onReject={() => {
-											savedInputsV2?.resetSelected()
-										}}
-										{inputSelected}
-									/>
-
-									{#if hasSchema}
-										<Toggle
-											bind:checked={jsonView}
-											size="xs"
-											options={{
-												right: 'JSON',
-												rightTooltip: 'Fill args from JSON'
-											}}
-											lightMode
-											on:change={(e) => {
-												runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-											}}
-										/>
-									{/if}
-								</div>
-							{/if}
-
-							{#if flow.schema?.prompt_for_ai !== undefined}
-								<AIFormAssistant
-									instructions={flow.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										goto(`/flows/edit/${flow?.path}`)
-									}}
-									runnableType="flow"
+						{#if !emptyString(flow?.description)}
+							<div class="p-4 rounded-md bg-surface-secondary">
+								<GfmMarkdown
+									md={defaultIfEmptyString(flow?.description, 'No description')}
+									noPadding
 								/>
-							{/if}
+							</div>
+							<div class="h-4"></div>
+						{/if}
 
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								viewKeybinding
-								{loading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={flow}
-								runAction={runFlow}
-								bind:args
-								bind:this={runForm}
-								{jsonView}
+						{#if deploymentInProgress}
+							<div class="pb-4" transition:slide={{ duration: 150 }}>
+								<HeaderBadge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+									{#if deploymentJobId}
+										<a
+											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											class="underline"
+											target="_blank">view job</a
+										>
+									{/if}
+								</HeaderBadge>
+							</div>
+						{/if}
+						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+							<Alert type="error" title="Deployment failed">
+								<p>
+									This flow has not been deployed successfully because of the following errors:
+								</p>
+								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+							</Alert>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if chatInputEnabled}
+							<!-- Chat Layout with Sidebar -->
+							<FlowChat
+								onRunFlow={runFlowForChat}
+								{deploymentInProgress}
+								path={flow?.path ?? ''}
+								useStreaming={shouldUseStreaming}
+								inputSchema={flow?.schema}
 							/>
-						</div>
+						{:else}
+							{@const hasSchema =
+								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
+							<!-- Normal Mode: Form Layout -->
+							<div class="flex flex-col align-left">
+								{#if hasSchema || inputSelected}
+									<div
+										class="flex flex-row justify-between min-h-12"
+										transition:slide={{ duration: 150 }}
+									>
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
 
-						<div class="pt-4 flex flex-col gap-1 w-full items-end">
-							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={flow.edited_at ?? ''} noSeconds /> by {flow.edited_by}
-							</span>
-						</div>
-					{/if}
+										{#if hasSchema}
+											<Toggle
+												bind:checked={jsonView}
+												size="xs"
+												options={{
+													right: 'JSON',
+													rightTooltip: 'Fill args from JSON'
+												}}
+												lightMode
+												on:change={(e) => {
+													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+												}}
+											/>
+										{/if}
+									</div>
+								{/if}
+
+								{#if flow.schema?.prompt_for_ai !== undefined}
+									<AIFormAssistant
+										instructions={flow.schema?.prompt_for_ai as string}
+										onEditInstructions={() => {
+											goto(`/flows/edit/${flow?.path}`)
+										}}
+										runnableType="flow"
+									/>
+								{/if}
+
+								<RunForm
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									viewKeybinding
+									{loading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={flow}
+									runAction={runFlow}
+									bind:args
+									bind:this={runForm}
+									{jsonView}
+								/>
+							</div>
+
+							<div class="pt-4 flex flex-col gap-1 w-full items-end">
+								<span class="text-2xs text-secondary">
+									Edited <TimeAgo date={flow.edited_at ?? ''} noSeconds /> by {flow.edited_by}
+								</span>
+							</div>
+						{/if}
+					</div>
 				</div>
 				{#if !chatInputEnabled}
 					<div class="grow min-h-0">
