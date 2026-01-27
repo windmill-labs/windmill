@@ -1,4 +1,4 @@
-use crate::ai::providers::openai::OpenAIToolCall;
+use windmill_common::ai_types::OpenAIToolCall;
 use crate::ai::query_builder::StreamEventProcessor;
 use crate::ai::types::*;
 use crate::ai::utils::{
