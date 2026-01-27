@@ -2,8 +2,10 @@
   "version": "5",
   "specifiers": {
     "jsr:@david/code-block-writer@^13.0.2": "13.0.2",
+    "jsr:@david/code-block-writer@^13.0.3": "13.0.3",
     "jsr:@deno/cache-dir@~0.10.3": "0.10.3",
     "jsr:@deno/dnt@0.41.3": "0.41.3",
+    "jsr:@deno/dnt@0.42.3": "0.42.3",
     "jsr:@deno/dnt@~0.41.3": "0.41.3",
     "jsr:@deno/graph@~0.73.1": "0.73.1",
     "jsr:@std/assert@0.223": "0.223.0",
@@ -20,7 +22,7 @@
     "jsr:@std/fmt@~0.225.4": "0.225.6",
     "jsr:@std/fs@*": "1.0.22",
     "jsr:@std/fs@0.223": "0.223.0",
-    "jsr:@std/fs@1": "1.0.20",
+    "jsr:@std/fs@1": "1.0.22",
     "jsr:@std/fs@^1.0.11": "1.0.22",
     "jsr:@std/fs@^1.0.21": "1.0.22",
     "jsr:@std/fs@~0.229.3": "0.229.3",
@@ -32,7 +34,7 @@
     "jsr:@std/log@*": "0.224.14",
     "jsr:@std/path@*": "1.1.4",
     "jsr:@std/path@0.223": "0.223.0",
-    "jsr:@std/path@1": "1.1.3",
+    "jsr:@std/path@1": "1.1.4",
     "jsr:@std/path@1.0.0-rc.1": "1.0.0-rc.1",
     "jsr:@std/path@1.0.0-rc.2": "1.0.0-rc.2",
     "jsr:@std/path@^1.1.3": "1.1.4",
@@ -42,7 +44,9 @@
     "jsr:@std/yaml@*": "1.0.10",
     "jsr:@std/yaml@^1.0.10": "1.0.10",
     "jsr:@ts-morph/bootstrap@0.24": "0.24.0",
+    "jsr:@ts-morph/bootstrap@0.27": "0.27.0",
     "jsr:@ts-morph/common@0.24": "0.24.0",
+    "jsr:@ts-morph/common@0.27": "0.27.0",
     "jsr:@windmill-labs/cliffy-ansi@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-command@1.0.0-rc.5": "1.0.0-rc.5",
     "jsr:@windmill-labs/cliffy-flags@1.0.0-rc.5": "1.0.0-rc.5",
@@ -90,6 +94,9 @@
     "@david/code-block-writer@13.0.2": {
       "integrity": "14dd3baaafa3a2dea8bf7dfbcddeccaa13e583da2d21d666c01dc6d681cd74ad"
     },
+    "@david/code-block-writer@13.0.3": {
+      "integrity": "f98c77d320f5957899a61bfb7a9bead7c6d83ad1515daee92dbacc861e13bb7f"
+    },
     "@deno/cache-dir@0.10.3": {
       "integrity": "eb022f84ecc49c91d9d98131c6e6b118ff63a29e343624d058646b9d50404776",
       "dependencies": [
@@ -103,12 +110,22 @@
     "@deno/dnt@0.41.3": {
       "integrity": "b2ef2c8a5111eef86cb5bfcae103d6a2938e8e649e2461634a7befb7fc59d6d2",
       "dependencies": [
-        "jsr:@david/code-block-writer",
+        "jsr:@david/code-block-writer@^13.0.2",
         "jsr:@deno/cache-dir",
         "jsr:@std/fmt@1",
         "jsr:@std/fs@1",
         "jsr:@std/path@1",
-        "jsr:@ts-morph/bootstrap"
+        "jsr:@ts-morph/bootstrap@0.24"
+      ]
+    },
+    "@deno/dnt@0.42.3": {
+      "integrity": "62a917a0492f3c8af002dce90605bb0d41f7d29debc06aca40dba72ab65d8ae3",
+      "dependencies": [
+        "jsr:@david/code-block-writer@^13.0.3",
+        "jsr:@std/fmt@1",
+        "jsr:@std/fs@1",
+        "jsr:@std/path@1",
+        "jsr:@ts-morph/bootstrap@0.27"
       ]
     },
     "@deno/graph@0.73.1": {
@@ -236,7 +253,13 @@
     "@ts-morph/bootstrap@0.24.0": {
       "integrity": "a826a2ef7fa8a7c3f1042df2c034d20744d94da2ee32bf29275bcd4dffd3c060",
       "dependencies": [
-        "jsr:@ts-morph/common"
+        "jsr:@ts-morph/common@0.24"
+      ]
+    },
+    "@ts-morph/bootstrap@0.27.0": {
+      "integrity": "b8d7bc8f7942ce853dde4161b28f9aa96769cef3d8eebafb379a81800b9e2448",
+      "dependencies": [
+        "jsr:@ts-morph/common@0.27"
       ]
     },
     "@ts-morph/common@0.24.0": {
@@ -244,6 +267,13 @@
       "dependencies": [
         "jsr:@std/fs@~0.229.3",
         "jsr:@std/path@~0.225.2"
+      ]
+    },
+    "@ts-morph/common@0.27.0": {
+      "integrity": "c7b73592d78ce8479b356fd4f3d6ec3c460d77753a8680ff196effea7a939052",
+      "dependencies": [
+        "jsr:@std/fs@1",
+        "jsr:@std/path@1"
       ]
     },
     "@windmill-labs/cliffy-ansi@1.0.0-rc.5": {
