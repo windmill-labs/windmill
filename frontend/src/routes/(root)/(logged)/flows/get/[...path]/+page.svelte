@@ -65,6 +65,7 @@
 	import { page } from '$app/state'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -541,7 +542,13 @@
 		{#if flow}
 			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
 				<div
-					class="w-full {chatInputEnabled ? 'p-3 flex flex-col h-full' : 'max-w-3xl p-6'} mx-auto"
+					class={twMerge(
+						'w-full flex flex-col',
+						chatInputEnabled
+							? 'p-3 flex flex-col h-full '
+							: 'max-w-3xl p-6 min-h-[300px] justify-center',
+						'mx-auto'
+					)}
 					bind:clientHeight={topSectionHeight}
 				>
 					{#if flow?.archived}

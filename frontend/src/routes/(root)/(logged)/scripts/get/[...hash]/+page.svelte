@@ -643,7 +643,7 @@
 		{/snippet}
 		{#snippet form()}
 			{#if script}
-				<div class="p-8 w-full max-w-3xl mx-auto">
+				<div class="p-8 w-full max-w-3xl mx-auto min-h-[300px] flex flex-col justify-center">
 					<div class="flex flex-col gap-0.5 mb-1">
 						{#if script.lock_error_logs || topHash || script.archived || script.deleted}
 							<div class="flex flex-col gap-2 my-2">
