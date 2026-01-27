@@ -76,30 +76,47 @@
 				? 'py-3 px-4'
 				: 'py-4 px-6'}"
 		>
-			<div class="flex flex-row flex-wrap gap-y-2 {compact ? 'gap-3' : 'gap-6'} items-center">
+			<div
+				class="flex flex-wrap gap-y-2 {compact
+					? 'gap-3 flex-col items-start'
+					: 'flex-row gap-6 items-center'}"
+			>
 				{#if job}
-					<JobStatus {job} />
-					<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
-						{#if job.script_path}
-							{job.script_path}
-						{:else if job.job_kind == 'dependencies'}
-							lock dependencies
-						{:else if job.job_kind == 'flowdependencies'}
-							flow dependencies
-						{:else if job.job_kind == 'appdependencies'}
-							app dependencies
-						{:else if job.job_kind == 'deploymentcallback'}
-							deployment callback
-						{:else if job.job_kind == 'identity'}
-							Identity job
-						{:else if job.job_kind == 'script_hub'}
-							Script from hub
-						{:else if job.job_kind == 'aiagent'}
-							AI Agent
-						{:else}
-							{job.job_kind || 'Unknown job type'}
+					<div class="flex flex-row gap-4 items-center w-full">
+						<JobStatus {job} />
+						<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
+							{#if job.script_path}
+								{job.script_path}
+							{:else if job.job_kind == 'dependencies'}
+								lock dependencies
+							{:else if job.job_kind == 'flowdependencies'}
+								flow dependencies
+							{:else if job.job_kind == 'appdependencies'}
+								app dependencies
+							{:else if job.job_kind == 'deploymentcallback'}
+								deployment callback
+							{:else if job.job_kind == 'identity'}
+								Identity job
+							{:else if job.job_kind == 'script_hub'}
+								Script from hub
+							{:else if job.job_kind == 'aiagent'}
+								AI Agent
+							{:else}
+								{job.job_kind || 'Unknown job type'}
+							{/if}
+						</span>
+						{#if compact}
+							<!-- Run ID for compact mode -->
+
+							<a
+								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								class="text-accent text-xs flex items-center gap-1"
+							>
+								<span class="truncate" title={job.id}>{truncateRev(job.id, 10)}</span>
+								<ExternalLink size={10} class="flex-shrink-0" />
+							</a>
 						{/if}
-					</span>
+					</div>
 					<div class="flex flex-row gap-2 items-center flex-wrap">
 						<RunBadges
 							{job}
@@ -109,19 +126,6 @@
 							{onFilterByConcurrencyKey}
 							{onFilterByWorker}
 						/>
-						{#if compact}
-							<!-- Run ID for compact mode -->
-							<div class="flex items-center gap-1">
-								<IdCard size={12} class="text-secondary flex-shrink-0" />
-								<a
-									href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-									class="text-accent text-xs flex items-center gap-1"
-								>
-									<span class="truncate">{job.id}</span>
-									<ExternalLink size={10} class="flex-shrink-0" />
-								</a>
-							</div>
-						{/if}
 					</div>
 				{/if}
 			</div>
