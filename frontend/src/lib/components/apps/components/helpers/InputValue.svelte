@@ -169,7 +169,7 @@
 			let nhash = typeof value != 'object' ? value : sum(value)
 			lastExprHash = nhash
 		} else if (input?.type == 'evalv2') {
-			// console.log('evalv2', onDemandOnly, field)
+			// console.log('evalv2', onDemandOnly, field, exportValueFunction, key)
 			if (onDemandOnly && exportValueFunction) {
 				value = (args?: any) => {
 					return evalExpr(input as EvalV2AppInput, args)

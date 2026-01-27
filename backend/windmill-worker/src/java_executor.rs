@@ -608,7 +608,6 @@ async fn run<'a>(
             .env("BASE_INTERNAL_URL", base_internal_url)
             .envs(envs)
             .envs(reserved_variables)
-            .envs(PROXY_ENVS.clone())
             .args(vec![
                 "--config",
                 "run.config.proto",

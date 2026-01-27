@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE workspace_settings\n            SET auto_invite = COALESCE(auto_invite, '{}'::jsonb)\n                || jsonb_build_object('instance_groups', $2::jsonb, 'instance_groups_roles', $3::jsonb)\n            WHERE workspace_id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "03caaec9f41be87eac32e163d7a829e58ae993932e9bbad5aebab4770cc44d61"
+}

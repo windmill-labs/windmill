@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            j.id AS \"id!\", j.workspace_id AS \"workspace_id!\", j.parent_job, j.flow_step_id IS NOT NULL AS \"is_flow_step?\",\n            COALESCE(s.flow_status, s.workflow_as_code_status) AS \"flow_status: Box<str>\", r.ping AS last_ping, j.same_worker AS \"same_worker?\"\n        FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)\n        WHERE q.running = true AND q.suspend = 0 AND q.suspend_until IS null AND q.scheduled_for <= now()\n            AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')\n            AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval\n            AND q.canceled_by IS NULL\n\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "workspace_id!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "parent_job",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "is_flow_step?",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 4,
+        "name": "flow_status: Box<str>",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 5,
+        "name": "last_ping",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "same_worker?",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "4d80985dd0794a01a2af18ae7abf4a3ab8ba3d162ed5d04735caea7295da0b20"
+}

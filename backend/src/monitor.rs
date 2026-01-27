@@ -29,6 +29,9 @@ use windmill_api::{
     SCIM_TOKEN,
 };
 
+#[cfg(feature = "native_trigger")]
+use windmill_api::native_triggers::sync::sync_all_triggers;
+
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
@@ -53,7 +56,7 @@ use windmill_common::{
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
+        OTEL_TRACING_PROXY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
         POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
@@ -81,10 +84,10 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, JobCompletedSender, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
-    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN,
-    NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
-    POWERSHELL_REPO_URL,
+    handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
+    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
+    OTEL_TRACING_PROXY_SETTINGS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL,
+    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -155,6 +158,20 @@ lazy_static::lazy_static! {
 
     .ok()
     .and_then(|x| x.parse::<u64>().ok());
+
+    /// Batch size for job cleanup deletion queries. Default: 10000.
+    /// Larger values delete more jobs per batch but hold locks longer.
+    static ref JOB_CLEANUP_BATCH_SIZE: i64 = std::env::var("JOB_CLEANUP_BATCH_SIZE")
+        .ok()
+        .and_then(|x| x.parse::<i64>().ok())
+        .unwrap_or(20000);
+
+    /// Maximum number of batches to process per cleanup iteration. Default: 10.
+    /// Set to 0 for unlimited (process until no expired jobs remain).
+    static ref JOB_CLEANUP_MAX_BATCHES: i32 = std::env::var("JOB_CLEANUP_MAX_BATCHES")
+        .ok()
+        .and_then(|x| x.parse::<i32>().ok())
+        .unwrap_or(20);
 }
 
 pub async fn initial_load(
@@ -205,6 +222,7 @@ pub async fn initial_load(
                     e
                 )
             }
+            windmill_common::min_version::store_min_keep_alive_version(db).await;
         }
     }
 
@@ -764,6 +782,35 @@ pub async fn load_keep_job_dir(conn: &Connection) {
     };
 }
 
+pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
+    match load_value_from_global_settings_with_conn(conn, OTEL_TRACING_PROXY_SETTING, true).await {
+        Ok(Some(settings)) => {
+            match serde_json::from_value::<OtelTracingProxySettings>(settings) {
+                Ok(new_settings) => {
+                    let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
+                    if current.enabled != new_settings.enabled
+                        || current.enabled_languages != new_settings.enabled_languages
+                    {
+                        tracing::info!(
+                            "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
+                            new_settings.enabled,
+                            new_settings.enabled_languages
+                        );
+                        *current = new_settings;
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Error parsing OTEL tracing proxy settings: {e:#}");
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Error loading OTEL tracing proxy setting: {e:#}");
+        }
+        _ => (),
+    };
+}
+
 pub async fn load_require_preexisting_user(db: &DB) {
     let value =
         load_value_from_global_settings(db, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING).await;
@@ -813,6 +860,22 @@ pub async fn delete_expired_items(db: &DB) -> () {
             }
         }
         Err(e) => tracing::error!("Error deleting pip_resolution: {}", e.to_string()),
+    }
+
+    // Clean up expired MCP OAuth refresh tokens
+    let mcp_refresh_tokens_r: std::result::Result<Vec<i64>, _> = sqlx::query_scalar(
+        "DELETE FROM mcp_oauth_refresh_token WHERE expires_at <= now() RETURNING id",
+    )
+    .fetch_all(db)
+    .await;
+
+    match mcp_refresh_tokens_r {
+        Ok(ids) => {
+            if ids.len() > 0 {
+                tracing::info!("deleted {} expired MCP OAuth refresh tokens", ids.len())
+            }
+        }
+        Err(e) => tracing::error!("Error deleting MCP OAuth refresh tokens: {}", e.to_string()),
     }
 
     let deleted_cache = sqlx::query_scalar!(
@@ -908,99 +971,170 @@ pub async fn delete_expired_items(db: &DB) -> () {
         Err(e) => tracing::error!("Error deleting expired blacklisted agent tokens: {:?}", e),
     }
 
-    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
-    if job_retention_secs > 0 {
-        match db.begin().await {
-            Ok(mut tx) => {
-                let deleted_jobs = sqlx::query_scalar!(
-                    "DELETE FROM v2_job_completed c
-                    WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval 
-                    RETURNING c.id",
-                    job_retention_secs
-                )
-                .fetch_all(&mut *tx)
-                .await;
-
-                match deleted_jobs {
-                    Ok(deleted_jobs) => {
-                        if deleted_jobs.len() > 0 {
-                            tracing::info!(
-                                "deleted {} jobs completed JOB_RETENTION_SECS {} ago: {:?}",
-                                deleted_jobs.len(),
-                                job_retention_secs,
-                                deleted_jobs,
-                            );
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM job_stats WHERE job_id = ANY($1)",
-                                &deleted_jobs
-                            )
-                            .execute(&mut *tx)
-                            .await
-                            {
-                                tracing::error!("Error deleting job stats: {:?}", e);
-                            }
-                            match sqlx::query_scalar!(
-                                "DELETE FROM job_logs WHERE job_id = ANY($1) RETURNING log_file_index",
-                                &deleted_jobs
-                            )
-                            .fetch_all(&mut *tx)
-                            .await
-                            {
-                                Ok(log_file_index) => {
-                                    let paths = log_file_index
-                                        .into_iter()
-                                        .filter_map(|opt| opt)
-                                        .flat_map(|inner_vec| inner_vec.into_iter())
-                                        .collect();
-                                    delete_log_files_from_disk_and_store(paths, TMP_DIR, "").await;
-                                }
-                                Err(e) => tracing::error!("Error deleting job stats: {:?}", e),
-                            }
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM concurrency_key WHERE  ended_at <= now() - ($1::bigint::text || ' s')::interval ",
-                                job_retention_secs
-                            )
-                            .execute(&mut *tx)
-                            .await
-                            {
-                                tracing::error!("Error deleting  custom concurrency key: {:?}", e);
-                            }
-
-                            if let Err(e) =
-                                sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
-                                    .execute(&mut *tx)
-                                    .await
-                            {
-                                tracing::error!("Error deleting job: {:?}", e);
-                            }
-
-                            // should already be deleted but just in case
-                            if let Err(e) = sqlx::query!(
-                                "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
-                                &deleted_jobs
-                            )
-                            .execute(&mut *tx)
-                            .await
-                            {
-                                tracing::error!("Error deleting job result stream: {:?}", e);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Error deleting expired jobs: {:?}", e)
-                    }
-                }
-
-                match tx.commit().await {
-                    Ok(_) => (),
-                    Err(err) => tracing::error!("Error deleting expired jobs: {:?}", err),
-                }
-            }
-            Err(err) => {
-                tracing::error!("Error deleting expired jobs: {:?}", err)
+    match sqlx::query_scalar!(
+        "DELETE FROM mcp_oauth_server_code WHERE expires_at <= now() RETURNING code",
+    )
+    .fetch_all(db)
+    .await
+    {
+        Ok(deleted_codes) => {
+            if deleted_codes.len() > 0 {
+                tracing::info!(
+                    "deleted {} expired MCP OAuth authorization codes",
+                    deleted_codes.len()
+                );
             }
         }
+        Err(e) => tracing::error!("Error deleting expired MCP OAuth authorization codes: {:?}", e),
     }
+
+    let job_retention_secs = *JOB_RETENTION_SECS.read().await;
+    if job_retention_secs > 0 {
+        let batch_size = *JOB_CLEANUP_BATCH_SIZE;
+        let max_batches = *JOB_CLEANUP_MAX_BATCHES;
+        let cleanup_start = Instant::now();
+        let mut total_deleted = 0u64;
+        let mut batch_num = 0i32;
+
+        // Process batches until no more expired jobs or max batches reached
+        loop {
+            if max_batches > 0 && batch_num >= max_batches {
+                tracing::debug!(
+                    "Job cleanup: reached max batches limit ({}), will continue next iteration",
+                    max_batches
+                );
+                break;
+            }
+
+            // Each batch runs in its own transaction to avoid long-running locks
+            let batch_result = delete_expired_jobs_batch(db, job_retention_secs, batch_size).await;
+
+            match batch_result {
+                Ok(deleted_count) => {
+                    if deleted_count == 0 {
+                        // No more expired jobs to delete
+                        break;
+                    }
+                    total_deleted += deleted_count as u64;
+                    batch_num += 1;
+                }
+                Err(e) => {
+                    tracing::error!("Error in job cleanup batch {}: {:?}", batch_num, e);
+                    break;
+                }
+            }
+        }
+
+        if total_deleted > 0 {
+            tracing::info!(
+                "Job cleanup completed: deleted {} jobs in {} batches, took {:?}",
+                total_deleted,
+                batch_num,
+                cleanup_start.elapsed()
+            );
+        }
+
+        // Clean up concurrency keys separately (not tied to specific job IDs)
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM concurrency_key WHERE ended_at <= now() - ($1::bigint::text || ' s')::interval",
+            job_retention_secs
+        )
+        .execute(db)
+        .await
+        {
+            tracing::error!("Error deleting custom concurrency key: {:?}", e);
+        }
+    }
+}
+
+/// Delete a batch of expired jobs with LIMIT and SKIP LOCKED for high-scale environments.
+/// Uses a single transaction per batch to minimize lock duration.
+/// Returns the number of jobs deleted in this batch.
+async fn delete_expired_jobs_batch(
+    db: &DB,
+    job_retention_secs: i64,
+    batch_size: i64,
+) -> error::Result<usize> {
+    let mut tx = db.begin().await?;
+
+    // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
+    // ORDER BY completed_at ensures we delete oldest jobs first
+    let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
+        "DELETE FROM v2_job_completed
+         WHERE id IN (
+             SELECT id FROM v2_job_completed
+             WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
+             ORDER BY completed_at ASC
+             LIMIT $2
+             FOR UPDATE SKIP LOCKED
+         )
+         RETURNING id",
+        job_retention_secs,
+        batch_size
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let deleted_count = deleted_jobs.len();
+
+    if deleted_count > 0 {
+        tracing::debug!(
+            "Deleting batch of {} expired jobs (retention: {}s)",
+            deleted_count,
+            job_retention_secs
+        );
+
+        // Delete related records for this batch
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM job_stats WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("Error deleting job stats: {:?}", e);
+        }
+
+        match sqlx::query_scalar!(
+            "DELETE FROM job_logs WHERE job_id = ANY($1) RETURNING log_file_index",
+            &deleted_jobs
+        )
+        .fetch_all(&mut *tx)
+        .await
+        {
+            Ok(log_file_index) => {
+                let paths = log_file_index
+                    .into_iter()
+                    .filter_map(|opt| opt)
+                    .flat_map(|inner_vec| inner_vec.into_iter())
+                    .collect();
+                delete_log_files_from_disk_and_store(paths, TMP_DIR, "").await;
+            }
+            Err(e) => tracing::error!("Error deleting job logs: {:?}", e),
+        }
+
+        if let Err(e) = sqlx::query!("DELETE FROM v2_job WHERE id = ANY($1)", &deleted_jobs)
+            .execute(&mut *tx)
+            .await
+        {
+            tracing::error!("Error deleting job: {:?}", e);
+        }
+
+        // Should already be deleted but just in case
+        if let Err(e) = sqlx::query!(
+            "DELETE FROM job_result_stream_v2 WHERE job_id = ANY($1)",
+            &deleted_jobs
+        )
+        .execute(&mut *tx)
+        .await
+        {
+            tracing::error!("Error deleting job result stream: {:?}", e);
+        }
+    }
+
+    tx.commit().await?;
+
+    Ok(deleted_count)
 }
 
 async fn delete_log_files_from_disk_and_store(
@@ -1732,7 +1866,35 @@ pub async fn monitor_db(
 
     let update_min_worker_version_f = async {
         #[cfg(not(feature = "test_job_debouncing"))]
-        windmill_common::worker::update_min_version(conn).await;
+        windmill_common::min_version::update_min_version(conn, _worker_mode, WORKERS_NAMES.read().await.clone(), initial_load).await;
+    };
+
+    // Run every 5 minutes (10 iterations * 30s = 5 minutes)
+    let native_triggers_sync_f = async {
+        #[cfg(feature = "native_trigger")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                match sync_all_triggers(db).await {
+                    Ok(result) => {
+                        tracing::debug!(
+                            "Native triggers sync completed: {} workspaces, {} synced, {} errors",
+                            result.workspaces_processed,
+                            result.total_synced,
+                            result.total_errors
+                        );
+                        if result.total_errors > 0 {
+                            tracing::warn!(
+                                "Native triggers sync encountered {} errors",
+                                result.total_errors
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Error during native triggers sync: {:#}", e);
+                    }
+                }
+            }
+        }
     };
 
     join!(
@@ -1753,6 +1915,7 @@ pub async fn monitor_db(
         cleanup_debounce_keys_completed_f,
         cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
+        native_triggers_sync_f,
     );
 }
 
@@ -1967,7 +2130,6 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     } else {
         std_base_url
     };
-
     {
         let mut l = BASE_URL.write().await;
         *l = base_url.clone();
@@ -2262,7 +2424,7 @@ async fn handle_zombie_jobs(db: &Pool<Postgres>, base_internal_url: &str, node_n
         sqlx::query_scalar!("SELECT j.id
              FROM v2_job_queue q JOIN v2_job j USING (id) LEFT JOIN v2_job_runtime r USING (id) LEFT JOIN v2_job_status s USING (id)
              WHERE r.ping < now() - ($1 || ' seconds')::interval
-             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false", 
+             AND q.running = true AND j.kind NOT IN ('flow', 'flowpreview', 'flownode', 'singlestepflow') AND j.same_worker = false",
              ZOMBIE_JOB_TIMEOUT.as_str())
         .fetch_all(db)
         .await
@@ -2396,8 +2558,8 @@ orphaned_job_uuids AS (
     SELECT job_uuid
     FROM all_job_uuids
     WHERE job_uuid NOT IN (
-        SELECT id::text 
-        FROM v2_job_queue 
+        SELECT id::text
+        FROM v2_job_queue
         FOR SHARE SKIP LOCKED
     )
 ),
@@ -2410,7 +2572,7 @@ before_update AS (
     WHERE lc.job_uuids ?| oa.orphaned_keys
 ),
 affected_rows AS (
-    UPDATE concurrency_counter 
+    UPDATE concurrency_counter
     SET job_uuids = job_uuids - orphaned_array.orphaned_keys
     FROM orphaned_array
     WHERE concurrency_counter.concurrency_id IN (
@@ -2419,12 +2581,12 @@ affected_rows AS (
     RETURNING concurrency_id, job_uuids AS updated_job_uuids
 ),
 expanded_orphaned AS (
-    SELECT bu.concurrency_id, 
+    SELECT bu.concurrency_id,
            bu.job_uuids AS original_job_uuids,
            unnest(bu.orphaned_keys) AS orphaned_key
     FROM before_update bu
 )
-SELECT 
+SELECT
     eo.concurrency_id,
     eo.orphaned_key,
     eo.original_job_uuids,
@@ -2453,7 +2615,7 @@ async fn cleanup_concurrency_counters_empty_keys(db: &DB) -> error::Result<()> {
 WITH rows_to_delete AS (
     SELECT concurrency_id
     FROM concurrency_counter
-    
+
     WHERE job_uuids = '{}'::jsonb
     FOR UPDATE SKIP LOCKED
 )
@@ -2489,7 +2651,7 @@ async fn handle_zombie_flows(db: &DB) -> error::Result<()> {
             AND (j.kind = 'flow' OR j.kind = 'flowpreview' OR j.kind = 'flownode')
             AND r.ping IS NOT NULL AND r.ping < NOW() - ($1 || ' seconds')::interval
             AND q.canceled_by IS NULL
-            
+
         "#,
         FLOW_ZOMBIE_TRANSITION_TIMEOUT.as_str()
     )
@@ -2820,8 +2982,8 @@ RETURNING key,job_id
 
 async fn cleanup_debounce_keys_for_completed_jobs(db: &DB) -> error::Result<()> {
     // If min version doesn't support runnable settings, clean up debounce keys for completed jobs
-    if !*windmill_common::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
-        .read()
+    if !windmill_common::min_version::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
+        .met()
         .await
     {
         let result = sqlx::query!(

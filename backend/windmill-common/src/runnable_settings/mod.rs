@@ -9,19 +9,16 @@ use std::{
 use serde::{de::DeserializeOwned, Serialize};
 use sqlx::{postgres::PgRow, FromRow, Pool, Postgres};
 
-use crate::{error, make_static};
+use crate::{error, make_static, min_version::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0};
 
 lazy_static::lazy_static! {
     static ref WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: bool = std::env::var("WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0").is_ok();
-    pub static ref MIN_VERSION_RUNNABLE_SETTINGS_V0: semver::Version = semver::Version::new(1, 592, 0);
 }
 
 pub async fn min_version_supports_runnable_settings_v0() -> bool {
-    // Check if workers support workspace dependencies feature
+    // Check if workers support runnable settings feature
     if !*WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0
-        && !*crate::worker::MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0
-            .read()
-            .await
+        && !MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.met().await
     {
         tracing::debug!(
             "Internal: min version does not support runnable settings v0, falling back to old system",

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        DELETE FROM token\n        WHERE token LIKE concat($1::text, '%')\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "58dc872520beaa914fef8b7f30e578261fb9ebd92a81e1f2c8edaf93cece0819"
+}

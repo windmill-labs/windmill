@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$lib/navigation'
-	import { logout } from '$lib/logout'
+	import { logout } from '$lib/logoutKit'
 	import {
 		userStore,
 		usageStore,

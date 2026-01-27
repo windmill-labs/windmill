@@ -34,6 +34,9 @@ mod global_cache;
 mod go_executor;
 mod graphql_executor;
 mod handle_child;
+#[cfg(all(feature = "private", feature = "enterprise"))]
+mod otel_tracing_proxy_ee;
+mod otel_tracing_proxy_oss;
 pub mod job_logger;
 #[cfg(feature = "private")]
 pub mod job_logger_ee;
@@ -78,6 +81,12 @@ pub use worker::*;
 pub use worker_lockfiles::{
     process_relative_imports, trigger_dependents_to_recompute_dependencies,
 };
+#[cfg(all(feature = "private", feature = "enterprise"))]
+pub use otel_tracing_proxy_ee::{
+    set_current_job_context, start_jobs_otel_tracing, TRACING_PROXY_PORT,
+};
+#[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
+pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZED};
 
 pub use result_processor::handle_job_error;
 
