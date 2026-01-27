@@ -96,14 +96,7 @@ pub struct WorkspaceDependencies {
 
 impl WorkspaceDependencies {
     pub fn hash(&self) -> String {
-        // non-raw workspace dependencies will start with index 1.
-        // so if we see index 0, it is either default or default and raw deps
-        // if so we will use it's content as baseline
-        if self.id == 0 {
-            calculate_hash(&self.content)
-        } else {
-            self.id.to_string()
-        }
+        calculate_hash(&self.content)
     }
     /// Marks workspace dependencies as archived.
     pub async fn archive<'c>(
