@@ -150,7 +150,7 @@
 						</div>
 
 						<!-- Row 1, Column 2: By -->
-						<div class="flex items-center gap-2">
+						<div class="flex items-center gap-2 -my-2">
 							<User size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
 							<span>
 								By {truncateRev(job.created_by ?? 'unknown', 30)}
@@ -161,7 +161,7 @@
 								{/if}
 								{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
 									<span class="text-secondary text-2xs"
-										>but permissioned as {job.permissioned_as}</span
+										><br />but permissioned as {job.permissioned_as}</span
 									>
 								{/if}
 							</span>
@@ -383,9 +383,8 @@
 		{:else}
 			<!-- Compact version: Worker and Job Kind in first row -->
 			<div class="px-4 pb-2">
-				<div class="grid grid-cols-3 gap-x-4 gap-y-2 text-xs text-primary font-normal">
+				<div class="flex flex-wrap gap-x-4 gap-y-2 text-xs text-primary font-normal">
 					{#if job}
-						<!-- Column 1: Worker -->
 						{#if job && job.worker}
 							<div class="flex flex-row gap-2 items-center">
 								<HardHat size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary" />
@@ -440,7 +439,6 @@
 							</div>
 						{/if}
 
-						<!-- Column 2: Job ID -->
 						<div class="flex flex-row gap-2 items-center min-w-0">
 							<IdCard size={SMALL_ICON_SIZE} class="min-w-3.5 text-secondary flex-shrink-0" />
 							<div class="flex text-primary text-2xs min-w-0 flex-1">
@@ -454,9 +452,6 @@
 								</a>
 							</div>
 						</div>
-
-						<!-- Column 3: Empty for now -->
-						<div></div>
 					{/if}
 				</div>
 			</div>
