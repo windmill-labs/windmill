@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.617.2](https://github.com/windmill-labs/windmill/compare/v1.617.1...v1.617.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* 404 triggers listing in CE ([#7705](https://github.com/windmill-labs/windmill/issues/7705)) ([456dd47](https://github.com/windmill-labs/windmill/commit/456dd478d83c1c57be2756bd8a201eb73fe43542))
+* **backend:** folder/group permissions workspace id change ([#7703](https://github.com/windmill-labs/windmill/issues/7703)) ([4ef1616](https://github.com/windmill-labs/windmill/commit/4ef16168936d8f908a25a55965f9d7998ec68625))
+* **cli:** make `wmill app new` respects nonDottedPaths setting from wmill.yaml ([#7700](https://github.com/windmill-labs/windmill/issues/7700)) ([c548e52](https://github.com/windmill-labs/windmill/commit/c548e529491a9547076af6b4567b9ce8909b07a5))
+* **frontend:** bad overflow handling for flow schema in detail page ([#7704](https://github.com/windmill-labs/windmill/issues/7704)) ([e9784cf](https://github.com/windmill-labs/windmill/commit/e9784cfa11010d229f520558e6974b2f3dded6d9))
+* **mcp:** use computed base_internal_url instead of static default ([#7701](https://github.com/windmill-labs/windmill/issues/7701)) ([720a7e5](https://github.com/windmill-labs/windmill/commit/720a7e56d1f86040173b3d49519a925bf649fb71))
+
 ## [1.617.1](https://github.com/windmill-labs/windmill/compare/v1.617.0...v1.617.1) (2026-01-27)
 
 
