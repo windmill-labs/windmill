@@ -15,7 +15,6 @@
 		canWrite,
 		computeSharableHash,
 		copyToClipboard,
-		displayDate,
 		emptyString,
 		encodeState,
 		isFlowPreview,
@@ -59,7 +58,6 @@
 	import Tabs from '$lib/components/common/tabs/TabsV2.svelte'
 	import { goto } from '$lib/navigation'
 	import { sendUserToast } from '$lib/toast'
-	import { forLater } from '$lib/forLater'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import PersistentScriptDrawer from '$lib/components/PersistentScriptDrawer.svelte'
 	import Portal from '$lib/components/Portal.svelte'
@@ -714,11 +712,6 @@
 			</div>
 		</div>
 
-		{#if job?.['scheduled_for'] && forLater(job?.['scheduled_for'])}
-			<div class="max-w-7xl mx-auto w-full px-4">
-				<h2 class="mt-10">Scheduled to be executed later: {displayDate(job?.['scheduled_for'])}</h2>
-			</div>
-		{/if}
 		{#if isNotFlow(job?.job_kind)}
 			{#if ['python3', 'bun', 'deno'].includes(job?.language ?? '') && (job?.job_kind == 'script' || isScriptPreview(job?.job_kind))}
 				<ExecutionDuration bind:job bind:longRunning={currentJobIsLongRunning} />

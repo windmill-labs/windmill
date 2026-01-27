@@ -57,7 +57,7 @@
 	</div>
 {:else if job && 'running' in job && 'scheduled_for' in job && job.scheduled_for && forLater(job.scheduled_for)}
 	<div>
-		<Badge color="blue" icon={{ icon: Calendar, position: 'left' }}>
+		<Badge color="blue" icon={{ icon: Calendar, position: 'left' }} large>
 			Scheduled for {displayDate(job.scheduled_for)}
 		</Badge>
 	</div>

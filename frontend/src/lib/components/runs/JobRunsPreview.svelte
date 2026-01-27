@@ -132,20 +132,6 @@
 				/>
 			</div>
 
-			{#if job && 'scheduled_for' in job && !job.running && job.scheduled_for && forLater(job.scheduled_for)}
-				<div
-					class="flex flex-row gap-4 items-center mb-1 w-full bg-surface-tertiary rounded-md p-4 border"
-				>
-					<Calendar size={16} class="text-accent" />
-					<div class="flex flex-col gap-1">
-						<span class="text-2xs font-normal text-secondary">Job is scheduled for</span>
-						<span class="text-xs font-semibold text-emphasis"
-							>{new Date(job?.['scheduled_for']).toLocaleString()}</span
-						>
-					</div>
-				</div>
-			{/if}
-
 			<div class="w-full rounded-md min-h-full">
 				{#if job?.workflow_as_code_status}
 					<WorkflowTimeline
