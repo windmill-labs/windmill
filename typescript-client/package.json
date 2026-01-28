@@ -11,7 +11,7 @@
   },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
-  "types": "dist/index.d.mts",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "require": {
@@ -19,19 +19,12 @@
         "default": "./dist/index.js"
       },
       "import": {
-        "types": "./dist/index.d.mts",
+        "types": "./dist/index.d.ts",
         "default": "./dist/index.mjs"
       }
     }
   },
-  "typesVersions": {
-    "*": {
-      "*": [
-        "./dist/index.d.mts"
-      ]
-    }
-  },
-  "prepublish": "tsdown --format esm --format cjs --dts",
+  "prepublish": "tsdown --format esm --format cjs --no-dts && tsc",
   "files": [
     "dist",
     "LICENSE",
