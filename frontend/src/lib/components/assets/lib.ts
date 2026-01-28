@@ -13,7 +13,7 @@ export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
 export type AssetWithAltAccessType = AssetWithAccessType & {
 	alt_access_type?: AssetUsageAccessType
 }
-export type AssetUsage = ListAssetsResponse[number]['usages'][number]
+export type AssetUsage = ListAssetsResponse['assets'][number]['usages'][number]
 
 export function formatAsset(asset: Asset): string {
 	switch (asset.kind) {
