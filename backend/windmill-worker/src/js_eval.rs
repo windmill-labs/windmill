@@ -1343,7 +1343,7 @@ async fn eval_fetch(
         format!(
 r#"globalThis.__enterSpan?.({{
     isRecording: () => true,
-    spanContext: () => ({{ traceId: "{trace_id}", spanId: "0000000000000000", traceFlags: 1 }})
+    spanContext: () => ({{ traceId: "{trace_id}", spanId: "ffffffffffffffff", traceFlags: 1 }})
 }});"#
         )
     } else {
