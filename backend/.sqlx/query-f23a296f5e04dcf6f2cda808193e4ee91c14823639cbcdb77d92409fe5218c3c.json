@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE workspace_key SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE workspace_diff SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "0d0c379b1cd2eec15869dd0b1a31886a95d53096fdcb1cdb1e0eb282b54105dc"
+  "hash": "f23a296f5e04dcf6f2cda808193e4ee91c14823639cbcdb77d92409fe5218c3c"
 }

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE ai_agent_memory SET workspace_id = $1 WHERE workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c8d3693059ce1e2bbc84d76b543830ed343a5c6a1fef780f477dfbed80300f3"
+}
