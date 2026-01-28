@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
+use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -143,15 +143,17 @@ enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     base_url: Option<String>,
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     api_key: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     region: Option<String>,
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
     aws_access_key_id: Option<String>,
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -574,7 +576,7 @@ async fn global_proxy(
         None => return Err(Error::BadRequest("Provider is required".to_string())),
     };
 
-    let Some(api_key) = api_key else {
+    let Some(api_key) = api_key.filter(|s| !s.is_empty()) else {
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 

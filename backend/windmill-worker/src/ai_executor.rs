@@ -413,6 +413,10 @@ pub async fn run_agent(
     let base_url = args.provider.get_base_url(db).await?;
     let api_key = args.provider.get_api_key().unwrap_or("");
 
+    if api_key.is_empty() {
+        return Err(Error::internal_err("API key is required but was empty"));
+    }
+
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
 
