@@ -31,7 +31,7 @@
       ]
     }
   },
-  "prepublish": "tsdown --format esm --format cjs",
+  "prepublish": "tsdown --format esm --format cjs --dts",
   "files": [
     "dist",
     "LICENSE",

@@ -2,6 +2,7 @@
   "include": ["src/**/*"],
   "compilerOptions": {
     "declaration": true,
+    "outDir": "dist",
     "rootDir": "src/",
     "target": "ESNext" /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */,
     "lib": [
@@ -10,6 +11,7 @@
     ] /* Specify a set of bundled library declaration files that describe the target runtime environment. */,
     "module": "ESNext" /* Specify what module code is generated. */,
     "strict": true /* Enable all strict type-checking options. */,
-    "skipLibCheck": true /* Skip type checking all .d.ts files. */
+    "skipLibCheck": true /* Skip type checking all .d.ts files. */,
+    "forceConsistentCasingInFileNames": true
   }
 }
