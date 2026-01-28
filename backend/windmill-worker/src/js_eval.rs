@@ -1341,7 +1341,7 @@ async fn eval_fetch(
     let otel_context_inject = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
         let trace_id = job_id.as_simple().to_string();
         format!(
-r#"globalThis.__enterSpan?({{
+r#"globalThis.__enterSpan?.({{
     isRecording: () => true,
     spanContext: () => ({{ traceId: "{trace_id}", spanId: "0000000000000000", traceFlags: 1 }})
 }});"#
