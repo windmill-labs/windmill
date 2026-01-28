@@ -3,17 +3,13 @@
   "compilerOptions": {
     "declaration": true,
     "rootDir": "src/",
-    "outDir": "dist",
-    "target": "ES6" /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */,
+    "target": "ESNext" /* Set the JavaScript language version for emitted JavaScript and include compatible library declarations. */,
     "lib": [
       "ES2018",
       "DOM"
     ] /* Specify a set of bundled library declaration files that describe the target runtime environment. */,
-
-    "module": "CommonJS" /* Specify what module code is generated. */,
-    "forceConsistentCasingInFileNames": true /* Ensure that casing is correct in imports. */,
+    "module": "ESNext" /* Specify what module code is generated. */,
     "strict": true /* Enable all strict type-checking options. */,
-
     "skipLibCheck": true /* Skip type checking all .d.ts files. */
   }
 }
