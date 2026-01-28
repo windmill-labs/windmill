@@ -411,7 +411,7 @@ pub async fn run_agent(
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
     let base_url = args.provider.get_base_url(db).await?;
-    let api_key = args.provider.get_api_key();
+    let api_key = args.provider.get_api_key().unwrap_or("");
 
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
