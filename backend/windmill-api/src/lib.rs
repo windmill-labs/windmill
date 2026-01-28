@@ -420,7 +420,7 @@ pub async fn run_server(
         if server_mode || mcp_mode {
             use mcp::add_www_authenticate_header;
             let (mcp_router, mcp_cancellation_token) =
-                setup_mcp_server(db.clone(), user_db).await?;
+                setup_mcp_server(db.clone(), user_db, _base_internal_url.clone()).await?;
             // Apply middleware: auth check inside WWW-Authenticate wrapper so 401s get the header
             let mcp_router = mcp_router
                 .route_layer(from_extractor::<ApiAuthed>())

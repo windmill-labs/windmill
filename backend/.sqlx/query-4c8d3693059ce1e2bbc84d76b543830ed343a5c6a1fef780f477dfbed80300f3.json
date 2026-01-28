@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE v2_job_completed SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE ai_agent_memory SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "6bdb3fcfe16fc40222dc7010a11026d4d4e0d381b31fe02da7d2667c0cdc1a85"
+  "hash": "4c8d3693059ce1e2bbc84d76b543830ed343a5c6a1fef780f477dfbed80300f3"
 }
