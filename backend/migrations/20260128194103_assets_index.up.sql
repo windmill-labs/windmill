@@ -1,14 +1,4 @@
-ALTER TABLE asset
-  ADD COLUMN created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  ADD COLUMN id BIGSERIAL UNIQUE;
-DO
-$do$
-BEGIN
-  ALTER TYPE ASSET_USAGE_KIND ADD VALUE 'job';
-EXCEPTION WHEN OTHERS THEN
-  RAISE NOTICE 'Couldn''t create ASSET_USAGE_KIND::job: %', SQLERRM;
-END
-$do$;
+-- Postgres requires indexes to be created in a separate migration (transaction) after columns are added.
 
 -- Index for pagination queries that use workspace_id, created_at, and id for cursor pagination
 -- Supports: SELECT with GROUP BY path, kind ORDER BY MAX(created_at) DESC, MAX(id) DESC
