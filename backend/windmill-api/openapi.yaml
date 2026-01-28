@@ -16428,58 +16428,95 @@ paths:
 
   /w/{workspace}/assets/list:
     get:
-      summary: List all assets in the workspace
+      summary: List all assets in the workspace with cursor pagination
       operationId: listAssets
       tags:
         - asset
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: per_page
+          in: query
+          description: Number of items per page (max 1000, default 50)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 1000
+        - name: cursor_created_at
+          in: query
+          description: Cursor timestamp for pagination (created_at of last item from previous page)
+          schema:
+            type: string
+            format: date-time
+        - name: cursor_id
+          in: query
+          description: Cursor ID for pagination (id of last item from previous page)
+          schema:
+            type: integer
+            format: int64
       responses:
         "200":
-          description: all assets in the workspace
+          description: paginated assets in the workspace
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required: [path, kind, usages]
-                  properties:
-                    path:
-                      type: string
-                    kind:
-                      $ref: "#/components/schemas/AssetKind"
-                    usages:
-                      type: array
-                      items:
-                        type: object
-                        required: [path, kind]
-                        properties:
-                          path:
-                            type: string
-                          kind:
-                            $ref: "#/components/schemas/AssetUsageKind"
-                          access_type:
-                            $ref: "#/components/schemas/AssetUsageAccessType"
-                          created_at:
-                            type: string
-                            format: date-time
-                            description: When the asset was detected
-                          metadata:
-                            type: object
-                            properties:
-                              runnable_path:
-                                type: string
-                                description: The path of the script/flow that was run (only present when kind is 'job')
-                              job_kind:
-                                type: string
-                                description: The kind of job (script, flow, preview, etc.) (only present when kind is 'job')
-                    metadata:
+                type: object
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
                       type: object
+                      required: [path, kind, usages]
                       properties:
-                        resource_type:
+                        path:
                           type: string
-                          description: The type of the resource (only present when kind is 'resource')
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        usages:
+                          type: array
+                          items:
+                            type: object
+                            required: [path, kind]
+                            properties:
+                              path:
+                                type: string
+                              kind:
+                                $ref: "#/components/schemas/AssetUsageKind"
+                              access_type:
+                                $ref: "#/components/schemas/AssetUsageAccessType"
+                              created_at:
+                                type: string
+                                format: date-time
+                                description: When the asset was detected
+                              metadata:
+                                type: object
+                                properties:
+                                  runnable_path:
+                                    type: string
+                                    description: The path of the script/flow that was run (only present when kind is 'job')
+                                  job_kind:
+                                    type: string
+                                    description: The kind of job (script, flow, preview, etc.) (only present when kind is 'job')
+                        metadata:
+                          type: object
+                          properties:
+                            resource_type:
+                              type: string
+                              description: The type of the resource (only present when kind is 'resource')
+                  next_cursor:
+                    type: object
+                    description: Cursor for the next page (null if no more pages)
+                    nullable: true
+                    properties:
+                      created_at:
+                        type: string
+                        format: date-time
+                        description: Timestamp to use for next page
+                      id:
+                        type: integer
+                        format: int64
+                        description: ID to use for next page
 
   /w/{workspace}/assets/list_by_usages:
     post:
