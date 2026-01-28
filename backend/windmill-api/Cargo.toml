@@ -21,7 +21,7 @@ parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "win
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
-kafka = ["dep:rdkafka"]
+kafka = ["dep:rdkafka", "dep:rdkafka-sys"]
 nats = ["dep:async-nats", "dep:nkeys"]
 websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]
@@ -32,11 +32,13 @@ http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_e
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
-sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:aws-config", "dep:backon"]
+native_trigger = ["dep:strum", "dep:backon", "oauth2"]
+sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
+bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
 python = []
 
 [dependencies]
@@ -126,6 +128,8 @@ jsonwebtoken = { workspace = true }
 matchit = { workspace = true, optional = true }
 tokio-tungstenite = { workspace = true, optional = true}
 rdkafka = { workspace = true, optional = true }
+rdkafka-sys = { workspace = true, optional = true }
+
 async-nats = { workspace = true, optional = true }
 nkeys = { workspace = true, optional = true }
 const_format.workspace = true
@@ -151,6 +155,9 @@ aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
 aws-config = { workspace = true, optional = true }
 aws-credential-types.workspace = true
+aws-sdk-bedrock = { workspace = true, optional = true }
+aws-sdk-bedrockruntime = { workspace = true, optional = true }
+aws-smithy-types.workspace = true
 async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
@@ -160,6 +167,7 @@ deno_core = { workspace = true, optional = true }
 tar.workspace = true
 flate2.workspace = true
 backon = {workspace = true, optional = true}
+strum = { workspace = true, optional = true }
 
 [build-dependencies]
 deno_core = { workspace = true, optional = true }

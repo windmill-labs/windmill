@@ -37,6 +37,9 @@ pub enum GeminiPart {
     FunctionCall {
         #[serde(rename = "functionCall")]
         function_call: GeminiFunctionCall,
+        /// Thought signature for Gemini 3+ models - required for function calling
+        #[serde(rename = "thoughtSignature", skip_serializing_if = "Option::is_none")]
+        thought_signature: Option<String>,
     },
     FunctionResponse {
         #[serde(rename = "functionResponse")]
@@ -369,11 +372,18 @@ impl GoogleAIQueryBuilder {
                         for tc in tool_calls {
                             let args: serde_json::Value =
                                 serde_json::from_str(&tc.function.arguments).unwrap_or_default();
+                            // Extract thought_signature from extra_content if present
+                            let thought_signature = tc
+                                .extra_content
+                                .as_ref()
+                                .and_then(|ec| ec.google.as_ref())
+                                .and_then(|g| g.thought_signature.clone());
                             parts.push(GeminiPart::FunctionCall {
                                 function_call: GeminiFunctionCall {
                                     name: tc.function.name.clone(),
                                     args,
                                 },
+                                thought_signature,
                             });
                         }
                     }

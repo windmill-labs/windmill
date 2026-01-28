@@ -28,6 +28,9 @@ use sqlx::{Acquire, Postgres};
 
 pub mod agent_workers;
 pub mod ai_providers;
+pub mod ai_types;
+#[cfg(feature = "bedrock")]
+pub mod ai_bedrock;
 pub mod apps;
 pub mod audit;
 pub mod assets;
@@ -150,8 +153,6 @@ lazy_static::lazy_static! {
 
     pub static ref BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new("".to_string()));
     pub static ref IS_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-    pub static ref BASE_INTERNAL_URL: String = std::env::var("BASE_INTERNAL_URL").unwrap_or("http://localhost:8000".to_string());
     pub static ref HUB_BASE_URL: Arc<RwLock<String>> = Arc::new(RwLock::new(DEFAULT_HUB_BASE_URL.to_string()));
 
 
@@ -180,10 +181,8 @@ pub async fn shutdown_signal(
     tx: KillpillSender,
     mut rx: tokio::sync::broadcast::Receiver<()>,
 ) -> anyhow::Result<()> {
-    use std::io;
-
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    async fn terminate() -> io::Result<()> {
+    async fn terminate() -> std::io::Result<()> {
         use tokio::signal::unix::SignalKind;
         tokio::signal::unix::signal(SignalKind::terminate())?
             .recv()

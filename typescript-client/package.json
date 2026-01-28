@@ -1,18 +1,37 @@
 {
   "name": "windmill-client",
   "description": "Windmill SDK client for browsers and Node.js",
-  "version": "1.614.0",
+  "version": "1.617.3",
   "author": "Ruben Fiszel",
   "license": "Apache 2.0",
   "devDependencies": {
     "@types/node": "^20.17.16",
-    "dts-bundle-generator": "^9.5.1",
-    "esbuild": "^0.21.1",
+    "tsdown": "^0.12.9",
     "typescript": "^5.4.5"
   },
   "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "prepublish": "tsc",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.mts",
+  "exports": {
+    ".": {
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "*": [
+        "./dist/index.d.mts"
+      ]
+    }
+  },
+  "prepublish": "tsdown --format esm --format cjs --dts",
   "files": [
     "dist",
     "LICENSE",

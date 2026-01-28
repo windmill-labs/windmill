@@ -1,7 +1,14 @@
+#[cfg(feature = "bedrock")]
 use crate::bedrock;
 use crate::db::{ApiAuthed, DB};
 
-use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+#[cfg(feature = "bedrock")]
+use axum::routing::get;
+use axum::{
+    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router,
+};
+#[cfg(feature = "bedrock")]
+use axum::Json;
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
@@ -170,8 +177,11 @@ struct AIRequestConfig {
     pub access_token: Option<String>,
     pub organization_id: Option<String>,
     pub user: Option<String>,
+    #[allow(dead_code)]
     pub region: Option<String>,
+    #[allow(dead_code)]
     pub aws_access_key_id: Option<String>,
+    #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
     pub platform: AnthropicPlatform,
 }
@@ -323,7 +333,6 @@ impl AIRequestConfig {
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
         let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
-        let is_bedrock = matches!(provider, AIProvider::AWSBedrock);
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
         // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
@@ -334,27 +343,8 @@ impl AIRequestConfig {
         };
         let base_url = base_url.as_str();
 
-        // Check if using IAM credentials for Bedrock (instead of bearer token)
-        let use_iam_auth =
-            is_bedrock && self.aws_access_key_id.is_some() && self.aws_secret_access_key.is_some();
-
-        // Handle AWS Bedrock transformation
-        let (url, body) = if is_bedrock && method != Method::GET {
-            let (model, transformed_body, is_streaming) =
-                bedrock::transform_openai_to_bedrock(&body)?;
-            let endpoint = if is_streaming {
-                "converse-stream"
-            } else {
-                "converse"
-            };
-            let bedrock_url = format!("{}/model/{}/{}", base_url, model, endpoint);
-            (bedrock_url, transformed_body)
-        } else if is_bedrock && (path == "foundation-models" || path == "inference-profiles") {
-            // AWS Bedrock foundation-models and inference-profiles endpoints use different base URL (without -runtime)
-            let bedrock_base_url = base_url.replace("bedrock-runtime.", "bedrock.");
-            let bedrock_url = format!("{}/{}", bedrock_base_url, path);
-            (bedrock_url, body)
-        } else if is_anthropic_vertex && method != Method::GET {
+        // Build URL based on provider
+        let (url, body) = if is_anthropic_vertex && method != Method::GET {
             let (model, transformed_body) = transform_anthropic_for_vertex(&body)?;
             let vertex_url = format!("{}/{}:streamRawPredict", base_url, model);
             (vertex_url, transformed_body)
@@ -387,40 +377,21 @@ impl AIRequestConfig {
             }
         }
 
-        // For Bedrock with IAM credentials, sign the request using SigV4
-        if use_iam_auth {
-            let region = self.region.as_deref().ok_or_else(|| {
-                Error::internal_err("AWS region must be set for IAM authentication with Bedrock")
-            })?;
-            let signed_headers = bedrock::sign_bedrock_request(
-                method.as_str(),
-                &url,
-                &body,
-                self.aws_access_key_id.as_ref().unwrap(),
-                self.aws_secret_access_key.as_ref().unwrap(),
-                region,
-            )?;
+        // Add authentication headers
+        if let Some(api_key) = self.api_key {
+            if is_azure {
+                request = request.header("api-key", api_key.clone())
+            } else {
+                request = request.header("authorization", format!("Bearer {}", api_key.clone()))
+            }
+            // For standard Anthropic API, also add X-API-Key header (but not for Vertex AI)
+            if is_anthropic && !is_anthropic_vertex {
+                request = request.header("X-API-Key", api_key);
+            }
+        }
 
-            for (header_name, header_value) in signed_headers {
-                request = request.header(header_name, header_value);
-            }
-        } else {
-            // For non-IAM auth, use bearer token or API key
-            if let Some(api_key) = self.api_key.clone() {
-                if is_azure {
-                    request = request.header("api-key", api_key.clone())
-                } else {
-                    request = request.header("authorization", format!("Bearer {}", api_key.clone()))
-                }
-                // For standard Anthropic API, also add X-API-Key header
-                if is_anthropic && !is_anthropic_vertex {
-                    request = request.header("X-API-Key", api_key);
-                }
-            }
-
-            if let Some(access_token) = self.access_token {
-                request = request.header("authorization", format!("Bearer {}", access_token))
-            }
+        if let Some(access_token) = self.access_token {
+            request = request.header("authorization", format!("Bearer {}", access_token))
         }
 
         request = request.body(body);
@@ -565,7 +536,22 @@ pub fn global_service() -> Router {
 }
 
 pub fn workspaced_service() -> Router {
-    Router::new().route("/proxy/*ai", post(proxy).get(proxy))
+    let router = Router::new().route("/proxy/*ai", post(proxy).get(proxy));
+
+    #[cfg(feature = "bedrock")]
+    let router = router.route("/check_bedrock_credentials", get(check_bedrock_credentials));
+
+    router
+}
+
+/// Check if AWS Bedrock credentials are available from environment variables.
+#[cfg(feature = "bedrock")]
+async fn check_bedrock_credentials(
+    _authed: ApiAuthed,
+    Path(_w_id): Path<String>,
+) -> Result<Json<windmill_common::ai_bedrock::BedrockCredentialsCheck>> {
+    let response = windmill_common::ai_bedrock::check_env_credentials().await;
+    Ok(Json(response))
 }
 
 async fn global_proxy(
@@ -735,20 +721,101 @@ async fn proxy(
         ai_path = chat_path;
     }
 
-    // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-    let (model, is_streaming) =
-        if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-            #[derive(Deserialize, Debug)]
-            struct BedrockRequest {
-                model: String,
-                stream: bool,
+    // Handle Bedrock-specific logic when the feature is enabled
+    #[cfg(feature = "bedrock")]
+    {
+        // Extract model and streaming flag for Bedrock transformation (only for POST requests)
+        let (model, is_streaming) =
+            if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
+                #[derive(Deserialize, Debug)]
+                struct BedrockRequest {
+                    model: String,
+                    #[serde(default)]
+                    stream: bool,
+                }
+                let parsed: BedrockRequest = serde_json::from_slice(&body)
+                    .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+                (Some(parsed.model), parsed.stream)
+            } else {
+                (None, false)
+            };
+
+        // For Bedrock requests, use the SDK-based approach
+        if matches!(provider, AIProvider::AWSBedrock) {
+            let region = request_config
+                .region
+                .as_deref()
+                .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
+
+            // Audit log before making the SDK request
+            let mut tx = db.begin().await?;
+            audit_log(
+                &mut *tx,
+                &authed,
+                "ai.request",
+                ActionKind::Execute,
+                &w_id,
+                Some(&authed.email),
+                Some([("ai_config_path", &format!("{:?}", ai_path)[..])].into()),
+            )
+            .await?;
+            tx.commit().await?;
+
+            // Handle GET requests for control plane operations
+            if method == Method::GET {
+                if ai_path == "foundation-models" {
+                    return bedrock::list_foundation_models(
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                } else if ai_path == "inference-profiles" {
+                    return bedrock::list_inference_profiles(
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                }
             }
-            let parsed: BedrockRequest = serde_json::from_slice(&body)
-                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-            (Some(parsed.model), parsed.stream)
-        } else {
-            (None, false)
-        };
+
+            // Handle POST requests for inference
+            if method == Method::POST && model.is_some() {
+                if is_streaming {
+                    return bedrock::handle_bedrock_sdk_streaming(
+                        model.as_ref().unwrap(),
+                        &body,
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                } else {
+                    return bedrock::handle_bedrock_sdk_non_streaming(
+                        model.as_ref().unwrap(),
+                        &body,
+                        request_config.api_key.as_deref(),
+                        request_config.aws_access_key_id.as_deref(),
+                        request_config.aws_secret_access_key.as_deref(),
+                        region,
+                    )
+                    .await;
+                }
+            }
+        }
+    }
+
+    // When bedrock feature is disabled, return error for Bedrock provider
+    #[cfg(not(feature = "bedrock"))]
+    if matches!(provider, AIProvider::AWSBedrock) {
+        return Err(Error::BadRequest(
+            "AWS Bedrock support is not enabled. Build with 'bedrock' feature.".to_string(),
+        ));
+    }
 
     let request = request_config.prepare_request(&provider, &ai_path, method, headers, body)?;
 
@@ -773,45 +840,8 @@ async fn proxy(
         return Err(Error::AIError(err_msg));
     }
 
-    // Transform Bedrock responses back to OpenAI format
-    if matches!(provider, AIProvider::AWSBedrock) && model.is_some() {
-        if is_streaming {
-            // Transform streaming response
-            use http::StatusCode;
-
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert("content-type", "text/event-stream".parse().unwrap());
-            response_headers.insert("cache-control", "no-cache".parse().unwrap());
-            response_headers.insert("connection", "keep-alive".parse().unwrap());
-
-            let stream = response.bytes_stream();
-            let transformed_stream =
-                bedrock::transform_bedrock_stream_to_openai(stream, model.unwrap());
-
-            Ok((
-                StatusCode::OK,
-                response_headers,
-                axum::body::Body::from_stream(transformed_stream),
-            ))
-        } else {
-            // Transform non-streaming response
-            let transformed_body =
-                bedrock::transform_bedrock_to_openai(response, model.unwrap()).await?;
-
-            let mut response_headers = HeaderMap::new();
-            response_headers.insert("content-type", "application/json".parse().unwrap());
-
-            Ok((
-                http::StatusCode::OK,
-                response_headers,
-                axum::body::Body::from(transformed_body),
-            ))
-        }
-    } else {
-        // Pass through for other providers
-        let status_code = response.status();
-        let headers = response.headers().clone();
-        let stream = response.bytes_stream();
-        Ok((status_code, headers, axum::body::Body::from_stream(stream)))
-    }
+    let status_code = response.status();
+    let headers = response.headers().clone();
+    let stream = response.bytes_stream();
+    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
 }

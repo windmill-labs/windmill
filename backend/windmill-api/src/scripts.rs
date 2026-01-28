@@ -591,6 +591,11 @@ async fn create_script_internal<'c>(
     Transaction<'c, Postgres>,
     Option<HandleDeploymentMetadata>,
 )> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create scripts for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("scripts:write:{}", ns.path))?;
 
     guard_script_from_debounce_data(&ns).await?;
@@ -1470,7 +1475,7 @@ async fn toggle_workspace_error_handler(
     let mut tx = user_db.begin(&authed).await?;
 
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
-        "SELECT error_handler FROM workspace_settings WHERE workspace_id = $1",
+        "SELECT error_handler->>'path' FROM workspace_settings WHERE workspace_id = $1",
         w_id
     )
     .fetch_optional(&mut *tx)
@@ -1903,6 +1908,11 @@ async fn archive_script_by_path(
     Extension(db): Extension<DB>,
     Path((w_id, path)): Path<(String, StripPath)>,
 ) -> Result<()> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive scripts for security reasons".to_string(),
+        ));
+    }
     let path = path.to_path();
     check_scopes(&authed, || format!("scripts:write:{}", path))?;
     let mut tx = user_db.begin(&authed).await?;
@@ -1972,6 +1982,11 @@ async fn archive_script_by_hash(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, hash)): Path<(String, ScriptHash)>,
 ) -> JsonResult<Script<ScriptRunnableSettingsInline>> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot archive scripts for security reasons".to_string(),
+        ));
+    }
     let mut tx = user_db.begin(&authed).await?;
 
     let script = sqlx::query_as::<_, Script<ScriptRunnableSettingsHandle>>(

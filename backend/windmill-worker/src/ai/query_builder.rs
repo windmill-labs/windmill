@@ -9,7 +9,7 @@ use crate::{
         providers::{
             anthropic::AnthropicQueryBuilder,
             google_ai::GoogleAIQueryBuilder,
-            openai::{OpenAIQueryBuilder, OpenAIToolCall},
+            openai::{OpenAIQueryBuilder},
             openrouter::OpenRouterQueryBuilder,
             other::OtherQueryBuilder,
         },
@@ -17,6 +17,8 @@ use crate::{
     },
     job_logger::append_result_stream,
 };
+
+use windmill_common::ai_types::OpenAIToolCall;
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {

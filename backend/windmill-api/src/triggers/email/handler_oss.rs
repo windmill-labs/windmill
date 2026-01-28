@@ -32,7 +32,7 @@ impl TriggerCrud for EmailTrigger {
     const SUPPORTS_TEST_CONNECTION: bool = false;
     const ROUTE_PREFIX: &'static str = "/email_triggers";
     const DEPLOYMENT_NAME: &'static str = "";
-    const IS_CLOUD_HOSTED: bool = false;
+    const IS_ALLOWED_ON_CLOUD: bool = false;
 
     fn get_deployed_object(path: String) -> DeployedObject {
         DeployedObject::EmailTrigger { path }

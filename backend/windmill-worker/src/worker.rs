@@ -677,6 +677,7 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
     ])
 }
 
+
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
@@ -1298,7 +1299,7 @@ pub async fn run_worker(
                     "Cannot preinstall or find Instance Python version to worker: {e}"//
                 );
             }
-            if let Err(e) = PyV::from(PyVAlias::Py311)
+            if let Err(e) = PyV::from(PyVAlias::default())
                 .try_get_python(&Uuid::nil(), &mut 0, &conn, &worker_name, "", &mut None)
                 .await
             {
@@ -1306,7 +1307,7 @@ pub async fn run_worker(
                     worker = %worker_name,
                     hostname = %hostname,
                     worker_dir = %worker_dir,
-                    "Cannot preinstall or find default 311 version to worker: {e}"//
+                    "Cannot preinstall or find default version to worker: {e}"//
                 );
             }
         });
@@ -2709,6 +2710,19 @@ async fn do_nativets(
     };
 
     let stream_notifier = StreamNotifier::new(conn, job);
+
+    // Set job context for OTEL tracing (EE only)
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    {
+        let tracing_enabled = is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await;
+        tracing::debug!(
+            "nativets job {}: OTEL tracing enabled={}",
+            job.id, tracing_enabled
+        );
+        if tracing_enabled {
+            crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
+        }
+    }
 
     Ok(eval_fetch_timeout(
         env_code,

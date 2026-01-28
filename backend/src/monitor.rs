@@ -29,6 +29,9 @@ use windmill_api::{
     SCIM_TOKEN,
 };
 
+#[cfg(feature = "native_trigger")]
+use windmill_api::native_triggers::sync::sync_all_triggers;
+
 #[cfg(feature = "enterprise")]
 use windmill_common::ee_oss::low_disk_alerts;
 #[cfg(feature = "enterprise")]
@@ -219,6 +222,7 @@ pub async fn initial_load(
                     e
                 )
             }
+            windmill_common::min_version::store_min_keep_alive_version(db).await;
         }
     }
 
@@ -320,7 +324,6 @@ pub async fn initial_load(
         reload_maven_repos_setting(&conn).await;
         reload_no_default_maven_setting(&conn).await;
         reload_ruby_repos_setting(&conn).await;
-        reload_otel_tracing_proxy_setting(&conn).await;
     }
 }
 
@@ -1866,6 +1869,34 @@ pub async fn monitor_db(
         windmill_common::min_version::update_min_version(conn, _worker_mode, WORKERS_NAMES.read().await.clone(), initial_load).await;
     };
 
+    // Run every 5 minutes (10 iterations * 30s = 5 minutes)
+    let native_triggers_sync_f = async {
+        #[cfg(feature = "native_trigger")]
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                match sync_all_triggers(db).await {
+                    Ok(result) => {
+                        tracing::debug!(
+                            "Native triggers sync completed: {} workspaces, {} synced, {} errors",
+                            result.workspaces_processed,
+                            result.total_synced,
+                            result.total_errors
+                        );
+                        if result.total_errors > 0 {
+                            tracing::warn!(
+                                "Native triggers sync encountered {} errors",
+                                result.total_errors
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Error during native triggers sync: {:#}", e);
+                    }
+                }
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1884,6 +1915,7 @@ pub async fn monitor_db(
         cleanup_debounce_keys_completed_f,
         cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
+        native_triggers_sync_f,
     );
 }
 
@@ -2098,7 +2130,6 @@ pub async fn load_base_url(conn: &Connection) -> error::Result<String> {
     } else {
         std_base_url
     };
-
     {
         let mut l = BASE_URL.write().await;
         *l = base_url.clone();
