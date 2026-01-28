@@ -6351,6 +6351,7 @@ async fn run_inline_preview_script(
                         asset_path: asset.path,
                         job_id,
                         workspace_id: w_id.clone(),
+                        created_at: None,
                     });
                 }
             }

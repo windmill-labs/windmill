@@ -56,6 +56,7 @@ pub struct InsertRuntimeAssetParams {
     pub asset_kind: AssetKind,
     pub job_id: uuid::Uuid,
     pub access_type: Option<AssetUsageAccessType>,
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn insert_runtime_assets(
@@ -63,14 +64,15 @@ async fn insert_runtime_assets(
     assets: &[InsertRuntimeAssetParams],
 ) -> error::Result<()> {
     for chunk in assets.chunks(1000) {
-        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind) ");
+        let mut query_builder = QueryBuilder::new("INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, created_at) ");
         query_builder.push_values(chunk, |mut b, asset| {
             b.push_bind(&asset.workspace_id)
                 .push_bind(&asset.asset_path)
                 .push_bind(&asset.asset_kind)
                 .push_bind(&asset.access_type)
                 .push_bind(asset.job_id.to_string())
-                .push_bind(&AssetUsageKind::Job);
+                .push_bind(&AssetUsageKind::Job)
+                .push_bind(&asset.created_at);
         });
         query_builder.push(" ON CONFLICT DO NOTHING");
         query_builder.build().execute(executor).await?;
@@ -189,7 +191,10 @@ pub fn init_runtime_asset_loop(
     });
 }
 
-pub fn register_runtime_asset(asset: InsertRuntimeAssetParams) {
+pub fn register_runtime_asset(mut asset: InsertRuntimeAssetParams) {
+    // Capture timestamp at registration time to preserve ordering when batch-inserted later
+    asset.created_at = Some(chrono::Utc::now());
+
     let job_id = asset.job_id;
     let Some(runtime_asset_tx) = RUNTIME_ASSET_SENDER.get() else {
         tracing::error!("Failed to send runtime asset to channel for job {job_id}: RUNTIME_ASSET_SENDER.get() returned None");

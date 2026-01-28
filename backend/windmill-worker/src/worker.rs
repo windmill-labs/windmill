@@ -2769,6 +2769,7 @@ async fn detect_and_store_runtime_assets(
             asset_path: asset.path,
             asset_kind: asset.kind,
             access_type: None,
+            created_at: None,
         };
         register_runtime_asset(asset);
     }
@@ -3166,8 +3167,10 @@ pub async fn handle_queued_job(
 
                 // Set job context for OTEL tracing before entering handle_code_execution_job's span
                 #[cfg(all(feature = "private", feature = "enterprise"))]
-                if matches!(job.script_lang, Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative))  
-                    && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
+                if matches!(
+                    job.script_lang,
+                    Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative)
+                ) && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
                 {
                     crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
                 }
