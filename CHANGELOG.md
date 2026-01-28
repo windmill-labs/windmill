@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.619.0](https://github.com/windmill-labs/windmill/compare/v1.618.2...v1.619.0) (2026-01-28)
+
+
+### Features
+
+* enable tree-shaking for windmill-client ([b6abcc3](https://github.com/windmill-labs/windmill/commit/b6abcc33a121423faaa41d9eef5488df67686fe7))
+
+
+### Bug Fixes
+
+* **backend:** leave job and audit history and archive workspace when changing workspace id ([#7724](https://github.com/windmill-labs/windmill/issues/7724)) ([d3d35d4](https://github.com/windmill-labs/windmill/commit/d3d35d4cd86dc73a4e2e007f457bc945ccef8263))
+* **cli:** handle symlinks in isMain() for Node.js ([116b9e7](https://github.com/windmill-labs/windmill/commit/116b9e7db38cd0a9ec2a5c5780a9004ff2015a02))
+* fix TypeScript default export for Monaco/ATA compatibility ([a02938c](https://github.com/windmill-labs/windmill/commit/a02938c80c425b5964e815722be9919ea405234b))
+* make api key optional ([#7726](https://github.com/windmill-labs/windmill/issues/7726)) ([82f378b](https://github.com/windmill-labs/windmill/commit/82f378bcb4d29f5c272c70564d30814542115fed))
+* nativets http tracing ([#7716](https://github.com/windmill-labs/windmill/issues/7716)) ([f50a866](https://github.com/windmill-labs/windmill/commit/f50a866430da8f5f43cb3163ec116fe254407ef9))
+* Raw apps deployment UI (and merge UI) ([#7725](https://github.com/windmill-labs/windmill/issues/7725)) ([36dad2c](https://github.com/windmill-labs/windmill/commit/36dad2c7a29e4880bdf0198611e07a4366b01edf))
+* use tsc for clean .d.ts files instead of tsdown bundled types ([0f62558](https://github.com/windmill-labs/windmill/commit/0f625580f37e562240bdaa155e8b25e889bb680d))
+
 ## [1.618.2](https://github.com/windmill-labs/windmill/compare/v1.618.1...v1.618.2) (2026-01-28)
 
 
