@@ -245,13 +245,18 @@ export interface UseInfiniteQueryReturn<TData> {
 }
 
 /**
- * A Svelte 5 hook that detects when the user has scrolled to the bottom of the page
+ * A Svelte 5 hook that detects when the user has scrolled to the bottom of an element
  *
+ * @param selector - CSS selector for the element to monitor (if not provided, monitors window)
  * @param threshold - Distance from bottom in pixels to trigger (default: 0)
  * @returns Object with `current` getter that returns true when at bottom
  *
  * @example
- * const bottomDetector = useScrollToBottom(100)
+ * // Monitor a specific element
+ * const bottomDetector = useScrollToBottom('.my-scrollable-div', 100)
+ *
+ * // Monitor the window
+ * const windowBottomDetector = useScrollToBottom()
  *
  * $effect(() => {
  *   if (bottomDetector.current) {
@@ -259,16 +264,24 @@ export interface UseInfiniteQueryReturn<TData> {
  *   }
  * })
  */
-export function useScrollToBottom(threshold: number = 0): { current: boolean } {
+export function useScrollToBottom(selector: string, threshold: number = 0): { current: boolean } {
 	if (typeof window === 'undefined') return { current: false }
 
 	let current = $state(false)
 
 	$effect(() => {
+		const el = document.querySelector(selector) as HTMLElement
+		if (!el) {
+			console.warn(`useScrollToBottom: Element with selector "${selector}" not found`)
+			return
+		}
+		let element: HTMLElement = el
+
 		function checkIfAtBottom() {
-			const scrollTop = window.scrollY || document.documentElement.scrollTop
-			const scrollHeight = document.documentElement.scrollHeight
-			const clientHeight = window.innerHeight
+			console.log('element.scrollTop', element.scrollTop)
+			const scrollTop = element.scrollTop
+			const scrollHeight = element.scrollHeight
+			const clientHeight = element.clientHeight
 
 			current = scrollTop + clientHeight >= scrollHeight - threshold
 		}
@@ -277,12 +290,16 @@ export function useScrollToBottom(threshold: number = 0): { current: boolean } {
 		checkIfAtBottom()
 
 		// Add scroll listener
-		window.addEventListener('scroll', checkIfAtBottom, { passive: true })
-		window.addEventListener('resize', checkIfAtBottom, { passive: true })
+		element.addEventListener('scroll', checkIfAtBottom, { passive: true })
+		if (element instanceof Window) {
+			window.addEventListener('resize', checkIfAtBottom, { passive: true })
+		}
 
 		return () => {
-			window.removeEventListener('scroll', checkIfAtBottom)
-			window.removeEventListener('resize', checkIfAtBottom)
+			element.removeEventListener('scroll', checkIfAtBottom)
+			if (element instanceof Window) {
+				window.removeEventListener('resize', checkIfAtBottom)
+			}
 		}
 	})
 
