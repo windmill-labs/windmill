@@ -18,16 +18,6 @@ pub struct RuntimeAsset {
     pub kind: AssetKind,
 }
 
-/// Convert from parser AssetKind to common AssetKind
-fn convert_asset_kind(parser_kind: windmill_parser::asset_parser::AssetKind) -> AssetKind {
-    match parser_kind {
-        windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
-        windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
-        windmill_parser::asset_parser::AssetKind::Ducklake => AssetKind::Ducklake,
-        windmill_parser::asset_parser::AssetKind::DataTable => AssetKind::DataTable,
-    }
-}
-
 /// Extract assets from job arguments by analyzing the JSON values
 /// We only detect assets that are commonly used outside of our APIs
 /// (Only resources at the time of writing)
@@ -54,8 +44,7 @@ fn extract_assets_from_raw_value(
         if prefix {
             let s = serde_json::from_str::<String>(value.get()).ok()?;
             let (kind, path) = parse_asset_syntax(&s, false)?;
-            let kind = convert_asset_kind(kind);
-            assets.push(RuntimeAsset { path: path.to_string(), kind });
+            assets.push(RuntimeAsset { path: path.to_string(), kind: kind.into() });
         }
     }
     None

@@ -41,6 +41,7 @@ use windmill_common::jobs::{
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
 };
+use windmill_common::runtime_assets::{register_runtime_asset, InsertRuntimeAssetParams};
 use windmill_common::s3_helpers::{upload_artifact_to_store, BundleFormat};
 use windmill_common::scripts::ScriptRunnableSettingsInline;
 use windmill_common::triggers::TriggerMetadata;
@@ -52,10 +53,12 @@ use windmill_common::workspace_dependencies::{
 use windmill_common::DYNAMIC_INPUT_CACHE;
 #[cfg(all(feature = "enterprise", feature = "smtp"))]
 use windmill_common::{email_oss::send_email_html, server::load_smtp_config};
+use windmill_parser::asset_parser::AssetKind;
 use windmill_worker::get_worker_internal_server_inline_utils;
 
 use windmill_common::variables::get_workspace_key;
 
+use crate::db::OptJobAuthed;
 use crate::triggers::trigger_helpers::{FlowId, ScriptId};
 use crate::{
     add_webhook_allowed_origin,
@@ -6300,12 +6303,60 @@ async fn run_preview_script(
 }
 
 async fn run_inline_preview_script(
-    authed: ApiAuthed,
+    OptJobAuthed { authed, job_id }: OptJobAuthed,
     Tokened { token }: Tokened,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
+    if let Some(job_id) = job_id {
+        let assets = if preview.language == ScriptLang::DuckDb {
+            Some(windmill_parser_sql::parse_assets(&preview.content).map(|a| a.assets))
+        } else if preview.language == ScriptLang::Postgresql {
+            let datatable = preview
+                .args
+                .as_ref()
+                .and_then(|args| args.get("database"))
+                .map(|v| v.get().trim_matches('"'))
+                .and_then(|dt| dt.strip_prefix("datatable://"));
+            if let Some(datatable) = datatable {
+                let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
+                let (schema, content) = if let Some(captures) = re.captures(&preview.content) {
+                    let schema = captures.get(1).map(|m| m.as_str().to_string());
+                    let content = Some(re.replace(&preview.content, "").to_string());
+                    (schema, content)
+                } else {
+                    (None, None)
+                };
+                let content = content.as_deref().unwrap_or(&preview.content);
+                windmill_parser_sql::parse_wmill_sdk_sql_assets(
+                    AssetKind::DataTable,
+                    datatable,
+                    schema.as_deref(),
+                    content,
+                )
+                .transpose()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        match assets {
+            Some(Ok(assets)) => {
+                for asset in assets {
+                    register_runtime_asset(InsertRuntimeAssetParams {
+                        access_type: asset.access_type.map(|a| a.into()),
+                        asset_kind: asset.kind.into(),
+                        asset_path: asset.path,
+                        job_id,
+                        workspace_id: w_id.clone(),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
         content: preview.content,

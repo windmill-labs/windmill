@@ -15589,6 +15589,7 @@ dependencies = [
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
  "windmill-worker",

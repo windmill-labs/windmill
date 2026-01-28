@@ -124,3 +124,24 @@ pub fn merge_asset_usage_access_types(
         (Some(W), Some(W)) => Some(W),
     }
 }
+
+impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
+    fn from(parser_kind: windmill_parser::asset_parser::AssetKind) -> Self {
+        match parser_kind {
+            windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
+            windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
+            windmill_parser::asset_parser::AssetKind::Ducklake => AssetKind::Ducklake,
+            windmill_parser::asset_parser::AssetKind::DataTable => AssetKind::DataTable,
+        }
+    }
+}
+
+impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAccessType {
+    fn from(parser_kind: windmill_parser::asset_parser::AssetUsageAccessType) -> Self {
+        match parser_kind {
+            windmill_parser::asset_parser::AssetUsageAccessType::R => AssetUsageAccessType::R,
+            windmill_parser::asset_parser::AssetUsageAccessType::W => AssetUsageAccessType::W,
+            windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
+        }
+    }
+}
