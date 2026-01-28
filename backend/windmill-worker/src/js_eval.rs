@@ -1334,22 +1334,24 @@ async fn eval_fetch(
 
     let main_override = script_entrypoint_override.unwrap_or("main".to_string());
 
-    // Register job with internal OTEL collector for trace context propagation.
-    // No await needed: JS promises are eager, fetch fires immediately.
-    // No .catch() needed: unhandled rejection won't crash the script.
+    // Inject parent trace context using enterSpan with a duck-typed span object.
+    // Uses job_id as trace_id so all spans are linked to the job.
+    // span_id is a placeholder - it gets overwritten by the OTLP handler with the real parent span_id.
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let otel_register_fetch = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
-        crate::OTLP_COLLECTOR_PORT
-            .read()
-            .await
-            .map(|port| format!(r#"fetch("http://127.0.0.1:{port}/register/{job_id}");"#))
-            .unwrap_or_default()
+    let otel_context_inject = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+        let trace_id = job_id.as_simple().to_string();
+        format!(
+r#"globalThis.__enterSpan?({{
+    isRecording: () => true,
+    spanContext: () => ({{ traceId: "{trace_id}", spanId: "0000000000000000", traceFlags: 1 }})
+}});"#
+        )
     } else {
         String::new()
     };
 
     #[cfg(not(all(feature = "private", feature = "enterprise")))]
-    let otel_register_fetch = "";
+    let otel_context_inject = "";
 
     let script = js_runtime
         .execute_script(
@@ -1387,7 +1389,7 @@ function processStreamIterative(res) {{
     return processLoop();
 }}
 
-{otel_register_fetch}
+{otel_context_inject}
 
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
 import("file:///eval.ts").then((module) => module.{main_override}(...args))
