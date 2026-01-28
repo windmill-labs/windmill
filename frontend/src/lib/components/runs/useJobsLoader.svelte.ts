@@ -123,12 +123,6 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 					: []
 			)
 		})
-		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
-			if (e instanceof CancelError) {
-				return CancelablePromiseUtils.pure<void>(undefined)
-			}
-			return CancelablePromiseUtils.err(e)
-		})
 		return promise
 	}
 
@@ -221,9 +215,10 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 			allowWildcards: allowWildcards ? true : undefined
 		})
 		promise = CancelablePromiseUtils.catchErr(promise, (e) => {
-			if (e instanceof CancelError) return CancelablePromiseUtils.err(e)
-			sendUserToast('There was an issue loading jobs, see browser console for more details', true)
-			console.error(e)
+			if (!(e instanceof CancelError)) {
+				sendUserToast('There was an issue loading jobs, see browser console for more details', true)
+				console.error(e)
+			}
 			return CancelablePromiseUtils.pure<Job[]>([])
 		})
 		CancelablePromiseUtils.pipe(promise, () => {
