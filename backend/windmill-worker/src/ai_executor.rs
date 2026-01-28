@@ -410,6 +410,7 @@ pub async fn run_agent(
     has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
+    // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
     let base_url = if args.provider.kind == AIProvider::AWSBedrock {
         String::new()
     } else {
