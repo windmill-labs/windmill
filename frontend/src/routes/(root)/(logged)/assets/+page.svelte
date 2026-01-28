@@ -17,7 +17,7 @@
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle, Loader2 } from 'lucide-svelte'
-	import { useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
+	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { watch } from 'runed'
 	import Label from '$lib/components/Label.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
@@ -35,7 +35,7 @@
 
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
-			return await AssetService.listAssets({
+			return AssetService.listAssets({
 				workspace: $workspaceStore ?? '',
 				perPage: 50,
 				cursorCreatedAt: cursor?.created_at,
@@ -52,27 +52,20 @@
 	watch(
 		() => isAtBottom.current,
 		(atBottom) => {
-			if (atBottom && assetsQuery.hasNextPage && !assetsQuery.isFetchingNextPage) {
+			if (atBottom && assetsQuery.hasNextPage && !assetsQuery.isFetchingNextPage)
 				assetsQuery.fetchNextPage()
-			}
 		}
 	)
 
-	// Reset query when workspace changes
 	watch(
-		() => $workspaceStore,
-		() => {
-			assetsQuery.reset()
-		}
-	)
-
-	// Reset query when filters change
-	watch(
-		() => [assetPathFilter, usagePathFilter, assetKindsFilter],
+		() => [assetPathFilter, usagePathFilter, assetKindsFilter, $workspaceStore],
 		() => assetsQuery.reset()
 	)
 
-	let assets = $derived(assetsQuery.current.flatMap((page) => page.assets) ?? [])
+	let _assets = new StaleWhileLoading(() =>
+		assetsQuery.isLoading ? undefined : assetsQuery.current
+	)
+	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
@@ -128,7 +121,7 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#if !assetsQuery.error && !assetsQuery.isLoading && assets.length === 0}
+				{#if assets != undefined && assets.length === 0}
 					<tr class="h-14">
 						<Cell colspan="4">No assets found</Cell>
 					</tr>
@@ -169,7 +162,7 @@
 						</Cell>
 					</tr>
 				{/each}
-				{#if assetsQuery.isLoading}
+				{#if assets == undefined && assetsQuery.isLoading}
 					<tr class="h-14">
 						<Cell colspan="4" class="text-center">
 							<div class="flex items-center justify-center gap-2">
@@ -183,7 +176,7 @@
 		</DataTable>
 		{#if assetsQuery.isFetchingNextPage}
 			<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />
-		{:else if assetsQuery.current.length && !assetsQuery.hasNextPage}
+		{:else if assets?.length && !assetsQuery.hasNextPage}
 			<div class="text-center text-2xs text-secondary my-4"> No more assets to load </div>
 		{/if}
 	</CenteredPage>
