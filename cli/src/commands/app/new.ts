@@ -14,7 +14,10 @@ import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 import path from "node:path";
-import { buildFolderPath } from "../../utils/resource_folders.ts";
+import {
+  buildFolderPath,
+  loadNonDottedPathsSetting,
+} from "../../utils/resource_folders.ts";
 
 // Framework templates - adapted from frontend/src/routes/(root)/(logged)/apps_raw/add/templates.ts
 const reactIndex = `
@@ -471,6 +474,9 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
       )
     );
   }
+
+  // Load nonDottedPaths setting from wmill.yaml before creating folder
+  await loadNonDottedPathsSetting();
 
   // Create the directory structure - preserve full path (e.g., f/foobar/x/y becomes f/foobar/x/y.raw_app)
   const folderName = buildFolderPath(appPath, "raw_app");

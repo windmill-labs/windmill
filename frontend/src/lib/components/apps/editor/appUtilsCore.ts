@@ -30,6 +30,7 @@ export function allItems(
 export function findGridItem(app: App, id: string): GridItem | undefined {
 	return findGridItemById(app.grid, app.subgrids, id)
 }
+
 export function collectOneOfFields(fields: AppInputs, app: App): Record<string, any[]> {
 	return Object.fromEntries(
 		Object.entries(fields ?? {})

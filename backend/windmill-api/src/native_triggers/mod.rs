@@ -820,6 +820,8 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
     service_name: ServiceName,
     page: Option<usize>,
     per_page: Option<usize>,
+    path: Option<&str>,
+    is_flow: Option<bool>,
 ) -> Result<Vec<NativeTrigger>> {
     let offset = (page.unwrap_or(0) * per_page.unwrap_or(100)) as i64;
     let limit = per_page.unwrap_or(100) as i64;
@@ -843,6 +845,8 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
         WHERE
             nt.workspace_id = $1 AND
             nt.service_name = $2 AND
+            ($5::text IS NULL OR nt.script_path = $5) AND
+            ($6::bool IS NULL OR nt.is_flow = $6) AND
             (
                 (nt.is_flow = false AND EXISTS (
                     SELECT 1 FROM script s
@@ -862,7 +866,9 @@ pub async fn list_native_triggers<'c, E: sqlx::Executor<'c, Database = Postgres>
         workspace_id,
         service_name as ServiceName,
         limit,
-        offset
+        offset,
+        path,
+        is_flow
     )
     .fetch_all(db)
     .await?;
