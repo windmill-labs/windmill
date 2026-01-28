@@ -80,10 +80,14 @@ async fn list_assets(
         asset_summary_filters.push(format!("asset.path ILIKE ${}", param_count));
     }
 
-    // Usage path filter
+    // Usage path filter - for jobs, also check runnable_path
+    let needs_job_join_in_cte = query.usage_path.is_some();
     if query.usage_path.is_some() {
         param_count += 1;
-        asset_summary_filters.push(format!("asset.usage_path ILIKE ${}", param_count));
+        asset_summary_filters.push(format!(
+            "(asset.usage_path ILIKE ${} OR (asset.usage_kind = 'job' AND job_cte.runnable_path ILIKE ${}))",
+            param_count, param_count
+        ));
     }
 
     // Asset kinds filter
@@ -118,6 +122,18 @@ async fn list_assets(
         String::new()
     };
 
+    // Build FROM clause for CTE with optional job join
+    let cte_from = if needs_job_join_in_cte {
+        format!(
+            r#"FROM asset
+            LEFT JOIN v2_job job_cte ON asset.usage_kind = 'job'
+              AND asset.usage_path = job_cte.id::text
+              AND job_cte.workspace_id = $1"#
+        )
+    } else {
+        "FROM asset".to_string()
+    };
+
     let sql = format!(
         r#"
         WITH asset_summary AS (
@@ -126,7 +142,7 @@ async fn list_assets(
                 asset.kind,
                 MAX(asset.created_at) as max_created_at,
                 MAX(asset.id) as max_id
-            FROM asset
+            {}
             WHERE {}
             GROUP BY asset.path, asset.kind
             {}
@@ -177,7 +193,7 @@ async fn list_assets(
         GROUP BY asset.path, asset.kind, resource.resource_type, asset_summary.max_created_at, asset_summary.max_id
         ORDER BY asset_summary.max_created_at DESC, asset_summary.max_id DESC
         "#,
-        asset_summary_where, cursor_having
+        cte_from, asset_summary_where, cursor_having
     );
 
     // Build query with dynamic parameters
