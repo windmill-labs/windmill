@@ -204,7 +204,6 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(
                 self.resource.base_url.clone(),
-                self.resource.region.clone(),
                 db,
             )
             .await

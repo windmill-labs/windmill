@@ -50,7 +50,6 @@ impl AIProvider {
     pub async fn get_base_url(
         &self,
         resource_base_url: Option<String>,
-        region: Option<String>,
         db: &DB,
     ) -> Result<String> {
         if let Some(base_url) = resource_base_url {
@@ -92,7 +91,6 @@ impl AIProvider {
             )),
             AIProvider::AWSBedrock => {
                 // AWS Bedrock uses the SDK directly, not HTTP base URL
-                let _ = region;
                 Err(Error::internal_err(
                     "AWS Bedrock uses SDK directly, not HTTP base URL".to_string(),
                 ))

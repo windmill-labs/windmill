@@ -214,7 +214,7 @@ impl AIRequestConfig {
                     String::new()
                 } else {
                     provider
-                        .get_base_url(resource.base_url, resource.region, db)
+                        .get_base_url(resource.base_url, db)
                         .await?
                 };
                 let api_key = if let Some(api_key) = resource.api_key {
@@ -258,7 +258,7 @@ impl AIRequestConfig {
                     None
                 };
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
-                let base_url = provider.get_base_url(None, None, db).await?;
+                let base_url = provider.get_base_url(None, db).await?;
 
                 (
                     None,
@@ -581,11 +581,11 @@ async fn global_proxy(
         None => return Err(Error::BadRequest("Provider is required".to_string())),
     };
 
-    let Some(api_key) = api_key.filter(|s| !s.is_empty()) else {
+    let Some(api_key) = api_key else {
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url(None, None, &db).await?;
+    let base_url = provider.get_base_url(None, &db).await?;
 
     let url = format!("{}/{}", base_url, ai_path);
 
