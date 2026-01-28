@@ -1,6 +1,11 @@
+use std::collections::HashMap;
+
 use crate::db::ApiAuthed;
 
-use crate::workspaces::{check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN, WM_FORK_PREFIX};
+use crate::workspaces::{
+    archive_workspace_impl, check_w_id_conflict, CREATE_WORKSPACE_REQUIRE_SUPERADMIN,
+    WM_FORK_PREFIX,
+};
 use crate::{db::DB, utils::require_super_admin};
 
 use axum::extract::Query;
@@ -21,6 +26,7 @@ use windmill_common::{
     error::{Error, Result},
     utils::require_admin,
 };
+use windmill_queue::schedule::{get_schedule_opt, push_scheduled_job};
 
 use serde::Deserialize;
 
@@ -48,36 +54,58 @@ pub(crate) async fn change_workspace_id(
         require_admin(authed.is_admin, &authed.username)?;
     }
 
-    // Check total job count before attempting migration
-    let job_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM v2_job WHERE workspace_id = $1",
-        &old_id
-    )
-    .fetch_one(&db)
-    .await?
-    .unwrap_or(0);
-
-    if job_count > 100_000 {
-        return Err(Error::BadRequest(
-            format!(
-                "Workspace has {} jobs which exceeds the 100k limit for direct migration. Please use the Windmill CLI to migrate jobs instead: `wmill jobs pull/push`.",
-                job_count
-            )
-        ));
-    }
-
     let mut tx = db.begin().await?;
 
     check_w_id_conflict(&mut tx, &rw.new_id).await?;
 
-    info!("Changing workspace id from {} to {}", old_id, rw.new_id);
+    info!(
+        "Changing workspace id from {} to {} (move and archive approach)",
+        old_id, rw.new_id
+    );
 
-    // duplicate workspace with new id name
-    info!("Duplicating workspace row");
+    // Create new workspace with new id and name
+    info!("Creating new workspace row");
     sqlx::query!(
-        "INSERT INTO workspace SELECT $1, $2, owner, deleted, premium FROM workspace WHERE id = $3",
+        "INSERT INTO workspace SELECT $1, $2, owner, false, premium FROM workspace WHERE id = $3",
         &rw.new_id,
         &rw.new_name,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    // Duplicate workspace settings (keep copy in old workspace for reference)
+    info!("Duplicating workspace_settings table");
+    sqlx::query!(
+        "INSERT INTO workspace_settings SELECT $1, slack_team_id, slack_name, slack_command_script, slack_email, customer_id, plan, webhook, deploy_to, ai_config, large_file_storage, git_sync, default_app, default_scripts, deploy_ui, mute_critical_alerts, color, operator_settings, teams_command_script, teams_team_id, teams_team_name, git_app_installations, ducklake, slack_oauth_client_id, slack_oauth_client_secret, datatable, teams_team_guid, auto_invite, error_handler, success_handler FROM workspace_settings WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Duplicating workspace_key table");
+    sqlx::query!(
+        "INSERT INTO workspace_key SELECT $1, kind, key FROM workspace_key WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_env table");
+    sqlx::query!(
+        "UPDATE workspace_env SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_invite table");
+    sqlx::query!(
+        "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
@@ -95,15 +123,6 @@ pub(crate) async fn change_workspace_id(
     info!("Updating app table");
     sqlx::query!(
         "UPDATE app SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    info!("Updating audit table");
-    sqlx::query!(
-        "UPDATE audit SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -200,9 +219,18 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating v2_job_completed table");
+    info!("Updating email_trigger table");
     sqlx::query!(
-        "UPDATE v2_job_completed SET workspace_id = $1 WHERE workspace_id = $2",
+        "UPDATE email_trigger SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating native_trigger table");
+    sqlx::query!(
+        "UPDATE native_trigger SET workspace_id = $1 WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -245,11 +273,12 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
+    // Duplicate flow table rows (FK constraint requires insert then delete)
     info!("Duplicating flow table rows");
     sqlx::query!(
-        "INSERT INTO flow 
-            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at) 
-        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at
+        "INSERT INTO flow
+            (workspace_id, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs)
+        SELECT $1, path, summary, description, archived, extra_perms, dependency_job, draft_only, tag, ws_error_handler_muted, dedicated_worker, timeout, visible_to_runner_only, on_behalf_of_email, concurrency_key, versions, value, schema, edited_by, edited_at, lock_error_logs
             FROM flow WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
@@ -269,6 +298,85 @@ pub(crate) async fn change_workspace_id(
     info!("Updating workspace_runnable_dependencies table");
     sqlx::query!(
         "UPDATE workspace_runnable_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_dependencies table");
+    sqlx::query!(
+        "UPDATE workspace_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_diff table");
+    sqlx::query!(
+        "UPDATE workspace_diff SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "UPDATE workspace_diff SET fork_workspace_id = $1 WHERE fork_workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating workspace_integrations table");
+    sqlx::query!(
+        "UPDATE workspace_integrations SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating ai_agent_memory table");
+    sqlx::query!(
+        "UPDATE ai_agent_memory SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating flow_conversation table");
+    sqlx::query!(
+        "UPDATE flow_conversation SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating mcp_oauth_refresh_token table");
+    sqlx::query!(
+        "UPDATE mcp_oauth_refresh_token SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Updating mcp_oauth_server_code table");
+    sqlx::query!(
+        "UPDATE mcp_oauth_server_code SET workspace_id = $1 WHERE workspace_id = $2",
+        &rw.new_id,
+        &old_id
+    )
+    .execute(&mut *tx)
+    .await?;
+
+    info!("Duplicating skip_workspace_diff_tally table");
+    sqlx::query!(
+        "INSERT INTO skip_workspace_diff_tally SELECT $1, added_at FROM skip_workspace_diff_tally WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -298,7 +406,7 @@ pub(crate) async fn change_workspace_id(
         .execute(&mut *tx)
         .await?;
 
-    // have to duplicate group_ with new workspace id because of foreign key constraint
+    // Duplicate group_ with new workspace id (FK constraint)
     info!("Duplicating group_ table rows");
     sqlx::query!(
         "INSERT INTO group_ SELECT $1, name, summary, extra_perms FROM group_ WHERE workspace_id = $2",
@@ -326,13 +434,12 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // then delete old group_
     info!("Deleting old group_ rows");
     sqlx::query!("DELETE FROM group_ WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
         .await?;
 
-    // duplicate folders with new workspace id because of foreign key constraint
+    // Duplicate folders with new workspace id (FK constraint)
     info!("Duplicating folder table rows");
     sqlx::query!(
         "INSERT INTO folder SELECT name, $1, display_name, owners, extra_perms, summary, edited_at, created_by FROM folder WHERE workspace_id = $2",
@@ -351,7 +458,6 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    // then delete old folders
     info!("Deleting old folder rows");
     sqlx::query!("DELETE FROM folder WHERE workspace_id = $1", &old_id)
         .execute(&mut *tx)
@@ -366,16 +472,27 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating job_stats table");
-    sqlx::query!(
-        "UPDATE job_stats SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
+    // Get enabled schedules and clear their queued jobs BEFORE moving jobs
+    // This way we don't need to filter out scheduled jobs - they're already removed
+    let enabled_schedule_paths: Vec<String> = sqlx::query_scalar!(
+        "SELECT path FROM schedule WHERE workspace_id = $1 AND enabled = true",
         &old_id
     )
-    .execute(&mut *tx)
+    .fetch_all(&mut *tx)
     .await?;
 
-    info!("Updating v2_job_queue table");
+    info!(
+        "Found {} enabled schedules, clearing their queued jobs",
+        enabled_schedule_paths.len()
+    );
+
+    for schedule_path in &enabled_schedule_paths {
+        crate::schedule::clear_schedule(&mut tx, schedule_path, &old_id).await?;
+    }
+
+    // Move queued jobs (not running) to new workspace using skip lock
+    // Scheduled jobs were already cleared above, so no need to filter them
+    info!("Moving v2_job_queue entries to new workspace");
     sqlx::query!(
         "UPDATE v2_job_queue SET workspace_id = $1
          WHERE id IN (
@@ -391,21 +508,20 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating v2_job table");
+    info!("Updating v2_job table for moved queue entries");
     sqlx::query!(
         "UPDATE v2_job SET workspace_id = $1
          WHERE workspace_id = $2
-         AND (id IN (SELECT id FROM v2_job_queue WHERE workspace_id = $1)
-              OR id IN (SELECT id FROM v2_job_completed WHERE workspace_id = $1))",
+         AND id IN (SELECT id FROM v2_job_queue WHERE workspace_id = $1)",
         &rw.new_id,
         &old_id
     )
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating job_logs table for migrated jobs");
+    info!("Updating job_perms table for migrated jobs");
     sqlx::query!(
-        "UPDATE job_logs SET workspace_id = $1
+        "UPDATE job_perms SET workspace_id = $1
          WHERE job_id IN (SELECT id FROM v2_job WHERE workspace_id = $1)",
         &rw.new_id
     )
@@ -475,9 +591,9 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating usr table");
+    info!("Duplicating usr table");
     sqlx::query!(
-        "UPDATE usr SET workspace_id = $1 WHERE workspace_id = $2",
+        "INSERT INTO usr SELECT $1, username, email, is_admin, created_at, operator, disabled, role FROM usr WHERE workspace_id = $2",
         &rw.new_id,
         &old_id
     )
@@ -493,49 +609,18 @@ pub(crate) async fn change_workspace_id(
     .execute(&mut *tx)
     .await?;
 
-    info!("Updating workspace_env table");
-    sqlx::query!(
-        "UPDATE workspace_env SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
+    // Re-push jobs for enabled schedules in the new workspace (same transaction)
+    info!(
+        "Re-pushing jobs for {} enabled schedules",
+        enabled_schedule_paths.len()
+    );
+    for schedule_path in &enabled_schedule_paths {
+        if let Some(schedule) = get_schedule_opt(&mut *tx, &rw.new_id, schedule_path).await? {
+            tx = push_scheduled_job(&db, tx, &schedule, None, None).await?;
+        }
+    }
 
-    info!("Updating workspace_invite table");
-    sqlx::query!(
-        "UPDATE workspace_invite SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    info!("Updating workspace_key table");
-    sqlx::query!(
-        "UPDATE workspace_key SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    info!("Updating workspace_settings table");
-    sqlx::query!(
-        "UPDATE workspace_settings SET workspace_id = $1 WHERE workspace_id = $2",
-        &rw.new_id,
-        &old_id
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    // delete old workspace
-    info!("Deleting old workspace row");
-    sqlx::query!("DELETE FROM workspace WHERE id = $1", &old_id)
-        .execute(&mut *tx)
-        .await?;
-
-    info!("Workspace id change completed successfully");
+    // Audit log in the same transaction as the workspace changes
     audit_log(
         &mut *tx,
         &authed,
@@ -543,13 +628,30 @@ pub(crate) async fn change_workspace_id(
         ActionKind::Update,
         &rw.new_id,
         Some(&authed.email),
-        None,
+        Some(
+            [("old_workspace_id", old_id.as_str())]
+                .into_iter()
+                .collect::<HashMap<&str, &str>>(),
+        ),
     )
     .await?;
+
     tx.commit().await?;
+
+    // Archive old workspace: disable schedules, cancel remaining jobs, set deleted=true
+    // Note: schedules were already moved to new workspace, so this will find 0 schedules
+    info!("Archiving old workspace");
+    let (_schedules_count, canceled_count) =
+        archive_workspace_impl(&db, &old_id, &authed.username).await?;
+
+    info!(
+        "Workspace id change completed: moved {} to {}, archived old workspace",
+        old_id, rw.new_id
+    );
+
     Ok(format!(
-        "updated workspace from {} to {}",
-        &old_id, &rw.new_id
+        "Moved workspace from {} to {}, archived old workspace (canceled {} remaining jobs)",
+        &old_id, &rw.new_id, canceled_count
     ))
 }
 

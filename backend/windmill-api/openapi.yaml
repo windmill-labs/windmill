@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.617.3
+  version: 1.619.0
   title: Windmill API
 
   contact:
@@ -7703,16 +7703,19 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/apps/get_data/{version}/{path}:
+  /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
-      summary: get app by path
+      summary: get raw app data by
       operationId: getRawAppData
       tags:
-        - raw_app
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/VersionId"
-        - $ref: "#/components/parameters/ScriptPath"
+        - name: secretWithExtension
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: app details

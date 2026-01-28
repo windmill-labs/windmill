@@ -677,7 +677,6 @@ async fn get_otel_tracing_proxy_envs() -> anyhow::Result<Vec<(&'static str, Stri
     ])
 }
 
-
 #[cfg(windows)]
 lazy_static::lazy_static! {
     pub static ref SYSTEM_ROOT: String = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
@@ -2711,19 +2710,6 @@ async fn do_nativets(
 
     let stream_notifier = StreamNotifier::new(conn, job);
 
-    // Set job context for OTEL tracing (EE only)
-    #[cfg(all(feature = "private", feature = "enterprise"))]
-    {
-        let tracing_enabled = is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await;
-        tracing::debug!(
-            "nativets job {}: OTEL tracing enabled={}",
-            job.id, tracing_enabled
-        );
-        if tracing_enabled {
-            crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
-        }
-    }
-
     Ok(eval_fetch_timeout(
         env_code,
         code.clone(),
@@ -3177,6 +3163,14 @@ pub async fn handle_queued_job(
                     RawData::Script(data) => Some(data),
                     _ => None,
                 });
+
+                // Set job context for OTEL tracing before entering handle_code_execution_job's span
+                #[cfg(all(feature = "private", feature = "enterprise"))]
+                if matches!(job.script_lang, Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative))  
+                    && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
+                {
+                    crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
+                }
 
                 // Box::pin to move large future to heap
                 let r = Box::pin(handle_code_execution_job(
