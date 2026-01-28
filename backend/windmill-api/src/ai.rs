@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel, AWS_DEFAULT_REGION};
+use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel, USE_ENV_REGION};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -209,9 +209,14 @@ impl AIRequestConfig {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
-                let base_url = provider
-                    .get_base_url(resource.base_url, resource.region, db)
-                    .await?;
+                // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
+                let base_url = if matches!(provider, AIProvider::AWSBedrock) {
+                    String::new()
+                } else {
+                    provider
+                        .get_base_url(resource.base_url, resource.region, db)
+                        .await?
+                };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
                 } else {
@@ -747,7 +752,7 @@ async fn proxy(
             let region = request_config
                 .region
                 .as_deref()
-                .unwrap_or(AWS_DEFAULT_REGION);
+                .unwrap_or(USE_ENV_REGION);
 
             // Audit log before making the SDK request
             let mut tx = db.begin().await?;

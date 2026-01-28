@@ -22,7 +22,10 @@ lazy_static::lazy_static! {
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
-pub const AWS_DEFAULT_REGION: &str = "us-east-1";
+
+/// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
+/// (e.g., AWS_REGION or AWS_DEFAULT_REGION env vars, or ~/.aws/config)
+pub const USE_ENV_REGION: &str = "";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -88,21 +91,11 @@ impl AIProvider {
                 format!("{:?} provider requires a base URL in the resource", p),
             )),
             AIProvider::AWSBedrock => {
-                #[cfg(feature = "bedrock")]
-                {
-                    Ok(format!(
-                        "https://bedrock-runtime.{}.amazonaws.com",
-                        region.unwrap_or_else(|| AWS_DEFAULT_REGION.to_string())
-                    ))
-                }
-                #[cfg(not(feature = "bedrock"))]
-                {
-                    let _ = region;
-                    Err(Error::BadRequest(
-                        "AWS Bedrock support is not enabled. Build with 'bedrock' feature."
-                            .to_string(),
-                    ))
-                }
+                // AWS Bedrock uses the SDK directly, not HTTP base URL
+                let _ = region;
+                Err(Error::internal_err(
+                    "AWS Bedrock uses SDK directly, not HTTP base URL".to_string(),
+                ))
             }
         }
     }

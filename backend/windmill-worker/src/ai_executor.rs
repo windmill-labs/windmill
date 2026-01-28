@@ -21,7 +21,7 @@ use windmill_mcp::McpClient;
 #[cfg(not(feature = "mcp"))]
 use crate::ai::tools::McpClientStub as McpClient;
 use windmill_common::{
-    ai_providers::AIProvider,
+    ai_providers::{AIProvider, USE_ENV_REGION},
     cache,
     client::AuthedClient,
     db::DB,
@@ -410,9 +410,13 @@ pub async fn run_agent(
     has_websearch: bool,
 ) -> error::Result<Box<RawValue>> {
     let output_type = args.output_type.as_ref().unwrap_or(&OutputType::Text);
-    let base_url = args.provider.get_base_url(db).await?;
+    let base_url = if args.provider.kind == AIProvider::AWSBedrock {
+        String::new()
+    } else {
+        args.provider.get_base_url(db).await?
+    };
     let api_key = args.provider.get_api_key().unwrap_or("");
-
+    
     // Create the query builder for the provider
     let query_builder = create_query_builder(&args.provider);
 
@@ -660,7 +664,7 @@ pub async fn run_agent(
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args.provider.get_region().unwrap_or("");
+                let region = args.provider.get_region().unwrap_or(USE_ENV_REGION);
                 // Use Bedrock SDK via dedicated query builder
                 crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
