@@ -340,10 +340,16 @@ export function useInfiniteQuery<TData, TPageParam = number>(
 	let error = $state<Error | undefined>(undefined)
 	let nextPageParam = $state<TPageParam | undefined>(initialPageParam)
 	let currentPromise: Promise<void> | undefined
+	let resetCount = 0
 
 	async function fetchPage(pageParam: TPageParam): Promise<void> {
 		try {
+			const currentResetCount = resetCount
 			const data = await queryFn(pageParam)
+			if (currentResetCount !== resetCount) {
+				// A reset occurred while we were fetching, discard this data
+				return
+			}
 			pages = [...pages, data]
 			nextPageParam = getNextPageParam(data, pages)
 		} catch (err) {
@@ -378,6 +384,7 @@ export function useInfiniteQuery<TData, TPageParam = number>(
 		error = undefined
 		nextPageParam = initialPageParam
 		currentPromise = undefined
+		resetCount += 1
 
 		// Automatically fetch first page on reset
 		untrack(() => {

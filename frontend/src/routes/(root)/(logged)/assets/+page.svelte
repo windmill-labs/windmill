@@ -130,7 +130,8 @@
 			<tbody class="divide-y bg-surface">
 				{#if assets != undefined && assets.length === 0}
 					<tr class="h-14">
-						<Cell colspan="4">No assets found</Cell>
+						<Cell></Cell>
+						<Cell colspan="3">No assets found</Cell>
 					</tr>
 				{/if}
 				{#each assets as asset}
