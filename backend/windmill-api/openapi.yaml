@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.617.1
+  version: 1.617.3
   title: Windmill API
 
   contact:
@@ -12247,6 +12247,16 @@ paths:
             $ref: "#/components/schemas/NativeServiceName"
         - $ref: "#/components/parameters/Page"
         - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by script path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          description: filter by is_flow
+          in: query
+          schema:
+            type: boolean
       responses:
         "200":
           description: native triggers list

@@ -75,11 +75,12 @@ impl McpAuth for ApiAuthed {
 pub struct WindmillBackend {
     pub db: DB,
     pub user_db: UserDB,
+    pub base_internal_url: String,
 }
 
 impl WindmillBackend {
-    pub fn new(db: DB, user_db: UserDB) -> Self {
-        Self { db, user_db }
+    pub fn new(db: DB, user_db: UserDB, base_internal_url: String) -> Self {
+        Self { db, user_db, base_internal_url }
     }
 }
 
@@ -355,9 +356,7 @@ impl McpBackend for WindmillBackend {
         let query_string = build_query_string(args_map, &endpoint_tool.query_params_schema);
         let full_url = format!(
             "{}/api{}{}",
-            windmill_common::BASE_INTERNAL_URL.as_str(),
-            path_template,
-            query_string
+            self.base_internal_url, path_template, query_string
         );
 
         // Prepare request body
@@ -462,11 +461,12 @@ pub async fn add_www_authenticate_header(
 pub async fn setup_mcp_server(
     db: DB,
     user_db: UserDB,
+    base_internal_url: String,
 ) -> anyhow::Result<(Router, CancellationToken)> {
     let cancellation_token = CancellationToken::new();
     let session_manager = Arc::new(LocalSessionManager::default());
 
-    let backend = WindmillBackend::new(db, user_db);
+    let backend = WindmillBackend::new(db, user_db, base_internal_url);
     let runner = Runner::new(backend);
 
     let service_config = StreamableHttpServerConfig {
