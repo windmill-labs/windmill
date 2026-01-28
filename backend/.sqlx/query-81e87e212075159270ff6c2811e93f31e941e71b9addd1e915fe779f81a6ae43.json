@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE workspace_diff SET source_workspace_id = $1 WHERE source_workspace_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "81e87e212075159270ff6c2811e93f31e941e71b9addd1e915fe779f81a6ae43"
+}

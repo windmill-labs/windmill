@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE job_stats SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE flow_conversation SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "65121a4bfba70c2d7055a2b58c8520fddaef1bd9a3f041e851f9c136c73d34e7"
+  "hash": "642b6c2c55c19f554a0c4e8dcc9ddbeec6327a8d87d6a45d6c0823ec42c65639"
 }

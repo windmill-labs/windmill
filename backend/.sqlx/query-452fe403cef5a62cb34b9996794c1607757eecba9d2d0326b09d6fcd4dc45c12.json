@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE workspace_settings SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE mcp_oauth_refresh_token SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "93e6cdf58803f63d7d465f9d778c052c40dcdacade0f9b9921860160604f3763"
+  "hash": "452fe403cef5a62cb34b9996794c1607757eecba9d2d0326b09d6fcd4dc45c12"
 }

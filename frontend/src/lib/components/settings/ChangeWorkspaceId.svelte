@@ -43,7 +43,7 @@
 			})
 			open = false
 
-			sendUserToast(`Renamed workspace to ${newName}. Reloading...`)
+			sendUserToast(`Moved workspace to ${newName}. Old workspace archived. Reloading...`)
 			await new Promise((resolve) => setTimeout(resolve, 1000))
 			window.location.href = '/workspace_settings?tab=general&workspace=' + newId
 		} catch (err) {
@@ -80,12 +80,13 @@
 
 <Modal bind:open title="Change workspace ID">
 	<div class="flex flex-col gap-4">
-		<Alert type="info" title="Changing the workspace ID may take a few minutes to complete">
-			Once finished, please update your webhook calls and adjust your CLI sync configuration
-			accordingly.
-		</Alert>
-		<Alert type="warning" title="Running jobs and queued flow steps will not be migrated.">
-			Make sure that all your jobs are completed before changing the workspace ID.
+		<Alert type="warning" title="What happens">
+			<ul class="list-disc list-inside text-xs mt-1 space-y-1">
+				<li>All content (scripts, flows, apps, resources, etc.) moves to the new ID</li>
+				<li>Old workspace is archived with completed jobs, logs, and audit history</li>
+				<li>Running jobs will be canceled</li>
+			</ul>
+			<p class="text-xs mt-2">Remember to update webhook URLs and CLI sync config afterward.</p>
 		</Alert>
 		<p class="text-secondary text-xs"
 			>Current ID <br /> <span class="text-emphasis">{$workspaceStore ?? ''}</span></p
