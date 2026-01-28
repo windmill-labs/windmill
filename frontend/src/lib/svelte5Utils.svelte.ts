@@ -4,7 +4,6 @@ import { untrack } from 'svelte'
 import { deepEqual } from 'fast-equals'
 import type { StateStore } from './utils'
 import { resource, watch, type ResourceReturn } from 'runed'
-import type { CancelablePromise } from './gen'
 
 export function withProps<Component, Props>(component: Component, props: Props) {
 	const ret = $state({
@@ -227,20 +226,4 @@ export class StaleWhileLoading<T> {
 	get current(): T | undefined {
 		return this._current
 	}
-}
-
-export const cancelableResource: Omit<typeof resource, 'pre'> = function (
-	sources,
-	fetcher,
-	options
-) {
-	let promise: CancelablePromise<any> | Promise<any> | undefined
-	const fetcher2 = async (sources: any) => {
-		if (promise && 'cancel' in promise && typeof promise.cancel === 'function') promise.cancel()
-		promise = fetcher(sources)
-		const value = await promise
-		promise = undefined
-		return value
-	}
-	return resource(sources, fetcher2, options)
 }
