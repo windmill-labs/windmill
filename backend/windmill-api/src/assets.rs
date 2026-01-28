@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sqlx::Row;
 use windmill_common::{assets::AssetUsageKind, db::UserDB, error::JsonResult};
 
 use crate::db::ApiAuthed;
@@ -21,6 +22,10 @@ struct ListAssetsQuery {
     per_page: i64,
     cursor_created_at: Option<chrono::DateTime<chrono::Utc>>,
     cursor_id: Option<i64>,
+    asset_path: Option<String>,
+    usage_path: Option<String>,
+    #[serde(default)]
+    asset_kinds: Vec<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -57,147 +62,138 @@ async fn list_assets(
 
     let mut tx = user_db.begin(&authed).await?;
 
-    // Build the query with cursor pagination
-    let rows = if let (Some(cursor_created_at), Some(cursor_id)) =
-        (query.cursor_created_at, query.cursor_id)
-    {
-        sqlx::query_as!(
-            AssetRow,
-            r#"
-            WITH asset_summary AS (
-                SELECT
-                    asset.path,
-                    asset.kind,
-                    MAX(asset.created_at) as max_created_at,
-                    MAX(asset.id) as max_id
-                FROM asset
-                WHERE asset.workspace_id = $1
-                  AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))
-                  AND (asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))
-                GROUP BY asset.path, asset.kind
-                HAVING MAX(asset.created_at) < $3 OR (MAX(asset.created_at) = $3 AND MAX(asset.id) < $4)
-                ORDER BY max_created_at DESC, max_id DESC
-                LIMIT $2
-            )
-            SELECT
-                jsonb_strip_nulls(jsonb_build_object(
-                    'path', asset.path,
-                    'kind', asset.kind,
-                    'usages', ARRAY_AGG(
-                        jsonb_strip_nulls(jsonb_build_object(
-                            'path', asset.usage_path,
-                            'kind', asset.usage_kind,
-                            'access_type', asset.usage_access_type,
-                            'created_at', asset.created_at,
-                            'metadata', (CASE
-                                WHEN asset.usage_kind = 'job' THEN
-                                    jsonb_build_object('runnable_path', job.runnable_path, 'job_kind', job.kind)
-                                ELSE
-                                    NULL
-                                END
-                            )
-                        ))
-                        ORDER BY asset.created_at DESC
-                    ),
-                    'metadata', (CASE
-                      WHEN asset.kind = 'resource' THEN
-                        jsonb_build_object('resource_type', resource.resource_type)
-                      ELSE
-                        NULL
-                      END
-                    )
-                )) as "result!",
-                asset_summary.max_created_at as "max_created_at!",
-                asset_summary.max_id as "max_id!"
-            FROM asset
-            INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
-            LEFT JOIN resource ON asset.kind = 'resource'
-              AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path
-              AND resource.workspace_id = $1
-            LEFT JOIN v2_job job ON asset.usage_kind = 'job'
-              AND asset.usage_path = job.id::text
-              AND job.workspace_id = $1
-            WHERE asset.workspace_id = $1
-              AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
-              AND (asset.usage_kind <> 'job' OR job.id IS NOT NULL)
-            GROUP BY asset.path, asset.kind, resource.resource_type, asset_summary.max_created_at, asset_summary.max_id
-            ORDER BY asset_summary.max_created_at DESC, asset_summary.max_id DESC
-            "#,
-            &w_id,
-            limit,
-            cursor_created_at,
-            cursor_id
-        )
-        .fetch_all(&mut *tx)
-        .await?
+    // Build dynamic filter SQL
+    let mut asset_summary_filters = vec![
+        "asset.workspace_id = $1".to_string(),
+        "(asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))".to_string(),
+        "(asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))".to_string(),
+    ];
+
+    let mut param_count = 2; // $1 = workspace_id, $2 = limit
+
+    // Asset path filter
+    if query.asset_path.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.path ILIKE ${}", param_count));
+    }
+
+    // Usage path filter
+    if query.usage_path.is_some() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.usage_path ILIKE ${}", param_count));
+    }
+
+    // Asset kinds filter
+    if !query.asset_kinds.is_empty() {
+        param_count += 1;
+        asset_summary_filters.push(format!("asset.kind = ANY(${})", param_count));
+    }
+
+    let asset_summary_where = asset_summary_filters.join(" AND ");
+
+    // Build cursor condition
+    let cursor_having = if query.cursor_created_at.is_some() && query.cursor_id.is_some() {
+        param_count += 2;
+        format!("HAVING MAX(asset.created_at) < ${} OR (MAX(asset.created_at) = ${} AND MAX(asset.id) < ${})",
+                param_count - 1, param_count - 1, param_count)
     } else {
-        sqlx::query_as!(
-            AssetRow,
-            r#"
-            WITH asset_summary AS (
-                SELECT
-                    asset.path,
-                    asset.kind,
-                    MAX(asset.created_at) as max_created_at,
-                    MAX(asset.id) as max_id
-                FROM asset
-                WHERE asset.workspace_id = $1
-                  AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))
-                  AND (asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))
-                GROUP BY asset.path, asset.kind
-                ORDER BY max_created_at DESC, max_id DESC
-                LIMIT $2
-            )
-            SELECT
-                jsonb_strip_nulls(jsonb_build_object(
-                    'path', asset.path,
-                    'kind', asset.kind,
-                    'usages', ARRAY_AGG(
-                        jsonb_strip_nulls(jsonb_build_object(
-                            'path', asset.usage_path,
-                            'kind', asset.usage_kind,
-                            'access_type', asset.usage_access_type,
-                            'created_at', asset.created_at,
-                            'metadata', (CASE
-                                WHEN asset.usage_kind = 'job' THEN
-                                    jsonb_build_object('runnable_path', job.runnable_path, 'job_kind', job.kind)
-                                ELSE
-                                    NULL
-                                END
-                            )
-                        ))
-                        ORDER BY asset.created_at DESC
-                    ),
-                    'metadata', (CASE
-                      WHEN asset.kind = 'resource' THEN
-                        jsonb_build_object('resource_type', resource.resource_type)
-                      ELSE
-                        NULL
-                      END
-                    )
-                )) as "result!",
-                asset_summary.max_created_at as "max_created_at!",
-                asset_summary.max_id as "max_id!"
-            FROM asset
-            INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
-            LEFT JOIN resource ON asset.kind = 'resource'
-              AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path
-              AND resource.workspace_id = $1
-            LEFT JOIN v2_job job ON asset.usage_kind = 'job'
-              AND asset.usage_path = job.id::text
-              AND job.workspace_id = $1
-            WHERE asset.workspace_id = $1
-              AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
-              AND (asset.usage_kind <> 'job' OR job.id IS NOT NULL)
-            GROUP BY asset.path, asset.kind, resource.resource_type, asset_summary.max_created_at, asset_summary.max_id
-            ORDER BY asset_summary.max_created_at DESC, asset_summary.max_id DESC
-            "#,
-            &w_id,
-            limit
-        )
-        .fetch_all(&mut *tx)
-        .await?
+        String::new()
     };
+
+    let sql = format!(
+        r#"
+        WITH asset_summary AS (
+            SELECT
+                asset.path,
+                asset.kind,
+                MAX(asset.created_at) as max_created_at,
+                MAX(asset.id) as max_id
+            FROM asset
+            WHERE {}
+            GROUP BY asset.path, asset.kind
+            {}
+            ORDER BY max_created_at DESC, max_id DESC
+            LIMIT $2
+        )
+        SELECT
+            jsonb_strip_nulls(jsonb_build_object(
+                'path', asset.path,
+                'kind', asset.kind,
+                'usages', ARRAY_AGG(
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'path', asset.usage_path,
+                        'kind', asset.usage_kind,
+                        'access_type', asset.usage_access_type,
+                        'created_at', asset.created_at,
+                        'metadata', (CASE
+                            WHEN asset.usage_kind = 'job' THEN
+                                jsonb_build_object('runnable_path', job.runnable_path, 'job_kind', job.kind)
+                            ELSE
+                                NULL
+                            END
+                        )
+                    ))
+                    ORDER BY asset.created_at DESC
+                ),
+                'metadata', (CASE
+                  WHEN asset.kind = 'resource' THEN
+                    jsonb_build_object('resource_type', resource.resource_type)
+                  ELSE
+                    NULL
+                  END
+                )
+            )) as result,
+            asset_summary.max_created_at,
+            asset_summary.max_id
+        FROM asset
+        INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
+        LEFT JOIN resource ON asset.kind = 'resource'
+          AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path
+          AND resource.workspace_id = $1
+        LEFT JOIN v2_job job ON asset.usage_kind = 'job'
+          AND asset.usage_path = job.id::text
+          AND job.workspace_id = $1
+        WHERE asset.workspace_id = $1
+          AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
+          AND (asset.usage_kind <> 'job' OR job.id IS NOT NULL)
+        GROUP BY asset.path, asset.kind, resource.resource_type, asset_summary.max_created_at, asset_summary.max_id
+        ORDER BY asset_summary.max_created_at DESC, asset_summary.max_id DESC
+        "#,
+        asset_summary_where,
+        cursor_having
+    );
+
+    // Build query with dynamic parameters
+    let mut query_builder = sqlx::query(&sql)
+        .bind(&w_id)
+        .bind(limit);
+
+    if let Some(ref asset_path) = query.asset_path {
+        query_builder = query_builder.bind(format!("%{}%", asset_path));
+    }
+
+    if let Some(ref usage_path) = query.usage_path {
+        query_builder = query_builder.bind(format!("%{}%", usage_path));
+    }
+
+    if !query.asset_kinds.is_empty() {
+        query_builder = query_builder.bind(&query.asset_kinds);
+    }
+
+    if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {
+        query_builder = query_builder.bind(cursor_created_at).bind(cursor_id);
+    }
+
+    let db_rows = query_builder.fetch_all(&mut *tx).await?;
+
+    let rows: Vec<AssetRow> = db_rows
+        .iter()
+        .map(|row| AssetRow {
+            result: row.try_get("result").unwrap_or(Value::Null),
+            max_created_at: row.try_get("max_created_at").unwrap(),
+            max_id: row.try_get("max_id").unwrap(),
+        })
+        .collect();
 
     let assets: Vec<Value> = rows
         .iter()

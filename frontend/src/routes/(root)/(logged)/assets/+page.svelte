@@ -25,13 +25,21 @@
 		id?: number
 	}
 
+	let assetPathFilter: string = $state('')
+	let usagePathFilter: string = $state('')
+	let assetKindsFilter: Array<'s3object' | 'resource' | 'ducklake' | 'datatable' | 'variable'> =
+		$state([])
+
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
 			return await AssetService.listAssets({
 				workspace: $workspaceStore ?? '',
 				perPage: 50,
 				cursorCreatedAt: cursor?.created_at,
-				cursorId: cursor?.id
+				cursorId: cursor?.id,
+				assetPath: assetPathFilter || undefined,
+				usagePath: usagePathFilter || undefined,
+				assetKinds: assetKindsFilter.length > 0 ? assetKindsFilter : undefined
 			})
 		},
 		initialPageParam: undefined,
@@ -55,12 +63,13 @@
 		}
 	)
 
-	let filterText: string = $state('')
-	let filteredAssets = $derived(
-		assetsQuery.current
-			.flatMap((page) => page.assets)
-			.filter((asset) => formatAsset(asset).toLowerCase().includes(filterText.toLowerCase())) ?? []
+	// Reset query when filters change
+	watch(
+		() => [assetPathFilter, usagePathFilter, assetKindsFilter],
+		() => assetsQuery.reset()
 	)
+
+	let assets = $derived(assetsQuery.current.flatMap((page) => page.assets) ?? [])
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
@@ -83,7 +92,81 @@
 			Assets are not detected for old scripts and flows that were deployed before the assets feature
 			was introduced. Re-deploy them to trigger asset detection.
 		</Alert>
-		<ClearableInput bind:value={filterText} placeholder="Search assets" class="mb-4" />
+		<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+			<ClearableInput bind:value={assetPathFilter} placeholder="Filter by asset path" />
+			<ClearableInput bind:value={usagePathFilter} placeholder="Filter by usage path" />
+		</div>
+		<div class="flex flex-wrap gap-4 mb-4 items-center">
+			<span class="text-sm font-semibold text-secondary">Asset kinds:</span>
+			<label class="flex items-center gap-2 cursor-pointer">
+				<input
+					type="checkbox"
+					value="s3object"
+					checked={assetKindsFilter.includes('s3object')}
+					onchange={(e) => {
+						const target = e.currentTarget
+						if (target.checked) {
+							assetKindsFilter = [...assetKindsFilter, 's3object']
+						} else {
+							assetKindsFilter = assetKindsFilter.filter((k) => k !== 's3object')
+						}
+					}}
+					class="windmill-checkbox"
+				/>
+				<span class="text-sm">S3 Object</span>
+			</label>
+			<label class="flex items-center gap-2 cursor-pointer">
+				<input
+					type="checkbox"
+					value="ducklake"
+					checked={assetKindsFilter.includes('ducklake')}
+					onchange={(e) => {
+						const target = e.currentTarget
+						if (target.checked) {
+							assetKindsFilter = [...assetKindsFilter, 'ducklake']
+						} else {
+							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'ducklake')
+						}
+					}}
+					class="windmill-checkbox"
+				/>
+				<span class="text-sm">DuckLake</span>
+			</label>
+			<label class="flex items-center gap-2 cursor-pointer">
+				<input
+					type="checkbox"
+					value="datatable"
+					checked={assetKindsFilter.includes('datatable')}
+					onchange={(e) => {
+						const target = e.currentTarget
+						if (target.checked) {
+							assetKindsFilter = [...assetKindsFilter, 'datatable']
+						} else {
+							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'datatable')
+						}
+					}}
+					class="windmill-checkbox"
+				/>
+				<span class="text-sm">Data Table</span>
+			</label>
+			<label class="flex items-center gap-2 cursor-pointer">
+				<input
+					type="checkbox"
+					value="resource"
+					checked={assetKindsFilter.includes('resource')}
+					onchange={(e) => {
+						const target = e.currentTarget
+						if (target.checked) {
+							assetKindsFilter = [...assetKindsFilter, 'resource']
+						} else {
+							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'resource')
+						}
+					}}
+					class="windmill-checkbox"
+				/>
+				<span class="text-sm">Resource</span>
+			</label>
+		</div>
 		<DataTable>
 			<Head>
 				<tr>
@@ -94,12 +177,12 @@
 				</tr>
 			</Head>
 			<tbody class="divide-y bg-surface">
-				{#if !assetsQuery.error && !assetsQuery.isLoading && filteredAssets.length === 0}
+				{#if !assetsQuery.error && !assetsQuery.isLoading && assets.length === 0}
 					<tr class="h-14">
 						<Cell colspan="4">No assets found</Cell>
 					</tr>
 				{/if}
-				{#each filteredAssets as asset}
+				{#each assets as asset}
 					{@const assetUri = formatAsset(asset)}
 					<tr class="h-14">
 						<Cell first class="w-16">

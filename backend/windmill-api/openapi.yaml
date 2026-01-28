@@ -16457,6 +16457,25 @@ paths:
           schema:
             type: integer
             format: int64
+        - name: asset_path
+          in: query
+          description: Filter by asset path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: usage_path
+          in: query
+          description: Filter by usage path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (multiple values allowed)
+          schema:
+            type: array
+            items:
+              $ref: "#/components/schemas/AssetKind"
+          style: form
+          explode: true
       responses:
         "200":
           description: paginated assets in the workspace
