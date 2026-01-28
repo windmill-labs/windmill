@@ -1,33 +1,27 @@
 import { get } from 'svelte/store'
-import { UserService } from '$lib/gen'
+import { CancelablePromise, UserService } from '$lib/gen'
 import { superadmin, devopsRole } from './stores.js'
+import { CancelablePromiseUtils } from './cancelable-promise-utils.js'
 
-export async function refreshSuperadmin(): Promise<void> {
-	if (get(superadmin) == undefined) {
-		try {
-			const me = await UserService.globalWhoami()
-			if (me.super_admin) {
-				superadmin.set(me.email)
-			} else {
-				superadmin.set(false)
-			}
-		} catch {
-			superadmin.set(false)
-			// goto('/user/logout')
-		}
-	}
-
-	if (get(devopsRole) == undefined) {
-		try {
-			const me = await UserService.globalWhoami()
-			if (me.devops || me.super_admin) {
-				devopsRole.set(me.email)
-			} else {
-				devopsRole.set(false)
-			}
-		} catch {
-			devopsRole.set(false)
-			// goto('/user/logout')
-		}
-	}
+let promise: CancelablePromise<void> | null = null
+function _refreshSuperadmin(): CancelablePromise<void> {
+	let shouldFetch = get(superadmin) == undefined || get(devopsRole) == undefined
+	if (!shouldFetch) return CancelablePromiseUtils.pure<void>(undefined)
+	promise?.cancel()
+	promise = CancelablePromiseUtils.then(UserService.globalWhoami(), (me) => {
+		superadmin.set(me.super_admin ? me.email : false)
+		devopsRole.set(me.devops || me.super_admin ? me.email : false)
+		return CancelablePromiseUtils.pure<void>(undefined)
+	})
+	promise = CancelablePromiseUtils.catchErr(promise, (error) => {
+		superadmin.set(false)
+		devopsRole.set(false)
+		console.error('error refreshing superadmin/devops role', error)
+		return CancelablePromiseUtils.pure<void>(undefined)
+	})
+	return CancelablePromiseUtils.finallyDo(promise, () => (promise = null))
 }
+
+export const refreshSuperadmin = Object.assign(_refreshSuperadmin, {
+	cancel: () => promise?.cancel() as void
+})
