@@ -41,55 +41,50 @@ paths:
               schema:
                 type: string
 
-  /health:
+  /health/status:
     get:
-      summary: get simple server health status
+      summary: health status
       description: |
-        Returns simple health status for load balancers and k8s probes.
-        Optional static secret via X-Health-Secret header (configured via HEALTH_CHECK_SECRET env var).
-        Does not require DB-based authentication.
-      operationId: getHealthSimple
+        Health status endpoint. Returns cached health status (database connectivity, worker count).
+        Cache TTL is fixed at 5 seconds. Use force=true query parameter to bypass cache.
+        Note: This endpoint is intentionally different from Kubernetes probes to avoid confusion.
+        For k8s liveness/readiness probes, use /version endpoint.
+      operationId: getHealthStatus
       tags:
-        - settings
+        - health
       security: []
       parameters:
-        - name: X-Health-Secret
-          in: header
-          description: Optional static secret for authentication (if HEALTH_CHECK_SECRET is configured)
+        - name: force
+          in: query
+          description: Force a fresh check, bypassing the cache
+          required: false
           schema:
-            type: string
+            type: boolean
+            default: false
       responses:
         "200":
           description: server is healthy or degraded
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SimpleHealthResponse"
-        "401":
-          description: invalid or missing secret (when HEALTH_CHECK_SECRET is configured)
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
+                $ref: "#/components/schemas/HealthStatusResponse"
         "503":
           description: server is unhealthy (database unreachable)
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/SimpleHealthResponse"
+                $ref: "#/components/schemas/HealthStatusResponse"
 
   /health/detailed:
     get:
-      summary: get detailed server health status
+      summary: detailed health status
       description: |
         Returns detailed health information including database pool stats, worker details, and queue status.
-        Requires authentication.
+        Requires authentication. Use for monitoring dashboards and debugging.
+        This endpoint always returns fresh data (no caching).
       operationId: getHealthDetailed
       tags:
-        - settings
+        - health
       responses:
         "200":
           description: server is healthy or degraded
@@ -17165,12 +17160,12 @@ components:
     # -- INLINE END --
     # Do not change line above
 
-    SimpleHealthResponse:
+    HealthStatusResponse:
       type: object
-      description: Simple health status response for load balancers and probes
+      description: Health status response (cached with 5s TTL)
       required:
         - status
-        - timestamp
+        - checked_at
         - database_healthy
         - workers_alive
       properties:
@@ -17178,10 +17173,10 @@ components:
           type: string
           enum: [healthy, degraded, unhealthy]
           description: Overall health status
-        timestamp:
+        checked_at:
           type: string
           format: date-time
-          description: Timestamp of the health check
+          description: Timestamp when the health check was actually performed (not cache return time)
         database_healthy:
           type: boolean
           description: Whether the database is reachable
@@ -17192,10 +17187,10 @@ components:
 
     DetailedHealthResponse:
       type: object
-      description: Detailed health status response
+      description: Detailed health status response (always fresh, no caching)
       required:
         - status
-        - timestamp
+        - checked_at
         - version
         - checks
       properties:
@@ -17203,10 +17198,10 @@ components:
           type: string
           enum: [healthy, degraded, unhealthy]
           description: Overall health status
-        timestamp:
+        checked_at:
           type: string
           format: date-time
-          description: Timestamp of the health check
+          description: Timestamp when the health check was performed
         version:
           type: string
           description: Server version (e.g., "EE 1.615.3")

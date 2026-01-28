@@ -574,7 +574,7 @@ pub async fn run_server(
                 .nest("/ai", ai::global_service())
                 .nest("/inkeep", inkeep_oss::global_service())
                 .nest("/mcp/w/:workspace_id/list_tools", mcp_list_tools_service)
-                .nest("/health/detailed", health::authed_service())
+                .nest("/health/detailed", health::detailed_service())
                 .route_layer(from_extractor::<ApiAuthed>())
                 .route_layer(from_extractor::<users::Tokened>())
                 // Workspace-scoped OAuth endpoints that don't require authentication
@@ -770,7 +770,7 @@ pub async fn run_server(
                     }
                 })
                 .route("/version", get(git_v))
-                .nest("/health", health::public_service())
+                .nest("/health/status", health::status_service())
                 .route("/min_keep_alive_version", get(min_keep_alive_version))
                 .route("/uptodate", get(is_up_to_date))
                 .route("/ee_license", get(ee_license))

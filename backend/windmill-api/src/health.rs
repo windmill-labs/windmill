@@ -6,14 +6,14 @@
  */
 
 use axum::{
-    extract::Extension,
-    http::{HeaderMap, StatusCode},
+    extract::{Extension, Query},
+    http::StatusCode,
     response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
@@ -24,24 +24,79 @@ use windmill_common::min_version::MIN_KEEP_ALIVE_VERSION;
 use windmill_common::utils::GIT_VERSION;
 use windmill_common::IS_READY;
 
-const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(feature = "prometheus")]
+use windmill_common::METRICS_ENABLED;
+
+/// Fixed 5 second cache TTL for health status
+const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 lazy_static::lazy_static! {
-    pub static ref HEALTH_CHECK_SECRET: Arc<RwLock<Option<String>>> =
-        Arc::new(RwLock::new(std::env::var("HEALTH_CHECK_SECRET").ok()));
+    static ref STATUS_CACHE: Arc<RwLock<Option<CachedHealthStatus>>> = Arc::new(RwLock::new(None));
+
+    /// Environment variable to silence health endpoint logs
+    static ref SILENCE_HEALTH_LOGS: bool = std::env::var("SILENCE_HEALTH_LOGS")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
 }
 
-/// Simple health endpoint - no DB auth, optional static secret
-pub fn public_service() -> Router {
-    Router::new().route("/", get(health_simple))
+#[cfg(feature = "prometheus")]
+lazy_static::lazy_static! {
+    static ref HEALTH_STATUS_GAUGE: Option<prometheus::Gauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_gauge!(
+                "health_status",
+                "Health status: 1=healthy, 0.5=degraded, 0=unhealthy"
+            ).unwrap())
+        } else {
+            None
+        };
+
+    static ref HEALTH_DATABASE_HEALTHY: Option<prometheus::Gauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_gauge!(
+                "health_database_healthy",
+                "Database health: 1=healthy, 0=unhealthy"
+            ).unwrap())
+        } else {
+            None
+        };
+
+    static ref HEALTH_WORKERS_ALIVE: Option<prometheus::Gauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_gauge!(
+                "health_workers_alive",
+                "Number of workers alive"
+            ).unwrap())
+        } else {
+            None
+        };
 }
 
-/// Detailed health endpoint - requires DB auth
-pub fn authed_service() -> Router {
+#[derive(Clone)]
+struct CachedHealthStatus {
+    status: HealthStatusResponse,
+    cached_at: std::time::Instant,
+}
+
+/// Query parameters for status endpoint
+#[derive(Debug, Deserialize)]
+pub struct StatusQuery {
+    /// Force a fresh check, bypassing the cache
+    #[serde(default)]
+    force: bool,
+}
+
+/// Status endpoint - cached health status (unauthenticated)
+pub fn status_service() -> Router {
+    Router::new().route("/", get(health_status))
+}
+
+/// Detailed health endpoint - requires DB auth (always fresh)
+pub fn detailed_service() -> Router {
     Router::new().route("/", get(health_detailed))
 }
 
-// ============ Simple Health Response ============
+// ============ Response Types ============
 
 #[derive(Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -51,20 +106,18 @@ pub enum HealthStatus {
     Unhealthy,
 }
 
-#[derive(Serialize)]
-pub struct SimpleHealthResponse {
+#[derive(Serialize, Clone)]
+pub struct HealthStatusResponse {
     pub status: HealthStatus,
-    pub timestamp: DateTime<Utc>,
+    pub checked_at: DateTime<Utc>,
     pub database_healthy: bool,
     pub workers_alive: i64,
 }
 
-// ============ Detailed Health Response ============
-
 #[derive(Serialize)]
 pub struct DetailedHealthResponse {
     pub status: HealthStatus,
-    pub timestamp: DateTime<Utc>,
+    pub checked_at: DateTime<Utc>,
     pub version: String,
     pub checks: HealthChecks,
 }
@@ -115,6 +168,8 @@ pub struct ReadinessHealth {
 
 // ============ Check Functions ============
 
+const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
+
 async fn check_database_healthy(db: &DB) -> bool {
     tokio::time::timeout(
         HEALTH_CHECK_TIMEOUT,
@@ -145,7 +200,6 @@ async fn check_database_detailed(db: &DB) -> DatabaseHealth {
     DatabaseHealth { healthy, latency_ms, pool }
 }
 
-/// Returns count of alive workers (pinged within last 5 minutes)
 async fn check_worker_count(db: &DB) -> i64 {
     sqlx::query_scalar!(
         "SELECT COUNT(*) FROM worker_ping WHERE ping_at > now() - interval '5 minutes'"
@@ -230,31 +284,71 @@ fn get_version() -> String {
 
 // ============ Handlers ============
 
-/// Simple health check - no DB auth, optional static secret
-async fn health_simple(
-    headers: HeaderMap,
-    Extension(db): Extension<DB>,
-) -> impl IntoResponse {
-    // Check static secret if configured
-    let secret = HEALTH_CHECK_SECRET.read().await;
-    if let Some(expected_secret) = secret.as_ref() {
-        let provided_secret = headers
-            .get("X-Health-Secret")
-            .and_then(|v| v.to_str().ok());
+/// Log health status based on severity
+fn log_health_status(status: &HealthStatusResponse) {
+    if *SILENCE_HEALTH_LOGS {
+        return;
+    }
 
-        if provided_secret != Some(expected_secret.as_str()) {
-            return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
-                "error": "Invalid or missing X-Health-Secret header"
-            }))).into_response();
+    match status.status {
+        HealthStatus::Healthy => {
+            tracing::info!(
+                status = "healthy",
+                database_healthy = status.database_healthy,
+                workers_alive = status.workers_alive,
+                checked_at = %status.checked_at,
+                "Health check completed"
+            );
+        }
+        HealthStatus::Degraded => {
+            tracing::warn!(
+                status = "degraded",
+                database_healthy = status.database_healthy,
+                workers_alive = status.workers_alive,
+                checked_at = %status.checked_at,
+                "Health check: degraded status (no workers alive)"
+            );
+        }
+        HealthStatus::Unhealthy => {
+            tracing::error!(
+                status = "unhealthy",
+                database_healthy = status.database_healthy,
+                workers_alive = status.workers_alive,
+                checked_at = %status.checked_at,
+                "Health check: unhealthy status"
+            );
         }
     }
-    drop(secret);
+}
 
-    let timestamp = Utc::now();
-    let database_healthy = check_database_healthy(&db).await;
+/// Update prometheus metrics for health status
+#[cfg(feature = "prometheus")]
+fn update_health_metrics(status: &HealthStatusResponse) {
+    if let Some(gauge) = HEALTH_STATUS_GAUGE.as_ref() {
+        let value = match status.status {
+            HealthStatus::Healthy => 1.0,
+            HealthStatus::Degraded => 0.5,
+            HealthStatus::Unhealthy => 0.0,
+        };
+        gauge.set(value);
+    }
+
+    if let Some(gauge) = HEALTH_DATABASE_HEALTHY.as_ref() {
+        gauge.set(if status.database_healthy { 1.0 } else { 0.0 });
+    }
+
+    if let Some(gauge) = HEALTH_WORKERS_ALIVE.as_ref() {
+        gauge.set(status.workers_alive as f64);
+    }
+}
+
+/// Perform fresh health check
+async fn perform_health_check(db: &DB) -> HealthStatusResponse {
+    let checked_at = Utc::now();
+    let database_healthy = check_database_healthy(db).await;
 
     let workers_alive = if database_healthy {
-        check_worker_count(&db).await
+        check_worker_count(db).await
     } else {
         0
     };
@@ -267,28 +361,67 @@ async fn health_simple(
         HealthStatus::Healthy
     };
 
-    let response = SimpleHealthResponse {
+    HealthStatusResponse {
         status,
-        timestamp,
+        checked_at,
         database_healthy,
         workers_alive,
-    };
+    }
+}
 
-    let status_code = if status == HealthStatus::Unhealthy {
+/// Status check - cached DB/worker status with optional force refresh
+async fn health_status(
+    Extension(db): Extension<DB>,
+    Query(query): Query<StatusQuery>,
+) -> impl IntoResponse {
+    // Check cache (unless force=true)
+    if !query.force {
+        let cache = STATUS_CACHE.read().await;
+        if let Some(cached) = cache.as_ref() {
+            if cached.cached_at.elapsed() < HEALTH_CACHE_TTL {
+                let status_code = if cached.status.status == HealthStatus::Unhealthy {
+                    StatusCode::SERVICE_UNAVAILABLE
+                } else {
+                    StatusCode::OK
+                };
+                return (status_code, Json(cached.status.clone()));
+            }
+        }
+    }
+
+    // Cache miss, expired, or force=true - fetch fresh data
+    let health_status = perform_health_check(&db).await;
+
+    // Log and update metrics on fresh check
+    log_health_status(&health_status);
+    #[cfg(feature = "prometheus")]
+    update_health_metrics(&health_status);
+
+    // Update cache (clone before acquiring lock to minimize lock duration)
+    let cached = CachedHealthStatus {
+        status: health_status.clone(),
+        cached_at: std::time::Instant::now(),
+    };
+    {
+        let mut cache = STATUS_CACHE.write().await;
+        *cache = Some(cached);
+    }
+
+    let status_code = if health_status.status == HealthStatus::Unhealthy {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::OK
     };
 
-    (status_code, Json(response)).into_response()
+    (status_code, Json(health_status))
 }
 
-/// Detailed health check - requires DB authentication
+/// Detailed health check - requires DB authentication (always fresh, no caching)
 async fn health_detailed(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
 ) -> impl IntoResponse {
-    let timestamp = Utc::now();
+    let checked_at = Utc::now();
     let database = check_database_detailed(&db).await;
     let readiness = check_readiness();
 
@@ -296,7 +429,7 @@ async fn health_detailed(
     if !database.healthy {
         let response = DetailedHealthResponse {
             status: HealthStatus::Unhealthy,
-            timestamp,
+            checked_at,
             version: get_version(),
             checks: HealthChecks {
                 database,
@@ -319,7 +452,7 @@ async fn health_detailed(
 
     let response = DetailedHealthResponse {
         status,
-        timestamp,
+        checked_at,
         version: get_version(),
         checks: HealthChecks {
             database,
