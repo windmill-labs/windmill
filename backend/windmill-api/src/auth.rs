@@ -13,7 +13,7 @@ use sqlx::FromRow;
 use tower_cookies::Cookies;
 use tracing::Span;
 
-use crate::db::{ApiAuthed, DB};
+use crate::db::{ApiAuthed, OptJobAuthed, DB};
 use std::{
     str::FromStr,
     sync::{
@@ -79,14 +79,14 @@ impl AuthCache {
     }
 
     pub async fn get_authed(&self, w_id: Option<String>, token: &str) -> Option<ApiAuthed> {
-        self.get_authed_and_job_id(w_id, token).await.0
+        Some(self.get_opt_job_authed(w_id, token).await?.authed)
     }
 
-    pub async fn get_authed_and_job_id(
+    pub async fn get_opt_job_authed(
         &self,
         w_id: Option<String>,
         token: &str,
-    ) -> (Option<ApiAuthed>, Option<uuid::Uuid>) {
+    ) -> Option<OptJobAuthed> {
         let key = (
             w_id.as_ref().unwrap_or(&"".to_string()).to_string(),
             token.to_string(),
@@ -94,7 +94,7 @@ impl AuthCache {
         let s = AUTH_CACHE.get(&key).map(|c| c.to_owned());
         match s {
             Some(ExpiringAuthCache { authed, expiry, job_id }) if expiry > chrono::Utc::now() => {
-                (Some(authed), job_id)
+                Some(OptJobAuthed { authed, job_id })
             }
             #[cfg(feature = "enterprise")]
             _ if token.starts_with("jwt_ext_") => {
@@ -123,9 +123,9 @@ impl AuthCache {
                         },
                     );
 
-                    (Some(authed), job_id)
+                    Some(OptJobAuthed { authed, job_id })
                 } else {
-                    (None, None)
+                    None
                 }
             }
             _ if token.starts_with("jwt_") => {
@@ -137,7 +137,7 @@ impl AuthCache {
                     Ok(claims) => {
                         if w_id.is_some_and(|w_id| !claims.allowed_in_workspace(&w_id)) {
                             tracing::error!("JWT auth error: workspace_id mismatch");
-                            return (None, None);
+                            return None;
                         }
                         let username_override = username_override_from_label(claims.label);
 
@@ -163,11 +163,11 @@ impl AuthCache {
                             },
                         );
 
-                        (Some(authed), job_id)
+                        Some(OptJobAuthed { authed, job_id })
                     }
                     Err(err) => {
                         tracing::error!("JWT auth error: {:?}", err);
-                        (None, None)
+                        None
                     }
                 }
             }
@@ -372,29 +372,27 @@ impl AuthCache {
                             },
                         );
                     }
-                    (authed_o, None)
+                    authed_o.map(|authed| OptJobAuthed { authed, job_id: None })
                 } else if self
                     .superadmin_secret
                     .as_ref()
                     .map(|x| x == token)
                     .unwrap_or(false)
                 {
-                    (
-                        Some(ApiAuthed {
-                            email: SUPERADMIN_SECRET_EMAIL.to_string(),
-                            username: "superadmin_secret".to_string(),
-                            is_admin: true,
-                            is_operator: false,
-                            groups: Vec::new(),
-                            folders: Vec::new(),
-                            scopes: None,
-                            username_override: None,
-                            token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
-                        }),
-                        None,
-                    )
+                    let authed = ApiAuthed {
+                        email: SUPERADMIN_SECRET_EMAIL.to_string(),
+                        username: "superadmin_secret".to_string(),
+                        is_admin: true,
+                        is_operator: false,
+                        groups: Vec::new(),
+                        folders: Vec::new(),
+                        scopes: None,
+                        username_override: None,
+                        token_prefix: Some(token[0..TOKEN_PREFIX_LEN].to_string()),
+                    };
+                    Some(OptJobAuthed { authed, job_id: None })
                 } else {
-                    (None, None)
+                    None
                 }
             }
         }
@@ -580,10 +578,26 @@ where
         parts: &mut Parts,
         state: &S,
     ) -> std::result::Result<Self, Self::Rejection> {
+        let opt_job_authed = OptJobAuthed::from_request_parts(parts, state).await?;
+        Ok(opt_job_authed.authed)
+    }
+}
+
+#[async_trait]
+impl<S> FromRequestParts<S> for OptJobAuthed
+where
+    S: Send + Sync,
+{
+    type Rejection = Error;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &S,
+    ) -> std::result::Result<Self, Self::Rejection> {
         if parts.method == http::Method::OPTIONS {
-            return Ok(ApiAuthed::default());
+            return Ok(OptJobAuthed::default());
         };
-        let already_authed = parts.extensions.get::<ApiAuthed>();
+        let already_authed = parts.extensions.get::<OptJobAuthed>();
 
         if let Some(authed) = already_authed {
             return Ok(authed.clone());
@@ -607,7 +621,10 @@ where
                 let path_vec: Vec<&str> = original_uri.path().split("/").collect();
                 let workspace_id = maybe_get_workspace_id_from_path(&path_vec);
 
-                if let Some(mut authed) = cache.get_authed(workspace_id.clone(), &token).await {
+                if let Some(mut opt_job_authed) =
+                    cache.get_opt_job_authed(workspace_id.clone(), &token).await
+                {
+                    let authed = &mut opt_job_authed.authed;
                     if authed.scopes.is_some() {
                         transform_old_scope_to_new_scope(authed.scopes.as_mut());
 
@@ -631,7 +648,7 @@ where
                     if let Some(workspace_id) = workspace_id {
                         Span::current().record("workspace_id", &workspace_id);
                     }
-                    return Ok(authed);
+                    return Ok(opt_job_authed);
                 }
             }
         }
