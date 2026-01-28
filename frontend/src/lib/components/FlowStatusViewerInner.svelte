@@ -1325,13 +1325,10 @@
 					<!-- Side-by-side result and logs for simple jobs -->
 					{#if job}
 						<div class="mb-4">
-							<JobDetailHeader
-								{job}
-								extraCompact
-							/>
+							<JobDetailHeader {job} extraCompact />
 						</div>
 					{/if}
-					<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full">
+					<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full border">
 						<!-- Result Column -->
 						<div class="flex flex-col min-h-0 max-h-full">
 							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>

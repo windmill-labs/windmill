@@ -448,7 +448,7 @@
 									class="text-accent flex items-center gap-1 min-w-0 flex-1 truncate"
 								>
 									<div class="truncate flex-shrink min-w-0">{job.id}</div>
-									<ExternalLink size={10} class="flex-shrink-0" />
+									<ExternalLink size={12} class="flex-shrink-0" />
 								</a>
 							</div>
 						</div>

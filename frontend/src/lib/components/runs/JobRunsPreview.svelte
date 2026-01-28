@@ -6,16 +6,16 @@
 	import LogViewer from '../LogViewer.svelte'
 	import { Skeleton, Tab, Tabs } from '../common'
 	import HighlightCode from '../HighlightCode.svelte'
-	import FlowProgressBar from '../flows/FlowProgressBar.svelte'
 	import FlowStatusViewer from '../FlowStatusViewer.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import WorkflowTimeline from '../WorkflowTimeline.svelte'
-	import { isFlowPreview, isScriptPreview } from '$lib/utils'
+	import { isFlowPreview, isScriptPreview, type StateStore } from '$lib/utils'
 	import { setContext, untrack, createEventDispatcher } from 'svelte'
 	import { LoaderCircle } from 'lucide-svelte'
 	import FlowAssetsHandler, { initFlowGraphAssetsCtx } from '../flows/FlowAssetsHandler.svelte'
 	import JobAssetsViewer from '../assets/JobAssetsViewer.svelte'
 	import JobDetailHeader from './JobDetailHeader.svelte'
+	import FlowExecutionStatus from './FlowExecutionStatus.svelte'
 
 	interface Props {
 		id: string
@@ -96,6 +96,11 @@
 	)
 
 	let jobIsLoading = $state(false)
+
+	// Flow execution status state
+	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
+	let isOwner: boolean = $state(false)
+	let resultStreams: Record<string, string | undefined> = $state({})
 </script>
 
 <JobLoader
@@ -108,6 +113,7 @@
 <div class="h-full overflow-y-auto">
 	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
 		{#if job}
+			{@const isFlow = job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 			<JobDetailHeader
 				{job}
 				compact
@@ -116,6 +122,27 @@
 				onFilterByWorker={handleFilterByWorker}
 			/>
 
+			<!-- Workflow timeline -->
+			{#if job?.workflow_as_code_status}
+				<WorkflowTimeline
+					flow_status={asWorkflowStatus(job.workflow_as_code_status)}
+					flowDone={job.type == 'CompletedJob'}
+				/>
+			{/if}
+			{#if isFlow}
+				<div class="flex flex-col gap-2 w-full">
+					<FlowExecutionStatus
+						{job}
+						workspaceId={job?.workspace_id}
+						{isOwner}
+						innerModules={job?.flow_status?.modules}
+						{suspendStatus}
+						result_streams={resultStreams}
+					/>
+				</div>
+			{/if}
+
+			<!-- Job inputs -->
 			<div class="w-full mt-6">
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
@@ -125,120 +152,100 @@
 				/>
 			</div>
 
-			<div class="w-full rounded-md min-h-full">
-				{#if job?.workflow_as_code_status}
-					<WorkflowTimeline
-						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
-						flowDone={job.type == 'CompletedJob'}
+			<!-- Job execution content -->
+			<div class="w-full mt-6">
+				{#if isFlow}
+					<FlowStatusViewer
+						jobId={job.id}
+						workspaceId={job.workspace_id}
+						initialJob={job}
+						bind:isOwner
+						wideResults
 					/>
-				{/if}
-
-				{#if job?.type === 'CompletedJob'}
-					{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
-						<div class="w-full mt-8 mb-20">
-							<FlowStatusViewer
-								jobId={job.id}
-								workspaceId={job.workspace_id}
-								wideResults
-								initialJob={job}
-							></FlowStatusViewer>
-						</div>
-					{:else}
-						<!-- Result Section (moved outside tabs) -->
-						<div class="w-full mt-6 mb-6">
-							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-							<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
-								{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
-									<DisplayResult
-										workspaceId={job?.workspace_id}
-										jobId={job?.id}
-										{result}
-										disableExpand
-										language={job?.language}
-									/>
-								{:else}
-									<div class="text-secondary">No output is available yet</div>
-								{/if}
-							</div>
-						</div>
-
-						<Tabs bind:selected={viewTab}>
-							<Tab value="logs" label="Logs" />
-							<Tab value="assets" label="Assets" />
-							{#if isScriptPreview(job?.job_kind)}
-								<Tab value="code" label="Code" />
+				{:else if job?.type === 'CompletedJob'}
+					<!-- Result Section (moved outside tabs) -->
+					<div class="w-full mt-6 mb-6">
+						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
+							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
+								<DisplayResult
+									workspaceId={job?.workspace_id}
+									jobId={job?.id}
+									{result}
+									disableExpand
+									language={job?.language}
+								/>
+							{:else}
+								<div class="text-secondary">No output is available yet</div>
 							{/if}
-						</Tabs>
+						</div>
+					</div>
 
-						<Skeleton loading={!job} layout={[[5]]} />
-						{#if job}
-							<div class="flex flex-col rounded-md mt-2 overflow-auto">
-								{#if viewTab == 'logs'}
-									<div
-										class="w-full"
-										bind:clientHeight={tabsHeight.logsHeight}
-										style="min-height: {minTabHeight}px"
-									>
-										<LogViewer
-											jobId={job.id}
-											duration={job?.['duration_ms']}
-											mem={job?.['mem_peak']}
-											isLoading={job?.['running'] == false}
-											content={job?.logs}
-											tag={job?.tag}
-										/>
-									</div>
-								{:else if viewTab == 'assets'}
-									<div
-										class="w-full h-full"
-										bind:clientHeight={tabsHeight.assetsHeight}
-										style="min-height: {minTabHeight}px"
-									>
-										<JobAssetsViewer {job} />
-									</div>
-								{:else if viewTab == 'code'}
-									<div
-										class="text-xs"
-										bind:clientHeight={tabsHeight.codeHeight}
-										style="min-height: {minTabHeight}px"
-									>
-										{#if job && 'raw_code' in job && job.raw_code}
-											<div class="text-xs">
-												<HighlightCode lines language={job.language} code={job.raw_code} />
-											</div>
-										{:else if job}
-											<span class="text-sm">No code available</span>
-										{:else}
-											<Skeleton layout={[[5]]} />
-										{/if}
-									</div>
-								{:else}
-									<div class="w-full p-4 text-secondary">Select a tab to view content</div>
-								{/if}
-							</div>
+					<Tabs bind:selected={viewTab}>
+						<Tab value="logs" label="Logs" />
+						<Tab value="assets" label="Assets" />
+						{#if isScriptPreview(job?.job_kind)}
+							<Tab value="code" label="Code" />
 						{/if}
+					</Tabs>
+
+					<Skeleton loading={!job} layout={[[5]]} />
+					{#if job}
+						<div class="flex flex-col rounded-md mt-2 overflow-auto">
+							{#if viewTab == 'logs'}
+								<div
+									class="w-full"
+									bind:clientHeight={tabsHeight.logsHeight}
+									style="min-height: {minTabHeight}px"
+								>
+									<LogViewer
+										jobId={job.id}
+										duration={job?.['duration_ms']}
+										mem={job?.['mem_peak']}
+										isLoading={job?.['running'] == false}
+										content={job?.logs}
+										tag={job?.tag}
+									/>
+								</div>
+							{:else if viewTab == 'assets'}
+								<div
+									class="w-full h-full"
+									bind:clientHeight={tabsHeight.assetsHeight}
+									style="min-height: {minTabHeight}px"
+								>
+									<JobAssetsViewer {job} />
+								</div>
+							{:else if viewTab == 'code'}
+								<div
+									class="text-xs"
+									bind:clientHeight={tabsHeight.codeHeight}
+									style="min-height: {minTabHeight}px"
+								>
+									{#if job && 'raw_code' in job && job.raw_code}
+										<div class="text-xs">
+											<HighlightCode lines language={job.language} code={job.raw_code} />
+										</div>
+									{:else if job}
+										<span class="text-sm">No code available</span>
+									{:else}
+										<Skeleton layout={[[5]]} />
+									{/if}
+								</div>
+							{:else}
+								<div class="w-full p-4 text-secondary">Select a tab to view content</div>
+							{/if}
+						</div>
 					{/if}
 				{:else if job && `running` in job ? job.running : false}
-					{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
-						<div class="flex flex-col gap-2 w-full">
-							<FlowProgressBar {job} class="py-4" />
-							<FlowStatusViewer
-								jobId={job.id}
-								workspaceId={job.workspace_id}
-								initialJob={job}
-							/>
-						</div>
-					{:else}
-						<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
-						<LogViewer
-							jobId={job?.id}
-							duration={job?.['duration_ms']}
-							mem={job?.['mem_peak']}
-							content={job?.logs}
-							isLoading={job?.['running'] == false}
-							tag={job?.tag}
-						/>
-					{/if}
+					<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>
+					<LogViewer
+						jobId={job?.id}
+						duration={job?.['duration_ms']}
+						mem={job?.['mem_peak']}
+						content={job?.logs}
+						isLoading={job?.['running'] == false}
+						tag={job?.tag}
+					/>
 				{/if}
 			</div>
 		{:else if jobIsLoading}
