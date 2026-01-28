@@ -1103,6 +1103,8 @@
 
 	let wrapperHeight: number = $state(0)
 
+	let retryStatusHeight: number = $state(0)
+
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
 			;[...globalModuleStates, localModuleStates].forEach((stateMap) => {
@@ -1813,7 +1815,7 @@
 					<Splitpanes>
 						<Pane bind:size={graphPaneSize} minSize={30}>
 							<div class="bg-surface-secondary h-full overflow-auto">
-								<div class="flex flex-col">
+								<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
 									{#each Object.values(retryStatus?.val ?? {}) as count}
 										{#if count}
 											<span class="text-sm">
@@ -1831,7 +1833,7 @@
 									{selectionManager}
 									triggerNode={true}
 									download={!hideDownloadInGraph}
-									minHeight={wrapperHeight}
+									minHeight={wrapperHeight - retryStatusHeight}
 									success={jobId != undefined && isSuccess(job?.['success'])}
 									flowModuleStates={localModuleStates}
 									bind:expandedSubflows

@@ -1,5 +1,52 @@
 # Changelog
 
+## [1.618.2](https://github.com/windmill-labs/windmill/compare/v1.618.1...v1.618.2) (2026-01-28)
+
+
+### Bug Fixes
+
+* add default export to typescript-client for ESM compatibility ([e7ac7af](https://github.com/windmill-labs/windmill/commit/e7ac7afe8e2af7c30c225b2031a894bfcb1783c8))
+
+## [1.618.1](https://github.com/windmill-labs/windmill/compare/v1.618.0...v1.618.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* handle empty base_url and region strings in AI providers ([#7719](https://github.com/windmill-labs/windmill/issues/7719)) ([7cd51de](https://github.com/windmill-labs/windmill/commit/7cd51def2b89efc117f5add7c9f8d92caa1f782d))
+
+## [1.618.0](https://github.com/windmill-labs/windmill/compare/v1.617.3...v1.618.0) (2026-01-28)
+
+
+### Features
+
+* typescript client esm build ([#7709](https://github.com/windmill-labs/windmill/issues/7709)) ([07fb47e](https://github.com/windmill-labs/windmill/commit/07fb47e215da2b36afb83529c6ae84bf8fa14ae6))
+
+
+### Bug Fixes
+
+* fix annoying abort toasts ([#7713](https://github.com/windmill-labs/windmill/issues/7713)) ([b76d6e9](https://github.com/windmill-labs/windmill/commit/b76d6e9be80030597e82cd5db5cb5267de3b2961))
+* fix flow viewer height ([#7715](https://github.com/windmill-labs/windmill/issues/7715)) ([e37ab33](https://github.com/windmill-labs/windmill/commit/e37ab33b3f31a67da6238eb0827a46b9d0d831c8))
+
+## [1.617.3](https://github.com/windmill-labs/windmill/compare/v1.617.2...v1.617.3) (2026-01-27)
+
+
+### Bug Fixes
+
+* **backend:** include empty schemas in list_datatable_schemas endpoint ([#7708](https://github.com/windmill-labs/windmill/issues/7708)) ([705bc48](https://github.com/windmill-labs/windmill/commit/705bc481312bcadc514d949b0b6cec6e95bdf856))
+* **cli:** make `wmill app lint` and `wmill app generate-agents` respect nonDottedPaths setting ([#7706](https://github.com/windmill-labs/windmill/issues/7706)) ([abe6cc4](https://github.com/windmill-labs/windmill/commit/abe6cc49b93804b0706d97865c9bd5ff60f08906))
+* do not delete tokens on being promoted to superadmins ([564d826](https://github.com/windmill-labs/windmill/commit/564d8266dcc87b0b63b09a99c5bf71ef64b64369))
+
+## [1.617.2](https://github.com/windmill-labs/windmill/compare/v1.617.1...v1.617.2) (2026-01-27)
+
+
+### Bug Fixes
+
+* 404 triggers listing in CE ([#7705](https://github.com/windmill-labs/windmill/issues/7705)) ([456dd47](https://github.com/windmill-labs/windmill/commit/456dd478d83c1c57be2756bd8a201eb73fe43542))
+* **backend:** folder/group permissions workspace id change ([#7703](https://github.com/windmill-labs/windmill/issues/7703)) ([4ef1616](https://github.com/windmill-labs/windmill/commit/4ef16168936d8f908a25a55965f9d7998ec68625))
+* **cli:** make `wmill app new` respects nonDottedPaths setting from wmill.yaml ([#7700](https://github.com/windmill-labs/windmill/issues/7700)) ([c548e52](https://github.com/windmill-labs/windmill/commit/c548e529491a9547076af6b4567b9ce8909b07a5))
+* **frontend:** bad overflow handling for flow schema in detail page ([#7704](https://github.com/windmill-labs/windmill/issues/7704)) ([e9784cf](https://github.com/windmill-labs/windmill/commit/e9784cfa11010d229f520558e6974b2f3dded6d9))
+* **mcp:** use computed base_internal_url instead of static default ([#7701](https://github.com/windmill-labs/windmill/issues/7701)) ([720a7e5](https://github.com/windmill-labs/windmill/commit/720a7e56d1f86040173b3d49519a925bf649fb71))
+
 ## [1.617.1](https://github.com/windmill-labs/windmill/compare/v1.617.0...v1.617.1) (2026-01-27)
 
 

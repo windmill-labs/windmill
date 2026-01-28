@@ -762,7 +762,7 @@ pub fn generate_trigger_routers() -> Router {
         );
     }
 
-    #[cfg(all(feature = "enterprise", feature = "smtp", feature = "private"))]
+    #[cfg(all(feature = "smtp", feature = "private"))]
     {
         use crate::triggers::email::EmailTrigger;
 
