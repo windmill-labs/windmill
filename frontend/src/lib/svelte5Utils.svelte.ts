@@ -227,3 +227,125 @@ export class StaleWhileLoading<T> {
 		return this._current
 	}
 }
+
+export interface UseInfiniteQueryOptions<TData, TPageParam> {
+	queryFn: (pageParam: TPageParam) => Promise<TData>
+	initialPageParam: TPageParam
+	getNextPageParam: (lastPage: TData, allPages: TData[]) => TPageParam | undefined
+}
+
+export interface UseInfiniteQueryReturn<TData> {
+	current: TData[]
+	isLoading: boolean
+	isFetchingNextPage: boolean
+	hasNextPage: boolean
+	error: Error | undefined
+	fetchNextPage: () => Promise<void>
+	reset: () => void
+}
+
+/**
+ * A Svelte 5 hook for infinite query/pagination functionality
+ *
+ * @example
+ * const query = useInfiniteQuery({
+ *   queryFn: async (page) => fetchItems(page),
+ *   initialPageParam: 0,
+ *   getNextPageParam: (lastPage, allPages) =>
+ *     lastPage.length > 0 ? allPages.length : undefined
+ * })
+ *
+ * // Access data
+ * query.current // All pages of data
+ * query.isLoading // Initial loading state
+ * query.isFetchingNextPage // Loading next page
+ * query.hasNextPage // Whether more pages exist
+ *
+ * // Fetch next page
+ * await query.fetchNextPage()
+ */
+export function useInfiniteQuery<TData, TPageParam = number>(
+	options: UseInfiniteQueryOptions<TData, TPageParam>
+): UseInfiniteQueryReturn<TData> {
+	const { queryFn, initialPageParam, getNextPageParam } = options
+
+	let pages = $state<TData[]>([])
+	let isLoading = $state(true)
+	let isFetchingNextPage = $state(false)
+	let error = $state<Error | undefined>(undefined)
+	let nextPageParam = $state<TPageParam | undefined>(initialPageParam)
+	let currentPromise: Promise<void> | undefined
+
+	async function fetchPage(pageParam: TPageParam): Promise<void> {
+		try {
+			const data = await queryFn(pageParam)
+			pages = [...pages, data]
+			nextPageParam = getNextPageParam(data, pages)
+		} catch (err) {
+			error = err instanceof Error ? err : new Error(String(err))
+			throw err
+		}
+	}
+
+	async function fetchNextPage(): Promise<void> {
+		if (!nextPageParam || isFetchingNextPage) {
+			return
+		}
+
+		const pageToFetch = nextPageParam
+		isFetchingNextPage = true
+		error = undefined
+
+		const promise = fetchPage(pageToFetch).finally(() => {
+			if (currentPromise === promise) {
+				isFetchingNextPage = false
+			}
+		})
+
+		currentPromise = promise
+		return promise
+	}
+
+	function reset(): void {
+		pages = []
+		isLoading = true
+		isFetchingNextPage = false
+		error = undefined
+		nextPageParam = initialPageParam
+		currentPromise = undefined
+
+		// Automatically fetch first page on reset
+		untrack(() => {
+			fetchPage(initialPageParam).finally(() => {
+				isLoading = false
+			})
+		})
+	}
+
+	// Initial fetch
+	untrack(() => {
+		fetchPage(initialPageParam).finally(() => {
+			isLoading = false
+		})
+	})
+
+	return {
+		get current() {
+			return pages
+		},
+		get isLoading() {
+			return isLoading
+		},
+		get isFetchingNextPage() {
+			return isFetchingNextPage
+		},
+		get hasNextPage() {
+			return nextPageParam !== undefined
+		},
+		get error() {
+			return error
+		},
+		fetchNextPage,
+		reset
+	}
+}
