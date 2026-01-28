@@ -1135,7 +1135,9 @@ pub async fn eval_fetch_timeout(
         // We call the function exposed by runtime.js since we can't dynamically import ext: modules.
         #[cfg(all(feature = "private", feature = "enterprise"))]
         if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
-            if let Err(e) = js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()") {
+            if let Err(e) =
+                js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()")
+            {
                 tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
             }
         }
@@ -1331,6 +1333,24 @@ async fn eval_fetch(
         .context("failed to load module")?;
 
     let main_override = script_entrypoint_override.unwrap_or("main".to_string());
+
+    // Register job with internal OTEL collector for trace context propagation.
+    // No await needed: JS promises are eager, fetch fires immediately.
+    // No .catch() needed: unhandled rejection won't crash the script.
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    let otel_register_fetch = if crate::DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+        crate::OTLP_COLLECTOR_PORT
+            .read()
+            .await
+            .map(|port| format!(r#"fetch("http://127.0.0.1:{port}/register/{job_id}");"#))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    #[cfg(not(all(feature = "private", feature = "enterprise")))]
+    let otel_register_fetch = "";
+
     let script = js_runtime
         .execute_script(
             "<anon>",
@@ -1343,7 +1363,7 @@ function isAsyncIterable(obj) {{
 
 function processStreamIterative(res) {{
     const iterator = res[Symbol.asyncIterator]();
-    
+
     function processLoop() {{
         return new Promise(function(resolve) {{
             function step() {{
@@ -1363,9 +1383,11 @@ function processStreamIterative(res) {{
             step();
         }});
     }}
-    
+
     return processLoop();
 }}
+
+{otel_register_fetch}
 
 let args = Deno.core.ops.op_get_static_args().map(JSON.parse)
 import("file:///eval.ts").then((module) => module.{main_override}(...args))

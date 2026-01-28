@@ -1572,34 +1572,17 @@ Windmill Community Edition {GIT_VERSION}
 
         let otel_tracing_proxy_f = async {
             #[cfg(all(feature = "private", feature = "enterprise"))]
-            {
-                // Start OTEL tracing proxy for HTTP request interception
-                // Only enabled when: setting is on, worker mode (not server), and single worker (to avoid race conditions)
-                if worker_mode
-                    && num_workers == 1
-                    && windmill_worker::OTEL_TRACING_PROXY_SETTINGS
-                        .read()
-                        .await
-                        .enabled
-                {
-                    if let Some(db) = conn.as_sql() {
-                        tracing::info!(
-                            "Starting jobs OTEL tracing (ports will be dynamically assigned)"
-                        );
-                        if let Err(e) =
-                            windmill_worker::start_jobs_otel_tracing(db.clone(), otel_killpill_rx)
-                                .await
-                        {
-                            tracing::error!("Jobs OTEL tracing error: {}", e);
-                        }
-                    }
-                } else if windmill_worker::OTEL_TRACING_PROXY_SETTINGS
-                    .read()
+            if worker_mode {
+                if let Some(db) = conn.as_sql() {
+                    if let Err(e) = windmill_worker::start_jobs_otel_tracing(
+                        db.clone(),
+                        otel_killpill_rx,
+                        num_workers,
+                    )
                     .await
-                    .enabled
-                    && num_workers > 1
-                {
-                    tracing::warn!("OTEL tracing proxy is enabled but num_workers > 1. Disabling to avoid race conditions. Set NUM_WORKERS=1 to enable.");
+                    {
+                        tracing::error!("Jobs OTEL tracing error: {}", e);
+                    }
                 }
             }
 
