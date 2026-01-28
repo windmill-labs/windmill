@@ -12,8 +12,11 @@ rm "${script_dirpath}/s3Types.ts"
 rm "${script_dirpath}/sqlUtils.ts"
 npm install
 
-# Build JS bundles with tsdown (ESM + CJS, no dts)
-npx tsdown --format esm --format cjs --no-dts
+# Build bundled CJS for CommonJS compatibility
+npx tsdown --format cjs --no-dts
+
+# Build unbundled ESM for tree-shaking support
+npx tsdown --format esm --unbundle --no-dts --no-clean
 
 # Generate .d.ts files with tsc (clean output, no bundling)
 npx tsc
