@@ -245,6 +245,55 @@ export interface UseInfiniteQueryReturn<TData> {
 }
 
 /**
+ * A Svelte 5 hook that detects when the user has scrolled to the bottom of the page
+ *
+ * @param threshold - Distance from bottom in pixels to trigger (default: 0)
+ * @returns Object with `current` getter that returns true when at bottom
+ *
+ * @example
+ * const bottomDetector = useScrollToBottom(100)
+ *
+ * $effect(() => {
+ *   if (bottomDetector.current) {
+ *     console.log('User scrolled to bottom!')
+ *   }
+ * })
+ */
+export function useScrollToBottom(threshold: number = 0): { current: boolean } {
+	if (typeof window === 'undefined') return { current: false }
+
+	let current = $state(false)
+
+	$effect(() => {
+		function checkIfAtBottom() {
+			const scrollTop = window.scrollY || document.documentElement.scrollTop
+			const scrollHeight = document.documentElement.scrollHeight
+			const clientHeight = window.innerHeight
+
+			current = scrollTop + clientHeight >= scrollHeight - threshold
+		}
+
+		// Check immediately
+		checkIfAtBottom()
+
+		// Add scroll listener
+		window.addEventListener('scroll', checkIfAtBottom, { passive: true })
+		window.addEventListener('resize', checkIfAtBottom, { passive: true })
+
+		return () => {
+			window.removeEventListener('scroll', checkIfAtBottom)
+			window.removeEventListener('resize', checkIfAtBottom)
+		}
+	})
+
+	return {
+		get current() {
+			return current
+		}
+	}
+}
+
+/**
  * A Svelte 5 hook for infinite query/pagination functionality
  *
  * @example
