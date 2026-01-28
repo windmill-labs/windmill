@@ -66,7 +66,7 @@
 	let finished = $derived(index == length)
 </script>
 
-<div class={className}>
+<div class={twMerge('flex flex-col gap-1', className)}>
 	{#if textPosition == 'top'}
 		{@render text('top')}
 	{/if}
@@ -115,13 +115,7 @@
 {#snippet text(position: 'top' | 'bottom')}
 	{#if !compact}
 		<div
-			class="flex justify-between items-end font-medium {position == 'top'
-				? slim
-					? 'mb-b.5'
-					: 'mb-1'
-				: slim
-					? 'mt-t.5'
-					: 'mt-1'} {error != undefined
+			class="flex justify-between items-end font-medium {error != undefined
 				? 'text-red-700 dark:text-red-200'
 				: 'text-blue-700 dark:text-blue-200'}"
 		>

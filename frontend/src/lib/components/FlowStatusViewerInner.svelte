@@ -1431,7 +1431,7 @@
 		>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-primary border-b mb-4">
-					Subflows ({flowJobIds?.flowJobs.length})
+					Subflowss ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
@@ -1525,6 +1525,8 @@
 										isToolCallToBeLoaded: (storeKey: string) =>
 											toolCallStore?.isToolCallToBeLoaded(forLoopStoreKeyPrefix + storeKey) ?? false
 									}}
+									showLogsWithResult
+									showJobDetailHeader
 								/>
 							</div>
 						{/if}

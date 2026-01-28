@@ -299,11 +299,14 @@
 				{/each}
 			</div>
 		{:else if stepDetail.value.type == 'flow'}
-			<div class="text-sm mb-1 flex justify-end flex-row">
+			<div class="text-sm mb-1 flex justify-between flex-row items-center">
+				<span class="text-xs font-normal text-secondary"
+					>Flow path: <span class="text-emphasis">{stepDetail.value.path}</span>
+				</span>
 				<Button
-					size="xs2"
+					unifiedSize="sm"
 					startIcon={{ icon: Copy }}
-					color="light"
+					variant="subtle"
 					on:click={() => {
 						if (typeof stepDetail !== 'string') {
 							const val = stepDetail?.value

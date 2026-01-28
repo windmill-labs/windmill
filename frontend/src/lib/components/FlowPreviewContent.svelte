@@ -475,9 +475,11 @@
 				</div>
 			{/if}
 
-			<div class="w-full flex pb-2 items-start gap-4">
+			<div class="w-full flex pb-2 items-start justify-between gap-4">
 				{#if job}
 					<JobDetailHeader {job} compact={true} />
+				{:else}
+					<div></div> <!-- empty div to keep the same layout -->
 				{/if}
 				<FlowHistoryJobPicker
 					selectInitial={jobId == undefined}
@@ -555,8 +557,6 @@
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
 				</div>
-			{:else}
-				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>

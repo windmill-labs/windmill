@@ -148,7 +148,7 @@
 					</div>
 				{/if}
 				<div>
-					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="lg">
+					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="md">
 						Resume
 						<Tooltip class="text-white">
 							Since you are an owner of this flow, you can send resume events without necessarily
