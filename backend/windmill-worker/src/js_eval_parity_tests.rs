@@ -2679,4 +2679,321 @@ mod flow_simulation_parity_tests {
 
         Ok(())
     }
+
+    // =========================================================================
+    // COMPREHENSIVE OPTIONAL CHAINING TESTS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_optional_chaining_method_calls() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "data": {
+                    "items": [1, 2, 3],
+                    "name": "test"
+                }
+            }))),
+        );
+        env.insert("nullObj".to_string(), Arc::new(to_raw_value(&json!(null))));
+        env.insert("undefinedField".to_string(), Arc::new(to_raw_value(&serde_json::Value::Null)));
+
+        // Optional chaining on method calls
+        test_parity("obj?.data?.items?.map(x => x * 2)", env.clone(), None, None).await?;
+        test_parity("obj?.data?.items?.filter(x => x > 1)", env.clone(), None, None).await?;
+        test_parity("obj?.data?.items?.join(',')", env.clone(), None, None).await?;
+        test_parity("obj?.data?.name?.toUpperCase()", env.clone(), None, None).await?;
+        test_parity("obj?.data?.name?.split('')", env.clone(), None, None).await?;
+
+        // Optional method calls on null/undefined
+        test_parity("nullObj?.items?.map(x => x)", env.clone(), None, None).await?;
+        test_parity("obj?.missing?.method?.()", env.clone(), None, None).await?;
+        test_parity("undefinedField?.toString?.()", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_computed_properties() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "users": {
+                    "user1": {"name": "Alice", "age": 30},
+                    "user2": {"name": "Bob", "age": 25}
+                },
+                "items": ["a", "b", "c"]
+            }))),
+        );
+        env.insert("key".to_string(), Arc::new(to_raw_value(&json!("user1"))));
+        env.insert("index".to_string(), Arc::new(to_raw_value(&json!(1))));
+        env.insert("nullData".to_string(), Arc::new(to_raw_value(&json!(null))));
+
+        // Optional chaining with computed property access
+        test_parity("data?.users?.[key]", env.clone(), None, None).await?;
+        test_parity("data?.users?.[key]?.name", env.clone(), None, None).await?;
+        test_parity("data?.items?.[index]", env.clone(), None, None).await?;
+        test_parity("data?.users?.['user2']?.age", env.clone(), None, None).await?;
+
+        // Computed access with null/undefined
+        test_parity("nullData?.users?.[key]", env.clone(), None, None).await?;
+        test_parity("data?.missing?.[key]", env.clone(), None, None).await?;
+        test_parity("data?.users?.['nonexistent']?.name", env.clone(), None, None).await?;
+
+        // Dynamic key access
+        test_parity("data?.users?.[`user${index + 1}`]?.name", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_function_calls() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "config".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "callback": null,
+                "formatter": null,
+                "value": 42
+            }))),
+        );
+        env.insert("nullConfig".to_string(), Arc::new(to_raw_value(&json!(null))));
+
+        // Optional function call syntax
+        test_parity("config?.callback?.()", env.clone(), None, None).await?;
+        test_parity("config?.formatter?.('test')", env.clone(), None, None).await?;
+        test_parity("nullConfig?.callback?.()", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_deep_nesting() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "response".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "data": {
+                    "result": {
+                        "items": [
+                            {
+                                "details": {
+                                    "metadata": {
+                                        "tags": ["tag1", "tag2"]
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }))),
+        );
+        env.insert("emptyResponse".to_string(), Arc::new(to_raw_value(&json!({}))));
+
+        // Deep optional chaining
+        test_parity("response?.data?.result?.items?.[0]?.details?.metadata?.tags", env.clone(), None, None).await?;
+        test_parity("response?.data?.result?.items?.[0]?.details?.metadata?.tags?.[0]", env.clone(), None, None).await?;
+        test_parity("response?.data?.result?.items?.[1]?.details?.metadata?.tags", env.clone(), None, None).await?;
+
+        // Deep chaining with missing intermediate
+        test_parity("emptyResponse?.data?.result?.items?.[0]", env.clone(), None, None).await?;
+        test_parity("response?.data?.missing?.items?.[0]?.details", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_with_operators() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "user".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "profile": {
+                    "settings": {
+                        "theme": "dark",
+                        "notifications": true
+                    }
+                },
+                "scores": [85, 90, 78]
+            }))),
+        );
+        env.insert("nullUser".to_string(), Arc::new(to_raw_value(&json!(null))));
+
+        // Optional chaining with nullish coalescing
+        test_parity("user?.profile?.settings?.theme ?? 'light'", env.clone(), None, None).await?;
+        test_parity("user?.profile?.settings?.language ?? 'en'", env.clone(), None, None).await?;
+        test_parity("nullUser?.profile?.theme ?? 'default'", env.clone(), None, None).await?;
+
+        // Optional chaining with logical OR
+        test_parity("user?.profile?.settings?.disabled || false", env.clone(), None, None).await?;
+        test_parity("user?.name || 'Anonymous'", env.clone(), None, None).await?;
+
+        // Optional chaining with logical AND
+        test_parity("user?.profile?.settings?.notifications && 'enabled'", env.clone(), None, None).await?;
+
+        // Optional chaining in ternary
+        test_parity("user?.profile?.settings?.theme === 'dark' ? 'Dark Mode' : 'Light Mode'", env.clone(), None, None).await?;
+        test_parity("nullUser?.active ? 'yes' : 'no'", env.clone(), None, None).await?;
+
+        // Optional chaining with arithmetic
+        test_parity("(user?.scores?.[0] ?? 0) + 10", env.clone(), None, None).await?;
+        test_parity("user?.scores?.length ?? 0", env.clone(), None, None).await?;
+
+        // Optional chaining with comparison
+        test_parity("user?.scores?.[0] > 80", env.clone(), None, None).await?;
+        test_parity("nullUser?.scores?.[0] > 80", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_with_array_methods() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "users": [
+                    {"id": 1, "name": "Alice", "active": true},
+                    {"id": 2, "name": "Bob", "active": false},
+                    {"id": 3, "name": "Charlie", "active": true}
+                ]
+            }))),
+        );
+        env.insert("emptyData".to_string(), Arc::new(to_raw_value(&json!({}))));
+
+        // Optional chaining before array methods
+        test_parity("data?.users?.filter(u => u.active)", env.clone(), None, None).await?;
+        test_parity("data?.users?.map(u => u.name)", env.clone(), None, None).await?;
+        test_parity("data?.users?.find(u => u.id === 2)?.name", env.clone(), None, None).await?;
+        test_parity("data?.users?.findIndex(u => u.id === 2)", env.clone(), None, None).await?;
+        test_parity("data?.users?.some(u => u.active)", env.clone(), None, None).await?;
+        test_parity("data?.users?.every(u => u.active)", env.clone(), None, None).await?;
+        test_parity("data?.users?.reduce((acc, u) => acc + (u.active ? 1 : 0), 0)", env.clone(), None, None).await?;
+
+        // Optional chaining on missing arrays
+        test_parity("emptyData?.users?.filter(u => u.active)", env.clone(), None, None).await?;
+        test_parity("data?.items?.map(i => i.value)", env.clone(), None, None).await?;
+
+        // Chained optional access on array results
+        test_parity("data?.users?.filter(u => u.active)?.[0]?.name", env.clone(), None, None).await?;
+        test_parity("data?.users?.filter(u => u.id > 10)?.[0]?.name ?? 'Not found'", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_in_template_literals() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "person".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "firstName": "John",
+                "lastName": "Doe",
+                "address": {
+                    "city": "NYC",
+                    "country": "USA"
+                }
+            }))),
+        );
+        env.insert("nullPerson".to_string(), Arc::new(to_raw_value(&json!(null))));
+
+        // Template literals with optional chaining
+        test_parity("`Hello, ${person?.firstName ?? 'Guest'}!`", env.clone(), None, None).await?;
+        test_parity("`${person?.firstName} ${person?.lastName}`", env.clone(), None, None).await?;
+        test_parity("`Location: ${person?.address?.city ?? 'Unknown'}, ${person?.address?.country ?? 'Unknown'}`", env.clone(), None, None).await?;
+        test_parity("`User: ${nullPerson?.name ?? 'Anonymous'}`", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_flow_context() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Optional chaining on step results
+        test_parity("a?.toString()", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b?.data?.users?.[0]?.name", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b?.data?.users?.find(u => u.id === 999)?.name", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("b?.data?.users?.find(u => u.id === 999)?.name ?? 'Not found'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Optional chaining on missing nested properties (step 'b' exists but nested path may not)
+        test_parity("b?.missing?.nested?.value ?? 'default'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Optional chaining on flow_input
+        test_parity("flow_input?.limit ?? 100", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("flow_input?.missing?.nested?.value ?? 'fallback'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Optional chaining on previous_result
+        test_parity("previous_result?.items?.[0]", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("previous_result?.missing ?? []", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_edge_cases() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
+        env.insert("emptyStr".to_string(), Arc::new(to_raw_value(&json!(""))));
+        env.insert("falseVal".to_string(), Arc::new(to_raw_value(&json!(false))));
+        env.insert("nullVal".to_string(), Arc::new(to_raw_value(&json!(null))));
+        env.insert(
+            "nested".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "zero": 0,
+                "empty": "",
+                "false": false,
+                "null": null,
+                "obj": {}
+            }))),
+        );
+
+        // Optional chaining preserves falsy values (except null/undefined)
+        test_parity("zero?.toString()", env.clone(), None, None).await?;
+        test_parity("emptyStr?.length", env.clone(), None, None).await?;
+        test_parity("falseVal?.toString()", env.clone(), None, None).await?;
+        test_parity("nullVal?.toString()", env.clone(), None, None).await?;
+
+        // Difference between ?. and &&
+        test_parity("nested?.zero", env.clone(), None, None).await?;
+        test_parity("nested?.empty", env.clone(), None, None).await?;
+        test_parity("nested?.false", env.clone(), None, None).await?;
+        test_parity("nested?.null", env.clone(), None, None).await?;
+        test_parity("nested?.null?.value", env.clone(), None, None).await?;
+
+        // Empty object access
+        test_parity("nested?.obj?.missing", env.clone(), None, None).await?;
+        test_parity("nested?.obj?.missing ?? 'not there'", env.clone(), None, None).await?;
+
+        // Chaining after primitives (should return undefined)
+        test_parity("nested?.zero?.value", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_optional_chaining_typeof() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "a": {"b": {"c": 1}}
+            }))),
+        );
+        env.insert("nullObj".to_string(), Arc::new(to_raw_value(&json!(null))));
+
+        // Optional chaining in expressions that return values
+        test_parity("obj?.a?.b?.c", env.clone(), None, None).await?;
+        test_parity("obj?.x?.y?.z", env.clone(), None, None).await?;
+        test_parity("nullObj?.a?.b?.c", env.clone(), None, None).await?;
+
+        // Check that optional chaining works with typeof
+        test_parity("typeof obj?.a?.b?.c", env.clone(), None, None).await?;
+        test_parity("typeof obj?.missing?.value", env.clone(), None, None).await?;
+        test_parity("typeof nullObj?.value", env.clone(), None, None).await?;
+
+        Ok(())
+    }
 }

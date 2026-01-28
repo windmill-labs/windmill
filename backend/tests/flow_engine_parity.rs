@@ -957,3 +957,136 @@ export function main(original: number, squared: number, cubed: number) {
 
     Ok(())
 }
+
+// =============================================================================
+// TEST 11: flow_env access in expressions
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_env_access(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // Create flow_env with various types of values
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
+    flow_env.insert("DEBUG".to_string(), windmill_common::worker::to_raw_value(&json!(false)));
+    flow_env.insert("TIMEOUT".to_string(), windmill_common::worker::to_raw_value(&json!(30)));
+    flow_env.insert("CONFIG".to_string(), windmill_common::worker::to_raw_value(&json!({
+        "apiUrl": "https://api.example.com",
+        "retries": 3,
+        "features": ["auth", "logging"]
+    })));
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("use_env", FlowModuleValue::RawScript {
+                input_transforms: [
+                    js_input("env_name", "flow_env.ENV"),
+                    js_input("is_debug", "flow_env.DEBUG"),
+                    js_input("timeout_val", "flow_env.TIMEOUT"),
+                    js_input("api_url", "flow_env.CONFIG.apiUrl"),
+                    js_input("retry_count", "flow_env.CONFIG.retries"),
+                    js_input("has_auth", "flow_env.CONFIG.features.includes('auth')"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(env_name: string, is_debug: boolean, timeout_val: number, api_url: string, retry_count: number, has_auth: boolean) {
+    return {env_name, is_debug, timeout_val, api_url, retry_count, has_auth};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["env_name"], "production");
+    assert_eq!(result["is_debug"], false);
+    assert_eq!(result["timeout_val"], 30);
+    assert_eq!(result["api_url"], "https://api.example.com");
+    assert_eq!(result["retry_count"], 3);
+    assert_eq!(result["has_auth"], true);
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 12: flow_input and flow_env combined with conditionals
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_input_and_env_combined(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    // flow_env with environment-specific configuration
+    let mut flow_env = std::collections::HashMap::new();
+    flow_env.insert("ENV".to_string(), windmill_common::worker::to_raw_value(&json!("production")));
+    flow_env.insert("MAX_ITEMS".to_string(), windmill_common::worker::to_raw_value(&json!(100)));
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("process", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Combine flow_input with flow_env
+                    js_input("effective_limit", "Math.min(flow_input.requested_limit, flow_env.MAX_ITEMS)"),
+                    js_input("env_prefix", "`[${flow_env.ENV}]`"),
+                    js_input("is_prod", "flow_env.ENV === 'production'"),
+                    js_input("doubled_input", "flow_input.value * 2"),
+                    // Conditional based on both
+                    js_input("multiplier", "flow_env.ENV === 'production' ? flow_input.prod_mult : 1"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(effective_limit: number, env_prefix: string, is_prod: boolean, doubled_input: number, multiplier: number) {
+    return {effective_limit, env_prefix, is_prod, doubled_input, final_value: doubled_input * multiplier};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        flow_env: Some(flow_env),
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .arg("requested_limit", json!(150))
+        .arg("value", json!(25))
+        .arg("prod_mult", json!(3))
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    // effective_limit = min(150, 100) = 100
+    assert_eq!(result["effective_limit"], 100);
+    assert_eq!(result["env_prefix"], "[production]");
+    assert_eq!(result["is_prod"], true);
+    assert_eq!(result["doubled_input"], 50);  // 25 * 2
+    // final_value = 50 * 3 (prod_mult because ENV is production)
+    assert_eq!(result["final_value"], 150);
+
+    Ok(())
+}
