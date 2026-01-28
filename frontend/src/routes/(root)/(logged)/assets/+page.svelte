@@ -7,7 +7,7 @@
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
 	import Head from '$lib/components/table/Head.svelte'
-	import { AssetService, type ListAssetsResponse } from '$lib/gen'
+	import { AssetService, type AssetKind, type ListAssetsResponse } from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
 	import { pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
@@ -27,8 +27,7 @@
 
 	let assetPathFilter: string = $state('')
 	let usagePathFilter: string = $state('')
-	let assetKindsFilter: Array<'s3object' | 'resource' | 'ducklake' | 'datatable' | 'variable'> =
-		$state([])
+	let assetKindsFilter: Array<AssetKind> = $state([])
 
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
@@ -39,7 +38,7 @@
 				cursorId: cursor?.id,
 				assetPath: assetPathFilter || undefined,
 				usagePath: usagePathFilter || undefined,
-				assetKinds: assetKindsFilter.length > 0 ? assetKindsFilter : undefined
+				assetKinds: assetKindsFilter.join(',') || undefined
 			})
 		},
 		initialPageParam: undefined,

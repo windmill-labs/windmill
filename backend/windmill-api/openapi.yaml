@@ -16471,11 +16471,7 @@ paths:
           in: query
           description: Filter by asset kinds (multiple values allowed)
           schema:
-            type: array
-            items:
-              $ref: "#/components/schemas/AssetKind"
-          style: form
-          explode: true
+            type: string
       responses:
         "200":
           description: paginated assets in the workspace

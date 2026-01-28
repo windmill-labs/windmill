@@ -6,7 +6,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::Row;
-use windmill_common::{assets::AssetUsageKind, db::UserDB, error::JsonResult};
+use windmill_common::{
+    assets::{AssetKind, AssetUsageKind},
+    db::UserDB,
+    error::JsonResult,
+};
 
 use crate::db::ApiAuthed;
 
@@ -24,8 +28,7 @@ struct ListAssetsQuery {
     cursor_id: Option<i64>,
     asset_path: Option<String>,
     usage_path: Option<String>,
-    #[serde(default)]
-    asset_kinds: Vec<String>,
+    asset_kinds: Option<String>,
 }
 
 fn default_per_page() -> i64 {
@@ -84,7 +87,22 @@ async fn list_assets(
     }
 
     // Asset kinds filter
-    if !query.asset_kinds.is_empty() {
+    let asset_kinds = query
+        .asset_kinds
+        .map(|kinds_str| {
+            kinds_str
+                .split(',')
+                .map(|kind_str| {
+                    serde_json::from_str::<AssetKind>(&format!("\"{}\"", kind_str.trim()))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()
+        .map_err(|_| {
+            windmill_common::error::Error::BadRequest("Invalid asset_kinds parameter".to_string())
+        })?;
+    let has_asset_kinds = asset_kinds.as_ref().map(|v| !v.is_empty()).unwrap_or(false);
+    if has_asset_kinds {
         param_count += 1;
         asset_summary_filters.push(format!("asset.kind = ANY(${})", param_count));
     }
@@ -159,14 +177,11 @@ async fn list_assets(
         GROUP BY asset.path, asset.kind, resource.resource_type, asset_summary.max_created_at, asset_summary.max_id
         ORDER BY asset_summary.max_created_at DESC, asset_summary.max_id DESC
         "#,
-        asset_summary_where,
-        cursor_having
+        asset_summary_where, cursor_having
     );
 
     // Build query with dynamic parameters
-    let mut query_builder = sqlx::query(&sql)
-        .bind(&w_id)
-        .bind(limit);
+    let mut query_builder = sqlx::query(&sql).bind(&w_id).bind(limit);
 
     if let Some(ref asset_path) = query.asset_path {
         query_builder = query_builder.bind(format!("%{}%", asset_path));
@@ -176,8 +191,10 @@ async fn list_assets(
         query_builder = query_builder.bind(format!("%{}%", usage_path));
     }
 
-    if !query.asset_kinds.is_empty() {
-        query_builder = query_builder.bind(&query.asset_kinds);
+    if let Some(ref asset_kinds) = asset_kinds {
+        if !asset_kinds.is_empty() {
+            query_builder = query_builder.bind(asset_kinds);
+        }
     }
 
     if let (Some(cursor_created_at), Some(cursor_id)) = (query.cursor_created_at, query.cursor_id) {
@@ -203,18 +220,12 @@ async fn list_assets(
 
     let next_cursor = if rows.len() as i64 > per_page {
         let last = &rows[per_page as usize - 1];
-        Some(AssetCursor {
-            created_at: last.max_created_at,
-            id: last.max_id,
-        })
+        Some(AssetCursor { created_at: last.max_created_at, id: last.max_id })
     } else {
         None
     };
 
-    Ok(Json(ListAssetsResponse {
-        assets,
-        next_cursor,
-    }))
+    Ok(Json(ListAssetsResponse { assets, next_cursor }))
 }
 
 #[derive(Deserialize)]
