@@ -147,9 +147,9 @@
 				{/if}
 			</tbody>
 		</DataTable>
-		{#if assetsQuery.isLoading}
+		{#if assetsQuery.isFetchingNextPage}
 			<Loader2 size={32} class="mx-auto my-4 text-primary animate-spin" />
-		{:else if !assetsQuery.hasNextPage}
+		{:else if assetsQuery.current.length && !assetsQuery.hasNextPage}
 			<div class="text-center text-2xs text-secondary my-4"> No more assets to load </div>
 		{/if}
 	</CenteredPage>
