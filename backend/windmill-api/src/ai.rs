@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel};
+use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel, AWS_DEFAULT_REGION};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -747,7 +747,7 @@ async fn proxy(
             let region = request_config
                 .region
                 .as_deref()
-                .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
+                .unwrap_or(AWS_DEFAULT_REGION);
 
             // Audit log before making the SDK request
             let mut tx = db.begin().await?;

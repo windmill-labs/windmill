@@ -22,6 +22,7 @@ lazy_static::lazy_static! {
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+pub const AWS_DEFAULT_REGION: &str = "us-east-1";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -91,7 +92,7 @@ impl AIProvider {
                 {
                     Ok(format!(
                         "https://bedrock-runtime.{}.amazonaws.com",
-                        region.unwrap_or_else(|| "us-east-1".to_string())
+                        region.unwrap_or_else(|| AWS_DEFAULT_REGION.to_string())
                     ))
                 }
                 #[cfg(not(feature = "bedrock"))]
