@@ -110,3 +110,17 @@ pub async fn clear_static_asset_usage_by_script_hash<'e>(
     .await?;
     Ok(())
 }
+
+pub fn merge_asset_usage_access_types(
+    a: Option<AssetUsageAccessType>,
+    b: Option<AssetUsageAccessType>,
+) -> Option<AssetUsageAccessType> {
+    use AssetUsageAccessType::*;
+    match (a, b) {
+        (None, _) | (_, None) => None,
+        (Some(R), Some(W)) | (Some(W), Some(R)) => Some(RW),
+        (Some(RW), _) | (_, Some(RW)) => Some(RW),
+        (Some(R), Some(R)) => Some(R),
+        (Some(W), Some(W)) => Some(W),
+    }
+}

@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 use windmill_parser::asset_parser::parse_asset_syntax;
 
 use crate::{
-    assets::{AssetKind, AssetUsageAccessType, AssetUsageKind},
+    assets::{merge_asset_usage_access_types, AssetKind, AssetUsageAccessType, AssetUsageKind},
     error,
 };
 
@@ -107,7 +107,11 @@ async fn prune_runtime_assets(
             asset.asset_kind.clone(),
         );
         let v = unique_assets.entry(key).or_default();
-        if v.len() < max_n {
+        if let Some(last_same_job) = v.last_mut().filter(|a| a.job_id == asset.job_id) {
+            // Same job used the same asset multiple times
+            last_same_job.access_type =
+                merge_asset_usage_access_types(last_same_job.access_type, asset.access_type);
+        } else if v.len() < max_n {
             v.push(asset);
         }
     }
