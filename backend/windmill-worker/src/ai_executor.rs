@@ -660,12 +660,7 @@ pub async fn run_agent(
         let parsed = if args.provider.kind == AIProvider::AWSBedrock {
             #[cfg(feature = "bedrock")]
             {
-                let region = args.provider.get_region();
-                let Some(region) = region else {
-                    return Err(Error::internal_err(
-                        "AWS Bedrock region is required".to_string(),
-                    ));
-                };
+                let region = args.provider.get_region().unwrap_or("");
                 // Use Bedrock SDK via dedicated query builder
                 crate::ai::providers::bedrock::BedrockQueryBuilder::default()
                     .execute_request(
