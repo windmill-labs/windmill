@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.620.0](https://github.com/windmill-labs/windmill/compare/v1.619.0...v1.620.0) (2026-01-28)
+
+
+### Features
+
+* **cli:** add script preview and flow preview commands ([#7729](https://github.com/windmill-labs/windmill/issues/7729)) ([95cbb2c](https://github.com/windmill-labs/windmill/commit/95cbb2c86ce66abd8e5488400b2367a22237e8c7))
+
+
+### Bug Fixes
+
+* cache git branch detection to avoid repeated execSync calls ([eafee16](https://github.com/windmill-labs/windmill/commit/eafee16bfc66081a0d1d575020fc4e40c76feb8a))
+
 ## [1.619.0](https://github.com/windmill-labs/windmill/compare/v1.618.2...v1.619.0) (2026-01-28)
 
 
