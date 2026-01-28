@@ -52,9 +52,12 @@ Object.assign(globalThis, {
 // Expose bootstrapOtel globally so it can be called from Rust after runtime creation.
 // We use dynamic import so deno_telemetry isn't loaded during snapshot creation.
 // Config: [tracingEnabled, metricsEnabled, consoleConfig, deterministic]
+// consoleConfig: 0=ignore, 1=capture, 2=replace
 globalThis.__bootstrapOtel = () => {
-  import("ext:deno_telemetry/telemetry.ts").then(({ bootstrap }) => {
-    bootstrap([1, 0, 0, 0]);
+  import("ext:deno_telemetry/telemetry.ts").then(({ bootstrap, enterSpan }) => {
+    bootstrap([1, 0, 1, 0]);
+    // Expose enterSpan for setting parent trace context
+    globalThis.__enterSpan = enterSpan;
   });
 };
 
