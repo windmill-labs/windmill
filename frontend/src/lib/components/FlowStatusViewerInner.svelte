@@ -514,11 +514,9 @@
 			if (flow_job === lastStarted) {
 				break
 			} else if (flow_job !== lastStarted && suspendStatus.val[flow_job]) {
-				console.log('setSelectedLoopSwitch deleting suspend for', flow_job)
 				delete suspendStatus.val[flow_job]
 			}
 		}
-		console.log('setSelectedLoopSwitch', position, lastStarted, mod.id, suspendStatus)
 		setIteration(position, lastStarted, false, mod.id ?? '', true)
 	}, 2000)
 
@@ -1137,7 +1135,7 @@
 			prefix: string | undefined
 		): FlowModuleForTimeline[] {
 			return ids.concat(
-				ids.flatMap(({ id, type }) => {
+				ids.flatMap(({ id }) => {
 					let fms = expandedSubflows[id]
 					let oid = id.split(':').pop()
 					if (!oid) {
@@ -1840,7 +1838,6 @@
 									flowModuleStates={localModuleStates}
 									bind:expandedSubflows
 									onSelect={(e) => {
-										console.log('onSelect', e)
 										if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
 											rightColumnSelect = 'node_status'
 										}
@@ -1933,7 +1930,7 @@
 													: undefined}
 											{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
 												{@const message = agentNode.result.messages.find(
-													(m) => m.agent_action?.call_id === mcpAction.call_id
+													(m: { agent_action?: { call_id?: string }; content?: any }) => m.agent_action?.call_id === mcpAction.call_id
 												)}
 												<McpToolCallDetails
 													functionName={mcpAction.function_name}
