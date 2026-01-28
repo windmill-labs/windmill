@@ -32,6 +32,7 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::assets::clear_static_asset_usage;
 use windmill_common::min_version::{
     MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
 };
@@ -1429,13 +1430,7 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
-        &w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Flow).await?;
 
     audit_log(
         &mut *tx,

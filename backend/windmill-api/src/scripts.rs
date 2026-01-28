@@ -42,7 +42,8 @@ use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDep
 
 use windmill_common::{
     assets::{
-        clear_static_asset_usage, insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
     },
     error::{self, to_anyhow},
     min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
@@ -750,13 +751,7 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
 
-            sqlx::query!(
-                "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-                &w_id,
-                p_hash.0
-            )
-            .execute(&mut *tx)
-            .await?;
+            clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
             r
         }
@@ -1928,13 +1923,7 @@ async fn archive_script_by_path(
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = $2",
-        &w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -1999,13 +1988,7 @@ async fn archive_script_by_hash(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        &w_id,
-        &hash.0
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
     audit_log(
         &mut *tx,
@@ -2052,13 +2035,8 @@ async fn delete_script_by_hash(
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        &w_id,
-        hash.0
-    )
-    .execute(&mut *tx)
-    .await?;
+
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
     audit_log(
         &mut *tx,

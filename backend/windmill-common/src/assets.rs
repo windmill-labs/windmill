@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 
-use crate::error;
+use crate::{error, scripts::ScriptHash};
 
 #[derive(
     Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
@@ -93,6 +93,20 @@ pub async fn clear_static_asset_usage<'e>(
     )
     .execute(executor)
     .await?;
+    Ok(())
+}
 
+pub async fn clear_static_asset_usage_by_script_hash<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    script_hash: ScriptHash,
+) -> error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        workspace_id,
+        script_hash.0
+    )
+    .execute(executor)
+    .await?;
     Ok(())
 }
