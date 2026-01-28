@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.618.0](https://github.com/windmill-labs/windmill/compare/v1.617.3...v1.618.0) (2026-01-28)
+
+
+### Features
+
+* typescript client esm build ([#7709](https://github.com/windmill-labs/windmill/issues/7709)) ([07fb47e](https://github.com/windmill-labs/windmill/commit/07fb47e215da2b36afb83529c6ae84bf8fa14ae6))
+
+
+### Bug Fixes
+
+* fix annoying abort toasts ([#7713](https://github.com/windmill-labs/windmill/issues/7713)) ([b76d6e9](https://github.com/windmill-labs/windmill/commit/b76d6e9be80030597e82cd5db5cb5267de3b2961))
+* fix flow viewer height ([#7715](https://github.com/windmill-labs/windmill/issues/7715)) ([e37ab33](https://github.com/windmill-labs/windmill/commit/e37ab33b3f31a67da6238eb0827a46b9d0d831c8))
+
 ## [1.617.3](https://github.com/windmill-labs/windmill/compare/v1.617.2...v1.617.3) (2026-01-27)
 
 
