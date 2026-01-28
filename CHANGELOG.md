@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.618.2](https://github.com/windmill-labs/windmill/compare/v1.618.1...v1.618.2) (2026-01-28)
+
+
+### Bug Fixes
+
+* add default export to typescript-client for ESM compatibility ([e7ac7af](https://github.com/windmill-labs/windmill/commit/e7ac7afe8e2af7c30c225b2031a894bfcb1783c8))
+
+## [1.618.1](https://github.com/windmill-labs/windmill/compare/v1.618.0...v1.618.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* handle empty base_url and region strings in AI providers ([#7719](https://github.com/windmill-labs/windmill/issues/7719)) ([7cd51de](https://github.com/windmill-labs/windmill/commit/7cd51def2b89efc117f5add7c9f8d92caa1f782d))
+
+## [1.618.0](https://github.com/windmill-labs/windmill/compare/v1.617.3...v1.618.0) (2026-01-28)
+
+
+### Features
+
+* typescript client esm build ([#7709](https://github.com/windmill-labs/windmill/issues/7709)) ([07fb47e](https://github.com/windmill-labs/windmill/commit/07fb47e215da2b36afb83529c6ae84bf8fa14ae6))
+
+
+### Bug Fixes
+
+* fix annoying abort toasts ([#7713](https://github.com/windmill-labs/windmill/issues/7713)) ([b76d6e9](https://github.com/windmill-labs/windmill/commit/b76d6e9be80030597e82cd5db5cb5267de3b2961))
+* fix flow viewer height ([#7715](https://github.com/windmill-labs/windmill/issues/7715)) ([e37ab33](https://github.com/windmill-labs/windmill/commit/e37ab33b3f31a67da6238eb0827a46b9d0d831c8))
+
 ## [1.617.3](https://github.com/windmill-labs/windmill/compare/v1.617.2...v1.617.3) (2026-01-27)
 
 
