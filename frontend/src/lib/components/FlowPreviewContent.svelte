@@ -15,6 +15,7 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
+	import FlowExecutionStatus from './runs/FlowExecutionStatus.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
@@ -82,6 +83,7 @@
 	let isValid: boolean = $state(true)
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
+	let result_streams: Record<string, string | undefined> = $state({})
 
 	export async function test(conversationId?: string): Promise<string | undefined> {
 		renderCount++
@@ -373,6 +375,18 @@
 				</div>
 			{/if}
 			<FlowProgressBar {job} bind:this={flowProgressBar} />
+			{#if job}
+				<div class="w-full mt-2">
+					<FlowExecutionStatus
+						{job}
+						workspaceId={$workspaceStore}
+						{isOwner}
+						innerModules={job?.flow_status?.modules}
+						{suspendStatus}
+						{result_streams}
+					/>
+				</div>
+			{/if}
 		</div>
 	{/if}
 	<div
@@ -386,7 +400,11 @@
 					<FlowChat
 						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview({ user_message: userMessage, ...(additionalInputs ?? {}) }, undefined, conversationId)
+							await runPreview(
+								{ user_message: userMessage, ...(additionalInputs ?? {}) },
+								undefined,
+								conversationId
+							)
 							return jobId ?? ''
 						}}
 						hideSidebar={true}
@@ -530,6 +548,7 @@
 					}}
 					bind:selectedJobStep
 					bind:rightColumnSelect
+					bind:isOwner
 					{render}
 					{customUi}
 				/>

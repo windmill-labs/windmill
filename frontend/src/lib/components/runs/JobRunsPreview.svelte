@@ -130,7 +130,7 @@
 				/>
 			{/if}
 			{#if isFlow}
-				<div class="flex flex-col gap-2 w-full">
+				<div class="w-full">
 					<FlowExecutionStatus
 						{job}
 						workspaceId={job?.workspace_id}
