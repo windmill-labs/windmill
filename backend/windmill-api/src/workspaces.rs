@@ -1336,30 +1336,54 @@ async fn get_datatable_schema(db: &DB, w_id: &str, datatable_name: &str) -> Resu
         }
     });
 
-    // Query the schema information
-    let rows = client
+    // First, get all non-system schemas (including empty ones)
+    let schema_rows = client
         .query(
             r#"
-            SELECT
-                nsp.nspname::text AS table_schema,
-                c.table_name::text,
-                c.column_name::text,
-                c.udt_name::text,
-                c.is_nullable::text,
-                c.column_default::text
-            FROM information_schema.columns c
-            JOIN pg_namespace nsp ON c.table_schema = nsp.nspname
-            WHERE nsp.nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
-              AND c.table_name IS NOT NULL
-            ORDER BY c.table_schema, c.table_name, c.ordinal_position
+            SELECT nspname::text AS schema_name
+            FROM pg_namespace
+            WHERE nspname NOT IN ('information_schema', 'pg_toast', 'pg_catalog')
+              AND nspname NOT LIKE 'pg_%'
+            ORDER BY nspname
             "#,
             &[],
         )
         .await
-        .map_err(|e| Error::internal_err(format!("Failed to query schema: {}", e)))?;
+        .map_err(|e| Error::internal_err(format!("Failed to query schemas: {}", e)))?;
 
     // Build hierarchical structure: schema -> table -> column -> compact_type
     let mut schema_map: SchemaMap = HashMap::new();
+
+    // Collect schema names and initialize map
+    let schema_names: Vec<String> = schema_rows
+        .iter()
+        .map(|row| {
+            let name: String = row.get(0);
+            schema_map.entry(name.clone()).or_default();
+            name
+        })
+        .collect();
+
+    // Query column information only for the schemas we found
+    let rows = client
+        .query(
+            r#"
+            SELECT
+                table_schema::text,
+                table_name::text,
+                column_name::text,
+                udt_name::text,
+                is_nullable::text,
+                column_default::text
+            FROM information_schema.columns
+            WHERE table_schema = ANY($1)
+              AND table_name IS NOT NULL
+            ORDER BY table_schema, table_name, ordinal_position
+            "#,
+            &[&schema_names],
+        )
+        .await
+        .map_err(|e| Error::internal_err(format!("Failed to query columns: {}", e)))?;
 
     for row in rows {
         let table_schema: String = row.get(0);
@@ -3593,18 +3617,18 @@ async fn edit_workspace(
     Ok(format!("Updated workspace {}", &w_id))
 }
 
-async fn archive_workspace(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    authed: ApiAuthed,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
+/// Archive a workspace: disable schedules, cancel jobs, and mark as deleted.
+/// Returns (schedules_disabled_count, jobs_canceled_count).
+pub(crate) async fn archive_workspace_impl(
+    db: &DB,
+    w_id: &str,
+    username: &str,
+) -> Result<(usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
     let disabled_schedules = sqlx::query_scalar!(
         "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
-        &w_id
+        w_id
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -3618,15 +3642,20 @@ async fn archive_workspace(
 
     // Clear all schedule-related jobs using the existing clear_schedule function
     for schedule_path in &disabled_schedules {
-        crate::schedule::clear_schedule(&mut tx, schedule_path, &w_id).await?;
+        crate::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Mark workspace as archived
+    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 
     // Step 2: Get all remaining queued jobs for this workspace (non-schedule jobs)
     let jobs_to_cancel =
-        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", &w_id)
-            .fetch_all(&db)
+        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", w_id)
+            .fetch_all(db)
             .await?;
 
     let jobs_count = jobs_to_cancel.len();
@@ -3640,9 +3669,9 @@ async fn archive_workspace(
     let canceled_count = if !jobs_to_cancel.is_empty() {
         let axum::Json(canceled_jobs) = crate::jobs::cancel_jobs(
             jobs_to_cancel,
-            &db,
-            &authed.username,
-            &w_id,
+            db,
+            username,
+            w_id,
             false, // force_cancel
         )
         .await?;
@@ -3654,12 +3683,21 @@ async fn archive_workspace(
         0
     };
 
-    // Step 4: Archive the workspace
-    let mut tx = db.begin().await?;
-    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+    Ok((schedules_count, canceled_count))
+}
 
+async fn archive_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let (schedules_count, canceled_count) =
+        archive_workspace_impl(&db, &w_id, &authed.username).await?;
+
+    // Audit log
+    let mut tx = db.begin().await?;
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());

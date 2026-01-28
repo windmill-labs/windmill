@@ -133,6 +133,18 @@ export function findCodebase(
     return;
   }
   for (const c of codebases) {
+    // First check if the path is within this codebase's relative_path
+    const codebasePath = c.relative_path.replaceAll("\\", "/");
+    const normalizedPath = path.replaceAll("\\", "/");
+    if (!normalizedPath.startsWith(codebasePath + "/") && normalizedPath !== codebasePath) {
+      continue;
+    }
+
+    // Get the path relative to the codebase root for pattern matching
+    const relativePath = normalizedPath.startsWith(codebasePath + "/")
+      ? normalizedPath.substring(codebasePath.length + 1)
+      : normalizedPath;
+
     let included = false;
     let excluded = false;
     if (c.includes == undefined || c.includes == null) {
@@ -145,7 +157,7 @@ export function findCodebase(
       if (included) {
         break;
       }
-      if (minimatch(path, r)) {
+      if (minimatch(relativePath, r)) {
         included = true;
       }
     }
@@ -153,7 +165,7 @@ export function findCodebase(
       c.excludes = [c.excludes];
     }
     for (const r of c.excludes ?? []) {
-      if (minimatch(path, r)) {
+      if (minimatch(relativePath, r)) {
         excluded = true;
       }
     }
@@ -1283,6 +1295,8 @@ export async function elementsToMap(
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  // Cache git branch at the start to avoid repeated execSync calls per file
+  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
@@ -1383,7 +1397,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      if (!isCurrentBranchFile(path, branchOverride)) {
+      if (!isCurrentBranchFile(path, cachedBranch)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1418,9 +1432,9 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (isCurrentBranchFile(path, branchOverride)) {
+    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
       // This is a branch-specific file for current branch
-      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const currentBranch = cachedBranch;
       const basePath = fromBranchSpecificPath(path, currentBranch);
 
       // Only use branch-specific files if the item type IS configured as branch-specific
@@ -1952,6 +1966,7 @@ export async function pull(
   } catch {
     // ignore
   }
+
   const zipFile = await downloadZip(
     workspace,
     opts.plainSecrets,
@@ -1976,9 +1991,11 @@ export async function pull(
     resourceTypeToFormatExtension,
     true,
   );
+
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -2675,6 +2692,8 @@ export async function push(
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     const queue = [...groupedChangesArray];
+    // Cache git branch at the start to avoid repeated execSync calls per change
+    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
@@ -2759,7 +2778,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
+                  const currentBranch = cachedBranchForPush;
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(

@@ -90,7 +90,7 @@ pub use otel_tracing_proxy_ee::{
     set_current_job_context, start_jobs_otel_tracing, TRACING_PROXY_PORT,
 };
 #[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
-pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZED};
+pub use otel_tracing_proxy_ee::{load_internal_otel_exporter, DENO_OTEL_INITIALIZED, OTLP_COLLECTOR_PORT};
 
 pub use result_processor::handle_job_error;
 

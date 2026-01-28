@@ -1,4 +1,5 @@
-import { getWorkspace, JobService } from "./client";
+import { getWorkspace } from "./client";
+import { JobService } from "./services.gen";
 
 type ResultCollection =
   | "last_statement_all_rows"

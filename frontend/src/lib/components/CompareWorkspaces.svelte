@@ -427,20 +427,67 @@
 					path: path
 				})
 				if (alreadyExists) {
-					await AppService.updateApp({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: workspaceFrom,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: workspaceFrom
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: workspaceFrom
+						})
+						await AppService.updateAppRaw({
+							workspace: workspaceToDeployTo,
+							path: path,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.updateApp({
+							workspace: workspaceToDeployTo,
+							path: path,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				} else {
-					await AppService.createApp({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: workspaceFrom,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: workspaceFrom
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: workspaceFrom
+						})
+						await AppService.createAppRaw({
+							workspace: workspaceToDeployTo,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.createApp({
+							workspace: workspaceToDeployTo,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				}
 			} else if (kind == 'variable') {
 				const variable = await VariableService.getVariable({
