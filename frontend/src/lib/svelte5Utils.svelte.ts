@@ -278,7 +278,6 @@ export function useScrollToBottom(selector: string, threshold: number = 0): { cu
 		let element: HTMLElement = el
 
 		function checkIfAtBottom() {
-			console.log('element.scrollTop', element.scrollTop)
 			const scrollTop = element.scrollTop
 			const scrollHeight = element.scrollHeight
 			const clientHeight = element.clientHeight
