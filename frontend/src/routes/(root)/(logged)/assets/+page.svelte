@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { formatAsset, formatAssetKind } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, ClearableInput } from '$lib/components/common'
+	import { Alert } from '$lib/components/common'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
@@ -19,6 +19,10 @@
 	import { AlertTriangle, Loader2 } from 'lucide-svelte'
 	import { useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { watch } from 'runed'
+	import Label from '$lib/components/Label.svelte'
+	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
+	import TextInput from '$lib/components/text_input/TextInput.svelte'
+	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -91,80 +95,28 @@
 			Assets are not detected for old scripts and flows that were deployed before the assets feature
 			was introduced. Re-deploy them to trigger asset detection.
 		</Alert>
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-			<ClearableInput bind:value={assetPathFilter} placeholder="Filter by asset path" />
-			<ClearableInput bind:value={usagePathFilter} placeholder="Filter by usage path" />
-		</div>
-		<div class="flex flex-wrap gap-4 mb-4 items-center">
-			<span class="text-sm font-semibold text-secondary">Asset kinds:</span>
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					value="s3object"
-					checked={assetKindsFilter.includes('s3object')}
-					onchange={(e) => {
-						const target = e.currentTarget
-						if (target.checked) {
-							assetKindsFilter = [...assetKindsFilter, 's3object']
-						} else {
-							assetKindsFilter = assetKindsFilter.filter((k) => k !== 's3object')
-						}
-					}}
-					class="windmill-checkbox"
-				/>
-				<span class="text-sm">S3 Object</span>
-			</label>
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					value="ducklake"
-					checked={assetKindsFilter.includes('ducklake')}
-					onchange={(e) => {
-						const target = e.currentTarget
-						if (target.checked) {
-							assetKindsFilter = [...assetKindsFilter, 'ducklake']
-						} else {
-							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'ducklake')
-						}
-					}}
-					class="windmill-checkbox"
-				/>
-				<span class="text-sm">DuckLake</span>
-			</label>
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					value="datatable"
-					checked={assetKindsFilter.includes('datatable')}
-					onchange={(e) => {
-						const target = e.currentTarget
-						if (target.checked) {
-							assetKindsFilter = [...assetKindsFilter, 'datatable']
-						} else {
-							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'datatable')
-						}
-					}}
-					class="windmill-checkbox"
-				/>
-				<span class="text-sm">Data Table</span>
-			</label>
-			<label class="flex items-center gap-2 cursor-pointer">
-				<input
-					type="checkbox"
-					value="resource"
-					checked={assetKindsFilter.includes('resource')}
-					onchange={(e) => {
-						const target = e.currentTarget
-						if (target.checked) {
-							assetKindsFilter = [...assetKindsFilter, 'resource']
-						} else {
-							assetKindsFilter = assetKindsFilter.filter((k) => k !== 'resource')
-						}
-					}}
-					class="windmill-checkbox"
-				/>
-				<span class="text-sm">Resource</span>
-			</label>
+		<div class="flex gap-2 mb-4 items-end justify-between">
+			<div class="flex gap-2">
+				<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Asset path">
+					<TextInput bind:value={assetPathFilter} />
+				</Label>
+				<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Usage path">
+					<TextInput bind:value={usagePathFilter} />
+				</Label>
+				<Label class="lg:min-w-[8rem] max-w-[30rem]" label="Asset kinds">
+					<MultiSelect
+						hideMainClearBtn
+						bind:value={assetKindsFilter}
+						items={[
+							{ label: 'S3 Object', value: 's3object' },
+							{ label: 'Resource', value: 'resource' },
+							{ label: 'Ducklake', value: 'ducklake' },
+							{ label: 'Data Table', value: 'datatable' }
+						]}
+					/>
+				</Label>
+			</div>
+			<RefreshButton onClick={() => assetsQuery.reset()} loading={assetsQuery.isLoading} />
 		</div>
 		<DataTable>
 			<Head>
