@@ -53,6 +53,7 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -73,7 +74,8 @@
 		onRunPreview,
 		render = false,
 		onJobDone,
-		upToId = undefined
+		upToId = undefined,
+		suspendStatus
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -82,7 +84,6 @@
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
-	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
 	export async function test(conversationId?: string): Promise<string | undefined> {
@@ -536,7 +537,7 @@
 					bind:job
 					bind:localModuleStates
 					bind:localDurationStatuses
-					bind:suspendStatus
+					{suspendStatus}
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					bind:flowState={flowStateStore.val}

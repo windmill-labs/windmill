@@ -9,19 +9,23 @@
 	import type { FlowEditorContext } from '../types'
 	import { Play } from 'lucide-svelte'
 	import type { GraphModuleState } from '$lib/components/graph'
+	import type { StateStore } from '$lib/utils'
+	import type { Job } from '$lib/gen'
 
 	interface Props {
 		loading?: boolean
 		onRunPreview?: () => void
 		onJobDone?: () => void
 		localModuleStates?: Record<string, GraphModuleState>
+		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
 		loading = false,
 		onRunPreview,
 		onJobDone,
-		localModuleStates = $bindable({})
+		localModuleStates = $bindable({}),
+		suspendStatus
 	}: Props = $props()
 
 	const { selectionManager } = getContext<FlowEditorContext>('FlowEditorContext')
@@ -178,6 +182,7 @@
 			render={previewOpen}
 			{onJobDone}
 			{upToId}
+			{suspendStatus}
 		/>
 	</Drawer>
 {/if}

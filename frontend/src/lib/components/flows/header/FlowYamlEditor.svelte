@@ -65,8 +65,8 @@
 <Drawer on:open={reload} bind:this={drawer} size="800px">
 	<DrawerContent title="OpenFlow" on:close={() => drawer?.toggleDrawer()}>
 		{#snippet actions()}
-			<Button variant="accent" size="sm" on:click={reload}>Reset code</Button>
-			<Button variant="accent" size="sm" on:click={apply}>Apply changes</Button>
+			<Button variant="default" unifiedSize="md" on:click={reload}>Reset code</Button>
+			<Button variant="accent" unifiedSize="md" on:click={apply}>Apply changes</Button>
 		{/snippet}
 
 		{#if flowStore.val}
