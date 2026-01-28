@@ -30,7 +30,7 @@ async fn list_assets(
                     'kind', asset.usage_kind,
                     'access_type', asset.usage_access_type,
                     'created_at', asset.created_at
-                )),
+                ) ORDER BY asset.created_at DESC),
                 'metadata', (CASE
                   WHEN asset.kind = 'resource' THEN
                     jsonb_build_object('resource_type', resource.resource_type)
