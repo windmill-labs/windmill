@@ -38,9 +38,11 @@ export namespace CancelablePromiseUtils {
 		promise: CancelablePromise<T>,
 		f: (value: T) => void
 	): CancelablePromise<T> {
-		promise.then((value) => {
-			f(value)
-		})
+		promise
+			.then((value) => f(value))
+			.catch(() => {
+				// we are just piping, ignore errors
+			})
 		return promise
 	}
 
