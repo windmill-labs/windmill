@@ -635,10 +635,9 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}/{}.{}",
+                "{}/{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                path,
-                if is_tar { "tar" } else { "js" }
+                path
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");
