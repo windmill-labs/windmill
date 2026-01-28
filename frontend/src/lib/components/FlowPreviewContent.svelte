@@ -371,7 +371,7 @@
 	>
 		{#if render}
 			{#if flowStore.val.value?.chat_input_enabled}
-				<div class="flex flex-row justify-center w-full">
+				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
 						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
