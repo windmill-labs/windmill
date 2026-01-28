@@ -4,6 +4,7 @@
 	import RowIcon from '../common/table/RowIcon.svelte'
 	import { formatAssetAccessType, getAssetUsagePageUri, type AssetUsage } from './lib'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
+	import Tooltip2 from '../Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import { displayDate } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
@@ -20,13 +21,6 @@
 		usagesDrawerData = data
 	}
 
-	// const jobStatusColor = {
-	// 	running: 'text-yellow-500',
-	// 	success: 'text-green-500',
-	// 	failure: 'text-red-500',
-	// 	canceled: 'text-red-500'
-	// }
-
 	let staticUsages = $derived(usagesDrawerData?.usages.filter((u) => u.kind !== 'job') ?? [])
 	let runtimeUsages = $derived(usagesDrawerData?.usages.filter((u) => u.kind === 'job') ?? [])
 </script>
@@ -40,14 +34,21 @@
 		<div class="flex flex-col gap-6">
 			<!-- Static/Declared Usages -->
 			<section>
-				<h3 class="text-sm font-semibold mb-2">Scripts & Flows</h3>
+				<h3 class="text-sm font-semibold mb-2">
+					Scripts & Flows
+					<Tooltip2>Assets detected statically during code analysis</Tooltip2>
+				</h3>
 				{@render list(staticUsages)}
 			</section>
 
 			<!-- Runtime Job Usage -->
 			<section>
-				<h3 class="text-sm font-semibold mb-2 flex justify-between items-center">
+				<h3 class="text-sm font-semibold mb-2">
 					Latest Job Executions
+					<Tooltip2>
+						Assets can be detected during job execution either via Windmill's SDK (Data tables, S3
+						objects ...) or by being passed as inputs to a script or flow (arbitrary resources).
+					</Tooltip2>
 				</h3>
 				<Alert
 					type="info"
