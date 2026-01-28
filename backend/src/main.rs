@@ -908,9 +908,11 @@ Windmill Community Edition {GIT_VERSION}
                     tracing::info!("Received killpill, aborting index initialization");
                 },
                 res = windmill_indexer::completed_runs_oss::init_index(&db) => {
-                        let res = res?;
-                        reader = Some(res.0);
-                        writer = Some(res.1);
+                    let res = res?;
+                    if let Some(r) = res {
+                        reader = Some(r.0);
+                        writer = Some(r.1);
+                    }
                 }
 
                 }
@@ -952,9 +954,11 @@ Windmill Community Edition {GIT_VERSION}
                         tracing::info!("Received killpill, aborting index initialization");
                     },
                     res = windmill_indexer::service_logs_oss::init_index(&db, killpill_tx.clone()) => {
-                            let res = res?;
-                            reader = Some(res.0);
-                            writer = Some(res.1);
+                        let res = res?;
+                        if let Some(r) = res {
+                            reader = Some(r.0);
+                            writer = Some(r.1);
+                        }
                     }
 
                 }
