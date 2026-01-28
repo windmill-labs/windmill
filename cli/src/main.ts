@@ -5,6 +5,13 @@ import {
   esMain,
   log,
 } from "../deps.ts";
+
+// Node.js-specific imports for symlink resolution in isMain()
+// These are only used in Node.js, not Deno
+// dnt-shim-ignore
+import { realpathSync } from "node:fs";
+// dnt-shim-ignore
+import { fileURLToPath } from "node:url";
 import flow from "./commands/flow/flow.ts";
 import app from "./commands/app/app.ts";
 import script from "./commands/script/script.ts";
@@ -239,8 +246,23 @@ function isMain() {
     }
     return isMain;
   } else {
-    //@ts-ignore
-    return esMain.default(import.meta);
+    // For Node.js, we need to handle symlinks properly.
+    // The dnt polyfill doesn't resolve symlinks when comparing process.argv[1]
+    // with import.meta.url, so `wmill` symlink doesn't match the real file path.
+    // We resolve symlinks manually to get accurate comparison.
+    try {
+      const scriptPath = process.argv[1];
+      if (!scriptPath) return false;
+
+      const realScriptPath = realpathSync(scriptPath);
+      const modulePath = fileURLToPath(import.meta.url);
+
+      return realScriptPath === modulePath;
+    } catch {
+      // Fallback to esMain if something fails
+      //@ts-ignore
+      return esMain.default(import.meta);
+    }
   }
 }
 if (isMain()) {
