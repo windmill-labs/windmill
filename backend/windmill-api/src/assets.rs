@@ -25,12 +25,22 @@ async fn list_assets(
             jsonb_strip_nulls(jsonb_build_object(
                 'path', asset.path,
                 'kind', asset.kind,
-                'usages', ARRAY_AGG(jsonb_build_object(
-                    'path', asset.usage_path,
-                    'kind', asset.usage_kind,
-                    'access_type', asset.usage_access_type,
-                    'created_at', asset.created_at
-                ) ORDER BY asset.created_at DESC),
+                'usages', ARRAY_AGG(
+                    jsonb_strip_nulls(jsonb_build_object(
+                        'path', asset.usage_path,
+                        'kind', asset.usage_kind,
+                        'access_type', asset.usage_access_type,
+                        'created_at', asset.created_at,
+                        'metadata', (CASE
+                            WHEN asset.usage_kind = 'job' THEN
+                                jsonb_build_object('runnable_path', job.runnable_path, 'job_kind', job.kind)
+                            ELSE
+                                NULL
+                            END
+                        )
+                    ))
+                    ORDER BY asset.created_at DESC
+                ),
                 'metadata', (CASE
                   WHEN asset.kind = 'resource' THEN
                     jsonb_build_object('resource_type', resource.resource_type)
@@ -43,10 +53,14 @@ async fn list_assets(
         LEFT JOIN resource ON asset.kind = 'resource'
           AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path -- With specific table, asset path can be e.g u/diego/pg_db/table_name
           AND resource.workspace_id = $1
+        LEFT JOIN v2_job job ON asset.usage_kind = 'job'
+          AND asset.usage_path = job.id::text
+          AND job.workspace_id = $1
         WHERE asset.workspace_id = $1
           AND (asset.kind <> 'resource' OR resource.path IS NOT NULL)
           AND (asset.usage_kind <> 'flow' OR asset.usage_path = ANY(SELECT path FROM flow WHERE workspace_id = $1))
           AND (asset.usage_kind <> 'script' OR asset.usage_path = ANY(SELECT path FROM script WHERE workspace_id = $1))
+          AND (asset.usage_kind <> 'job' OR job.id IS NOT NULL)
           GROUP BY asset.path, asset.kind, resource.resource_type
         ORDER BY asset.path, asset.kind"#,
         w_id,

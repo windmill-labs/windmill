@@ -16464,12 +16464,22 @@ paths:
                           created_at:
                             type: string
                             format: date-time
-                            description: When the conversation was created
+                            description: When the asset was detected
+                          metadata:
+                            type: object
+                            properties:
+                              runnable_path:
+                                type: string
+                                description: The path of the script/flow that was run (only present when kind is 'job')
+                              job_kind:
+                                type: string
+                                description: The kind of job (script, flow, preview, etc.) (only present when kind is 'job')
                     metadata:
                       type: object
                       properties:
                         resource_type:
                           type: string
+                          description: The type of the resource (only present when kind is 'resource')
 
   /w/{workspace}/assets/list_by_usages:
     post:
