@@ -1,33 +1,25 @@
 import { get } from 'svelte/store'
-import { UserService } from '$lib/gen'
+import { CancelablePromise, UserService, type GlobalUserInfo } from '$lib/gen'
 import { superadmin, devopsRole } from './stores.js'
 
-export async function refreshSuperadmin(): Promise<void> {
-	if (get(superadmin) == undefined) {
-		try {
-			const me = await UserService.globalWhoami()
-			if (me.super_admin) {
-				superadmin.set(me.email)
-			} else {
-				superadmin.set(false)
-			}
-		} catch {
-			superadmin.set(false)
-			// goto('/user/logout')
-		}
+let promise: CancelablePromise<GlobalUserInfo> | null = null
+async function _refreshSuperadmin(): Promise<void> {
+	let shouldFetch = get(superadmin) == undefined || get(devopsRole) == undefined
+	if (!shouldFetch) return undefined
+	promise?.cancel()
+	promise = UserService.globalWhoami()
+	try {
+		const me = await promise
+		superadmin.set(me.super_admin ? me.email : false)
+		devopsRole.set(me.devops || me.super_admin ? me.email : false)
+	} catch (error) {
+		superadmin.set(false)
+		devopsRole.set(false)
+		console.error('error refreshing superadmin/devops role', error)
 	}
-
-	if (get(devopsRole) == undefined) {
-		try {
-			const me = await UserService.globalWhoami()
-			if (me.devops || me.super_admin) {
-				devopsRole.set(me.email)
-			} else {
-				devopsRole.set(false)
-			}
-		} catch {
-			devopsRole.set(false)
-			// goto('/user/logout')
-		}
-	}
+	promise = null
 }
+
+export const refreshSuperadmin = Object.assign(_refreshSuperadmin, {
+	cancel: () => promise?.cancel() as void
+})

@@ -1603,7 +1603,7 @@ async fn update_user(
     require_super_admin(&db, &authed.email).await?;
     let mut tx = db.begin().await?;
 
-    let mut revoke_tokens = false;
+    let mut new_super_admin: Option<bool> = None;
     if let Some(sa) = eu.is_super_admin {
         sqlx::query_scalar!(
             "UPDATE password SET super_admin = $1 WHERE email = $2",
@@ -1612,7 +1612,7 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
-        revoke_tokens = true;
+        new_super_admin = Some(sa);
     }
 
     if let Some(dv) = eu.is_devops {
@@ -1623,13 +1623,33 @@ async fn update_user(
         )
         .execute(&mut *tx)
         .await?;
-        revoke_tokens = true;
+        // If super_admin wasn't explicitly set, we still need to refresh tokens
+        if new_super_admin.is_none() {
+            new_super_admin = sqlx::query_scalar!(
+                "SELECT super_admin FROM password WHERE email = $1",
+                &email_to_update
+            )
+            .fetch_optional(&mut *tx)
+            .await?;
+        }
     }
 
-    if revoke_tokens {
-        sqlx::query!("DELETE FROM token WHERE email = $1", &email_to_update)
-            .execute(&mut *tx)
-            .await?;
+    if let Some(sa) = new_super_admin {
+        // Delete session tokens to force re-login with new privileges
+        sqlx::query!(
+            "DELETE FROM token WHERE email = $1 AND label = 'session'",
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
+        // Update super_admin flag on non-session tokens (webhooks, API tokens, etc.)
+        sqlx::query!(
+            "UPDATE token SET super_admin = $1 WHERE email = $2 AND label != 'session'",
+            sa,
+            &email_to_update
+        )
+        .execute(&mut *tx)
+        .await?;
     }
 
     if let Some(n) = eu.name {

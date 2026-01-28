@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            nt.external_id,\n            nt.workspace_id,\n            nt.service_name AS \"service_name!: ServiceName\",\n            nt.script_path,\n            nt.is_flow,\n            nt.webhook_token_prefix,\n            nt.service_config,\n            nt.error,\n            nt.created_at,\n            nt.updated_at\n        FROM\n            native_trigger nt\n        WHERE\n            nt.workspace_id = $1 AND\n            nt.service_name = $2 AND\n            (\n                (nt.is_flow = false AND EXISTS (\n                    SELECT 1 FROM script s\n                    WHERE s.workspace_id = nt.workspace_id\n                    AND s.path = nt.script_path\n                ))\n                OR\n                (nt.is_flow = true AND EXISTS (\n                    SELECT 1 FROM flow f\n                    WHERE f.workspace_id = nt.workspace_id\n                    AND f.path = nt.script_path\n                ))\n            )\n        LIMIT $3\n        OFFSET $4\n        ",
+  "query": "\n        SELECT\n            nt.external_id,\n            nt.workspace_id,\n            nt.service_name AS \"service_name!: ServiceName\",\n            nt.script_path,\n            nt.is_flow,\n            nt.webhook_token_prefix,\n            nt.service_config,\n            nt.error,\n            nt.created_at,\n            nt.updated_at\n        FROM\n            native_trigger nt\n        WHERE\n            nt.workspace_id = $1 AND\n            nt.service_name = $2 AND\n            ($5::text IS NULL OR nt.script_path = $5) AND\n            ($6::bool IS NULL OR nt.is_flow = $6) AND\n            (\n                (nt.is_flow = false AND EXISTS (\n                    SELECT 1 FROM script s\n                    WHERE s.workspace_id = nt.workspace_id\n                    AND s.path = nt.script_path\n                ))\n                OR\n                (nt.is_flow = true AND EXISTS (\n                    SELECT 1 FROM flow f\n                    WHERE f.workspace_id = nt.workspace_id\n                    AND f.path = nt.script_path\n                ))\n            )\n        LIMIT $3\n        OFFSET $4\n        ",
   "describe": {
     "columns": [
       {
@@ -77,7 +77,9 @@
           }
         },
         "Int8",
-        "Int8"
+        "Int8",
+        "Text",
+        "Bool"
       ]
     },
     "nullable": [
@@ -93,5 +95,5 @@
       false
     ]
   },
-  "hash": "8701ec4c8a9cd5ec71093483516c864f6b5b26f644d75a35fa732346b013e270"
+  "hash": "ecab1af12a7afa685c056b9d0e526275203fc8ecddf83ca6d05c9fb77e46e7ee"
 }
