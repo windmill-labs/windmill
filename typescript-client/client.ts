@@ -1,3 +1,5 @@
+// Import only the services actually used in this file (not re-exported)
+// This enables tree-shaking - importing setClient won't pull in all services
 import {
   ResourceService,
   VariableService,
@@ -7,9 +9,8 @@ import {
   MetricsService,
   OidcService,
   UserService,
-  TeamsService,
-} from "./index";
-import { OpenAPI } from "./index";
+} from "./services.gen";
+import { OpenAPI } from "./core/OpenAPI";
 // import type { DenoS3LightClientSettings } from "./index";
 import {
   DenoS3LightClientSettings,
@@ -29,22 +30,8 @@ export {
   type DatatableSqlTemplateFunction,
 } from "./sqlUtils";
 
-export {
-  AdminService,
-  AuditService,
-  FlowService,
-  GranularAclService,
-  GroupService,
-  JobService,
-  ResourceService,
-  VariableService,
-  ScriptService,
-  ScheduleService,
-  SettingsService,
-  UserService,
-  WorkspaceService,
-  TeamsService,
-} from "./index";
+// Services are NOT re-exported here to enable tree-shaking
+// Import services directly from "windmill-client" or use the default export
 
 export type Sql = string;
 export type Email = string;
