@@ -148,7 +148,7 @@
 					</div>
 				{/if}
 				<div>
-					<Button variant="accent" on:click={() => continu(true)} {loading}>
+					<Button variant="accent" onClick={() => continu(true)} {loading} unifiedSize="lg">
 						Resume
 						<Tooltip class="text-white">
 							Since you are an owner of this flow, you can send resume events without necessarily
@@ -166,10 +166,11 @@
 					>
 						<SchemaForm onlyMaskPassword bind:args={default_payload} {defaultValues} {schema} />
 					</div>
+					<Tooltip>
+						The payload is optional, it is passed to the following step through the `resume`
+						variable
+					</Tooltip>
 				{/if}
-				<Tooltip>
-					The payload is optional, it is passed to the following step through the `resume` variable
-				</Tooltip>
 			</div>
 		{:else}
 			You cannot resume the flow yourself without receiving the resume secret since you are not an

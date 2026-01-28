@@ -222,7 +222,11 @@
 					{#if job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 						<div class="flex flex-col gap-2 w-full">
 							<FlowProgressBar {job} class="py-4" />
-							<FlowStatusViewer jobId={job.id} workspaceId={job.workspace_id} initialJob={job} />
+							<FlowStatusViewer
+								jobId={job.id}
+								workspaceId={job.workspace_id}
+								initialJob={job}
+							/>
 						</div>
 					{:else}
 						<div class="text-sm font-semibold text-primary mb-1"> Job is still running </div>

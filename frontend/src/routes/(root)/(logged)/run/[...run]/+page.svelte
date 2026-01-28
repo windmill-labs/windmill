@@ -52,6 +52,7 @@
 	import LogViewer from '$lib/components/LogViewer.svelte'
 	import { ActionRow, Button, Skeleton, Tab, Alert, DrawerContent } from '$lib/components/common'
 	import JobDetailHeader from '$lib/components/runs/JobDetailHeader.svelte'
+	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import JobArgs from '$lib/components/JobArgs.svelte'
 	import FlowProgressBar from '$lib/components/flows/FlowProgressBar.svelte'
 	import JobProgressBar from '$lib/components/jobs/JobProgressBar.svelte'
@@ -99,6 +100,12 @@
 
 	let testIsLoading = $state(false)
 	let jobLoader: JobLoader | undefined = $state(undefined)
+
+	// Flow execution status state
+	let suspendStatus: import('$lib/utils').StateStore<Record<string, { job: Job; nb: number }>> =
+		$state({ val: {} })
+	let isOwner: boolean = $state(false)
+	let resultStreams: Record<string, string | undefined> = $state({})
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
@@ -644,7 +651,11 @@
 					variant="accent"
 					startIcon={{
 						icon:
-							job?.job_kind === 'script' || job?.job_kind === 'script_hub' ? Code2 : job?.job_kind === 'flow' ? BarsStaggered : Code2
+							job?.job_kind === 'script' || job?.job_kind === 'script_hub'
+								? Code2
+								: job?.job_kind === 'flow'
+									? BarsStaggered
+									: Code2
 					}}
 				>
 					View {job?.job_kind === 'script_hub' ? 'script' : job?.job_kind}
@@ -679,11 +690,19 @@
 
 		<!-- Flow Progress Bar (for flows only) -->
 		{#if job?.job_kind === 'flow' || job?.job_kind === 'flowpreview'}
-			<FlowProgressBar
-				{job}
-				bind:currentSubJobProgress={scriptProgress}
-				class="py-4 max-w-7xl mx-auto px-4"
-			/>
+			<div class="max-w-7xl mx-auto w-full px-4 flex flex-col gap-4 mt-6">
+				<FlowProgressBar {job} bind:currentSubJobProgress={scriptProgress} class="w-full" />
+				{#if suspendStatus}
+					<FlowExecutionStatus
+						{job}
+						{isOwner}
+						{suspendStatus}
+						workspaceId={job?.workspace_id}
+						innerModules={job?.flow_status?.modules}
+						result_streams={resultStreams}
+					/>
+				{/if}
+			</div>
 		{/if}
 
 		<!-- Arguments and actions -->
@@ -837,6 +856,8 @@
 						initialJob={job}
 						workspaceId={$workspaceStore}
 						bind:selectedJobStep
+						bind:suspendStatus
+						bind:isOwner
 					/>
 				{:else}
 					<Skeleton layout={[[5]]} />

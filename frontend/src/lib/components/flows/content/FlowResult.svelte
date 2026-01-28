@@ -1,5 +1,5 @@
 <script lang="ts">
-	import FlowPreviewResult from '$lib/components/FlowPreviewResult.svelte'
+	import FlowExecutionStatus from '$lib/components/runs/FlowExecutionStatus.svelte'
 	import type { Job } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import FlowCard from '../common/FlowCard.svelte'
@@ -20,17 +20,16 @@
 <FlowCard {noEditor} title="Flow result">
 	{#if job && isOwner !== undefined && suspendStatus}
 		<div class="px-4 py-2">
-			<FlowPreviewResult
+			<FlowExecutionStatus
 				{job}
 				workspaceId={$workspaceStore}
 				{isOwner}
-				hideFlowResult={false}
-				hideDownloadLogs={false}
-				innerModules={[]}
+				innerModules={job?.flow_status?.modules}
 				{suspendStatus}
-				{extra}
-				hideJobId
 			/>
+		</div>
+		<div class="flex justify-end">
+			<Button variant="default" size="xs" on:click={() => onOpenDetails?.()}>Open details</Button>
 		</div>
 	{:else}
 		<p class="p-4 text-secondary text-xs">
@@ -38,9 +37,3 @@
 		</p>
 	{/if}
 </FlowCard>
-
-{#snippet extra()}
-	<div class="flex justify-end">
-		<Button variant="default" size="xs" on:click={() => onOpenDetails?.()}>Open details</Button>
-	</div>
-{/snippet}
