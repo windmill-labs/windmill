@@ -13,10 +13,9 @@
 		isOwner: boolean
 		innerModules: FlowStatusModule[] | undefined
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
-		result_streams?: Record<string, string | undefined>
 	}
 
-	let { job, workspaceId, isOwner, innerModules, suspendStatus, result_streams }: Props = $props()
+	let { job, workspaceId, isOwner, innerModules, suspendStatus }: Props = $props()
 
 	const isWaitingForEvents = $derived(
 		job?.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'
@@ -90,7 +89,7 @@
 						{@const rawMod = job.raw_flow?.modules[i]}
 
 						<div>
-							<span class="inline-flex gap-1">
+							<span class="inline-flex gap-2 items-center">
 								<Badge
 									color="indigo"
 									wrapperClass="max-w-full"
@@ -99,7 +98,7 @@
 								>
 									<span class="max-w-full text-2xs truncate">{mod.id}</span></Badge
 								>
-								<span class="font-medium text-primary mt-0.5">
+								<span class="font-normal text-primary text-xs">
 									{#if !emptyString(rawMod?.summary)}
 										{rawMod?.summary ?? ''}
 									{:else if rawMod?.value.type == 'script'}
@@ -112,9 +111,6 @@
 								<Loader2 class="animate-spin mt-0.5" /></span
 							></div
 						>
-						{#if mod.job && result_streams?.[mod.job]}
-							<pre class="text-xs text-primary">{result_streams?.[mod.job]}</pre>
-						{/if}
 					{/if}
 				{/each}
 			</div>

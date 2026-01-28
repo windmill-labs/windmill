@@ -105,7 +105,6 @@
 	let suspendStatus: import('$lib/utils').StateStore<Record<string, { job: Job; nb: number }>> =
 		$state({ val: {} })
 	let isOwner: boolean = $state(false)
-	let resultStreams: Record<string, string | undefined> = $state({})
 
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state(undefined)
 
@@ -704,7 +703,6 @@
 						{suspendStatus}
 						workspaceId={job?.workspace_id}
 						innerModules={job?.flow_status?.modules}
-						result_streams={resultStreams}
 					/>
 				{/if}
 			</div>

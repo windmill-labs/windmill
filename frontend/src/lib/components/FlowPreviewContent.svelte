@@ -84,7 +84,6 @@
 	let isValid: boolean = $state(true)
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
-	let result_streams: Record<string, string | undefined> = $state({})
 
 	export async function test(conversationId?: string): Promise<string | undefined> {
 		renderCount++
@@ -511,7 +510,6 @@
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
-						{result_streams}
 					/>
 				</div>
 			{/if}

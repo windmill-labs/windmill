@@ -43,13 +43,13 @@
 					</a>
 				</div>
 				<div class="text-xs mb-4 mt-2">
-					<h3 class="mb-1 text-xs font-normal text-primary">Step Inputs</h3>
+					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
 
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 				{#if stepDetail.value.path.startsWith('hub/')}
 					<div class="mt-6">
-						<h3 class="mb-1 text-xs font-normal text-primary">Code</h3>
+						<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Code</h3>
 						<iframe
 							class="w-full h-full text-sm"
 							title="embedded script from hub"
@@ -60,13 +60,13 @@
 				{/if}
 			{:else if stepDetail.value.type == 'rawscript'}
 				<div class="text-2xs mb-4 mt-2">
-					<h3 class="mb-1 text-xs font-normal text-primary">Step Inputs</h3>
+					<h3 class="mb-1 text-xs font-semibold text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 
-				<div class="mb-1 mt-8 flex items-center gap-1">
+				<div class="mb-1 mt-6 flex items-center gap-1">
+					<h3 class="text-xs font-semibold text-emphasis">Code</h3>
 					<LanguageIcon lang={stepDetail.value.language} size={14} />
-					<h3 class="text-xs font-normal text-primary">Code</h3>
 				</div>
 				<div class="!text-xs rounded-md p-2 border bg-surface-input">
 					<HighlightCode language={stepDetail.value.language} code={stepDetail.value.content} />
@@ -169,15 +169,15 @@
 		{:else if stepDetail.value.type == 'rawscript'}
 			{#if stepDetail.id !== 'preprocessor'}
 				<div class="text-xs">
-					<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
+					<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
 
 			<div>
-				<div class="mb-1 mt-8 flex justify-between items-center">
+				<div class="mb-1 mt-6 flex justify-between items-center">
 					<div class="flex items-center gap-2">
-						<h3 class="font-normal text-xs text-primary">Code</h3>
+						<h3 class="font-semibold text-xs text-emphasis">Code</h3>
 						<LanguageIcon lang={stepDetail.value.language} width={14} height={14} />
 					</div>
 					<Button
@@ -194,7 +194,7 @@
 						className="whitespace-pre-wrap"
 					/>
 				</div>
-				<h3 class="mb-2 mt-8 text-xs font-normal text-primary">Lockfile</h3>
+				<h3 class="mb-1 mt-6 text-xs font-semibold text-emphasis">Lockfile</h3>
 				<div>
 					{#if stepDetail.value.lock}
 						<pre class="bg-surface-input rounded-md border text-xs p-2 h-full overflow-auto w-full"
@@ -210,14 +210,14 @@
 		{:else if stepDetail.value.type == 'script'}
 			{#if stepDetail.id !== 'preprocessor'}
 				<div class="text-xs">
-					<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
+					<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 					<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 				</div>
 			{/if}
 			{#if stepDetail.value.path.startsWith('hub/')}
 				<div class="flex flex-col grow">
-					<div class="mb-1 mt-8 flex justify-between items-center">
-						<h3 class="font-normal text-xs text-primary">Code</h3>
+					<div class="mb-1 mt-6 flex justify-between items-center">
+						<h3 class="font-semibold text-xs text-emphasis">Code</h3>
 						<Button
 							unifiedSize="sm"
 							variant="subtle"
@@ -237,7 +237,7 @@
 			{/if}
 		{:else if stepDetail.value.type == 'aiagent'}
 			<div class="text-xs">
-				<h3 class="mb-1 font-normal mt-2 text-xs text-primary">Step Inputs</h3>
+				<h3 class="mb-1 font-semibold mt-2 text-xs text-emphasis">Step inputs</h3>
 				<InputTransformsViewer inputTransforms={stepDetail?.value?.input_transforms ?? {}} />
 			</div>
 		{:else if stepDetail.value.type == 'forloopflow'}

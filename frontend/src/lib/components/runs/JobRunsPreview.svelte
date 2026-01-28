@@ -100,7 +100,6 @@
 	// Flow execution status state
 	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
-	let resultStreams: Record<string, string | undefined> = $state({})
 </script>
 
 <JobLoader
@@ -137,7 +136,6 @@
 						{isOwner}
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
-						result_streams={resultStreams}
 					/>
 				</div>
 			{/if}
