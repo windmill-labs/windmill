@@ -45,7 +45,7 @@
 	}
 	let rowCount = $state(0)
 	let refreshCount = $state(0)
-	const refresh = () => (refreshCount += 1)
+	export const refresh = () => (refreshCount += 1)
 
 	$effect(() => eGui && untrack(() => mountGrid()))
 	function mountGrid() {

@@ -108,6 +108,8 @@
 	export function clearReplResult() {
 		replResultData = undefined
 	}
+	let _dbManager: DbManager | undefined = $state()
+	export const dbManager = () => _dbManager
 </script>
 
 <svelte:window
@@ -169,6 +171,7 @@
 				bind:selectedTableKey
 				{multiSelectMode}
 				bind:selectedTables
+				bind:this={_dbManager}
 				{disabledTables}
 				features={getDbFeatures(input)}
 			/>

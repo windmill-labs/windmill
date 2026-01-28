@@ -136,7 +136,10 @@
 		{#snippet actions()}
 			<Button
 				loading={dbManagerContent?.isLoading() ?? false}
-				on:click={() => dbManagerContent?.refresh()}
+				on:click={() => {
+					dbManagerContent?.refresh()
+					dbManagerContent?.dbManager()?.dbTable()?.refresh()
+				}}
 				startIcon={{ icon: RefreshCcw }}
 				size="xs"
 				color="light"
