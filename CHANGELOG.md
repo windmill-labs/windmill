@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.620.1](https://github.com/windmill-labs/windmill/compare/v1.620.0...v1.620.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* codebase preview in standalone mode ([c59699a](https://github.com/windmill-labs/windmill/commit/c59699acd73aa170d5bd65d903db6b635c19f9ad))
+
 ## [1.620.0](https://github.com/windmill-labs/windmill/compare/v1.619.0...v1.620.0) (2026-01-28)
 
 
