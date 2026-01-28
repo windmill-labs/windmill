@@ -668,10 +668,11 @@ async fn windmill_main() -> anyhow::Result<()> {
 
         // Load OTEL tracing proxy settings and initialize deno_telemetry if nativets tracing is enabled
         // This must happen before any Deno runtime is created
-        #[cfg(all(feature = "private", feature = "enterprise", feature = "deno_core"))]
+        #[cfg(all(feature = "private", feature = "enterprise"))]
         {
             reload_otel_tracing_proxy_setting(&Connection::Sql(db.clone())).await;
 
+            #[cfg(feature = "deno_core")]
             if windmill_worker::is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await {
                 match windmill_worker::load_internal_otel_exporter().await {
                     Ok(()) => {
