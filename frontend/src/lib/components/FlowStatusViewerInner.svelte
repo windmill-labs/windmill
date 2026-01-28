@@ -130,6 +130,7 @@
 			addToolCallToLoad: (storeKey: string) => void
 		}
 		showLogsWithResult?: boolean
+		showJobDetailHeader?: boolean
 	}
 
 	let {
@@ -168,7 +169,8 @@
 		onJobsLoaded = undefined,
 		onDone = undefined,
 		toolCallStore,
-		showLogsWithResult = false
+		showLogsWithResult = false,
+		showJobDetailHeader = false
 	}: Props = $props()
 
 	let getTopModuleStates = $derived(topModuleStates ?? localModuleStates)
@@ -1323,12 +1325,12 @@
 			<div class={'flex flex-col w-full'}>
 				{#if showLogsWithResult && job}
 					<!-- Side-by-side result and logs for simple jobs -->
-					{#if job}
+					{#if job && showJobDetailHeader}
 						<div class="mb-4">
 							<JobDetailHeader {job} extraCompact />
 						</div>
 					{/if}
-					<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full border">
+					<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full">
 						<!-- Result Column -->
 						<div class="flex flex-col min-h-0 max-h-full">
 							<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
@@ -1683,6 +1685,9 @@
 										isNodeSelected={localModuleStates?.[selectedNode ?? '']?.job_id == mod.job}
 										{toolCallStore}
 										showLogsWithResult={['script', 'rawscript'].includes(
+											job.raw_flow?.modules[i]?.value?.type ?? ''
+										)}
+										showJobDetailHeader={['script', 'rawscript'].includes(
 											job.raw_flow?.modules[i]?.value?.type ?? ''
 										)}
 									/>

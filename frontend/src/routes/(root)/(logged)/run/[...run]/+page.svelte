@@ -690,8 +690,13 @@
 
 		<!-- Flow Progress Bar (for flows only) -->
 		{#if job?.job_kind === 'flow' || job?.job_kind === 'flowpreview'}
-			<div class="max-w-7xl mx-auto w-full px-4 flex flex-col gap-4 mt-6">
-				<FlowProgressBar {job} bind:currentSubJobProgress={scriptProgress} class="w-full" />
+			<div class="max-w-7xl mx-auto w-full px-4 flex flex-col gap-4 mt-2">
+				<FlowProgressBar
+					{job}
+					bind:currentSubJobProgress={scriptProgress}
+					class="w-full"
+					textPosition="bottom"
+				/>
 				{#if suspendStatus}
 					<FlowExecutionStatus
 						{job}

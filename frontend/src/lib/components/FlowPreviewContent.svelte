@@ -16,6 +16,7 @@
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
 	import FlowExecutionStatus from './runs/FlowExecutionStatus.svelte'
+	import JobDetailHeader from './runs/JobDetailHeader.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
@@ -292,9 +293,9 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<div class="flex flex-col space-y-2 h-screen bg-surface px-4 py-2 w-full" id="flow-preview-content">
+<div class="flex flex-col space-y-2 h-screen bg-surface py-2 w-full" id="flow-preview-content">
 	{#if render}
-		<div class="flex flex-row w-full items-center gap-x-2">
+		<div class="flex flex-row w-full items-center gap-x-2 px-4">
 			<div class="w-8">
 				<Button
 					on:click={() => dispatch('close')}
@@ -362,36 +363,10 @@
 				</div>
 			{/if}
 		</div>
-
-		<div class="w-full flex flex-col gap-y-1">
-			{#if flowHasChanged()}
-				<div class="pt-1">
-					<div
-						class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
-					>
-						<AlertTriangle size={14} /> Flow changed since last preview
-						<div class="flex"></div>
-					</div>
-				</div>
-			{/if}
-			<FlowProgressBar {job} bind:this={flowProgressBar} />
-			{#if job}
-				<div class="w-full mt-2">
-					<FlowExecutionStatus
-						{job}
-						workspaceId={$workspaceStore}
-						{isOwner}
-						innerModules={job?.flow_status?.modules}
-						{suspendStatus}
-						{result_streams}
-					/>
-				</div>
-			{/if}
-		</div>
 	{/if}
 	<div
 		bind:this={scrollableDiv}
-		class="overflow-y-auto grow flex flex-col pt-4"
+		class="overflow-y-auto grow flex flex-col pt-4 px-4"
 		onscroll={(e) => handleScroll()}
 	>
 		{#if render}
@@ -413,7 +388,7 @@
 					/>
 				</div>
 			{:else}
-				<div class="border-b">
+				<div>
 					<SchemaFormWithArgPicker
 						bind:this={schemaFormWithArgPicker}
 						runnableId={$initialPathStore}
@@ -489,32 +464,57 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col grow relative">
-			<div
-				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
-			>
-				{#if render}
-					<FlowHistoryJobPicker
-						selectInitial={jobId == undefined}
-						on:select={(e) => {
-							if (!currentJobId) {
-								currentJobId = jobId
-							}
-							const detail = e.detail
-							jobId = detail.jobId
-							if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
-								stepHistoryLoader?.setFlowJobInitial(detail.initial)
-							}
-						}}
-						on:unselect={() => {
-							jobId = currentJobId
-							currentJobId = undefined
-						}}
-						path={$initialPathStore == '' ? $pathStore : $initialPathStore}
-						bind:loading={loadingHistory}
-					/>
+		<div class="pt-4 flex flex-col border-t relative">
+			{#if flowHasChanged()}
+				<div class="pb-2">
+					<div
+						class="text-xs bg-orange-100 text-orange-700 border border-orange-700/30 p-2 flex items-center gap-2 rounded"
+					>
+						<AlertTriangle size={12} /> Flow changed since last preview
+						<div class="flex"></div>
+					</div>
+				</div>
+			{/if}
+
+			<div class="w-full flex pb-2 items-start gap-4">
+				{#if job}
+					<JobDetailHeader {job} compact={true} />
 				{/if}
+				<FlowHistoryJobPicker
+					selectInitial={jobId == undefined}
+					on:select={(e) => {
+						if (!currentJobId) {
+							currentJobId = jobId
+						}
+						const detail = e.detail
+						jobId = detail.jobId
+						if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
+							stepHistoryLoader?.setFlowJobInitial(detail.initial)
+						}
+					}}
+					on:unselect={() => {
+						jobId = currentJobId
+						currentJobId = undefined
+					}}
+					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
+					bind:loading={loadingHistory}
+				/>
 			</div>
+
+			<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" />
+
+			{#if job}
+				<div class="w-full my-6">
+					<FlowExecutionStatus
+						{job}
+						workspaceId={$workspaceStore}
+						{isOwner}
+						innerModules={job?.flow_status?.modules}
+						{suspendStatus}
+						{result_streams}
+					/>
+				</div>
+			{/if}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			{#if jobId}
 				{#if stepHistoryLoader?.flowJobInitial}
@@ -551,6 +551,7 @@
 					bind:isOwner
 					{render}
 					{customUi}
+					showLogsWithResult
 				/>
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">

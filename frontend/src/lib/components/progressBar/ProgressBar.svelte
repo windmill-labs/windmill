@@ -17,8 +17,11 @@
 		compact?: boolean
 		// Removes `Step 1` and replaces it with `Running`
 		hideStepTitle?: boolean
+		// Makes the progress bar slimmer with smaller text
+		slim?: boolean
 		length: number
 		class?: string
+		textPosition?: 'top' | 'bottom'
 	}
 
 	let {
@@ -30,8 +33,10 @@
 		subIndexIsPercent = false,
 		compact = false,
 		hideStepTitle = false,
+		slim = false,
 		length,
-		class: className = ''
+		class: className = '',
+		textPosition = 'top'
 	}: Props = $props()
 	let duration = 200
 
@@ -62,27 +67,8 @@
 </script>
 
 <div class={className}>
-	{#if !compact}
-		<div
-			class="flex justify-between items-end font-medium mb-1 {error != undefined
-				? 'text-red-700 dark:text-red-200'
-				: 'text-blue-700 dark:text-blue-200'}"
-		>
-			<span class="text-sm">
-				{error != undefined
-					? 'Error occurred'
-					: finished
-						? 'Done'
-						: hideStepTitle
-							? `Running`
-							: subIndexIsPercent
-								? `Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`
-								: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
-			</span>
-			<span class="text-sm">
-				{percent.current.toFixed(0)}%
-			</span>
-		</div>
+	{#if textPosition == 'top'}
+		{@render text('top')}
 	{/if}
 	<!-- {#each state as step, index}
 		{index} {JSON.stringify(step)}
@@ -96,7 +82,7 @@
 	<div
 		class={twMerge(
 			'flex w-full bg-gray-200 overflow-hidden',
-			compact ? 'rounded-none h-3' : 'rounded-full h-4'
+			compact ? 'rounded-none h-3' : slim ? 'rounded-full h-2' : 'rounded-full h-4'
 		)}
 	>
 		{#each new Array(length) as _, partIndex (partIndex)}
@@ -120,4 +106,39 @@
 			</div>
 		{/each}
 	</div>
+
+	{#if textPosition == 'bottom'}
+		{@render text('bottom')}
+	{/if}
 </div>
+
+{#snippet text(position: 'top' | 'bottom')}
+	{#if !compact}
+		<div
+			class="flex justify-between items-end font-medium {position == 'top'
+				? slim
+					? 'mb-b.5'
+					: 'mb-1'
+				: slim
+					? 'mt-t.5'
+					: 'mt-1'} {error != undefined
+				? 'text-red-700 dark:text-red-200'
+				: 'text-blue-700 dark:text-blue-200'}"
+		>
+			<span class={slim ? 'text-xs' : 'text-sm'}>
+				{error != undefined
+					? 'Error occurred'
+					: finished
+						? 'Done'
+						: hideStepTitle
+							? `Running`
+							: subIndexIsPercent
+								? `Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`
+								: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
+			</span>
+			<span class={slim ? 'text-xs' : 'text-sm'}>
+				{percent.current.toFixed(0)}%
+			</span>
+		</div>
+	{/if}
+{/snippet}
