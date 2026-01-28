@@ -18,7 +18,7 @@
 	import { Tooltip } from '$lib/components/meltComponents'
 	import { AlertTriangle, Loader2 } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
-	import { watch } from 'runed'
+	import { Debounced, watch } from 'runed'
 	import Label from '$lib/components/Label.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
@@ -33,6 +33,15 @@
 	let usagePathFilter: string = $state('')
 	let assetKindsFilter: Array<AssetKind> = $state([])
 
+	let filters = new Debounced(
+		() => ({
+			assetPath: assetPathFilter || undefined,
+			usagePath: usagePathFilter || undefined,
+			assetKinds: assetKindsFilter.join(',') || undefined
+		}),
+		500
+	)
+
 	const assetsQuery = useInfiniteQuery<ListAssetsResponse, AssetCursor | undefined>({
 		queryFn: async (cursor) => {
 			return AssetService.listAssets({
@@ -40,9 +49,7 @@
 				perPage: 50,
 				cursorCreatedAt: cursor?.created_at,
 				cursorId: cursor?.id,
-				assetPath: assetPathFilter || undefined,
-				usagePath: usagePathFilter || undefined,
-				assetKinds: assetKindsFilter.join(',') || undefined
+				...filters.current
 			})
 		},
 		initialPageParam: undefined,
@@ -58,7 +65,7 @@
 	)
 
 	watch(
-		() => [assetPathFilter, usagePathFilter, assetKindsFilter, $workspaceStore],
+		() => [filters.current, $workspaceStore],
 		() => assetsQuery.reset()
 	)
 
