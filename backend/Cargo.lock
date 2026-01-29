@@ -15652,6 +15652,7 @@ dependencies = [
  "windmill-parser",
  "windmill-parser-py",
  "windmill-parser-py-imports",
+ "windmill-parser-sql",
  "windmill-parser-ts",
  "windmill-queue",
  "windmill-worker",
@@ -15900,6 +15901,9 @@ name = "windmill-parser"
 version = "1.620.1"
 dependencies = [
  "convert_case 0.6.0",
+ "lazy_static",
+ "regex",
+ "regex-lite",
  "serde",
  "serde_json",
 ]

@@ -13,6 +13,7 @@ export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
 export type AssetWithAltAccessType = AssetWithAccessType & {
 	alt_access_type?: AssetUsageAccessType
 }
+export type AssetUsage = ListAssetsResponse['assets'][number]['usages'][number]
 
 export function formatAsset(asset: Asset): string {
 	switch (asset.kind) {
@@ -32,11 +33,13 @@ export function formatShortAssetPath(asset: Asset): string {
 	return asset.path.split('/').pop() || asset.path
 }
 
-export function getAssetUsagePageUri(usage: ListAssetsResponse[number]['usages'][number]) {
+export function getAssetUsagePageUri(usage: AssetUsage) {
 	if (usage.kind === 'script') {
 		return `/scripts/get/${usage.path}`
 	} else if (usage.kind === 'flow') {
 		return `/flows/get/${usage.path}`
+	} else if (usage.kind === 'job') {
+		return `/run/${usage.path}`
 	}
 }
 
@@ -93,7 +96,6 @@ export function formatAssetAccessType(accessType: AssetUsageAccessType | undefin
 		case 'rw':
 			return 'R/W'
 	}
-	return '?'
 }
 
 export function getAccessType(asset: AssetWithAltAccessType): AssetUsageAccessType | undefined {

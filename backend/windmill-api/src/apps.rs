@@ -902,7 +902,8 @@ pub async fn compute_bundle_secret(db: &DB, w_id: &str, versions: &[i64]) -> Res
         .last()
         .ok_or_else(|| Error::internal_err("App has no versions".to_string()))?;
     let mc = build_crypt(db, w_id).await?;
-    let hx = hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
+    let hx =
+        hex::encode(mc.encrypt_str_to_bytes(format!("{}{}", BUNDLE_SECRET_PREFIX, version_id)));
     Ok(hx)
 }
 
@@ -2287,6 +2288,7 @@ async fn upload_s3_file_from_app(
                         &w_id,
                         None,
                         &[(&file_key, S3Permission::WRITE)],
+                        None,
                     )
                     .await?;
                     (s3_resource_opt, file_key, email, permissioned_as, username)
@@ -2319,6 +2321,7 @@ async fn upload_s3_file_from_app(
                 &w_id,
                 None,
                 &[(&file_key, S3Permission::WRITE)],
+                None,
             )
             .await?;
 
@@ -2355,10 +2358,11 @@ async fn upload_s3_file_from_app(
                 let db_with_opt_authed = DbWithOptAuthed::from_authed(&authed, db.clone(), None);
                 let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
                     &db_with_opt_authed,
-                Some(&authed),
+                    Some(&authed),
                     &w_id,
                     None,
                     &[(&file_key, S3Permission::WRITE)],
+                    None,
                 )
                 .await?;
 
@@ -2466,10 +2470,11 @@ async fn delete_s3_file_from_app(
         let db_with_opt_authed = DbWithOptAuthed::from_authed(&on_behalf_authed, db.clone(), None);
         let (_, s3_resource) = get_workspace_s3_resource_and_check_paths(
             &db_with_opt_authed,
-                Some(&on_behalf_authed),
+            Some(&on_behalf_authed),
             &w_id,
             None,
             &[(&path.to_string(), S3Permission::DELETE)],
+            None,
         )
         .await?;
 
@@ -2639,6 +2644,8 @@ async fn download_s3_file_from_app(
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(query): Query<AppS3FileQueryWithForceViewerAllowedS3Keys>,
 ) -> Result<Response> {
+    use crate::db::OptJobAuthed;
+
     let path = path.to_path();
 
     let force_viewer_allowed_s3_keys = if let Some(force_viewer_allowed_s3_keys) =
@@ -2664,7 +2671,7 @@ async fn download_s3_file_from_app(
     .await?;
 
     download_s3_file_internal(
-        on_behalf_authed,
+        OptJobAuthed { authed: on_behalf_authed, job_id: None },
         &db,
         None,
         &w_id,

@@ -154,7 +154,7 @@
 									!asset.access_type ? 'hover:bg-surface active:opacity-80' : ''
 								)}
 							>
-								{formatAssetAccessType(getAccessType(asset))}
+								{formatAssetAccessType(getAccessType(asset)) ?? '?'}
 							</div>
 						</svelte:fragment>
 						<svelte:fragment slot="content">
