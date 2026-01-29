@@ -2,7 +2,7 @@
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Boxes, Code2, DollarSign, Folder, LayoutDashboard } from 'lucide-svelte'
 
-	export let kind: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable'
+	export let kind: 'script' | 'flow' | 'app' | 'raw_app' | 'resource' | 'variable' | 'resource_type' | 'folder'
 </script>
 
 <div class="flex justify-center items-center" title={kind}>
