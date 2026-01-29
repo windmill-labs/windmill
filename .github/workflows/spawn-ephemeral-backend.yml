@@ -102,7 +102,7 @@ jobs:
         with:
           script: |
             const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
-            const jobUrl = `https://app.windmill.dev/run/${jobUuid}?workspace=windmill-labs`;
+            const appUrl = `https://app.windmill.dev/public/windmill-labs/a106bad0256c1dfa7a4f9279c42b1a4b#${jobUuid}`;
             const prNumber = context.eventName === 'workflow_dispatch'
               ? Number(context.payload.inputs.pr_number)
               : context.issue.number;
@@ -111,5 +111,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `🚀 Ephemeral backend spawning started!\n\nView job progress: ${jobUrl}`
+              body: `🚀 Ephemeral backend spawning started!\n\nView logs: ${appUrl}`
             });
