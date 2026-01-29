@@ -160,7 +160,11 @@ export class WorktreePool {
     console.log(`  Creating new worktree at ${worktreePath}...`);
 
     try {
+      // First, fetch to ensure we have the commit
+      await execAsync(`git fetch origin ${commitHash}`);
+
       // Create the worktree at the specific commit
+      // Note: This command must be run from the main repository directory
       await execAsync(`git worktree add ${worktreePath} ${commitHash}`);
       console.log(`  ✓ Worktree created at ${worktreePath}`);
 
