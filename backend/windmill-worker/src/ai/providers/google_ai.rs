@@ -571,7 +571,6 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         let response_text = response.text().await.map_err(|e| {
             Error::internal_err(format!("Failed to read Gemini response body: {}", e))
         })?;
-        tracing::info!("[debug] Google AI/Gemini image response raw: {}", response_text);
 
         let gemini_response: GeminiImageResponse =
             serde_json::from_str(&response_text).map_err(|e| {

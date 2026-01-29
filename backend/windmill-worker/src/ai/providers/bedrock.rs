@@ -149,8 +149,6 @@ impl BedrockQueryBuilder {
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
-                    tracing::info!("[debug] Bedrock stream event: {:?}", event);
-
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());

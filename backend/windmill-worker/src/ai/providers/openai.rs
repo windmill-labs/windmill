@@ -514,7 +514,6 @@ impl QueryBuilder for OpenAIQueryBuilder {
         let response_text = response.text().await.map_err(|e| {
             Error::internal_err(format!("Failed to read OpenAI response body: {}", e))
         })?;
-        tracing::info!("[debug] OpenAI image response raw: {}", response_text);
 
         let responses_response: ResponsesApiResponse =
             serde_json::from_str(&response_text).map_err(|e| {
