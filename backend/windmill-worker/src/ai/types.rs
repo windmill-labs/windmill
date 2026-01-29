@@ -259,7 +259,7 @@ impl TokenUsage {
     /// Create a new TokenUsage with input/output tokens and compute total
     pub fn from_input_output(input: Option<i32>, output: Option<i32>) -> Self {
         let total = match (input, output) {
-            (Some(i), Some(o)) => Some(i + o),
+            (Some(i), Some(o)) => Some(i.saturating_add(o)),
             _ => None,
         };
         Self::new(input, output, total)
