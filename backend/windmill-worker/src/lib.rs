@@ -42,7 +42,7 @@ pub mod job_logger;
 pub mod job_logger_ee;
 mod job_logger_oss;
 mod js_eval;
-#[cfg(feature = "quickjs")]
+// QuickJS is always enabled for flow expression evaluation
 pub mod js_eval_quickjs;
 #[cfg(test)]
 mod js_eval_parity_tests;

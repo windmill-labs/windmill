@@ -1640,7 +1640,6 @@ mod benchmark_tests {
     use windmill_common::worker::to_raw_value;
 
     /// Benchmark QuickJS expression evaluation startup time
-    #[cfg(feature = "quickjs")]
     #[tokio::test]
     async fn benchmark_quickjs_startup() -> anyhow::Result<()> {
         use crate::js_eval_quickjs::eval_timeout_quickjs;

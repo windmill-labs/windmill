@@ -18,6 +18,7 @@ members = [
     "./windmill-indexer",
     "./windmill-macros",
     "./windmill-oauth",
+    "./windmill-nativets",
     "./parsers/windmill-parser",
     "./parsers/windmill-parser-ts",
     "./parsers/windmill-parser-go",
@@ -67,8 +68,8 @@ cloud = ["windmill-queue/cloud", "windmill-worker/cloud", "windmill-common/cloud
 jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemalloc-sys", "dep:tikv-jemalloc-ctl"]
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
-deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
-quickjs = ["windmill-worker/quickjs"]
+# deno_core is only needed for NativeTS execution - flow expressions and batch rerun use QuickJS (always enabled)
+deno_core = ["windmill-worker/deno_core", "dep:deno_core", "dep:v8"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
@@ -196,6 +197,7 @@ windmill-indexer = {path = "./windmill-indexer"}
 windmill-mcp = {path = "./windmill-mcp"}
 windmill-oauth = {path = "./windmill-oauth"}
 windmill-macros = {path = "./windmill-macros"}
+windmill-nativets = {path = "./windmill-nativets"}
 windmill-parser = { path = "./parsers/windmill-parser" }
 windmill-parser-ts = { path = "./parsers/windmill-parser-ts" }
 windmill-parser-py = { path = "./parsers/windmill-parser-py" }

@@ -9,8 +9,7 @@
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::HeaderValue;
-#[cfg(feature = "deno_core")]
-use deno_core::{op2, serde_v8, v8, JsRuntime, OpState};
+use rquickjs::{async_with, AsyncContext, AsyncRuntime, CatchResultExt, FromJs, IntoJs, Object};
 use futures::{StreamExt, TryFutureExt};
 use http::{HeaderMap, HeaderName};
 use itertools::Itertools;
@@ -3921,50 +3920,159 @@ struct BatchReRunQueryReturnType {
     schema: Option<serde_json::Value>,
 }
 
-#[cfg(feature = "deno_core")]
-#[op2]
-#[string]
-fn get_deno_core_job_value(state: &mut OpState) -> Option<String> {
-    let obj = state.borrow::<BatchReRunQueryReturnType>();
-    let str = serde_json::to_string(&obj).ok()?;
-    Some(str)
-}
-
-#[cfg(feature = "deno_core")]
+/// Evaluate a JavaScript expression for batch rerun input transformation using QuickJS
 async fn batch_rerun_compute_js_expression(
     expr: String,
     job: BatchReRunQueryReturnType,
 ) -> error::Result<Box<RawValue>> {
-    let ext = deno_core::Extension {
-        name: "batch_rerun_arg_transform_ext",
-        ops: vec![get_deno_core_job_value()].into(),
-        ..Default::default()
-    };
-    let mut isolate =
-        JsRuntime::new(deno_core::RuntimeOptions { extensions: vec![ext], ..Default::default() });
+    // Clone job without schema to match the original behavior
+    let job_for_eval = BatchReRunQueryReturnType { schema: None, ..job };
 
-    {
-        let op_state = isolate.op_state();
-        let mut op_state = op_state.borrow_mut();
-        op_state.put(BatchReRunQueryReturnType { schema: None, ..job });
+    tokio::time::timeout(
+        std::time::Duration::from_millis(10000),
+        tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+            rt.block_on(async move {
+                let runtime = AsyncRuntime::new()
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                let context = AsyncContext::full(&runtime).await
+                    .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+
+                async_with!(context => |ctx| {
+                    let globals = ctx.globals();
+
+                    // Set up the job object
+                    let job_json = serde_json::to_value(&job_for_eval)
+                        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                    let job_js = json_to_js_value(&ctx, &job_json)?;
+                    globals.set("job", job_js)
+                        .map_err(|e| Error::ExecutionErr(format!("Failed to set job: {}", e)))?;
+
+                    // Evaluate the expression
+                    let result: rquickjs::Value = ctx.eval(expr.as_bytes())
+                        .catch(&ctx)
+                        .map_err(|e| Error::ExecutionErr(format!("QuickJS evaluation error: {}", e)))?;
+
+                    // Convert result to JSON
+                    let json_result = js_to_json_value(&ctx, &result)?;
+                    let json_str = serde_json::to_string(&json_result)
+                        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+                    let raw_value = JsonRawValue::from_string(json_str)?;
+                    Ok(raw_value)
+                })
+                .await
+            })
+        }),
+    )
+    .await
+    .map_err(|_| Error::ExecutionErr("Batch rerun expression evaluation timed out (>10s)".to_string()))?
+    .map_err(|e| Error::ExecutionErr(e.to_string()))?
+}
+
+/// Convert a serde_json::Value to a QuickJS Value
+fn json_to_js_value<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    val: &serde_json::Value,
+) -> error::Result<rquickjs::Value<'js>> {
+    match val {
+        serde_json::Value::Null => Ok(rquickjs::Value::new_null(ctx.clone())),
+        serde_json::Value::Bool(b) => Ok(rquickjs::Value::new_bool(ctx.clone(), *b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                if i >= i32::MIN as i64 && i <= i32::MAX as i64 {
+                    Ok(rquickjs::Value::new_int(ctx.clone(), i as i32))
+                } else {
+                    Ok(rquickjs::Value::new_float(ctx.clone(), i as f64))
+                }
+            } else if let Some(f) = n.as_f64() {
+                Ok(rquickjs::Value::new_float(ctx.clone(), f))
+            } else {
+                Ok(rquickjs::Value::new_float(ctx.clone(), 0.0))
+            }
+        }
+        serde_json::Value::String(s) => s.clone().into_js(ctx)
+            .map_err(|e| Error::ExecutionErr(format!("Failed to convert string: {}", e))),
+        serde_json::Value::Array(arr) => {
+            let js_arr = rquickjs::Array::new(ctx.clone())
+                .map_err(|e| Error::ExecutionErr(format!("Failed to create array: {}", e)))?;
+            for (i, item) in arr.iter().enumerate() {
+                js_arr.set(i, json_to_js_value(ctx, item)?)
+                    .map_err(|e| Error::ExecutionErr(format!("Failed to set array item: {}", e)))?;
+            }
+            Ok(js_arr.into_value())
+        }
+        serde_json::Value::Object(obj) => {
+            let js_obj = Object::new(ctx.clone())
+                .map_err(|e| Error::ExecutionErr(format!("Failed to create object: {}", e)))?;
+            for (k, v) in obj {
+                js_obj.set(k.as_str(), json_to_js_value(ctx, v)?)
+                    .map_err(|e| Error::ExecutionErr(format!("Failed to set object property: {}", e)))?;
+            }
+            Ok(js_obj.into_value())
+        }
     }
-    isolate
-        .execute_script(
-            "<batch_rerun_arg_transform>",
-            "let job = JSON.parse(Deno.core.ops.get_deno_core_job_value());",
-        )
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
+}
 
-    // Run user expr
-    let result = isolate
-        .execute_script("<batch_rerun_arg_transform>", expr)
-        .map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let mut scope = isolate.handle_scope();
-    let result = v8::Local::new(&mut scope, result);
-    let result: serde_json::Value =
-        serde_v8::from_v8(&mut scope, result).map_err(|e| Error::ExecutionErr(e.to_string()))?;
-    let result = JsonRawValue::from_string(result.to_string())?;
-    Ok(result)
+/// Convert a QuickJS Value to a serde_json::Value
+fn js_to_json_value<'js>(
+    ctx: &rquickjs::Ctx<'js>,
+    val: &rquickjs::Value<'js>,
+) -> error::Result<serde_json::Value> {
+    if val.is_null() || val.is_undefined() {
+        return Ok(serde_json::Value::Null);
+    }
+
+    if let Some(b) = val.as_bool() {
+        return Ok(serde_json::Value::Bool(b));
+    }
+
+    if let Some(i) = val.as_int() {
+        return Ok(serde_json::Value::Number(i.into()));
+    }
+
+    if let Some(f) = val.as_float() {
+        if f.fract() == 0.0 && f.abs() <= (i64::MAX as f64) {
+            let i = f as i64;
+            if (i as f64) == f {
+                return Ok(serde_json::Value::Number(i.into()));
+            }
+        }
+        if let Some(n) = serde_json::Number::from_f64(f) {
+            return Ok(serde_json::Value::Number(n));
+        } else {
+            return Ok(serde_json::Value::Null);
+        }
+    }
+
+    if let Ok(s) = String::from_js(ctx, val.clone()) {
+        return Ok(serde_json::Value::String(s));
+    }
+
+    if let Ok(arr) = rquickjs::Array::from_js(ctx, val.clone()) {
+        let mut json_arr = Vec::new();
+        for i in 0..arr.len() {
+            if let Ok(item) = arr.get::<rquickjs::Value>(i) {
+                json_arr.push(js_to_json_value(ctx, &item)?);
+            }
+        }
+        return Ok(serde_json::Value::Array(json_arr));
+    }
+
+    if let Ok(obj) = Object::from_js(ctx, val.clone()) {
+        let mut json_obj = serde_json::Map::new();
+        for res in obj.props::<String, rquickjs::Value>() {
+            if let Ok((k, v)) = res {
+                json_obj.insert(k, js_to_json_value(ctx, &v)?);
+            }
+        }
+        return Ok(serde_json::Value::Object(json_obj));
+    }
+
+    Ok(serde_json::Value::String("[object]".to_string()))
 }
 
 async fn batch_rerun_jobs(
@@ -4091,13 +4199,6 @@ async fn batch_rerun_handle_job(
                 args.insert(property_name.clone(), value.clone());
             }
             InputTransform::Javascript { expr } => {
-                #[cfg(not(feature = "deno_core"))]
-                Err(error::Error::ExecutionErr(
-                    format!("deno_core feature is not activated, cannot evaluate: {expr}")
-                        .to_string(),
-                ))?;
-
-                #[cfg(feature = "deno_core")]
                 args.insert(
                     property_name.clone(),
                     batch_rerun_compute_js_expression(expr.clone(), job.clone()).await?,

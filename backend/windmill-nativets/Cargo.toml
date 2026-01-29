@@ -1,0 +1,64 @@
+[package]
+name = "windmill-nativets"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[lib]
+name = "windmill_nativets"
+path = "src/lib.rs"
+
+[features]
+default = []
+enterprise = ["windmill-common/enterprise"]
+private = []
+
+[dependencies]
+windmill-common = { workspace = true, default-features = false }
+windmill-parser-ts.workspace = true
+windmill-queue.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+itertools.workspace = true
+lazy_static.workspace = true
+regex.workspace = true
+const_format.workspace = true
+sqlx.workspace = true
+
+# deno_core dependencies - these are what we're isolating
+deno_telemetry.workspace = true
+deno_fetch.workspace = true
+deno_webidl.workspace = true
+deno_web.workspace = true
+deno_net.workspace = true
+deno_console.workspace = true
+deno_url.workspace = true
+deno_core.workspace = true
+deno_ast.workspace = true
+deno_tls.workspace = true
+deno_permissions.workspace = true
+deno_io.workspace = true
+deno_error.workspace = true
+
+[build-dependencies]
+deno_fetch.workspace = true
+deno_webidl.workspace = true
+deno_web.workspace = true
+deno_net.workspace = true
+deno_console.workspace = true
+deno_url.workspace = true
+deno_core.workspace = true
+deno_ast.workspace = true
+deno_tls.workspace = true
+deno_permissions.workspace = true
+deno_io.workspace = true
+deno_runtime.workspace = true
+deno_telemetry.workspace = true
+
+[target.'cfg(windows)'.build-dependencies]
+winapi.workspace = true

@@ -34,7 +34,6 @@ postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
 native_trigger = ["dep:strum", "dep:backon", "oauth2"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config"]
-deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
@@ -162,12 +161,9 @@ async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
 tonic = { workspace = true, optional = true }
-deno_error = { workspace = true, optional = true }
-deno_core = { workspace = true, optional = true }
+# rquickjs is required for batch rerun JavaScript expression evaluation
+rquickjs.workspace = true
 tar.workspace = true
 flate2.workspace = true
 backon = {workspace = true, optional = true}
 strum = { workspace = true, optional = true }
-
-[build-dependencies]
-deno_core = { workspace = true, optional = true }
