@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.621.2](https://github.com/windmill-labs/windmill/compare/v1.621.1...v1.621.2) (2026-01-29)
+
+
+### Bug Fixes
+
+* **cli:** revert findCodebase change that broke ../shared codebases ([#7740](https://github.com/windmill-labs/windmill/issues/7740)) ([20357f4](https://github.com/windmill-labs/windmill/commit/20357f41f55ce246220ec56ef257ea7d6ac82e3a))
+* do not quit indexer when receiving handoff during pull ([#7659](https://github.com/windmill-labs/windmill/issues/7659)) ([8bb6b63](https://github.com/windmill-labs/windmill/commit/8bb6b6331b74d43b1ecfa08d3393254f54a94f87))
+
 ## [1.621.1](https://github.com/windmill-labs/windmill/compare/v1.621.0...v1.621.1) (2026-01-29)
 
 
