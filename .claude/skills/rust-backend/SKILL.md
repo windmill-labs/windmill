@@ -400,15 +400,13 @@ let result = tokio::task::spawn_blocking(move || {
 let result = expensive_computation(&data);  // Don't do this in async
 ```
 
-Use tokio primitives instead of std equivalents in async code:
+Use tokio primitives for sleep and channels:
 
 ```rust
-// Preferred
-use tokio::sync::{Mutex, RwLock, mpsc};
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 // Avoid in async contexts
-use std::sync::Mutex;  // Blocks the runtime
 use std::thread::sleep; // Blocks the runtime
 ```
 
@@ -420,6 +418,74 @@ let (tx, rx) = tokio::sync::mpsc::channel(100);
 
 // Be careful with unbounded
 let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+```
+
+## Mutex Selection in Async Code
+
+**Prefer `std::sync::Mutex` (or `parking_lot::Mutex`) over `tokio::sync::Mutex`** for protecting data in async code. The async mutex is more expensive and only needed when holding locks across `.await` points.
+
+```rust
+// Preferred for data protection - std mutex is faster
+use std::sync::Mutex;
+
+struct Cache {
+    data: Mutex<HashMap<String, Value>>,
+}
+
+impl Cache {
+    fn get(&self, key: &str) -> Option<Value> {
+        self.data.lock().unwrap().get(key).cloned()
+    }
+
+    fn insert(&self, key: String, value: Value) {
+        self.data.lock().unwrap().insert(key, value);
+    }
+}
+```
+
+**Use `tokio::sync::Mutex` only when you must hold the lock across `.await` points**, typically for IO resources like database connections:
+
+```rust
+use tokio::sync::Mutex;
+use std::sync::Arc;
+
+// Async mutex for IO resources held across await points
+let conn = Arc::new(Mutex::new(db_connection));
+
+async fn execute_query(conn: Arc<Mutex<DbConn>>, query: &str) {
+    let mut lock = conn.lock().await;
+    lock.execute(query).await;  // Lock held across .await
+}
+```
+
+**Common pattern**: Wrap `Arc<Mutex<...>>` in a struct with non-async methods that lock internally, keeping lock scope minimal:
+
+```rust
+struct SharedState {
+    inner: std::sync::Mutex<StateInner>,
+}
+
+impl SharedState {
+    fn update(&self, value: i32) {
+        self.inner.lock().unwrap().value = value;
+    }
+
+    fn get(&self) -> i32 {
+        self.inner.lock().unwrap().value
+    }
+}
+```
+
+**Alternative for IO resources**: Spawn a dedicated task to manage the resource and communicate via message passing:
+
+```rust
+let (tx, mut rx) = tokio::sync::mpsc::channel(32);
+
+tokio::spawn(async move {
+    while let Some(cmd) = rx.recv().await {
+        handle_io_command(&mut resource, cmd).await;
+    }
+});
 ```
 
 ## Build & Tooling
