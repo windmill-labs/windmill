@@ -41,31 +41,69 @@ lazy_static::lazy_static! {
 
 #[cfg(feature = "prometheus")]
 lazy_static::lazy_static! {
-    static ref HEALTH_STATUS_GAUGE: Option<prometheus::Gauge> =
+    /// Health status phase gauge with labels: healthy, degraded, unhealthy
+    /// Only one label will be 1 at a time, others will be 0
+    static ref HEALTH_STATUS_PHASE: Option<prometheus::IntGaugeVec> =
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-            Some(prometheus::register_gauge!(
-                "health_status",
-                "Health status: 1=healthy, 0.5=degraded, 0=unhealthy"
+            Some(prometheus::register_int_gauge_vec!(
+                "health_status_phase",
+                "Health status phase (1 = current state, 0 = not current state)",
+                &["phase"]
             ).unwrap())
         } else {
             None
         };
 
-    static ref HEALTH_DATABASE_HEALTHY: Option<prometheus::Gauge> =
+    /// Database latency in milliseconds
+    static ref HEALTH_DATABASE_LATENCY: Option<prometheus::Gauge> =
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
             Some(prometheus::register_gauge!(
-                "health_database_healthy",
-                "Database health: 1=healthy, 0=unhealthy"
+                "health_database_latency_ms",
+                "Database query latency in milliseconds"
             ).unwrap())
         } else {
             None
         };
 
-    static ref HEALTH_WORKERS_ALIVE: Option<prometheus::Gauge> =
+    /// Database unresponsive flag (1 = unresponsive, 0 = responsive)
+    static ref HEALTH_DATABASE_UNRESPONSIVE: Option<prometheus::IntGauge> =
         if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
-            Some(prometheus::register_gauge!(
-                "health_workers_alive",
-                "Number of workers alive"
+            Some(prometheus::register_int_gauge!(
+                "health_database_unresponsive",
+                "Database unresponsive flag (1 = unresponsive, 0 = responsive)"
+            ).unwrap())
+        } else {
+            None
+        };
+
+    /// Database connection pool size
+    static ref HEALTH_DATABASE_POOL_SIZE: Option<prometheus::IntGauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_int_gauge!(
+                "health_database_pool_size",
+                "Current number of connections in the database pool"
+            ).unwrap())
+        } else {
+            None
+        };
+
+    /// Database connection pool idle connections
+    static ref HEALTH_DATABASE_POOL_IDLE: Option<prometheus::IntGauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_int_gauge!(
+                "health_database_pool_idle",
+                "Number of idle connections in the database pool"
+            ).unwrap())
+        } else {
+            None
+        };
+
+    /// Database connection pool max connections
+    static ref HEALTH_DATABASE_POOL_MAX: Option<prometheus::IntGauge> =
+        if METRICS_ENABLED.load(std::sync::atomic::Ordering::Relaxed) {
+            Some(prometheus::register_int_gauge!(
+                "health_database_pool_max",
+                "Maximum connections allowed in the database pool"
             ).unwrap())
         } else {
             None
@@ -170,17 +208,13 @@ pub struct ReadinessHealth {
 
 const HEALTH_CHECK_TIMEOUT: Duration = Duration::from_secs(5);
 
-async fn check_database_healthy(db: &DB) -> bool {
-    tokio::time::timeout(
-        HEALTH_CHECK_TIMEOUT,
-        sqlx::query_scalar!("SELECT 1").fetch_one(db),
-    )
-    .await
-    .map(|r| r.is_ok())
-    .unwrap_or(false)
+/// Result of a database health check including latency
+struct DatabaseCheckResult {
+    healthy: bool,
+    latency_ms: i64,
 }
 
-async fn check_database_detailed(db: &DB) -> DatabaseHealth {
+async fn check_database_with_latency(db: &DB) -> DatabaseCheckResult {
     let start = std::time::Instant::now();
     let healthy = tokio::time::timeout(
         HEALTH_CHECK_TIMEOUT,
@@ -191,13 +225,26 @@ async fn check_database_detailed(db: &DB) -> DatabaseHealth {
     .unwrap_or(false);
     let latency_ms = start.elapsed().as_millis() as i64;
 
-    let pool = PoolStats {
+    DatabaseCheckResult { healthy, latency_ms }
+}
+
+fn get_pool_stats(db: &DB) -> PoolStats {
+    PoolStats {
         size: db.size(),
         idle: db.num_idle() as u32,
         max_connections: db.options().get_max_connections(),
-    };
+    }
+}
 
-    DatabaseHealth { healthy, latency_ms, pool }
+async fn check_database_detailed(db: &DB) -> DatabaseHealth {
+    let check = check_database_with_latency(db).await;
+    let pool = get_pool_stats(db);
+
+    DatabaseHealth {
+        healthy: check.healthy,
+        latency_ms: check.latency_ms,
+        pool,
+    }
 }
 
 async fn check_worker_count(db: &DB) -> i64 {
@@ -321,39 +368,73 @@ fn log_health_status(status: &HealthStatusResponse) {
     }
 }
 
+/// Data needed for prometheus metrics (internal, not serialized)
+#[cfg(feature = "prometheus")]
+struct HealthMetricsData {
+    status: HealthStatus,
+    database_healthy: bool,
+    database_latency_ms: i64,
+    pool_size: u32,
+    pool_idle: u32,
+    pool_max: u32,
+}
+
 /// Update prometheus metrics for health status
 #[cfg(feature = "prometheus")]
-fn update_health_metrics(status: &HealthStatusResponse) {
-    if let Some(gauge) = HEALTH_STATUS_GAUGE.as_ref() {
-        let value = match status.status {
-            HealthStatus::Healthy => 1.0,
-            HealthStatus::Degraded => 0.5,
-            HealthStatus::Unhealthy => 0.0,
+fn update_health_metrics(data: &HealthMetricsData) {
+    // Update health status phase (only one label is 1, others are 0)
+    if let Some(gauge_vec) = HEALTH_STATUS_PHASE.as_ref() {
+        let (healthy, degraded, unhealthy) = match data.status {
+            HealthStatus::Healthy => (1, 0, 0),
+            HealthStatus::Degraded => (0, 1, 0),
+            HealthStatus::Unhealthy => (0, 0, 1),
         };
-        gauge.set(value);
+        gauge_vec.with_label_values(&["healthy"]).set(healthy);
+        gauge_vec.with_label_values(&["degraded"]).set(degraded);
+        gauge_vec.with_label_values(&["unhealthy"]).set(unhealthy);
     }
 
-    if let Some(gauge) = HEALTH_DATABASE_HEALTHY.as_ref() {
-        gauge.set(if status.database_healthy { 1.0 } else { 0.0 });
+    // Database latency
+    if let Some(gauge) = HEALTH_DATABASE_LATENCY.as_ref() {
+        gauge.set(data.database_latency_ms as f64);
     }
 
-    if let Some(gauge) = HEALTH_WORKERS_ALIVE.as_ref() {
-        gauge.set(status.workers_alive as f64);
+    // Database unresponsive flag
+    if let Some(gauge) = HEALTH_DATABASE_UNRESPONSIVE.as_ref() {
+        gauge.set(if data.database_healthy { 0 } else { 1 });
+    }
+
+    // Pool metrics
+    if let Some(gauge) = HEALTH_DATABASE_POOL_SIZE.as_ref() {
+        gauge.set(data.pool_size as i64);
+    }
+    if let Some(gauge) = HEALTH_DATABASE_POOL_IDLE.as_ref() {
+        gauge.set(data.pool_idle as i64);
+    }
+    if let Some(gauge) = HEALTH_DATABASE_POOL_MAX.as_ref() {
+        gauge.set(data.pool_max as i64);
     }
 }
 
-/// Perform fresh health check
-async fn perform_health_check(db: &DB) -> HealthStatusResponse {
-    let checked_at = Utc::now();
-    let database_healthy = check_database_healthy(db).await;
+/// Result of perform_health_check including data needed for metrics
+struct HealthCheckResult {
+    response: HealthStatusResponse,
+    #[cfg(feature = "prometheus")]
+    metrics_data: HealthMetricsData,
+}
 
-    let workers_alive = if database_healthy {
+/// Perform fresh health check
+async fn perform_health_check(db: &DB) -> HealthCheckResult {
+    let checked_at = Utc::now();
+    let db_check = check_database_with_latency(db).await;
+
+    let workers_alive = if db_check.healthy {
         check_worker_count(db).await
     } else {
         0
     };
 
-    let status = if !database_healthy {
+    let status = if !db_check.healthy {
         HealthStatus::Unhealthy
     } else if workers_alive == 0 {
         HealthStatus::Degraded
@@ -361,11 +442,30 @@ async fn perform_health_check(db: &DB) -> HealthStatusResponse {
         HealthStatus::Healthy
     };
 
-    HealthStatusResponse {
+    let response = HealthStatusResponse {
         status,
         checked_at,
-        database_healthy,
+        database_healthy: db_check.healthy,
         workers_alive,
+    };
+
+    #[cfg(feature = "prometheus")]
+    let metrics_data = {
+        let pool_stats = get_pool_stats(db);
+        HealthMetricsData {
+            status,
+            database_healthy: db_check.healthy,
+            database_latency_ms: db_check.latency_ms,
+            pool_size: pool_stats.size,
+            pool_idle: pool_stats.idle,
+            pool_max: pool_stats.max_connections,
+        }
+    };
+
+    HealthCheckResult {
+        response,
+        #[cfg(feature = "prometheus")]
+        metrics_data,
     }
 }
 
@@ -390,16 +490,16 @@ async fn health_status(
     }
 
     // Cache miss, expired, or force=true - fetch fresh data
-    let health_status = perform_health_check(&db).await;
+    let health_check_result = perform_health_check(&db).await;
 
     // Log and update metrics on fresh check
-    log_health_status(&health_status);
+    log_health_status(&health_check_result.response);
     #[cfg(feature = "prometheus")]
-    update_health_metrics(&health_status);
+    update_health_metrics(&health_check_result.metrics_data);
 
     // Update cache (clone before acquiring lock to minimize lock duration)
     let cached = CachedHealthStatus {
-        status: health_status.clone(),
+        status: health_check_result.response.clone(),
         cached_at: std::time::Instant::now(),
     };
     {
@@ -407,13 +507,13 @@ async fn health_status(
         *cache = Some(cached);
     }
 
-    let status_code = if health_status.status == HealthStatus::Unhealthy {
+    let status_code = if health_check_result.response.status == HealthStatus::Unhealthy {
         StatusCode::SERVICE_UNAVAILABLE
     } else {
         StatusCode::OK
     };
 
-    (status_code, Json(health_status))
+    (status_code, Json(health_check_result.response))
 }
 
 /// Detailed health check - requires DB authentication (always fresh, no caching)
