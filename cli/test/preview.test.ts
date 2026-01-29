@@ -306,6 +306,85 @@ export function main(name: string = "World") {
   sanitizeOps: false,
 });
 
+Deno.test({
+  name: "script preview: codebase with imports (simulates ../shared layout)",
+  async fn() {
+    await withTestBackend(async (backend, tempDir) => {
+      // This test simulates a codebase that could be in a parent directory.
+      // The structure is:
+      //   tempDir/
+      //     wmill.yaml (codebase at ".")
+      //     f/
+      //       lib/
+      //         helper.ts       (shared module)
+      //         main_script.ts  (imports helper)
+      //
+      // This tests that codebase bundling correctly includes imported modules,
+      // which is the key functionality needed for ../shared codebases during sync.
+      // Note: Preview requires valid windmill paths (u/, g/, f/), so we run
+      // from within the codebase directory.
+
+      await createWmillConfig(tempDir, {
+        defaultTs: "bun",
+        codebases: [{ relative_path: ".", includes: ["**"] }],
+      });
+
+      // Create helper module
+      await Deno.mkdir(`${tempDir}/f/lib`, { recursive: true });
+      await Deno.writeTextFile(
+        `${tempDir}/f/lib/helper.ts`,
+        `export function greet(name: string): string {
+  return \`Hello from shared codebase, \${name}!\`;
+}`
+      );
+
+      // Create main script that imports the helper
+      await Deno.writeTextFile(
+        `${tempDir}/f/lib/main_script.ts`,
+        `import { greet } from "./helper";
+
+export function main(name: string = "World") {
+  console.log("Running codebase script with imports");
+  return greet(name);
+}`
+      );
+
+      // Create script metadata
+      await Deno.writeTextFile(
+        `${tempDir}/f/lib/main_script.script.yaml`,
+        `summary: "Test script with imports"
+description: "Test script that imports from helper module"
+lock: ""
+schema:
+  $schema: "https://json-schema.org/draft/2020-12/schema"
+  type: object
+  properties:
+    name:
+      type: string
+      default: "World"
+  required: []
+`
+      );
+
+      // Run preview - the script should be bundled with the helper module
+      const result = await backend.runCLICommand(
+        ["script", "preview", "f/lib/main_script.ts"],
+        tempDir
+      );
+
+      assertEquals(result.code, 0, `Preview failed: ${result.stderr}\n${result.stdout}`);
+      // The script should be bundled (includes the helper) and run successfully
+      assertStringIncludes(
+        result.stdout + result.stderr,
+        "Hello from shared codebase, World!",
+        `Expected codebase script output not found. Got: ${result.stdout}\n${result.stderr}`
+      );
+    });
+  },
+  sanitizeResources: false,
+  sanitizeOps: false,
+});
+
 // =============================================================================
 // FLOW PREVIEW TESTS
 // =============================================================================
