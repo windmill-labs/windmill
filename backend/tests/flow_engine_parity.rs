@@ -1812,3 +1812,91 @@ export function main(items: any[], category: string, original_mult: number) {
 
     Ok(())
 }
+
+// =============================================================================
+// TEST 20: Accessing non-existent steps via results proxy
+// This tests the critical case where results.nonexistent should return
+// null rather than throwing an error (matching deno_core behavior)
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_results_non_existent_step(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return { value: 42 };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Access existing step - should work
+                    js_input("existing", "results.a.value"),
+                    // Access non-existent step - should return null, not error
+                    // Note: The expression gets wrapped as (await results.nonexistent)
+                    // The proxy returns a Promise that resolves to null for non-existent steps
+                    js_input("non_existent", "results.nonexistent"),
+                    // Access non-existent step with nullish coalescing
+                    js_input("non_existent_with_default", "results.nonexistent ?? 'default_value'"),
+                    // Nested access on non-existent step (null?.value -> undefined -> ?? kicks in)
+                    js_input("non_existent_nested", "results.nonexistent?.value ?? 'nested_default'"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    existing: number,
+    non_existent: any,
+    non_existent_with_default: string,
+    non_existent_nested: string
+) {
+    return {
+        existing,
+        non_existent,
+        non_existent_with_default,
+        non_existent_nested
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    // existing step should work
+    assert_eq!(result["existing"], 42);
+    // non-existent should be null, not error
+    assert!(result["non_existent"].is_null());
+    // non-existent with default should return the default
+    assert_eq!(result["non_existent_with_default"], "default_value");
+    // nested non-existent should return the default
+    assert_eq!(result["non_existent_nested"], "nested_default");
+
+    Ok(())
+}

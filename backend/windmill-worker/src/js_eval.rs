@@ -326,9 +326,18 @@ async fn handle_full_regex(
         };
 
         let result = if obj_name == "results" {
-            authed_client
-                .get_result_by_id(&by_id.flow_job.to_string(), obj_key, query)
+            // Use .ok() to match deno_core op_get_id behavior: return null for non-existent steps
+            // instead of throwing an error
+            let res = authed_client
+                .get_result_by_id::<Option<Box<RawValue>>>(&by_id.flow_job.to_string(), obj_key, query)
                 .await
+                .ok()
+                .flatten();
+            match res {
+                Some(v) => Ok(v),
+                None => serde_json::value::to_raw_value(&serde_json::Value::Null)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize null: {}", e)),
+            }
         } else if obj_name == "flow_env" {
             authed_client
                 .get_flow_env_by_flow_job_id(&by_id.flow_job.to_string(), obj_key, query)
