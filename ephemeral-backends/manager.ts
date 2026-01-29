@@ -5,6 +5,8 @@ import * as readline from "readline";
 import sodium from "libsodium-wrappers-sumo";
 import { EphemeralBackend } from "./spawn";
 import { WorktreePool } from "./worktree-pool";
+import { Logger } from "./logger";
+import { readFileSync, existsSync } from "fs";
 
 process.on("unhandledRejection", (err) => {
   console.error("UNHANDLED PROMISE:", err);
@@ -146,6 +148,43 @@ class EphemeralBackendManager {
               }),
               { headers: { "Content-Type": "application/json" } }
             );
+          }
+
+          // Match /logs/{commit_hash} - serve log files
+          const logsMatch = url.pathname.match(/^\/logs\/([a-f0-9]+)$/);
+          if (logsMatch && req.method === "GET") {
+            const commitHash = logsMatch[1];
+
+            // Validate commit hash format (7-40 hex characters)
+            if (commitHash.length < 7 || commitHash.length > 40) {
+              return new Response("Invalid commit hash", { status: 400 });
+            }
+
+            try {
+              // Use the Logger class's secure path resolution
+              const logFilePath = Logger.getLogFilePathForCommit(commitHash);
+
+              // Check if file exists
+              if (!existsSync(logFilePath)) {
+                return new Response("Log file not found", { status: 404 });
+              }
+
+              // Read the log file
+              const logContent = readFileSync(logFilePath, "utf-8");
+
+              return new Response(logContent, {
+                headers: {
+                  "Content-Type": "text/plain; charset=utf-8",
+                  "X-Commit-Hash": commitHash,
+                },
+              });
+            } catch (error: any) {
+              console.error(`Error reading log file for ${commitHash}:`, error);
+              return new Response(
+                `Error reading log file: ${error.message}`,
+                { status: 500 }
+              );
+            }
           }
 
           // Match /spawn/{commit_hash}

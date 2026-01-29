@@ -5,6 +5,7 @@ import { promisify } from "util";
 import * as readline from "readline";
 import path from "path";
 import { WorktreePool, WorktreeInfo } from "./worktree-pool";
+import { Logger } from "./logger";
 
 const execAsync = promisify(exec);
 
@@ -26,6 +27,7 @@ interface SpawnedResources {
   tunnelUrl?: string;
   worktree?: WorktreeInfo;
   eeWorktreePath?: string;
+  logger?: Logger;
 }
 
 // No default config needed since commitHash is always required
@@ -40,6 +42,9 @@ export class EphemeralBackend {
   getServerPort(): number {
     return this.config.serverPort;
   }
+  getLogFilePath(): string | undefined {
+    return this.resources.logger?.getLogFilePath();
+  }
 
   constructor(config: Config) {
     this.config = config;
@@ -49,10 +54,13 @@ export class EphemeralBackend {
     tunnelUrl: string;
   }> {
     try {
-      console.log("🚀 Starting ephemeral backend...");
-      console.log(`📊 Database port: ${this.config.dbPort}`);
-      console.log(`🌐 Server port: ${this.config.serverPort}`);
-      console.log(`📌 Commit hash: ${this.config.commitHash}`);
+      // Initialize logger for this ephemeral backend
+      this.resources.logger = new Logger(this.config.commitHash, "backend");
+
+      this.resources.logger.log("🚀 Starting ephemeral backend...");
+      this.resources.logger.log(`📊 Database port: ${this.config.dbPort}`);
+      this.resources.logger.log(`🌐 Server port: ${this.config.serverPort}`);
+      this.resources.logger.log(`📌 Commit hash: ${this.config.commitHash}`);
 
       await this.startCloudflared();
       if (!this.resources.tunnelUrl)
@@ -71,7 +79,7 @@ export class EphemeralBackend {
       // Release the worktree back to the pool now that the backend is running
       // The binary is already compiled and running, so other spawns can reuse this worktree
       if (this.resources.worktree) {
-        console.log(
+        this.resources.logger?.log(
           "\n♻️  Releasing worktree back to pool (backend is now running)..."
         );
         await this.config.worktreePool.release(this.resources.worktree.id);
@@ -79,14 +87,19 @@ export class EphemeralBackend {
         this.resources.worktree = undefined;
       }
 
-      console.log("\n✅ Ephemeral backend is ready!");
-      console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
+      this.resources.logger?.log("\n✅ Ephemeral backend is ready!");
+      this.resources.logger?.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
+      this.resources.logger?.log(
+        `📄 Log file: ${this.resources.logger.getLogFilePath()}`
+      );
 
       return {
         tunnelUrl: this.resources.tunnelUrl,
       };
     } catch (error) {
-      console.error("❌ Error spawning ephemeral backend:", error);
+      this.resources.logger?.error(
+        `❌ Error spawning ephemeral backend: ${error}`
+      );
       throw error;
     }
   }
