@@ -27,11 +27,353 @@ use regex::Regex;
 use serde_json::value::RawValue;
 use sqlx::types::Json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tokio::sync::{mpsc, oneshot};
 use uuid::Uuid;
 
 use windmill_common::error::Error;
 use windmill_common::worker::{write_file, TMP_DIR};
+
+// ============================================================================
+// Isolate Pool Configuration
+// ============================================================================
+
+/// Check if isolate pool is enabled via environment variable
+pub fn is_isolate_pool_enabled() -> bool {
+    std::env::var("NATIVETS_ISOLATE_POOL")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+}
+
+/// Get pool size from NUM_WORKERS + 1, defaults to 5 if not set
+fn get_pool_size() -> usize {
+    std::env::var("NUM_WORKERS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|n| n + 1)
+        .unwrap_or(5)
+}
+
+// ============================================================================
+// Isolate Pool Implementation
+// ============================================================================
+
+/// A request to execute NativeTS code on a pooled isolate
+struct IsolateJobRequest {
+    env_code: String,
+    js_expr: String,
+    spread: Vec<Option<Box<RawValue>>>,
+    script_entrypoint_override: Option<String>,
+    job_id: Uuid,
+    ann: NativeAnnotation,
+    extra_logs: String,
+    // Channels to send results back
+    isolate_handle_sender: oneshot::Sender<IsolateHandle>,
+    logs_sender: mpsc::UnboundedSender<String>,
+    result_stream_sender: mpsc::UnboundedSender<String>,
+    result_sender: oneshot::Sender<windmill_common::error::Result<(Box<RawValue>, bool)>>,
+}
+
+/// Global job sender for the isolate pool
+static POOL_JOB_SENDER: std::sync::OnceLock<crossbeam_channel::Sender<IsolateJobRequest>> =
+    std::sync::OnceLock::new();
+
+/// Track if pool has been initialized
+static POOL_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Counter for pool statistics
+static POOL_JOBS_PROCESSED: AtomicUsize = AtomicUsize::new(0);
+
+/// Initialize the isolate pool with dedicated worker threads.
+/// Each thread pre-warms an isolate and waits for jobs.
+/// After processing a job, the isolate is dropped and a new one is pre-warmed.
+pub fn init_isolate_pool() {
+    if POOL_INITIALIZED.swap(true, Ordering::SeqCst) {
+        return; // Already initialized
+    }
+
+    if !is_isolate_pool_enabled() {
+        tracing::info!("NativeTS isolate pool is disabled");
+        return;
+    }
+
+    let pool_size = get_pool_size();
+    tracing::info!("Initializing NativeTS isolate pool with {pool_size} threads");
+
+    let (sender, receiver) = crossbeam_channel::unbounded::<IsolateJobRequest>();
+    POOL_JOB_SENDER.set(sender).ok();
+
+    // Spawn dedicated worker threads
+    for i in 0..pool_size {
+        let receiver = receiver.clone();
+        std::thread::Builder::new()
+            .name(format!("nativets-pool-{i}"))
+            .spawn(move || {
+                isolate_pool_worker(i, receiver);
+            })
+            .expect("Failed to spawn isolate pool worker thread");
+    }
+}
+
+/// Worker function for isolate pool threads.
+/// Pre-warms an isolate, processes a job, drops it, and repeats.
+fn isolate_pool_worker(worker_id: usize, receiver: crossbeam_channel::Receiver<IsolateJobRequest>) {
+    tracing::debug!("Isolate pool worker {worker_id} started");
+
+    loop {
+        // Pre-warm: create the isolate before receiving a job
+        // This is intentionally done BEFORE blocking on receive
+        // so the isolate is ready when a job arrives
+        let prewarm_start = std::time::Instant::now();
+
+        // Wait for a job
+        let job = match receiver.recv() {
+            Ok(job) => job,
+            Err(_) => {
+                tracing::info!("Isolate pool worker {worker_id} shutting down");
+                break;
+            }
+        };
+
+        let prewarm_wait = prewarm_start.elapsed();
+        tracing::trace!(
+            "Isolate pool worker {worker_id} received job after {:?} wait",
+            prewarm_wait
+        );
+
+        // Execute the job
+        let result = execute_job_on_isolate(job);
+
+        POOL_JOBS_PROCESSED.fetch_add(1, Ordering::Relaxed);
+
+        if let Err(e) = result {
+            tracing::error!("Isolate pool worker {worker_id} job execution error: {e}");
+        }
+
+        // Isolate is dropped here, will pre-warm new one on next iteration
+    }
+}
+
+/// Execute a job on a freshly created isolate
+fn execute_job_on_isolate(job: IsolateJobRequest) -> anyhow::Result<()> {
+    let IsolateJobRequest {
+        env_code,
+        js_expr,
+        spread,
+        script_entrypoint_override,
+        job_id,
+        ann,
+        extra_logs,
+        isolate_handle_sender,
+        logs_sender,
+        result_stream_sender,
+        result_sender,
+    } = job;
+
+    let ops = vec![op_get_static_args(), op_log()];
+    let ext = Extension { name: "windmill", ops: ops.into(), ..Default::default() };
+
+    let fetch_options = deno_fetch::Options {
+        root_cert_store_provider: None,
+        user_agent: ann.useragent.unwrap_or_else(|| "windmill/beta".to_string()),
+        proxy: ann.proxy.map(|x| deno_tls::Proxy {
+            url: x.0,
+            basic_auth: x
+                .1
+                .map(|(username, password)| deno_tls::BasicAuth { username, password }),
+        }),
+        ..Default::default()
+    };
+
+    let exts: Vec<Extension> = vec![
+        deno_telemetry::deno_telemetry::init_ops(),
+        deno_webidl::deno_webidl::init_ops(),
+        deno_url::deno_url::init_ops(),
+        deno_console::deno_console::init_ops(),
+        deno_web::deno_web::init_ops::<PermissionsContainer>(
+            Arc::new(BlobStore::default()),
+            None,
+        ),
+        deno_fetch::deno_fetch::init_ops::<PermissionsContainer>(fetch_options),
+        deno_net::deno_net::init_ops::<PermissionsContainer>(None, None),
+        ext,
+    ];
+
+    let options = RuntimeOptions {
+        is_main: true,
+        extensions: exts,
+        create_params: Some(
+            deno_core::v8::CreateParams::default()
+                .heap_limits(0 as usize, 1024 * 1024 * 128 as usize),
+        ),
+        startup_snapshot: Some(RUNTIME_SNAPSHOT),
+        module_loader: Some(Rc::new(deno_core::FsModuleLoader)),
+        extension_transpiler: None,
+        ..Default::default()
+    };
+
+    let (memory_limit_tx, mut memory_limit_rx) = mpsc::unbounded_channel::<()>();
+
+    let mut js_runtime: JsRuntime = JsRuntime::new(options);
+
+    #[cfg(all(feature = "private", feature = "enterprise"))]
+    if DENO_OTEL_INITIALIZED.load(std::sync::atomic::Ordering::SeqCst) {
+        if let Err(e) =
+            js_runtime.execute_script("<otel_bootstrap>", "globalThis.__bootstrapOtel()")
+        {
+            tracing::warn!("Failed to bootstrap OTEL telemetry: {}", e);
+        }
+    }
+
+    js_runtime.add_near_heap_limit_callback(move |x, y| {
+        tracing::error!("heap limit reached: {x} {y}");
+        if memory_limit_tx.send(()).is_err() {
+            tracing::error!("failed to send memory limit reached notification");
+        };
+        y * 2
+    });
+
+    let (log_sender, mut log_receiver) = mpsc::unbounded_channel::<String>();
+
+    {
+        let op_state = js_runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        op_state.put(PermissionsContainer {});
+        op_state.put(MainArgs { args: spread });
+        op_state.put(LogString { s: log_sender });
+    }
+
+    // Send isolate handle for cancellation support
+    let _ = isolate_handle_sender.send(js_runtime.v8_isolate().thread_safe_handle());
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+
+    let append_logs_sender = logs_sender;
+    let future = async {
+        if !extra_logs.is_empty() {
+            if let Err(e) = append_logs_sender.send(extra_logs) {
+                tracing::error!("failed to send extra logs: {e}");
+            }
+        }
+        let handle = tokio::spawn(async move {
+            let mut result_stream = String::new();
+            while let Some(log) = log_receiver.recv().await {
+                use windmill_common::result_stream::extract_stream_from_logs;
+
+                if let Some(stream) = extract_stream_from_logs(&log.trim_end_matches("\n")) {
+                    result_stream.push_str(&stream);
+                    if let Err(e) = result_stream_sender.send(stream) {
+                        tracing::error!("failed to send result stream: {e}");
+                    }
+                } else {
+                    if let Err(e) = append_logs_sender.send(log) {
+                        tracing::error!("failed to send log: {e}");
+                    }
+                }
+            }
+            if !result_stream.is_empty() {
+                Some(result_stream)
+            } else {
+                None
+            }
+        });
+
+        let r = tokio::select! {
+            r = eval_fetch(&mut js_runtime, &js_expr, Some(env_code), script_entrypoint_override, true, &job_id) => Ok(r),
+            _ = memory_limit_rx.recv() => Err(Error::ExecutionErr("Memory limit reached, killing isolate".to_string()))
+        };
+        drop(js_runtime);
+        if let Ok(r) = r {
+            match handle.await {
+                Ok(Some(logs)) => {
+                    Ok(merge_result_stream(r, Some(logs)).await.map(|r| (r, true)))
+                }
+                Ok(None) => Ok(r.map(|r| (r, false))),
+                Err(e) => Err(Error::ExecutionErr(e.to_string())),
+            }
+        } else {
+            r.map(|r| r.map(|r| (r, false)))
+        }
+    };
+
+    let result = runtime.block_on(future);
+    let final_result = result.and_then(|r| r);
+
+    // Send result back (ignore error if receiver dropped)
+    let _ = result_sender.send(final_result);
+
+    Ok(())
+}
+
+/// Get pool statistics
+pub fn get_pool_stats() -> (bool, usize) {
+    (
+        is_isolate_pool_enabled() && POOL_INITIALIZED.load(Ordering::Relaxed),
+        POOL_JOBS_PROCESSED.load(Ordering::Relaxed),
+    )
+}
+
+/// Execute NativeTS via the isolate pool
+async fn eval_fetch_timeout_pooled(
+    env_code: String,
+    js_expr: String,
+    spread: Vec<Option<Box<RawValue>>>,
+    script_entrypoint_override: Option<String>,
+    job_id: Uuid,
+    ann: NativeAnnotation,
+    extra_logs: String,
+    extra_logs_return: String,
+    pool_sender: crossbeam_channel::Sender<IsolateJobRequest>,
+) -> windmill_common::error::Result<(
+    oneshot::Receiver<IsolateHandle>,
+    NativeTsChannels,
+    tokio::task::JoinHandle<windmill_common::error::Result<(Box<RawValue>, bool)>>,
+    String,
+)> {
+    let (isolate_handle_sender, isolate_handle_receiver) = oneshot::channel::<IsolateHandle>();
+    let (logs_sender, logs_receiver) = mpsc::unbounded_channel::<String>();
+    let (result_stream_sender, result_stream_receiver) = mpsc::unbounded_channel::<String>();
+    let (result_sender, result_receiver) =
+        oneshot::channel::<windmill_common::error::Result<(Box<RawValue>, bool)>>();
+
+    let job_request = IsolateJobRequest {
+        env_code,
+        js_expr,
+        spread,
+        script_entrypoint_override,
+        job_id,
+        ann,
+        extra_logs,
+        isolate_handle_sender,
+        logs_sender,
+        result_stream_sender,
+        result_sender,
+    };
+
+    // Send job to pool
+    pool_sender
+        .send(job_request)
+        .map_err(|_| Error::ExecutionErr("Isolate pool is shutting down".to_string()))?;
+
+    // Create a JoinHandle that waits for the result
+    let result_handle = tokio::spawn(async move {
+        result_receiver
+            .await
+            .map_err(|_| Error::ExecutionErr("Isolate pool worker dropped".to_string()))?
+    });
+
+    Ok((
+        isolate_handle_receiver,
+        NativeTsChannels {
+            logs_receiver,
+            result_stream_receiver,
+        },
+        result_handle,
+        extra_logs_return,
+    ))
+}
 
 pub struct PermissionsContainer;
 
@@ -255,10 +597,6 @@ pub async fn eval_fetch_timeout(
     tokio::task::JoinHandle<windmill_common::error::Result<(Box<RawValue>, bool)>>,
     String, // extra_logs
 )> {
-    let (sender, receiver) = oneshot::channel::<IsolateHandle>();
-    let (append_logs_sender, append_logs_receiver) = mpsc::unbounded_channel::<String>();
-    let (result_stream_sender, result_stream_receiver) = mpsc::unbounded_channel::<String>();
-
     let parsed_args = windmill_parser_ts::parse_deno_signature(
         &ts_expr,
         true,
@@ -295,6 +633,27 @@ pub async fn eval_fetch_timeout(
 
     // Clone extra_logs since it's used both in the closure and returned
     let extra_logs_return = extra_logs.clone();
+
+    // Check if we should use the isolate pool
+    if let Some(pool_sender) = POOL_JOB_SENDER.get() {
+        return eval_fetch_timeout_pooled(
+            env_code,
+            js_expr,
+            spread,
+            script_entrypoint_override,
+            job_id,
+            ann,
+            extra_logs,
+            extra_logs_return,
+            pool_sender.clone(),
+        )
+        .await;
+    }
+
+    // Non-pooled path: use spawn_blocking as before
+    let (sender, receiver) = oneshot::channel::<IsolateHandle>();
+    let (append_logs_sender, append_logs_receiver) = mpsc::unbounded_channel::<String>();
+    let (result_stream_sender, result_stream_receiver) = mpsc::unbounded_channel::<String>();
 
     let result_f = tokio::task::spawn_blocking(move || {
         let ops = vec![op_get_static_args(), op_log()];

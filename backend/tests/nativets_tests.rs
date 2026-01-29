@@ -1185,3 +1185,152 @@ export async function main(name: string, count: number, items: string[]) {
 
     Ok(())
 }
+
+// ============================================================================
+// Pool Status and Benchmark Tests
+// ============================================================================
+
+/// Test that reports pool status - useful for verifying pool is enabled/disabled
+#[sqlx::test(fixtures("base"))]
+async fn test_pool_status(_db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+
+    let (pool_active, jobs_processed) = windmill_nativets::get_pool_stats();
+    let pool_enabled = windmill_nativets::is_isolate_pool_enabled();
+
+    tracing::info!(
+        "NativeTS Isolate Pool - enabled: {}, active: {}, jobs_processed: {}",
+        pool_enabled,
+        pool_active,
+        jobs_processed
+    );
+
+    // If pool is enabled in env, it should be active after init
+    if pool_enabled {
+        // Initialize the pool (idempotent)
+        windmill_nativets::init_isolate_pool();
+        let (pool_active, _) = windmill_nativets::get_pool_stats();
+        assert!(pool_active, "Pool should be active when enabled");
+    }
+
+    Ok(())
+}
+
+/// Benchmark test - run multiple sequential jobs to measure cold start overhead
+/// Run with NATIVETS_ISOLATE_POOL=true and without to compare
+#[sqlx::test(fixtures("base"))]
+async fn test_benchmark_sequential_jobs(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Initialize pool if enabled
+    windmill_nativets::init_isolate_pool();
+
+    let (pool_active, _) = windmill_nativets::get_pool_stats();
+    tracing::info!("Running benchmark with pool_active: {}", pool_active);
+
+    const NUM_JOBS: usize = 5;
+    let mut durations = Vec::with_capacity(NUM_JOBS);
+
+    for i in 0..NUM_JOBS {
+        let code = format!(r#"
+export async function main() {{
+    // Simple computation
+    let sum = 0;
+    for (let j = 0; j < 1000; j++) {{
+        sum += j;
+    }}
+    return {{ iteration: {}, sum }};
+}}
+"#, i);
+
+        let start = std::time::Instant::now();
+        let result = run_nativets(&db, &code, port).await;
+        let elapsed = start.elapsed();
+
+        assert!(result.success, "Job {} should succeed", i);
+        durations.push(elapsed);
+    }
+
+    // Log timing information
+    let avg = durations.iter().map(|d| d.as_millis()).sum::<u128>() / NUM_JOBS as u128;
+    let first = durations[0].as_millis();
+    let rest_avg = durations[1..].iter().map(|d| d.as_millis()).sum::<u128>() / (NUM_JOBS - 1) as u128;
+
+    tracing::info!(
+        "Benchmark results (pool_active={}): first={}ms, rest_avg={}ms, overall_avg={}ms",
+        pool_active, first, rest_avg, avg
+    );
+
+    Ok(())
+}
+
+/// Stress test with high concurrency - 20 parallel jobs
+/// This tests the pool under load vs spawn_blocking
+#[sqlx::test(fixtures("base"))]
+async fn test_stress_high_concurrency(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let mock = MockServer::start().await;
+    let port = server.addr.port();
+
+    // Initialize pool if enabled
+    windmill_nativets::init_isolate_pool();
+
+    let (pool_active, initial_jobs) = windmill_nativets::get_pool_stats();
+    tracing::info!(
+        "Starting high concurrency stress test with pool_active: {}, initial_jobs: {}",
+        pool_active, initial_jobs
+    );
+
+    const NUM_CONCURRENT: usize = 20;
+
+    let start = std::time::Instant::now();
+
+    // Create all job payloads
+    let mut payloads = Vec::with_capacity(NUM_CONCURRENT);
+    for i in 0..NUM_CONCURRENT {
+        let code = format!(r#"
+export async function main() {{
+    // Mixed workload: fetch + computation
+    const response = await fetch("{}/array/10");
+    const data = await response.json();
+
+    // CPU work
+    let sum = 0;
+    for (let j = 0; j < 10000; j++) {{
+        sum += j;
+    }}
+
+    return {{
+        fetchedCount: data.length,
+        computedSum: sum,
+        jobIndex: {}
+    }};
+}}
+"#, mock.url(""), i);
+        payloads.push(nativets_code(&code));
+    }
+
+    // Push all jobs and wait for completion
+    let results = push_jobs_and_wait_for_completion(&db, payloads, port).await;
+    let total_elapsed = start.elapsed();
+
+    // Verify all succeeded
+    let success_count = results.iter().filter(|r| r.success).count();
+    assert_eq!(success_count, NUM_CONCURRENT, "All jobs should succeed");
+
+    let (_, final_jobs) = windmill_nativets::get_pool_stats();
+
+    tracing::info!(
+        "High concurrency test complete: {} jobs in {:?} (pool_active={}, pool_jobs={})",
+        NUM_CONCURRENT,
+        total_elapsed,
+        pool_active,
+        final_jobs - initial_jobs
+    );
+
+    mock.shutdown().await;
+    Ok(())
+}

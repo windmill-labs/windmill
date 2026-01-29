@@ -29,6 +29,7 @@ lazy_static.workspace = true
 regex.workspace = true
 const_format.workspace = true
 sqlx.workspace = true
+crossbeam-channel.workspace = true
 
 # deno_core dependencies - these are what we're isolating
 deno_telemetry.workspace = true

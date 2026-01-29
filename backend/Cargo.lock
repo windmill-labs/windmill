@@ -15521,6 +15521,7 @@ dependencies = [
  "windmill-common",
  "windmill-git-sync",
  "windmill-indexer",
+ "windmill-nativets",
  "windmill-queue",
  "windmill-worker",
  "windows-service",
@@ -15876,6 +15877,7 @@ version = "1.621.1"
 dependencies = [
  "anyhow",
  "const_format",
+ "crossbeam-channel",
  "deno_ast",
  "deno_console",
  "deno_core",

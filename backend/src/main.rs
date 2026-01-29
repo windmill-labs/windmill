@@ -1762,6 +1762,12 @@ pub async fn run_workers(
         *windmill_worker::SLEEP_QUEUE
     );
 
+    // Initialize NativeTS isolate pool if enabled (deno_core feature)
+    #[cfg(feature = "deno_core")]
+    {
+        windmill_nativets::init_isolate_pool();
+    }
+
     for i in 1..(num_workers + 1) {
         let wk_conf = &workers[i as usize - 1];
         let conn1 = wk_conf.conn.clone();
