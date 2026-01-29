@@ -210,7 +210,7 @@ export class EphemeralBackend {
   }
 
   private async spawnPostgres(): Promise<void> {
-    console.log("\n🐘 Spawning PostgreSQL container...");
+    this.resources.logger?.log("\n🐘 Spawning PostgreSQL container...");
 
     this.resources.dbProcess = spawn("docker", [
       "run",
@@ -224,17 +224,24 @@ export class EphemeralBackend {
       "postgres:16",
     ]);
 
-    // Capture container ID from first line of output
+    // Capture and log postgres stdout
     this.resources.dbProcess.stdout.on("data", (data: Buffer) => {
-      process.stdout.write(`[postgres] ${data}`);
+      const output = data.toString().trim();
+      if (output) {
+        this.resources.logger?.log(`[postgres] ${output}`);
+      }
     });
 
+    // Capture and log postgres stderr
     this.resources.dbProcess.stderr.on("data", (data: Buffer) => {
-      process.stderr.write(`[postgres] ${data}`);
+      const output = data.toString().trim();
+      if (output) {
+        this.resources.logger?.error(`[postgres] ${output}`);
+      }
     });
 
     this.resources.dbProcess.on("close", (code: number) => {
-      console.log(`PostgreSQL process exited with code ${code}`);
+      this.resources.logger?.log(`PostgreSQL process exited with code ${code}`);
     });
   }
 
@@ -319,18 +326,25 @@ export class EphemeralBackend {
       );
 
       buildProcess.stdout.on("data", (data) => {
-        process.stdout.write(data);
+        const output = data.toString().trim();
+        if (output) {
+          this.resources.logger?.log(`[build] ${output}`);
+        }
       });
 
       buildProcess.stderr.on("data", (data) => {
-        process.stderr.write(data);
+        const output = data.toString().trim();
+        if (output) {
+          this.resources.logger?.error(`[build] ${output}`);
+        }
       });
 
       buildProcess.on("close", (code) => {
         if (code === 0) {
-          console.log("✓ Backend built successfully");
+          this.resources.logger?.log("✓ Backend built successfully");
           resolve();
         } else {
+          this.resources.logger?.error(`Build failed with code ${code}`);
           reject(new Error(`Build failed with code ${code}`));
         }
       });
@@ -338,7 +352,7 @@ export class EphemeralBackend {
   }
 
   private async startBackend(): Promise<void> {
-    console.log("\n🚀 Starting Windmill backend...");
+    this.resources.logger?.log("\n🚀 Starting Windmill backend...");
 
     if (!this.resources.worktree) {
       throw new Error("Worktree not acquired");
@@ -356,21 +370,29 @@ export class EphemeralBackend {
       env,
     });
 
+    // Capture and log backend stdout
     this.resources.backendProcess.stdout.on("data", (data: Buffer) => {
-      process.stdout.write(`[backend] ${data}`);
+      const output = data.toString().trim();
+      if (output) {
+        this.resources.logger?.log(`[backend] ${output}`);
+      }
     });
 
+    // Capture and log backend stderr
     this.resources.backendProcess.stderr.on("data", (data: Buffer) => {
-      process.stderr.write(`[backend] ${data}`);
+      const output = data.toString().trim();
+      if (output) {
+        this.resources.logger?.error(`[backend] ${output}`);
+      }
     });
 
     this.resources.backendProcess.on("close", (code: number) => {
-      console.log(`Backend process exited with code ${code}`);
+      this.resources.logger?.log(`Backend process exited with code ${code}`);
     });
 
     // Give the backend a moment to start
     await new Promise((resolve) => setTimeout(resolve, 3000));
-    console.log("✓ Backend started");
+    this.resources.logger?.log("✓ Backend started");
   }
 
   private async startCloudflared(): Promise<void> {
@@ -378,7 +400,7 @@ export class EphemeralBackend {
       this.config.onCloudflaredUrl?.("SKIP_CLOUDFLARED");
       return;
     }
-    console.log("\n🌐 Starting Cloudflare tunnel...");
+    this.resources.logger?.log("\n🌐 Starting Cloudflare tunnel...");
 
     return new Promise((resolve, reject) => {
       this.resources.cloudflaredProcess = spawn("cloudflared", [
@@ -394,27 +416,33 @@ export class EphemeralBackend {
       });
 
       rl.on("line", (line: string) => {
-        console.log(`[cloudflared] ${line}`);
+        if (line.trim()) {
+          this.resources.logger?.log(`[cloudflared] ${line}`);
+        }
       });
 
       this.resources.cloudflaredProcess.stderr.on("data", (data: Buffer) => {
-        process.stderr.write(`[cloudflared] ${data}`);
         const line = data.toString();
+        if (line.trim()) {
+          this.resources.logger?.error(`[cloudflared] ${line.trim()}`);
+        }
         const match = line.match(/https:\/\/([a-z0-9-]+\.trycloudflare\.com)/);
         if (match) {
           this.resources.tunnelUrl = match[1];
+          this.resources.logger?.log(`✓ Tunnel URL: ${this.resources.tunnelUrl}`);
           this.config.onCloudflaredUrl?.(this.resources.tunnelUrl);
           resolve();
         }
       });
 
       this.resources.cloudflaredProcess.on("close", (code: number) => {
-        console.log(`Cloudflared process exited with code ${code}`);
+        this.resources.logger?.log(`Cloudflared process exited with code ${code}`);
       });
 
       // Timeout if we can't find the URL in 30 seconds
       setTimeout(() => {
         if (!this.resources.tunnelUrl) {
+          this.resources.logger?.error("Failed to extract Cloudflare tunnel URL (timeout)");
           reject(new Error("Failed to extract Cloudflare tunnel URL"));
         }
       }, 30000);
