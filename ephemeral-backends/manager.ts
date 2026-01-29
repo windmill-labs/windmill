@@ -196,7 +196,8 @@ class EphemeralBackendManager {
                   );
                 });
                 clearTimeout(timeout);
-                fetch(cancelUrl, {
+                fetch(resumeUrl, {
+                  // Cancel URL doesn't show any relevant info, use resume URL
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
