@@ -190,7 +190,6 @@ class EphemeralBackendManager {
                 },
               });
               function onError(e: any) {
-                onError(e);
                 ephemeralBackend.cleanup().catch(() => {
                   console.error(
                     `Failed to cleanup backend for commit ${commitHash}`

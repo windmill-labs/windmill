@@ -123,6 +123,14 @@ export class EphemeralBackend {
       );
     }
 
+    // Remove existing EE private folder if it exists (from previous runs)
+    console.log(`  Cleaning up any existing EE repository...`);
+    try {
+      await execAsync(`rm -rf ${eeWorktreePath}`);
+    } catch (error) {
+      // Ignore errors if directory doesn't exist
+    }
+
     // Clone the windmill-ee-private repo at the specific commit
     console.log(`  Cloning windmill-ee-private at commit ${eeCommitHash}`);
     try {
