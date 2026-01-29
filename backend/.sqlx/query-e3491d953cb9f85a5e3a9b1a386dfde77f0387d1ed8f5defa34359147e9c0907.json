@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE v2_job_completed SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE workspace_dependencies SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "6bdb3fcfe16fc40222dc7010a11026d4d4e0d381b31fe02da7d2667c0cdc1a85"
+  "hash": "e3491d953cb9f85a5e3a9b1a386dfde77f0387d1ed8f5defa34359147e9c0907"
 }

@@ -3630,18 +3630,18 @@ async fn edit_workspace(
     Ok(format!("Updated workspace {}", &w_id))
 }
 
-async fn archive_workspace(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    authed: ApiAuthed,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
+/// Archive a workspace: disable schedules, cancel jobs, and mark as deleted.
+/// Returns (schedules_disabled_count, jobs_canceled_count).
+pub(crate) async fn archive_workspace_impl(
+    db: &DB,
+    w_id: &str,
+    username: &str,
+) -> Result<(usize, usize)> {
     // Step 1: Disable all schedules and clear their queued jobs
     let mut tx = db.begin().await?;
     let disabled_schedules = sqlx::query_scalar!(
         "UPDATE schedule SET enabled = false WHERE workspace_id = $1 AND enabled = true RETURNING path",
-        &w_id
+        w_id
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -3655,15 +3655,20 @@ async fn archive_workspace(
 
     // Clear all schedule-related jobs using the existing clear_schedule function
     for schedule_path in &disabled_schedules {
-        crate::schedule::clear_schedule(&mut tx, schedule_path, &w_id).await?;
+        crate::schedule::clear_schedule(&mut tx, schedule_path, w_id).await?;
     }
+
+    // Mark workspace as archived
+    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", w_id)
+        .execute(&mut *tx)
+        .await?;
 
     tx.commit().await?;
 
     // Step 2: Get all remaining queued jobs for this workspace (non-schedule jobs)
     let jobs_to_cancel =
-        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", &w_id)
-            .fetch_all(&db)
+        sqlx::query_scalar!("SELECT id FROM v2_job_queue WHERE workspace_id = $1", w_id)
+            .fetch_all(db)
             .await?;
 
     let jobs_count = jobs_to_cancel.len();
@@ -3677,9 +3682,9 @@ async fn archive_workspace(
     let canceled_count = if !jobs_to_cancel.is_empty() {
         let axum::Json(canceled_jobs) = crate::jobs::cancel_jobs(
             jobs_to_cancel,
-            &db,
-            &authed.username,
-            &w_id,
+            db,
+            username,
+            w_id,
             false, // force_cancel
         )
         .await?;
@@ -3691,12 +3696,21 @@ async fn archive_workspace(
         0
     };
 
-    // Step 4: Archive the workspace
-    let mut tx = db.begin().await?;
-    sqlx::query!("UPDATE workspace SET deleted = true WHERE id = $1", &w_id)
-        .execute(&mut *tx)
-        .await?;
+    Ok((schedules_count, canceled_count))
+}
 
+async fn archive_workspace(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    let (schedules_count, canceled_count) =
+        archive_workspace_impl(&db, &w_id, &authed.username).await?;
+
+    // Audit log
+    let mut tx = db.begin().await?;
     let mut audit_params = HashMap::new();
     audit_params.insert("disabled_schedules", schedules_count.to_string());
     audit_params.insert("canceled_jobs", canceled_count.to_string());
