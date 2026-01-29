@@ -45,6 +45,7 @@ interface ManagerResources {
   tunnelUrl?: string;
   ephemeralBackends: Map<string, BackendInfo>;
   worktreePool?: WorktreePool;
+  cleanupInterval?: NodeJS.Timeout;
 }
 
 class EphemeralBackendManager {
@@ -65,6 +66,12 @@ class EphemeralBackendManager {
       // Initialize the worktree pool
       this.resources.worktreePool = new WorktreePool();
       await this.resources.worktreePool.initialize();
+
+      // Set up periodic log cleanup (every 6 hours)
+      this.resources.cleanupInterval = setInterval(() => {
+        console.log("\n🧹 Running periodic log cleanup...");
+        Logger.cleanupOldLogs();
+      }, 6 * 60 * 60 * 1000);
 
       await this.startHttpServer();
       if (!process.env.SKIP_CLOUDFLARED) await this.startCloudflared();
@@ -180,10 +187,9 @@ class EphemeralBackendManager {
               });
             } catch (error: any) {
               console.error(`Error reading log file for ${commitHash}:`, error);
-              return new Response(
-                `Error reading log file: ${error.message}`,
-                { status: 500 }
-              );
+              return new Response(`Error reading log file: ${error.message}`, {
+                status: 500,
+              });
             }
           }
 
@@ -492,6 +498,13 @@ class EphemeralBackendManager {
     if (this.isCleaningUp) return;
     this.isCleaningUp = true;
     console.log("\n🧹 Cleaning up manager resources...");
+
+    // Stop periodic cleanup interval
+    if (this.resources.cleanupInterval) {
+      console.log("  Stopping periodic log cleanup...");
+      clearInterval(this.resources.cleanupInterval);
+      this.resources.cleanupInterval = undefined;
+    }
 
     // Delete GitHub secret
     if (!process.env.SKIP_SET_GH_SECRET) {
