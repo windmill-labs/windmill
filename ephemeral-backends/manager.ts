@@ -399,11 +399,59 @@ class EphemeralBackendManager {
     }
   }
 
+  private async deleteGitHubSecret(): Promise<void> {
+    const repo = "windmill-labs/windmill";
+    const secretName = "EPHEMERAL_BACKEND_QUEUE_URL";
+
+    try {
+      console.log("  Deleting GitHub Actions secret...");
+      const deleteResponse = await fetch(
+        `https://api.github.com/repos/${repo}/actions/secrets/${secretName}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${githubToken}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+          },
+        }
+      );
+
+      if (!deleteResponse.ok) {
+        // 404 is acceptable - secret might not exist
+        if (deleteResponse.status === 404) {
+          console.log(`  ✓ Secret ${secretName} does not exist (already deleted)`);
+          return;
+        }
+        const errorText = await deleteResponse.text();
+        throw new Error(
+          `Failed to delete secret: ${deleteResponse.statusText} - ${errorText}`
+        );
+      }
+
+      console.log(`✓ GitHub secret deleted successfully!`);
+      console.log(`  Repository: ${repo}`);
+      console.log(`  Secret: ${secretName}`);
+    } catch (error: any) {
+      console.error("❌ Failed to delete GitHub secret:", error.message);
+    }
+  }
+
   isCleaningUp: boolean = false;
   private async cleanup(): Promise<void> {
     if (this.isCleaningUp) return;
     this.isCleaningUp = true;
     console.log("\n🧹 Cleaning up manager resources...");
+
+    // Delete GitHub secret
+    if (!process.env.SKIP_SET_GH_SECRET) {
+      console.log("  Deleting GitHub Actions secret...");
+      try {
+        await this.deleteGitHubSecret();
+      } catch (error) {
+        console.error("  Failed to delete GitHub secret:", error);
+      }
+    }
 
     // Stop HTTP server
     if (this.server) {
