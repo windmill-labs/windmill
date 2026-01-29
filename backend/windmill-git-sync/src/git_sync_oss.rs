@@ -17,6 +17,7 @@ pub async fn handle_deployment_metadata<'c>(
     _obj: DeployedObject,
     _deployment_message: Option<String>,
     _skip_db_insert: bool,
+    _renamed_from: Option<&str>,
 ) -> Result<()> {
     // Git sync is an enterprise feature and not part of the open-source version
     return Ok(());

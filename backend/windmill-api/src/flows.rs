@@ -1473,6 +1473,7 @@ async fn archive_flow_by_path(
             }
         )),
         true,
+        None,
     )
     .await?;
 
@@ -1588,6 +1589,7 @@ async fn delete_flow_by_path(
         },
         Some(format!("Flow '{}' deleted", path)),
         true,
+        None,
     )
     .await?;
 

@@ -291,6 +291,7 @@ async fn create_group(
         windmill_git_sync::DeployedObject::Group { name: ng.name.clone() },
         Some(format!("Created group '{}'", &ng.name)),
         true,
+        None,
     )
     .await?;
 

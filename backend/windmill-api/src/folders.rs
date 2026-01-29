@@ -287,6 +287,7 @@ async fn create_folder(
         DeployedObject::Folder { path: format!("f/{}", ng.name) },
         Some(format!("Folder '{}' created", ng.name)),
         true,
+        None,
     )
     .await?;
 

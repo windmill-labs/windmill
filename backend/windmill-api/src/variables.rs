@@ -399,6 +399,7 @@ async fn create_variable(
         DeployedObject::Variable { path: variable.path.clone(), parent_path: None },
         Some(format!("Variable '{}' created", variable.path.clone())),
         true,
+        None,
     )
     .await?;
 
@@ -487,6 +488,7 @@ async fn delete_variable(
         DeployedObject::Variable { path: path.to_string(), parent_path: Some(path.to_string()) },
         Some(format!("Variable '{}' deleted", path)),
         true,
+        None,
     )
     .await?;
 
@@ -568,6 +570,7 @@ async fn delete_variables_bulk(
             },
             Some(format!("Variable '{}' deleted", path)),
             true,
+            None,
         )
     }))
     .await?;
@@ -793,6 +796,9 @@ async fn update_variable(
 
     tx.commit().await?;
 
+    // Detect if this was a rename operation
+    let old_path_if_renamed = if npath != path { Some(path) } else { None };
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -801,6 +807,7 @@ async fn update_variable(
         DeployedObject::Variable { path: npath.clone(), parent_path: Some(path.to_string()) },
         None,
         true,
+        old_path_if_renamed,
     )
     .await?;
 
