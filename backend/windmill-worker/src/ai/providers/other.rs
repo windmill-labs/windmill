@@ -19,6 +19,12 @@ pub enum ToolChoice {
     Required,
 }
 
+/// Stream options for OpenAI API to include usage in streaming responses
+#[derive(Serialize)]
+pub struct StreamOptions {
+    pub include_usage: bool,
+}
+
 #[derive(Serialize)]
 pub struct OpenAICompletionRequest<'a> {
     pub model: &'a str,
@@ -34,6 +40,8 @@ pub struct OpenAICompletionRequest<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
     pub stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptions>,
 }
 
 /// Query builder for providers using the OpenAI-compatible completion endpoint
@@ -102,6 +110,7 @@ impl OtherQueryBuilder {
             response_format,
             tool_choice,
             stream: true,
+            stream_options: Some(StreamOptions { include_usage: true }),
         };
 
         serde_json::to_string(&request)
@@ -147,6 +156,7 @@ impl QueryBuilder for OtherQueryBuilder {
             accumulated_tool_calls,
             mut events_str,
             stream_event_processor,
+            usage: openai_usage,
         } = openai_sse_parser;
 
         // Process streaming events with error handling
@@ -160,6 +170,15 @@ impl QueryBuilder for OtherQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
+        // Convert OpenAI Chat Completions usage to TokenUsage
+        let usage = openai_usage.map(|u| TokenUsage {
+            input_tokens: u.prompt_tokens,
+            output_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
+        });
+
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
                 None
@@ -170,7 +189,7 @@ impl QueryBuilder for OtherQueryBuilder {
             events_str: Some(events_str),
             annotations: Vec::new(),
             used_websearch: false,
-            usage: None,
+            usage,
         })
     }
 

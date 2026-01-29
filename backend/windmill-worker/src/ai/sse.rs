@@ -38,9 +38,22 @@ pub struct OpenAIChoice {
     pub delta: Option<OpenAIChoiceDelta>,
 }
 
+/// OpenAI Chat Completions API usage information (from final chunk with stream_options.include_usage)
+#[derive(Deserialize, Debug, Clone)]
+pub struct OpenAIChatUsage {
+    #[serde(default)]
+    pub prompt_tokens: Option<i32>,
+    #[serde(default)]
+    pub completion_tokens: Option<i32>,
+    #[serde(default)]
+    pub total_tokens: Option<i32>,
+}
+
 #[derive(Deserialize)]
 pub struct OpenAISSEEvent {
     pub choices: Option<Vec<OpenAIChoice>>,
+    #[serde(default)]
+    pub usage: Option<OpenAIChatUsage>,
 }
 
 lazy_static::lazy_static! {
@@ -92,6 +105,8 @@ pub struct OpenAISSEParser {
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: StreamEventProcessor,
+    /// Token usage from final chunk (when stream_options.include_usage is true)
+    pub usage: Option<OpenAIChatUsage>,
 }
 
 impl OpenAISSEParser {
@@ -101,6 +116,7 @@ impl OpenAISSEParser {
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
+            usage: None,
         }
     }
 }
@@ -121,6 +137,11 @@ impl SSEParser for OpenAISSEParser {
             .ok();
 
         if let Some(event) = event {
+            // Extract usage from final chunk (when stream_options.include_usage is true)
+            if let Some(usage) = event.usage {
+                self.usage = Some(usage);
+            }
+
             if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
                 if let Some(delta) = choices.remove(0).delta {
                     if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
