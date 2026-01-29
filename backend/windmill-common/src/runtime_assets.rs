@@ -38,6 +38,8 @@ fn extract_assets_from_raw_value(
     let json = value.get().trim_start();
     if json.starts_with('"') && json.len() < 256 && json.len() > 5 {
         // Ensure the string starts with an asset scheme before parsing
+        // We only include the schemes that are NOT used in our APIs here, because
+        // we track those assets on usage.
         let prefix = ["$res:", "res://"]
             .iter()
             .any(|prefix| json[1..].starts_with(prefix));
