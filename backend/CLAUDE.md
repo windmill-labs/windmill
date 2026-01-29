@@ -11,10 +11,11 @@ Windmill uses a workspace-based architecture with multiple crates:
 - **windmill-audit**: Audit logging
 - Other specialized crates (git-sync, autoscaling, etc.)
 
-## Key References
+## Key References (MUST FOLLOW THESE)
 
-- Database schema: @summarized_schema.txt
-- API route prefixes: `windmill-api/src/lib.rs`
+- You MUST follow best-practices by using the `rust-backend` skill, everytime you write RUST code.
+- When working with the database: read `summarized_schema.txt` before starting 
+- When working with the API routes: you can read `windmill-api/src/lib.rs` to get started
 
 ## Adding New Code
 
@@ -58,7 +59,3 @@ Windmill uses a workspace-based architecture with multiple crates:
 - **serde**: Serialization/deserialization
 - **tracing**: Logging and diagnostics
 - **reqwest**: HTTP client
-
-## Coding Guidelines
-
-Detailed Rust coding patterns and best practices are provided by the `rust-backend` skill.
