@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.622.0](https://github.com/windmill-labs/windmill/compare/v1.621.2...v1.622.0) (2026-01-29)
+
+
+### Features
+
+* add token usage tracking to AI agent output ([#7738](https://github.com/windmill-labs/windmill/issues/7738)) ([ce23f21](https://github.com/windmill-labs/windmill/commit/ce23f21c0e0bc6365f616ace4c45fa341741c555))
+* workspace dedicated workers ([#7741](https://github.com/windmill-labs/windmill/issues/7741)) ([60858d1](https://github.com/windmill-labs/windmill/commit/60858d1e20e68b83fddcdbfc0ff34decaff5d1c5))
+
+
+### Bug Fixes
+
+* forward teams error to client ([#7746](https://github.com/windmill-labs/windmill/issues/7746)) ([ca8dbc0](https://github.com/windmill-labs/windmill/commit/ca8dbc0676dda619aff6fab7f6ff05ed773738e0))
+* indexer build error ([#7744](https://github.com/windmill-labs/windmill/issues/7744)) ([6679ecb](https://github.com/windmill-labs/windmill/commit/6679ecb9a2ead08d2252a64f2a27a6d539fa23e9))
+* remove uuid-ossp extension requirement for RDS compatibility ([ad5293c](https://github.com/windmill-labs/windmill/commit/ad5293c0edacfaf1431a3639ef5ea32d9bd761b0))
+* require AGENT_TOKEN and BASE_INTERNAL_URL for agent mode ([6c84a89](https://github.com/windmill-labs/windmill/commit/6c84a8905382e29a4bbe0ae947eda794bc4dc566))
+* visibility bug on deployment UI (issue when renaming items) + add tracking of folders and resource types ([#7739](https://github.com/windmill-labs/windmill/issues/7739)) ([998f11a](https://github.com/windmill-labs/windmill/commit/998f11a10da45c6d933d8b78ca24ed4f55a53f3b))
+
 ## [1.621.2](https://github.com/windmill-labs/windmill/compare/v1.621.1...v1.621.2) (2026-01-29)
 
 
