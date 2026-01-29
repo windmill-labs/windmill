@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE audit SET workspace_id = $1 WHERE workspace_id = $2",
+  "query": "UPDATE native_trigger SET workspace_id = $1 WHERE workspace_id = $2",
   "describe": {
     "columns": [],
     "parameters": {
@@ -11,5 +11,5 @@
     },
     "nullable": []
   },
-  "hash": "0ba594244a366a31d9bed97a2d7b031d42c23463599d267d1712d1af1d26b321"
+  "hash": "e1e55ce8c28ac4d253c289e4c972ae00cfdcc3ef056625a5a5bef76377953278"
 }
