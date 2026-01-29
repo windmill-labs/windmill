@@ -39,7 +39,7 @@ pub struct OpenAIChoice {
 }
 
 /// OpenAI Chat Completions API usage information (from final chunk with stream_options.include_usage)
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, Default)]
 pub struct OpenAIChatUsage {
     #[serde(default)]
     pub prompt_tokens: Option<i32>,
@@ -437,9 +437,8 @@ impl SSEParser for AnthropicSSEParser {
                     tracing::error!("Anthropic streaming error: {}", error_msg);
                 }
                 AnthropicSSEEvent::MessageDelta { usage } => {
-                    // Extract usage from message_delta event
-                    if usage.is_some() {
-                        self.usage = usage;
+                    if let Some(u) = usage {
+                        self.usage = Some(u);
                     }
                 }
                 // Ignore other events
