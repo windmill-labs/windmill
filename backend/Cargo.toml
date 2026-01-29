@@ -68,6 +68,7 @@ jemalloc = ["windmill-common/jemalloc", "dep:tikv-jemallocator", "dep:tikv-jemal
 tantivy = ["dep:windmill-indexer", "windmill-api/tantivy", "windmill-indexer/enterprise", "windmill-indexer/parquet", "windmill-common/tantivy", "enterprise", "parquet"]
 sqlx = ["windmill-worker/sqlx"]
 deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_core", "dep:v8"]
+quickjs = ["windmill-worker/quickjs"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
 nats = ["windmill-api/nats"]
@@ -391,7 +392,10 @@ nu-parser = { version = "0.101.0", default-features = false }
 globset = "0.4.16"
 croner = "2.2.0"
 rmcp = { version = "^0", features = ["client", "transport-streamable-http-client", "transport-streamable-http-client-reqwest"] }
+rquickjs = { version = "0.8", features = ["futures", "parallel", "macro"] }
 process-wrap = { version = "8.2.1", features = ["tokio1"] }
+
+systemstat = "0.2.4"
 
 datafusion = "47.0.0"
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7", features = ["aws", "azure", "gcp"] }
@@ -407,7 +411,6 @@ aws-sdk-sso = "=1.77.0"
 aws-sdk-ssooidc = "=1.78.0"
 rustls = "=0.23.35"
 async-once-cell = "0.5.4"
-systemstat = "0.2.4"
 size = "0.5.0"
 
 aws-smithy-types-convert = { version = "^0", features = ["convert-chrono"] }
