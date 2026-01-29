@@ -720,45 +720,88 @@ pub async fn run_agent(
                 .await
                 .0;
 
-            let mut request = HTTP_CLIENT
-                .post(&endpoint)
-                .timeout(timeout)
-                .header("Content-Type", "application/json");
+            // Helper to build HTTP request with headers
+            let build_http_request = |body: String| {
+                let mut req = HTTP_CLIENT
+                    .post(&endpoint)
+                    .timeout(timeout)
+                    .header("Content-Type", "application/json");
 
-            // Apply authentication headers
-            for (header_name, header_value) in &auth_headers {
-                request = request.header(*header_name, header_value.clone());
-            }
+                for (header_name, header_value) in &auth_headers {
+                    req = req.header(*header_name, header_value.clone());
+                }
 
-            // Apply custom headers from AI_HTTP_HEADERS environment variable
-            for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
-                request = request.header(header_name.as_str(), header_value.as_str());
-            }
+                for (header_name, header_value) in AI_HTTP_HEADERS.iter() {
+                    req = req.header(header_name.as_str(), header_value.as_str());
+                }
 
-            let resp = request
-                .body(request_body)
+                req.body(body)
+            };
+
+            let resp = build_http_request(request_body.clone())
                 .send()
                 .await
                 .map_err(|e| Error::internal_err(format!("Failed to call API: {}", e)))?;
 
-            match resp.error_for_status_ref() {
-                Ok(_) => {
-                    if let Some(ref stream_event_processor) = stream_event_processor {
-                        query_builder
-                            .parse_streaming_response(resp, stream_event_processor.clone())
-                            .await?
-                    } else {
-                        query_builder.parse_image_response(resp).await?
-                    }
-                }
+            // Check if request failed and we should retry without stream_options
+            let resp = match resp.error_for_status_ref() {
+                Ok(_) => resp,
                 Err(e) => {
-                    let _status = resp.status();
+                    let status = resp.status();
                     let text = resp
                         .text()
                         .await
                         .unwrap_or_else(|_| "<failed to read body>".to_string());
-                    return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+
+                    // Retry without stream_options if provider supports it and error suggests incompatibility
+                    // Common error patterns: 400 Bad Request with mentions of stream_options or include_usage
+                    let should_retry = query_builder.supports_retry_without_usage()
+                        && status.as_u16() == 400
+                        && (text.contains("stream_options")
+                            || text.contains("include_usage")
+                            || text.contains("Additional properties are not allowed"));
+
+                    if should_retry {
+                        tracing::info!(
+                            "Retrying request without stream_options due to provider incompatibility"
+                        );
+
+                        let retry_body = query_builder
+                            .build_request_without_usage(&build_args, client, &job.workspace_id)
+                            .await?;
+
+                        let retry_resp = build_http_request(retry_body)
+                            .send()
+                            .await
+                            .map_err(|e| {
+                                Error::internal_err(format!("Failed to call API on retry: {}", e))
+                            })?;
+
+                        match retry_resp.error_for_status_ref() {
+                            Ok(_) => retry_resp,
+                            Err(retry_e) => {
+                                let retry_text = retry_resp
+                                    .text()
+                                    .await
+                                    .unwrap_or_else(|_| "<failed to read body>".to_string());
+                                return Err(Error::internal_err(format!(
+                                    "API error on retry: {} - {}",
+                                    retry_e, retry_text
+                                )));
+                            }
+                        }
+                    } else {
+                        return Err(Error::internal_err(format!("API error: {} - {}", e, text)));
+                    }
                 }
+            };
+
+            if let Some(ref stream_event_processor) = stream_event_processor {
+                query_builder
+                    .parse_streaming_response(resp, stream_event_processor.clone())
+                    .await?
+            } else {
+                query_builder.parse_image_response(resp).await?
             }
         };
 

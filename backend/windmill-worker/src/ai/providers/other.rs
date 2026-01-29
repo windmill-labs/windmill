@@ -11,7 +11,7 @@ use crate::ai::{
     utils::should_use_structured_output_tool,
 };
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "lowercase")]
 pub enum ToolChoice {
     #[allow(dead_code)]
@@ -44,6 +44,12 @@ pub struct OpenAICompletionRequest<'a> {
     pub stream_options: Option<StreamOptions>,
 }
 
+/// Result from building a request, includes both with and without stream_options
+pub struct BuiltRequests {
+    pub with_usage: String,
+    pub without_usage: String,
+}
+
 /// Query builder for providers using the OpenAI-compatible completion endpoint
 /// (Mistral, DeepSeek, Groq, TogetherAI, CustomAI, etc.)
 pub struct OtherQueryBuilder {
@@ -55,12 +61,13 @@ impl OtherQueryBuilder {
         Self { provider_kind }
     }
 
-    async fn build_text_request(
+    /// Build both request variants (with and without stream_options) to enable retry on incompatible providers
+    pub async fn build_text_requests(
         &self,
         args: &BuildRequestArgs<'_>,
         client: &AuthedClient,
         workspace_id: &str,
-    ) -> Result<String, Error> {
+    ) -> Result<BuiltRequests, Error> {
         let prepared_messages =
             prepare_messages_for_api(args.messages, client, workspace_id).await?;
 
@@ -101,7 +108,21 @@ impl OtherQueryBuilder {
             None
         };
 
-        let request = OpenAICompletionRequest {
+        // Build request with stream_options for usage tracking
+        let request_with_usage = OpenAICompletionRequest {
+            model: args.model,
+            messages: &prepared_messages,
+            tools: args.tools,
+            temperature: args.temperature,
+            max_completion_tokens: args.max_tokens,
+            response_format: response_format.clone(),
+            tool_choice: tool_choice.clone(),
+            stream: true,
+            stream_options: Some(StreamOptions { include_usage: true }),
+        };
+
+        // Build request without stream_options for providers that don't support it
+        let request_without_usage = OpenAICompletionRequest {
             model: args.model,
             messages: &prepared_messages,
             tools: args.tools,
@@ -110,11 +131,28 @@ impl OtherQueryBuilder {
             response_format,
             tool_choice,
             stream: true,
-            stream_options: Some(StreamOptions { include_usage: true }),
+            stream_options: None,
         };
 
-        serde_json::to_string(&request)
-            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))
+        let with_usage = serde_json::to_string(&request_with_usage)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+        let without_usage = serde_json::to_string(&request_without_usage)
+            .map_err(|e| Error::internal_err(format!("Failed to serialize request: {}", e)))?;
+
+        Ok(BuiltRequests { with_usage, without_usage })
+    }
+
+    async fn build_text_request(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        // Default to returning the request with usage tracking
+        Ok(self
+            .build_text_requests(args, client, workspace_id)
+            .await?
+            .with_usage)
     }
 }
 
@@ -132,6 +170,22 @@ impl QueryBuilder for OtherQueryBuilder {
         workspace_id: &str,
     ) -> Result<String, Error> {
         self.build_text_request(args, client, workspace_id).await
+    }
+
+    async fn build_request_without_usage(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        Ok(self
+            .build_text_requests(args, client, workspace_id)
+            .await?
+            .without_usage)
+    }
+
+    fn supports_retry_without_usage(&self) -> bool {
+        true
     }
 
     async fn parse_image_response(
