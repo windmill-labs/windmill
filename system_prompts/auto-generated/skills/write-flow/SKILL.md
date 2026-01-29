@@ -1,3 +1,8 @@
+---
+name: write-flow
+description: Create Windmill flows using OpenFlow YAML specification.
+---
+
 # Windmill Flow Building Guide
 
 ## CLI Commands

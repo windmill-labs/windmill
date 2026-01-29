@@ -537,6 +537,12 @@ CREATE SCHEMA IF NOT EXISTS ${schemaName};
     agentsContent
   );
 
+  // Create CLAUDE.md referencing AGENTS.md
+  await Deno.writeTextFile(
+    path.join(appDir, "CLAUDE.md"),
+    `Instructions are in @AGENTS.md\n`
+  );
+
   // Create DATATABLES.md with the configured data
   const datatablesContent = generateDatatablesDocumentation(dataForDocs);
   await Deno.writeTextFile(

@@ -31,9 +31,109 @@ OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
 OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
+OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
+
+# Mapping of language file names to friendly names and descriptions
+LANGUAGE_METADATA = {
+    'bun': {
+        'name': 'TypeScript (Bun)',
+        'description': 'Write TypeScript scripts using the Bun runtime with full npm ecosystem and fastest execution.',
+        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
+    },
+    'deno': {
+        'name': 'TypeScript (Deno)',
+        'description': 'Write TypeScript scripts using the Deno runtime with npm: prefix imports.',
+        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
+    },
+    'nativets': {
+        'name': 'Native TypeScript',
+        'description': 'Write lightweight TypeScript scripts using fetch only, no external imports.',
+        'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
+    },
+    'bunnative': {
+        'name': 'Bun Native',
+        'description': 'Write Bun scripts using fetch only, no external imports.',
+        'use_cases': 'simple Bun scripts, lightweight, no dependencies'
+    },
+    'python3': {
+        'name': 'Python',
+        'description': 'Write Python scripts for Windmill with TypedDict resources and wmill SDK.',
+        'use_cases': 'Python automation, data processing, machine learning, scripting'
+    },
+    'bash': {
+        'name': 'Bash',
+        'description': 'Write Bash scripts with positional arguments and JSON output.',
+        'use_cases': 'shell scripts, system administration, CLI tools'
+    },
+    'go': {
+        'name': 'Go',
+        'description': 'Write Go scripts with package inner and error returns.',
+        'use_cases': 'Go automation, high performance, concurrent processing'
+    },
+    'rust': {
+        'name': 'Rust',
+        'description': 'Write Rust scripts with Cargo dependencies and anyhow::Result.',
+        'use_cases': 'Rust automation, high performance, memory safety'
+    },
+    'postgresql': {
+        'name': 'PostgreSQL',
+        'description': 'Write PostgreSQL queries with $1::TYPE parameter syntax.',
+        'use_cases': 'PostgreSQL database queries, data analysis'
+    },
+    'mysql': {
+        'name': 'MySQL',
+        'description': 'Write MySQL queries with ? placeholder syntax.',
+        'use_cases': 'MySQL database queries, data operations'
+    },
+    'mssql': {
+        'name': 'MS SQL Server',
+        'description': 'Write MS SQL Server queries with @P1, @P2 parameter syntax.',
+        'use_cases': 'SQL Server database queries, enterprise data'
+    },
+    'bigquery': {
+        'name': 'BigQuery',
+        'description': 'Write BigQuery queries with @name parameter syntax.',
+        'use_cases': 'BigQuery analytics, large-scale data analysis'
+    },
+    'snowflake': {
+        'name': 'Snowflake',
+        'description': 'Write Snowflake queries with :name parameter syntax.',
+        'use_cases': 'Snowflake data warehouse queries, analytics'
+    },
+    'duckdb': {
+        'name': 'DuckDB',
+        'description': 'Write DuckDB queries with $name parameter syntax and Ducklake support.',
+        'use_cases': 'DuckDB analytics, local data processing, Ducklake'
+    },
+    'graphql': {
+        'name': 'GraphQL',
+        'description': 'Write GraphQL queries and mutations for Windmill.',
+        'use_cases': 'GraphQL API calls, federated queries'
+    },
+    'php': {
+        'name': 'PHP',
+        'description': 'Write PHP scripts with Composer dependency management.',
+        'use_cases': 'PHP automation, web integrations'
+    },
+    'powershell': {
+        'name': 'PowerShell',
+        'description': 'Write PowerShell scripts with param() function syntax.',
+        'use_cases': 'Windows automation, system administration'
+    },
+    'csharp': {
+        'name': 'C#',
+        'description': 'Write C# scripts with NuGet #r directive for dependencies.',
+        'use_cases': 'C# automation, .NET integrations'
+    },
+    'java': {
+        'name': 'Java',
+        'description': 'Write Java scripts with Maven //requirements comments.',
+        'use_cases': 'Java automation, enterprise integrations'
+    },
+}
 
 # CLI source paths for extracting command documentation
 CLI_DIR = ROOT_DIR / "cli"
@@ -377,10 +477,31 @@ def extract_py_classes(content: str) -> list[dict]:
     return classes
 
 
-def parse_command_block(content: str) -> dict:
+def parse_default_imports(content: str) -> dict[str, str]:
+    """
+    Parse default imports from TypeScript content.
+    Returns a dict mapping variable names to relative file paths.
+    E.g., 'import devCommand from "./dev.ts"' -> {'devCommand': './dev.ts'}
+    """
+    imports = {}
+    # Match: import varName from "./path.ts" or import varName from './path.ts'
+    import_pattern = re.compile(
+        r'import\s+(\w+)\s+from\s+["\']([^"\']+)["\']',
+        re.MULTILINE
+    )
+    for match in import_pattern.finditer(content):
+        var_name, path = match.groups()
+        imports[var_name] = path
+    return imports
+
+
+def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     """
     Parse a Cliffy Command() definition block and extract metadata.
     Returns a dict with: description, options, subcommands, arguments, alias
+
+    If file_path is provided, imported subcommands will be resolved by parsing
+    the imported files.
     """
     result = {
         'description': '',
@@ -421,22 +542,34 @@ def parse_command_block(content: str) -> dict:
     if alias_match:
         result['alias'] = alias_match.group(1)
 
-    # Extract options pattern
+    # Extract options pattern - handles multi-line options and options with config objects
+    # Matches: .option("flag", "desc") and .option("flag", "desc", { ... })
+    # Uses separate patterns for double and single quoted strings to handle apostrophes
     option_pattern = re.compile(
-        r'\.option\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
-        re.MULTILINE
+        r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+        r'|'
+        r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+        re.MULTILINE | re.DOTALL
     )
 
     # Extract top-level options (before any .command() or .action())
     top_section_until_action = re.split(r'\.action\(', top_section)[0]
     for match in option_pattern.finditer(top_section_until_action):
-        flag, desc = match.groups()
-        result['options'].append({'flag': flag, 'description': desc})
+        groups = match.groups()
+        # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
+        # Either double-quoted or single-quoted pair will be non-None
+        flag = groups[0] or groups[2]
+        desc = groups[1] or groups[3]
+        if flag and desc:
+            result['options'].append({'flag': flag, 'description': desc})
 
     # Extract top-level arguments
     args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', top_section)
     if args_match:
         result['arguments'] = args_match.group(1)
+
+    # Parse imports if we have a file path (for resolving imported subcommands)
+    imports = parse_default_imports(content) if file_path else {}
 
     # Extract subcommands with their arguments, options, and descriptions
     # Split by .command( to find subcommand boundaries
@@ -444,10 +577,40 @@ def parse_command_block(content: str) -> dict:
 
     for section in subcommand_sections:
         # Check if this starts a new subcommand
-        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*["\']([^"\']+)["\'])?\s*\)', section)
+        # Pattern matches both: .command("name", "description") and .command("name", variableName)
+        cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*([^)]+))?\s*\)', section)
         if cmd_match:
             cmd_name = cmd_match.group(1)
-            cmd_desc = cmd_match.group(2) or ''
+            second_arg = cmd_match.group(2).strip() if cmd_match.group(2) else ''
+
+            # Check if second arg is a string (description) or a variable (imported command)
+            is_string_desc = second_arg.startswith('"') or second_arg.startswith("'")
+
+            if is_string_desc:
+                # Inline string description
+                cmd_desc = second_arg.strip('"\'')
+            elif second_arg and second_arg in imports and file_path:
+                # Imported command - resolve and parse the imported file
+                import_path = imports[second_arg]
+                if import_path.startswith('./') or import_path.startswith('../'):
+                    imported_file = (file_path.parent / import_path).resolve()
+                    if imported_file.exists():
+                        try:
+                            imported_content = imported_file.read_text()
+                            imported_cmd = parse_command_block(imported_content, imported_file)
+                            # Use the imported command's metadata
+                            result['subcommands'].append({
+                                'name': cmd_name,
+                                'description': imported_cmd.get('description', ''),
+                                'arguments': imported_cmd.get('arguments', ''),
+                                'options': imported_cmd.get('options', [])
+                            })
+                            continue  # Skip the normal processing below
+                        except Exception as e:
+                            print(f"  Warning: Could not parse imported command {second_arg}: {e}")
+                cmd_desc = ''
+            else:
+                cmd_desc = ''
 
             # Check for description in chained .description() call
             # Handle multi-line descriptions
@@ -464,8 +627,12 @@ def parse_command_block(content: str) -> dict:
             cmd_options = []
             section_until_action = re.split(r'\.action\(', section)[0]
             for opt_match in option_pattern.finditer(section_until_action):
-                flag, desc = opt_match.groups()
-                cmd_options.append({'flag': flag, 'description': desc})
+                groups = opt_match.groups()
+                # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
+                flag = groups[0] or groups[2]
+                desc = groups[1] or groups[3]
+                if flag and desc:
+                    cmd_options.append({'flag': flag, 'description': desc})
 
             result['subcommands'].append({
                 'name': cmd_name,
@@ -547,7 +714,7 @@ def extract_cli_commands() -> dict:
         if cmd_file:
             try:
                 cmd_content = cmd_file.read_text()
-                cmd_data = parse_command_block(cmd_content)
+                cmd_data = parse_command_block(cmd_content, cmd_file)
                 cmd_data['name'] = cmd_name
                 result['commands'].append(cmd_data)
             except Exception as e:
@@ -704,6 +871,213 @@ def read_markdown_file(path: Path) -> str:
     return ''
 
 
+def generate_skill_content(
+    skill_name: str,
+    description: str,
+    intro: str,
+    content: str,
+    sdk_content: str = ''
+) -> str:
+    """Generate a skill file with YAML frontmatter."""
+    parts = [
+        "---",
+        f"name: {skill_name}",
+        f"description: {description}",
+        "---",
+        "",
+    ]
+    if intro:
+        parts.extend([intro, ""])
+    parts.append(content)
+    if sdk_content:
+        parts.extend(["", sdk_content])
+    return '\n'.join(parts)
+
+
+def generate_skills(
+    languages: dict[str, str],
+    ts_sdk_md: str,
+    py_sdk_md: str,
+    flow_base: str,
+    openflow_content: str
+):
+    """Generate individual skill files for Claude Code."""
+    print("Generating skill files...")
+
+    # Ensure skills directory exists
+    OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Read base files for additional skills
+    base_dir = SCRIPT_DIR / "base"
+    script_base = read_markdown_file(base_dir / "script-base.md")
+    raw_app_content = read_markdown_file(base_dir / "raw-app.md")
+    triggers_content = read_markdown_file(base_dir / "triggers.md")
+    schedules_content = read_markdown_file(base_dir / "schedules.md")
+    resources_content = read_markdown_file(base_dir / "resources.md")
+
+    # CLI intro for script skills
+    script_cli_intro = """## CLI Commands
+
+Place scripts in a folder. After writing, run:
+- `wmill script generate-metadata` - Generate .script.yaml and .lock files
+- `wmill sync push` - Deploy to Windmill
+
+Use `wmill resource-type list --schema` to discover available resource types."""
+
+    skills_generated = []
+
+    # Languages that use TypeScript SDK
+    ts_sdk_languages = ['bun', 'deno', 'nativets', 'bunnative']
+    # Languages that use Python SDK
+    py_sdk_languages = ['python3']
+
+    # Generate script skills for each language
+    for lang_key, lang_content in languages.items():
+        if lang_key not in LANGUAGE_METADATA:
+            print(f"  Warning: No metadata for language '{lang_key}', skipping")
+            continue
+
+        metadata = LANGUAGE_METADATA[lang_key]
+        skill_name = f"write-script-{lang_key}"
+        skill_dir = OUTPUT_SKILLS_DIR / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        # Determine which SDK to include
+        sdk_content = ''
+        if lang_key in ts_sdk_languages:
+            sdk_content = ts_sdk_md
+        elif lang_key in py_sdk_languages:
+            sdk_content = py_sdk_md
+
+        # Language skills only include language-specific content, not the general script-base
+        skill_content = generate_skill_content(
+            skill_name=skill_name,
+            description=metadata['description'],
+            intro=script_cli_intro,
+            content=lang_content,
+            sdk_content=sdk_content
+        )
+
+        (skill_dir / "SKILL.md").write_text(skill_content)
+        skills_generated.append(skill_name)
+
+    # Generate write-flow skill
+    flow_skill_dir = OUTPUT_SKILLS_DIR / "write-flow"
+    flow_skill_dir.mkdir(parents=True, exist_ok=True)
+    flow_skill_content = generate_skill_content(
+        skill_name="write-flow",
+        description="Create Windmill flows using OpenFlow YAML specification.",
+        intro="",
+        content=f"{flow_base}\n\n{openflow_content}"
+    )
+    (flow_skill_dir / "SKILL.md").write_text(flow_skill_content)
+    skills_generated.append("write-flow")
+
+    # Generate raw-app skill (if content exists)
+    if raw_app_content:
+        raw_app_skill_dir = OUTPUT_SKILLS_DIR / "raw-app"
+        raw_app_skill_dir.mkdir(parents=True, exist_ok=True)
+        raw_app_skill_content = generate_skill_content(
+            skill_name="raw-app",
+            description="Create raw apps with React/Svelte/Vue frontend and backend runnables.",
+            intro="",
+            content=raw_app_content
+        )
+        (raw_app_skill_dir / "SKILL.md").write_text(raw_app_skill_content)
+        skills_generated.append("raw-app")
+
+    # Generate triggers skill (if content exists)
+    if triggers_content:
+        triggers_skill_dir = OUTPUT_SKILLS_DIR / "triggers"
+        triggers_skill_dir.mkdir(parents=True, exist_ok=True)
+        triggers_skill_content = generate_skill_content(
+            skill_name="triggers",
+            description="Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers.",
+            intro="",
+            content=triggers_content
+        )
+        (triggers_skill_dir / "SKILL.md").write_text(triggers_skill_content)
+        skills_generated.append("triggers")
+
+    # Generate schedules skill (if content exists)
+    if schedules_content:
+        schedules_skill_dir = OUTPUT_SKILLS_DIR / "schedules"
+        schedules_skill_dir.mkdir(parents=True, exist_ok=True)
+        schedules_skill_content = generate_skill_content(
+            skill_name="schedules",
+            description="Configure cron schedules for automated script and flow execution.",
+            intro="",
+            content=schedules_content
+        )
+        (schedules_skill_dir / "SKILL.md").write_text(schedules_skill_content)
+        skills_generated.append("schedules")
+
+    # Generate resources skill (if content exists)
+    if resources_content:
+        resources_skill_dir = OUTPUT_SKILLS_DIR / "resources"
+        resources_skill_dir.mkdir(parents=True, exist_ok=True)
+        resources_skill_content = generate_skill_content(
+            skill_name="resources",
+            description="Manage resource types and credentials for external services.",
+            intro="",
+            content=resources_content
+        )
+        (resources_skill_dir / "SKILL.md").write_text(resources_skill_content)
+        skills_generated.append("resources")
+
+    print(f"  Generated {len(skills_generated)} skills")
+    return skills_generated
+
+
+def generate_skills_ts_export(skills: list[str]) -> str:
+    """Generate TypeScript file that exports skill metadata for the CLI."""
+    ts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
+    ts += "export interface SkillMetadata {\n"
+    ts += "  name: string;\n"
+    ts += "  description: string;\n"
+    ts += "  languageKey?: string;\n"
+    ts += "}\n\n"
+
+    ts += "export const SKILLS: SkillMetadata[] = [\n"
+
+    for skill in skills:
+        if skill.startswith('write-script-'):
+            lang_key = skill.replace('write-script-', '')
+            if lang_key in LANGUAGE_METADATA:
+                metadata = LANGUAGE_METADATA[lang_key]
+                ts += f'  {{ name: "{skill}", description: "{metadata["description"]}", languageKey: "{lang_key}" }},\n'
+        elif skill == 'write-flow':
+            ts += f'  {{ name: "{skill}", description: "Create Windmill flows using OpenFlow YAML specification." }},\n'
+        elif skill == 'wmill-cli':
+            ts += f'  {{ name: "{skill}", description: "Reference for Windmill CLI commands and usage." }},\n'
+        elif skill == 'raw-app':
+            ts += f'  {{ name: "{skill}", description: "Create raw apps with React/Svelte/Vue frontend and backend runnables." }},\n'
+        elif skill == 'triggers':
+            ts += f'  {{ name: "{skill}", description: "Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers." }},\n'
+        elif skill == 'schedules':
+            ts += f'  {{ name: "{skill}", description: "Configure cron schedules for automated script and flow execution." }},\n'
+        elif skill == 'resources':
+            ts += f'  {{ name: "{skill}", description: "Manage resource types and credentials for external services." }},\n'
+
+    ts += "];\n\n"
+
+    # Generate the skills content inline for bundling
+    ts += "// Skill content for each skill (loaded inline for bundling)\n"
+    ts += "export const SKILL_CONTENT: Record<string, string> = {\n"
+
+    # We'll read the generated files and embed them
+    for skill in skills:
+        skill_path = OUTPUT_SKILLS_DIR / skill / "SKILL.md"
+        if skill_path.exists():
+            content = skill_path.read_text()
+            escaped = escape_for_ts(content)
+            ts += f'  "{skill}": `{escaped}`,\n'
+
+    ts += "};\n"
+
+    return ts
+
+
 def main():
     """Main generation function."""
     print("Generating system prompts documentation...")
@@ -845,16 +1219,31 @@ export function getFlowPrompt(): string {
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
-    # Generate CLI-specific prompts.ts with only SCRIPT_PROMPT and FLOW_PROMPT
+    # Generate CLI-specific prompts.ts with base prompts and full prompts
     print("Generating CLI prompts...")
     CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
     cli_prompts = {
+        'SCRIPT_BASE': script_base,
+        'FLOW_BASE': flow_base,
         'SCRIPT_PROMPT': script_md,
         'FLOW_PROMPT': flow_md,
         'CLI_COMMANDS': cli_commands,
     }
     cli_prompts_ts = generate_ts_exports(cli_prompts)
     (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)
+
+    # Generate skill files for Claude Code
+    skills = generate_skills(
+        languages=languages,
+        ts_sdk_md=ts_sdk_md,
+        py_sdk_md=py_sdk_md,
+        flow_base=flow_base,
+        openflow_content=openflow_content
+    )
+
+    # Generate skills TypeScript export for CLI
+    skills_ts = generate_skills_ts_export(skills)
+    (CLI_GUIDANCE_DIR / "skills.ts").write_text(skills_ts)
 
     print(f"\nGenerated files:")
     print(f"  - auto-generated/sdks/typescript.md")
@@ -864,8 +1253,10 @@ export function getFlowPrompt(): string {
     print(f"  - auto-generated/index.ts")
     print(f"  - auto-generated/script.md")
     print(f"  - auto-generated/flow.md")
+    print(f"  - auto-generated/skills/ ({len(skills)} skills)")
     print(f"\nGenerated for CLI:")
     print(f"  - cli/src/guidance/prompts.ts")
+    print(f"  - cli/src/guidance/skills.ts")
     print("\nDone!")
 
 
