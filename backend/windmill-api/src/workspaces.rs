@@ -948,6 +948,7 @@ async fn edit_deploy_to(
         DeployedObject::Settings { setting_type: "deploy_to".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -1048,6 +1049,7 @@ async fn edit_webhook(
         DeployedObject::Settings { setting_type: "webhook".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -1114,6 +1116,7 @@ async fn edit_copilot_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "ai_config".to_string() },
         Some("AI configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1207,6 +1210,7 @@ async fn edit_large_file_storage_config(
         },
         Some("Large file storage configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1728,6 +1732,7 @@ async fn edit_git_sync_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
         Some("Git sync configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1851,6 +1856,7 @@ async fn edit_git_sync_repository(
             if repo_exists { "updated" } else { "added" }
         )),
         false,
+        None,
     )
     .await?;
 
@@ -1966,6 +1972,7 @@ async fn delete_git_sync_repository(
             request.git_repo_resource_path
         )),
         false,
+        None,
     )
     .await?;
 
@@ -2108,6 +2115,7 @@ async fn edit_default_scripts(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_scripts".to_string() },
         Some("Default scripts configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2190,6 +2198,7 @@ async fn edit_default_app(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_app".to_string() },
         Some("Default app configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2322,6 +2331,7 @@ async fn edit_error_handler(
         windmill_git_sync::DeployedObject::Settings { setting_type: "error_handler".to_string() },
         Some("Error handler configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2397,6 +2407,7 @@ async fn edit_success_handler(
         windmill_git_sync::DeployedObject::Settings { setting_type: "success_handler".to_string() },
         Some("Success handler configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2575,6 +2586,7 @@ async fn set_encryption_key(
         windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
         Some("Encryption key updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -3954,6 +3966,7 @@ async fn add_user(
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
         Some(format!("Added user '{}' to workspace", &nu.email)),
         true,
+        None,
     )
     .await?;
 
@@ -4199,6 +4212,7 @@ async fn change_workspace_name(
         windmill_git_sync::DeployedObject::Settings { setting_type: "workspace_name".to_string() },
         Some(format!("Workspace name updated to {}", &rw.new_name)),
         false,
+        None,
     )
     .await?;
 
@@ -4233,6 +4247,7 @@ async fn change_workspace_color(
         DeployedObject::Settings { setting_type: "workspace_color".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4346,6 +4361,7 @@ async fn mute_critical_alerts(
         DeployedObject::Settings { setting_type: "critical_alerts".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4417,6 +4433,7 @@ async fn update_operator_settings(
         },
         Some("Operator settings updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -4442,6 +4459,8 @@ pub struct CompareSummary {
     pub apps_changed: usize,
     pub resources_changed: usize,
     pub variables_changed: usize,
+    pub resource_types_changed: usize,
+    pub folders_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -4552,6 +4571,19 @@ async fn compare_workspaces(
                 compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "resource_type" => Some(
+                compare_two_resource_types(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
+            ),
+            "folder" => Some(
+                compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -4632,6 +4664,11 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind == "variable")
             .count(),
+        resource_types_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "resource_type")
+            .count(),
+        folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -4751,6 +4788,33 @@ async fn query_visible_items<'c>(
                 sqlx::query_scalar!(
                     "SELECT path FROM variable
                      WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "folder" => {
+                let a: Vec<String> = paths_vec
+                    .iter()
+                    .map(|p| p.strip_prefix("f/").unwrap_or(p.as_str()).to_string())
+                    .collect();
+                sqlx::query_scalar!(
+                    "SELECT name FROM folder
+                     WHERE workspace_id = $1 AND name = ANY($2)",
+                    workspace_id,
+                    &a,
+                )
+                .fetch_all(&mut **tx)
+                .await?
+                .into_iter()
+                .map(|p| format!("f/{p}"))
+                .collect()
+            }
+            "resource_type" => {
+                sqlx::query_scalar!(
+                    "SELECT name FROM resource_type
+                     WHERE workspace_id = $1 AND name = ANY($2)",
                     workspace_id,
                     &paths_vec
                 )
@@ -5028,5 +5092,104 @@ async fn compare_two_variables(
         has_changes,
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
+    });
+}
+
+async fn compare_two_resource_types(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get resource type from each workspace
+    let source_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
+        if source.schema != target.schema
+            || source.description != target.description
+            || source.format_extension != target.format_extension
+        {
+            has_changes = true;
+        }
+    } else if source_resource_type.is_some() || target_resource_type.is_some() {
+        // The resource type exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource_type.is_some(),
+        exists_in_fork: target_resource_type.is_some(),
+    });
+}
+
+async fn compare_two_folders(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get folder from each workspace
+    let source_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name.strip_prefix("f/"),
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name.strip_prefix("f/"),
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_folder, &target_folder) {
+        if source.display_name != target.display_name
+            || source.owners != target.owners
+            || source.extra_perms != target.extra_perms
+            || source.summary != target.summary
+        {
+            has_changes = true;
+        }
+    } else if source_folder.is_some() || target_folder.is_some() {
+        // The folder exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_folder.is_some(),
+        exists_in_fork: target_folder.is_some(),
     });
 }

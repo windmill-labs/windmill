@@ -436,6 +436,7 @@ async fn create_trigger<T: TriggerCrud>(
         T::get_deployed_object(new_path.clone()),
         Some(format!("{} '{}' created", T::DEPLOYMENT_NAME, new_path)),
         true,
+        None,
     )
     .await?;
 
@@ -529,6 +530,7 @@ async fn update_trigger<T: TriggerCrud>(
         T::get_deployed_object(new_path.clone()),
         Some(format!("{} '{}' updated", T::DEPLOYMENT_NAME, new_path)),
         true,
+        None,
     )
     .await?;
 
@@ -629,6 +631,7 @@ async fn set_trigger_mode<T: TriggerCrud>(
         T::get_deployed_object(path.to_owned()),
         Some(format!("{} trigger '{}' updated", T::DEPLOYMENT_NAME, path)),
         true,
+        None,
     )
     .await?;
 

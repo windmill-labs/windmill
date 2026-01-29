@@ -314,6 +314,7 @@ pub async fn create_many_http_triggers(
             windmill_git_sync::DeployedObject::HttpTrigger { path: http_trigger.base.path.clone() },
             Some(format!("HTTP trigger '{}' created", http_trigger.base.path)),
             true,
+            None,
         )
         .await
         .map_err(|err| error_wrapper(&http_trigger.config.route_path, err.into()))?;

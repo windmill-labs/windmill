@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE variable SET value = 'modified_value'\n         WHERE workspace_id = 'test-workspace' AND path = 'f/shared/variable_to_modify'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9df747dec3f3c245b1cd3a5039f0a4a69d0667e328ad838c1a2f9bb9fee2d121"
+}

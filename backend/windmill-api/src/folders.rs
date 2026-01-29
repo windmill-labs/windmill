@@ -287,6 +287,7 @@ async fn create_folder(
         DeployedObject::Folder { path: format!("f/{}", ng.name) },
         Some(format!("Folder '{}' created", ng.name)),
         true,
+        None,
     )
     .await?;
 
@@ -467,6 +468,7 @@ async fn update_folder(
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' updated", name)),
         true,
+        None,
     )
     .await?;
 
@@ -662,6 +664,7 @@ async fn delete_folder(
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' deleted", name)),
         true,
+        None,
     )
     .await?;
 
