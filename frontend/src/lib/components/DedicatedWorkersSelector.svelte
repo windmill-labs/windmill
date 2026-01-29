@@ -27,7 +27,7 @@
 	interface FlowRunner {
 		stepId: string
 		stepSummary?: string
-		language: string
+		language?: string
 		scriptPath?: string
 		isInline: boolean
 	}
@@ -75,6 +75,35 @@
 		} else {
 			return { workspace, type: 'script', path: rest }
 		}
+	}
+
+	// Resolve workspace script languages and filter to supported languages
+	async function resolveAndFilterRunners(
+		workspace: string,
+		preliminaryRunners: FlowRunner[]
+	): Promise<FlowRunner[]> {
+		const runnersWithLanguage = await Promise.all(
+			preliminaryRunners.map(async (runner) => {
+				if (!runner.isInline && runner.scriptPath) {
+					try {
+						const script = await ScriptService.getScriptByPath({
+							workspace,
+							path: runner.scriptPath
+						})
+						return { ...runner, language: script.language }
+					} catch (e) {
+						console.error(`Failed to fetch script ${runner.scriptPath}`, e)
+						return { ...runner, language: undefined }
+					}
+				}
+				return runner
+			})
+		)
+
+		// Filter to only supported languages
+		return runnersWithLanguage.filter(
+			(runner) => runner.language && DEDICATED_WORKER_LANGUAGES.includes(runner.language)
+		)
 	}
 
 	// Load detailed info for all selected tags
@@ -132,9 +161,10 @@
 								workspace: parsed.workspace,
 								path: parsed.path
 							})
-							const runners = flow.value?.modules
+							const preliminaryRunners = flow.value?.modules
 								? extractRunnersFromModules(flow.value.modules)
 								: []
+							const runners = await resolveAndFilterRunners(parsed.workspace, preliminaryRunners)
 							newInfo.set(tag, {
 								tag,
 								workspace: parsed.workspace,
@@ -199,6 +229,7 @@
 	}
 
 	// Extract runners from flow modules recursively
+	// Returns runners with language info for inline scripts, and scriptPath for workspace scripts
 	function extractRunnersFromModules(modules: FlowModule[]): FlowRunner[] {
 		const runners: FlowRunner[] = []
 
@@ -217,11 +248,11 @@
 					}
 					break
 				case 'script':
-					// For script references, we'll show them - backend will filter by language
+					// For workspace script references, we'll resolve the language later
 					runners.push({
 						stepId: module.id,
 						stepSummary: module.summary,
-						language: 'script',
+						language: undefined, // Will be resolved by fetching the script
 						scriptPath: value.path,
 						isInline: false
 					})
@@ -260,7 +291,8 @@
 			})
 
 			if (flow.value?.modules) {
-				runnable.runners = extractRunnersFromModules(flow.value.modules)
+				const preliminaryRunners = extractRunnersFromModules(flow.value.modules)
+				runnable.runners = await resolveAndFilterRunners(selectedWorkspace, preliminaryRunners)
 			} else {
 				runnable.runners = []
 			}
