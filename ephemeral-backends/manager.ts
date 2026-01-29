@@ -6,6 +6,14 @@ import sodium from "libsodium-wrappers-sumo";
 import { EphemeralBackend } from "./spawn";
 import { WorktreePool } from "./worktree-pool";
 
+process.on("unhandledRejection", (err) => {
+  console.error("UNHANDLED PROMISE:", err);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("UNCAUGHT EXCEPTION:", err);
+});
+
 const githubToken = process.env.GITHUB_TOKEN;
 if (!githubToken) {
   console.log("⚠️  GITHUB_TOKEN environment variable not set");
@@ -122,11 +130,12 @@ class EphemeralBackendManager {
               };
             });
 
-            const worktreePoolStats = self.resources.worktreePool?.getStats() || {
-              total: 0,
-              inUse: 0,
-              available: 0,
-            };
+            const worktreePoolStats =
+              self.resources.worktreePool?.getStats() || {
+                total: 0,
+                inUse: 0,
+                available: 0,
+              };
 
             return new Response(
               JSON.stringify({
@@ -420,7 +429,9 @@ class EphemeralBackendManager {
       if (!deleteResponse.ok) {
         // 404 is acceptable - secret might not exist
         if (deleteResponse.status === 404) {
-          console.log(`  ✓ Secret ${secretName} does not exist (already deleted)`);
+          console.log(
+            `  ✓ Secret ${secretName} does not exist (already deleted)`
+          );
           return;
         }
         const errorText = await deleteResponse.text();
