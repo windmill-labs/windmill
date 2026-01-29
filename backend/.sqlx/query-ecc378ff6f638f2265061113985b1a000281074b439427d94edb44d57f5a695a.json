@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM deployment_metadata WHERE workspace_id = $1 AND path = ANY($2) AND script_hash IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ecc378ff6f638f2265061113985b1a000281074b439427d94edb44d57f5a695a"
+}
