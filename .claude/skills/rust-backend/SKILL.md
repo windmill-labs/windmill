@@ -1,6 +1,6 @@
 ---
 name: rust-backend
-description: Rust coding guidelines for the Windmill backend. Apply when writing or modifying Rust code in the backend directory.
+description: Rust coding guidelines for the Windmill backend. MUST use when writing or modifying Rust code in the backend directory.
 ---
 
 # Rust Backend Coding Guidelines

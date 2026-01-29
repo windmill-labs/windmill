@@ -178,11 +178,3 @@ export function supportsAutocomplete(model: string): boolean {
 	return lower.includes('codestral') && !lower.includes('embed')
 }
 
-/**
- * Checks if a model belongs to the Mistral family.
- * Used for provider-specific configurations (e.g., excluding seed parameter).
- */
-export function isMistralFamily(model: string): boolean {
-	const lower = model.toLowerCase()
-	return lower.includes('mistral') || lower.includes('codestral')
-}
