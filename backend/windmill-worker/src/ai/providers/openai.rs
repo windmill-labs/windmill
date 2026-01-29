@@ -511,17 +511,12 @@ impl QueryBuilder for OpenAIQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let response_text = response.text().await.map_err(|e| {
-            Error::internal_err(format!("Failed to read OpenAI response body: {}", e))
+        let responses_response: ResponsesApiResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!(
+                "Failed to parse OpenAI responses API response: {}",
+                e
+            ))
         })?;
-
-        let responses_response: ResponsesApiResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!(
-                    "Failed to parse OpenAI responses API response: {}",
-                    e
-                ))
-            })?;
 
         for output in responses_response.output.iter() {
             match output.r#type.as_str() {

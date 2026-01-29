@@ -568,14 +568,9 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let response_text = response.text().await.map_err(|e| {
-            Error::internal_err(format!("Failed to read Gemini response body: {}", e))
+        let gemini_response: GeminiImageResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!("Failed to parse Gemini image response: {}", e))
         })?;
-
-        let gemini_response: GeminiImageResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!("Failed to parse Gemini image response: {}", e))
-            })?;
 
         // First, check Gemini models (candidates -> content -> parts -> inline_data)
         let image_data_from_gemini = gemini_response.candidates.as_ref().and_then(|candidates| {

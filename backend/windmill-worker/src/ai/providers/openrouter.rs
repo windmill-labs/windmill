@@ -106,14 +106,9 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let response_text = response.text().await.map_err(|e| {
-            Error::internal_err(format!("Failed to read OpenRouter response body: {}", e))
+        let image_response: OpenRouterImageResponse = response.json().await.map_err(|e| {
+            Error::internal_err(format!("Failed to parse OpenRouter image response: {}", e))
         })?;
-
-        let image_response: OpenRouterImageResponse =
-            serde_json::from_str(&response_text).map_err(|e| {
-                Error::internal_err(format!("Failed to parse OpenRouter image response: {}", e))
-            })?;
 
         if let Some(image) = image_response
             .choices
