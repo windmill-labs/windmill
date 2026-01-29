@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.621.1
+  version: 1.621.2
   title: Windmill API
 
   contact:
@@ -5751,6 +5751,14 @@ paths:
             If true, the description field will be omitted from the response.
           schema:
             type: boolean
+        - name: dedicated_worker
+          in: query
+          description: |
+            (default regardless)
+            If true, show only scripts with dedicated_worker enabled.
+            If false, show only scripts with dedicated_worker disabled.
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -7176,6 +7184,14 @@ paths:
           description: |
             (default false)
             If true, the description field will be omitted from the response.
+          schema:
+            type: boolean
+        - name: dedicated_worker
+          in: query
+          description: |
+            (default regardless)
+            If true, show only flows with dedicated_worker enabled.
+            If false, show only flows with dedicated_worker disabled.
           schema:
             type: boolean
       responses:

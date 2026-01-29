@@ -192,6 +192,9 @@ async fn list_flows(
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.draft_only IS NOT TRUE");
     }
+    if let Some(dw) = &lq.dedicated_worker {
+        sqlb.and_where_eq("dedicated_worker", dw);
+    }
 
     if lq.with_deployment_msg.unwrap_or(false) {
         sqlb.join("deployment_metadata dm")

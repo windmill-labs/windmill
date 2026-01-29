@@ -1531,7 +1531,10 @@ pub async fn run_worker(
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
-    let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
+    let is_dedicated_worker: bool = {
+        let config = WORKER_CONFIG.read().await;
+        config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty())
+    };
 
     #[cfg(feature = "benchmark")]
     let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
@@ -1633,9 +1636,9 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -1650,15 +1653,15 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), false, vec![]),
+        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), false, vec![]);
+    ) = (HashMap::new(), HashSet::new(), vec![]);
 
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
@@ -2035,30 +2038,32 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        let key_o = if is_flow_worker {
-                            job.flow_step_id.as_ref().map(|x| x.to_string())
+                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
+                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
+                            dedicated_flow_paths.iter().find_map(|flow_path| {
+                                let key = format!("{}:{}", flow_path, step_id);
+                                dedicated_workers.get(&key)
+                            })
                         } else {
-                            job.runnable_path.as_ref().map(|x| x.to_string())
+                            job.runnable_path.as_ref().and_then(|path| dedicated_workers.get(path))
                         };
-                        if let Some(key) = key_o {
-                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                let dedicated_job = DedicatedWorkerJob {
-                                    job: Arc::new(job.job()),
-                                    flow_runners: None,
-                                    done_tx: None,
-                                };
-                                if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
-                                    tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
-                                }
-
-                                #[cfg(feature = "benchmark")]
-                                {
-                                    add_time!(bench, "sent to dedicated worker");
-                                    infos.add_iter(bench, true);
-                                }
-
-                                continue;
+                        if let Some(dedicated_worker_tx) = dedicated_worker_tx {
+                            let dedicated_job = DedicatedWorkerJob {
+                                job: Arc::new(job.job()),
+                                flow_runners: None,
+                                done_tx: None,
+                            };
+                            if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
+                                tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                             }
+
+                            #[cfg(feature = "benchmark")]
+                            {
+                                add_time!(bench, "sent to dedicated worker");
+                                infos.add_iter(bench, true);
+                            }
+
+                            continue;
                         }
                     }
 
