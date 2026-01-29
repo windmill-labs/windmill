@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.621.0](https://github.com/windmill-labs/windmill/compare/v1.620.1...v1.621.0) (2026-01-29)
+
+
+### Features
+
+* add QuickJS as alternative JS engine for flow expression evaluation ([#7664](https://github.com/windmill-labs/windmill/issues/7664)) ([5c20b37](https://github.com/windmill-labs/windmill/commit/5c20b37a537bae09ce13ef133ac12fd5976d9c37))
+
+
+### Bug Fixes
+
+* return null for non-existent step access in flow expressions ([22cce51](https://github.com/windmill-labs/windmill/commit/22cce51db55fe2b08a4f38cbddf98c12c861542d))
+
+## [1.620.1](https://github.com/windmill-labs/windmill/compare/v1.620.0...v1.620.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* codebase preview in standalone mode ([c59699a](https://github.com/windmill-labs/windmill/commit/c59699acd73aa170d5bd65d903db6b635c19f9ad))
+
 ## [1.620.0](https://github.com/windmill-labs/windmill/compare/v1.619.0...v1.620.0) (2026-01-28)
 
 
