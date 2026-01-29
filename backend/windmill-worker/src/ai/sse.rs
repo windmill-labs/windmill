@@ -501,10 +501,23 @@ pub struct GeminiSSECandidate {
     pub grounding_metadata: Option<GeminiGroundingMetadata>,
 }
 
+/// Gemini usage metadata from SSE response
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiUsageMetadata {
+    #[serde(rename = "promptTokenCount", default)]
+    pub prompt_token_count: Option<i32>,
+    #[serde(rename = "candidatesTokenCount", default)]
+    pub candidates_token_count: Option<i32>,
+    #[serde(rename = "totalTokenCount", default)]
+    pub total_token_count: Option<i32>,
+}
+
 /// Gemini SSE event structure
 #[derive(Deserialize, Debug)]
 pub struct GeminiSSEEvent {
     pub candidates: Option<Vec<GeminiSSECandidate>>,
+    #[serde(rename = "usageMetadata")]
+    pub usage_metadata: Option<GeminiUsageMetadata>,
 }
 
 /// Gemini SSE Parser for streaming responses
@@ -518,6 +531,8 @@ pub struct GeminiSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from usageMetadata
+    pub usage: Option<GeminiUsageMetadata>,
 }
 
 impl GeminiSSEParser {
@@ -530,6 +545,7 @@ impl GeminiSSEParser {
             tool_call_index: 0,
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -627,6 +643,11 @@ impl SSEParser for GeminiSSEParser {
                         }
                     }
                 }
+            }
+
+            // Extract usage metadata
+            if let Some(usage_metadata) = event.usage_metadata {
+                self.usage = Some(usage_metadata);
             }
         }
 
