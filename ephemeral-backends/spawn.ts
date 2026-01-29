@@ -220,10 +220,16 @@ export class EphemeralBackend {
     const maxAttempts = 30;
     const delayMs = 1000;
 
+    // Determine the host to connect to
+    // On Linux, we need to use the host's IP or localhost
+    // On macOS/Windows, host.docker.internal works
+    const isLinux = process.platform === "linux";
+    const dbHost = isLinux ? "172.17.0.1" : "host.docker.internal";
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await execAsync(
-          `docker run --rm postgres:16 pg_isready -h host.docker.internal -p ${this.config.dbPort} -U postgres`
+          `docker run --rm postgres:16 pg_isready -h ${dbHost} -p ${this.config.dbPort} -U postgres`
         );
         console.log("✓ PostgreSQL is ready");
         return;
