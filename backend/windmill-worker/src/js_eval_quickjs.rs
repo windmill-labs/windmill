@@ -439,10 +439,13 @@ fn setup_results_proxy<'js>(
                         None => {
                             // Not in local cache, fallback to querying by flow_job_id and step_id
                             // This happens for branch modules that need to access parent flow step results
-                            client
+                            // Use .ok() to match deno_core behavior: return null for non-existent steps
+                            // instead of throwing an error
+                            Ok(client
                                 .get_result_by_id::<serde_json::Value>(&flow_job_id, &step_id_clone, None)
                                 .await
-                                .map_err(|e| format!("Failed to fetch result for step '{}': {}", step_id_clone, e))
+                                .ok()  // Swallow errors, convert to Option
+                                .unwrap_or(serde_json::Value::Null))  // None -> null
                         }
                     };
 

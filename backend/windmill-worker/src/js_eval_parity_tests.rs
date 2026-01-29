@@ -4042,4 +4042,16 @@ mod flow_simulation_parity_tests {
 
         Ok(())
     }
+
+    // =========================================================================
+    // NOTE: Non-existent step access via results proxy cannot be tested in unit tests
+    // because the results proxy is only set up during actual flow execution (requires by_id context).
+    // See flow_engine_parity.rs for test_flow_results_non_existent_step which tests this behavior.
+    //
+    // IMPORTANT: Both Deno Core and QuickJS throw errors when accessing non-existent steps,
+    // even with optional chaining (results?.nonexistent). This is because:
+    // 1. results is a Proxy object (not null), so ?. doesn't short-circuit
+    // 2. The proxy's get handler triggers a backend lookup
+    // 3. The backend returns "Not found" error
+    // =========================================================================
 }
