@@ -166,7 +166,7 @@ pub enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     pub api_key: Option<String>,
     #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     pub base_url: Option<String>,
