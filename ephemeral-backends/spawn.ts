@@ -68,6 +68,17 @@ export class EphemeralBackend {
       }
       await this.startBackend();
 
+      // Release the worktree back to the pool now that the backend is running
+      // The binary is already compiled and running, so other spawns can reuse this worktree
+      if (this.resources.worktree) {
+        console.log(
+          "\n♻️  Releasing worktree back to pool (backend is now running)..."
+        );
+        await this.config.worktreePool.release(this.resources.worktree.id);
+        // Keep the reference for cleanup but mark it as released
+        this.resources.worktree = undefined;
+      }
+
       console.log("\n✅ Ephemeral backend is ready!");
       console.log(`📍 Tunnel URL: ${this.resources.tunnelUrl}`);
 
@@ -451,6 +462,7 @@ export class EphemeralBackend {
     }
 
     // Release git worktree back to pool (do not delete it)
+    // Note: worktree might already be released if backend started successfully
     if (this.resources.worktree) {
       console.log("  Releasing worktree back to pool...");
       try {
@@ -459,6 +471,8 @@ export class EphemeralBackend {
       } catch (error) {
         console.error("  Failed to release worktree:", error);
       }
+    } else {
+      console.log("  ✓ Worktree already released");
     }
 
     this.config.onCleanup?.();
