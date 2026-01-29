@@ -617,6 +617,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             stream_event_processor,
             annotations,
             used_websearch,
+            usage: gemini_usage,
             ..
         } = gemini_sse_parser;
 
@@ -630,6 +631,10 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             stream_event_processor.send(event, &mut events_str).await?;
         }
 
+        // Convert Gemini usage metadata to TokenUsage
+        let usage = gemini_usage
+            .map(|u| TokenUsage::new(u.prompt_token_count, u.candidates_token_count, u.total_token_count));
+
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
                 None
@@ -640,6 +645,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             events_str: Some(events_str),
             annotations,
             used_websearch,
+            usage,
         })
     }
 
