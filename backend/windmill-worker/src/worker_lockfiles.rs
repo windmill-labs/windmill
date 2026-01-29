@@ -303,6 +303,7 @@ pub async fn handle_dependency_job(
                 },
                 deployment_message.clone(),
                 false,
+                None,
             )
             .await
             {
@@ -953,9 +954,10 @@ pub async fn handle_flow_dependency_job(
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::Flow { path: job_path, parent_path, version },
+            DeployedObject::Flow { path: job_path, parent_path: parent_path.clone(), version },
             deployment_message,
             false,
+            parent_path.as_deref(),
         )
         .await
         {
@@ -2278,9 +2280,9 @@ pub async fn handle_app_dependency_job(
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
         let deployed_object = if is_raw_app {
-            DeployedObject::RawApp { path: job_path, version: id, parent_path }
+            DeployedObject::RawApp { path: job_path, version: id, parent_path: parent_path.clone() }
         } else {
-            DeployedObject::App { path: job_path, version: id, parent_path }
+            DeployedObject::App { path: job_path, version: id, parent_path: parent_path.clone() }
         };
 
         if let Err(e) = handle_deployment_metadata(
@@ -2291,6 +2293,7 @@ pub async fn handle_app_dependency_job(
             deployed_object,
             deployment_message,
             false,
+            parent_path.as_deref(),
         )
         .await
         {

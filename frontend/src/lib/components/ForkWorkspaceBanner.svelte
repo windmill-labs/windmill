@@ -150,6 +150,22 @@
 												: ''}
 										</span>
 									{/if}
+									{#if comparison.summary.resource_types_changed > 0}
+										<span class="text-blue-700 dark:text-blue-100">
+											{comparison.summary.resource_types_changed} resource type{comparison.summary
+												.resource_types_changed !== 1
+												? 's'
+												: ''}
+										</span>
+									{/if}
+									{#if comparison.summary.folders_changed > 0}
+										<span class="text-blue-700 dark:text-blue-100">
+											{comparison.summary.folders_changed} folder{comparison.summary
+												.folders_changed !== 1
+												? 's'
+												: ''}
+										</span>
+									{/if}
 								</div>
 
 								{#if comparison.summary.conflicts > 0}
