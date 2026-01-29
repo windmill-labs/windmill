@@ -635,10 +635,9 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}/{}.{}",
+                "{}/{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                path,
-                if is_tar { "tar" } else { "js" }
+                path
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");
@@ -1327,22 +1326,6 @@ try {{
             append_logs(&job.id, &job.workspace_id, format!("{init_logs}\n"), conn).await;
 
             let stream_notifier = StreamNotifier::new(conn, job);
-
-            // Set job context for OTEL tracing (EE only)
-            #[cfg(all(feature = "private", feature = "enterprise"))]
-            {
-                let tracing_enabled =
-                    crate::worker::is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets)
-                        .await;
-                tracing::debug!(
-                    "nativets job {}: OTEL tracing enabled={}",
-                    job.id,
-                    tracing_enabled
-                );
-                if tracing_enabled {
-                    crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
-                }
-            }
 
             let result = crate::js_eval::eval_fetch_timeout(
                 env_code,

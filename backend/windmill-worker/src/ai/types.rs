@@ -163,7 +163,7 @@ pub enum AnthropicPlatform {
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
     #[serde(alias = "apiKey")]
-    pub api_key: String,
+    pub api_key: Option<String>,
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
     #[allow(dead_code)]
@@ -187,8 +187,8 @@ pub struct ProviderWithResource {
 }
 
 impl ProviderWithResource {
-    pub fn get_api_key(&self) -> &str {
-        &self.resource.api_key
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.resource.api_key.as_deref()
     }
 
     pub fn get_model(&self) -> &str {

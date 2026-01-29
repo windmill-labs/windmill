@@ -1090,6 +1090,212 @@ async function generateMetadata(
   }
 }
 
+async function preview(
+  opts: GlobalOptions & {
+    data?: string;
+    silent: boolean;
+  } & SyncOptions,
+  filePath: string
+) {
+  opts = await mergeConfigWithConfigFile(opts);
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  if (!validatePath(filePath)) {
+    return;
+  }
+
+  const fstat = await Deno.stat(filePath);
+  if (!fstat.isFile) {
+    throw new Error("file path must refer to a file.");
+  }
+
+  if (filePath.endsWith(".script.json") || filePath.endsWith(".script.yaml")) {
+    throw Error(
+      "Cannot preview a script metadata file, point to the script content file instead (.py, .ts, .go, .sh)"
+    );
+  }
+
+  const codebases = await listSyncCodebases(opts);
+  const language = inferContentTypeFromFilePath(filePath, opts?.defaultTs);
+  const content = await Deno.readTextFile(filePath);
+  const input = opts.data ? await resolve(opts.data) : {};
+
+  // Check if this is a codebase script
+  const codebase =
+    language == "bun" ? findCodebase(filePath, codebases) : undefined;
+
+  let bundledContent: string | Blob | undefined = undefined;
+  let isTar = false;
+
+  if (codebase) {
+    if (codebase.customBundler) {
+      if (!opts.silent) {
+        log.info(`Using custom bundler ${codebase.customBundler} for preview`);
+      }
+      bundledContent = execSync(codebase.customBundler + " " + filePath, {
+        maxBuffer: 1024 * 1024 * 50,
+      }).toString();
+    } else {
+      const esbuild = await import("npm:esbuild@0.24.2");
+
+      if (!opts.silent) {
+        log.info(`Bundling ${filePath} for preview...`);
+      }
+      const startTime = performance.now();
+      const format = codebase.format ?? "cjs";
+      const out = await esbuild.build({
+        entryPoints: [filePath],
+        format: format,
+        bundle: true,
+        write: false,
+        external: codebase.external,
+        inject: codebase.inject,
+        define: codebase.define,
+        loader: codebase.loader ?? { ".node": "file" },
+        outdir: "/",
+        platform: "node",
+        packages: "bundle",
+        target: format == "cjs" ? "node20.15.1" : "esnext",
+        banner: codebase.banner,
+      });
+      const endTime = performance.now();
+      bundledContent = out.outputFiles[0].text;
+
+      // Handle multiple output files (create tarball)
+      if (out.outputFiles.length > 1) {
+        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+        if (!opts.silent) {
+          log.info(`Creating tarball for multiple output files...`);
+        }
+        const tarball = new archiveNpm.Tarball();
+        const mainPath = filePath.split(SEP).pop()?.split(".")[0] + ".js";
+        const mainContent =
+          out.outputFiles.find((file: OutputFile) => file.path == "/" + mainPath)?.text ?? "";
+        tarball.append(new File([mainContent], "main.js", { type: "text/plain" }));
+        for (const file of out.outputFiles) {
+          if (file.path == "/" + mainPath) continue;
+          // deno-lint-ignore no-explicit-any
+          const fil = new File([file.contents as any], file.path.substring(1));
+          tarball.append(fil);
+        }
+        bundledContent = await streamToBlob(tarball.stream());
+        isTar = true;
+      } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
+        // Handle assets
+        const archiveNpm = await import("npm:@ayonli/jsext/archive");
+        if (!opts.silent) {
+          log.info(`Adding assets to tarball...`);
+        }
+        const tarball = new archiveNpm.Tarball();
+        tarball.append(new File([bundledContent], "main.js", { type: "text/plain" }));
+        for (const asset of codebase.assets) {
+          const data = fs.readFileSync(asset.from);
+          const blob = new Blob([data], { type: "text/plain" });
+          const file = new File([blob], asset.to);
+          tarball.append(file);
+        }
+        bundledContent = await streamToBlob(tarball.stream());
+        isTar = true;
+      }
+
+      if (!opts.silent) {
+        const size = typeof bundledContent === "string" ? bundledContent.length : bundledContent.size;
+        log.info(
+          `Bundled ${filePath}: ${(size / 1024).toFixed(0)}kB (${(
+            endTime - startTime
+          ).toFixed(0)}ms)`
+        );
+      }
+    }
+  }
+
+  if (!opts.silent) {
+    log.info(colors.yellow(`Running preview for ${filePath}...`));
+  }
+
+  // For codebase scripts with bundles, we need to use a multipart form upload
+  if (bundledContent) {
+    const form = new FormData();
+    const previewPayload = {
+      content: content, // Pass the original content (frontend does this too)
+      path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+      args: input,
+      language: language,
+      kind: isTar ? "tarbundle" : "bundle",
+      format: codebase?.format ?? "cjs",
+    };
+    form.append("preview", JSON.stringify(previewPayload));
+    form.append(
+      "file",
+      typeof bundledContent === "string"
+        ? new Blob([bundledContent], { type: "application/javascript" })
+        : bundledContent
+    );
+
+    const url =
+      workspace.remote +
+      "api/w/" +
+      workspace.workspaceId +
+      "/jobs/run/preview_bundle";
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${workspace.token}` },
+      body: form,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Preview failed: ${response.status} - ${response.statusText} - ${await response.text()}`
+      );
+    }
+
+    const jobId = await response.text();
+    if (!opts.silent) {
+      await track_job(workspace.workspaceId, jobId);
+    }
+
+    // Wait for the job to complete and get the result
+    while (true) {
+      try {
+        const completedJob = await wmill.getCompletedJob({
+          workspace: workspace.workspaceId,
+          id: jobId,
+        });
+
+        const result = completedJob.result ?? {};
+        if (opts.silent) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          log.info(JSON.stringify(result, null, 2));
+        }
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+  } else {
+    // For regular scripts, use the standard preview API
+    const result = await wmill.runScriptPreviewAndWaitResult({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        content,
+        path: filePath.substring(0, filePath.indexOf(".")).replaceAll(SEP, "/"),
+        args: input,
+        language: language as any,
+      },
+    });
+
+    if (opts.silent) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      log.info(colors.bold.underline.green("Preview completed"));
+      log.info(JSON.stringify(result, null, 2));
+    }
+  }
+}
+
 const command = new Command()
   .description("script related commands")
   .option("--show-archived", "Enable archived scripts in output")
@@ -1114,6 +1320,20 @@ const command = new Command()
     "Do not output anything other then the final output. Useful for scripting."
   )
   .action(run as any)
+  .command(
+    "preview",
+    "preview a local script without deploying it. Supports both regular and codebase scripts."
+  )
+  .arguments("<path:file>")
+  .option(
+    "-d --data <data:file>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+  )
+  .option(
+    "-s --silent",
+    "Do not output anything other than the final output. Useful for scripting."
+  )
+  .action(preview as any)
   .command("bootstrap", "create a new script")
   .arguments("<path:file> <language:string>")
   .option("--summary <summary:string>", "script summary")

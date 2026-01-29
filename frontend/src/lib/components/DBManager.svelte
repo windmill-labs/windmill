@@ -229,6 +229,9 @@
 		sanitizedNewSchemaName !== '' &&
 			schemaKeys.map((s) => s.toLowerCase()).includes(sanitizedNewSchemaName.toLowerCase())
 	)
+
+	let _dbTable: DBTable | undefined = $state()
+	export const dbTable = () => _dbTable
 </script>
 
 <Splitpanes>
@@ -507,7 +510,7 @@
 	<Pane class="p-3 pt-1">
 		{#if tableKey && colDefs?.[tableKey]?.length}
 			{@const dbTableOps = dbTableOpsFactory({ colDefs: colDefs[tableKey], tableKey })}
-			<DBTable {dbTableOps} />
+			<DBTable {dbTableOps} bind:this={_dbTable} />
 		{/if}
 	</Pane>
 </Splitpanes>
