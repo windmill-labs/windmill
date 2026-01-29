@@ -109,7 +109,7 @@
 	let badgeClass = $derived(
 		twMerge(
 			baseClass,
-			small ? 'text-2xs' : verySmall ? 'text-2xs' : large ? 'text-xs' : 'text-2xs',
+			small ? 'text-2xs' : verySmall ? 'text-2xs' : large ? 'text-sm' : 'text-2xs',
 			selected ? selectedColors[color] : colors[color],
 			clickable &&
 				!selected &&

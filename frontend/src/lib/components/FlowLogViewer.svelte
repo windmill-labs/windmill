@@ -343,8 +343,14 @@
 		if (currentId) {
 			const element = document.querySelector(`[data-nav-id="${currentId}"]`)
 			if (element) {
-				;(element as HTMLElement).focus?.({ preventScroll: true })
-				element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+				// Only scroll if the element is visible (not in a hidden tab)
+				const rect = element.getBoundingClientRect()
+				const isElementVisible = rect.width > 0 && rect.height > 0
+
+				if (isElementVisible) {
+					;(element as HTMLElement).focus?.({ preventScroll: true })
+					element.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+				}
 			}
 		}
 	})

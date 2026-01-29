@@ -11,12 +11,7 @@
 		type Job
 	} from '$lib/gen'
 	import { initHistory, redo, undo } from '$lib/history.svelte'
-	import {
-		enterpriseLicense,
-		userStore,
-		workspaceStore,
-		usedTriggerKinds
-	} from '$lib/stores'
+	import { enterpriseLicense, userStore, workspaceStore, usedTriggerKinds } from '$lib/stores'
 	import {
 		cleanValueProperties,
 		encodeState,
@@ -1146,6 +1141,7 @@
 						</Button>
 					{/if}
 					<FlowPreviewButtons
+						{suspendStatus}
 						on:openTriggers={(e) => {
 							select('Trigger')
 							handleSelectTriggerFromKind(triggersState, triggersCount, initialPath, e.detail.kind)

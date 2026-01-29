@@ -6,12 +6,16 @@
 		job?: Job | undefined
 		currentSubJobProgress?: number | undefined
 		class?: string
+		slim?: boolean
+		textPosition?: 'top' | 'bottom'
 	}
 
 	let {
 		job = undefined,
 		currentSubJobProgress = $bindable(undefined),
-		class: className
+		class: className,
+		slim = false,
+		textPosition = 'top'
 	}: Props = $props()
 
 	let error: number | undefined = $state(undefined)
@@ -104,5 +108,7 @@
 	{subIndex}
 	{error}
 	{subIndexIsPercent}
+	{slim}
 	class={className}
+	{textPosition}
 />

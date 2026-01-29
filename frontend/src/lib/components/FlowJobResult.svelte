@@ -13,7 +13,6 @@
 		result_stream?: string
 		logs: string | undefined
 		col?: boolean
-		noBorder?: boolean
 		loading: boolean
 		filename?: string | undefined
 		jobId?: string | undefined
@@ -36,7 +35,6 @@
 		result_stream,
 		logs,
 		col = false,
-		noBorder = false,
 		loading,
 		filename = undefined,
 		jobId = undefined,
@@ -49,34 +47,42 @@
 </script>
 
 <div
-	class:border={!noBorder}
 	class={twMerge(
-		'rounded-md grow bg-surface-tertiary overflow-hidden text-xs',
-		!col ? 'grid grid-cols-2' : 'flex flex-col max-h-screen gap-2 overflow-hidden'
+		'grow overflow-hidden text-xs',
+		!col ? 'grid grid-cols-2 gap-2' : 'flex flex-col max-h-screen gap-6 overflow-hidden'
 	)}
 >
-	<div class="{col ? 'max-h-1/2 grow' : 'max-h-80'} p-2 overflow-auto relative">
-		<span class="text-primary text-xs font-normal">Result</span>
-		{#if result !== undefined || result_stream !== undefined}
-			<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
-		{:else if loading}
-			<Loader2 class="animate-spin" />
-		{:else}
-			<div class="text-secondary">No result (result is undefined)</div>
-		{/if}
+	<div class="relative flex flex-col gap-1">
+		<span class="text-emphasis text-xs font-semibold">Result</span>
+		<div
+			class="{col
+				? 'max-h-1/2 grow'
+				: 'max-h-80'} overflow-auto rounded-md grow min-h-0 border bg-surface-tertiary p-2"
+		>
+			{#if result !== undefined || result_stream !== undefined}
+				<DisplayResult {workspaceId} {jobId} {filename} {result} {result_stream} growVertical />
+			{:else if loading}
+				<Loader2 class="animate-spin" />
+			{:else}
+				<div class="text-secondary">No result (result is undefined)</div>
+			{/if}
+		</div>
 	</div>
-	<div class="overflow-auto {col ? 'grow' : 'max-h-80'} relative">
+	<div class="relative flex flex-col gap-1">
+		<span class="text-emphasis text-xs font-semibold">Logs</span>
 		{#if aiAgentStatus}
-			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} />
+			<AiAgentLogViewer {...aiAgentStatus} {workspaceId} noPadding />
 		{:else}
-			<LogViewer
-				{tagLabel}
-				download={downloadLogs}
-				content={logs ?? ''}
-				{jobId}
-				isLoading={waitingForExecutor}
-				{tag}
-			/>
+			<div class="rounded-md grow min-h-0 border bg-surface-tertiary overflow-hidden">
+				<LogViewer
+					{tagLabel}
+					download={downloadLogs}
+					content={logs ?? ''}
+					{jobId}
+					isLoading={waitingForExecutor}
+					{tag}
+				/>
+			</div>
 		{/if}
 	</div>
 </div>

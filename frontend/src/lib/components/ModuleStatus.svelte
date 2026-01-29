@@ -11,17 +11,17 @@
 </script>
 
 {#if type == 'WaitingForEvents'}
-	<span class="italic text-violet-700 dark:text-violet-400">
-		<Hourglass class="inline" />
+	<span class="italic text-xs text-violet-700 dark:text-violet-400">
+		<Hourglass class="inline" size={14} />
 		Waiting to be resumed by resume events such as approvals
 	</span>
 {:else if type == 'WaitingForPriorSteps'}
-	<span class="italic text-primary">
-		<Hourglass class="inline" />
+	<span class="italic text-xs text-primary">
+		<Hourglass class="inline" size={14} />
 		Waiting for prior steps to complete
 	</span>
 {:else if type == 'WaitingForExecutor'}
-	<span class="italic text-primary">
+	<span class="italic text-xs text-primary">
 		<Hourglass class="inline" />
 		{#if scheduled_for && forLater(scheduled_for.toString())}
 			Job is scheduled to be executed at {displayDate(scheduled_for, true)}

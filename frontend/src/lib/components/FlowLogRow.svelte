@@ -65,7 +65,7 @@
 			{/if}
 		</div>
 		<div class="w-full leading-tight">
-			<div class={twMerge('w-full pr-2 cursor-pointer', isCurrent(id) ? 'bg-surface-hover' : '')}>
+			<div class="w-full pr-2 cursor-pointer">
 				{@render label()}
 			</div>
 		</div>
