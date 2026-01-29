@@ -13,14 +13,55 @@ use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware};
 
 use crate::{jwt::decode_without_verify, utils::configure_client, worker::HttpClient};
 
+/// Configuration required for agent mode. Both fields are mandatory when running in agent mode.
+#[derive(Clone)]
+pub struct AgentConfig {
+    pub agent_token: String,
+    pub base_internal_url: String,
+}
+
+impl AgentConfig {
+    pub fn from_env() -> Result<Self, AgentConfigError> {
+        let agent_token = std::env::var("AGENT_TOKEN")
+            .map_err(|_| AgentConfigError::MissingAgentToken)?;
+        let base_internal_url = std::env::var("BASE_INTERNAL_URL")
+            .map_err(|_| AgentConfigError::MissingBaseInternalUrl)?;
+        Ok(Self { agent_token, base_internal_url })
+    }
+
+    pub fn build_http_client(&self, worker_suffix: &str) -> HttpClient {
+        build_agent_http_client(worker_suffix, &self.agent_token, &self.base_internal_url)
+    }
+}
+
+#[derive(Debug)]
+pub enum AgentConfigError {
+    MissingAgentToken,
+    MissingBaseInternalUrl,
+}
+
+impl std::fmt::Display for AgentConfigError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AgentConfigError::MissingAgentToken => {
+                write!(f, "AGENT_TOKEN environment variable is not set but required for agent mode")
+            }
+            AgentConfigError::MissingBaseInternalUrl => {
+                write!(f, "BASE_INTERNAL_URL environment variable is not set but required for agent mode")
+            }
+        }
+    }
+}
+
+impl std::error::Error for AgentConfigError {}
+
 lazy_static! {
-    pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
     pub static ref DECODED_AGENT_TOKEN: Option<AgentAuth> = {
-        if AGENT_TOKEN.is_empty() {
-            None
+        let agent_token = std::env::var("AGENT_TOKEN");
+        if let Ok(token) = agent_token {
+            decode_without_verify::<AgentAuth>(token.trim_start_matches(AGENT_JWT_PREFIX)).ok()
         } else {
-            decode_without_verify::<AgentAuth>(AGENT_TOKEN.trim_start_matches(AGENT_JWT_PREFIX))
-                .ok()
+            None
         }
     };
 }
@@ -28,7 +69,7 @@ lazy_static! {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct AgentAuth {
     pub worker_group: String,
-pub suffix: Option<String>,
+    pub suffix: Option<String>,
     pub tags: Vec<String>,
     pub exp: Option<usize>,
 }
@@ -37,8 +78,8 @@ pub const AGENT_JWT_PREFIX: &str = "jwt_agent_";
 
 pub fn build_agent_http_client(
     worker_suffix: &str,
-    agent_token: Option<String>,
-    base_internal_url: Option<String>,
+    agent_token: &str,
+    base_internal_url: &str,
 ) -> HttpClient {
     let client = ClientBuilder::new(
         configure_client(
@@ -58,9 +99,7 @@ pub fn build_agent_http_client(
                 "{}{}_{}",
                 AGENT_JWT_PREFIX,
                 worker_suffix,
-                agent_token
-                    .unwrap_or(AGENT_TOKEN.clone())
-                    .trim_start_matches(AGENT_JWT_PREFIX)
+                agent_token.trim_start_matches(AGENT_JWT_PREFIX)
             );
             headers.insert(
                 "Authorization",
@@ -76,7 +115,7 @@ pub fn build_agent_http_client(
     ))
     .build();
 
-    HttpClient { client, base_internal_url }
+    HttpClient { client, base_internal_url: base_internal_url.to_string() }
 }
 
 #[derive(Deserialize, Serialize)]
