@@ -25,6 +25,7 @@ use axum::{
 };
 use chrono::Utc;
 
+use futures::FutureExt;
 use regex::Regex;
 
 use hex;
@@ -948,6 +949,7 @@ async fn edit_deploy_to(
         DeployedObject::Settings { setting_type: "deploy_to".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -1048,6 +1050,7 @@ async fn edit_webhook(
         DeployedObject::Settings { setting_type: "webhook".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -1114,6 +1117,7 @@ async fn edit_copilot_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "ai_config".to_string() },
         Some("AI configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1207,6 +1211,7 @@ async fn edit_large_file_storage_config(
         },
         Some("Large file storage configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1728,6 +1733,7 @@ async fn edit_git_sync_config(
         windmill_git_sync::DeployedObject::Settings { setting_type: "git_sync".to_string() },
         Some("Git sync configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -1851,6 +1857,7 @@ async fn edit_git_sync_repository(
             if repo_exists { "updated" } else { "added" }
         )),
         false,
+        None,
     )
     .await?;
 
@@ -1966,6 +1973,7 @@ async fn delete_git_sync_repository(
             request.git_repo_resource_path
         )),
         false,
+        None,
     )
     .await?;
 
@@ -2108,6 +2116,7 @@ async fn edit_default_scripts(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_scripts".to_string() },
         Some("Default scripts configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2190,6 +2199,7 @@ async fn edit_default_app(
         windmill_git_sync::DeployedObject::Settings { setting_type: "default_app".to_string() },
         Some("Default app configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2322,6 +2332,7 @@ async fn edit_error_handler(
         windmill_git_sync::DeployedObject::Settings { setting_type: "error_handler".to_string() },
         Some("Error handler configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2397,6 +2408,7 @@ async fn edit_success_handler(
         windmill_git_sync::DeployedObject::Settings { setting_type: "success_handler".to_string() },
         Some("Success handler configuration updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -2575,6 +2587,7 @@ async fn set_encryption_key(
         windmill_git_sync::DeployedObject::Key { key_type: "encryption_key".to_string() },
         Some("Encryption key updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -3940,6 +3953,7 @@ async fn add_user(
         windmill_git_sync::DeployedObject::User { email: nu.email.clone() },
         Some(format!("Added user '{}' to workspace", &nu.email)),
         true,
+        None,
     )
     .await?;
 
@@ -4185,6 +4199,7 @@ async fn change_workspace_name(
         windmill_git_sync::DeployedObject::Settings { setting_type: "workspace_name".to_string() },
         Some(format!("Workspace name updated to {}", &rw.new_name)),
         false,
+        None,
     )
     .await?;
 
@@ -4219,6 +4234,7 @@ async fn change_workspace_color(
         DeployedObject::Settings { setting_type: "workspace_color".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4332,6 +4348,7 @@ async fn mute_critical_alerts(
         DeployedObject::Settings { setting_type: "critical_alerts".to_string() },
         None,
         false,
+        None,
     )
     .await?;
 
@@ -4403,6 +4420,7 @@ async fn update_operator_settings(
         },
         Some("Operator settings updated".to_string()),
         false,
+        None,
     )
     .await?;
 
@@ -4541,8 +4559,13 @@ async fn compare_workspaces(
                     .await?,
             ),
             "resource_type" => Some(
-                compare_two_resource_types(&db, &source_workspace_id, &fork_workspace_id, &item.path)
-                    .await?,
+                compare_two_resource_types(
+                    &db,
+                    &source_workspace_id,
+                    &fork_workspace_id,
+                    &item.path,
+                )
+                .await?,
             ),
             "folder" => Some(
                 compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
@@ -4632,10 +4655,7 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind == "resource_type")
             .count(),
-        folders_changed: visible_diffs
-            .iter()
-            .filter(|s| s.kind == "folder")
-            .count(),
+        folders_changed: visible_diffs.iter().filter(|s| s.kind == "folder").count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
@@ -4685,7 +4705,6 @@ async fn filter_visible_diffs(
     // Step 2: Batch query for each (workspace, kind) combination
     let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
     let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
-
 
     tracing::error!("src: {:#?}\nfork: {:#?}", source_visible, fork_visible);
 
@@ -4759,6 +4778,33 @@ async fn query_visible_items<'c>(
                 sqlx::query_scalar!(
                     "SELECT path FROM variable
                      WHERE workspace_id = $1 AND path = ANY($2)",
+                    workspace_id,
+                    &paths_vec
+                )
+                .fetch_all(&mut **tx)
+                .await?
+            }
+            "folder" => {
+                let a: Vec<String> = paths_vec
+                    .iter()
+                    .map(|p| p.strip_prefix("f/").unwrap_or(p.as_str()).to_string())
+                    .collect();
+                sqlx::query_scalar!(
+                    "SELECT name FROM folder
+                     WHERE workspace_id = $1 AND name = ANY($2)",
+                    workspace_id,
+                    &a,
+                )
+                .fetch_all(&mut **tx)
+                .await?
+                .into_iter()
+                .map(|p| format!("f/{p}"))
+                .collect()
+            }
+            "resource_type" => {
+                sqlx::query_scalar!(
+                    "SELECT name FROM resource_type
+                     WHERE workspace_id = $1 AND name = ANY($2)",
                     workspace_id,
                     &paths_vec
                 )
@@ -5100,7 +5146,7 @@ async fn compare_two_folders(
          FROM folder
          WHERE workspace_id = $1 AND name = $2",
         source_workspace_id,
-        name
+        name.strip_prefix("f/"),
     )
     .fetch_optional(db)
     .await?;
@@ -5110,7 +5156,7 @@ async fn compare_two_folders(
          FROM folder
          WHERE workspace_id = $1 AND name = $2",
         fork_workspace_id,
-        name
+        name.strip_prefix("f/"),
     )
     .fetch_optional(db)
     .await?;

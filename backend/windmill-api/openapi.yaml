@@ -22292,6 +22292,8 @@ components:
         - apps_changed
         - resources_changed
         - variables_changed
+        - resource_types_changed
+        - folders_changed
         - conflicts
       properties:
         total_diffs:
@@ -22318,6 +22320,12 @@ components:
         variables_changed:
           type: integer
           description: Number of variables with differences
+        resource_types_changed:
+          type: integer
+          description: Number of resource types with differences
+        folders_changed:
+          type: integer
+          description: Number of folders with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)

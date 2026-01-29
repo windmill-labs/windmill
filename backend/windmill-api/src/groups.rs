@@ -515,6 +515,7 @@ async fn delete_group(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Deleted group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -574,6 +575,7 @@ async fn update_group(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Updated group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -638,6 +640,7 @@ async fn add_user(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Added user to group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 
@@ -915,6 +918,7 @@ async fn remove_user(
         windmill_git_sync::DeployedObject::Group { name: name.clone() },
         Some(format!("Removed user from group '{}'", &name)),
         true,
+        None,
     )
     .await?;
 

@@ -468,6 +468,7 @@ async fn update_folder(
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' updated", name)),
         true,
+        None,
     )
     .await?;
 
@@ -663,6 +664,7 @@ async fn delete_folder(
         DeployedObject::Folder { path: format!("f/{}", name) },
         Some(format!("Folder '{}' deleted", name)),
         true,
+        None,
     )
     .await?;
 
