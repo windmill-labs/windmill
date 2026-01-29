@@ -72,7 +72,9 @@ export class EphemeralBackend {
       if (!this.config.skipBuild) {
         await this.buildBackend();
       } else {
-        console.log("\n⏭️  Skipping backend build (using existing binary)");
+        this.resources.logger?.log(
+          "\n⏭️  Skipping backend build (using existing binary)"
+        );
       }
       await this.startBackend();
 
@@ -105,18 +107,20 @@ export class EphemeralBackend {
   }
 
   private async acquireWorktree(): Promise<void> {
-    console.log("\n📂 Acquiring worktree from pool...");
+    this.resources.logger?.log("\n📂 Acquiring worktree from pool...");
 
     // Acquire a worktree from the pool
     this.resources.worktree = await this.config.worktreePool.acquire(
       this.config.commitHash
     );
 
-    console.log(`✓ Worktree acquired: ${this.resources.worktree.path}`);
+    this.resources.logger?.log(
+      `✓ Worktree acquired: ${this.resources.worktree.path}`
+    );
   }
 
   private async setupEECode(): Promise<void> {
-    console.log("\n🔐 Setting up Enterprise Edition code...");
+    this.resources.logger?.log("\n🔐 Setting up Enterprise Edition code...");
 
     if (!this.resources.worktree) {
       throw new Error("Worktree not acquired");
@@ -130,7 +134,9 @@ export class EphemeralBackend {
     this.resources.eeWorktreePath = eeWorktreePath;
 
     // Read the EE commit hash from ee-repo-ref.txt
-    console.log(`  Reading EE commit reference from ${eeRefPath}`);
+    this.resources.logger?.log(
+      `  Reading EE commit reference from ${eeRefPath}`
+    );
     let eeCommitHash: string;
     try {
       const { stdout } = await execAsync(`cat ${eeRefPath}`);
@@ -138,7 +144,7 @@ export class EphemeralBackend {
       if (!eeCommitHash) {
         throw new Error("ee-repo-ref.txt is empty");
       }
-      console.log(`  ✓ EE commit hash: ${eeCommitHash}`);
+      this.resources.logger?.log(`  ✓ EE commit hash: ${eeCommitHash}`);
     } catch (error) {
       throw new Error(
         `Failed to read ee-repo-ref.txt: ${
@@ -148,7 +154,7 @@ export class EphemeralBackend {
     }
 
     // Remove existing EE private folder if it exists (from previous runs)
-    console.log(`  Cleaning up any existing EE repository...`);
+    this.resources.logger?.log(`  Cleaning up any existing EE repository...`);
     try {
       await execAsync(`rm -rf ${eeWorktreePath}`);
     } catch (error) {
@@ -156,7 +162,9 @@ export class EphemeralBackend {
     }
 
     // Clone the windmill-ee-private repo at the specific commit
-    console.log(`  Cloning windmill-ee-private at commit ${eeCommitHash}`);
+    this.resources.logger?.log(
+      `  Cloning windmill-ee-private at commit ${eeCommitHash}`
+    );
     try {
       await execAsync(
         `git clone git@github.com:windmill-labs/windmill-ee-private.git ${eeWorktreePath}`,
@@ -167,7 +175,7 @@ export class EphemeralBackend {
           },
         }
       );
-      console.log(`  ✓ Repository cloned to ${eeWorktreePath}`);
+      this.resources.logger?.log(`  ✓ Repository cloned to ${eeWorktreePath}`);
     } catch (error) {
       throw new Error(
         `Failed to clone windmill-ee-private: ${
@@ -177,12 +185,12 @@ export class EphemeralBackend {
     }
 
     // Checkout the specific commit
-    console.log(`  Checking out commit ${eeCommitHash}`);
+    this.resources.logger?.log(`  Checking out commit ${eeCommitHash}`);
     try {
       await execAsync(`git checkout ${eeCommitHash}`, {
         cwd: eeWorktreePath,
       });
-      console.log(`  ✓ Checked out commit ${eeCommitHash}`);
+      this.resources.logger?.log(`  ✓ Checked out commit ${eeCommitHash}`);
     } catch (error) {
       throw new Error(
         `Failed to checkout EE commit: ${
@@ -192,12 +200,14 @@ export class EphemeralBackend {
     }
 
     // Run the substitute_ee_code.sh script to copy EE files
-    console.log(`  Running substitute_ee_code.sh to copy EE files`);
+    this.resources.logger?.log(
+      `  Running substitute_ee_code.sh to copy EE files`
+    );
     try {
       await execAsync(`./substitute_ee_code.sh --copy -d ${eeWorktreePath}`, {
         cwd: `${worktreePath}/backend`,
       });
-      console.log(`  ✓ EE code substituted successfully`);
+      this.resources.logger?.log(`  ✓ EE code substituted successfully`);
     } catch (error) {
       throw new Error(
         `Failed to substitute EE code: ${
@@ -206,7 +216,7 @@ export class EphemeralBackend {
       );
     }
 
-    console.log("✓ Enterprise Edition code setup complete");
+    this.resources.logger?.log("✓ Enterprise Edition code setup complete");
   }
 
   private async spawnPostgres(): Promise<void> {
@@ -246,7 +256,7 @@ export class EphemeralBackend {
   }
 
   private async waitForPostgres(): Promise<void> {
-    console.log("⏳ Waiting for PostgreSQL to be ready...");
+    this.resources.logger?.log("⏳ Waiting for PostgreSQL to be ready...");
 
     const maxAttempts = 30;
     const delayMs = 1000;
@@ -262,7 +272,7 @@ export class EphemeralBackend {
         await execAsync(
           `docker run --rm postgres:16 pg_isready -h ${dbHost} -p ${this.config.dbPort} -U postgres`
         );
-        console.log("✓ PostgreSQL is ready");
+        this.resources.logger?.log("✓ PostgreSQL is ready");
         return;
       } catch (error) {
         if (attempt === maxAttempts) {
@@ -274,7 +284,9 @@ export class EphemeralBackend {
   }
 
   private async buildBackend(): Promise<void> {
-    console.log("\n🔨 Building backend (this may take a while)...");
+    this.resources.logger?.log(
+      "\n🔨 Building backend (this may take a while)..."
+    );
 
     if (!this.resources.worktree) {
       throw new Error("Worktree not acquired");
@@ -429,20 +441,26 @@ export class EphemeralBackend {
         const match = line.match(/https:\/\/([a-z0-9-]+\.trycloudflare\.com)/);
         if (match) {
           this.resources.tunnelUrl = match[1];
-          this.resources.logger?.log(`✓ Tunnel URL: ${this.resources.tunnelUrl}`);
+          this.resources.logger?.log(
+            `✓ Tunnel URL: ${this.resources.tunnelUrl}`
+          );
           this.config.onCloudflaredUrl?.(this.resources.tunnelUrl);
           resolve();
         }
       });
 
       this.resources.cloudflaredProcess.on("close", (code: number) => {
-        this.resources.logger?.log(`Cloudflared process exited with code ${code}`);
+        this.resources.logger?.log(
+          `Cloudflared process exited with code ${code}`
+        );
       });
 
       // Timeout if we can't find the URL in 30 seconds
       setTimeout(() => {
         if (!this.resources.tunnelUrl) {
-          this.resources.logger?.error("Failed to extract Cloudflare tunnel URL (timeout)");
+          this.resources.logger?.error(
+            "Failed to extract Cloudflare tunnel URL (timeout)"
+          );
           reject(new Error("Failed to extract Cloudflare tunnel URL"));
         }
       }, 30000);
@@ -450,11 +468,11 @@ export class EphemeralBackend {
   }
 
   async cleanup(): Promise<void> {
-    console.log("\n🧹 Cleaning up resources...");
+    this.resources.logger?.log("\n🧹 Cleaning up resources...");
 
     // Kill backend process
     if (this.resources.backendProcess) {
-      console.log("  Stopping backend...");
+      this.resources.logger?.log("  Stopping backend...");
       try {
         this.resources.backendProcess.kill("SIGTERM");
         // Give it a moment to gracefully shutdown
@@ -468,7 +486,7 @@ export class EphemeralBackend {
 
     // Kill cloudflared process
     if (this.resources.cloudflaredProcess) {
-      console.log("  Stopping cloudflared...");
+      this.resources.logger?.log("  Stopping cloudflared...");
       try {
         this.resources.cloudflaredProcess.kill("SIGTERM");
         await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -480,12 +498,12 @@ export class EphemeralBackend {
 
     // Kill PostgreSQL process
     if (this.resources.dbProcess) {
-      console.log("  Stopping PostgreSQL container...");
+      this.resources.logger?.log("  Stopping PostgreSQL container...");
       try {
         this.resources.dbProcess.kill("SIGTERM");
         await new Promise((resolve) => setTimeout(resolve, 1000));
         this.resources.dbProcess.kill("SIGKILL");
-        console.log("  ✓ PostgreSQL container stopped");
+        this.resources.logger?.log("  ✓ PostgreSQL container stopped");
       } catch (error) {
         console.error("  Failed to stop PostgreSQL container:", error);
       }
@@ -493,10 +511,10 @@ export class EphemeralBackend {
 
     // Remove EE private repository clone
     if (this.resources.eeWorktreePath) {
-      console.log("  Removing EE private repository clone...");
+      this.resources.logger?.log("  Removing EE private repository clone...");
       try {
         await execAsync(`rm -rf ${this.resources.eeWorktreePath}`);
-        console.log("  ✓ EE private repository clone removed");
+        this.resources.logger?.log("  ✓ EE private repository clone removed");
       } catch (error) {
         console.error("  Failed to remove EE private repository clone:", error);
       }
@@ -505,19 +523,19 @@ export class EphemeralBackend {
     // Release git worktree back to pool (do not delete it)
     // Note: worktree might already be released if backend started successfully
     if (this.resources.worktree) {
-      console.log("  Releasing worktree back to pool...");
+      this.resources.logger?.log("  Releasing worktree back to pool...");
       try {
         await this.config.worktreePool.release(this.resources.worktree.id);
-        console.log("  ✓ Worktree released for reuse");
+        this.resources.logger?.log("  ✓ Worktree released for reuse");
       } catch (error) {
         console.error("  Failed to release worktree:", error);
       }
     } else {
-      console.log("  ✓ Worktree already released");
+      this.resources.logger?.log("  ✓ Worktree already released");
     }
 
     this.config.onCleanup?.();
 
-    console.log("✅ Cleanup complete");
+    this.resources.logger?.log("✅ Cleanup complete");
   }
 }
