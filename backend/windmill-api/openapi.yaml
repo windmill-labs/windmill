@@ -17418,6 +17418,7 @@ components:
           togetherai,
           aws_bedrock,
           customai,
+          aibadgr,
         ]
 
     GitSyncObjectType:
