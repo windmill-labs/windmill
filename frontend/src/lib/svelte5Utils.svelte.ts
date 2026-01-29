@@ -290,15 +290,9 @@ export function useScrollToBottom(selector: string, threshold: number = 0): { cu
 
 		// Add scroll listener
 		element.addEventListener('scroll', checkIfAtBottom, { passive: true })
-		if (element instanceof Window) {
-			window.addEventListener('resize', checkIfAtBottom, { passive: true })
-		}
 
 		return () => {
 			element.removeEventListener('scroll', checkIfAtBottom)
-			if (element instanceof Window) {
-				window.removeEventListener('resize', checkIfAtBottom)
-			}
 		}
 	})
 
