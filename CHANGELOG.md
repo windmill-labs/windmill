@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.621.1](https://github.com/windmill-labs/windmill/compare/v1.621.0...v1.621.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* add 32MB memory limit to QuickJS runtime for flow expressions ([db74470](https://github.com/windmill-labs/windmill/commit/db74470ec355ae317a50f350133fc140d2921595))
+
 ## [1.621.0](https://github.com/windmill-labs/windmill/compare/v1.620.1...v1.621.0) (2026-01-29)
 
 
