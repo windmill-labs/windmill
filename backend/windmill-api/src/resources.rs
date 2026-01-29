@@ -47,6 +47,13 @@ use windmill_common::{
     worker::{CLOUD_HOSTED, TMP_DIR},
     PgDatabase,
 };
+use regex::Regex;
+
+lazy_static::lazy_static! {
+    static ref RE_RES_VAR: Regex = Regex::new(r#"\$(?:var|res)\:"#).unwrap();
+    static ref RE_VAR_PATTERN: Regex = Regex::new(r#"\$var:([^\s"'\},\)\]&;]+)"#).unwrap();
+    static ref RE_RES_PATTERN: Regex = Regex::new(r#"\$res:([^\s"'\},\)\]&;]+)"#).unwrap();
+}
 
 pub fn workspaced_service() -> Router {
     let router = Router::new()
@@ -539,7 +546,8 @@ pub async fn transform_json_value(
     token: Option<&str>,
 ) -> Result<Value> {
     match v {
-        Value::String(y) if y.starts_with("$var:") => {
+        Value::String(y) if y.starts_with("$var:") && !y.contains(' ') => {
+            // Exact match: entire string is a variable reference
             let path = y.strip_prefix("$var:").unwrap();
 
             let v =
@@ -547,7 +555,8 @@ pub async fn transform_json_value(
                     .await?;
             Ok(Value::String(v))
         }
-        Value::String(y) if y.starts_with("$res:") => {
+        Value::String(y) if y.starts_with("$res:") && !y.contains(' ') => {
+            // Exact match: entire string is a resource reference
             let path = y.strip_prefix("$res:").unwrap();
             if path.split("/").count() < 2 {
                 return Err(Error::internal_err(format!(
@@ -569,6 +578,98 @@ pub async fn transform_json_value(
             } else {
                 Ok(Value::Null)
             }
+        }
+        Value::String(y) if (*RE_RES_VAR).is_match(&y) => {
+            // String interpolation: contains variable/resource references
+            let mut result = y.clone();
+            let userdb_authed =
+                UserDbWithOptAuthed { authed: authed, user_db: user_db.clone(), db: db.clone() };
+
+            // Replace $var: references
+            for cap in (*RE_VAR_PATTERN).captures_iter(&y) {
+                let full_match = cap.get(0).unwrap().as_str();
+                let path = cap.get(1).unwrap().as_str();
+
+                match crate::variables::get_value_internal(
+                    &userdb_authed,
+                    db,
+                    workspace,
+                    path,
+                    &user_db
+                        .clone()
+                        .map(|_| authed.into())
+                        .unwrap_or(AuditAuthor {
+                            email: "backend".to_string(),
+                            username: "backend".to_string(),
+                            username_override: None,
+                            token_prefix: None,
+                        }),
+                    false,
+                )
+                .await
+                {
+                    Ok(value) => {
+                        result = result.replace(full_match, &value);
+                    }
+                    Err(e) => {
+                        return Err(Error::NotFound(format!(
+                            "Variable {path} not found in string interpolation: {e:#}"
+                        )));
+                    }
+                }
+            }
+
+            // Replace $res: references
+            for cap in (*RE_RES_PATTERN).captures_iter(&y) {
+                let full_match = cap.get(0).unwrap().as_str();
+                let path = cap.get(1).unwrap().as_str();
+
+                if path.split("/").count() < 2 {
+                    return Err(Error::internal_err(format!(
+                        "String contains invalid resource path: {path}"
+                    )));
+                }
+
+                let mut tx: Transaction<'_, Postgres> =
+                    authed_transaction_or_default(authed, user_db.clone(), db).await?;
+                let v = sqlx::query_scalar!(
+                    "SELECT value from resource WHERE path = $1 AND workspace_id = $2",
+                    path,
+                    &workspace
+                )
+                .fetch_optional(&mut *tx)
+                .await?;
+                tx.commit().await?;
+
+                if let Some(Some(v)) = v {
+                    let value_str = if v.is_string() {
+                        v.as_str().unwrap().to_string()
+                    } else if v.is_number() {
+                        v.to_string()
+                    } else if v.is_boolean() {
+                        v.to_string()
+                    } else if v.is_null() {
+                        String::new()
+                    } else {
+                        // Object or Array - not suitable for string interpolation
+                        return Err(Error::BadRequest(format!(
+                            "Cannot interpolate resource '$res:{path}' into string. \
+                            The resource contains an object or array with multiple fields. \
+                            \nTo fix this:\n\
+                            1. Use the resource as a separate parameter (e.g., set the whole parameter to '$res:{path}'), OR\n\
+                            2. Create a simpler variable/resource with just the single value you need, OR\n\
+                            3. Extract the field in your script code after receiving the full resource object."
+                        )));
+                    };
+                    result = result.replace(full_match, &value_str);
+                } else {
+                    return Err(Error::NotFound(format!(
+                        "Resource {path} not found in string interpolation"
+                    )));
+                }
+            }
+
+            Ok(Value::String(result))
         }
         Value::String(y) if y.starts_with("$") && job_id.is_some() => {
             let mut tx = db_with_opt_authed.begin().await?;
