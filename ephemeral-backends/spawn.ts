@@ -4,6 +4,7 @@ import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import * as readline from "readline";
 import path from "path";
+import { WorktreePool, WorktreeInfo } from "./worktree-pool";
 
 const execAsync = promisify(exec);
 
@@ -12,6 +13,7 @@ export interface Config {
   serverPort: number;
   skipBuild: boolean;
   commitHash: string;
+  worktreePool: WorktreePool;
   onCloudflaredUrl?: (url: string) => void;
   onCleanup?: () => void;
 }
@@ -22,7 +24,7 @@ interface SpawnedResources {
   backendProcess?: any;
   cloudflaredProcess?: any;
   tunnelUrl?: string;
-  worktreePath?: string;
+  worktree?: WorktreeInfo;
   eeWorktreePath?: string;
 }
 
@@ -55,7 +57,7 @@ export class EphemeralBackend {
       await this.startCloudflared();
       if (!this.resources.tunnelUrl)
         throw new Error("Cloudflare tunnel URL not available");
-      await this.createWorktree();
+      await this.acquireWorktree();
       await this.setupEECode();
       await this.spawnPostgres();
       await this.waitForPostgres();
@@ -78,57 +80,29 @@ export class EphemeralBackend {
     }
   }
 
-  private getWorktreePath(): string {
-    return path.resolve(
-      `../windmill-ephemeral-backends/${this.config.commitHash}`
+  private async acquireWorktree(): Promise<void> {
+    console.log("\n📂 Acquiring worktree from pool...");
+
+    // Acquire a worktree from the pool
+    this.resources.worktree = await this.config.worktreePool.acquire(
+      this.config.commitHash
     );
-  }
 
-  private getEEWorktreePath(): string {
-    return `${this.getWorktreePath()}_private`;
-  }
-
-  private async createWorktree(): Promise<void> {
-    console.log("\n📂 Creating git worktree...");
-
-    const worktreeBasePath = "../windmill-ephemeral-backends";
-    const worktreePath = this.getWorktreePath();
-    this.resources.worktreePath = worktreePath;
-
-    // Check if worktree already exists
-    try {
-      const { stdout } = await execAsync("git worktree list");
-      if (stdout.includes(worktreePath)) {
-        console.log(`✓ Worktree already exists at ${worktreePath}`);
-        return;
-      }
-    } catch (error) {
-      // Worktree doesn't exist, we'll create it
-    }
-
-    // Create the base directory if it doesn't exist
-    try {
-      await execAsync(`mkdir -p ${worktreeBasePath}`);
-    } catch (error) {
-      // Directory might already exist
-    }
-
-    // Create the worktree
-    console.log(
-      `  Creating worktree at ${worktreePath} for commit ${this.config.commitHash}`
-    );
-    await execAsync(
-      `git worktree add ${worktreePath} ${this.config.commitHash}`
-    );
-    console.log(`✓ Worktree created at ${worktreePath}`);
+    console.log(`✓ Worktree acquired: ${this.resources.worktree.path}`);
   }
 
   private async setupEECode(): Promise<void> {
     console.log("\n🔐 Setting up Enterprise Edition code...");
 
-    const worktreePath = this.getWorktreePath();
+    if (!this.resources.worktree) {
+      throw new Error("Worktree not acquired");
+    }
+
+    const worktreePath = this.resources.worktree.path;
     const eeRefPath = `${worktreePath}/backend/ee-repo-ref.txt`;
-    const eeWorktreePath = this.getEEWorktreePath();
+    const eeWorktreePath = this.config.worktreePool.getEEWorktreePath(
+      this.resources.worktree
+    );
     this.resources.eeWorktreePath = eeWorktreePath;
 
     // Read the EE commit hash from ee-repo-ref.txt
@@ -257,6 +231,10 @@ export class EphemeralBackend {
   private async buildBackend(): Promise<void> {
     console.log("\n🔨 Building backend (this may take a while)...");
 
+    if (!this.resources.worktree) {
+      throw new Error("Worktree not acquired");
+    }
+
     // Detect OS to use correct deno_core feature
     const isMacOS = process.platform === "darwin";
 
@@ -295,7 +273,7 @@ export class EphemeralBackend {
     ].join(",");
 
     return new Promise((resolve, reject) => {
-      const backendDir = `${this.getWorktreePath()}/backend`;
+      const backendDir = `${this.resources.worktree?.path}/backend`;
       const buildProcess = spawn(
         "cargo",
         ["build", "--features", features, "--release"],
@@ -324,13 +302,17 @@ export class EphemeralBackend {
   private async startBackend(): Promise<void> {
     console.log("\n🚀 Starting Windmill backend...");
 
+    if (!this.resources.worktree) {
+      throw new Error("Worktree not acquired");
+    }
+
     const env = {
       ...process.env,
       DATABASE_URL: `postgres://postgres:changeme@localhost:${this.config.dbPort}/windmill?sslmode=disable`,
       PORT: this.config.serverPort.toString(),
     };
 
-    const releaseDir = `${this.getWorktreePath()}/backend/target/release`;
+    const releaseDir = `${this.resources.worktree.path}/backend/target/release`;
     this.resources.backendProcess = spawn("./windmill", [], {
       cwd: releaseDir,
       env,
@@ -454,16 +436,14 @@ export class EphemeralBackend {
       }
     }
 
-    // Remove git worktree
-    if (this.resources.worktreePath) {
-      console.log("  Removing git worktree...");
+    // Release git worktree back to pool (do not delete it)
+    if (this.resources.worktree) {
+      console.log("  Releasing worktree back to pool...");
       try {
-        await execAsync(
-          `git worktree remove ${this.resources.worktreePath} --force`
-        );
-        console.log("  ✓ Git worktree removed");
+        await this.config.worktreePool.release(this.resources.worktree.id);
+        console.log("  ✓ Worktree released for reuse");
       } catch (error) {
-        console.error("  Failed to remove git worktree:", error);
+        console.error("  Failed to release worktree:", error);
       }
     }
 

@@ -4,6 +4,7 @@ import { spawn } from "child_process";
 import * as readline from "readline";
 import sodium from "libsodium-wrappers-sumo";
 import { EphemeralBackend } from "./spawn";
+import { WorktreePool } from "./worktree-pool";
 
 const githubToken = process.env.GITHUB_TOKEN;
 if (!githubToken) {
@@ -33,6 +34,7 @@ interface ManagerResources {
   cloudflaredProcess?: any;
   tunnelUrl?: string;
   ephemeralBackends: Map<string, BackendInfo>;
+  worktreePool?: WorktreePool;
 }
 
 class EphemeralBackendManager {
@@ -49,6 +51,10 @@ class EphemeralBackendManager {
     try {
       console.log("🎛️  Starting Ephemeral Backend Manager...");
       console.log(`📊 Manager port: ${MANAGER_PORT}`);
+
+      // Initialize the worktree pool
+      this.resources.worktreePool = new WorktreePool();
+      await this.resources.worktreePool.initialize();
 
       await this.startHttpServer();
       if (!process.env.SKIP_CLOUDFLARED) await this.startCloudflared();
@@ -91,7 +97,7 @@ class EphemeralBackendManager {
             );
           }
 
-          // Status endpoint - shows all running backends
+          // Status endpoint - shows all running backends and worktree pool stats
           if (url.pathname === "/status") {
             const backends = Array.from(
               self.resources.ephemeralBackends.entries()
@@ -116,10 +122,17 @@ class EphemeralBackendManager {
               };
             });
 
+            const worktreePoolStats = self.resources.worktreePool?.getStats() || {
+              total: 0,
+              inUse: 0,
+              available: 0,
+            };
+
             return new Response(
               JSON.stringify({
                 activeBackends: backends.length,
                 backends,
+                worktreePool: worktreePoolStats,
                 timestamp: new Date().toISOString(),
               }),
               { headers: { "Content-Type": "application/json" } }
@@ -146,12 +159,17 @@ class EphemeralBackendManager {
               throw new Error(`Backend ${commitHash} is already running`);
             }
 
+            if (!self.resources.worktreePool) {
+              throw new Error("Worktree pool not initialized");
+            }
+
             const tunnelUrl = await new Promise<string>((res, err) => {
               const ephemeralBackend = new EphemeralBackend({
                 dbPort: self.findFreeDbPorts(),
                 serverPort: self.findFreeServerPorts(),
                 skipBuild: !!process.env.SKIP_BACKEND_BUILD,
                 commitHash: commitHash,
+                worktreePool: self.resources.worktreePool!,
                 onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
                 onCleanup: () => {
                   const backendInfo =
