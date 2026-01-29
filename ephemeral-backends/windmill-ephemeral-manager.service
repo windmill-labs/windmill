@@ -7,11 +7,11 @@ Wants=network-online.target
 Type=simple
 User=sandbox
 Group=sandbox
-WorkingDirectory=/home/sandbox/ephemeral-backend/windmill/ephemeral-backends
+WorkingDirectory=/home/sandbox/ephemeral-backend/windmill
 EnvironmentFile=/etc/windmill-ephemeral-manager/.env
 
 # Start the manager
-ExecStart=/home/sandbox/.bun/bin/bun run /home/sandbox/ephemeral-backend/windmill/ephemeral-backends/manager.ts
+ExecStart=/home/sandbox/.bun/bin/bun run ephemeral-backends/manager
 
 # Restart policy
 Restart=on-failure
