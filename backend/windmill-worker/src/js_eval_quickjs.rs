@@ -145,6 +145,11 @@ pub async fn eval_timeout_quickjs(
     })??
 }
 
+/// Memory limit for QuickJS runtime (32MB).
+/// This is much smaller than deno_core's 128MB limit since flow expressions
+/// should be lightweight transformations, not memory-intensive operations.
+const QUICKJS_MEMORY_LIMIT: usize = 32 * 1024 * 1024;
+
 async fn eval_quickjs_inner(
     expr: &str,
     transform_context: HashMap<String, Arc<Box<RawValue>>>,
@@ -156,6 +161,7 @@ async fn eval_quickjs_inner(
     context_keys: Vec<String>,
 ) -> anyhow::Result<Box<RawValue>> {
     let runtime = AsyncRuntime::new()?;
+    runtime.set_memory_limit(QUICKJS_MEMORY_LIMIT).await;
     let context = AsyncContext::full(&runtime).await?;
 
     // Create shared state for async ops if we have a client
