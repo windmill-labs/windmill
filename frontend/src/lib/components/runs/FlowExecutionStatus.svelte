@@ -26,7 +26,7 @@
 	)
 
 	let shouldShowAnyStatus = $state(false)
-	let debounceTimer: number | undefined = $state()
+	let debounceTimer: ReturnType<typeof setTimeout> | undefined = $state()
 
 	const anyStatusActive = $derived(isWaitingForEvents || isSuspended || hasInnerModulesInProgress)
 

@@ -1429,7 +1429,7 @@
 		>
 			{#if isListJob}
 				<h3 class="text-md leading-6 font-bold text-primary border-b mb-4">
-					Subflowss ({flowJobIds?.flowJobs.length})
+					Subflows ({flowJobIds?.flowJobs.length})
 				</h3>
 				<div class="overflow-auto max-h-1/2">
 					{#each flowJobIds?.flowJobs ?? [] as loopJobId, j (loopJobId)}
@@ -1930,7 +1930,8 @@
 													: undefined}
 											{#if mcpAction?.type === 'mcp_tool_call' && agentNode?.result?.messages}
 												{@const message = agentNode.result.messages.find(
-													(m: { agent_action?: { call_id?: string }; content?: any }) => m.agent_action?.call_id === mcpAction.call_id
+													(m: { agent_action?: { call_id?: string }; content?: any }) =>
+														m.agent_action?.call_id === mcpAction.call_id
 												)}
 												<McpToolCallDetails
 													functionName={mcpAction.function_name}
