@@ -281,10 +281,11 @@ impl TokenUsage {
     }
 
     /// Accumulate another TokenUsage into this one (all fields including cache tokens)
+    /// Uses saturating addition to prevent overflow in long-running agents
     pub fn accumulate(&mut self, other: &TokenUsage) {
         fn add_option(a: Option<i32>, b: Option<i32>) -> Option<i32> {
             match (a, b) {
-                (Some(x), Some(y)) => Some(x + y),
+                (Some(x), Some(y)) => Some(x.saturating_add(y)),
                 (Some(x), None) | (None, Some(x)) => Some(x),
                 (None, None) => None,
             }
