@@ -87,6 +87,10 @@ export const AI_PROVIDERS: Record<AIProvider, AIProviderDetails> = {
 	customai: {
 		label: 'Custom AI',
 		defaultModels: []
+	},
+	aibadgr: {
+		label: 'AI Badgr (Budget/Utility, OpenAI-compatible)',
+		defaultModels: ['premium', 'normal', 'basic']
 	}
 }
 
@@ -361,6 +365,7 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
+	aibadgr: DEFAULT_COMPLETION_CONFIG,
 	googleai: {
 		...DEFAULT_COMPLETION_CONFIG,
 		seed: undefined // not supported by gemini
