@@ -87,6 +87,9 @@ jobs:
       - name: Symlink Bun to /usr/bin/bun
         run: sudo ln -sf $(which bun) /usr/bin/bun
 
+      - name: Symlink Node to /usr/bin/node
+        run: sudo ln -sf $(which node) /usr/bin/node
+
       - name: Generate Windmill clients
         working-directory: cli
         run: |
@@ -138,12 +141,14 @@ jobs:
         with:
           bun-version: latest
 
-      - name: Get Bun path
-        id: bun-path
+      - name: Get Bun and Node paths
+        id: runtime-paths
         shell: pwsh
         run: |
           $bunPath = (Get-Command bun).Source
+          $nodePath = (Get-Command node).Source
           echo "BUN_PATH=$bunPath" >> $env:GITHUB_OUTPUT
+          echo "NODE_BIN_PATH=$nodePath" >> $env:GITHUB_OUTPUT
 
       - name: Generate Windmill clients
         working-directory: cli
@@ -158,7 +163,8 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
           CI_MINIMAL_FEATURES: "true"
-          BUN_PATH: ${{ steps.bun-path.outputs.BUN_PATH }}
+          BUN_PATH: ${{ steps.runtime-paths.outputs.BUN_PATH }}
+          NODE_BIN_PATH: ${{ steps.runtime-paths.outputs.NODE_BIN_PATH }}
         run: |
           deno test --no-check --allow-all test/ `
             --ignore=test/cargo_backend_example.test.ts
