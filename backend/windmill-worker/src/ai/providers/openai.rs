@@ -531,7 +531,6 @@ impl QueryBuilder for OpenAIQueryBuilder {
                         if let Some(ref base64_image) = output.result {
                             return Ok(ParsedResponse::Image {
                                 base64_data: base64_image.clone(),
-                                usage: None,
                             });
                         }
                     }

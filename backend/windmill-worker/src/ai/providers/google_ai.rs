@@ -600,7 +600,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         match image_data {
             Some(base64_data) if !base64_data.is_empty() => {
-                Ok(ParsedResponse::Image { base64_data: base64_data.clone(), usage: None })
+                Ok(ParsedResponse::Image { base64_data: base64_data.clone() })
             }
             _ => Err(Error::internal_err(
                 "No image data received from Google Gemini/Imagen API".to_string(),

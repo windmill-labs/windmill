@@ -252,6 +252,24 @@ impl TokenUsage {
             && self.cache_read_input_tokens.is_none()
             && self.cache_write_input_tokens.is_none()
     }
+
+    /// Accumulate another TokenUsage into this one (all fields including cache tokens)
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        fn add_option(a: Option<i32>, b: Option<i32>) -> Option<i32> {
+            match (a, b) {
+                (Some(x), Some(y)) => Some(x + y),
+                (Some(x), None) | (None, Some(x)) => Some(x),
+                (None, None) => None,
+            }
+        }
+        self.input_tokens = add_option(self.input_tokens, other.input_tokens);
+        self.output_tokens = add_option(self.output_tokens, other.output_tokens);
+        self.total_tokens = add_option(self.total_tokens, other.total_tokens);
+        self.cache_read_input_tokens =
+            add_option(self.cache_read_input_tokens, other.cache_read_input_tokens);
+        self.cache_write_input_tokens =
+            add_option(self.cache_write_input_tokens, other.cache_write_input_tokens);
+    }
 }
 
 #[derive(Serialize)]

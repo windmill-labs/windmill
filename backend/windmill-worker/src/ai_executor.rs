@@ -305,7 +305,7 @@ pub async fn handle_ai_agent_job(
                     r#type: "function".to_string(),
                     function: ToolDefFunction {
                         name: summary.clone(),
-                        description: None,
+                        description: Some(summary.clone()),
                         parameters: schema.unwrap_or_else(|| {
                             to_raw_value(&serde_json::json!({
                                 "type": "object",
@@ -773,7 +773,10 @@ pub async fn run_agent(
             } => {
                 // Accumulate usage from this iteration
                 if let Some(u) = usage {
-                    final_usage = Some(u);
+                    match &mut final_usage {
+                        Some(existing) => existing.accumulate(&u),
+                        None => final_usage = Some(u),
+                    }
                 }
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
@@ -924,7 +927,7 @@ pub async fn run_agent(
                 }
                 used_structured_output_tool = tool_used_structured_output;
             }
-            ParsedResponse::Image { base64_data, usage: _ } => {
+            ParsedResponse::Image { base64_data } => {
                 // For image output, upload to S3 and track in conversation
                 let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
 

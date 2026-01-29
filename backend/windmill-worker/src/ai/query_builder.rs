@@ -49,7 +49,6 @@ pub enum ParsedResponse {
     },
     Image {
         base64_data: String,
-        usage: Option<TokenUsage>,
     },
 }
 
