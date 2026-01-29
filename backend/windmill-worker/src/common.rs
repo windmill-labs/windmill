@@ -533,6 +533,7 @@ pub async fn update_worker_ping_for_failed_init_script(
                         ip: None,
                         tags: None,
                         dw: None,
+                        dws: None,
                         jobs_executed: None,
                         occupancy_rate: None,
                         occupancy_rate_15s: None,
