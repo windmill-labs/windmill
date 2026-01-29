@@ -306,39 +306,53 @@ interface DevOptions extends GlobalOptions {
   open?: boolean;
 }
 
-async function dev(opts: DevOptions) {
+async function dev(opts: DevOptions, appFolder?: string) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
 
   // Search for wmill.yaml by traversing upward (without git root constraint)
   // to initialize nonDottedPaths setting before using folder suffix functions
   await loadNonDottedPathsSetting();
 
-  // Validate that we're in a .raw_app folder
-  const cwd = process.cwd();
-  const currentDirName = path.basename(cwd);
+  // Resolve target directory from argument or use current directory
+  const originalCwd = process.cwd();
+  let targetDir = originalCwd;
 
-  if (!hasFolderSuffix(currentDirName, "raw_app")) {
+  if (appFolder) {
+    targetDir = path.isAbsolute(appFolder)
+      ? appFolder
+      : path.join(originalCwd, appFolder);
+
+    if (!fs.existsSync(targetDir)) {
+      log.error(colors.red(`Error: Directory not found: ${targetDir}`));
+      Deno.exit(1);
+    }
+  }
+
+  // Validate that target is a .raw_app folder
+  const targetDirName = path.basename(targetDir);
+
+  if (!hasFolderSuffix(targetDirName, "raw_app")) {
     log.error(
       colors.red(
         `Error: The dev command must be run inside a ${
           getFolderSuffix("raw_app")
         } folder.\n` +
-          `Current directory: ${currentDirName}\n` +
+          `Target directory: ${targetDirName}\n` +
           `Please navigate to a folder ending with '${
             getFolderSuffix("raw_app")
-          }' before running this command.`,
+          }' or specify one as argument.`,
       ),
     );
     Deno.exit(1);
   }
 
-  // Check for raw_app.yaml
-  const rawAppPath = path.join(cwd, "raw_app.yaml");
+  // Check for raw_app.yaml in target directory
+  const rawAppPath = path.join(targetDir, "raw_app.yaml");
   if (!fs.existsSync(rawAppPath)) {
     log.error(
       colors.red(
-        `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a ${
+        `Error: raw_app.yaml not found in ${targetDir}.\n` +
+          `The dev command requires a ${
             getFolderSuffix("raw_app")
           } folder containing a raw_app.yaml file.`,
       ),
@@ -346,10 +360,15 @@ async function dev(opts: DevOptions) {
     Deno.exit(1);
   }
 
-  // Resolve workspace and authenticate
+  // Resolve workspace and authenticate (from original cwd to find wmill.yaml)
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
+
+  // Change to target directory for the rest of the command
+  if (appFolder) {
+    process.chdir(targetDir);
+  }
 
   // Load app path from raw_app.yaml
   const rawApp = (await yamlParseFile(rawAppPath)) as any;
@@ -1289,6 +1308,7 @@ const command = new Command()
   .description(
     "Start a development server for building apps with live reload and hot module replacement",
   )
+  .arguments("[app_folder:string]")
   .option(
     "--port <port:number>",
     "Port to run the dev server on (will find next available port if occupied)",
