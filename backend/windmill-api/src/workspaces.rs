@@ -4428,6 +4428,8 @@ pub struct CompareSummary {
     pub apps_changed: usize,
     pub resources_changed: usize,
     pub variables_changed: usize,
+    pub resource_types_changed: usize,
+    pub folders_changed: usize,
     pub conflicts: usize, // Items that are both ahead and behind
 }
 
@@ -4538,6 +4540,14 @@ async fn compare_workspaces(
                 compare_two_variables(&db, &source_workspace_id, &fork_workspace_id, &item.path)
                     .await?,
             ),
+            "resource_type" => Some(
+                compare_two_resource_types(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
+            "folder" => Some(
+                compare_two_folders(&db, &source_workspace_id, &fork_workspace_id, &item.path)
+                    .await?,
+            ),
             k => {
                 tracing::error!("Received unrecognized item kind `{k}` with path: `{}` while computing diff of {fork_workspace_id} and {source_workspace_id} workspaces. Skipping this item", item.path);
                 None
@@ -4618,12 +4628,21 @@ async fn compare_workspaces(
             .iter()
             .filter(|s| s.kind == "variable")
             .count(),
+        resource_types_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "resource_type")
+            .count(),
+        folders_changed: visible_diffs
+            .iter()
+            .filter(|s| s.kind == "folder")
+            .count(),
         conflicts: visible_diffs
             .iter()
             .filter(|s| s.ahead > 0 && s.behind > 0)
             .count(),
     };
 
+    tracing::error!("confirmed: {:#?}", confirmed_diffs);
     let all_ahead_items_visible = summary.total_ahead
         == confirmed_diffs
             .iter()
@@ -4666,6 +4685,9 @@ async fn filter_visible_diffs(
     // Step 2: Batch query for each (workspace, kind) combination
     let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
     let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
+
+
+    tracing::error!("src: {:#?}\nfork: {:#?}", source_visible, fork_visible);
 
     // Step 3: Filter diffs based on visibility
     let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs
@@ -5014,5 +5036,104 @@ async fn compare_two_variables(
         has_changes,
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
+    });
+}
+
+async fn compare_two_resource_types(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get resource type from each workspace
+    let source_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_resource_type = sqlx::query!(
+        "SELECT schema, description, format_extension
+         FROM resource_type
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_resource_type, &target_resource_type) {
+        if source.schema != target.schema
+            || source.description != target.description
+            || source.format_extension != target.format_extension
+        {
+            has_changes = true;
+        }
+    } else if source_resource_type.is_some() || target_resource_type.is_some() {
+        // The resource type exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_resource_type.is_some(),
+        exists_in_fork: target_resource_type.is_some(),
+    });
+}
+
+async fn compare_two_folders(
+    db: &DB,
+    source_workspace_id: &str,
+    fork_workspace_id: &str,
+    name: &str,
+) -> Result<ItemComparison> {
+    // Get folder from each workspace
+    let source_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        source_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let target_folder = sqlx::query!(
+        "SELECT display_name, owners, extra_perms, summary
+         FROM folder
+         WHERE workspace_id = $1 AND name = $2",
+        fork_workspace_id,
+        name
+    )
+    .fetch_optional(db)
+    .await?;
+
+    let mut has_changes = false;
+
+    // Check metadata differences
+    if let (Some(source), Some(target)) = (&source_folder, &target_folder) {
+        if source.display_name != target.display_name
+            || source.owners != target.owners
+            || source.extra_perms != target.extra_perms
+            || source.summary != target.summary
+        {
+            has_changes = true;
+        }
+    } else if source_folder.is_some() || target_folder.is_some() {
+        // The folder exists in one of source or target, but not the other, this is considered as a change
+        has_changes = true
+    }
+
+    return Ok(ItemComparison {
+        has_changes,
+        exists_in_source: source_folder.is_some(),
+        exists_in_fork: target_folder.is_some(),
     });
 }
