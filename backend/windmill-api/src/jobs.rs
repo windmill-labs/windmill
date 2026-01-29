@@ -6310,53 +6310,7 @@ async fn run_inline_preview_script(
     Json(preview): Json<PreviewInline>,
 ) -> error::Result<Response> {
     if let Some(job_id) = job_id {
-        let assets = if preview.language == ScriptLang::DuckDb {
-            Some(windmill_parser_sql::parse_assets(&preview.content).map(|a| a.assets))
-        } else if preview.language == ScriptLang::Postgresql {
-            let datatable = preview
-                .args
-                .as_ref()
-                .and_then(|args| args.get("database"))
-                .map(|v| v.get().trim_matches('"'))
-                .and_then(|dt| dt.strip_prefix("datatable://"));
-            if let Some(datatable) = datatable {
-                let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
-                let (schema, content) = if let Some(captures) = re.captures(&preview.content) {
-                    let schema = captures.get(1).map(|m| m.as_str().to_string());
-                    let content = Some(re.replace(&preview.content, "").to_string());
-                    (schema, content)
-                } else {
-                    (None, None)
-                };
-                let content = content.as_deref().unwrap_or(&preview.content);
-                windmill_parser_sql::parse_wmill_sdk_sql_assets(
-                    AssetKind::DataTable,
-                    datatable,
-                    schema.as_deref(),
-                    content,
-                )
-                .transpose()
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        match assets {
-            Some(Ok(assets)) => {
-                for asset in assets {
-                    register_runtime_asset(InsertRuntimeAssetParams {
-                        access_type: asset.access_type.map(|a| a.into()),
-                        asset_kind: asset.kind.into(),
-                        asset_path: asset.path,
-                        job_id,
-                        workspace_id: w_id.clone(),
-                        created_at: None,
-                    });
-                }
-            }
-            _ => {}
-        }
+        register_potential_assets_on_inline_execution(job_id, &w_id, &preview);
     }
     let utils = get_worker_internal_server_inline_utils()?;
     let result = utils.run_inline_preview_script.as_ref()(RunInlinePreviewScriptFnParams {
@@ -6382,6 +6336,60 @@ async fn run_inline_preview_script(
     })
     .await?;
     Ok(Json(to_raw_value(&result)).into_response())
+}
+
+fn register_potential_assets_on_inline_execution(
+    job_id: Uuid,
+    w_id: &str,
+    preview: &PreviewInline,
+) {
+    let assets = if preview.language == ScriptLang::DuckDb {
+        Some(windmill_parser_sql::parse_assets(&preview.content).map(|a| a.assets))
+    } else if preview.language == ScriptLang::Postgresql {
+        let datatable = preview
+            .args
+            .as_ref()
+            .and_then(|args| args.get("database"))
+            .map(|v| v.get().trim_matches('"'))
+            .and_then(|dt| dt.strip_prefix("datatable://"));
+        if let Some(datatable) = datatable {
+            let re = regex::Regex::new(r#"SET search_path TO "([^"]+)";"#).unwrap();
+            let (schema, content) = if let Some(captures) = re.captures(&preview.content) {
+                let schema = captures.get(1).map(|m| m.as_str().to_string());
+                let content = Some(re.replace(&preview.content, "").to_string());
+                (schema, content)
+            } else {
+                (None, None)
+            };
+            let content = content.as_deref().unwrap_or(&preview.content);
+            windmill_parser_sql::parse_wmill_sdk_sql_assets(
+                AssetKind::DataTable,
+                datatable,
+                schema.as_deref(),
+                content,
+            )
+            .transpose()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    match assets {
+        Some(Ok(assets)) => {
+            for asset in assets {
+                register_runtime_asset(InsertRuntimeAssetParams {
+                    access_type: asset.access_type.map(|a| a.into()),
+                    asset_kind: asset.kind.into(),
+                    asset_path: asset.path,
+                    job_id,
+                    workspace_id: w_id.to_string(),
+                    created_at: None,
+                });
+            }
+        }
+        _ => {}
+    }
 }
 
 async fn run_wait_result_preview_script(
