@@ -14,6 +14,7 @@
 	import { base } from '$lib/base'
 	import GitHubAppIntegration from './GitHubAppIntegration.svelte'
 	import BedrockCredentialsCheck from './BedrockCredentialsCheck.svelte'
+	import { isCloudHosted } from '$lib/cloud'
 
 	interface Props {
 		resourceType: string
@@ -211,7 +212,7 @@
 			onDescriptionUpdate={(newDescription) => (description = newDescription)}
 		/>
 	</div>
-	{#if resourceType?.includes('bedrock')}
+	{#if resourceType?.includes('bedrock') && !isCloudHosted()}
 		<BedrockCredentialsCheck />
 	{/if}
 {:else}
