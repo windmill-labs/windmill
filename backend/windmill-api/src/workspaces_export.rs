@@ -802,6 +802,38 @@ pub(crate) async fn tarball_workspace(
                     .await?;
             }
         }
+
+        #[cfg(feature = "native_trigger")]
+        {
+            use crate::native_triggers::{list_native_triggers, ServiceName};
+            use strum::IntoEnumIterator;
+
+            for service_name in ServiceName::iter() {
+                let native_triggers =
+                    list_native_triggers(&mut *tx, &w_id, service_name, None, None, None, None).await?;
+
+                for trigger in native_triggers {
+                    let trigger_str = &to_string_without_metadata(
+                        &trigger,
+                        false,
+                        Some(vec!["webhook_token_prefix"]),
+                    )
+                    .unwrap();
+                    archive
+                        .write_to_archive(
+                            &trigger_str,
+                            &format!(
+                                "{}.{}.{}.{}_native_trigger.json",
+                                trigger.script_path,
+                                if trigger.is_flow { "flow" } else { "script" },
+                                trigger.external_id,
+                                service_name.as_str()
+                            ),
+                        )
+                        .await?;
+                }
+            }
+        }
     }
 
     if include_users.unwrap_or(false) {

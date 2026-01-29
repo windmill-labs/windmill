@@ -1,4 +1,3 @@
-use crate::ai::providers::openai::OpenAIToolCall;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::HashMap;
@@ -20,58 +19,10 @@ use windmill_common::{
 };
 use windmill_parser::Typ;
 
-/// URL citation annotation for web search results
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct UrlCitation {
-    pub start_index: usize,
-    pub end_index: usize,
-    pub url: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ContentPart {
-    Text {
-        text: String,
-    },
-    #[serde(rename = "image_url")]
-    ImageUrl {
-        image_url: ImageUrlData,
-    },
-    #[serde(rename = "s3_object")]
-    S3Object {
-        s3_object: S3Object,
-    },
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ImageUrlData {
-    pub url: String, // data:image/png;base64,... or https://...
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum OpenAIContent {
-    Text(String),
-    Parts(Vec<ContentPart>),
-}
-
-#[derive(Deserialize, Serialize, Clone, Default, Debug)]
-pub struct OpenAIMessage {
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<OpenAIContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<OpenAIToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    #[serde(skip_serializing)]
-    pub agent_action: Option<AgentAction>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub annotations: Option<Vec<UrlCitation>>,
-}
+// Re-export shared types from windmill_common::ai_types
+pub use windmill_common::ai_types::{
+    ContentPart, ImageUrlData, OpenAIContent, OpenAIMessage, ToolDef, ToolDefFunction, UrlCitation,
+};
 
 /// same as OpenAIMessage but with agent_action field included in the serialization
 #[derive(Serialize)]
@@ -94,19 +45,6 @@ pub struct JsonSchemaFormat {
     pub schema: OpenAPISchema,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ToolDefFunction {
-    pub name: String,
-    pub description: Option<String>,
-    pub parameters: Box<RawValue>,
-}
-
-#[derive(Serialize, Clone, Debug)]
-pub struct ToolDef {
-    pub r#type: String,
-    pub function: ToolDefFunction,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -159,6 +97,8 @@ struct AIAgentArgsRaw {
     memory: Option<Memory>,
     // Legacy field for backward compatibility
     messages_context_length: Option<usize>,
+    #[serde(default)]
+    credentials_check: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,6 +115,7 @@ pub struct AIAgentArgs {
     pub streaming: Option<bool>,
     pub max_iterations: Option<usize>,
     pub memory: Option<Memory>,
+    pub credentials_check: bool,
 }
 
 impl From<AIAgentArgsRaw> for AIAgentArgs {
@@ -206,6 +147,7 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
             streaming: raw.streaming,
             max_iterations: raw.max_iterations,
             memory,
+            credentials_check: raw.credentials_check.unwrap_or(false),
         }
     }
 }
@@ -221,12 +163,15 @@ pub enum AnthropicPlatform {
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
     #[serde(alias = "apiKey")]
-    pub api_key: String,
+    pub api_key: Option<String>,
     #[serde(alias = "baseUrl")]
     pub base_url: Option<String>,
+    #[allow(dead_code)]
     pub region: Option<String>,
+    #[allow(dead_code)]
     #[serde(alias = "awsAccessKeyId")]
     pub aws_access_key_id: Option<String>,
+    #[allow(dead_code)]
     #[serde(alias = "awsSecretAccessKey")]
     pub aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
@@ -242,8 +187,8 @@ pub struct ProviderWithResource {
 }
 
 impl ProviderWithResource {
-    pub fn get_api_key(&self) -> &str {
-        &self.resource.api_key
+    pub fn get_api_key(&self) -> Option<&str> {
+        self.resource.api_key.as_deref()
     }
 
     pub fn get_model(&self) -> &str {
@@ -260,14 +205,17 @@ impl ProviderWithResource {
             .await
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_region(&self) -> Option<&str> {
         self.resource.region.as_deref()
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_aws_access_key_id(&self) -> Option<&str> {
         self.resource.aws_access_key_id.as_deref()
     }
 
+    #[cfg(feature = "bedrock")]
     pub fn get_aws_secret_access_key(&self) -> Option<&str> {
         self.resource.aws_secret_access_key.as_deref()
     }

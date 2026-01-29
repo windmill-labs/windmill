@@ -22,6 +22,7 @@ import {
   pushObj,
   showConflict,
   showDiff,
+  extractNativeTriggerInfo,
 } from "../../types.ts";
 import { downloadZip } from "./pull.ts";
 
@@ -67,7 +68,7 @@ import {
   readLockfile,
   workspaceDependenciesPathToLanguageAndFilename,
 } from "../../utils/metadata.ts";
-import { OpenFlow } from "../../../gen/types.gen.ts";
+import { OpenFlow, NativeServiceName } from "../../../gen/types.gen.ts";
 import { pushResource } from "../resource/resource.ts";
 import {
   newPathAssigner,
@@ -132,6 +133,18 @@ export function findCodebase(
     return;
   }
   for (const c of codebases) {
+    // First check if the path is within this codebase's relative_path
+    const codebasePath = c.relative_path.replaceAll("\\", "/");
+    const normalizedPath = path.replaceAll("\\", "/");
+    if (!normalizedPath.startsWith(codebasePath + "/") && normalizedPath !== codebasePath) {
+      continue;
+    }
+
+    // Get the path relative to the codebase root for pattern matching
+    const relativePath = normalizedPath.startsWith(codebasePath + "/")
+      ? normalizedPath.substring(codebasePath.length + 1)
+      : normalizedPath;
+
     let included = false;
     let excluded = false;
     if (c.includes == undefined || c.includes == null) {
@@ -144,7 +157,7 @@ export function findCodebase(
       if (included) {
         break;
       }
-      if (minimatch(path, r)) {
+      if (minimatch(relativePath, r)) {
         included = true;
       }
     }
@@ -152,7 +165,7 @@ export function findCodebase(
       c.excludes = [c.excludes];
     }
     for (const r of c.excludes ?? []) {
-      if (minimatch(path, r)) {
+      if (minimatch(relativePath, r)) {
         excluded = true;
       }
     }
@@ -1282,6 +1295,8 @@ export async function elementsToMap(
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
+  // Cache git branch at the start to avoid repeated execSync calls per file
+  const cachedBranch = branchOverride ?? getCurrentGitBranch() ?? undefined;
   for await (const entry of readDirRecursiveWithIgnore(ignore, els)) {
     // console.log("FOO", entry.path, entry.ignored, entry.isDirectory)
     if (entry.isDirectory || entry.ignored) {
@@ -1349,7 +1364,8 @@ export async function elementsToMap(
         path.endsWith(".mqtt_trigger" + ext) ||
         path.endsWith(".sqs_trigger" + ext) ||
         path.endsWith(".gcp_trigger" + ext) ||
-        path.endsWith(".email_trigger" + ext))
+        path.endsWith(".email_trigger" + ext) ||
+        path.endsWith("_native_trigger" + ext))
     ) {
       continue;
     }
@@ -1381,7 +1397,7 @@ export async function elementsToMap(
 
     // Handle branch-specific files - skip files for other branches
     if (specificItems && isBranchSpecificFile(path)) {
-      if (!isCurrentBranchFile(path, branchOverride)) {
+      if (!isCurrentBranchFile(path, cachedBranch)) {
         // Skip branch-specific files for other branches
         continue;
       }
@@ -1416,9 +1432,9 @@ export async function elementsToMap(
     }
 
     // Handle branch-specific path mapping after all filtering
-    if (isCurrentBranchFile(path, branchOverride)) {
+    if (cachedBranch && isCurrentBranchFile(path, cachedBranch)) {
       // This is a branch-specific file for current branch
-      const currentBranch = branchOverride || getCurrentGitBranch()!;
+      const currentBranch = cachedBranch;
       const basePath = fromBranchSpecificPath(path, currentBranch);
 
       // Only use branch-specific files if the item type IS configured as branch-specific
@@ -1694,7 +1710,8 @@ function getOrderFromPath(p: string) {
     typ == "mqtt_trigger" ||
     typ == "sqs_trigger" ||
     typ == "gcp_trigger" ||
-    typ == "email_trigger"
+    typ == "email_trigger" ||
+    typ == "native_trigger"
   ) {
     return 14;
   } else {
@@ -1949,6 +1966,7 @@ export async function pull(
   } catch {
     // ignore
   }
+
   const zipFile = await downloadZip(
     workspace,
     opts.plainSecrets,
@@ -1973,9 +1991,11 @@ export async function pull(
     resourceTypeToFormatExtension,
     true,
   );
+
   const local = !opts.stateful
     ? await FSFSElement(Deno.cwd(), codebases, true)
     : await FSFSElement(path.join(Deno.cwd(), ".wmill"), [], true);
+
   const changes = await compareDynFSElement(
     remote,
     local,
@@ -2672,6 +2692,8 @@ export async function push(
     // Create a pool of workers that processes items as they become available
     const pool = new Set();
     const queue = [...groupedChangesArray];
+    // Cache git branch at the start to avoid repeated execSync calls per change
+    const cachedBranchForPush = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
 
     while (queue.length > 0 || pool.size > 0) {
       // Fill the pool until we reach parallelizationFactor
@@ -2756,7 +2778,7 @@ export async function push(
                   // For branch-specific resources, push to the base path on the workspace server
                   // This ensures branch-specific files are stored with their base names in the workspace
                   let serverPath = resourceFilePath;
-                  const currentBranch = opts.branch || (isGitRepository() ? getCurrentGitBranch() : null);
+                  const currentBranch = cachedBranchForPush;
 
                   if (currentBranch && isBranchSpecificFile(resourceFilePath)) {
                     serverPath = fromBranchSpecificPath(
@@ -2915,10 +2937,24 @@ export async function push(
                   break;
                 case "raw_app":
                   if (isRawAppFolderMetadataFile(target)) {
+                    // Delete the entire raw app
                     await wmill.deleteApp({
                       workspace: workspaceId,
                       path: removeSuffix(target, getDeleteSuffix("raw_app", "json")),
                     });
+                  } else {
+                    // For individual file deletions within a raw app,
+                    // re-push the entire raw app so the backend gets the updated file list
+                    // (the deleted file won't be included in the push)
+                    await pushObj(
+                      workspaceId,
+                      target,
+                      undefined,
+                      undefined,
+                      opts.plainSecrets ?? false,
+                      alreadySynced,
+                      opts.message,
+                    );
                   }
                   break;
                 case "schedule":
@@ -2981,6 +3017,20 @@ export async function push(
                     path: removeSuffix(target, ".email_trigger.json"),
                   });
                   break;
+                case "native_trigger": {
+                  const triggerInfo = extractNativeTriggerInfo(change.path);
+                  if (!triggerInfo) {
+                    throw new Error(
+                      `Invalid native trigger path: ${change.path}`
+                    );
+                  }
+                  await wmill.deleteNativeTrigger({
+                    workspace: workspaceId,
+                    serviceName: triggerInfo.serviceName as NativeServiceName,
+                    externalId: triggerInfo.externalId,
+                  });
+                  break;
+                }
                 case "variable":
                   await wmill.deleteVariable({
                     workspace: workspaceId,

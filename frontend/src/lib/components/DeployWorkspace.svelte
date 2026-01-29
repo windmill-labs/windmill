@@ -34,6 +34,7 @@
 	import type { App } from './apps/types'
 	import { getAllGridItems } from './apps/editor/appUtils'
 	import { isRunnableByPath } from './apps/inputType'
+	import type { Runnable } from './raw_apps/utils'
 
 	const dispatch = createEventDispatcher()
 
@@ -150,18 +151,30 @@
 			} else if (kind == 'app') {
 				const app = await AppService.getAppByPath({ workspace: $workspaceStore!, path })
 				console.log('app', app)
-				let appValue = app.value as App
 				let result: { kind: Kind; path: string }[] = []
-				getAllGridItems(appValue).forEach((gridItem) => {
-					const ci = gridItem.data.componentInput
-					if (ci?.type == 'runnable' && isRunnableByPath(ci.runnable)) {
-						if (ci.runnable.runType == 'script') {
-							result.push({ kind: 'script', path: ci.runnable.path })
-						} else if (ci.runnable.runType == 'flow') {
-							result.push({ kind: 'flow', path: ci.runnable.path })
+				if (app.raw_app) {
+					for (const runnable of Object.values(app.value.runnables as Record<string, Runnable>)) {
+						if (isRunnableByPath(runnable)) {
+							if (runnable.runType == 'script') {
+								result.push({ kind: 'script', path: runnable.path })
+							} else if (runnable.runType == 'flow') {
+								result.push({ kind: 'flow', path: runnable.path })
+							}
 						}
 					}
-				})
+				} else {
+					let appValue = app.value as App
+					getAllGridItems(appValue).forEach((gridItem) => {
+						const ci = gridItem.data.componentInput
+						if (ci?.type == 'runnable' && isRunnableByPath(ci.runnable)) {
+							if (ci.runnable.runType == 'script') {
+								result.push({ kind: 'script', path: ci.runnable.path })
+							} else if (ci.runnable.runType == 'flow') {
+								result.push({ kind: 'flow', path: ci.runnable.path })
+							}
+						}
+					})
+				}
 				return result
 			} else if (kind == 'resource') {
 				const res = await ResourceService.getResource({ workspace: $workspaceStore!, path })
@@ -344,20 +357,67 @@
 					path: path
 				})
 				if (alreadyExists) {
-					await AppService.updateApp({
-						workspace: workspaceToDeployTo!,
-						path: path,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: $workspaceStore!,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: $workspaceStore!
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: $workspaceStore!
+						})
+						await AppService.updateAppRaw({
+							workspace: workspaceToDeployTo!,
+							path: path,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.updateApp({
+							workspace: workspaceToDeployTo!,
+							path: path,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				} else {
-					await AppService.createApp({
-						workspace: workspaceToDeployTo!,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: $workspaceStore!,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: $workspaceStore!
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: $workspaceStore!
+						})
+						await AppService.createAppRaw({
+							workspace: workspaceToDeployTo!,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.createApp({
+							workspace: workspaceToDeployTo!,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				}
 			} else if (kind == 'variable') {
 				const variable = await VariableService.getVariable({

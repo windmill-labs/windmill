@@ -57,6 +57,9 @@ lazy_static::lazy_static! {
                         "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
                     ).replace("✅", "")),
                     (20260107133344, "".to_string()),
+                    (20260126235947, include_str!(
+                        "../../custom_migrations/lowercase_emails_safe.sql"
+                    ).to_string()),
                     ].into_iter().collect();
 }
 
@@ -247,7 +250,8 @@ pub async fn migrate(
         }
     }
 
-    return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
+    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    Ok(None)
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]

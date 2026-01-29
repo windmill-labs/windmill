@@ -10,6 +10,7 @@ import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import {
   getFolderSuffix,
   hasFolderSuffix,
+  loadNonDottedPathsSetting,
 } from "../../utils/resource_folders.ts";
 
 interface LintOptions extends GlobalOptions {
@@ -200,6 +201,9 @@ async function lintRawApp(
  * Main lint command
  */
 async function lint(opts: LintOptions, appFolder?: string) {
+  // Load nonDottedPaths setting before using folder suffix functions
+  await loadNonDottedPathsSetting();
+
   const targetDir = appFolder ?? process.cwd();
 
   log.info(colors.bold.blue(`\n🔍 Linting raw app: ${targetDir}\n`));

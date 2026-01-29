@@ -421,6 +421,11 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create flows for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
     validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
@@ -846,6 +851,11 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update flows for security reasons".to_string(),
+        ));
+    }
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
     validate_flow(&nf).await?;
