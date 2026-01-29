@@ -58,3 +58,7 @@ Windmill uses a workspace-based architecture with multiple crates:
 - **serde**: Serialization/deserialization
 - **tracing**: Logging and diagnostics
 - **reqwest**: HTTP client
+
+## Coding Guidelines
+
+Detailed Rust coding patterns and best practices are provided by the `rust-backend` skill.
