@@ -25,7 +25,6 @@ use axum::{
 };
 use chrono::Utc;
 
-use futures::FutureExt;
 use regex::Regex;
 
 use hex;
@@ -4676,7 +4675,6 @@ async fn compare_workspaces(
             .count(),
     };
 
-    tracing::error!("confirmed: {:#?}", confirmed_diffs);
     let all_ahead_items_visible = summary.total_ahead
         == confirmed_diffs
             .iter()
@@ -4719,8 +4717,6 @@ async fn filter_visible_diffs(
     // Step 2: Batch query for each (workspace, kind) combination
     let source_visible = query_visible_items(&mut tx, source_workspace_id, &source_items).await?;
     let fork_visible = query_visible_items(&mut tx, fork_workspace_id, &fork_items).await?;
-
-    tracing::error!("src: {:#?}\nfork: {:#?}", source_visible, fork_visible);
 
     // Step 3: Filter diffs based on visibility
     let visible_diffs: Vec<WorkspaceDiffRow> = confirmed_diffs
