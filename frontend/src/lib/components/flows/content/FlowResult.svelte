@@ -21,7 +21,7 @@
 </script>
 
 <FlowCard {noEditor} title="Flow result">
-	<div class="px-4">
+	<div class="px-4 py-2">
 		{#if job}
 			<!-- Side-by-side result and logs for simple jobs -->
 			<div class="w-full flex flex-row gap-2 justify-start mb-4">
