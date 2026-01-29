@@ -2744,7 +2744,7 @@ pub struct PreviousResult<'a> {
 /// Detects and stores runtime assets from job arguments.
 /// This function is called when a job starts executing to track which assets
 /// are passed as inputs to the job at runtime.
-async fn detect_and_store_runtime_assets(
+async fn detect_and_store_runtime_assets_from_job_args(
     workspace_id: &str,
     job_id: &Uuid,
     Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
@@ -3037,7 +3037,13 @@ pub async fn handle_queued_job(
 
         // Extract and store runtime assets from job arguments
         if let (Connection::Sql(_), Some(args_json)) = (conn, &job.args) {
-            detect_and_store_runtime_assets(&job.workspace_id, &job.id, args_json, &job.kind).await;
+            detect_and_store_runtime_assets_from_job_args(
+                &job.workspace_id,
+                &job.id,
+                args_json,
+                &job.kind,
+            )
+            .await;
         }
 
         let mut column_order: Option<Vec<String>> = None;
