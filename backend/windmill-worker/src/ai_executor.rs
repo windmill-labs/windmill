@@ -575,6 +575,7 @@ pub async fn run_agent(
 
     let mut actions = vec![];
     let mut content = None;
+    let mut final_usage: Option<crate::ai::types::TokenUsage> = None;
 
     // Check if this provider supports tools with the current output type
     let supports_tools = query_builder.supports_tools_with_output_type(output_type);
@@ -768,7 +769,12 @@ pub async fn run_agent(
                 events_str,
                 annotations,
                 used_websearch,
+                usage,
             } => {
+                // Accumulate usage from this iteration
+                if let Some(u) = usage {
+                    final_usage = Some(u);
+                }
                 if let Some(events_str) = events_str {
                     final_events_str.push_str(&events_str);
                 }
@@ -918,7 +924,7 @@ pub async fn run_agent(
                 }
                 used_structured_output_tool = tool_used_structured_output;
             }
-            ParsedResponse::Image { base64_data } => {
+            ParsedResponse::Image { base64_data, usage: _ } => {
                 // For image output, upload to S3 and track in conversation
                 let s3_object = upload_image_to_s3(&base64_data, job, client).await?;
 
@@ -1057,6 +1063,11 @@ pub async fn run_agent(
             Some(final_events_str)
         } else {
             None
+        },
+        usage: if final_usage.as_ref().map(|u| u.is_empty()).unwrap_or(true) {
+            None
+        } else {
+            final_usage
         },
     }))
 }

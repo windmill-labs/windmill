@@ -229,12 +229,39 @@ impl ProviderWithResource {
     }
 }
 
+/// Token usage information from the AI provider
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TokenUsage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_input_tokens: Option<i32>,
+}
+
+impl TokenUsage {
+    pub fn is_empty(&self) -> bool {
+        self.input_tokens.is_none()
+            && self.output_tokens.is_none()
+            && self.total_tokens.is_none()
+            && self.cache_read_input_tokens.is_none()
+            && self.cache_write_input_tokens.is_none()
+    }
+}
+
 #[derive(Serialize)]
 pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
 }
 
 /// Events for streaming AI responses

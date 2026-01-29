@@ -484,6 +484,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
             events_str: Some(events_str),
             annotations,
             used_websearch,
+            usage: None,
         })
     }
 

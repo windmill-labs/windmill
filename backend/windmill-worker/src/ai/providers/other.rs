@@ -170,6 +170,7 @@ impl QueryBuilder for OtherQueryBuilder {
             events_str: Some(events_str),
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         })
     }
 

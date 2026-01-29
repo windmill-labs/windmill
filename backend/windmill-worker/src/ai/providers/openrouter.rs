@@ -106,9 +106,15 @@ impl QueryBuilder for OpenRouterQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let image_response: OpenRouterImageResponse = response.json().await.map_err(|e| {
-            Error::internal_err(format!("Failed to parse OpenRouter image response: {}", e))
+        let response_text = response.text().await.map_err(|e| {
+            Error::internal_err(format!("Failed to read OpenRouter response body: {}", e))
         })?;
+        tracing::info!("[debug] OpenRouter image response raw: {}", response_text);
+
+        let image_response: OpenRouterImageResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                Error::internal_err(format!("Failed to parse OpenRouter image response: {}", e))
+            })?;
 
         if let Some(image) = image_response
             .choices
@@ -117,7 +123,10 @@ impl QueryBuilder for OpenRouterQueryBuilder {
             .and_then(|images| images.first())
         {
             if let Some(base64_data) = image.image_url.url.strip_prefix("data:image/png;base64,") {
-                return Ok(ParsedResponse::Image { base64_data: base64_data.to_string() });
+                return Ok(ParsedResponse::Image {
+                    base64_data: base64_data.to_string(),
+                    usage: None,
+                });
             }
         }
 

@@ -482,6 +482,7 @@ impl QueryBuilder for OpenAIQueryBuilder {
             events_str: Some(parser.events_str),
             annotations: parser.annotations,
             used_websearch: parser.used_websearch,
+            usage: None,
         })
     }
 
@@ -501,19 +502,28 @@ impl QueryBuilder for OpenAIQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let responses_response: ResponsesApiResponse = response.json().await.map_err(|e| {
-            Error::internal_err(format!(
-                "Failed to parse OpenAI responses API response: {}",
-                e
-            ))
+        let response_text = response.text().await.map_err(|e| {
+            Error::internal_err(format!("Failed to read OpenAI response body: {}", e))
         })?;
+        tracing::info!("[debug] OpenAI image response raw: {}", response_text);
+
+        let responses_response: ResponsesApiResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                Error::internal_err(format!(
+                    "Failed to parse OpenAI responses API response: {}",
+                    e
+                ))
+            })?;
 
         for output in responses_response.output.iter() {
             match output.r#type.as_str() {
                 "image_generation_call" => {
                     if output.status.as_deref() == Some("completed") {
                         if let Some(ref base64_image) = output.result {
-                            return Ok(ParsedResponse::Image { base64_data: base64_image.clone() });
+                            return Ok(ParsedResponse::Image {
+                                base64_data: base64_image.clone(),
+                                usage: None,
+                            });
                         }
                     }
                 }

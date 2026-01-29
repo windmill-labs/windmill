@@ -568,9 +568,15 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         &self,
         response: reqwest::Response,
     ) -> Result<ParsedResponse, Error> {
-        let gemini_response: GeminiImageResponse = response.json().await.map_err(|e| {
-            Error::internal_err(format!("Failed to parse Gemini image response: {}", e))
+        let response_text = response.text().await.map_err(|e| {
+            Error::internal_err(format!("Failed to read Gemini response body: {}", e))
         })?;
+        tracing::info!("[debug] Google AI/Gemini image response raw: {}", response_text);
+
+        let gemini_response: GeminiImageResponse =
+            serde_json::from_str(&response_text).map_err(|e| {
+                Error::internal_err(format!("Failed to parse Gemini image response: {}", e))
+            })?;
 
         // First, check Gemini models (candidates -> content -> parts -> inline_data)
         let image_data_from_gemini = gemini_response.candidates.as_ref().and_then(|candidates| {
@@ -594,7 +600,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
 
         match image_data {
             Some(base64_data) if !base64_data.is_empty() => {
-                Ok(ParsedResponse::Image { base64_data: base64_data.clone() })
+                Ok(ParsedResponse::Image { base64_data: base64_data.clone(), usage: None })
             }
             _ => Err(Error::internal_err(
                 "No image data received from Google Gemini/Imagen API".to_string(),
@@ -640,6 +646,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
             events_str: Some(events_str),
             annotations,
             used_websearch,
+            usage: None,
         })
     }
 

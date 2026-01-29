@@ -108,8 +108,11 @@ impl OpenAISSEParser {
 impl SSEParser for OpenAISSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
         if data == "[DONE]" {
+            tracing::info!("[debug] OpenAI SSE: received [DONE] signal");
             return Ok(());
         }
+
+        tracing::info!("[debug] OpenAI SSE raw event: {}", data);
 
         let event: Option<OpenAISSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
@@ -288,6 +291,8 @@ impl AnthropicSSEParser {
 
 impl SSEParser for AnthropicSSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        tracing::info!("[debug] Anthropic SSE raw event: {}", data);
+
         let event: Option<AnthropicSSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
                 tracing::error!("Failed to parse SSE as an Anthropic event {}: {}", data, e);
@@ -507,6 +512,8 @@ impl GeminiSSEParser {
 
 impl SSEParser for GeminiSSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        tracing::info!("[debug] Gemini SSE raw event: {}", data);
+
         let event: Option<GeminiSSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
                 tracing::error!("Failed to parse SSE as a Gemini event {}: {}", data, e);
@@ -714,6 +721,8 @@ impl OpenAIResponsesSSEParser {
 
 impl SSEParser for OpenAIResponsesSSEParser {
     async fn parse_event_data(&mut self, data: &str) -> Result<(), Error> {
+        tracing::info!("[debug] OpenAI Responses SSE raw event: {}", data);
+
         let event: Option<OpenAIResponsesSSEEvent> = serde_json::from_str(data)
             .inspect_err(|e| {
                 tracing::error!(

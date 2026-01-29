@@ -35,6 +35,8 @@ pub struct BuildRequestArgs<'a> {
     pub has_websearch: bool,
 }
 
+use crate::ai::types::TokenUsage;
+
 /// Response from AI provider
 pub enum ParsedResponse {
     Text {
@@ -43,9 +45,11 @@ pub enum ParsedResponse {
         events_str: Option<String>,
         annotations: Vec<UrlCitation>,
         used_websearch: bool,
+        usage: Option<TokenUsage>,
     },
     Image {
         base64_data: String,
+        usage: Option<TokenUsage>,
     },
 }
 

@@ -10,6 +10,7 @@ use crate::ai::{
     image_handler::prepare_messages_for_api,
     query_builder::{ParsedResponse, StreamEventProcessor},
     types::StreamingEvent,
+    types::TokenUsage,
     types::{OpenAIMessage, ToolDef},
 };
 use std::collections::HashMap;
@@ -142,11 +143,14 @@ impl BedrockQueryBuilder {
         let mut events_str = String::new();
         let mut accumulated_tool_calls: HashMap<String, StreamingToolCall> = HashMap::new();
         let mut current_tool_use_id: Option<String> = None;
+        let mut usage: Option<TokenUsage> = None;
 
         // Process stream events using shared parsing functions
         loop {
             match stream.recv().await {
                 Ok(Some(event)) => {
+                    tracing::info!("[debug] Bedrock stream event: {:?}", event);
+
                     // Handle tool use start using shared parser
                     if let Some(tool_call) = bedrock_stream_event_to_tool_start(&event) {
                         current_tool_use_id = Some(tool_call.id.clone());
@@ -180,6 +184,26 @@ impl BedrockQueryBuilder {
                     // Handle content block stop using shared parser
                     if bedrock_stream_event_is_block_stop(&event) {
                         current_tool_use_id = None;
+                    }
+
+                    // Extract usage from Metadata event
+                    if let aws_sdk_bedrockruntime::types::ConverseStreamOutput::Metadata(
+                        metadata,
+                    ) = &event
+                    {
+                        if let Some(token_usage) = metadata.usage() {
+                            usage = Some(TokenUsage {
+                                input_tokens: Some(token_usage.input_tokens()),
+                                output_tokens: Some(token_usage.output_tokens()),
+                                total_tokens: Some(token_usage.total_tokens()),
+                                cache_read_input_tokens: token_usage
+                                    .cache_read_input_tokens()
+                                    .map(|v| v as i32),
+                                cache_write_input_tokens: token_usage
+                                    .cache_write_input_tokens()
+                                    .map(|v| v as i32),
+                            });
+                        }
                     }
                 }
                 Ok(None) => break,
@@ -224,6 +248,7 @@ impl BedrockQueryBuilder {
             },
             annotations: Vec::new(),
             used_websearch: false,
+            usage,
         })
     }
 }
