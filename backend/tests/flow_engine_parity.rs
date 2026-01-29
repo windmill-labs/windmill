@@ -1090,3 +1090,725 @@ export function main(effective_limit: number, env_prefix: string, is_prod: boole
 
     Ok(())
 }
+
+// =============================================================================
+// TEST 13: Optional chaining with results proxy
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_results_optional_chaining(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            // Step a: return nested data with some null values
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        user: {
+            name: "Alice",
+            profile: {
+                email: "alice@example.com",
+                phone: null
+            },
+            settings: null
+        },
+        items: [
+            {id: 1, value: 10},
+            {id: 2, value: null},
+            {id: 3, value: 30}
+        ],
+        empty_array: [],
+        null_field: null
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            // Step b: use optional chaining on results
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Basic optional chaining
+                    js_input("user_name", "results.a.user?.name"),
+                    js_input("user_email", "results.a.user?.profile?.email"),
+                    // Optional chaining with null value
+                    js_input("user_phone", "results.a.user?.profile?.phone ?? 'no_phone'"),
+                    // Optional chaining on null settings
+                    js_input("user_setting", "results.a.user?.settings?.theme ?? 'default_theme'"),
+                    // Optional chaining with array access
+                    js_input("first_item_value", "results.a.items?.[0]?.value"),
+                    js_input("second_item_value", "results.a.items?.[1]?.value ?? 0"),
+                    // Optional chaining with find
+                    js_input("item_by_id", "results.a.items?.find(i => i.id === 1)?.value"),
+                    js_input("missing_item", "results.a.items?.find(i => i.id === 999)?.value ?? 'not_found'"),
+                    // Optional chaining on empty array
+                    js_input("empty_first", "results.a.empty_array?.[0]?.value ?? 'empty'"),
+                    // Nullish coalescing with null field
+                    js_input("null_with_default", "results.a.null_field ?? 'was_null'"),
+                    // Accessing missing property with ?.
+                    js_input("missing_prop", "results.a.nonexistent?.nested?.deep ?? 'missing'"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    user_name: string,
+    user_email: string,
+    user_phone: string,
+    user_setting: string,
+    first_item_value: number,
+    second_item_value: number,
+    item_by_id: number,
+    missing_item: string,
+    empty_first: string,
+    null_with_default: string,
+    missing_prop: string
+) {
+    return {
+        user_name, user_email, user_phone, user_setting,
+        first_item_value, second_item_value, item_by_id, missing_item,
+        empty_first, null_with_default, missing_prop
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["user_name"], "Alice");
+    assert_eq!(result["user_email"], "alice@example.com");
+    assert_eq!(result["user_phone"], "no_phone");
+    assert_eq!(result["user_setting"], "default_theme");
+    assert_eq!(result["first_item_value"], 10);
+    assert_eq!(result["second_item_value"], 0);
+    assert_eq!(result["item_by_id"], 10);
+    assert_eq!(result["missing_item"], "not_found");
+    assert_eq!(result["empty_first"], "empty");
+    assert_eq!(result["null_with_default"], "was_null");
+    assert_eq!(result["missing_prop"], "missing");
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 14: Large integer handling in results
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_large_integers(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        small_int: 42,
+        i32_max: 2147483647,
+        i32_max_plus_1: 2147483648,
+        timestamp: 1704067200000,  // Jan 1, 2024 00:00:00 UTC
+        large_safe: 9007199254740991,  // MAX_SAFE_INTEGER
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    js_input("small", "results.a.small_int"),
+                    js_input("i32_max", "results.a.i32_max"),
+                    js_input("over_i32", "results.a.i32_max_plus_1"),
+                    js_input("timestamp", "results.a.timestamp"),
+                    js_input("ts_plus_day", "results.a.timestamp + 86400000"),
+                    js_input("large", "results.a.large_safe"),
+                    // Arithmetic on large numbers
+                    js_input("large_minus_1", "results.a.large_safe - 1"),
+                    // Comparisons
+                    js_input("is_large_safe", "Number.isSafeInteger(results.a.large_safe)"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    small: number, i32_max: number, over_i32: number,
+    timestamp: number, ts_plus_day: number,
+    large: number, large_minus_1: number,
+    is_large_safe: boolean
+) {
+    return {small, i32_max, over_i32, timestamp, ts_plus_day, large, large_minus_1, is_large_safe};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["small"], 42);
+    assert_eq!(result["i32_max"], 2147483647_i64);
+    assert_eq!(result["over_i32"], 2147483648_i64);
+    assert_eq!(result["timestamp"], 1704067200000_i64);
+    assert_eq!(result["ts_plus_day"], 1704153600000_i64);
+    assert_eq!(result["large"], 9007199254740991_i64);
+    assert_eq!(result["large_minus_1"], 9007199254740990_i64);
+    assert_eq!(result["is_large_safe"], true);
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 15: Unicode and emoji handling in results
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_unicode_emoji(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        greeting: "Hello World",
+        simple_str: "hello",
+        greeting_len: 11,
+        mixed: "cafe resume naive",
+        names: ["Alice", "Bob", "Carlos"]
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    js_input("greeting", "results.a.greeting"),
+                    js_input("greeting_len", "results.a.greeting_len"),
+                    js_input("simple_str", "results.a.simple_str"),  // Get string directly first
+                    js_input("has_world", "results.a.greeting.includes('World')"),
+                    js_input("first_name", "results.a.names[0]"),
+                    js_input("last_name", "results.a.names[2]"),
+                    js_input("mixed_upper", "results.a.mixed.toUpperCase()"),
+                    js_input("template", "`Welcome: ${results.a.greeting}`"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    greeting: string, greeting_len: number, simple_str: string, has_world: boolean,
+    first_name: string, last_name: string, mixed_upper: string, template: string
+) {
+    return {greeting, greeting_len, simple_str, simple_str_len: simple_str?.length, has_world, first_name, last_name, mixed_upper, template};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["greeting"], "Hello World");
+    assert_eq!(result["greeting_len"], 11);
+    assert_eq!(result["simple_str"], "hello");
+    assert_eq!(result["simple_str_len"], 5); // "hello".length (computed inside script)
+    assert_eq!(result["has_world"], true);
+    assert_eq!(result["first_name"], "Alice");
+    assert_eq!(result["last_name"], "Carlos");
+    assert_eq!(result["mixed_upper"], "CAFE RESUME NAIVE");
+    assert_eq!(result["template"], "Welcome: Hello World");
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 16: Complex array operations with results
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_complex_array_operations(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        numbers: [5, 2, 8, 1, 9, 3, 7, 4, 6],
+        users: [
+            {id: 1, name: "Alice", score: 85, active: true},
+            {id: 2, name: "Bob", score: 92, active: false},
+            {id: 3, name: "Charlie", score: 78, active: true},
+            {id: 4, name: "Diana", score: 95, active: true}
+        ]
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Sorting
+                    js_input("sorted_asc", "[...results.a.numbers].sort((a, b) => a - b)"),
+                    js_input("sorted_desc", "[...results.a.numbers].sort((a, b) => b - a)"),
+                    // Filtering and mapping combined
+                    js_input("active_names", "results.a.users.filter(u => u.active).map(u => u.name)"),
+                    js_input("high_scorers", "results.a.users.filter(u => u.score >= 90).map(u => ({name: u.name, score: u.score}))"),
+                    // Reduce operations
+                    js_input("total_score", "results.a.users.reduce((sum, u) => sum + u.score, 0)"),
+                    js_input("avg_score", "results.a.users.reduce((sum, u) => sum + u.score, 0) / results.a.users.length"),
+                    // Find operations
+                    js_input("top_scorer", "results.a.users.reduce((max, u) => u.score > max.score ? u : max).name"),
+                    // Some/every
+                    js_input("has_inactive", "results.a.users.some(u => !u.active)"),
+                    js_input("all_above_70", "results.a.users.every(u => u.score > 70)"),
+                    // Slice and spread
+                    js_input("first_three", "results.a.numbers.slice(0, 3)"),
+                    js_input("last_two", "results.a.numbers.slice(-2)"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    sorted_asc: number[], sorted_desc: number[], active_names: string[],
+    high_scorers: {name: string, score: number}[], total_score: number,
+    avg_score: number, top_scorer: string, has_inactive: boolean,
+    all_above_70: boolean, first_three: number[], last_two: number[]
+) {
+    return {
+        sorted_asc, sorted_desc, active_names, high_scorers,
+        total_score, avg_score, top_scorer, has_inactive,
+        all_above_70, first_three, last_two
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["sorted_asc"], json!([1, 2, 3, 4, 5, 6, 7, 8, 9]));
+    assert_eq!(result["sorted_desc"], json!([9, 8, 7, 6, 5, 4, 3, 2, 1]));
+    assert_eq!(result["active_names"], json!(["Alice", "Charlie", "Diana"]));
+    assert_eq!(result["high_scorers"], json!([{"name": "Bob", "score": 92}, {"name": "Diana", "score": 95}]));
+    assert_eq!(result["total_score"], 350); // 85 + 92 + 78 + 95
+    assert_eq!(result["avg_score"], 87.5);
+    assert_eq!(result["top_scorer"], "Diana");
+    assert_eq!(result["has_inactive"], true);
+    assert_eq!(result["all_above_70"], true);
+    assert_eq!(result["first_three"], json!([5, 2, 8]));
+    assert_eq!(result["last_two"], json!([4, 6]));
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 17: Multiline expressions with semicolons and return
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_multiline_expressions(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        items: [
+            {id: 1, name: "Item A", price: 10, qty: 2},
+            {id: 2, name: "Item B", price: 20, qty: 3},
+            {id: 3, name: "Item C", price: 30, qty: 1}
+        ],
+        discount: 0.1,
+        tax_rate: 0.08
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Simple multiline with variable declaration
+                    js_input("subtotal", r#"
+                        let items = results.a.items;
+                        let total = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                        return total;
+                    "#),
+                    // Multiline with conditional logic
+                    js_input("discounted_total", r#"
+                        let items = results.a.items;
+                        let subtotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                        let discount = results.a.discount;
+                        if (subtotal > 50) {
+                            return subtotal * (1 - discount);
+                        } else {
+                            return subtotal;
+                        }
+                    "#),
+                    // Multiline with multiple statements and final expression
+                    js_input("item_summary", r#"
+                        const items = results.a.items;
+                        const names = items.map(i => i.name);
+                        const total_qty = items.reduce((sum, i) => sum + i.qty, 0);
+                        return { names, total_qty };
+                    "#),
+                    // Multiline with try-catch
+                    js_input("safe_calculation", r#"
+                        try {
+                            const items = results.a.items;
+                            const tax_rate = results.a.tax_rate;
+                            const subtotal = items.reduce((sum, item) => sum + (item.price * item.qty), 0);
+                            return Math.round(subtotal * (1 + tax_rate) * 100) / 100;
+                        } catch (e) {
+                            return 0;
+                        }
+                    "#),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    subtotal: number, discounted_total: number,
+    item_summary: {names: string[], total_qty: number},
+    safe_calculation: number
+) {
+    return {subtotal, discounted_total, item_summary, safe_calculation};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    // subtotal = 10*2 + 20*3 + 30*1 = 20 + 60 + 30 = 110
+    assert_eq!(result["subtotal"], 110);
+    // discounted_total = 110 * (1 - 0.1) = 99
+    assert_eq!(result["discounted_total"], 99.0);
+    assert_eq!(result["item_summary"]["names"], json!(["Item A", "Item B", "Item C"]));
+    assert_eq!(result["item_summary"]["total_qty"], 6);
+    // safe_calculation = 110 * 1.08 = 118.8
+    assert_eq!(result["safe_calculation"], 118.8);
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 18: Spread operators with results
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_spread_with_results(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        config: { host: "localhost", port: 3000 },
+        tags: ["api", "v1"],
+        user: { name: "Alice", role: "admin" }
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            flow_module("b", FlowModuleValue::RawScript {
+                input_transforms: [
+                    // Object spread with results
+                    js_input("merged_config", "{...results.a.config, timeout: 5000}"),
+                    // Array spread with results
+                    js_input("all_tags", "[...results.a.tags, 'production']"),
+                    // Nested object spread
+                    js_input("full_user", "{...results.a.user, permissions: ['read', 'write']}"),
+                    // Spread in function call
+                    js_input("max_port", "Math.max(...[results.a.config.port, 8080, 4000])"),
+                    // Destructuring with rest spread
+                    js_input("rest_config", r#"
+                        const {host, ...rest} = results.a.config;
+                        return rest;
+                    "#),
+                    // Combining multiple spreads
+                    js_input("combined", "{config: {...results.a.config}, tags: [...results.a.tags], source: 'flow'}"),
+                ].into(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main(
+    merged_config: any, all_tags: string[], full_user: any,
+    max_port: number, rest_config: any, combined: any
+) {
+    return {merged_config, all_tags, full_user, max_port, rest_config, combined};
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    assert_eq!(result["merged_config"], json!({"host": "localhost", "port": 3000, "timeout": 5000}));
+    assert_eq!(result["all_tags"], json!(["api", "v1", "production"]));
+    assert_eq!(result["full_user"], json!({"name": "Alice", "role": "admin", "permissions": ["read", "write"]}));
+    assert_eq!(result["max_port"], 8080);
+    assert_eq!(result["rest_config"], json!({"port": 3000}));
+    assert_eq!(result["combined"]["config"], json!({"host": "localhost", "port": 3000}));
+    assert_eq!(result["combined"]["tags"], json!(["api", "v1"]));
+    assert_eq!(result["combined"]["source"], "flow");
+
+    Ok(())
+}
+
+// =============================================================================
+// TEST 19: Nested for-loop accessing parent step results
+// =============================================================================
+
+#[cfg(feature = "deno_core")]
+#[sqlx::test(fixtures("base"))]
+async fn test_flow_nested_forloop_results_access(db: Pool<Postgres>) -> anyhow::Result<()> {
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+
+    let flow = FlowValue {
+        modules: vec![
+            // Step a: outer data
+            flow_module("a", FlowModuleValue::RawScript {
+                input_transforms: Default::default(),
+                language: ScriptLang::Deno,
+                content: r#"
+export function main() {
+    return {
+        multiplier: 10,
+        categories: ["cat1", "cat2"]
+    };
+}
+"#.to_string(),
+                path: None,
+                lock: None,
+                tag: None,
+                concurrency_settings: Default::default(),
+                is_trigger: None,
+                assets: None,
+            }),
+            // Outer for-loop
+            flow_module("outer", FlowModuleValue::ForloopFlow {
+                iterator: InputTransform::Javascript {
+                    expr: "results.a.categories".to_string()
+                },
+                skip_failures: false,
+                parallel: false,
+                squash: None,
+                parallelism: None,
+                modules: vec![
+                    // Step b: generate inner items based on category
+                    flow_module("b", FlowModuleValue::RawScript {
+                        input_transforms: [
+                            js_input("category", "flow_input.iter.value"),
+                            js_input("multiplier", "results.a.multiplier"),  // Access outer step from inside for-loop
+                        ].into(),
+                        language: ScriptLang::Deno,
+                        content: r#"
+export function main(category: string, multiplier: number) {
+    return {
+        category,
+        items: [1, 2].map(n => ({
+            id: `${category}-${n}`,
+            value: n * multiplier
+        }))
+    };
+}
+"#.to_string(),
+                        path: None,
+                        lock: None,
+                        tag: None,
+                        concurrency_settings: Default::default(),
+                        is_trigger: None,
+                        assets: None,
+                    }),
+                    // Step c: process inner items and access previous step in loop
+                    flow_module("c", FlowModuleValue::RawScript {
+                        input_transforms: [
+                            js_input("items", "results.b.items"),  // Access sibling step
+                            js_input("category", "results.b.category"),
+                            js_input("original_mult", "results.a.multiplier"),  // Access outer step
+                        ].into(),
+                        language: ScriptLang::Deno,
+                        content: r#"
+export function main(items: any[], category: string, original_mult: number) {
+    return {
+        category,
+        original_mult,
+        item_count: items.length,
+        total_value: items.reduce((sum, i) => sum + i.value, 0)
+    };
+}
+"#.to_string(),
+                        path: None,
+                        lock: None,
+                        tag: None,
+                        concurrency_settings: Default::default(),
+                        is_trigger: None,
+                        assets: None,
+                    }),
+                ],
+                modules_node: None,
+            }),
+        ],
+        same_worker: false,
+        ..Default::default()
+    };
+
+    let result = RunJob::from(JobPayload::RawFlow { value: flow, path: None, restarted_from: None })
+        .run_until_complete(&db, false, server.addr.port())
+        .await
+        .json_result()
+        .unwrap();
+
+    // outer loop produces 2 results (for cat1 and cat2)
+    assert!(result.is_array());
+    let arr = result.as_array().unwrap();
+    assert_eq!(arr.len(), 2);
+
+    // First iteration (cat1): items [1*10, 2*10] = [10, 20], total = 30
+    assert_eq!(arr[0]["category"], "cat1");
+    assert_eq!(arr[0]["original_mult"], 10);
+    assert_eq!(arr[0]["item_count"], 2);
+    assert_eq!(arr[0]["total_value"], 30);
+
+    // Second iteration (cat2): items [1*10, 2*10] = [10, 20], total = 30
+    assert_eq!(arr[1]["category"], "cat2");
+    assert_eq!(arr[1]["original_mult"], 10);
+    assert_eq!(arr[1]["item_count"], 2);
+    assert_eq!(arr[1]["total_value"], 30);
+
+    Ok(())
+}

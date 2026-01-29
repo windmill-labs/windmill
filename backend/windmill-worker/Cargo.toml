@@ -22,7 +22,8 @@ flow_testing = []
 cloud = []
 sqlx = []
 deno_core = ["dep:deno_fetch", "dep:deno_webidl", "dep:deno_web", "dep:deno_net", "dep:deno_console", "dep:deno_url", "dep:deno_core",
-    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi", "dep:rustls-pemfile"]
+    "dep:deno_ast", "dep:deno_tls", "dep:deno_permissions", "dep:deno_io", "dep:deno_runtime", "dep:deno_telemetry", "dep:deno_error", "dep:winapi", "dep:rustls-pemfile",
+    "quickjs"]
 libffi_mac = ["dep:libffi-sys"]
 otel = ["windmill-common/otel", "dep:opentelemetry", "dep:tracing-opentelemetry"]
 dind = ["dep:bollard"]

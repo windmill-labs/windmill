@@ -2996,4 +2996,1050 @@ mod flow_simulation_parity_tests {
 
         Ok(())
     }
+
+    // =========================================================================
+    // EDGE CASE TESTS: Potential breaking changes between engines
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_large_integers() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+
+        // i32 boundary values
+        env.insert(
+            "i32_max".to_string(),
+            Arc::new(to_raw_value(&json!(2147483647))), // i32::MAX
+        );
+        env.insert(
+            "i32_max_plus_1".to_string(),
+            Arc::new(to_raw_value(&json!(2147483648_i64))), // i32::MAX + 1
+        );
+        env.insert(
+            "i32_min".to_string(),
+            Arc::new(to_raw_value(&json!(-2147483648))), // i32::MIN
+        );
+        env.insert(
+            "i32_min_minus_1".to_string(),
+            Arc::new(to_raw_value(&json!(-2147483649_i64))), // i32::MIN - 1
+        );
+
+        // Typical timestamp (milliseconds since epoch)
+        env.insert(
+            "timestamp".to_string(),
+            Arc::new(to_raw_value(&json!(1704067200000_i64))), // Jan 1, 2024
+        );
+
+        // Near MAX_SAFE_INTEGER
+        env.insert(
+            "large_safe".to_string(),
+            Arc::new(to_raw_value(&json!(9007199254740991_i64))), // MAX_SAFE_INTEGER
+        );
+
+        // Basic operations with i32 boundary values
+        test_parity("i32_max", env.clone(), None, None).await?;
+        test_parity("i32_max + 1", env.clone(), None, None).await?;
+        test_parity("i32_max_plus_1", env.clone(), None, None).await?;
+        test_parity("i32_max_plus_1 + 1", env.clone(), None, None).await?;
+        test_parity("i32_min", env.clone(), None, None).await?;
+        test_parity("i32_min - 1", env.clone(), None, None).await?;
+        test_parity("i32_min_minus_1", env.clone(), None, None).await?;
+
+        // Timestamp arithmetic
+        test_parity("timestamp", env.clone(), None, None).await?;
+        test_parity("timestamp + 86400000", env.clone(), None, None).await?; // +1 day
+        test_parity("timestamp - 3600000", env.clone(), None, None).await?; // -1 hour
+
+        // MAX_SAFE_INTEGER operations
+        test_parity("large_safe", env.clone(), None, None).await?;
+        test_parity("large_safe - 1", env.clone(), None, None).await?;
+
+        // Comparisons at boundaries
+        test_parity("i32_max === 2147483647", env.clone(), None, None).await?;
+        test_parity("i32_max_plus_1 === 2147483648", env.clone(), None, None).await?;
+        test_parity("timestamp > 1704067200000", env.clone(), None, None).await?;
+        test_parity("timestamp === 1704067200000", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_sparse_arrays() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+
+        // Sparse arrays are tricky - we'll simulate them via expressions
+        // Note: JSON doesn't support sparse arrays directly, so we test via JS
+
+        // Regular array for comparison
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Test array operations that might behave differently with holes
+        test_parity("[1, 2, 3].length", env.clone(), None, None).await?;
+        test_parity("[1, 2, 3].map(x => x * 2)", env.clone(), None, None).await?;
+        test_parity("[1, 2, 3].filter(x => x > 1)", env.clone(), None, None).await?;
+        test_parity("[1, 2, 3].reduce((a, b) => a + b, 0)", env.clone(), None, None).await?;
+
+        // Array with undefined values (different from holes)
+        test_parity("[1, undefined, 3].map(x => x ?? 'missing')", env.clone(), None, None).await?;
+        test_parity("[1, null, 3].map(x => x ?? 'missing')", env.clone(), None, None).await?;
+
+        // Array.from behavior
+        test_parity("Array.from([1, 2, 3])", env.clone(), None, None).await?;
+        test_parity("Array.from({length: 3}, (_, i) => i)", env.clone(), None, None).await?;
+
+        // Spread operator
+        test_parity("[...arr]", env.clone(), None, None).await?;
+        test_parity("[...arr, 6, 7]", env.clone(), None, None).await?;
+        test_parity("[0, ...arr]", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_unicode_and_emoji() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "emoji".to_string(),
+            Arc::new(to_raw_value(&json!("🎉"))),
+        );
+        env.insert(
+            "text_with_emoji".to_string(),
+            Arc::new(to_raw_value(&json!("Hello 🌍 World!"))),
+        );
+        env.insert(
+            "cafe".to_string(),
+            Arc::new(to_raw_value(&json!("café"))),
+        );
+        env.insert(
+            "chinese".to_string(),
+            Arc::new(to_raw_value(&json!("你好世界"))),
+        );
+        env.insert(
+            "mixed".to_string(),
+            Arc::new(to_raw_value(&json!("Hello 世界 🌍"))),
+        );
+
+        // String length (surrogate pairs count as 2)
+        test_parity("emoji.length", env.clone(), None, None).await?;
+        test_parity("text_with_emoji.length", env.clone(), None, None).await?;
+        test_parity("cafe.length", env.clone(), None, None).await?;
+        test_parity("chinese.length", env.clone(), None, None).await?;
+
+        // String operations
+        test_parity("emoji.charCodeAt(0)", env.clone(), None, None).await?;
+        test_parity("text_with_emoji.indexOf('🌍')", env.clone(), None, None).await?;
+        test_parity("text_with_emoji.includes('🌍')", env.clone(), None, None).await?;
+
+        // Substring operations
+        test_parity("text_with_emoji.substring(0, 5)", env.clone(), None, None).await?;
+        test_parity("text_with_emoji.slice(-1)", env.clone(), None, None).await?;
+
+        // String comparison
+        test_parity("cafe === 'café'", env.clone(), None, None).await?;
+        test_parity("'café' === 'café'", env.clone(), None, None).await?;
+
+        // Template literals with unicode
+        test_parity("`Hello ${emoji}`", env.clone(), None, None).await?;
+        test_parity("`${chinese} - ${emoji}`", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_special_numeric_values() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert("zero".to_string(), Arc::new(to_raw_value(&json!(0))));
+        env.insert(
+            "negative_zero_str".to_string(),
+            Arc::new(to_raw_value(&json!("-0"))),
+        );
+        env.insert(
+            "num".to_string(),
+            Arc::new(to_raw_value(&json!(42))),
+        );
+
+        // Basic numeric operations
+        test_parity("0 === 0", env.clone(), None, None).await?;
+        test_parity("-0 === 0", env.clone(), None, None).await?;
+        test_parity("zero === 0", env.clone(), None, None).await?;
+
+        // Division by zero
+        test_parity("1 / 0", env.clone(), None, None).await?; // Infinity -> null in JSON
+        test_parity("-1 / 0", env.clone(), None, None).await?; // -Infinity -> null in JSON
+        test_parity("0 / 0", env.clone(), None, None).await?; // NaN -> null in JSON
+
+        // NaN checks
+        test_parity("Number.isNaN(0 / 0)", env.clone(), None, None).await?;
+        test_parity("Number.isFinite(1 / 0)", env.clone(), None, None).await?;
+        test_parity("Number.isFinite(num)", env.clone(), None, None).await?;
+
+        // Safe integer checks
+        test_parity("Number.isSafeInteger(42)", env.clone(), None, None).await?;
+        test_parity("Number.isSafeInteger(9007199254740991)", env.clone(), None, None).await?;
+        test_parity("Number.isSafeInteger(9007199254740992)", env.clone(), None, None).await?;
+
+        // Number parsing
+        test_parity("parseInt('42')", env.clone(), None, None).await?;
+        test_parity("parseFloat('3.14')", env.clone(), None, None).await?;
+        test_parity("parseInt('0xff', 16)", env.clone(), None, None).await?;
+        test_parity("parseInt('101', 2)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_object_property_order() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "z": 3,
+                "a": 1,
+                "m": 2,
+                "b": 4
+            }))),
+        );
+        env.insert(
+            "nested".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "outer": {
+                    "z": 1,
+                    "a": 2
+                }
+            }))),
+        );
+
+        // Object.keys, Object.values, Object.entries
+        // Note: Order might differ but we compare as sets
+        test_parity("Object.keys(obj).sort()", env.clone(), None, None).await?;
+        test_parity("Object.values(obj).sort((a, b) => a - b)", env.clone(), None, None).await?;
+        test_parity("Object.entries(obj).sort((a, b) => a[0].localeCompare(b[0]))", env.clone(), None, None).await?;
+
+        // Object spread (order might differ)
+        test_parity("{...obj, extra: 5}", env.clone(), None, None).await?;
+        test_parity("{first: 0, ...obj}", env.clone(), None, None).await?;
+
+        // Nested object access
+        test_parity("nested.outer.z", env.clone(), None, None).await?;
+        test_parity("Object.keys(nested.outer).sort()", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_prototype_methods() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+        env.insert(
+            "str".to_string(),
+            Arc::new(to_raw_value(&json!("hello world"))),
+        );
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({"a": 1, "b": 2}))),
+        );
+
+        // Array methods
+        test_parity("arr.includes(3)", env.clone(), None, None).await?;
+        test_parity("arr.indexOf(3)", env.clone(), None, None).await?;
+        test_parity("arr.lastIndexOf(3)", env.clone(), None, None).await?;
+        test_parity("arr.find(x => x > 3)", env.clone(), None, None).await?;
+        test_parity("arr.findIndex(x => x > 3)", env.clone(), None, None).await?;
+        test_parity("arr.every(x => x > 0)", env.clone(), None, None).await?;
+        test_parity("arr.some(x => x > 4)", env.clone(), None, None).await?;
+        test_parity("arr.flat()", env.clone(), None, None).await?;
+        test_parity("arr.flatMap(x => [x, x * 2])", env.clone(), None, None).await?;
+        test_parity("arr.fill(0, 1, 3)", env.clone(), None, None).await?;
+        test_parity("[...arr].reverse()", env.clone(), None, None).await?;
+
+        // String methods
+        test_parity("str.split(' ')", env.clone(), None, None).await?;
+        test_parity("str.toUpperCase()", env.clone(), None, None).await?;
+        test_parity("str.toLowerCase()", env.clone(), None, None).await?;
+        test_parity("str.trim()", env.clone(), None, None).await?;
+        test_parity("str.padStart(15, '_')", env.clone(), None, None).await?;
+        test_parity("str.padEnd(15, '_')", env.clone(), None, None).await?;
+        test_parity("str.startsWith('hello')", env.clone(), None, None).await?;
+        test_parity("str.endsWith('world')", env.clone(), None, None).await?;
+        test_parity("str.repeat(2)", env.clone(), None, None).await?;
+
+        // Object methods
+        test_parity("Object.keys(obj)", env.clone(), None, None).await?;
+        test_parity("Object.values(obj)", env.clone(), None, None).await?;
+        test_parity("Object.entries(obj)", env.clone(), None, None).await?;
+        test_parity("Object.assign({}, obj, {c: 3})", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_regex_basic() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "text".to_string(),
+            Arc::new(to_raw_value(&json!("Hello123World456"))),
+        );
+        env.insert(
+            "email".to_string(),
+            Arc::new(to_raw_value(&json!("test@example.com"))),
+        );
+
+        // Basic regex matching
+        test_parity("/\\d+/.test(text)", env.clone(), None, None).await?;
+        test_parity("text.match(/\\d+/)", env.clone(), None, None).await?;
+        test_parity("text.match(/\\d+/g)", env.clone(), None, None).await?;
+
+        // Replace with regex
+        test_parity("text.replace(/\\d+/, 'X')", env.clone(), None, None).await?;
+        test_parity("text.replace(/\\d+/g, 'X')", env.clone(), None, None).await?;
+
+        // Split with regex
+        test_parity("text.split(/\\d+/)", env.clone(), None, None).await?;
+
+        // Case insensitive
+        test_parity("/hello/i.test(text)", env.clone(), None, None).await?;
+        test_parity("text.match(/hello/i)", env.clone(), None, None).await?;
+
+        // Email validation (basic pattern)
+        test_parity("/^[^@]+@[^@]+\\.[^@]+$/.test(email)", env.clone(), None, None).await?;
+
+        // Capturing groups (basic)
+        test_parity("text.match(/(\\d+)/)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_date_operations() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "timestamp".to_string(),
+            Arc::new(to_raw_value(&json!(1704067200000_i64))), // 2024-01-01T00:00:00Z
+        );
+        env.insert(
+            "iso_date".to_string(),
+            Arc::new(to_raw_value(&json!("2024-01-15T12:30:00.000Z"))),
+        );
+
+        // Date parsing
+        test_parity("Date.parse(iso_date)", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getTime()", env.clone(), None, None).await?;
+        test_parity("new Date(timestamp).toISOString()", env.clone(), None, None).await?;
+
+        // UTC methods (timezone-independent)
+        test_parity("new Date(iso_date).getUTCFullYear()", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getUTCMonth()", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getUTCDate()", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getUTCHours()", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getUTCMinutes()", env.clone(), None, None).await?;
+
+        // Date arithmetic
+        test_parity("new Date(timestamp + 86400000).toISOString()", env.clone(), None, None).await?;
+        test_parity("new Date(timestamp - 3600000).toISOString()", env.clone(), None, None).await?;
+
+        // Date comparison
+        test_parity("new Date(iso_date).getTime() > 0", env.clone(), None, None).await?;
+        test_parity("new Date(iso_date).getTime() === Date.parse(iso_date)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_error_handling() -> anyhow::Result<()> {
+        let (ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Try-catch with safe access (using step 'b' which has data)
+        test_parity(
+            "(() => { try { return b.data.total; } catch(e) { return 'error'; } })()",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+
+        // Error from invalid JSON parse (should be caught)
+        test_parity(
+            "(() => { try { return JSON.parse('invalid'); } catch(e) { return 'parse_error'; } })()",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+
+        // Typeof for error prevention
+        test_parity("typeof b.missing === 'undefined'", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("typeof b.data.total === 'number'", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Ternary with type checks
+        test_parity(
+            "typeof b === 'object' && b !== null ? b.data.total : 'fallback'",
+            ctx.clone(),
+            fi.clone(),
+            fe.clone(),
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_set_and_map() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 2, 3, 3, 3]))),
+        );
+        env.insert(
+            "pairs".to_string(),
+            Arc::new(to_raw_value(&json!([["a", 1], ["b", 2], ["c", 3]]))),
+        );
+
+        // Set operations (converted back to array for JSON)
+        test_parity("[...new Set(arr)]", env.clone(), None, None).await?;
+        test_parity("new Set(arr).size", env.clone(), None, None).await?;
+        test_parity("new Set(arr).has(2)", env.clone(), None, None).await?;
+        test_parity("new Set(arr).has(5)", env.clone(), None, None).await?;
+
+        // Map operations (converted back for JSON)
+        test_parity("new Map(pairs).get('a')", env.clone(), None, None).await?;
+        test_parity("new Map(pairs).has('b')", env.clone(), None, None).await?;
+        test_parity("new Map(pairs).size", env.clone(), None, None).await?;
+        test_parity("[...new Map(pairs).keys()]", env.clone(), None, None).await?;
+        test_parity("[...new Map(pairs).values()]", env.clone(), None, None).await?;
+        test_parity("[...new Map(pairs).entries()]", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_computed_property_names() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "key".to_string(),
+            Arc::new(to_raw_value(&json!("dynamicKey"))),
+        );
+        env.insert(
+            "prefix".to_string(),
+            Arc::new(to_raw_value(&json!("item"))),
+        );
+        env.insert(
+            "index".to_string(),
+            Arc::new(to_raw_value(&json!(42))),
+        );
+
+        // Computed property access
+        test_parity("({a: 1, b: 2})[key] ?? 'missing'", env.clone(), None, None).await?;
+        test_parity("({dynamicKey: 'found'})[key]", env.clone(), None, None).await?;
+
+        // Computed property creation
+        test_parity("({[key]: 'value'})", env.clone(), None, None).await?;
+        test_parity("({[prefix + '_' + index]: true})", env.clone(), None, None).await?;
+        test_parity("({[`${prefix}_${index}`]: 'computed'})", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_destructuring_advanced() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "data".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "user": {"name": "Alice", "age": 30},
+                "items": [1, 2, 3, 4, 5],
+                "meta": {"count": 5}
+            }))),
+        );
+
+        // Nested destructuring
+        test_parity("(({user: {name}}) => name)(data)", env.clone(), None, None).await?;
+        test_parity("(({items: [first, second, ...rest]}) => ({first, second, rest}))(data)", env.clone(), None, None).await?;
+
+        // Default values in destructuring
+        test_parity("(({missing = 'default'}) => missing)(data)", env.clone(), None, None).await?;
+        test_parity("(({user: {nickname = 'unknown'}}) => nickname)(data)", env.clone(), None, None).await?;
+
+        // Renaming in destructuring
+        test_parity("(({user: u}) => u.name)(data)", env.clone(), None, None).await?;
+        test_parity("(({meta: {count: total}}) => total)(data)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_arrow_functions() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "numbers".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+        env.insert(
+            "users".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"name": "Alice", "score": 85},
+                {"name": "Bob", "score": 92},
+                {"name": "Charlie", "score": 78}
+            ]))),
+        );
+
+        // Simple arrow functions
+        test_parity("numbers.map(x => x * 2)", env.clone(), None, None).await?;
+        test_parity("numbers.filter(x => x > 2)", env.clone(), None, None).await?;
+        test_parity("numbers.reduce((a, b) => a + b, 0)", env.clone(), None, None).await?;
+
+        // Arrow functions with objects
+        test_parity("users.map(u => u.name)", env.clone(), None, None).await?;
+        test_parity("users.filter(u => u.score >= 80)", env.clone(), None, None).await?;
+        test_parity("users.find(u => u.name === 'Bob')", env.clone(), None, None).await?;
+
+        // Arrow functions returning objects (note the parentheses)
+        test_parity("numbers.map(x => ({value: x, doubled: x * 2}))", env.clone(), None, None).await?;
+
+        // Chained arrow function calls
+        test_parity("numbers.filter(x => x > 1).map(x => x * 10)", env.clone(), None, None).await?;
+        test_parity("users.filter(u => u.score > 80).map(u => u.name)", env.clone(), None, None).await?;
+
+        // Arrow function with multiple params
+        test_parity("numbers.reduce((sum, val) => sum + val, 0)", env.clone(), None, None).await?;
+        test_parity("numbers.map((val, idx) => ({index: idx, value: val}))", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_type_coercion() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert("str_num".to_string(), Arc::new(to_raw_value(&json!("42"))));
+        env.insert("num".to_string(), Arc::new(to_raw_value(&json!(42))));
+        env.insert("bool_true".to_string(), Arc::new(to_raw_value(&json!(true))));
+        env.insert("bool_false".to_string(), Arc::new(to_raw_value(&json!(false))));
+        env.insert("null_val".to_string(), Arc::new(to_raw_value(&json!(null))));
+        env.insert("empty_str".to_string(), Arc::new(to_raw_value(&json!(""))));
+        env.insert("empty_arr".to_string(), Arc::new(to_raw_value(&json!([]))));
+        env.insert("empty_obj".to_string(), Arc::new(to_raw_value(&json!({}))));
+
+        // String to number
+        test_parity("Number(str_num)", env.clone(), None, None).await?;
+        test_parity("+str_num", env.clone(), None, None).await?;
+        test_parity("parseInt(str_num)", env.clone(), None, None).await?;
+
+        // Number to string
+        test_parity("String(num)", env.clone(), None, None).await?;
+        test_parity("num.toString()", env.clone(), None, None).await?;
+        test_parity("'' + num", env.clone(), None, None).await?;
+
+        // Truthy/falsy checks
+        test_parity("!!str_num", env.clone(), None, None).await?;
+        test_parity("!!empty_str", env.clone(), None, None).await?;
+        test_parity("!!null_val", env.clone(), None, None).await?;
+        test_parity("!!empty_arr", env.clone(), None, None).await?;
+        test_parity("!!empty_obj", env.clone(), None, None).await?;
+
+        // Boolean operations
+        test_parity("bool_true && 'yes'", env.clone(), None, None).await?;
+        test_parity("bool_false || 'no'", env.clone(), None, None).await?;
+        test_parity("null_val ?? 'default'", env.clone(), None, None).await?;
+        test_parity("empty_str || 'fallback'", env.clone(), None, None).await?;
+        test_parity("empty_str ?? 'wont_use'", env.clone(), None, None).await?; // empty string is not nullish
+
+        // Array coercion
+        test_parity("Boolean(empty_arr)", env.clone(), None, None).await?; // empty array is truthy
+        test_parity("empty_arr.length || 'empty'", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_json_operations() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "name": "test",
+                "values": [1, 2, 3],
+                "nested": {"key": "value"}
+            }))),
+        );
+        env.insert(
+            "json_str".to_string(),
+            Arc::new(to_raw_value(&json!(r#"{"parsed": true, "count": 42}"#))),
+        );
+
+        // JSON.stringify
+        test_parity("JSON.stringify(obj)", env.clone(), None, None).await?;
+        test_parity("JSON.stringify(obj, null, 2)", env.clone(), None, None).await?;
+        test_parity("JSON.stringify([1, 2, 3])", env.clone(), None, None).await?;
+        test_parity("JSON.stringify(null)", env.clone(), None, None).await?;
+        test_parity("JSON.stringify('string')", env.clone(), None, None).await?;
+
+        // JSON.parse
+        test_parity("JSON.parse(json_str)", env.clone(), None, None).await?;
+        test_parity("JSON.parse(json_str).parsed", env.clone(), None, None).await?;
+        test_parity("JSON.parse(json_str).count", env.clone(), None, None).await?;
+
+        // Round-trip
+        test_parity("JSON.parse(JSON.stringify(obj)).name", env.clone(), None, None).await?;
+        test_parity("JSON.parse(JSON.stringify(obj)).values", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_math_functions() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert("x".to_string(), Arc::new(to_raw_value(&json!(16))));
+        env.insert("y".to_string(), Arc::new(to_raw_value(&json!(-5.7))));
+        env.insert("arr".to_string(), Arc::new(to_raw_value(&json!([3, 1, 4, 1, 5, 9]))));
+
+        // Basic Math functions
+        test_parity("Math.abs(y)", env.clone(), None, None).await?;
+        test_parity("Math.sqrt(x)", env.clone(), None, None).await?;
+        test_parity("Math.pow(2, 10)", env.clone(), None, None).await?;
+        test_parity("Math.floor(y)", env.clone(), None, None).await?;
+        test_parity("Math.ceil(y)", env.clone(), None, None).await?;
+        test_parity("Math.round(y)", env.clone(), None, None).await?;
+        test_parity("Math.trunc(y)", env.clone(), None, None).await?;
+
+        // Min/Max
+        test_parity("Math.min(3, 1, 4)", env.clone(), None, None).await?;
+        test_parity("Math.max(3, 1, 4)", env.clone(), None, None).await?;
+        test_parity("Math.min(...arr)", env.clone(), None, None).await?;
+        test_parity("Math.max(...arr)", env.clone(), None, None).await?;
+
+        // Trigonometric (with rounding to avoid precision issues)
+        test_parity("Math.round(Math.sin(0) * 1000) / 1000", env.clone(), None, None).await?;
+        test_parity("Math.round(Math.cos(0) * 1000) / 1000", env.clone(), None, None).await?;
+
+        // Logarithmic
+        test_parity("Math.log(1)", env.clone(), None, None).await?;
+        test_parity("Math.log10(100)", env.clone(), None, None).await?;
+        test_parity("Math.log2(8)", env.clone(), None, None).await?;
+
+        // Constants
+        test_parity("Math.round(Math.PI * 1000) / 1000", env.clone(), None, None).await?;
+        test_parity("Math.round(Math.E * 1000) / 1000", env.clone(), None, None).await?;
+
+        // Sign and other
+        test_parity("Math.sign(-5)", env.clone(), None, None).await?;
+        test_parity("Math.sign(5)", env.clone(), None, None).await?;
+        test_parity("Math.sign(0)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_bitwise_operations() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert("a".to_string(), Arc::new(to_raw_value(&json!(0b1010))));
+        env.insert("b".to_string(), Arc::new(to_raw_value(&json!(0b1100))));
+        env.insert("neg".to_string(), Arc::new(to_raw_value(&json!(-1))));
+
+        // Basic bitwise operations
+        test_parity("a & b", env.clone(), None, None).await?;
+        test_parity("a | b", env.clone(), None, None).await?;
+        test_parity("a ^ b", env.clone(), None, None).await?;
+        test_parity("~a", env.clone(), None, None).await?;
+
+        // Shifts
+        test_parity("a << 2", env.clone(), None, None).await?;
+        test_parity("a >> 1", env.clone(), None, None).await?;
+        test_parity("neg >>> 0", env.clone(), None, None).await?; // unsigned right shift
+
+        // Combined operations
+        test_parity("(a & b) | 1", env.clone(), None, None).await?;
+        test_parity("a ^ b ^ a", env.clone(), None, None).await?; // should equal b
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_array_slice_splice() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Slice (non-mutating)
+        test_parity("arr.slice()", env.clone(), None, None).await?;
+        test_parity("arr.slice(1)", env.clone(), None, None).await?;
+        test_parity("arr.slice(1, 3)", env.clone(), None, None).await?;
+        test_parity("arr.slice(-2)", env.clone(), None, None).await?;
+        test_parity("arr.slice(-3, -1)", env.clone(), None, None).await?;
+        test_parity("arr.slice(1, -1)", env.clone(), None, None).await?;
+
+        // Concat (non-mutating)
+        test_parity("arr.concat([6, 7])", env.clone(), None, None).await?;
+        test_parity("arr.concat([6], [7, 8])", env.clone(), None, None).await?;
+        test_parity("[].concat(arr, [6])", env.clone(), None, None).await?;
+
+        // Join
+        test_parity("arr.join()", env.clone(), None, None).await?;
+        test_parity("arr.join('-')", env.clone(), None, None).await?;
+        test_parity("arr.join('')", env.clone(), None, None).await?;
+
+        // Copy and splice (to avoid mutating original)
+        test_parity("[...arr].splice(1, 2)", env.clone(), None, None).await?;
+        test_parity("(() => { const a = [...arr]; a.splice(1, 2, 'x'); return a; })()", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_flow_error_extraction() -> anyhow::Result<()> {
+        // Test the specific error extraction logic used in flows
+        // Use existing context and add parallel results step 'h'
+        let (mut ctx, fi, fe) = create_multi_step_flow_context();
+
+        // Simulated parallel results with one error - add as step 'h'
+        ctx.insert(
+            "h".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"success": true, "data": "result1"},
+                {"error": {"message": "Something failed", "code": 500}},
+                {"success": true, "data": "result3"}
+            ]))),
+        );
+
+        // Find error in step h's results
+        test_parity("h.find(r => r.error)?.error", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("h.filter(r => r.error).length", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("h.some(r => r.error)", ctx.clone(), fi.clone(), fe.clone()).await?;
+        test_parity("h.every(r => !r.error)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        // Extract all successful results
+        test_parity("h.filter(r => r.success).map(r => r.data)", ctx.clone(), fi.clone(), fe.clone()).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_string_template_complex() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "user".to_string(),
+            Arc::new(to_raw_value(&json!({
+                "name": "Alice",
+                "email": "alice@example.com",
+                "score": 95.5
+            }))),
+        );
+        env.insert(
+            "items".to_string(),
+            Arc::new(to_raw_value(&json!(["apple", "banana", "cherry"]))),
+        );
+
+        // Nested expressions in templates
+        test_parity("`User: ${user.name} (${user.email})`", env.clone(), None, None).await?;
+        test_parity("`Score: ${user.score.toFixed(1)}`", env.clone(), None, None).await?;
+        test_parity("`Items: ${items.join(', ')}`", env.clone(), None, None).await?;
+        test_parity("`Count: ${items.length}`", env.clone(), None, None).await?;
+
+        // Conditional in template
+        test_parity("`Status: ${user.score >= 90 ? 'A' : 'B'}`", env.clone(), None, None).await?;
+
+        // Method calls in template
+        test_parity("`Upper: ${user.name.toUpperCase()}`", env.clone(), None, None).await?;
+        test_parity("`First item: ${items[0].charAt(0).toUpperCase() + items[0].slice(1)}`", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // ES2022+ METHOD AVAILABILITY TESTS
+    // These test methods that may not be available in QuickJS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_es2022_array_at() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.at() - ES2022
+        test_parity("arr.at(0)", env.clone(), None, None).await?;
+        test_parity("arr.at(-1)", env.clone(), None, None).await?;
+        test_parity("arr.at(-2)", env.clone(), None, None).await?;
+        test_parity("arr.at(10)", env.clone(), None, None).await?; // out of bounds
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2022_string_at() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "str".to_string(),
+            Arc::new(to_raw_value(&json!("hello"))),
+        );
+
+        // String.prototype.at() - ES2022
+        test_parity("str.at(0)", env.clone(), None, None).await?;
+        test_parity("str.at(-1)", env.clone(), None, None).await?;
+        test_parity("str.at(-2)", env.clone(), None, None).await?;
+        test_parity("str.at(10)", env.clone(), None, None).await?; // out of bounds
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2022_object_hasown() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "obj".to_string(),
+            Arc::new(to_raw_value(&json!({"a": 1, "b": 2}))),
+        );
+
+        // Object.hasOwn() - ES2022
+        test_parity("Object.hasOwn(obj, 'a')", env.clone(), None, None).await?;
+        test_parity("Object.hasOwn(obj, 'c')", env.clone(), None, None).await?;
+        test_parity("Object.hasOwn(obj, 'toString')", env.clone(), None, None).await?; // inherited
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2021_string_replaceall() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "str".to_string(),
+            Arc::new(to_raw_value(&json!("foo bar foo baz foo"))),
+        );
+
+        // String.prototype.replaceAll() - ES2021
+        test_parity("str.replaceAll('foo', 'qux')", env.clone(), None, None).await?;
+        test_parity("str.replaceAll('x', 'y')", env.clone(), None, None).await?; // no match
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_findlast() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.findLast() - ES2023
+        test_parity("arr.findLast(x => x > 2)", env.clone(), None, None).await?;
+        test_parity("arr.findLast(x => x > 10)", env.clone(), None, None).await?; // no match
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_findlastindex() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.findLastIndex() - ES2023
+        test_parity("arr.findLastIndex(x => x > 2)", env.clone(), None, None).await?;
+        test_parity("arr.findLastIndex(x => x > 10)", env.clone(), None, None).await?; // no match
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_tosorted() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([3, 1, 4, 1, 5]))),
+        );
+
+        // Array.prototype.toSorted() - ES2023 (non-mutating sort)
+        test_parity("arr.toSorted()", env.clone(), None, None).await?;
+        test_parity("arr.toSorted((a, b) => b - a)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_toreversed() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.toReversed() - ES2023 (non-mutating reverse)
+        test_parity("arr.toReversed()", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_tospliced() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.toSpliced() - ES2023 (non-mutating splice)
+        test_parity("arr.toSpliced(1, 2)", env.clone(), None, None).await?;
+        test_parity("arr.toSpliced(1, 2, 'a', 'b')", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2023_array_with() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "arr".to_string(),
+            Arc::new(to_raw_value(&json!([1, 2, 3, 4, 5]))),
+        );
+
+        // Array.prototype.with() - ES2023 (non-mutating index assignment)
+        test_parity("arr.with(2, 99)", env.clone(), None, None).await?;
+        test_parity("arr.with(-1, 99)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_es2024_object_groupby() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "items".to_string(),
+            Arc::new(to_raw_value(&json!([
+                {"type": "fruit", "name": "apple"},
+                {"type": "vegetable", "name": "carrot"},
+                {"type": "fruit", "name": "banana"}
+            ]))),
+        );
+
+        // Object.groupBy() - ES2024
+        test_parity("Object.groupBy(items, item => item.type)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // REGEX FEATURE TESTS - Lookbehind and Named Groups
+    // These may not be available in QuickJS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_regex_lookbehind() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "text".to_string(),
+            Arc::new(to_raw_value(&json!("price: $100, discount: $20"))),
+        );
+
+        // Lookbehind assertion - may not work in QuickJS
+        // This matches numbers that come after a $
+        test_parity("text.match(/(?<=\\$)\\d+/g)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_regex_negative_lookbehind() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "text".to_string(),
+            Arc::new(to_raw_value(&json!("foo123 bar456"))),
+        );
+
+        // Negative lookbehind - may not work in QuickJS
+        test_parity("text.match(/(?<!foo)\\d+/g)", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_regex_named_groups() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "date".to_string(),
+            Arc::new(to_raw_value(&json!("2024-01-15"))),
+        );
+
+        // Named capture groups - may not work in QuickJS
+        test_parity("/(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})/.exec(date)?.groups?.year", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_regex_d_flag() -> anyhow::Result<()> {
+        let mut env = HashMap::new();
+        env.insert(
+            "text".to_string(),
+            Arc::new(to_raw_value(&json!("hello world"))),
+        );
+
+        // d flag (indices) - may not work in QuickJS
+        test_parity("/world/d.exec(text)?.indices?.[0]", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // =========================================================================
+    // BROWSER/RUNTIME API TESTS - These are likely NOT available in QuickJS
+    // =========================================================================
+
+    #[tokio::test]
+    async fn parity_atob_btoa() -> anyhow::Result<()> {
+        let env = HashMap::new();
+
+        // Base64 encoding/decoding - browser APIs, likely NOT in QuickJS
+        test_parity("typeof atob", env.clone(), None, None).await?;
+        test_parity("typeof btoa", env.clone(), None, None).await?;
+        // If available, test actual usage
+        test_parity("typeof btoa === 'function' ? btoa('hello') : 'not_available'", env.clone(), None, None).await?;
+        test_parity("typeof atob === 'function' ? atob('aGVsbG8=') : 'not_available'", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_text_encoder_decoder() -> anyhow::Result<()> {
+        let env = HashMap::new();
+
+        // TextEncoder/TextDecoder - browser/Node APIs
+        test_parity("typeof TextEncoder", env.clone(), None, None).await?;
+        test_parity("typeof TextDecoder", env.clone(), None, None).await?;
+
+        Ok(())
+    }
+
+    // NOTE: This test is EXPECTED to fail - Intl is NOT available in QuickJS
+    // Deno Core: typeof Intl = "object"
+    // QuickJS: typeof Intl = "undefined"
+    //
+    // BREAKING CHANGE: Any expression using Intl.NumberFormat, Intl.DateTimeFormat,
+    // or other Intl APIs will fail in QuickJS.
+    //
+    // #[tokio::test]
+    // async fn parity_intl_apis() -> anyhow::Result<()> {
+    //     // Intl APIs are NOT available in QuickJS - this test documents the breaking change
+    //     // Deno Core: typeof Intl = "object"
+    //     // QuickJS: typeof Intl = "undefined"
+    // }
+
+    #[tokio::test]
+    async fn parity_url_apis() -> anyhow::Result<()> {
+        let env = HashMap::new();
+
+        // URL and URLSearchParams - browser/Node APIs
+        test_parity("typeof URL", env.clone(), None, None).await?;
+        test_parity("typeof URLSearchParams", env.clone(), None, None).await?;
+
+        Ok(())
+    }
 }
