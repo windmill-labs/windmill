@@ -225,6 +225,19 @@ pub enum AnthropicDelta {
     Unknown,
 }
 
+/// Anthropic usage information from message_delta event
+#[derive(Deserialize, Debug, Clone)]
+pub struct AnthropicUsage {
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<i32>,
+}
+
 /// Anthropic SSE event structure
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
@@ -238,7 +251,10 @@ pub enum AnthropicSSEEvent {
     #[serde(rename = "content_block_stop")]
     ContentBlockStop { index: usize },
     #[serde(rename = "message_delta")]
-    MessageDelta {},
+    MessageDelta {
+        #[serde(default)]
+        usage: Option<AnthropicUsage>,
+    },
     #[serde(rename = "message_stop")]
     MessageStop {},
     #[serde(rename = "ping")]
@@ -273,6 +289,8 @@ pub struct AnthropicSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from message_delta event
+    pub usage: Option<AnthropicUsage>,
 }
 
 impl AnthropicSSEParser {
@@ -285,6 +303,7 @@ impl AnthropicSSEParser {
             content_blocks: HashMap::new(),
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -401,9 +420,14 @@ impl SSEParser for AnthropicSSEParser {
                     let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
                     tracing::error!("Anthropic streaming error: {}", error_msg);
                 }
+                AnthropicSSEEvent::MessageDelta { usage } => {
+                    // Extract usage from message_delta event
+                    if usage.is_some() {
+                        self.usage = usage;
+                    }
+                }
                 // Ignore other events
                 AnthropicSSEEvent::MessageStart {}
-                | AnthropicSSEEvent::MessageDelta {}
                 | AnthropicSSEEvent::MessageStop {}
                 | AnthropicSSEEvent::Ping {}
                 | AnthropicSSEEvent::Unknown => {}
