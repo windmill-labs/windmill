@@ -79,6 +79,14 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Symlink Bun to /usr/bin/bun
+        run: sudo ln -sf $(which bun) /usr/bin/bun
+
       - name: Generate Windmill clients
         working-directory: cli
         run: |
@@ -125,6 +133,18 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Get Bun path
+        id: bun-path
+        shell: pwsh
+        run: |
+          $bunPath = (Get-Command bun).Source
+          echo "BUN_PATH=$bunPath" >> $env:GITHUB_OUTPUT
+
       - name: Generate Windmill clients
         working-directory: cli
         shell: bash
@@ -138,6 +158,7 @@ jobs:
         env:
           DATABASE_URL: postgres://postgres:changeme@localhost:5432
           CI_MINIMAL_FEATURES: "true"
+          BUN_PATH: ${{ steps.bun-path.outputs.BUN_PATH }}
         run: |
           deno test --no-check --allow-all test/ `
             --ignore=test/cargo_backend_example.test.ts
