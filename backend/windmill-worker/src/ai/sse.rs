@@ -679,6 +679,24 @@ pub struct OpenAIUrlCitationEvent {
     pub title: Option<String>,
 }
 
+/// OpenAI Responses API usage information
+#[derive(Deserialize, Debug, Clone)]
+pub struct OpenAIResponsesUsage {
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub total_tokens: Option<i32>,
+}
+
+/// OpenAI Responses API response object (from response.completed event)
+#[derive(Deserialize, Debug)]
+pub struct OpenAIResponsesResponse {
+    #[serde(default)]
+    pub usage: Option<OpenAIResponsesUsage>,
+}
+
 /// SSE event types for OpenAI Responses API streaming
 /// Based on frontend implementation: openai-responses.ts:220-302
 #[derive(Deserialize, Debug)]
@@ -703,6 +721,10 @@ pub enum OpenAIResponsesSSEEvent {
     /// Response complete
     #[serde(rename = "response.done")]
     Done {},
+
+    /// Response completed with full response object (contains usage)
+    #[serde(rename = "response.completed")]
+    Completed { response: OpenAIResponsesResponse },
 
     /// Response created
     #[serde(rename = "response.created")]
@@ -747,6 +769,8 @@ pub struct OpenAIResponsesSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from response.completed event
+    pub usage: Option<OpenAIResponsesUsage>,
 }
 
 impl OpenAIResponsesSSEParser {
@@ -760,6 +784,7 @@ impl OpenAIResponsesSSEParser {
             stream_event_processor,
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -862,6 +887,13 @@ impl SSEParser for OpenAIResponsesSSEParser {
                         url: annotation.url,
                         title: annotation.title,
                     });
+                }
+
+                OpenAIResponsesSSEEvent::Completed { response } => {
+                    // Extract usage from response.completed event
+                    if let Some(usage) = response.usage {
+                        self.usage = Some(usage);
+                    }
                 }
 
                 // Ignore other event types
