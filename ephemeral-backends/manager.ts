@@ -103,6 +103,25 @@ class EphemeralBackendManager {
         async fetch(req) {
           const url = new URL(req.url);
 
+          // CORS headers for app.windmill.dev
+          const origin = req.headers.get("origin");
+          const corsHeaders: Record<string, string> = {};
+
+          if (origin === "https://app.windmill.dev") {
+            corsHeaders["Access-Control-Allow-Origin"] = origin;
+            corsHeaders["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
+            corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+            corsHeaders["Access-Control-Max-Age"] = "86400";
+          }
+
+          // Handle preflight requests
+          if (req.method === "OPTIONS") {
+            return new Response(null, {
+              status: 204,
+              headers: corsHeaders,
+            });
+          }
+
           // Health check endpoint
           if (url.pathname === "/health") {
             return new Response(
@@ -110,7 +129,7 @@ class EphemeralBackendManager {
                 status: "ok",
                 timestamp: new Date().toISOString(),
               }),
-              { headers: { "Content-Type": "application/json" } }
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
@@ -153,7 +172,7 @@ class EphemeralBackendManager {
                 worktreePool: worktreePoolStats,
                 timestamp: new Date().toISOString(),
               }),
-              { headers: { "Content-Type": "application/json" } }
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
             );
           }
 
@@ -173,7 +192,10 @@ class EphemeralBackendManager {
 
               // Check if file exists
               if (!existsSync(logFilePath)) {
-                return new Response("Log file not found", { status: 404 });
+                return new Response("Log file not found", {
+                  status: 404,
+                  headers: corsHeaders
+                });
               }
 
               // Read the log file
@@ -181,6 +203,7 @@ class EphemeralBackendManager {
 
               return new Response(logContent, {
                 headers: {
+                  ...corsHeaders,
                   "Content-Type": "text/plain; charset=utf-8",
                   "X-Commit-Hash": commitHash,
                 },
@@ -189,6 +212,7 @@ class EphemeralBackendManager {
               console.error(`Error reading log file for ${commitHash}:`, error);
               return new Response(`Error reading log file: ${error.message}`, {
                 status: 500,
+                headers: corsHeaders,
               });
             }
           }
@@ -314,12 +338,15 @@ class EphemeralBackendManager {
                 tunnelUrl,
                 timestamp: new Date().toISOString(),
               }),
-              { headers: { "Content-Type": "application/json" }, status: 202 }
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+                status: 202
+              }
             );
           }
 
           // Default 404
-          return new Response("Not Found", { status: 404 });
+          return new Response("Not Found", { status: 404, headers: corsHeaders });
         },
       });
 
