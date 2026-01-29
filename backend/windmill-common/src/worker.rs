@@ -274,13 +274,10 @@ lazy_static::lazy_static! {
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
-
-const DEFAULT_BASE_INTERNAL_URL: &str = "http://localhost:8000";
-
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
-    pub base_internal_url: Option<String>,
+    pub base_internal_url: String,
 }
 
 impl Deref for HttpClient {
@@ -298,10 +295,7 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(DEFAULT_BASE_INTERNAL_URL.to_owned());
+        let base_url = self.base_internal_url.clone();
 
         let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
@@ -327,11 +321,7 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(DEFAULT_BASE_INTERNAL_URL.to_owned());
-
+        let base_url = self.base_internal_url.clone();
         let response = self
             .client
             .get(format!("{}{}", base_url, url))

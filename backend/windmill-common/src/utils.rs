@@ -151,10 +151,6 @@ lazy_static::lazy_static! {
     pub static ref HUB_API_SECRET: Arc<RwLock<Option<String>>> = Arc::new(RwLock::new(None));
 }
 
-lazy_static::lazy_static! {
-    pub static ref AGENT_TOKEN: String = std::env::var("AGENT_TOKEN").unwrap_or_default();
-}
-
 #[derive(Clone)]
 pub struct ModeAndAddons {
     pub indexer: bool,
@@ -1190,7 +1186,8 @@ mod tests {
 
     #[test]
     fn test_merge_nested_raw_values_to_array_complex_types() {
-        let val1 = serde_json::value::RawValue::from_string("{\"name\":\"Alice\"}".to_string()).unwrap();
+        let val1 =
+            serde_json::value::RawValue::from_string("{\"name\":\"Alice\"}".to_string()).unwrap();
         let val2 = serde_json::value::RawValue::from_string("[1,2,3]".to_string()).unwrap();
         let val3 = serde_json::value::RawValue::from_string("\"text\"".to_string()).unwrap();
         let val4 = serde_json::value::RawValue::from_string("null".to_string()).unwrap();
@@ -1236,7 +1233,13 @@ mod tests {
         let inner3 = vec![val3];
         let inner4 = vec![val4];
         let inner5 = vec![val5];
-        let nested = vec![inner1.iter(), inner2.iter(), inner3.iter(), inner4.iter(), inner5.iter()];
+        let nested = vec![
+            inner1.iter(),
+            inner2.iter(),
+            inner3.iter(),
+            inner4.iter(),
+            inner5.iter(),
+        ];
 
         let result = merge_nested_raw_values_to_array(nested.into_iter());
 
