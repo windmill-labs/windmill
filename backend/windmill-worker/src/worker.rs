@@ -17,8 +17,8 @@ use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::runtime_assets::init_runtime_asset_loop;
 use windmill_common::runtime_assets::register_runtime_asset;
-use windmill_common::runtime_assets::{init_runtime_asset_loop, RUNTIME_ASSET_CHANNEL_CAPACITY};
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -1555,8 +1555,6 @@ pub async fn run_worker(
 
     let (job_completed_tx, job_completed_rx) = JobCompletedSender::new(&conn, 10);
 
-    let (runtime_asset_tx, runtime_asset_rx) = mpsc::channel(RUNTIME_ASSET_CHANNEL_CAPACITY);
-
     let same_worker_queue_size = Arc::new(AtomicU16::new(0));
     let same_worker_tx = SameWorkerSender(same_worker_tx, same_worker_queue_size.clone());
     let last_processing_duration = Arc::new(AtomicU16::new(0));
@@ -1665,7 +1663,7 @@ pub async fn run_worker(
     if i_worker == 1 {
         // Initialize runtime asset inserter for batched database inserts
         if let Connection::Sql(db) = conn {
-            init_runtime_asset_loop(db.clone(), runtime_asset_tx.clone(), runtime_asset_rx);
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
         }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();

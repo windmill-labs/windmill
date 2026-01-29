@@ -163,10 +163,16 @@ pub const RUNTIME_ASSET_CHANNEL_CAPACITY: usize = 10_000;
 // we use a channel to batch insert them periodically.
 pub fn init_runtime_asset_loop(
     executor: Pool<Postgres>,
-    tx: mpsc::Sender<InsertRuntimeAssetParams>,
-    mut rx: mpsc::Receiver<InsertRuntimeAssetParams>,
+    mut killpill_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
-    let _ = RUNTIME_ASSET_SENDER.set(tx);
+    let (tx, mut rx) = mpsc::channel(RUNTIME_ASSET_CHANNEL_CAPACITY);
+    match RUNTIME_ASSET_SENDER.set(tx) {
+        Ok(_) => {}
+        Err(_) => {
+            tracing::error!("RUNTIME_ASSET_SENDER was already set, skipping");
+            return;
+        }
+    }
     tokio::spawn(async move {
         let flush_interval = tokio::time::Duration::from_secs(120);
         let mut flush_timer = tokio::time::interval(flush_interval);
@@ -187,6 +193,10 @@ pub fn init_runtime_asset_loop(
                     if let Err(e) = insert_runtime_assets(&executor, &buffer).await {
                         tracing::error!("Failed to insert runtime assets batch: {e}");
                     }
+                }
+                _ = killpill_rx.recv() => {
+                    tracing::info!("Shutting down runtime asset inserter loop");
+                    break;
                 }
             }
         }
