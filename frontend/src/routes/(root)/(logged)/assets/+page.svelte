@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { formatAsset, formatAssetKind } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert } from '$lib/components/common'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
@@ -91,10 +90,6 @@
 			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
-		<Alert title="Assets may be missing from this page" type="info" class="mb-4">
-			Assets are not detected for old scripts and flows that were deployed before the assets feature
-			was introduced. Re-deploy them to trigger asset detection.
-		</Alert>
 		<div class="flex gap-2 mb-4 items-end justify-between">
 			<div class="flex gap-2">
 				<Label class="lg:min-w-[16rem] max-w-[30rem]" label="Asset path">
