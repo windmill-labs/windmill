@@ -995,6 +995,7 @@ TABLE: worker_ping
   - custom_tags (text[])
   - worker_group (character)
   - dedicated_worker (character)
+  - dedicated_workers (text[])
   - wm_version (character)
   - current_job_id (uuid)
   - current_job_workspace_id (character)

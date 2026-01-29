@@ -133,6 +133,7 @@ async fn update_worker_ping_full_inner(
                         ip: None,
                         tags: Some(tags.to_vec()),
                         dw: None,
+                        dws: None,
                         jobs_executed: Some(jobs_executed),
                         occupancy_rate: Some(occupancy_rate),
                         occupancy_rate_15s: Some(occupancy_rate_15s.unwrap_or(0.0)),
@@ -159,13 +160,19 @@ pub async fn insert_ping(
     ip: &str,
     db: &Connection,
 ) -> anyhow::Result<()> {
-    let (tags, dw) = {
+    let (tags, dw, dws) = {
         let wc = WORKER_CONFIG.read().await.clone();
         (
             wc.worker_tags,
             wc.dedicated_worker
                 .as_ref()
                 .map(|x| format!("{}:{}", x.workspace_id, x.path)),
+            wc.dedicated_workers.as_ref().map(|workers| {
+                workers
+                    .iter()
+                    .map(|x| format!("{}:{}", x.workspace_id, x.path))
+                    .collect::<Vec<_>>()
+            }),
         )
     };
 
@@ -190,6 +197,7 @@ pub async fn insert_ping(
                 ip,
                 tags.as_slice(),
                 dw,
+                dws.as_deref(),
                 windmill_common::utils::GIT_VERSION,
                 vcpus,
                 memory,
@@ -210,6 +218,7 @@ pub async fn insert_ping(
                         ip: Some(ip.to_string()),
                         tags: Some(tags.to_vec()),
                         dw: dw,
+                        dws: dws,
                         jobs_executed: None,
                         occupancy_rate: None,
                         occupancy_rate_15s: None,
@@ -282,6 +291,7 @@ pub async fn update_worker_ping_from_job(
                         ip: None,
                         tags: None,
                         dw: None,
+                        dws: None,
                         version: None,
                         vcpus: None,
                         memory: None,

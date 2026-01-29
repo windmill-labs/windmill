@@ -371,6 +371,9 @@ async fn list_scripts(
     if let Some(it) = &lq.is_template {
         sqlb.and_where_eq("is_template", it);
     }
+    if let Some(dw) = &lq.dedicated_worker {
+        sqlb.and_where_eq("dedicated_worker", dw);
+    }
     if authed.is_operator {
         sqlb.and_where_eq("kind", quote("script"));
     } else if let Some(lowercased_kinds) = lowercased_kinds {
