@@ -687,6 +687,7 @@ pub struct ListScriptQuery {
     pub with_deployment_msg: Option<bool>,
     #[serde(default, deserialize_with = "from_seq")]
     pub languages: Option<Vec<ScriptLang>>,
+    pub dedicated_worker: Option<bool>,
 }
 
 fn from_seq<'de, D>(deserializer: D) -> Result<Option<Vec<ScriptLang>>, D::Error>
