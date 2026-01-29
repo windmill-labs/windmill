@@ -14,7 +14,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 use windmill_common::{
-    ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
+    ai_providers::{empty_string_as_none, AIProvider},
+    db::DB,
+    error::Error,
+    flow_status::AgentAction,
+    flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
@@ -162,17 +166,18 @@ pub enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     pub api_key: Option<String>,
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     pub base_url: Option<String>,
     #[allow(dead_code)]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub region: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     pub aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -199,7 +204,6 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(
                 self.resource.base_url.clone(),
-                self.resource.region.clone(),
                 db,
             )
             .await
