@@ -476,15 +476,9 @@ impl QueryBuilder for AnthropicQueryBuilder {
         // when content_block_stop is received
 
         // Convert Anthropic usage to TokenUsage
-        let usage = anthropic_usage.map(|u| TokenUsage {
-            input_tokens: u.input_tokens,
-            output_tokens: u.output_tokens,
-            total_tokens: match (u.input_tokens, u.output_tokens) {
-                (Some(i), Some(o)) => Some(i + o),
-                _ => None,
-            },
-            cache_read_input_tokens: u.cache_read_input_tokens,
-            cache_write_input_tokens: u.cache_creation_input_tokens,
+        let usage = anthropic_usage.map(|u| {
+            TokenUsage::from_input_output(u.input_tokens, u.output_tokens)
+                .with_cache(u.cache_read_input_tokens, u.cache_creation_input_tokens)
         });
 
         Ok(ParsedResponse::Text {

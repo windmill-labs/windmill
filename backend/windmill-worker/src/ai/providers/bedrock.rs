@@ -190,17 +190,21 @@ impl BedrockQueryBuilder {
                     ) = &event
                     {
                         if let Some(token_usage) = metadata.usage() {
-                            usage = Some(TokenUsage {
-                                input_tokens: Some(token_usage.input_tokens()),
-                                output_tokens: Some(token_usage.output_tokens()),
-                                total_tokens: Some(token_usage.total_tokens()),
-                                cache_read_input_tokens: token_usage
-                                    .cache_read_input_tokens()
-                                    .map(|v| v as i32),
-                                cache_write_input_tokens: token_usage
-                                    .cache_write_input_tokens()
-                                    .map(|v| v as i32),
-                            });
+                            usage = Some(
+                                TokenUsage::new(
+                                    Some(token_usage.input_tokens()),
+                                    Some(token_usage.output_tokens()),
+                                    Some(token_usage.total_tokens()),
+                                )
+                                .with_cache(
+                                    token_usage
+                                        .cache_read_input_tokens()
+                                        .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
+                                    token_usage
+                                        .cache_write_input_tokens()
+                                        .map(|v| i32::try_from(v).unwrap_or(i32::MAX)),
+                                ),
+                            );
                         }
                     }
                 }

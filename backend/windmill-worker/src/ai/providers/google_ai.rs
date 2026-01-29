@@ -632,13 +632,8 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         }
 
         // Convert Gemini usage metadata to TokenUsage
-        let usage = gemini_usage.map(|u| TokenUsage {
-            input_tokens: u.prompt_token_count,
-            output_tokens: u.candidates_token_count,
-            total_tokens: u.total_token_count,
-            cache_read_input_tokens: None,
-            cache_write_input_tokens: None,
-        });
+        let usage = gemini_usage
+            .map(|u| TokenUsage::new(u.prompt_token_count, u.candidates_token_count, u.total_token_count));
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {

@@ -225,13 +225,8 @@ impl QueryBuilder for OtherQueryBuilder {
         }
 
         // Convert OpenAI Chat Completions usage to TokenUsage
-        let usage = openai_usage.map(|u| TokenUsage {
-            input_tokens: u.prompt_tokens,
-            output_tokens: u.completion_tokens,
-            total_tokens: u.total_tokens,
-            cache_read_input_tokens: None,
-            cache_write_input_tokens: None,
-        });
+        let usage =
+            openai_usage.map(|u| TokenUsage::new(u.prompt_tokens, u.completion_tokens, u.total_tokens));
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {

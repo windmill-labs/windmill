@@ -245,6 +245,33 @@ pub struct TokenUsage {
 }
 
 impl TokenUsage {
+    /// Create a new TokenUsage with basic token counts
+    pub fn new(input: Option<i32>, output: Option<i32>, total: Option<i32>) -> Self {
+        Self {
+            input_tokens: input,
+            output_tokens: output,
+            total_tokens: total,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
+        }
+    }
+
+    /// Create a new TokenUsage with input/output tokens and compute total
+    pub fn from_input_output(input: Option<i32>, output: Option<i32>) -> Self {
+        let total = match (input, output) {
+            (Some(i), Some(o)) => Some(i + o),
+            _ => None,
+        };
+        Self::new(input, output, total)
+    }
+
+    /// Add cache token information
+    pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        self.cache_read_input_tokens = read;
+        self.cache_write_input_tokens = write;
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.input_tokens.is_none()
             && self.output_tokens.is_none()
