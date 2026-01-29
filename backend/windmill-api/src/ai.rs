@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{AIProvider, ProviderConfig, ProviderModel};
+use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -143,15 +143,17 @@ enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 struct AIStandardResource {
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     base_url: Option<String>,
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     api_key: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     organization_id: Option<String>,
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     region: Option<String>,
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
     aws_access_key_id: Option<String>,
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -207,9 +209,14 @@ impl AIRequestConfig {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
-                let base_url = provider
-                    .get_base_url(resource.base_url, resource.region, db)
-                    .await?;
+                // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
+                let base_url = if matches!(provider, AIProvider::AWSBedrock) {
+                    String::new()
+                } else {
+                    provider
+                        .get_base_url(resource.base_url, db)
+                        .await?
+                };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
                 } else {
@@ -251,7 +258,7 @@ impl AIRequestConfig {
                     None
                 };
                 let token = Self::get_token_using_oauth(resource, db, w_id).await?;
-                let base_url = provider.get_base_url(None, None, db).await?;
+                let base_url = provider.get_base_url(None, db).await?;
 
                 (
                     None,
@@ -578,7 +585,7 @@ async fn global_proxy(
         return Err(Error::BadRequest("API key is required".to_string()));
     };
 
-    let base_url = provider.get_base_url(None, None, &db).await?;
+    let base_url = provider.get_base_url(None, &db).await?;
 
     let url = format!("{}/{}", base_url, ai_path);
 
@@ -745,7 +752,7 @@ async fn proxy(
             let region = request_config
                 .region
                 .as_deref()
-                .ok_or_else(|| Error::internal_err("AWS region must be set for Bedrock"))?;
+                .unwrap_or(windmill_common::ai_providers::USE_ENV_REGION);
 
             // Audit log before making the SDK request
             let mut tx = db.begin().await?;

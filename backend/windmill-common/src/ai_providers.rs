@@ -4,7 +4,17 @@
 
 use crate::db::DB;
 use crate::error::{Error, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Deserializes an Option<String> where empty strings become None.
+/// Use with `#[serde(default, deserialize_with = "empty_string_as_none")]`
+pub fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(opt.filter(|s| !s.is_empty()))
+}
 
 lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
@@ -12,6 +22,10 @@ lazy_static::lazy_static! {
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
+/// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
+/// (e.g., AWS_REGION or AWS_DEFAULT_REGION env vars, or ~/.aws/config)
+pub const USE_ENV_REGION: &str = "";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -36,11 +50,9 @@ impl AIProvider {
     pub async fn get_base_url(
         &self,
         resource_base_url: Option<String>,
-        region: Option<String>,
         db: &DB,
     ) -> Result<String> {
-        // If a base URL is provided in the resource, use it (ignore empty strings)
-        if let Some(base_url) = resource_base_url.filter(|s| !s.is_empty()) {
+        if let Some(base_url) = resource_base_url {
             return Ok(base_url);
         }
 
@@ -78,23 +90,10 @@ impl AIProvider {
                 format!("{:?} provider requires a base URL in the resource", p),
             )),
             AIProvider::AWSBedrock => {
-                #[cfg(feature = "bedrock")]
-                {
-                    Ok(format!(
-                        "https://bedrock-runtime.{}.amazonaws.com",
-                        region
-                            .filter(|s| !s.is_empty())
-                            .unwrap_or_else(|| "us-east-1".to_string())
-                    ))
-                }
-                #[cfg(not(feature = "bedrock"))]
-                {
-                    let _ = region;
-                    Err(Error::BadRequest(
-                        "AWS Bedrock support is not enabled. Build with 'bedrock' feature."
-                            .to_string(),
-                    ))
-                }
+                // AWS Bedrock uses the SDK directly, not HTTP base URL
+                Err(Error::internal_err(
+                    "AWS Bedrock uses SDK directly, not HTTP base URL".to_string(),
+                ))
             }
         }
     }

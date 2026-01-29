@@ -51,10 +51,9 @@ impl BedrockQueryBuilder {
     ) -> Result<ParsedResponse, Error> {
         let bedrock_client = if !api_key.is_empty() {
             BedrockClient::from_bearer_token(api_key.to_string(), region).await?
-        } else if let (Some(access_key_id), Some(secret_access_key)) = (
-            aws_access_key_id.filter(|s| !s.is_empty()),
-            aws_secret_access_key.filter(|s| !s.is_empty()),
-        ) {
+        } else if let (Some(access_key_id), Some(secret_access_key)) =
+            (aws_access_key_id, aws_secret_access_key)
+        {
             BedrockClient::from_credentials(
                 access_key_id.to_string(),
                 secret_access_key.to_string(),
