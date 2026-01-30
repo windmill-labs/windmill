@@ -15,7 +15,7 @@ use futures::{stream::SplitSink, SinkExt, StreamExt};
 use http::Response;
 use itertools::Itertools;
 use serde::Deserialize;
-use serde_json::{value::RawValue, Value};
+use serde_json::value::RawValue;
 use std::{borrow::Cow, collections::HashMap, sync::Arc};
 use tokio::{net::TcpStream, sync::RwLock};
 use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
