@@ -217,8 +217,21 @@
 	</div>
 
 	<Alert type="warning" title="Beta Feature">
-		Native Triggers is currently in beta. Nextcloud integration requires a future version of
-		Nextcloud (not yet released).
+		<p>Native Triggers is currently in beta. Nextcloud integration requires:</p>
+		<ul class="list-disc pl-4 mt-2 space-y-1">
+			<li>
+				<a
+					href="https://docs.nextcloud.com/server/latest/admin_manual/installation/source_installation.html#pretty-urls"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="underline hover:text-blue-600"
+				>
+					Pretty URLs
+				</a>
+				to be enabled on your Nextcloud instance.
+			</li>
+			<li>The Windmill integration app to be installed on your Nextcloud instance (not yet released).</li>
+		</ul>
 	</Alert>
 
 	{#if processingCallback}
