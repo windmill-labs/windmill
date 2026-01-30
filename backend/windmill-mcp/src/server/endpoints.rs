@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use crate::common::schema::make_schema_compatible;
+
 /// Represents an auto-generated endpoint tool from OpenAPI specification
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EndpointTool {
@@ -37,11 +39,12 @@ pub fn endpoint_tool_to_mcp_tool(tool: &EndpointTool) -> Tool {
         merge_schema_into(&mut combined_properties, &mut combined_required, schema);
     }
 
-    let combined_schema = serde_json::json!({
+    let mut combined_schema = serde_json::json!({
         "type": "object",
         "properties": combined_properties,
         "required": combined_required
     });
+    make_schema_compatible(&mut combined_schema);
 
     let description = format!("{}. {}", tool.description, tool.instructions);
 
