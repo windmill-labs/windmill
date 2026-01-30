@@ -8,7 +8,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::common::schema::convert_schema_to_schema_type;
+use crate::common::schema::{convert_schema_to_schema_type, make_schema_compatible};
 use crate::common::transform::transform_path;
 use crate::common::types::{
     FlowInfo, HubScriptInfo, ResourceInfo, ResourceType, SchemaType, ScriptInfo, ToolableItem,
@@ -147,13 +147,18 @@ pub fn create_tool_from_item<T: ToolableItem, B: McpBackend>(
         backend.transform_schema_for_resources(&schema, resources_cache, resources_types);
 
     let input_schema_map = match serde_json::to_value(schema_obj) {
-        Ok(serde_json::Value::Object(map)) => map,
-        Ok(_) => {
-            tracing::warn!(
-                "Schema object for tool '{}' did not serialize to a JSON object, using empty schema.",
-                path
-            );
-            serde_json::Map::new()
+        Ok(mut value) => {
+            make_schema_compatible(&mut value);
+            match value {
+                serde_json::Value::Object(map) => map,
+                _ => {
+                    tracing::warn!(
+                        "Schema object for tool '{}' did not serialize to a JSON object, using empty schema.",
+                        path
+                    );
+                    serde_json::Map::new()
+                }
+            }
         }
         Err(e) => {
             tracing::error!(

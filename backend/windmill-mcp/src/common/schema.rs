@@ -39,3 +39,63 @@ pub fn extract_resource_types_from_schema(schema: &SchemaType) -> HashSet<String
     }
     resource_types
 }
+
+/// Transform a JSON schema for maximum MCP client compatibility.
+///
+/// Some MCP clients (e.g., n8n) have limited JSON Schema support:
+/// - `integer` type is not supported (convert to `number`)
+pub fn make_schema_compatible(schema: &mut Value) {
+    let Value::Object(obj) = schema else { return };
+
+    // 1. Convert integer to number
+    if let Some(type_val) = obj.get_mut("type") {
+        match type_val {
+            Value::String(s) if s == "integer" => *s = "number".to_string(),
+            Value::Array(arr) => {
+                for item in arr.iter_mut() {
+                    if let Value::String(s) = item {
+                        if s == "integer" {
+                            *s = "number".to_string();
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Recursively process nested schemas
+    if let Some(Value::Object(props)) = obj.get_mut("properties") {
+        for value in props.values_mut() {
+            make_schema_compatible(value);
+        }
+    }
+
+    if let Some(items) = obj.get_mut("items") {
+        make_schema_compatible(items);
+    }
+
+    if let Some(additional) = obj.get_mut("additionalProperties") {
+        if additional.is_object() {
+            make_schema_compatible(additional);
+        }
+    }
+
+    if let Some(Value::Array(all_of)) = obj.get_mut("allOf") {
+        for s in all_of.iter_mut() {
+            make_schema_compatible(s);
+        }
+    }
+
+    if let Some(Value::Array(one_of)) = obj.get_mut("oneOf") {
+        for s in one_of.iter_mut() {
+            make_schema_compatible(s);
+        }
+    }
+
+    if let Some(Value::Array(any_of)) = obj.get_mut("anyOf") {
+        for s in any_of.iter_mut() {
+            make_schema_compatible(s);
+        }
+    }
+}
