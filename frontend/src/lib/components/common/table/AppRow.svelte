@@ -82,7 +82,10 @@
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
 	{starred}
-	on:change
+	onStarred={(newStarred) => {
+		starred = newStarred
+		dispatch('change')
+	}}
 	canFavorite={!app.draft_only}
 	{depth}
 >

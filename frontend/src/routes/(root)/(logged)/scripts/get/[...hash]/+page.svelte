@@ -656,8 +656,8 @@
 						path={script.path}
 						{starred}
 						workspace_id={$workspaceStore}
-						on:starred={() => {
-							starred = !starred
+						onStarred={(newStarred) => {
+							starred = newStarred
 						}}
 					/>
 				{/if}
@@ -815,7 +815,8 @@
 					<div class="pt-4 flex flex-row gap-1 w-full justify-end items-center">
 						{#if !isHubScript}
 							<span class="text-2xs text-secondary">
-								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by || 'unknown'}
+								Edited <TimeAgo date={script.created_at || ''} /> by {script.created_by ||
+									'unknown'}
 							</span>
 						{/if}
 						<div class="flex flex-row gap-x-2 flex-wrap items-center">

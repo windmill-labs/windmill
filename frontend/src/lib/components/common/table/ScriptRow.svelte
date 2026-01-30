@@ -122,7 +122,10 @@
 	{starred}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
-	on:change
+	onStarred={(newStarred) => {
+		starred = newStarred
+		dispatch('change')
+	}}
 	canFavorite={!script.draft_only}
 	{depth}
 >

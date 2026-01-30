@@ -1,16 +1,22 @@
 <script lang="ts">
+	import { preventDefault } from 'svelte/legacy'
+
 	import { FavoriteService } from '$lib/gen'
 	import { starStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { createEventDispatcher } from 'svelte'
 	import { Star, StarOff } from 'lucide-svelte'
 
-	export let path: string
-	export let kind: 'flow' | 'app' | 'script' | 'raw_app'
-	export let starred = false
-	export let workspace_id: string
+	interface Props {
+		path: string
+		kind: 'flow' | 'app' | 'script' | 'raw_app'
+		starred?: boolean
+		workspace_id: string
+		onStarred?: (starred: boolean) => void
+	}
 
-	let buttonHover = false
+	let { path, kind, starred = false, workspace_id, onStarred }: Props = $props()
+
+	let buttonHover = $state(false)
 
 	async function onClick() {
 		buttonHover = false
@@ -29,15 +35,14 @@
 			sendUserToast('Marked as favorite, it will appear first')
 			$starStore = $starStore + 1
 		}
-		dispatch('starred', !starred)
+		onStarred?.(!starred)
 	}
-	const dispatch = createEventDispatcher()
 </script>
 
 <button
-	on:click|preventDefault={onClick}
-	on:mouseenter={() => (buttonHover = true)}
-	on:mouseleave={() => (buttonHover = false)}
+	onclick={preventDefault(onClick)}
+	onmouseenter={() => (buttonHover = true)}
+	onmouseleave={() => (buttonHover = false)}
 	class="p-2"
 >
 	{#if starred}

@@ -18121,7 +18121,6 @@ components:
         - visible_to_owner
         - tag
 
-
     ExportableCompletedJob:
       type: object
       description: Completed job with full data for export/import operations
@@ -22276,7 +22275,8 @@ components:
       properties:
         kind:
           type: string
-          enum: ["script", "flow", "app", "resource", "variable"]
+          enum:
+            ["script", "flow", "app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -22588,13 +22588,12 @@ components:
       type: object
       properties:
         service_name:
-          $ref: '#/components/schemas/NativeServiceName'
+          $ref: "#/components/schemas/NativeServiceName"
         oauth_data:
           nullable: true
-          $ref: '#/components/schemas/WorkspaceOAuthConfig'
+          $ref: "#/components/schemas/WorkspaceOAuthConfig"
       required:
         - service_name
-
 
     WorkspaceOAuthConfig:
       type: object
@@ -22626,7 +22625,7 @@ components:
           type: string
           enum: [webhook]
         request_type:
-          $ref: '#/components/schemas/WebhookRequestType'
+          $ref: "#/components/schemas/WebhookRequestType"
       required:
         - type
         - request_type
@@ -22642,11 +22641,9 @@ components:
       type: object
       properties:
         redirect_uri:
-          type:
-            string
+          type: string
       required:
         - redirect_uri
-
 
     NativeTriggerData:
       type: object
