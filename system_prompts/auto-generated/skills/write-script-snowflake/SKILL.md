@@ -1,6 +1,6 @@
 ---
 name: write-script-snowflake
-description: Write Snowflake queries with :name parameter syntax.
+description: MUST use when writing Snowflake queries.
 ---
 
 ## CLI Commands

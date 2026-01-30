@@ -1,6 +1,6 @@
 ---
 name: write-script-nativets
-description: Write lightweight TypeScript scripts using fetch only, no external imports.
+description: MUST use when writing Native TypeScript scripts.
 ---
 
 ## CLI Commands

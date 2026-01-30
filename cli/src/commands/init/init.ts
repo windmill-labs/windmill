@@ -3,7 +3,6 @@ import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import { SCRIPT_BASE, FLOW_BASE, CLI_COMMANDS } from "../../guidance/prompts.ts";
 import { SKILLS, SKILL_CONTENT } from "../../guidance/skills.ts";
 
 export interface InitOptions {
@@ -245,54 +244,42 @@ async function initAction(opts: InitOptions) {
       (s) => `- \`${skills_base_dir}/${s.name}/SKILL.md\` - ${s.description}`
     ).join("\n");
 
-    // Create AGENTS.md file with general instructions only
+    // Create AGENTS.md file with minimal instructions
     if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
       await Deno.writeTextFile(
         "AGENTS.md",
         `# Windmill AI Agent Instructions
 
-You are a helpful assistant that can help with Windmill scripts and flows creation.
-
-## Getting Started
-
-Scripts and flows should be placed in folders. After writing:
-- \`wmill script generate-metadata\` - Generate .script.yaml and .lock files for scripts
-- \`wmill flow generate-locks --yes\` - Generate lock files for flows
-- \`wmill sync push\` - Deploy to Windmill
-
-Use \`wmill resource-type list --schema\` to discover available resource types.
+You are a helpful assistant that can help with Windmill scripts, flows, apps, and resources management.
 
 ## Script Writing Guide
 
-${SCRIPT_BASE}
-
-You should use the write-script-<language> skill to write scripts in the language specified by the user.
+You MUST use the \`write-script-<language>\` skill to write scripts in the language specified by the user. Use bun by default.
 
 ## Flow Writing Guide
 
-${FLOW_BASE}
-
-You should use the write-flow skill to create flows.
+You MUST use the \`write-flow\` skill to create flows.
 
 ## Raw App Development
 
-To create a new raw app with React, Svelte, or Vue frontend:
+You MUST use the \`raw-app\` skill to create apps.
+Whenever a new app needs to be created you MUST ask the user to run \`wmill app new\` in its terminal first.
 
-\`\`\`bash
-wmill app new
-\`\`\`
+## Triggers
 
-This creates a complete app structure with:
-- Frontend framework of your choice
-- Backend runnables folder for server-side scripts
-- Datatable configuration for database access
-- Type-safe \`wmill.ts\` for calling backend from frontend
+You MUST use the \`triggers\` skill to configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, GCP, or Postgres CDC triggers.
 
-For raw app guidance, use the \`raw-app\` skill.
+## Schedules
+
+You MUST use the \`schedules\` skill to configure cron schedules.
+
+## Resources
+
+You MUST use the \`resources\` skill to manage resource types and credentials.
 
 ## CLI Reference
 
-${CLI_COMMANDS}
+You MUST use the \`cli-commands\` skill to use the CLI.
 
 ## Skills
 

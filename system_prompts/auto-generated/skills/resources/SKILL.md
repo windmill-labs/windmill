@@ -1,6 +1,6 @@
 ---
 name: resources
-description: Manage resource types and credentials for external services.
+description: MUST use when managing resources.
 ---
 
 # Windmill Resources

@@ -1,6 +1,6 @@
 ---
 name: write-script-deno
-description: Write TypeScript scripts using the Deno runtime with npm: prefix imports.
+description: MUST use when writing Deno/TypeScript scripts.
 ---
 
 ## CLI Commands

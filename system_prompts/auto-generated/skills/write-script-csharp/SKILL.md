@@ -1,6 +1,6 @@
 ---
 name: write-script-csharp
-description: Write C# scripts with NuGet #r directive for dependencies.
+description: MUST use when writing C# scripts.
 ---
 
 ## CLI Commands

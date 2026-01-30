@@ -1211,7 +1211,7 @@ export const CLI_COMMANDS = `# Windmill CLI Commands
 
 The Windmill CLI (\`wmill\`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.617.1
+Current version: 1.622.0
 
 ## Global Options
 
@@ -1231,7 +1231,7 @@ app related commands
 **Subcommands:**
 
 - \`app push <file_path:string> <remote_path:string>\` - push a local app 
-- \`app dev\` - Start a development server for building apps with live reload and hot module replacement
+- \`app dev [app_folder:string]\` - Start a development server for building apps with live reload and hot module replacement
   - \`--port <port:number>\` - Port to run the dev server on (will find next available port if occupied)
   - \`--host <host:string>\` - Host to bind the dev server to
   - \`--entry <entry:string>\` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
@@ -1275,6 +1275,9 @@ flow related commands
 - \`flow run <path:string>\` - run a flow by path.
   - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not ouput anything other then the final output. Useful for scripting.
+- \`flow preview <flow_path:string>\` - preview a local flow without deploying it. Runs the flow definition from local files.
+  - \`-d --data <data:string>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
 - \`flow generate-locks [flow:file]\` - re-generate the lock files of all inline scripts of all updated flows
   - \`--yes\` - Skip confirmation prompt
   - \`-i --includes <patterns:file[]>\` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
@@ -1436,6 +1439,9 @@ script related commands
 - \`script run <path:file>\` - run a script by path
   - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - \`-s --silent\` - Do not output anything other then the final output. Useful for scripting.
+- \`script preview <path:file>\` - preview a local script without deploying it. Supports both regular and codebase scripts.
+  - \`-d --data <data:file>\` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - \`-s --silent\` - Do not output anything other than the final output. Useful for scripting.
 - \`script bootstrap <path:file> <language:string>\` - create a new script
   - \`--summary <summary:string>\` - script summary
   - \`--description <description:string>\` - script description

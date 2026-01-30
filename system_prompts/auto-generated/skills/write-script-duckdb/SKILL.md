@@ -1,6 +1,6 @@
 ---
 name: write-script-duckdb
-description: Write DuckDB queries with $name parameter syntax and Ducklake support.
+description: MUST use when writing DuckDB queries.
 ---
 
 ## CLI Commands

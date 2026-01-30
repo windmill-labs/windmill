@@ -1,6 +1,6 @@
 ---
 name: write-script-graphql
-description: Write GraphQL queries and mutations for Windmill.
+description: MUST use when writing GraphQL queries.
 ---
 
 ## CLI Commands

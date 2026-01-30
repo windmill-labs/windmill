@@ -1,6 +1,6 @@
 ---
 name: write-script-mssql
-description: Write MS SQL Server queries with @P1, @P2 parameter syntax.
+description: MUST use when writing MS SQL Server queries.
 ---
 
 ## CLI Commands

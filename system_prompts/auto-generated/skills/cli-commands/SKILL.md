@@ -1,17 +1,13 @@
 ---
-name: wmill-cli
-description: Reference for Windmill CLI commands and usage.
+name: cli-commands
+description: MUST use when using the CLI.
 ---
-
-# Windmill CLI Reference
-
-Use these commands to manage your Windmill workspace.
 
 # Windmill CLI Commands
 
 The Windmill CLI (`wmill`) provides commands for managing scripts, flows, apps, and other resources.
 
-Current version: 1.615.0
+Current version: 1.622.0
 
 ## Global Options
 
@@ -31,6 +27,15 @@ app related commands
 **Subcommands:**
 
 - `app push <file_path:string> <remote_path:string>` - push a local app 
+- `app dev [app_folder:string]` - Start a development server for building apps with live reload and hot module replacement
+  - `--port <port:number>` - Port to run the dev server on (will find next available port if occupied)
+  - `--host <host:string>` - Host to bind the dev server to
+  - `--entry <entry:string>` - Entry point file (default: index.ts for Svelte/Vue, index.tsx otherwise)
+  - `--no-open` - Don't automatically open the browser
+- `app lint [app_folder:string]` - Lint a raw app folder to validate structure and buildability
+  - `--fix` - Attempt to fix common issues (not implemented yet)
+- `app new` - create a new raw app from a template
+- `app generate-agents [app_folder:string]` - regenerate AGENTS.md and DATATABLES.md from remote workspace
 - `app generate-locks [app_folder:string]` - re-generate the lockfiles for app runnables inline scripts that have changed
   - `--yes` - Skip confirmation prompt
   - `--dry-run` - Perform a dry run without making changes
@@ -66,8 +71,12 @@ flow related commands
 - `flow run <path:string>` - run a flow by path.
   - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not ouput anything other then the final output. Useful for scripting.
+- `flow preview <flow_path:string>` - preview a local flow without deploying it. Runs the flow definition from local files.
+  - `-d --data <data:string>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
 - `flow generate-locks [flow:file]` - re-generate the lock files of all inline scripts of all updated flows
   - `--yes` - Skip confirmation prompt
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 - `flow bootstrap <flow_path:string>` - create a new empty flow
   - `--summary <summary:string>` - script summary
@@ -88,14 +97,20 @@ Manage git-sync settings between local wmill.yaml and Windmill backend
 **Subcommands:**
 
 - `gitsync-settings pull` - Pull git-sync settings from Windmill backend to local wmill.yaml
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo)
+  - `--default` - Write settings to top-level defaults instead of overrides
   - `--replace` - Replace existing settings (non-interactive mode)
+  - `--override` - Add branch-specific override (non-interactive mode)
   - `--diff` - Show differences without applying changes
   - `--json-output` - Output in JSON format
+  - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
 - `gitsync-settings push` - Push git-sync settings from local wmill.yaml to Windmill backend
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo)
   - `--diff` - Show what would be pushed without applying changes
   - `--json-output` - Output in JSON format
+  - `--with-backend-settings <json:string>` - Use provided JSON settings instead of querying backend (for testing)
   - `--yes` - Skip interactive prompts and use default behavior
   - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
 
@@ -136,6 +151,9 @@ sync local with a remote instance or the opposite (push or pull)
   - `--skip-groups` - Skip pulling instance groups
   - `--include-workspaces` - Also pull workspaces
   - `--folder-per-instance` - Create a folder per instance
+  - `--instance <instance:string>` - Name of the instance to pull from, override the active instance
+  - `--prefix <prefix:string>` - Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces
+  - `--prefix-settings` - Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance
 - `instance push` - Push instance settings, users, configs, group and overwrite remote
   - `--yes` - Push without needing confirmation
   - `--dry-run` - Perform a dry run without making changes
@@ -145,6 +163,9 @@ sync local with a remote instance or the opposite (push or pull)
   - `--skip-groups` - Skip pushing instance groups
   - `--include-workspaces` - Also push workspaces
   - `--folder-per-instance` - Create a folder per instance
+  - `--instance <instance:string>` - Name of the instance to push to, override the active instance
+  - `--prefix <prefix:string>` - Prefix of the local workspaces folders to push
+  - `--prefix-settings` - Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance
 - `instance whoami` - Display information about the currently logged-in user
 
 ### jobs
@@ -157,6 +178,11 @@ Pull completed and queued jobs from workspace
 - `-c, --completed-output <file:string>` - Completed jobs output file (default: completed_jobs.json)
 - `-q, --queued-output <file:string>` - Queued jobs output file (default: queued_jobs.json)
 - `--skip-worker-check` - Skip checking for active workers before export
+
+**Subcommands:**
+
+- `jobs pull`
+- `jobs push`
 
 ### queues
 
@@ -204,19 +230,23 @@ script related commands
 
 **Subcommands:**
 
-- `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh)
+- `script push <path:file>` - push a local script spec. This overrides any remote versions. Use the script file (.ts, .js, .py, .sh
 - `script show <path:file>` - show a scripts content
 - `script run <path:file>` - run a script by path
   - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
   - `-s --silent` - Do not output anything other then the final output. Useful for scripting.
+- `script preview <path:file>` - preview a local script without deploying it. Supports both regular and codebase scripts.
+  - `-d --data <data:file>` - Inputs specified as a JSON string or a file using @<filename> or stdin using @-.
+  - `-s --silent` - Do not output anything other than the final output. Useful for scripting.
 - `script bootstrap <path:file> <language:string>` - create a new script
   - `--summary <summary:string>` - script summary
   - `--description <description:string>` - script description
-- `script generate-metadata [script:file]` - re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`)
+- `script generate-metadata [script:file]` - re-generate the metadata file updating the lock and the script schema (for flows, use `wmill flow generate-locks`
   - `--yes` - Skip confirmation prompt
   - `--dry-run` - Perform a dry run without making changes
   - `--lock-only` - re-generate only the lock
   - `--schema-only` - re-generate only script schema
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
   - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
 
 ### sync
@@ -227,6 +257,7 @@ sync local with a remote workspaces or the opposite (push or pull)
 
 - `sync pull` - Pull any remote changes and apply them locally.
   - `--yes` - Pull without needing confirmation
+  - `--dry-run` - Show changes that would be pulled without actually pushing
   - `--plain-secrets` - Pull secrets as plain text
   - `--json` - Use JSON instead of YAML
   - `--skip-variables` - Skip syncing variables (including secrets)
@@ -237,6 +268,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--skip-flows` - Skip syncing flows
   - `--skip-apps` - Skip syncing apps
   - `--skip-folders` - Skip syncing folders
+  - `--skip-workspace-dependencies` - Skip syncing workspace dependencies
   - `--skip-scripts-metadata` - Skip syncing scripts metadata, focus solely on logic
   - `--include-schedules` - Include syncing  schedules
   - `--include-triggers` - Include syncing triggers
@@ -246,8 +278,15 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-key` - Include workspace encryption key
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Overrides wmill.yaml includes
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account. Overrides wmill.yaml excludes
+  - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
+  - `--promotion <branch:string>` - Use promotionOverrides from the specified branch instead of regular overrides
+  - `--branch <branch:string>` - Override the current git branch (works even outside a git repository)
 - `sync push` - Push any local changes and apply them remotely.
   - `--yes` - Push without needing confirmation
+  - `--dry-run` - Show changes that would be pushed without actually pushing
   - `--plain-secrets` - Push secrets as plain text
   - `--json` - Use JSON instead of YAML
   - `--skip-variables` - Skip syncing variables (including secrets)
@@ -258,6 +297,7 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--skip-flows` - Skip syncing flows
   - `--skip-apps` - Skip syncing apps
   - `--skip-folders` - Skip syncing folders
+  - `--skip-workspace-dependencies` - Skip syncing workspace dependencies
   - `--skip-scripts-metadata` - Skip syncing scripts metadata, focus solely on logic
   - `--include-schedules` - Include syncing schedules
   - `--include-triggers` - Include syncing triggers
@@ -267,7 +307,13 @@ sync local with a remote workspaces or the opposite (push or pull)
   - `--include-key` - Include workspace encryption key
   - `--skip-branch-validation` - Skip git branch validation and prompts
   - `--json-output` - Output results in JSON format
+  - `-i --includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string)
+  - `-e --excludes <patterns:file[]>` - Comma separated patterns to specify which file to NOT take into account.
+  - `--extra-includes <patterns:file[]>` - Comma separated patterns to specify which file to take into account (among files that are compatible with windmill). Patterns can include * (any string until '/') and ** (any string). Useful to still take wmill.yaml into account and act as a second pattern to satisfy
+  - `--message <message:string>` - Include a message that will be added to all scripts/flows/apps updated during this push
   - `--parallel <number>` - Number of changes to process in parallel
+  - `--repository <repo:string>` - Specify repository path (e.g., u/user/repo) when multiple repositories exist
+  - `--branch <branch:string>` - Override the current git branch (works even outside a git repository)
 
 ### trigger
 
@@ -289,6 +335,8 @@ user related commands
   - `--name <name:string>` - Specify to set the name of the new user.
 - `user remove <email:string>` - Delete a user
 - `user create-token`
+  - `--email <email:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
+  - `--password <password:string>` - Specify credentials to use for authentication. This will not be stored. It will only be used to exchange for a token with the API server, which will not be stored either.
 
 ### variable
 
@@ -341,6 +389,7 @@ workspace related commands
 - `workspace add [workspace_name:string] [workspace_id:string] [remote:string]` - Add a workspace
   - `-c --create` - Create the workspace if it does not exist
   - `--create-workspace-name <workspace_name:string>` - Specify the workspace name. Ignored if --create is not specified or the workspace already exists. Will default to the workspace id.
+  - `--create-username <username:string>` - Specify your own username in the newly created workspace. Ignored if --create is not specified, the workspace already exists or automatic username creation is enabled on the instance.
 - `workspace remove <workspace_name:string>` - Remove a workspace
 - `workspace whoami` - Show the currently active user
 - `workspace list` - List workspaces on the remote server that you have access to

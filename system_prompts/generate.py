@@ -40,97 +40,97 @@ CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
 LANGUAGE_METADATA = {
     'bun': {
         'name': 'TypeScript (Bun)',
-        'description': 'Write TypeScript scripts using the Bun runtime with full npm ecosystem and fastest execution.',
+        'description': 'MUST use when writing Bun/TypeScript scripts.',
         'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
     },
     'deno': {
         'name': 'TypeScript (Deno)',
-        'description': 'Write TypeScript scripts using the Deno runtime with npm: prefix imports.',
+        'description': 'MUST use when writing Deno/TypeScript scripts.',
         'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
     },
     'nativets': {
         'name': 'Native TypeScript',
-        'description': 'Write lightweight TypeScript scripts using fetch only, no external imports.',
+        'description': 'MUST use when writing Native TypeScript scripts.',
         'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
     },
     'bunnative': {
         'name': 'Bun Native',
-        'description': 'Write Bun scripts using fetch only, no external imports.',
+        'description': 'MUST use when writing Bun Native scripts.',
         'use_cases': 'simple Bun scripts, lightweight, no dependencies'
     },
     'python3': {
         'name': 'Python',
-        'description': 'Write Python scripts for Windmill with TypedDict resources and wmill SDK.',
+        'description': 'MUST use when writing Python scripts.',
         'use_cases': 'Python automation, data processing, machine learning, scripting'
     },
     'bash': {
         'name': 'Bash',
-        'description': 'Write Bash scripts with positional arguments and JSON output.',
+        'description': 'MUST use when writing Bash scripts.',
         'use_cases': 'shell scripts, system administration, CLI tools'
     },
     'go': {
         'name': 'Go',
-        'description': 'Write Go scripts with package inner and error returns.',
+        'description': 'MUST use when writing Go scripts.',
         'use_cases': 'Go automation, high performance, concurrent processing'
     },
     'rust': {
         'name': 'Rust',
-        'description': 'Write Rust scripts with Cargo dependencies and anyhow::Result.',
+        'description': 'MUST use when writing Rust scripts.',
         'use_cases': 'Rust automation, high performance, memory safety'
     },
     'postgresql': {
         'name': 'PostgreSQL',
-        'description': 'Write PostgreSQL queries with $1::TYPE parameter syntax.',
+        'description': 'MUST use when writing PostgreSQL queries.',
         'use_cases': 'PostgreSQL database queries, data analysis'
     },
     'mysql': {
         'name': 'MySQL',
-        'description': 'Write MySQL queries with ? placeholder syntax.',
+        'description': 'MUST use when writing MySQL queries.',
         'use_cases': 'MySQL database queries, data operations'
     },
     'mssql': {
         'name': 'MS SQL Server',
-        'description': 'Write MS SQL Server queries with @P1, @P2 parameter syntax.',
+        'description': 'MUST use when writing MS SQL Server queries.',
         'use_cases': 'SQL Server database queries, enterprise data'
     },
     'bigquery': {
         'name': 'BigQuery',
-        'description': 'Write BigQuery queries with @name parameter syntax.',
+        'description': 'MUST use when writing BigQuery queries.',
         'use_cases': 'BigQuery analytics, large-scale data analysis'
     },
     'snowflake': {
         'name': 'Snowflake',
-        'description': 'Write Snowflake queries with :name parameter syntax.',
+        'description': 'MUST use when writing Snowflake queries.',
         'use_cases': 'Snowflake data warehouse queries, analytics'
     },
     'duckdb': {
         'name': 'DuckDB',
-        'description': 'Write DuckDB queries with $name parameter syntax and Ducklake support.',
+        'description': 'MUST use when writing DuckDB queries.',
         'use_cases': 'DuckDB analytics, local data processing, Ducklake'
     },
     'graphql': {
         'name': 'GraphQL',
-        'description': 'Write GraphQL queries and mutations for Windmill.',
+        'description': 'MUST use when writing GraphQL queries.',
         'use_cases': 'GraphQL API calls, federated queries'
     },
     'php': {
         'name': 'PHP',
-        'description': 'Write PHP scripts with Composer dependency management.',
+        'description': 'MUST use when writing PHP scripts.',
         'use_cases': 'PHP automation, web integrations'
     },
     'powershell': {
         'name': 'PowerShell',
-        'description': 'Write PowerShell scripts with param() function syntax.',
+        'description': 'MUST use when writing PowerShell scripts.',
         'use_cases': 'Windows automation, system administration'
     },
     'csharp': {
         'name': 'C#',
-        'description': 'Write C# scripts with NuGet #r directive for dependencies.',
+        'description': 'MUST use when writing C# scripts.',
         'use_cases': 'C# automation, .NET integrations'
     },
     'java': {
         'name': 'Java',
-        'description': 'Write Java scripts with Maven //requirements comments.',
+        'description': 'MUST use when writing Java scripts.',
         'use_cases': 'Java automation, enterprise integrations'
     },
 }
@@ -899,7 +899,8 @@ def generate_skills(
     ts_sdk_md: str,
     py_sdk_md: str,
     flow_base: str,
-    openflow_content: str
+    openflow_content: str,
+    cli_commands: str
 ):
     """Generate individual skill files for Claude Code."""
     print("Generating skill files...")
@@ -966,7 +967,7 @@ Use `wmill resource-type list --schema` to discover available resource types."""
     flow_skill_dir.mkdir(parents=True, exist_ok=True)
     flow_skill_content = generate_skill_content(
         skill_name="write-flow",
-        description="Create Windmill flows using OpenFlow YAML specification.",
+        description="MUST use when creating flows.",
         intro="",
         content=f"{flow_base}\n\n{openflow_content}"
     )
@@ -979,7 +980,7 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         raw_app_skill_dir.mkdir(parents=True, exist_ok=True)
         raw_app_skill_content = generate_skill_content(
             skill_name="raw-app",
-            description="Create raw apps with React/Svelte/Vue frontend and backend runnables.",
+            description="MUST use when creating raw apps.",
             intro="",
             content=raw_app_content
         )
@@ -992,7 +993,7 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         triggers_skill_dir.mkdir(parents=True, exist_ok=True)
         triggers_skill_content = generate_skill_content(
             skill_name="triggers",
-            description="Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers.",
+            description="MUST use when configuring triggers.",
             intro="",
             content=triggers_content
         )
@@ -1005,7 +1006,7 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         schedules_skill_dir.mkdir(parents=True, exist_ok=True)
         schedules_skill_content = generate_skill_content(
             skill_name="schedules",
-            description="Configure cron schedules for automated script and flow execution.",
+            description="MUST use when configuring schedules.",
             intro="",
             content=schedules_content
         )
@@ -1018,12 +1019,25 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         resources_skill_dir.mkdir(parents=True, exist_ok=True)
         resources_skill_content = generate_skill_content(
             skill_name="resources",
-            description="Manage resource types and credentials for external services.",
+            description="MUST use when managing resources.",
             intro="",
             content=resources_content
         )
         (resources_skill_dir / "SKILL.md").write_text(resources_skill_content)
         skills_generated.append("resources")
+
+    # Generate cli-commands skill
+    if cli_commands:
+        cli_skill_dir = OUTPUT_SKILLS_DIR / "cli-commands"
+        cli_skill_dir.mkdir(parents=True, exist_ok=True)
+        cli_skill_content = generate_skill_content(
+            skill_name="cli-commands",
+            description="MUST use when using the CLI.",
+            intro="",
+            content=cli_commands
+        )
+        (cli_skill_dir / "SKILL.md").write_text(cli_skill_content)
+        skills_generated.append("cli-commands")
 
     print(f"  Generated {len(skills_generated)} skills")
     return skills_generated
@@ -1047,17 +1061,17 @@ def generate_skills_ts_export(skills: list[str]) -> str:
                 metadata = LANGUAGE_METADATA[lang_key]
                 ts += f'  {{ name: "{skill}", description: "{metadata["description"]}", languageKey: "{lang_key}" }},\n'
         elif skill == 'write-flow':
-            ts += f'  {{ name: "{skill}", description: "Create Windmill flows using OpenFlow YAML specification." }},\n'
-        elif skill == 'wmill-cli':
-            ts += f'  {{ name: "{skill}", description: "Reference for Windmill CLI commands and usage." }},\n'
+            ts += f'  {{ name: "{skill}", description: "MUST use when creating flows." }},\n'
+        elif skill == 'cli-commands':
+            ts += f'  {{ name: "{skill}", description: "MUST use when using the CLI." }},\n'
         elif skill == 'raw-app':
-            ts += f'  {{ name: "{skill}", description: "Create raw apps with React/Svelte/Vue frontend and backend runnables." }},\n'
+            ts += f'  {{ name: "{skill}", description: "MUST use when creating raw apps." }},\n'
         elif skill == 'triggers':
-            ts += f'  {{ name: "{skill}", description: "Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers." }},\n'
+            ts += f'  {{ name: "{skill}", description: "MUST use when configuring triggers." }},\n'
         elif skill == 'schedules':
-            ts += f'  {{ name: "{skill}", description: "Configure cron schedules for automated script and flow execution." }},\n'
+            ts += f'  {{ name: "{skill}", description: "MUST use when configuring schedules." }},\n'
         elif skill == 'resources':
-            ts += f'  {{ name: "{skill}", description: "Manage resource types and credentials for external services." }},\n'
+            ts += f'  {{ name: "{skill}", description: "MUST use when managing resources." }},\n'
 
     ts += "];\n\n"
 
@@ -1238,6 +1252,7 @@ export function getFlowPrompt(): string {
         ts_sdk_md=ts_sdk_md,
         py_sdk_md=py_sdk_md,
         flow_base=flow_base,
+        cli_commands=cli_commands,
         openflow_content=openflow_content
     )
 

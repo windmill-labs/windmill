@@ -1,6 +1,6 @@
 ---
 name: write-script-rust
-description: Write Rust scripts with Cargo dependencies and anyhow::Result.
+description: MUST use when writing Rust scripts.
 ---
 
 ## CLI Commands

@@ -1,6 +1,6 @@
 ---
 name: write-script-postgresql
-description: Write PostgreSQL queries with $1::TYPE parameter syntax.
+description: MUST use when writing PostgreSQL queries.
 ---
 
 ## CLI Commands

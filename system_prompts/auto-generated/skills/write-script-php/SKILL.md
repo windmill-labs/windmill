@@ -1,6 +1,6 @@
 ---
 name: write-script-php
-description: Write PHP scripts with Composer dependency management.
+description: MUST use when writing PHP scripts.
 ---
 
 ## CLI Commands

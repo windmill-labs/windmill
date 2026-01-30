@@ -1,6 +1,6 @@
 ---
 name: write-script-bigquery
-description: Write BigQuery queries with @name parameter syntax.
+description: MUST use when writing BigQuery queries.
 ---
 
 ## CLI Commands

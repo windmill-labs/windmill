@@ -1,6 +1,6 @@
 ---
 name: write-script-mysql
-description: Write MySQL queries with ? placeholder syntax.
+description: MUST use when writing MySQL queries.
 ---
 
 ## CLI Commands

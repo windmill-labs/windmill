@@ -1,6 +1,6 @@
 ---
 name: write-script-go
-description: Write Go scripts with package inner and error returns.
+description: MUST use when writing Go scripts.
 ---
 
 ## CLI Commands

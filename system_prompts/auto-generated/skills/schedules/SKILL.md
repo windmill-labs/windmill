@@ -1,6 +1,6 @@
 ---
 name: schedules
-description: Configure cron schedules for automated script and flow execution.
+description: MUST use when configuring schedules.
 ---
 
 # Windmill Schedules

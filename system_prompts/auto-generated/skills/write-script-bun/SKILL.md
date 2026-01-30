@@ -1,6 +1,6 @@
 ---
 name: write-script-bun
-description: Write TypeScript scripts using the Bun runtime with full npm ecosystem and fastest execution.
+description: MUST use when writing Bun/TypeScript scripts.
 ---
 
 ## CLI Commands

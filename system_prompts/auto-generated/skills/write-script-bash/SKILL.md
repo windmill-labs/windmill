@@ -1,6 +1,6 @@
 ---
 name: write-script-bash
-description: Write Bash scripts with positional arguments and JSON output.
+description: MUST use when writing Bash scripts.
 ---
 
 ## CLI Commands

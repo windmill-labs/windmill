@@ -1,6 +1,6 @@
 ---
 name: write-script-bunnative
-description: Write Bun scripts using fetch only, no external imports.
+description: MUST use when writing Bun Native scripts.
 ---
 
 ## CLI Commands

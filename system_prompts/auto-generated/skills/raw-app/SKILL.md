@@ -1,6 +1,6 @@
 ---
 name: raw-app
-description: Create raw apps with React/Svelte/Vue frontend and backend runnables.
+description: MUST use when creating raw apps.
 ---
 
 # Windmill Raw Apps
@@ -14,7 +14,6 @@ wmill app new
 ```
 
 This interactive command creates a complete app structure with your choice of frontend framework (React, Svelte, or Vue).
-This step MUST be done by the user, if asked to create a new raw app, you should tell the user to run that command first.
 
 ## App Structure
 

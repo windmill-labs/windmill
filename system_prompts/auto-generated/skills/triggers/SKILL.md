@@ -1,6 +1,6 @@
 ---
 name: triggers
-description: Configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, and Postgres CDC triggers.
+description: MUST use when configuring triggers.
 ---
 
 # Windmill Triggers

@@ -1,6 +1,6 @@
 ---
 name: write-script-powershell
-description: Write PowerShell scripts with param() function syntax.
+description: MUST use when writing PowerShell scripts.
 ---
 
 ## CLI Commands

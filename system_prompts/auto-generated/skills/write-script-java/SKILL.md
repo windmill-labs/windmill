@@ -1,6 +1,6 @@
 ---
 name: write-script-java
-description: Write Java scripts with Maven //requirements comments.
+description: MUST use when writing Java scripts.
 ---
 
 ## CLI Commands

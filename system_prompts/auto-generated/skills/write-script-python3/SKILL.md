@@ -1,6 +1,6 @@
 ---
 name: write-script-python3
-description: Write Python scripts for Windmill with TypedDict resources and wmill SDK.
+description: MUST use when writing Python scripts.
 ---
 
 ## CLI Commands
