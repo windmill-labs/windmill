@@ -438,6 +438,7 @@ export async function handleFile(
       codebase: await codebase?.getDigest(forceTar),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
+      envs: typed?.envs,
     };
 
     // console.log(requestBodyCommon.codebase);
@@ -478,7 +479,8 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email)
+            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            deepEqual(typed.envs, remote.envs))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
