@@ -45,7 +45,7 @@
 	<!-- svelte-ignore a11y_label_has_associated_control -->
 	<label class="text-xs font-semibold text-emphasis flex gap-4 items-center">
 		<div class="w-[120px]"><IconedResourceType name={'pocketid'} after={true} /></div>
-		<Toggle checked={enabled} onchange={handleToggle} />
+		<Toggle checked={enabled} on:change={handleToggle} />
 	</label>
 	{#if enabled}
 		<div class="border rounded p-4 flex flex-col gap-6">
