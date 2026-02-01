@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.623.0](https://github.com/windmill-labs/windmill/compare/v1.622.0...v1.623.0) (2026-01-31)
+
+
+### Features
+
+* add PocketID OAuth provider support ([#7318](https://github.com/windmill-labs/windmill/issues/7318)) ([720e3c5](https://github.com/windmill-labs/windmill/commit/720e3c543623c2612b1af704c13d032c53368efb))
+
+
+### Bug Fixes
+
+* add schema compatibility layer for MCP clients like n8n ([#7747](https://github.com/windmill-labs/windmill/issues/7747)) ([297aa23](https://github.com/windmill-labs/windmill/commit/297aa23ed46315dfd4b034d44361a5bd8aaca884))
+* preserve script envs field during sync push ([f405dff](https://github.com/windmill-labs/windmill/commit/f405dff2e22681dc8d4f3a9b7427e278c6cfb0cc))
+
 ## [1.622.0](https://github.com/windmill-labs/windmill/compare/v1.621.2...v1.622.0) (2026-01-29)
 
 
