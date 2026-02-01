@@ -55,8 +55,10 @@
 		<div class="border rounded p-4 flex flex-col gap-6">
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Pocket ID Url</span>
-				<span class="text-secondary font-normal text-xs">POCKET_ID_URL/authorize</span>
-				<TextInput inputProps={{ type: 'text', placeholder: 'https://id.example.com' }} bind:value={org} />
+				<TextInput
+					inputProps={{ type: 'text', placeholder: 'https://id.example.com' }}
+					bind:value={org}
+				/>
 			</label>
 			<label class="flex flex-col gap-1">
 				<span class="text-emphasis font-semibold text-xs">Custom Name</span>
