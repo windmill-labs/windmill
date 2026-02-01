@@ -7,6 +7,7 @@
 	import Okta from '$lib/components/icons/brands/Okta.svelte'
 	import Auth0 from '$lib/components/icons/brands/Auth0.svelte'
 	import NextcloudIcon from '$lib/components/icons/NextcloudIcon.svelte'
+	import PocketIdIcon from '$lib/components/icons/PocketIdIcon.svelte'
 
 	import { OauthService, UserService, WorkspaceService } from '$lib/gen'
 	import { usersWorkspaceStore, workspaceStore, userStore } from '$lib/stores'
@@ -76,6 +77,11 @@
 			type: 'nextcloud',
 			name: 'Nextcloud',
 			icon: NextcloudIcon
+		},
+		{
+			type: 'pocketid',
+			name: 'Pocket ID',
+			icon: PocketIdIcon
 		}
 	] as const
 
