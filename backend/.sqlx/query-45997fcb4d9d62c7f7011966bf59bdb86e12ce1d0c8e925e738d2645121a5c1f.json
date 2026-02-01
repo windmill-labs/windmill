@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM v2_job_completed\n         WHERE id IN (\n             SELECT jc.id FROM v2_job_completed jc\n             LEFT JOIN v2_job j ON j.id = jc.id\n             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval\n               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)\n             ORDER BY jc.completed_at ASC\n             LIMIT $2\n             FOR UPDATE OF jc SKIP LOCKED\n         )\n         RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "45997fcb4d9d62c7f7011966bf59bdb86e12ce1d0c8e925e738d2645121a5c1f"
+}
