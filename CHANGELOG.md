@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.623.1](https://github.com/windmill-labs/windmill/compare/v1.623.0...v1.623.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* prevent retention cleanup from deleting jobs of active flows ([4226ec8](https://github.com/windmill-labs/windmill/commit/4226ec826084eabbb9fff418ea6e67eb73e27cf0))
+* prevent retention cleanup from deleting jobs of active flows ([#7755](https://github.com/windmill-labs/windmill/issues/7755)) ([799db94](https://github.com/windmill-labs/windmill/commit/799db9468395adafe43630d861dac367e5559791))
+* resolve infinite effect loop in PocketIdSetting component ([#7753](https://github.com/windmill-labs/windmill/issues/7753)) ([a8523f5](https://github.com/windmill-labs/windmill/commit/a8523f552c39c4bbe3c585f97df5223903013bb2))
+
 ## [1.623.0](https://github.com/windmill-labs/windmill/compare/v1.622.0...v1.623.0) (2026-01-31)
 
 
