@@ -14,6 +14,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		job: Job
@@ -50,7 +51,19 @@
 
 	// Container width tracking for responsive layout
 	let clientWidth = $state(0)
-	let useOneColumn = $derived(clientWidth < 800)
+
+	// Dynamic column count based on field count
+	const columnCount = $derived(() => {
+		const fieldCount = relevantFields().length
+		if (fieldCount < 5) return 1
+		if (fieldCount < 7) return 2
+		if (fieldCount < 10) return 3
+		return 3 // Max 3 columns
+	})
+
+	// Responsive overrides for narrow containers
+	const useOneColumn = $derived(clientWidth < 600)
+	const useTwoColumns = $derived(clientWidth < 900 && columnCount() > 1)
 
 	/**
 	 * Renders the value for a field configuration
@@ -73,9 +86,9 @@
 	/**
 	 * Gets the display value for a field
 	 */
-	function getDisplayValue(config: FieldConfig, job: Job): string | null {
+	function getDisplayValue(config: FieldConfig, job: Job): string {
 		const value = config.getValue(job)
-		if (!value) return null
+		if (!value) return 'no value'
 
 		switch (config.field) {
 			case 'script_hash':
@@ -135,7 +148,7 @@
 					{value}
 					<span class="text-secondary"> ({job.permissioned_as})</span>
 				</Tooltip>
-			{:else if (job?.created_by?.length ?? 0) > 30}
+			{:else}
 				<Tooltip small>
 					{#snippet text()}{job.created_by}{/snippet}
 					{value}
@@ -145,7 +158,9 @@
 		</span>
 	{:else if config.field === 'worker'}
 		<span title={value}>
-			{#if onFilterByWorker}
+			{#if value === 'no value'}
+				{value}
+			{:else if onFilterByWorker}
 				<Tooltip>
 					{#snippet text()}
 						This job was run on worker:
@@ -306,19 +321,20 @@
 						{@const value = getDisplayValue(config, job)}
 						{@const IconComponent =
 							config.field === 'trigger_info' && triggerInfo() ? triggerInfo()?.icon : config.icon}
-						{#if value}
-							<div class="flex items-center gap-1">
-								<IconComponent size={10} class="text-tertiary flex-shrink-0" />
-								<span class="truncate"
-									>{config.label}: {@render fieldValueRenderer(
-										config,
-										job,
-										value,
-										config.getHref?.(job, $workspaceStore || '')
-									)}</span
-								>
-							</div>
-						{/if}
+						<div class="flex items-center gap-1">
+							<IconComponent size={10} class="text-tertiary flex-shrink-0" />
+							<span
+								class:text-secondary={value === 'no value'}
+								class:text-primary={value !== 'no value'}
+								class="truncate"
+								>{config.label}: {@render fieldValueRenderer(
+									config,
+									job,
+									value,
+									config.getHref?.(job, $workspaceStore || '')
+								)}</span
+							>
+						</div>
 					{/each}
 				</div>
 			</div>
@@ -400,7 +416,7 @@
 		</div>
 
 		<!-- Separation bar -->
-		<div class="border-t mx-8"></div>
+		<div class={twMerge('border-t', compact ? 'mx-4' : 'mx-8')}></div>
 
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
@@ -408,26 +424,29 @@
 			<div class="px-8 py-6">
 				<div
 					class="grid gap-x-12 gap-y-2"
-					class:grid-cols-1={useOneColumn}
-					class:grid-cols-2={!useOneColumn}
+					class:grid-cols-1={useOneColumn || columnCount() === 1}
+					class:grid-cols-2={!useOneColumn && (useTwoColumns || columnCount() === 2)}
+					class:grid-cols-3={!useOneColumn && !useTwoColumns && columnCount() === 3}
 				>
 					{#if job}
 						{#each fields as config}
 							{@const value = getDisplayValue(config, job)}
 							{@const href = config.getHref?.(job, $workspaceStore || '')}
 
-							{#if value}
-								<div class="flex items-baseline gap-3 text-xs">
-									<span class="text-secondary min-w-[70px] flex-shrink-0">
-										{config.label}
-									</span>
-									<span class="text-primary min-w-0 flex-1">
-										<div class="truncate">
-											{@render fieldValueRenderer(config, job, value, href)}
-										</div>
-									</span>
-								</div>
-							{/if}
+							<div class="flex items-baseline gap-3 text-xs">
+								<span class="text-secondary min-w-[70px] flex-shrink-0">
+									{config.label}
+								</span>
+								<span
+									class:text-primary={value !== 'no value'}
+									class:text-secondary={value === 'no value'}
+									class="min-w-0 flex-1"
+								>
+									<div class="truncate">
+										{@render fieldValueRenderer(config, job, value, href)}
+									</div>
+								</span>
+							</div>
 						{/each}
 					{/if}
 				</div>
@@ -444,7 +463,7 @@
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-2 text-xs text-primary font-normal"
 				>
-					<div class="flex flex-wrap gap-y-2 flex-1 items-center">
+					<div class="flex flex-wrap gap-y-2 gap-x-6 flex-1 items-center">
 						{#if job}
 							<!-- Always show Job ID prominently in compact mode -->
 							<div class="flex items-baseline gap-1 text-xs">
@@ -454,7 +473,7 @@
 										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
 										class="flex items-center gap-1 min-w-0"
 									>
-										<span class="truncate flex-shrink min-w-0">{job.id}</span>
+										<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>
 										<ExternalLink size={12} class="flex-shrink-0" />
 									</a>
 								</span>
@@ -464,22 +483,19 @@
 								{@const value = getDisplayValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
-								{#if value}
-									<!-- Separator -->
-									<div class="flex items-center px-3">
-										<div class="w-px h-4 bg-border-light"></div>
-									</div>
-
-									<!-- Field -->
-									<div class="flex items-baseline gap-1 text-xs min-w-0">
-										<span class="text-secondary flex-shrink-0">{config.label}</span>
-										<span class="text-primary min-w-0 flex-1">
-											<div class="truncate" title={value}>
-												{@render fieldValueRenderer(config, job, value, href)}
-											</div>
-										</span>
-									</div>
-								{/if}
+								<!-- Field -->
+								<div class="flex items-baseline gap-1 text-xs min-w-0">
+									<span class="text-secondary flex-shrink-0">{config.label}</span>
+									<span
+										class:text-primary={value !== 'no value'}
+										class:text-secondary={value === 'no value'}
+										class="min-w-0 flex-1"
+									>
+										<div class="truncate" title={value}>
+											{@render fieldValueRenderer(config, job, value, href)}
+										</div>
+									</span>
+								</div>
 							{/each}
 						{/if}
 					</div>
@@ -491,6 +507,7 @@
 							unifiedSize="sm"
 							onclick={() => (isExpanded = !isExpanded)}
 							title="More details"
+							wrapperClasses="-my-1.5"
 						>
 							More details
 							<ChevronDown
@@ -507,28 +524,30 @@
 						.filter((f) => f.field !== 'run_id')
 						.slice(2)}
 					<!-- Show remaining fields in single column -->
-					<div class="mt-2 pt-2 border-t border-surface-secondary">
+					<div class="mt-2 pt-2 border-t">
 						<div class="flex flex-col gap-y-3">
 							{#each expandedFields as config}
 								{@const value = getDisplayValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
-								{#if value}
-									<div class="flex items-baseline gap-3 text-xs">
-										<span class="text-secondary min-w-[70px] flex-shrink-0">
-											{#if config.field === 'created_at'}
-												{renderFieldValue(config, job)}
-											{:else}
-												{config.label}
-											{/if}
-										</span>
-										<span class="text-primary min-w-0 flex-1">
-											<div class="truncate" title={value}>
-												{@render fieldValueRenderer(config, job, value, href)}
-											</div>
-										</span>
-									</div>
-								{/if}
+								<div class="flex items-baseline gap-3 text-xs">
+									<span class="text-secondary min-w-[70px] flex-shrink-0">
+										{#if config.field === 'created_at'}
+											{renderFieldValue(config, job)}
+										{:else}
+											{config.label}
+										{/if}
+									</span>
+									<span
+										class:text-primary={value !== 'no value'}
+										class:text-secondary={value === 'no value'}
+										class="min-w-0 flex-1"
+									>
+										<div class="truncate" title={value}>
+											{@render fieldValueRenderer(config, job, value, href)}
+										</div>
+									</span>
+								</div>
 							{/each}
 						</div>
 					</div>

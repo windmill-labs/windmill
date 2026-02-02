@@ -8,7 +8,6 @@ import {
 	User,
 	Code,
 	IdCard,
-	Tag,
 	Hash,
 	HardHat,
 	Webhook,
@@ -45,7 +44,6 @@ export type JobField =
 	| 'schedule_path'
 	| 'script_hash'
 	| 'script_path'
-	| 'tag'
 	| 'worker'
 	| 'language'
 	| 'step_info'
@@ -63,9 +61,12 @@ export interface FieldConfig {
 	label: string
 	getValue: (job: Job) => string | null
 	getHref?: (job: Job, workspaceId: string) => string | null
-	isRelevant: (job: Job) => boolean
-	priority: number // Higher numbers = more important, shown first
 }
+
+/**
+ * Configuration for field presence per job category
+ */
+export type FieldPresenceConfig = Record<JobCategory, Record<JobField, boolean>>
 
 /**
  * Categorizes a job based on its job_kind
@@ -180,48 +181,35 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		field: 'created_at',
 		icon: Clock,
 		label: 'Received',
-		getValue: (job) => job.created_at || null,
-		isRelevant: () => true,
-		priority: 9
+		getValue: (job) => job.created_at || null
 	},
 
 	started_at: {
 		field: 'started_at',
 		icon: PlayCircle,
 		label: 'Started',
-		getValue: (job) => ('started_at' in job ? job.started_at : null) || null,
-		isRelevant: (job) => 'started_at' in job && job.started_at != null,
-		priority: 8
+		getValue: (job) => ('started_at' in job ? job.started_at : null) || null
 	},
 
 	created_by: {
 		field: 'created_by',
 		icon: User,
 		label: 'By',
-		getValue: (job) => job.created_by || 'unknown',
-		isRelevant: () => true,
-		priority: 7
+		getValue: (job) => job.created_by || 'unknown'
 	},
 
 	memory_peak: {
 		field: 'memory_peak',
 		icon: MemoryStick,
 		label: 'Mem peak',
-		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null),
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return category === 'script' || category === 'flow_node'
-		},
-		priority: 4
+		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null)
 	},
 
 	run_id: {
 		field: 'run_id',
 		icon: IdCard,
 		label: 'Run ID',
-		getValue: (job) => job.id,
-		isRelevant: () => true,
-		priority: 6
+		getValue: (job) => job.id
 	},
 
 	trigger_info: {
@@ -231,9 +219,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getValue: (job) => {
 			const triggerInfo = getTriggerInfo(job)
 			return triggerInfo ? triggerInfo.type : null
-		},
-		isRelevant: (job) => getTriggerInfo(job) !== null,
-		priority: 5
+		}
 	},
 
 	parent_job: {
@@ -242,18 +228,14 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		label: 'Parent',
 		getValue: (job) => job.parent_job || null,
 		getHref: (job, workspaceId) =>
-			job.parent_job ? `/run/${job.parent_job}?workspace=${workspaceId}` : null,
-		isRelevant: (job) => !!job.parent_job,
-		priority: 5
+			job.parent_job ? `/run/${job.parent_job}?workspace=${workspaceId}` : null
 	},
 
 	schedule_path: {
 		field: 'schedule_path',
 		icon: Calendar,
 		label: 'Schedule',
-		getValue: (job) => job.schedule_path || null,
-		isRelevant: (job) => !!job.schedule_path,
-		priority: 5
+		getValue: (job) => job.schedule_path || null
 	},
 
 	script_hash: {
@@ -264,16 +246,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getHref: (job, workspaceId) =>
 			job.script_hash && job.job_kind === 'script'
 				? `/scripts/get/${job.script_hash}?workspace=${workspaceId}`
-				: null,
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return (
-				(category === 'script' || category === 'flow_node') &&
-				!!job.script_hash &&
-				job.job_kind !== 'aiagent'
-			)
-		},
-		priority: 3
+				: null
 	},
 
 	script_path: {
@@ -286,42 +259,21 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 			const stem = job.job_kind === 'script' ? 'scripts' : 'flows'
 			const isScript = job.job_kind === 'script'
 			return `/${stem}/get/${isScript ? job.script_hash : job.script_path}`
-		},
-		isRelevant: (job) => !!job.script_path,
-		priority: 6
-	},
-
-	tag: {
-		field: 'tag',
-		icon: Tag,
-		label: 'Tag',
-		getValue: (job) => job.tag || null,
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return (category === 'script' || category === 'flow') && !!job.tag
-		},
-		priority: 2
+		}
 	},
 
 	worker: {
 		field: 'worker',
 		icon: HardHat,
 		label: 'Worker',
-		getValue: (job) => job.worker || null,
-		isRelevant: (job) => !!job.worker,
-		priority: 3
+		getValue: (job) => job.worker || null
 	},
 
 	language: {
 		field: 'language',
 		icon: Code,
 		label: 'Language',
-		getValue: (job) => job.language || null,
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return (category === 'script' || category === 'flow_node') && !!job.language
-		},
-		priority: 4
+		getValue: (job) => job.language || null
 	},
 
 	step_info: {
@@ -333,12 +285,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 				return (job as any).flow_step_id
 			}
 			return null
-		},
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return category === 'flow_node' && job.is_flow_step
-		},
-		priority: 6
+		}
 	},
 
 	flow_status: {
@@ -350,12 +297,7 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 				return `Step ${job.flow_status.step + 1}`
 			}
 			return null
-		},
-		isRelevant: (job) => {
-			const category = getJobCategory(job)
-			return category === 'flow' && !!job.flow_status
-		},
-		priority: 5
+		}
 	},
 
 	duration: {
@@ -370,27 +312,168 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 				return `${(ms / 60000).toFixed(1)}m`
 			}
 			return null
-		},
-		isRelevant: (job) => 'duration_ms' in job && !!job.duration_ms,
-		priority: 4
+		}
 	},
 
 	priority: {
 		field: 'priority',
 		icon: FileText,
 		label: 'Priority',
-		getValue: (job) => job.priority?.toString() || null,
-		isRelevant: (job) => job.priority != null && job.priority > 0,
-		priority: 2
+		getValue: (job) => job.priority?.toString() || null
 	},
 
 	concurrency_key: {
 		field: 'concurrency_key',
 		icon: Layers,
 		label: 'Concurrency',
-		getValue: () => null, // This will be provided separately as a prop
-		isRelevant: () => false, // Handled separately
-		priority: 2
+		getValue: () => null // This will be provided separately as a prop
+	}
+}
+
+/**
+ * Field presence configuration per job category
+ * Defines which fields should be shown for each job type
+ */
+export const categoryFieldPresence: FieldPresenceConfig = {
+	script: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		memory_peak: true,
+		script_hash: true,
+		language: true,
+		duration: false,
+		// Optional fields
+		trigger_info: false,
+		parent_job: false,
+		schedule_path: false,
+		script_path: false,
+		step_info: false,
+		flow_status: false,
+		priority: false,
+		concurrency_key: false
+	},
+	flow: {
+		created_at: true,
+		started_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		script_path: true,
+		flow_status: false,
+		duration: false,
+		// Optional fields
+		memory_peak: false,
+		trigger_info: false,
+		parent_job: false,
+		schedule_path: false,
+		script_hash: false,
+		language: false,
+		step_info: false,
+		priority: false,
+		concurrency_key: false
+	},
+	dependencies: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		duration: false,
+		// Optional fields
+		memory_peak: false,
+		trigger_info: false,
+		parent_job: false,
+		schedule_path: false,
+		script_hash: false,
+		script_path: false,
+		language: false,
+		step_info: false,
+		flow_status: false,
+		priority: false,
+		concurrency_key: false
+	},
+	flow_node: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		step_info: false,
+		script_hash: true,
+		memory_peak: true,
+		parent_job: true,
+		// Optional fields
+		trigger_info: false,
+		schedule_path: false,
+		script_path: false,
+		language: false,
+		flow_status: false,
+		duration: false,
+		priority: false,
+		concurrency_key: false
+	},
+	ai_agent: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		duration: false,
+		memory_peak: true,
+		// Optional fields
+		trigger_info: false,
+		parent_job: false,
+		schedule_path: false,
+		script_hash: false,
+		script_path: false,
+		language: false,
+		step_info: false,
+		flow_status: false,
+		priority: false,
+		concurrency_key: false
+	},
+	system: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		duration: false,
+		// Optional fields
+		memory_peak: false,
+		trigger_info: false,
+		parent_job: false,
+		schedule_path: false,
+		script_hash: false,
+		script_path: false,
+		language: false,
+		step_info: false,
+		flow_status: false,
+		priority: false,
+		concurrency_key: false
+	},
+	trigger_job: {
+		created_at: true,
+		created_by: true,
+		worker: true,
+		run_id: true,
+		started_at: true,
+		parent_job: true,
+		schedule_path: true,
+		trigger_info: true,
+		// Optional fields
+		memory_peak: false,
+		script_hash: false,
+		script_path: false,
+		language: false,
+		step_info: false,
+		flow_status: false,
+		duration: false,
+		priority: false,
+		concurrency_key: false
 	}
 }
 
@@ -399,57 +482,32 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
  */
 export function getRelevantFields(job: Job): FieldConfig[] {
 	const category = getJobCategory(job)
-	const allFields = Object.values(fieldConfigs)
+	const fieldsPresence = categoryFieldPresence[category]
 
-	// Filter fields based on relevance for this job
-	const relevantFields = allFields.filter((config) => config.isRelevant(job))
+	// Define the field ordering: created_by, started_at, worker, then others
+	const fieldOrder: JobField[] = [
+		'created_at',
+		'created_by',
+		'started_at',
+		'worker',
+		'run_id',
+		'memory_peak',
+		'script_hash',
+		'script_path',
+		'language',
+		'duration',
+		'flow_status',
+		'step_info',
+		'parent_job',
+		'schedule_path',
+		'trigger_info',
+		'priority',
+		'concurrency_key'
+	]
 
-	// Apply category-specific prioritization
-	let prioritizedFields = relevantFields.sort((a, b) => b.priority - a.priority)
-
-	// Category-specific field limits and ordering
-	switch (category) {
-		case 'script':
-			// Show up to 6 fields for scripts
-			prioritizedFields = prioritizedFields.slice(0, 6)
-			break
-
-		case 'flow':
-			// For flows, prioritize flow-specific fields
-			prioritizedFields = prioritizedFields.slice(0, 6)
-			break
-
-		case 'dependencies':
-			// Dependencies jobs need minimal fields
-			prioritizedFields = prioritizedFields
-				.filter((f) => ['created_at', 'created_by', 'worker', 'duration'].includes(f.field))
-				.slice(0, 4)
-			break
-
-		case 'flow_node':
-			// Flow nodes should show step info prominently
-			prioritizedFields = prioritizedFields.slice(0, 5)
-			break
-
-		case 'ai_agent':
-			// AI agents have specific relevant fields
-			prioritizedFields = prioritizedFields
-				.filter((f) => !['script_hash', 'tag'].includes(f.field))
-				.slice(0, 5)
-			break
-
-		case 'system':
-			// System jobs need minimal display
-			prioritizedFields = prioritizedFields
-				.filter((f) => ['created_at', 'created_by', 'worker', 'duration'].includes(f.field))
-				.slice(0, 4)
-			break
-
-		case 'trigger_job':
-			// Triggered jobs should emphasize trigger info
-			prioritizedFields = prioritizedFields.slice(0, 6)
-			break
-	}
-
-	return prioritizedFields
+	// Return fields in the specified order if they are present for this category
+	return fieldOrder
+		.filter((fieldName) => fieldsPresence[fieldName])
+		.map((fieldName) => fieldConfigs[fieldName])
+		.filter((config) => config) // Safety check
 }
