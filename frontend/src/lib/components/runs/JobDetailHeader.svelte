@@ -14,7 +14,7 @@
 	import Button from '$lib/components/common/button/Button.svelte'
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
-	import { twMerge } from 'tailwind-merge'
+	import { slide } from 'svelte/transition'
 
 	interface Props {
 		job: Job
@@ -416,14 +416,14 @@
 		</div>
 
 		<!-- Separation bar -->
-		<div class={twMerge('border-t', compact ? 'mx-4' : 'mx-8')}></div>
+		<div class="border-t"></div>
 
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div class="px-8 py-6">
+			<div class="px-8 py-4 bg-surface-secondary">
 				<div
-					class="grid gap-x-12 gap-y-2"
+					class="grid gap-x-12 gap-y-1.5"
 					class:grid-cols-1={useOneColumn || columnCount() === 1}
 					class:grid-cols-2={!useOneColumn && (useTwoColumns || columnCount() === 2)}
 					class:grid-cols-3={!useOneColumn && !useTwoColumns && columnCount() === 3}
@@ -459,9 +459,9 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 py-2">
+			<div class="px-4 py-2 bg-surface-secondary">
 				<div
-					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-2 text-xs text-primary font-normal"
+					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-1 text-xs text-primary font-normal"
 				>
 					<div class="flex flex-wrap gap-y-2 gap-x-6 flex-1 items-center">
 						{#if job}
@@ -524,8 +524,8 @@
 						.filter((f) => f.field !== 'run_id')
 						.slice(2)}
 					<!-- Show remaining fields in single column -->
-					<div class="mt-2 pt-2 border-t">
-						<div class="flex flex-col gap-y-3">
+					<div class="mt-2 pt-2 border-t" transition:slide={{ duration: 150 }}>
+						<div class="flex flex-col gap-y-1">
 							{#each expandedFields as config}
 								{@const value = getDisplayValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
