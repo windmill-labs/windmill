@@ -49,21 +49,7 @@
 	// Expansion state for compact modes
 	let isExpanded = $state(false)
 
-	// Container width tracking for responsive layout
-	let clientWidth = $state(0)
-
-	// Dynamic column count based on field count
-	const columnCount = $derived(() => {
-		const fieldCount = relevantFields().length
-		if (fieldCount < 5) return 1
-		if (fieldCount < 7) return 2
-		if (fieldCount < 10) return 3
-		return 3 // Max 3 columns
-	})
-
-	// Responsive overrides for narrow containers
-	const useOneColumn = $derived(clientWidth < 600)
-	const useTwoColumns = $derived(clientWidth < 900 && columnCount() > 1)
+	// Grid now uses auto-fit for smart responsive layout
 
 	/**
 	 * Renders the value for a field configuration
@@ -215,7 +201,7 @@
 			</button>
 		</span>
 	{:else if config.field === 'parent_job' && job.parent_job}
-		<span class="whitespace-nowrap" title={value}>
+		<span class="whitespace-nowrap flex items-center gap-1" title={value}>
 			{#if job.is_flow_step}
 				Step of flow
 			{:else}
@@ -341,7 +327,7 @@
 		{/if}
 	</div>
 {:else}
-	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full" bind:clientWidth>
+	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'}>
 			{#if job}
@@ -370,7 +356,7 @@
 									<ExternalLink size={14} class="flex-shrink-0" />
 								</a>
 							{:else}
-								<span class="text-emphasis {compact ? 'text-base' : 'text-lg'} font-semibold">
+								<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
 									{#if job.script_path}
 										{job.script_path}
 									{:else if job.job_kind == 'dependencies'}
@@ -423,10 +409,8 @@
 			{@const fields = relevantFields()}
 			<div class="px-8 py-4 bg-surface-secondary">
 				<div
-					class="grid gap-x-12 gap-y-1.5"
-					class:grid-cols-1={useOneColumn || columnCount() === 1}
-					class:grid-cols-2={!useOneColumn && (useTwoColumns || columnCount() === 2)}
-					class:grid-cols-3={!useOneColumn && !useTwoColumns && columnCount() === 3}
+					class="grid gap-x-12 gap-y-1.5 max-w-xl"
+					style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
 				>
 					{#if job}
 						{#each fields as config}
@@ -455,7 +439,7 @@
 			<!-- Compact version: Job ID prominently displayed + adaptive fields + expansion -->
 			{@const fields = relevantFields()
 				.filter((f) => f.field !== 'run_id')
-				.slice(0, 2)}
+				.slice(0, 1)}
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
@@ -522,7 +506,7 @@
 				{#if isExpanded && additionalFieldsCount > 0}
 					{@const expandedFields = relevantFields()
 						.filter((f) => f.field !== 'run_id')
-						.slice(2)}
+						.slice(1)}
 					<!-- Show remaining fields in single column -->
 					<div class="mt-2 pt-2 border-t" transition:slide={{ duration: 150 }}>
 						<div class="flex flex-col gap-y-1">
