@@ -131,9 +131,21 @@ pub async fn do_mssql(
 
     // Handle authentication based on available credentials
     if database.integrated_auth.unwrap_or(false) {
-        config.authentication(AuthMethod::Integrated);
-        let logs = format!("\nUsing Windows Integrated Authentication (Kerberos)");
-        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        #[cfg(any(feature = "mssql-kerberos", feature = "mssql-winauth"))]
+        {
+            config.authentication(AuthMethod::Integrated);
+            #[cfg(feature = "mssql-kerberos")]
+            let logs = format!("\nUsing Integrated Authentication (Kerberos/GSSAPI)");
+            #[cfg(feature = "mssql-winauth")]
+            let logs = format!("\nUsing Integrated Authentication (Windows SSPI)");
+            append_logs(&job.id, &job.workspace_id, logs, conn).await;
+        }
+        #[cfg(not(any(feature = "mssql-kerberos", feature = "mssql-winauth")))]
+        {
+            return Err(Error::BadRequest(
+                "Integrated authentication is not available in this build. Requires mssql-kerberos (Linux) or mssql-winauth (Windows) feature.".to_string(),
+            ));
+        }
     } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
