@@ -205,30 +205,15 @@ impl AssetsFinder {
                     Some(Expr::Constant(ExprConstant { value: Constant::Str(sql), .. })) => sql,
                     _ => return Err(()),
                 };
-                let duckdb_conn_prefix = match kind {
-                    AssetKind::DataTable => "datatable",
-                    AssetKind::Ducklake => "ducklake",
-                    _ => return Ok(()),
-                };
-                let sql = format!("ATTACH '{duckdb_conn_prefix}://{path}' AS dt; USE dt; {sql}");
-
-                // We use the SQL parser to detect if it's a read or write query
-                match windmill_parser_sql::parse_assets(&sql) {
-                    Ok(mut sql_assets) => {
-                        if let Some(schema_name) = schema {
-                            for asset in &mut sql_assets.assets {
-                                if asset.kind == *kind && asset.path.starts_with(path.as_str()) {
-                                    asset.path = format!(
-                                        "{}/{}.{}",
-                                        path,
-                                        schema_name,
-                                        &asset.path[path.len() + 1..]
-                                    );
-                                }
-                            }
-                        }
-                        self.assets.extend(sql_assets.assets);
-                    }
+                // We use the SQL parser to detect RW, specific tables, etc.
+                let sql_assets = windmill_parser_sql::parse_wmill_sdk_sql_assets(
+                    *kind,
+                    path,
+                    schema.as_deref(),
+                    &sql,
+                );
+                match sql_assets {
+                    Ok(Some(sql_assets)) => self.assets.extend(sql_assets),
                     _ => {}
                 }
                 return Ok(());

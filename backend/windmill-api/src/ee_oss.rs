@@ -27,7 +27,7 @@ pub async fn jwt_ext_auth(
     _token: &str,
     _external_jwks: Option<Arc<RwLock<ExternalJwks>>>,
     _db: &crate::db::DB,
-) -> anyhow::Result<(crate::db::ApiAuthed, usize)> {
+) -> anyhow::Result<(crate::db::ApiAuthed, usize, Option<uuid::Uuid>)> {
     // Implementation is not open source
 
     Err(anyhow!("External JWT auth is not open source"))

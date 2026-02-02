@@ -41,15 +41,18 @@ use windmill_audit::ActionKind;
 use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
 use windmill_common::{
-    assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind, AssetWithAltAccessType},
+    assets::{
+        clear_static_asset_usage, clear_static_asset_usage_by_script_hash,
+        insert_static_asset_usage, AssetUsageKind, AssetWithAltAccessType,
+    },
     error::{self, to_anyhow},
+    min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
     runnable_settings::{
         min_version_supports_runnable_settings_v0, RunnableSettings, RunnableSettingsTrait,
     },
     s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
-    min_version::{MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2},
     worker::CLOUD_HOSTED,
 };
 
@@ -753,13 +756,7 @@ async fn create_script_internal<'c>(
             .execute(&mut *tx)
             .await?;
 
-            sqlx::query!(
-                "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-                &w_id,
-                p_hash.0
-            )
-            .execute(&mut *tx)
-            .await?;
+            clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
             r
         }
@@ -1052,9 +1049,10 @@ async fn create_script_internal<'c>(
         );
     }
 
-    clear_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
+    clear_static_asset_usage(&mut *tx, &w_id, &script_path, AssetUsageKind::Script).await?;
     for asset in ns.assets.as_ref().into_iter().flatten() {
-        insert_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script).await?;
+        insert_static_asset_usage(&mut *tx, &w_id, &asset, &ns.path, AssetUsageKind::Script)
+            .await?;
     }
 
     let permissioned_as = username_to_permissioned_as(&authed.username);
@@ -1931,13 +1929,7 @@ async fn archive_script_by_path(
     .await
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = $2",
-        &w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Script).await?;
 
     audit_log(
         &mut *tx,
@@ -2003,13 +1995,7 @@ async fn archive_script_by_hash(
     .map_err(|e| Error::internal_err(format!("archiving script in {w_id}: {e:#}")))?;
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        &w_id,
-        &hash.0
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
     audit_log(
         &mut *tx,
@@ -2056,13 +2042,8 @@ async fn delete_script_by_hash(
     .map_err(|e| Error::internal_err(format!("deleting script by hash {w_id}: {e:#}")))?;
 
     check_scopes(&authed, || format!("scripts:write:{}", &script.path))?;
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
-        &w_id,
-        hash.0
-    )
-    .execute(&mut *tx)
-    .await?;
+
+    clear_static_asset_usage_by_script_hash(&mut *tx, &w_id, hash).await?;
 
     audit_log(
         &mut *tx,

@@ -47,6 +47,7 @@ windmill-queue.workspace = true
 windmill-common = { workspace = true, default-features = false }
 windmill-audit.workspace = true
 windmill-parser.workspace = true
+windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
 windmill-parser-py-imports.workspace = true
