@@ -370,7 +370,8 @@ export class EphemeralBackend {
     }
 
     const env = {
-      ...process.env,
+      // DO NOT PASS the entire process.env to avoid leaking sensitive information
+      ...(process.env.LICENSE_KEY && { LICENSE_KEY: process.env.LICENSE_KEY }),
       DATABASE_URL: `postgres://postgres:changeme@localhost:${this.config.dbPort}/windmill?sslmode=disable`,
       PORT: this.config.serverPort.toString(),
     };

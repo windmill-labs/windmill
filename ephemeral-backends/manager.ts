@@ -40,7 +40,7 @@ if (!process.env.GIT_EE_DEPLOY_KEY_FILE) {
 }
 
 const MANAGER_PORT = 8001;
-const BACKEND_TIMEOUT_MS = 60 * 60 * 1000; // 1 hour in milliseconds
+const BACKEND_TIMEOUT_MS = 120 * 60 * 1000; // 2 hours in milliseconds
 
 interface BackendInfo {
   backend: EphemeralBackend;
@@ -118,7 +118,8 @@ class EphemeralBackendManager {
           if (origin === "https://app.windmill.dev") {
             corsHeaders["Access-Control-Allow-Origin"] = origin;
             corsHeaders["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS";
-            corsHeaders["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+            corsHeaders["Access-Control-Allow-Headers"] =
+              "Content-Type, Authorization";
             corsHeaders["Access-Control-Max-Age"] = "86400";
           }
 
@@ -161,7 +162,9 @@ class EphemeralBackendManager {
                 status: "ok",
                 timestamp: new Date().toISOString(),
               }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
             );
           }
 
@@ -208,7 +211,9 @@ class EphemeralBackendManager {
                 worktreePool: worktreePoolStats,
                 timestamp: new Date().toISOString(),
               }),
-              { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+              {
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+              }
             );
           }
 
@@ -234,7 +239,7 @@ class EphemeralBackendManager {
               if (!existsSync(logFilePath)) {
                 return new Response("Log file not found", {
                   status: 404,
-                  headers: corsHeaders
+                  headers: corsHeaders,
                 });
               }
 
@@ -384,13 +389,16 @@ class EphemeralBackendManager {
               }),
               {
                 headers: { ...corsHeaders, "Content-Type": "application/json" },
-                status: 202
+                status: 202,
               }
             );
           }
 
           // Default 404
-          return new Response("Not Found", { status: 404, headers: corsHeaders });
+          return new Response("Not Found", {
+            status: 404,
+            headers: corsHeaders,
+          });
         },
       });
 
