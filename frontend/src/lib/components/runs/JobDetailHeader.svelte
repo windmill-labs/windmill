@@ -181,7 +181,7 @@
 					{/snippet}
 					<a
 						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
-						class="flex items-center gap-1"
+						class="flex items-center gap-1 text-primary"
 					>
 						{value}
 						<ExternalLink size={12} class="flex-shrink-0" />
@@ -379,24 +379,20 @@
 						</div>
 
 						<!-- Badges row -->
-						<div class="flex items-baseline gap-3 flex-wrap">
-							<!-- Job Status -->
-							<div class="flex items-center">
-								<JobStatus {job} />
-							</div>
 
-							<!-- Run Badges -->
-							<div class="flex items-center">
-								<RunBadges
-									{job}
-									{displayPersistentScriptDefinition}
-									{openPersistentScriptDrawer}
-									{concurrencyKey}
-									{onFilterByConcurrencyKey}
-									showScriptHash={showScriptHashInBadges}
-									large={false}
-								/>
-							</div>
+						<!-- Job Status -->
+						<div class="flex items-baseline flex-wrap gap-2">
+							<JobStatus {job} />
+
+							<RunBadges
+								{job}
+								{displayPersistentScriptDefinition}
+								{openPersistentScriptDrawer}
+								{concurrencyKey}
+								{onFilterByConcurrencyKey}
+								showScriptHash={showScriptHashInBadges}
+								large={false}
+							/>
 						</div>
 					</div>
 				</div>

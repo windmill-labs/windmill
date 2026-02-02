@@ -62,6 +62,12 @@
 		<Badge color="blue" {large}>priority: {job.priority}</Badge>
 	</div>
 {/if}
+{#if job.tag != undefined}
+	<!-- for related places search: ADD_NEW_LANG -->
+	<div>
+		<Badge color="indigo" {large}>Tag: {job.tag}</Badge>
+	</div>
+{/if}
 {#if !job.visible_to_owner}
 	<div>
 		<Badge color="red" {large}>
