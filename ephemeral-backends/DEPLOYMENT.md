@@ -14,6 +14,7 @@ Before running the installation script, ensure you have:
    - Docker (with `sandbox` user having access)
    - Bun (installed for the `sandbox` user)
    - Rust/Cargo (for building backends)
+   - Bubblewrap (will be installed by the script if missing)
    - Cloudflared (will be installed by the script if missing)
 
 ## Architecture

@@ -54,11 +54,20 @@ if ! sudo -u "$SERVICE_USER" bash -c "command -v bun" &>/dev/null; then
     exit 1
 fi
 
+# Check if bubblewrap is installed
+if ! command -v bwrap &>/dev/null; then
+    echo -e "${YELLOW}⚠️  bubblewrap is not installed${NC}"
+    echo "   Installing bubblewrap..."
+    apt-get update -qq
+    apt-get install -y -qq bubblewrap
+    echo -e "${GREEN}✓ bubblewrap installed${NC}"
+fi
+
 # Check if cloudflared is installed
 if ! command -v cloudflared &>/dev/null; then
     echo -e "${YELLOW}⚠️  cloudflared is not installed${NC}"
     echo "   Installing cloudflared..."
-    
+
     # Detect architecture
     ARCH=$(uname -m)
     if [ "$ARCH" = "x86_64" ]; then
@@ -73,7 +82,7 @@ if ! command -v cloudflared &>/dev/null; then
         echo -e "${RED}❌ Unsupported architecture: $ARCH${NC}"
         exit 1
     fi
-    
+
     echo -e "${GREEN}✓ cloudflared installed${NC}"
 fi
 

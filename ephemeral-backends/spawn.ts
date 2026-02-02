@@ -377,8 +377,23 @@ export class EphemeralBackend {
     };
 
     const releaseDir = `${this.resources.worktree.path}/backend/target/release`;
-    this.resources.backendProcess = spawn("./windmill", [], {
-      cwd: releaseDir,
+
+    // Get sandbox user UID/GID for proper sandboxing
+    const sandboxUid = await this.getSandboxUid();
+    const sandboxGid = await this.getSandboxGid();
+
+    // Use bwrap for sandboxing the windmill process
+    this.resources.backendProcess = spawn("bwrap", [
+      "--ro-bind", "/", "/",
+      "--bind", "/home/sandbox", "/home/sandbox",
+      "--bind", "/tmp", "/tmp",
+      "--dev", "/dev",
+      "--proc", "/proc",
+      "--unshare-user",
+      "--uid", sandboxUid,
+      "--gid", sandboxGid,
+      `${releaseDir}/windmill`
+    ], {
       env,
     });
 
@@ -465,6 +480,30 @@ export class EphemeralBackend {
         }
       }, 30000);
     });
+  }
+
+  private async getSandboxUid(): Promise<string> {
+    try {
+      const { stdout } = await execAsync("id -u sandbox");
+      return stdout.trim();
+    } catch (error) {
+      this.resources.logger?.error(
+        `Failed to get sandbox UID: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw new Error("Failed to get sandbox user UID");
+    }
+  }
+
+  private async getSandboxGid(): Promise<string> {
+    try {
+      const { stdout } = await execAsync("id -g sandbox");
+      return stdout.trim();
+    } catch (error) {
+      this.resources.logger?.error(
+        `Failed to get sandbox GID: ${error instanceof Error ? error.message : String(error)}`
+      );
+      throw new Error("Failed to get sandbox user GID");
+    }
   }
 
   async cleanup(): Promise<void> {
