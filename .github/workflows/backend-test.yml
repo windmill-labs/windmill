@@ -44,7 +44,10 @@ jobs:
           go-version: 1.21.5
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.1.43
+          bun-version: 1.3.8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
       - uses: astral-sh/setup-uv@v6.2.1
         with:
           version: "0.9.24"
@@ -87,6 +90,6 @@ jobs:
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1          
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
         run: |
-          deno --version && bun -v && go version && python3 --version
+          deno --version && bun -v && node --version && go version && python3 --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private --all -- --nocapture
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private --all -- --nocapture

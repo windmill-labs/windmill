@@ -865,15 +865,8 @@ mod dedicated_worker_protocol {
     use std::process::{Command, Stdio};
     use windmill_worker::{
         build_loader, generate_dedicated_worker_wrapper, BUN_DEDICATED_WORKER_ARGS, LoaderMode,
+        BUN_PATH, NODE_BIN_PATH,
     };
-
-    fn get_bun_path() -> String {
-        std::env::var("BUN_PATH").unwrap_or_else(|_| "bun".to_string())
-    }
-
-    fn get_node_path() -> String {
-        std::env::var("NODE_BIN_PATH").unwrap_or_else(|_| "node".to_string())
-    }
 
     /// Creates test worker files and optionally bundles for Node.js (like production)
     /// Returns the path to the wrapper file to execute
@@ -905,7 +898,7 @@ mod dedicated_worker_protocol {
                 .expect("build_loader failed");
 
             // Run the bundler with bun (build_loader creates node_builder.ts)
-            let output = Command::new(get_bun_path())
+            let output = Command::new(BUN_PATH.as_str())
                 .args(["run", dir.join("node_builder.ts").to_str().unwrap()])
                 .current_dir(dir)
                 .output()
@@ -941,9 +934,6 @@ mod dedicated_worker_protocol {
     ) -> Vec<Result<serde_json::Value, String>> {
         let temp_dir = tempfile::tempdir().unwrap();
 
-        let bun_path = get_bun_path();
-        let node_path = get_node_path();
-
         // Create files and get the wrapper path (bundled for node, raw for bun)
         let wrapper_path = create_test_worker_files(
             temp_dir.path(),
@@ -959,11 +949,11 @@ mod dedicated_worker_protocol {
                 // Production: bun run -i --prefer-offline wrapper.mjs
                 let mut args: Vec<&str> = BUN_DEDICATED_WORKER_ARGS.to_vec();
                 args.push(wrapper_str);
-                (&bun_path, args)
+                (BUN_PATH.as_str(), args)
             }
             "node" => {
                 // Production: node wrapper.mjs (after bundling to JS)
-                (&node_path, vec![wrapper_str])
+                (NODE_BIN_PATH.as_str(), vec![wrapper_str])
             }
             _ => panic!("Unknown runtime: {}", runtime),
         };
@@ -1135,11 +1125,7 @@ export function main(msg: string): never {
 /// Purpose: Catch regressions when upgrading Bun versions.
 mod bun_builder_tests {
     use std::process::{Command, Stdio};
-    use windmill_worker::{RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER};
-
-    fn get_bun_path() -> String {
-        std::env::var("BUN_PATH").unwrap_or_else(|_| "bun".to_string())
-    }
+    use windmill_worker::{BUN_PATH, RELATIVE_BUN_BUILDER, RELATIVE_BUN_LOADER};
 
     /// Run the builder and return the generated package.json content
     fn run_builder(main_ts_content: &str) -> serde_json::Value {
@@ -1168,7 +1154,7 @@ mod bun_builder_tests {
         std::fs::write(dir.join("build.js"), build_script).unwrap();
 
         // Run bun build.js
-        let output = Command::new(get_bun_path())
+        let output = Command::new(BUN_PATH.as_str())
             .args(["run", "build.js"])
             .current_dir(dir)
             .stdout(Stdio::piped())
