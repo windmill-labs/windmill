@@ -56,8 +56,8 @@ use windmill_common::{
         HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
         JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
         LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        OTEL_TRACING_PROXY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING, PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING,
-        POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
+        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
+        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
         REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
         SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
     },
@@ -84,10 +84,10 @@ use windmill_common::{
 use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUTE_SETTING};
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
-    handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender, BUNFIG_INSTALL_SCOPES,
-    INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
-    OTEL_TRACING_PROXY_SETTINGS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, PIP_EXTRA_INDEX_URL,
-    PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender,
+    BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
+    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
+    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -246,6 +246,7 @@ pub async fn initial_load(
                     ),
                     priority_tags_sorted: vec![],
                     dedicated_worker: None,
+                    dedicated_workers: None,
                     init_bash: load_init_bash_from_env(),
                     periodic_script_bash: load_periodic_bash_script_from_env(),
                     periodic_script_interval_seconds: load_periodic_bash_script_interval_from_env(),
@@ -784,26 +785,24 @@ pub async fn load_keep_job_dir(conn: &Connection) {
 
 pub async fn reload_otel_tracing_proxy_setting(conn: &Connection) {
     match load_value_from_global_settings_with_conn(conn, OTEL_TRACING_PROXY_SETTING, true).await {
-        Ok(Some(settings)) => {
-            match serde_json::from_value::<OtelTracingProxySettings>(settings) {
-                Ok(new_settings) => {
-                    let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
-                    if current.enabled != new_settings.enabled
-                        || current.enabled_languages != new_settings.enabled_languages
-                    {
-                        tracing::info!(
-                            "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
-                            new_settings.enabled,
-                            new_settings.enabled_languages
-                        );
-                        *current = new_settings;
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Error parsing OTEL tracing proxy settings: {e:#}");
+        Ok(Some(settings)) => match serde_json::from_value::<OtelTracingProxySettings>(settings) {
+            Ok(new_settings) => {
+                let mut current = OTEL_TRACING_PROXY_SETTINGS.write().await;
+                if current.enabled != new_settings.enabled
+                    || current.enabled_languages != new_settings.enabled_languages
+                {
+                    tracing::info!(
+                        "OTEL tracing proxy settings changed: enabled={}, languages={:?}",
+                        new_settings.enabled,
+                        new_settings.enabled_languages
+                    );
+                    *current = new_settings;
                 }
             }
-        }
+            Err(e) => {
+                tracing::error!("Error parsing OTEL tracing proxy settings: {e:#}");
+            }
+        },
         Err(e) => {
             tracing::error!("Error loading OTEL tracing proxy setting: {e:#}");
         }
@@ -985,7 +984,10 @@ pub async fn delete_expired_items(db: &DB) -> () {
                 );
             }
         }
-        Err(e) => tracing::error!("Error deleting expired MCP OAuth authorization codes: {:?}", e),
+        Err(e) => tracing::error!(
+            "Error deleting expired MCP OAuth authorization codes: {:?}",
+            e
+        ),
     }
 
     let job_retention_secs = *JOB_RETENTION_SECS.read().await;
@@ -1057,20 +1059,36 @@ async fn delete_expired_jobs_batch(
 ) -> error::Result<usize> {
     let mut tx = db.begin().await?;
 
+    // Fetch active ROOT job IDs that started before the retention period. We only care about
+    // these because their child jobs could be old enough to be deletion candidates.
+    // Jobs started after the retention period can't have children old enough to delete.
+    let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
+        "SELECT q.id FROM v2_job_queue q
+         JOIN v2_job j ON j.id = q.id
+         WHERE j.parent_job IS NULL
+           AND j.created_at <= now() - ($1::bigint::text || ' s')::interval",
+        job_retention_secs
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
     // ORDER BY completed_at ensures we delete oldest jobs first
     let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM v2_job_completed
          WHERE id IN (
-             SELECT id FROM v2_job_completed
-             WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
-             ORDER BY completed_at ASC
+             SELECT jc.id FROM v2_job_completed jc
+             LEFT JOIN v2_job j ON j.id = jc.id
+             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+             ORDER BY jc.completed_at ASC
              LIMIT $2
-             FOR UPDATE SKIP LOCKED
+             FOR UPDATE OF jc SKIP LOCKED
          )
          RETURNING id",
         job_retention_secs,
-        batch_size
+        batch_size,
+        &active_root_job_ids
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1866,7 +1884,13 @@ pub async fn monitor_db(
 
     let update_min_worker_version_f = async {
         #[cfg(not(feature = "test_job_debouncing"))]
-        windmill_common::min_version::update_min_version(conn, _worker_mode, WORKERS_NAMES.read().await.clone(), initial_load).await;
+        windmill_common::min_version::update_min_version(
+            conn,
+            _worker_mode,
+            WORKERS_NAMES.read().await.clone(),
+            initial_load,
+        )
+        .await;
     };
 
     // Run every 5 minutes (10 iterations * 30s = 5 minutes)
@@ -2060,10 +2084,12 @@ pub async fn reload_worker_config(db: &DB, tx: KillpillSender, kill_if_change: b
     } else {
         let wc = WORKER_CONFIG.read().await;
         let config = config.unwrap();
-        if *wc != config || config.dedicated_worker.is_some() {
+        let has_dedicated = config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty());
+        if *wc != config || has_dedicated {
             if kill_if_change {
-                if config.dedicated_worker.is_some()
+                if has_dedicated
                     || (*wc).dedicated_worker != config.dedicated_worker
+                    || (*wc).dedicated_workers != config.dedicated_workers
                 {
                     tracing::info!("Dedicated worker config changed, sending killpill. Expecting to be restarted by supervisor.");
                     let _ = tx.send();

@@ -133,18 +133,6 @@ export function findCodebase(
     return;
   }
   for (const c of codebases) {
-    // First check if the path is within this codebase's relative_path
-    const codebasePath = c.relative_path.replaceAll("\\", "/");
-    const normalizedPath = path.replaceAll("\\", "/");
-    if (!normalizedPath.startsWith(codebasePath + "/") && normalizedPath !== codebasePath) {
-      continue;
-    }
-
-    // Get the path relative to the codebase root for pattern matching
-    const relativePath = normalizedPath.startsWith(codebasePath + "/")
-      ? normalizedPath.substring(codebasePath.length + 1)
-      : normalizedPath;
-
     let included = false;
     let excluded = false;
     if (c.includes == undefined || c.includes == null) {
@@ -157,7 +145,7 @@ export function findCodebase(
       if (included) {
         break;
       }
-      if (minimatch(relativePath, r)) {
+      if (minimatch(path, r)) {
         included = true;
       }
     }
@@ -165,7 +153,7 @@ export function findCodebase(
       c.excludes = [c.excludes];
     }
     for (const r of c.excludes ?? []) {
-      if (minimatch(relativePath, r)) {
+      if (minimatch(path, r)) {
         excluded = true;
       }
     }

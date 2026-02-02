@@ -169,6 +169,7 @@ async fn add_granular_acl(
                 DeployedObject::Folder { path: format!("f/{}", path) },
                 Some(format!("Folder '{}' changed permissions", path)),
                 true,
+                None,
             )
             .await?
         }
@@ -311,6 +312,7 @@ async fn remove_granular_acl(
                     DeployedObject::Folder { path: format!("f/{}", path) },
                     Some(format!("Folder '{}' changed permissions", path)),
                     true,
+                    None,
                 )
                 .await?
             }

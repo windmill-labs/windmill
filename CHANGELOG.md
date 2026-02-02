@@ -1,5 +1,78 @@
 # Changelog
 
+## [1.623.1](https://github.com/windmill-labs/windmill/compare/v1.623.0...v1.623.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* prevent retention cleanup from deleting jobs of active flows ([4226ec8](https://github.com/windmill-labs/windmill/commit/4226ec826084eabbb9fff418ea6e67eb73e27cf0))
+* prevent retention cleanup from deleting jobs of active flows ([#7755](https://github.com/windmill-labs/windmill/issues/7755)) ([799db94](https://github.com/windmill-labs/windmill/commit/799db9468395adafe43630d861dac367e5559791))
+* resolve infinite effect loop in PocketIdSetting component ([#7753](https://github.com/windmill-labs/windmill/issues/7753)) ([a8523f5](https://github.com/windmill-labs/windmill/commit/a8523f552c39c4bbe3c585f97df5223903013bb2))
+
+## [1.623.0](https://github.com/windmill-labs/windmill/compare/v1.622.0...v1.623.0) (2026-01-31)
+
+
+### Features
+
+* add PocketID OAuth provider support ([#7318](https://github.com/windmill-labs/windmill/issues/7318)) ([720e3c5](https://github.com/windmill-labs/windmill/commit/720e3c543623c2612b1af704c13d032c53368efb))
+
+
+### Bug Fixes
+
+* add schema compatibility layer for MCP clients like n8n ([#7747](https://github.com/windmill-labs/windmill/issues/7747)) ([297aa23](https://github.com/windmill-labs/windmill/commit/297aa23ed46315dfd4b034d44361a5bd8aaca884))
+* preserve script envs field during sync push ([f405dff](https://github.com/windmill-labs/windmill/commit/f405dff2e22681dc8d4f3a9b7427e278c6cfb0cc))
+
+## [1.622.0](https://github.com/windmill-labs/windmill/compare/v1.621.2...v1.622.0) (2026-01-29)
+
+
+### Features
+
+* add token usage tracking to AI agent output ([#7738](https://github.com/windmill-labs/windmill/issues/7738)) ([ce23f21](https://github.com/windmill-labs/windmill/commit/ce23f21c0e0bc6365f616ace4c45fa341741c555))
+* workspace dedicated workers ([#7741](https://github.com/windmill-labs/windmill/issues/7741)) ([60858d1](https://github.com/windmill-labs/windmill/commit/60858d1e20e68b83fddcdbfc0ff34decaff5d1c5))
+
+
+### Bug Fixes
+
+* forward teams error to client ([#7746](https://github.com/windmill-labs/windmill/issues/7746)) ([ca8dbc0](https://github.com/windmill-labs/windmill/commit/ca8dbc0676dda619aff6fab7f6ff05ed773738e0))
+* indexer build error ([#7744](https://github.com/windmill-labs/windmill/issues/7744)) ([6679ecb](https://github.com/windmill-labs/windmill/commit/6679ecb9a2ead08d2252a64f2a27a6d539fa23e9))
+* remove uuid-ossp extension requirement for RDS compatibility ([ad5293c](https://github.com/windmill-labs/windmill/commit/ad5293c0edacfaf1431a3639ef5ea32d9bd761b0))
+* require AGENT_TOKEN and BASE_INTERNAL_URL for agent mode ([6c84a89](https://github.com/windmill-labs/windmill/commit/6c84a8905382e29a4bbe0ae947eda794bc4dc566))
+* visibility bug on deployment UI (issue when renaming items) + add tracking of folders and resource types ([#7739](https://github.com/windmill-labs/windmill/issues/7739)) ([998f11a](https://github.com/windmill-labs/windmill/commit/998f11a10da45c6d933d8b78ca24ed4f55a53f3b))
+
+## [1.621.2](https://github.com/windmill-labs/windmill/compare/v1.621.1...v1.621.2) (2026-01-29)
+
+
+### Bug Fixes
+
+* **cli:** revert findCodebase change that broke ../shared codebases ([#7740](https://github.com/windmill-labs/windmill/issues/7740)) ([20357f4](https://github.com/windmill-labs/windmill/commit/20357f41f55ce246220ec56ef257ea7d6ac82e3a))
+* do not quit indexer when receiving handoff during pull ([#7659](https://github.com/windmill-labs/windmill/issues/7659)) ([8bb6b63](https://github.com/windmill-labs/windmill/commit/8bb6b6331b74d43b1ecfa08d3393254f54a94f87))
+
+## [1.621.1](https://github.com/windmill-labs/windmill/compare/v1.621.0...v1.621.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* add 32MB memory limit to QuickJS runtime for flow expressions ([db74470](https://github.com/windmill-labs/windmill/commit/db74470ec355ae317a50f350133fc140d2921595))
+
+## [1.621.0](https://github.com/windmill-labs/windmill/compare/v1.620.1...v1.621.0) (2026-01-29)
+
+
+### Features
+
+* add QuickJS as alternative JS engine for flow expression evaluation ([#7664](https://github.com/windmill-labs/windmill/issues/7664)) ([5c20b37](https://github.com/windmill-labs/windmill/commit/5c20b37a537bae09ce13ef133ac12fd5976d9c37))
+
+
+### Bug Fixes
+
+* return null for non-existent step access in flow expressions ([22cce51](https://github.com/windmill-labs/windmill/commit/22cce51db55fe2b08a4f38cbddf98c12c861542d))
+
+## [1.620.1](https://github.com/windmill-labs/windmill/compare/v1.620.0...v1.620.1) (2026-01-28)
+
+
+### Bug Fixes
+
+* codebase preview in standalone mode ([c59699a](https://github.com/windmill-labs/windmill/commit/c59699acd73aa170d5bd65d903db6b635c19f9ad))
+
 ## [1.620.0](https://github.com/windmill-labs/windmill/compare/v1.619.0...v1.620.0) (2026-01-28)
 
 

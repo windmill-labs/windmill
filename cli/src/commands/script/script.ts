@@ -438,6 +438,7 @@ export async function handleFile(
       codebase: await codebase?.getDigest(forceTar),
       timeout: typed?.timeout,
       on_behalf_of_email: typed?.on_behalf_of_email,
+      envs: typed?.envs,
     };
 
     // console.log(requestBodyCommon.codebase);
@@ -478,7 +479,8 @@ export async function handleFile(
             typed.debounce_key == remote["debounce_key"] &&
             typed.debounce_delay_s == remote["debounce_delay_s"] &&
             typed.codebase == remote.codebase &&
-            typed.on_behalf_of_email == remote.on_behalf_of_email)
+            typed.on_behalf_of_email == remote.on_behalf_of_email &&
+            deepEqual(typed.envs, remote.envs))
         ) {
           log.info(colors.green(`Script ${remotePath} is up to date`));
           return true;
@@ -1125,7 +1127,7 @@ async function preview(
   const codebase =
     language == "bun" ? findCodebase(filePath, codebases) : undefined;
 
-  let bundledContent: string | undefined = undefined;
+  let bundledContent: string | Blob | undefined = undefined;
   let isTar = false;
 
   if (codebase) {
@@ -1179,8 +1181,7 @@ async function preview(
           const fil = new File([file.contents as any], file.path.substring(1));
           tarball.append(fil);
         }
-        const blob = await streamToBlob(tarball.stream());
-        bundledContent = btoa(await blob.text());
+        bundledContent = await streamToBlob(tarball.stream());
         isTar = true;
       } else if (Array.isArray(codebase.assets) && codebase.assets.length > 0) {
         // Handle assets
@@ -1196,14 +1197,14 @@ async function preview(
           const file = new File([blob], asset.to);
           tarball.append(file);
         }
-        const blob = await streamToBlob(tarball.stream());
-        bundledContent = btoa(await blob.text());
+        bundledContent = await streamToBlob(tarball.stream());
         isTar = true;
       }
 
       if (!opts.silent) {
+        const size = typeof bundledContent === "string" ? bundledContent.length : bundledContent.size;
         log.info(
-          `Bundled ${filePath}: ${(bundledContent.length / 1024).toFixed(0)}kB (${(
+          `Bundled ${filePath}: ${(size / 1024).toFixed(0)}kB (${(
             endTime - startTime
           ).toFixed(0)}ms)`
         );
@@ -1229,7 +1230,9 @@ async function preview(
     form.append("preview", JSON.stringify(previewPayload));
     form.append(
       "file",
-      new Blob([bundledContent], { type: "application/javascript" })
+      typeof bundledContent === "string"
+        ? new Blob([bundledContent], { type: "application/javascript" })
+        : bundledContent
     );
 
     const url =

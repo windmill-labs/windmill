@@ -14,7 +14,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 use windmill_common::{
-    ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
+    ai_providers::{empty_string_as_none, AIProvider},
+    db::DB,
+    error::Error,
+    flow_status::AgentAction,
+    flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
@@ -162,17 +166,18 @@ pub enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     pub api_key: Option<String>,
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     pub base_url: Option<String>,
     #[allow(dead_code)]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub region: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     pub aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -199,7 +204,6 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(
                 self.resource.base_url.clone(),
-                self.resource.region.clone(),
                 db,
             )
             .await
@@ -225,12 +229,85 @@ impl ProviderWithResource {
     }
 }
 
+/// Token usage information from the AI provider
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TokenUsage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_input_tokens: Option<i32>,
+}
+
+impl TokenUsage {
+    /// Create a new TokenUsage with basic token counts
+    pub fn new(input: Option<i32>, output: Option<i32>, total: Option<i32>) -> Self {
+        Self {
+            input_tokens: input,
+            output_tokens: output,
+            total_tokens: total,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
+        }
+    }
+
+    /// Create a new TokenUsage with input/output tokens and compute total
+    pub fn from_input_output(input: Option<i32>, output: Option<i32>) -> Self {
+        let total = match (input, output) {
+            (Some(i), Some(o)) => Some(i.saturating_add(o)),
+            _ => None,
+        };
+        Self::new(input, output, total)
+    }
+
+    /// Add cache token information
+    pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        self.cache_read_input_tokens = read;
+        self.cache_write_input_tokens = write;
+        self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.input_tokens.is_none()
+            && self.output_tokens.is_none()
+            && self.total_tokens.is_none()
+            && self.cache_read_input_tokens.is_none()
+            && self.cache_write_input_tokens.is_none()
+    }
+
+    /// Accumulate another TokenUsage into this one (all fields including cache tokens)
+    /// Uses saturating addition to prevent overflow in long-running agents
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        fn add_option(a: Option<i32>, b: Option<i32>) -> Option<i32> {
+            match (a, b) {
+                (Some(x), Some(y)) => Some(x.saturating_add(y)),
+                (Some(x), None) | (None, Some(x)) => Some(x),
+                (None, None) => None,
+            }
+        }
+        self.input_tokens = add_option(self.input_tokens, other.input_tokens);
+        self.output_tokens = add_option(self.output_tokens, other.output_tokens);
+        self.total_tokens = add_option(self.total_tokens, other.total_tokens);
+        self.cache_read_input_tokens =
+            add_option(self.cache_read_input_tokens, other.cache_read_input_tokens);
+        self.cache_write_input_tokens =
+            add_option(self.cache_write_input_tokens, other.cache_write_input_tokens);
+    }
+}
+
 #[derive(Serialize)]
 pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
 }
 
 /// Events for streaming AI responses
