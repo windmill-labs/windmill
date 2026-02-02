@@ -51,7 +51,7 @@ export function sendUserToast(
 			'--toastMsgPadding': '0',
 			'--toastBackground': '#00000000',
 			'--toastBorderRadius': '0.4rem',
-			'--toastWidth': '32rem',
+			'--toastWidth': '38rem',
 			'--toastMinHeight': '1rem',
 			'--toastBoxShadow': 'none'
 		}

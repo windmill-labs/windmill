@@ -16,7 +16,7 @@
 		next: 0, // next progress value
 		pausable: true, // pause progress bar tween on mouse hover
 		dismissable: true, // allow dismiss with close button
-		reversed: false, // insert new toast to bottom of stack
+		reversed: true, // insert new toast to bottom of stack
 		intro: { y: -32 }, // toast intro fly animation settings
 		theme: {} // css var overrides
 	}
@@ -52,5 +52,13 @@
 		--toastContainerRight: auto;
 		--toastContainerTop: auto;
 		--toastContainerBottom: 1rem;
+	}
+
+	.wrap :global(._toastContainer) {
+		height: 20rem;
+		display: flex;
+		flex-direction: column-reverse;
+		overflow-y: auto;
+		overflow-x: hidden;
 	}
 </style>
