@@ -351,12 +351,15 @@
 {:else}
 	<div
 		class={twMerge(
-			'rounded-md border bg-surface-tertiary overflow-auto w-full flex ',
-			compact ? 'flex-col' : 'flex-row flex-wrap'
+			'rounded-md border bg-surface-tertiary overflow-auto w-full flex',
+			compact ? 'flex-col' : 'flex-wrap items-stretch'
 		)}
 	>
 		<!-- Top section: Title with Status Dot and Badges Below -->
-		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style={compact ? '' : 'flex: 1 1 300px;'}>
+		<div
+			class={compact ? 'py-3 px-4' : 'py-6 px-8 flex items-center'}
+			style={compact ? '' : 'flex: 1 1 min-content;'}
+		>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
 				<div class="flex items-center gap-3">
@@ -377,7 +380,7 @@
 									href={viewHref}
 									class="text-emphasis {compact
 										? 'text-base'
-										: 'text-lg'} font-semibold flex items-center gap-1"
+										: 'text-lg'} font-semibold flex items-center gap-1 whitespace-nowrap"
 								>
 									{job.script_path}
 									<ExternalLink size={14} class="flex-shrink-0" />
@@ -433,10 +436,10 @@
 			{@const fields = relevantFields()}
 			<div
 				class="px-8 py-4 bg-surface-secondary flex items-center"
-				style="flex: 3 1 100px; min-width: 350px;"
+				style="flex: 2 1 100px; min-width: 350px;"
 			>
 				<div
-					class="grid gap-x-16 gap-y-1.5"
+					class="grid gap-x-6 gap-y-1.5 w-full"
 					style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"
 				>
 					{#if job}
