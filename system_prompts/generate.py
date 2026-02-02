@@ -27,11 +27,22 @@ ROOT_DIR = SCRIPT_DIR.parent
 TS_SDK_DIR = ROOT_DIR / "typescript-client"
 PY_SDK_PATH = ROOT_DIR / "python-client" / "wmill" / "wmill" / "client.py"
 OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
+BACKEND_OPENAPI_PATH = ROOT_DIR / "backend" / "windmill-api" / "openapi.yaml"
 
 OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
 OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
 OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
+
+# Fields stripped by CLI/sync format (to_string_without_metadata equivalent)
+# These are server-managed fields that don't appear in YAML/JSON files pulled via CLI
+CLI_EXCLUDED_FIELDS = [
+    'workspace_id', 'path', 'name', 'versions', 'id',
+    'created_at', 'updated_at', 'created_by', 'updated_by',
+    'edited_at', 'edited_by', 'archived', 'has_draft',
+    'error', 'last_server_ping', 'server_id',
+    'extra_perms', 'email', 'enabled', 'mode'
+]
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
@@ -803,6 +814,164 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     return md
 
 
+def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict | None = None) -> dict:
+    """
+    Transform an OpenAPI schema to CLI format by removing server-managed fields.
+    Resolves $ref references and handles allOf compositions.
+
+    Args:
+        schema: The schema to transform
+        all_schemas: All schemas from the backend OpenAPI
+        openflow_schemas: Schemas from the openflow.openapi.yaml file (for external refs)
+    """
+    if not schema:
+        return {}
+
+    openflow_schemas = openflow_schemas or {}
+    result = {'type': 'object', 'properties': {}, 'required': []}
+
+    # Handle allOf (used for composition, e.g., TriggerExtraProperty)
+    if 'allOf' in schema:
+        for item in schema['allOf']:
+            if '$ref' in item:
+                ref_name = item['$ref'].split('/')[-1]
+                if ref_name in all_schemas:
+                    ref_schema = extract_cli_schema(all_schemas[ref_name], all_schemas, openflow_schemas)
+                    result['properties'].update(ref_schema.get('properties', {}))
+                    result['required'].extend(ref_schema.get('required', []))
+
+    # Handle direct properties
+    if 'properties' in schema:
+        for key, value in schema['properties'].items():
+            if key not in CLI_EXCLUDED_FIELDS:
+                # Resolve $ref in property values
+                if '$ref' in value:
+                    ref_path = value['$ref']
+                    # Handle local references
+                    if ref_path.startswith('#/components/schemas/'):
+                        ref_name = ref_path.split('/')[-1]
+                        if ref_name in all_schemas:
+                            result['properties'][key] = all_schemas[ref_name]
+                        else:
+                            result['properties'][key] = {'type': 'string', 'description': f'See {ref_name}'}
+                    elif 'openflow.openapi.yaml' in ref_path:
+                        # External reference to openflow schema - resolve it
+                        ref_name = ref_path.split('/')[-1]
+                        if ref_name in openflow_schemas:
+                            result['properties'][key] = openflow_schemas[ref_name]
+                        else:
+                            result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_name}')}
+                    else:
+                        # Other external reference
+                        result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_path}')}
+                else:
+                    result['properties'][key] = value
+
+    # Handle required fields
+    if 'required' in schema:
+        result['required'].extend([
+            r for r in schema['required']
+            if r not in CLI_EXCLUDED_FIELDS
+        ])
+
+    # Remove duplicates from required
+    result['required'] = list(dict.fromkeys(result['required']))
+
+    # Filter out required fields that don't exist in properties
+    result['required'] = [r for r in result['required'] if r in result['properties']]
+
+    return result
+
+
+def format_schema_as_json(schema: dict) -> dict:
+    """Convert a CLI schema to a clean JSON Schema representation."""
+    if not schema or not schema.get('properties'):
+        return {}
+
+    result = {
+        'type': 'object',
+        'properties': {},
+    }
+
+    props = schema.get('properties', {})
+    required = schema.get('required', [])
+
+    for key, value in props.items():
+        prop_def = {}
+
+        # Get type
+        prop_type = value.get('type', 'string')
+        if prop_type == 'array':
+            items = value.get('items', {})
+            prop_def['type'] = 'array'
+            item_type = items.get('type', 'object')
+            if item_type == 'object' and items.get('properties'):
+                prop_def['items'] = {'type': 'object', 'properties': items.get('properties', {})}
+            else:
+                prop_def['items'] = {'type': item_type}
+        elif '$ref' in value:
+            # For refs, just indicate the type
+            ref_name = value['$ref'].split('/')[-1]
+            prop_def['type'] = ref_name
+        elif prop_type == 'object' and value.get('properties'):
+            # Nested object with properties - include them
+            prop_def['type'] = 'object'
+            prop_def['properties'] = value.get('properties', {})
+        else:
+            prop_def['type'] = prop_type
+
+        # Add enum if present
+        if 'enum' in value:
+            prop_def['enum'] = value['enum']
+
+        # Add description if present
+        if value.get('description'):
+            prop_def['description'] = value['description']
+
+        result['properties'][key] = prop_def
+
+    if required:
+        result['required'] = required
+
+    return result
+
+
+def format_schema_for_markdown(schema: dict, schema_name: str, as_json_schema: bool = False) -> str:
+    """Format a CLI schema as markdown documentation."""
+    if not schema or not schema.get('properties'):
+        return ''
+
+    if as_json_schema:
+        # Output as JSON Schema
+        json_schema = format_schema_as_json(schema)
+        schema_json = json.dumps(json_schema, indent=2)
+        return f"## {schema_name}\n\nMust be a YAML file that adheres to the following schema:\n\n```json\n{schema_json}\n```"
+    else:
+        # Output as field list (for schedules)
+        lines = [f"### {schema_name} Schema (CLI Format)\n"]
+        lines.append("Fields available in `.yaml`/`.json` files:\n")
+
+        props = schema.get('properties', {})
+        required = set(schema.get('required', []))
+
+        for key, value in sorted(props.items()):
+            prop_type = value.get('type', 'any')
+            if prop_type == 'array':
+                items = value.get('items', {})
+                item_type = items.get('type', 'any')
+                prop_type = f"array[{item_type}]"
+            elif '$ref' in value:
+                prop_type = value['$ref'].split('/')[-1]
+
+            req_marker = ' (required)' if key in required else ''
+            desc = value.get('description', '')
+            desc_str = f" - {desc}" if desc else ''
+
+            lines.append(f"- `{key}`: {prop_type}{req_marker}{desc_str}")
+
+        return '\n'.join(lines)
+
+
 def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
@@ -900,10 +1069,13 @@ def generate_skills(
     py_sdk_md: str,
     flow_base: str,
     openflow_content: str,
-    cli_commands: str
+    cli_commands: str,
+    cli_schemas: dict[str, dict] | None = None
 ):
     """Generate individual skill files for Claude Code."""
     print("Generating skill files...")
+
+    cli_schemas = cli_schemas or {}
 
     # Ensure skills directory exists
     OUTPUT_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
@@ -991,11 +1163,34 @@ Use `wmill resource-type list --schema` to discover available resource types."""
     if triggers_content:
         triggers_skill_dir = OUTPUT_SKILLS_DIR / "triggers"
         triggers_skill_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate trigger schemas from OpenAPI as primary documentation
+        trigger_schema_docs = []
+        trigger_types = [
+            ('HttpTrigger', 'http_trigger'),
+            ('WebsocketTrigger', 'websocket_trigger'),
+            ('KafkaTrigger', 'kafka_trigger'),
+            ('NatsTrigger', 'nats_trigger'),
+            ('PostgresTrigger', 'postgres_trigger'),
+            ('MqttTrigger', 'mqtt_trigger'),
+            ('SqsTrigger', 'sqs_trigger'),
+            ('GcpTrigger', 'gcp_trigger'),
+        ]
+        for schema_name, file_suffix in trigger_types:
+            if schema_name in cli_schemas:
+                schema_doc = format_schema_for_markdown(cli_schemas[schema_name], f"{schema_name} (`*.{file_suffix}.yaml`)", as_json_schema=True)
+                if schema_doc:
+                    trigger_schema_docs.append(schema_doc)
+
+        triggers_with_schemas = triggers_content
+        if trigger_schema_docs:
+            triggers_with_schemas = triggers_content + "\n\n" + "\n\n".join(trigger_schema_docs)
+
         triggers_skill_content = generate_skill_content(
             skill_name="triggers",
             description="MUST use when configuring triggers.",
             intro="",
-            content=triggers_content
+            content=triggers_with_schemas
         )
         (triggers_skill_dir / "SKILL.md").write_text(triggers_skill_content)
         skills_generated.append("triggers")
@@ -1004,11 +1199,19 @@ Use `wmill resource-type list --schema` to discover available resource types."""
     if schedules_content:
         schedules_skill_dir = OUTPUT_SKILLS_DIR / "schedules"
         schedules_skill_dir.mkdir(parents=True, exist_ok=True)
+
+        # Append schedule schema from OpenAPI as JSON schema (like triggers)
+        schedules_with_schema = schedules_content
+        if 'Schedule' in cli_schemas:
+            schedule_schema_doc = format_schema_for_markdown(cli_schemas['Schedule'], 'Schedule (`*.schedule.yaml`)', as_json_schema=True)
+            if schedule_schema_doc:
+                schedules_with_schema = schedules_content + "\n\n" + schedule_schema_doc
+
         schedules_skill_content = generate_skill_content(
             skill_name="schedules",
             description="MUST use when configuring schedules.",
             intro="",
-            content=schedules_content
+            content=schedules_with_schema
         )
         (schedules_skill_dir / "SKILL.md").write_text(schedules_skill_content)
         skills_generated.append("schedules")
@@ -1152,6 +1355,34 @@ def main():
     (OUTPUT_CLI_DIR / "cli-commands.md").write_text(cli_commands)
     print(f"  Found {len(cli_data['commands'])} commands, {len(cli_data['global_options'])} global options")
 
+    # Extract schemas from backend OpenAPI for CLI format documentation
+    print("Extracting backend OpenAPI schemas...")
+    cli_schemas = {}
+    if BACKEND_OPENAPI_PATH.exists():
+        backend_openapi_raw = BACKEND_OPENAPI_PATH.read_text()
+        backend_openapi = yaml.safe_load(backend_openapi_raw)
+        backend_schemas = backend_openapi.get('components', {}).get('schemas', {})
+
+        # Extract and transform schemas for CLI format (removing server-managed fields)
+        schema_names = [
+            'Schedule', 'NewSchedule',
+            'HttpTrigger', 'NewHttpTrigger',
+            'WebsocketTrigger', 'NewWebsocketTrigger',
+            'KafkaTrigger', 'NewKafkaTrigger',
+            'NatsTrigger', 'NewNatsTrigger',
+            'PostgresTrigger', 'NewPostgresTrigger',
+            'MqttTrigger', 'NewMqttTrigger',
+            'SqsTrigger', 'NewSqsTrigger',
+            'GcpTrigger',
+        ]
+        for schema_name in schema_names:
+            if schema_name in backend_schemas:
+                cli_schemas[schema_name] = extract_cli_schema(backend_schemas[schema_name], backend_schemas, openflow_schemas)
+
+        print(f"  Extracted {len(cli_schemas)} schemas for CLI format")
+    else:
+        print(f"  Warning: Backend OpenAPI file not found at {BACKEND_OPENAPI_PATH}")
+
     # Assemble prompts for export
     prompts = {
         # Base prompts
@@ -1253,7 +1484,8 @@ export function getFlowPrompt(): string {
         py_sdk_md=py_sdk_md,
         flow_base=flow_base,
         cli_commands=cli_commands,
-        openflow_content=openflow_content
+        openflow_content=openflow_content,
+        cli_schemas=cli_schemas
     )
 
     # Generate skills TypeScript export for CLI
