@@ -35,6 +35,8 @@ pub struct BuildRequestArgs<'a> {
     pub has_websearch: bool,
 }
 
+use crate::ai::types::TokenUsage;
+
 /// Response from AI provider
 pub enum ParsedResponse {
     Text {
@@ -43,6 +45,7 @@ pub enum ParsedResponse {
         events_str: Option<String>,
         annotations: Vec<UrlCitation>,
         used_websearch: bool,
+        usage: Option<TokenUsage>,
     },
     Image {
         base64_data: String,
@@ -62,6 +65,23 @@ pub trait QueryBuilder: Send + Sync {
         client: &AuthedClient,
         workspace_id: &str,
     ) -> Result<String, Error>;
+
+    /// Build the request body without usage tracking (for retry on incompatible providers)
+    /// Default implementation just calls build_request (most providers don't need this)
+    async fn build_request_without_usage(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        self.build_request(args, client, workspace_id).await
+    }
+
+    /// Whether this provider supports retry without usage tracking
+    /// Only OtherQueryBuilder (OpenAI-compatible providers) needs this
+    fn supports_retry_without_usage(&self) -> bool {
+        false
+    }
 
     /// Parse the image response from the provider
     async fn parse_image_response(

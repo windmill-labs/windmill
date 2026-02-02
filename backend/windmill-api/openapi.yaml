@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.621.2
+  version: 1.623.1
   title: Windmill API
 
   contact:
@@ -22341,7 +22341,8 @@ components:
       properties:
         kind:
           type: string
-          enum: ["script", "flow", "app", "resource", "variable"]
+          enum:
+            ["script", "flow", "app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -22373,6 +22374,8 @@ components:
         - apps_changed
         - resources_changed
         - variables_changed
+        - resource_types_changed
+        - folders_changed
         - conflicts
       properties:
         total_diffs:
@@ -22399,6 +22402,12 @@ components:
         variables_changed:
           type: integer
           description: Number of variables with differences
+        resource_types_changed:
+          type: integer
+          description: Number of resource types with differences
+        folders_changed:
+          type: integer
+          description: Number of folders with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
@@ -22646,13 +22655,12 @@ components:
       type: object
       properties:
         service_name:
-          $ref: '#/components/schemas/NativeServiceName'
+          $ref: "#/components/schemas/NativeServiceName"
         oauth_data:
           nullable: true
-          $ref: '#/components/schemas/WorkspaceOAuthConfig'
+          $ref: "#/components/schemas/WorkspaceOAuthConfig"
       required:
         - service_name
-
 
     WorkspaceOAuthConfig:
       type: object
@@ -22684,7 +22692,7 @@ components:
           type: string
           enum: [webhook]
         request_type:
-          $ref: '#/components/schemas/WebhookRequestType'
+          $ref: "#/components/schemas/WebhookRequestType"
       required:
         - type
         - request_type
@@ -22700,11 +22708,9 @@ components:
       type: object
       properties:
         redirect_uri:
-          type:
-            string
+          type: string
       required:
         - redirect_uri
-
 
     NativeTriggerData:
       type: object
