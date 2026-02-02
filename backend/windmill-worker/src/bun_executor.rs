@@ -16,13 +16,13 @@ use crate::{
     common::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, start_child_process,
-        write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
-        DEV_CONF_NSJAIL,
+        write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier, DEV_CONF_NSJAIL,
     },
+    get_proxy_envs_for_lang,
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, get_proxy_envs_for_lang,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::{
     client::AuthedClient,
@@ -51,9 +51,9 @@ use windmill_common::s3_helpers::attempt_fetch_bytes;
 
 use windmill_parser::Typ;
 
-const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
+pub const RELATIVE_BUN_LOADER: &str = include_str!("../loader.bun.js");
 
-const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
+pub const RELATIVE_BUN_BUILDER: &str = include_str!("../loader_builder.bun.js");
 
 const NSJAIL_CONFIG_RUN_BUN_CONTENT: &str = include_str!("../nsjail/run.bun.config.proto");
 
@@ -63,6 +63,58 @@ pub const BUN_LOCK_SPLIT_WINDOWS: &str = "\r\n//bun.lock\r\n";
 pub const BUN_LOCKB_SPLIT_WINDOWS: &str = "\r\n//bun.lockb\r\n";
 
 pub const EMPTY_FILE: &str = "<empty>";
+
+/// Bun args for dedicated worker (without the script path)
+pub const BUN_DEDICATED_WORKER_ARGS: &[&str] = &["run", "-i", "--prefer-offline"];
+
+/// Generate the dedicated worker wrapper content.
+/// - `arg_names`: The argument names for the main function (e.g., ["x", "y"])
+/// - `main_import`: The import path for the main module (e.g., "./main.ts")
+/// - `date_conversions`: Optional date conversion statements for Datetime args
+pub fn generate_dedicated_worker_wrapper(
+    arg_names: &[&str],
+    main_import: &str,
+    date_conversions: Option<&str>,
+) -> String {
+    let spread = arg_names.join(",");
+    let dates = date_conversions.unwrap_or("");
+    let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
+    let print_lines = if is_debug { r#"console.log(line);"# } else { "" };
+
+    format!(
+        r#"
+import * as Main from "{main_import}";
+import * as Readline from "node:readline"
+
+BigInt.prototype.toJSON = function () {{
+    return this.toString();
+}};
+
+console.log('start');
+
+function getArgs(line) {{
+    let {{ {spread} }} = JSON.parse(line)
+    {dates}
+    return [ {spread} ];
+}}
+
+for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
+    {print_lines}
+
+    if (line === "end") {{
+        process.exit(0);
+    }}
+    try {{
+        const args = getArgs(line);
+        const res = await Main.main(...args);
+        console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
+    }} catch (e) {{
+        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
+    }}
+}}
+"#
+    )
+}
 
 /// Returns (package.json, bun.lock(b), is_empty, is_binary)
 fn split_lockfile(lockfile: &str) -> (&str, Option<&str>, bool, bool) {
@@ -115,24 +167,22 @@ pub async fn gen_bun_lockfile(
         gen_bunfig(job_dir).await?;
         write_file(job_dir, "package.json", package_json_content.as_str())?;
     } else {
+        let loader = RELATIVE_BUN_LOADER
+            .replace("W_ID", w_id)
+            .replace("BASE_INTERNAL_URL", base_internal_url)
+            .replace("TOKEN", token)
+            .replace("CURRENT_PATH", &crate::common::use_flow_root_path(script_path))
+            .replace("RAW_GET_ENDPOINT", "raw");
+
         write_file(
             &job_dir,
             "build.js",
             &format!(
                 r#"
-{}
+{loader}
 
 {RELATIVE_BUN_BUILDER}
-"#,
-                RELATIVE_BUN_LOADER
-                    .replace("W_ID", w_id)
-                    .replace("BASE_INTERNAL_URL", base_internal_url)
-                    .replace("TOKEN", token)
-                    .replace(
-                        "CURRENT_PATH",
-                        &crate::common::use_flow_root_path(script_path)
-                    )
-                    .replace("RAW_GET_ENDPOINT", "raw")
+"#
             ),
         )?;
 
@@ -382,14 +432,14 @@ pub async fn install_bun_lockfile(
 }
 
 #[derive(PartialEq)]
-enum LoaderMode {
+pub enum LoaderMode {
     Node,
     Bun,
     BunBundle,
     NodeBundle,
     BrowserBundle,
 }
-async fn build_loader(
+pub async fn build_loader(
     job_dir: &str,
     base_internal_url: &str,
     token: &str,
@@ -401,18 +451,16 @@ async fn build_loader(
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
         .replace("TOKEN", token)
-        .replace(
-            "CURRENT_PATH",
-            &crate::common::use_flow_root_path(current_path),
-        )
+        .replace("CURRENT_PATH", &crate::common::use_flow_root_path(current_path))
         .replace("RAW_GET_ENDPOINT", "raw_unpinned");
+
     if mode == LoaderMode::Node {
         write_file(
             &job_dir,
             "node_builder.ts",
             &format!(
                 r#"
-{}
+{loader}
 
 import {{ readdir }} from "node:fs/promises";
 
@@ -420,7 +468,6 @@ let fileNames = []
 try {{
     fileNames = await readdir("{job_dir}/node_modules")
 }} catch (e) {{
-
 }}
 
 try {{
@@ -437,8 +484,7 @@ try {{
     console.log("Failed to build node bundle");
     process.exit(1);
 }}
-"#,
-                loader
+"#
             ),
         )?;
     } else if mode == LoaderMode::Bun {
@@ -449,11 +495,10 @@ try {{
                 r#"
 import {{ plugin }} from "bun";
 
-{}
+{loader}
 
 plugin(p)
-"#,
-                loader
+"#
             ),
         )?;
     } else if mode == LoaderMode::BunBundle
@@ -465,7 +510,7 @@ plugin(p)
             "node_builder.ts",
             &format!(
                 r#"
-{}
+{loader}
 
 try {{
     await Bun.build({{
@@ -486,7 +531,6 @@ try {{
     process.exit(1);
 }}
 "#,
-                loader,
                 if mode == LoaderMode::BunBundle {
                     "bun"
                 } else if mode == LoaderMode::NodeBundle {
@@ -1608,8 +1652,15 @@ pub async fn start_worker(
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    //TODO: remove this when bun dedicated workers work without issues
-    annotation.nodejs = true;
+    // Allow forcing native Bun runtime via environment variable for testing
+    let force_bun_runtime = std::env::var("DEDICATED_WORKER_FORCE_BUN")
+        .map(|v| v == "true" || v == "1")
+        .unwrap_or(false);
+
+    if !force_bun_runtime {
+        //TODO: remove this when bun dedicated workers work without issues
+        annotation.nodejs = true;
+    }
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
@@ -1726,55 +1777,17 @@ pub async fn start_worker(
             .map(|x| return format!("{x} = {x} ? new Date({x}) : undefined"))
             .join("\n");
 
-        let spread = args.into_iter().map(|x| x.name).join(",");
+        let arg_names: Vec<&str> = args.iter().map(|x| x.name.as_str()).collect();
         // logs.push_str(format!("infer args: {:?}\n", start.elapsed().as_micros()).as_str());
         // we cannot use Bun.read and Bun.write because it results in an EBADF error on cloud
-
-        let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
-        let print_lines = if is_debug {
-            r#"console.log(line);"#
-        } else {
-            ""
-        };
 
         let main_import = if codebase.is_some() {
             "./main.js"
         } else {
             "./main.ts"
         };
-        let wrapper_content: String = format!(
-            r#"
-import * as Main from "{main_import}";
-import * as Readline from "node:readline"
-
-BigInt.prototype.toJSON = function () {{
-    return this.toString();
-}};
-
-console.log('start');
-
-function getArgs(line) {{
-    let {{ {spread} }} = JSON.parse(line)
-    {dates}
-    return [ {spread} ];
-}}
-
-for await (const line of Readline.createInterface({{ input: process.stdin }})) {{
-    {print_lines}
-
-    if (line === "end") {{
-        process.exit(0);
-    }}
-    try {{
-        const args = getArgs(line);
-        const res = await Main.main(...args);
-        console.log("wm_res[success]:" + JSON.stringify(res ?? null, (key, value) => typeof value === 'undefined' ? null : value));
-    }} catch (e) {{
-        console.log("wm_res[error]:" + JSON.stringify({{ message: e.message, name: e.name, stack: e.stack, line: line }}));
-    }}
-}}
-"#,
-        );
+        let dates_opt = if dates.is_empty() { None } else { Some(dates.as_str()) };
+        let wrapper_content = generate_dedicated_worker_wrapper(&arg_names, main_import, dates_opt);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
 
@@ -1863,5 +1876,113 @@ for await (const line of Readline.createInterface({{ input: process.stdin }})) {
             client,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_split_lockfile_text_unix() {
+        let lockfile = r#"{"dependencies":{"lodash":"^4.17.21"}}
+//bun.lock
+lockfile-content-here"#;
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, r#"{"dependencies":{"lodash":"^4.17.21"}}"#);
+        assert_eq!(lock, Some("lockfile-content-here"));
+        assert!(!is_empty);
+        assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_text_windows() {
+        let lockfile = "{\"dependencies\":{}}\r\n//bun.lock\r\nlockfile-content";
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, "{\"dependencies\":{}}");
+        assert_eq!(lock, Some("lockfile-content"));
+        assert!(!is_empty);
+        assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_binary_unix() {
+        let lockfile = r#"{"dependencies":{}}
+//bun.lockb
+YmluYXJ5LWNvbnRlbnQ="#; // base64 encoded "binary-content"
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, r#"{"dependencies":{}}"#);
+        assert_eq!(lock, Some("YmluYXJ5LWNvbnRlbnQ="));
+        assert!(!is_empty);
+        assert!(is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_binary_windows() {
+        let lockfile = "{\"dependencies\":{}}\r\n//bun.lockb\r\nYmluYXJ5LWNvbnRlbnQ=";
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, "{\"dependencies\":{}}");
+        assert_eq!(lock, Some("YmluYXJ5LWNvbnRlbnQ="));
+        assert!(!is_empty);
+        assert!(is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_empty() {
+        let lockfile = r#"{"dependencies":{}}
+//bun.lock
+<empty>"#;
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, r#"{"dependencies":{}}"#);
+        assert_eq!(lock, Some(EMPTY_FILE));
+        assert!(is_empty);
+        assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_no_lock() {
+        let lockfile = r#"{"dependencies":{"lodash":"^4.17.21"}}"#;
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(pkg, r#"{"dependencies":{"lodash":"^4.17.21"}}"#);
+        assert!(lock.is_none());
+        assert!(!is_empty);
+        assert!(!is_binary);
+    }
+
+    #[test]
+    fn test_split_lockfile_multiline_package_json() {
+        let lockfile = r#"{
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}
+//bun.lock
+lockfile-content"#;
+
+        let (pkg, lock, is_empty, is_binary) = split_lockfile(lockfile);
+
+        assert_eq!(
+            pkg,
+            r#"{
+  "dependencies": {
+    "lodash": "^4.17.21"
+  }
+}"#
+        );
+        assert_eq!(lock, Some("lockfile-content"));
+        assert!(!is_empty);
+        assert!(!is_binary);
     }
 }
