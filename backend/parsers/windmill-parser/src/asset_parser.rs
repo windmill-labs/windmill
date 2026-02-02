@@ -128,20 +128,23 @@ pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind,
 
 pub fn parse_asset_syntax(s: &str, enable_default_syntax: bool) -> Option<(AssetKind, &str)> {
     if enable_default_syntax && s == "datatable" {
-        Some((AssetKind::DataTable, "main"))
+        return Some((AssetKind::DataTable, "main"));
     } else if enable_default_syntax && s == "ducklake" {
-        Some((AssetKind::Ducklake, "main"))
-    } else if s.starts_with("s3://") {
-        Some((AssetKind::S3Object, &s[5..]))
-    } else if s.starts_with("res://") {
-        Some((AssetKind::Resource, &s[6..]))
-    } else if s.starts_with("$res:") {
-        Some((AssetKind::Resource, &s[5..]))
-    } else if s.starts_with("ducklake://") {
-        Some((AssetKind::Ducklake, &s[11..]))
-    } else if s.starts_with("datatable://") {
-        Some((AssetKind::DataTable, &s[12..]))
-    } else {
-        None
+        return Some((AssetKind::Ducklake, "main"));
     }
+    for (prefix, kind) in ASSET_KINDS.iter() {
+        if s.starts_with(prefix) {
+            let path = &s[prefix.len()..];
+            return Some((*kind, path));
+        }
+    }
+    None
 }
+
+pub const ASSET_KINDS: &[(&str, AssetKind)] = &[
+    ("s3://", AssetKind::S3Object),
+    ("res://", AssetKind::Resource),
+    ("$res:", AssetKind::Resource),
+    ("ducklake://", AssetKind::Ducklake),
+    ("datatable://", AssetKind::DataTable),
+];

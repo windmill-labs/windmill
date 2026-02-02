@@ -258,6 +258,12 @@ pub async fn migrate(
     Ok(None)
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct OptJobAuthed {
+    pub job_id: Option<uuid::Uuid>,
+    pub authed: ApiAuthed,
+}
+
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]
 pub struct ApiAuthed {
     pub email: String,
