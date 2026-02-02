@@ -343,6 +343,10 @@ class EphemeralBackendManager {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
                           status: "ready",
+                          timeoutAt:
+                            (self.resources.ephemeralBackends
+                              .get(commitHash)
+                              ?.createdAt.getTime() ?? 0) + BACKEND_TIMEOUT_MS,
                           commitHash,
                           tunnelUrl: `https://${tunnelUrl}`,
                         }),
