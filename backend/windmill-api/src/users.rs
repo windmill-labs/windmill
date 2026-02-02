@@ -250,6 +250,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 ExpiringAuthCache {
                     authed: api_authed.clone(),
                     expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                    job_id: None,
                 },
             );
 
