@@ -6,12 +6,13 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { IdCard, ExternalLink, ListFilter, ChevronDown } from 'lucide-svelte'
+	import { IdCard, ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
 
 	interface Props {
@@ -100,24 +101,27 @@
 
 {#snippet fieldValueRenderer(config, job, value, href)}
 	{#if config.field === 'created_at'}
-		<span class="whitespace-nowrap">
-			{#if shouldShowTimeAgo(config, job)}
-				<TimeAgo date={job.created_at ?? ''} />
-			{:else}
-				{displayDate(job.created_at ?? '')}
-			{/if}
-			<Tooltip small>{#snippet text()}{job?.created_at}{/snippet}</Tooltip>
-		</span>
+		<Tooltip small>
+			{#snippet text()}{job?.created_at}{/snippet}
+			<span class="whitespace-nowrap">
+				{#if shouldShowTimeAgo(config, job)}
+					<TimeAgo date={job.created_at ?? ''} />
+				{:else}
+					{displayDate(job.created_at ?? '')}
+				{/if}
+			</span>
+		</Tooltip>
 	{:else if config.field === 'started_at' && 'started_at' in job}
-		<span class="whitespace-nowrap">
-			<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-			<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
-		</span>
+		<Tooltip small>
+			{#snippet text()}{job?.started_at}{/snippet}
+			<span class="whitespace-nowrap">
+				<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
+			</span>
+		</Tooltip>
 	{:else if config.field === 'created_by'}
 		<span>
 			{value}
 			{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-				<span class="text-secondary"> ({job.permissioned_as})</span>
 				<Tooltip small>
 					{#snippet text()}
 						{#if (job?.created_by?.length ?? 0) > 30}
@@ -125,10 +129,12 @@
 						{/if}
 						But permissioned as {job.permissioned_as}
 					{/snippet}
+					<span class="text-secondary"> ({job.permissioned_as})</span>
 				</Tooltip>
 			{:else if (job?.created_by?.length ?? 0) > 30}
 				<Tooltip small>
 					{#snippet text()}{job.created_by}{/snippet}
+					<span class="inline"><!-- empty wrapper for tooltip alignment --></span>
 				</Tooltip>
 			{/if}
 		</span>
@@ -150,9 +156,12 @@
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
-					<button onclick={() => job?.worker && onFilterByWorker?.(job.worker)}>
+					<button
+						onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+						class="flex items-center gap-1"
+					>
 						{value}
-						<ExternalLink size={12} class="inline-block" />
+						<ExternalLink size={12} class="flex-shrink-0" />
 					</button>
 				</Tooltip>
 			{:else}
@@ -165,9 +174,12 @@
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
-					<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+					<a
+						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
+						class="flex items-center gap-1"
+					>
 						{value}
-						<ExternalLink size={12} class="inline-block" />
+						<ExternalLink size={12} class="flex-shrink-0" />
 					</a>
 				</Tooltip>
 			{/if}
@@ -175,11 +187,11 @@
 	{:else if config.field === 'schedule_path' && job.schedule_path}
 		<span class="whitespace-nowrap">
 			<button
-				class="text-accent"
 				onclick={() => scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
+				class="flex items-center gap-1"
 			>
 				{value}
-				<ExternalLink size={12} class="inline-block" />
+				<ExternalLink size={12} class="flex-shrink-0" />
 			</button>
 		</span>
 	{:else if config.field === 'parent_job' && job.parent_job}
@@ -189,21 +201,53 @@
 			{:else}
 				Triggered by
 			{/if}
-			<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`} class="text-accent">
+			<a
+				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
+				class="flex items-center gap-1"
+			>
 				{value}
-				<ExternalLink size={12} class="inline-block" />
+				<ExternalLink size={12} class="flex-shrink-0" />
 			</a>
 		</span>
 	{:else if config.field === 'run_id'}
-		<span class="whitespace-nowrap">
-			{value}
-		</span>
+		<div class="flex items-center gap-2 whitespace-nowrap">
+			<span title={value}>{truncateRev(value, 15)}</span>
+			<DropdownV2
+				size="xs"
+				items={[
+					{
+						displayName: 'Copy URL',
+						icon: Link,
+						action: () =>
+							navigator.clipboard.writeText(
+								`${window.location.origin}${base}/run/${job.id}?workspace=${job.workspace_id}`
+							)
+					},
+					{
+						displayName: 'Copy Job ID',
+						icon: Copy,
+						action: () => navigator.clipboard.writeText(job.id)
+					}
+				]}
+				class="-my-2"
+			>
+				{#snippet buttonReplacement()}
+					<Button
+						variant="subtle"
+						unifiedSize="xs"
+						startIcon={{ icon: Share2 }}
+						iconOnly
+						btnClasses="bg-transparent"
+					/>
+				{/snippet}
+			</DropdownV2>
+		</div>
 	{:else if config.field === 'trigger_info'}
 		<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span>
 	{:else if href}
 		<a
 			{href}
-			class="text-accent hover:underline flex items-center gap-1 min-w-0"
+			class="flex items-center gap-1 min-w-0 text-primary"
 			title={config.field === 'script_hash' ? `Script hash: ${job.script_hash}` : undefined}
 		>
 			<span class="truncate flex-shrink min-w-0">{value}</span>
@@ -225,7 +269,7 @@
 						<IdCard size={12} class="text-secondary flex-shrink-0" />
 						<a
 							href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-							class="text-accent text-xs flex items-center gap-1"
+							class="text-xs flex items-center gap-1"
 						>
 							<span class="truncate">{job.id}</span>
 							<ExternalLink size={10} class="flex-shrink-0" />
@@ -298,9 +342,10 @@
 									href={viewHref}
 									class="text-emphasis {compact
 										? 'text-base'
-										: 'text-lg'} font-semibold hover:underline"
+										: 'text-lg'} font-semibold flex items-center gap-1"
 								>
 									{job.script_path}
+									<ExternalLink size={14} class="flex-shrink-0" />
 								</a>
 							{:else}
 								<span class="text-emphasis {compact ? 'text-base' : 'text-lg'} font-semibold">
@@ -364,11 +409,7 @@
 							{#if value}
 								<div class="flex items-baseline gap-3 text-xs">
 									<span class="text-secondary min-w-[70px] flex-shrink-0">
-										{#if config.field === 'created_at'}
-											{renderFieldValue(config, job)}
-										{:else}
-											{config.label}
-										{/if}
+										{config.label}
 									</span>
 									<span class="text-primary">
 										{@render fieldValueRenderer(config, job, value, href)}
@@ -399,7 +440,7 @@
 								<span class="text-primary">
 									<a
 										href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-										class="text-accent hover:underline flex items-center gap-1 min-w-0"
+										class="flex items-center gap-1 min-w-0"
 									>
 										<span class="truncate flex-shrink min-w-0">{job.id}</span>
 										<ExternalLink size={12} class="flex-shrink-0" />
