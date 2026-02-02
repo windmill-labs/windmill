@@ -156,7 +156,7 @@
 	{#if allowClear && !hideMainClearBtn && !!value?.length}
 		<CloseButton
 			noBg
-			class="mr-1 remove-all bg-transparent text-hint"
+			class="ml-2 remove-all bg-transparent text-hint"
 			small
 			on:close={(e) => (clearValue(), e.stopPropagation())}
 		/>

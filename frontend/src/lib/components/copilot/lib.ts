@@ -14,7 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { get, type Writable } from 'svelte/store'
 import { OpenAPI, ResourceService, type Script } from '../../gen'
 import { EDIT_CONFIG, FIX_CONFIG, GEN_CONFIG } from './prompts'
-import { formatResourceTypes, isMistralFamily } from './utils'
+import { formatResourceTypes } from './utils'
 import { z } from 'zod'
 import { processToolCall, type Tool, type ToolCallbacks } from './chat/shared'
 import {
@@ -290,7 +290,6 @@ function getModelSpecificConfig(
 	const modelKey = `${modelProvider.provider}:${modelProvider.model}`
 	const customMaxTokensStore = get(copilotInfo)?.maxTokensPerModel
 	const maxTokens = customMaxTokensStore?.[modelKey] ?? defaultMaxTokens
-	const isMistralModel = isMistralFamily(modelProvider.model)
 	if (
 		(modelProvider.provider === 'openai' || modelProvider.provider === 'azure_openai') &&
 		(modelProvider.model.startsWith('o') || modelProvider.model.startsWith('gpt-5'))
@@ -298,8 +297,7 @@ function getModelSpecificConfig(
 		return {
 			model: modelProvider.model,
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_completion_tokens: maxTokens,
-			...(isMistralModel ? { seed: undefined } : {})
+			max_completion_tokens: maxTokens
 		}
 	} else {
 		return {
@@ -316,8 +314,7 @@ function getModelSpecificConfig(
 						temperature: 0
 					}),
 			...(tools && tools.length > 0 ? { tools } : {}),
-			max_tokens: maxTokens,
-			...(isMistralModel ? { seed: undefined } : {})
+			max_tokens: maxTokens
 		}
 	}
 }
@@ -349,7 +346,6 @@ function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessage
 
 const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	model: '',
-	seed: 42,
 	messages: []
 }
 
@@ -361,14 +357,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
-	googleai: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined // not supported by gemini
-	} as ChatCompletionCreateParams,
-	mistral: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined
-	},
+	googleai: DEFAULT_COMPLETION_CONFIG,
+	mistral: DEFAULT_COMPLETION_CONFIG,
 	anthropic: DEFAULT_COMPLETION_CONFIG,
 	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const

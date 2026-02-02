@@ -10,7 +10,7 @@ use uuid::Uuid;
 use windmill_common::s3_helpers::StorageResourceType;
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
-use crate::db::{ApiAuthed, DB};
+use crate::db::{ApiAuthed, OptJobAuthed, DB};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 use object_store::{ObjectStore, PutMultipartOpts, PutResult};
 #[cfg(all(feature = "parquet", not(feature = "private")))]
@@ -105,7 +105,7 @@ pub async fn upload_file_internal(
 
 #[cfg(all(feature = "parquet", not(feature = "private")))]
 pub async fn download_s3_file_internal(
-    _authed: ApiAuthed,
+    _authed: OptJobAuthed,
     _db: &DB,
     _user_db: Option<UserDB>,
     _w_id: &str,
@@ -130,7 +130,7 @@ pub async fn read_object_streamable(
 #[allow(dead_code)]
 #[cfg(not(feature = "private"))]
 pub async fn delete_s3_file_internal(
-    _authed: &ApiAuthed,
+    _authed: OptJobAuthed,
     _db: &DB,
     _token: &str,
     _w_id: &str,
@@ -156,6 +156,7 @@ pub async fn get_workspace_s3_resource_and_check_paths<'c>(
     _w_id: &str,
     _storage: Option<String>,
     _paths: &[(&str, windmill_common::s3_helpers::S3Permission)],
+    _job_id: Option<uuid::Uuid>,
 ) -> windmill_common::error::Result<(
     Option<bool>,
     Option<windmill_common::s3_helpers::ObjectStoreResource>,

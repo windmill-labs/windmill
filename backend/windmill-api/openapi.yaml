@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.621.2
+  version: 1.623.1
   title: Windmill API
 
   contact:
@@ -16447,44 +16447,110 @@ paths:
 
   /w/{workspace}/assets/list:
     get:
-      summary: List all assets in the workspace
+      summary: List all assets in the workspace with cursor pagination
       operationId: listAssets
       tags:
         - asset
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: per_page
+          in: query
+          description: Number of items per page (max 1000, default 50)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 1000
+        - name: cursor_created_at
+          in: query
+          description: Cursor timestamp for pagination (created_at of last item from previous page)
+          schema:
+            type: string
+            format: date-time
+        - name: cursor_id
+          in: query
+          description: Cursor ID for pagination (id of last item from previous page)
+          schema:
+            type: integer
+            format: int64
+        - name: asset_path
+          in: query
+          description: Filter by asset path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: usage_path
+          in: query
+          description: Filter by usage path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (multiple values allowed)
+          schema:
+            type: string
       responses:
         "200":
-          description: all assets in the workspace
+          description: paginated assets in the workspace
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required: [path, kind, usages]
-                  properties:
-                    path:
-                      type: string
-                    kind:
-                      $ref: "#/components/schemas/AssetKind"
-                    usages:
-                      type: array
-                      items:
-                        type: object
-                        required: [path, kind]
-                        properties:
-                          path:
-                            type: string
-                          kind:
-                            $ref: "#/components/schemas/AssetUsageKind"
-                          access_type:
-                            $ref: "#/components/schemas/AssetUsageAccessType"
-                    metadata:
+                type: object
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
                       type: object
+                      required: [path, kind, usages]
                       properties:
-                        resource_type:
+                        path:
                           type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        usages:
+                          type: array
+                          items:
+                            type: object
+                            required: [path, kind]
+                            properties:
+                              path:
+                                type: string
+                              kind:
+                                $ref: "#/components/schemas/AssetUsageKind"
+                              access_type:
+                                $ref: "#/components/schemas/AssetUsageAccessType"
+                              created_at:
+                                type: string
+                                format: date-time
+                                description: When the asset was detected
+                              metadata:
+                                type: object
+                                properties:
+                                  runnable_path:
+                                    type: string
+                                    description: The path of the script/flow that was run (only present when kind is 'job')
+                                  job_kind:
+                                    type: string
+                                    description: The kind of job (script, flow, preview, etc.) (only present when kind is 'job')
+                        metadata:
+                          type: object
+                          properties:
+                            resource_type:
+                              type: string
+                              description: The type of the resource (only present when kind is 'resource')
+                  next_cursor:
+                    type: object
+                    description: Cursor for the next page (null if no more pages)
+                    nullable: true
+                    properties:
+                      created_at:
+                        type: string
+                        format: date-time
+                        description: Timestamp to use for next page
+                      id:
+                        type: integer
+                        format: int64
+                        description: ID to use for next page
 
   /w/{workspace}/assets/list_by_usages:
     post:
@@ -18120,7 +18186,6 @@ components:
         - email
         - visible_to_owner
         - tag
-
 
     ExportableCompletedJob:
       type: object
@@ -22276,7 +22341,8 @@ components:
       properties:
         kind:
           type: string
-          enum: ["script", "flow", "app", "resource", "variable"]
+          enum:
+            ["script", "flow", "app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -22308,6 +22374,8 @@ components:
         - apps_changed
         - resources_changed
         - variables_changed
+        - resource_types_changed
+        - folders_changed
         - conflicts
       properties:
         total_diffs:
@@ -22334,6 +22402,12 @@ components:
         variables_changed:
           type: integer
           description: Number of variables with differences
+        resource_types_changed:
+          type: integer
+          description: Number of resource types with differences
+        folders_changed:
+          type: integer
+          description: Number of folders with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
@@ -22476,6 +22550,7 @@ components:
       enum:
         - script
         - flow
+        - job
     AssetUsageAccessType:
       type: string
       enum:
@@ -22580,13 +22655,12 @@ components:
       type: object
       properties:
         service_name:
-          $ref: '#/components/schemas/NativeServiceName'
+          $ref: "#/components/schemas/NativeServiceName"
         oauth_data:
           nullable: true
-          $ref: '#/components/schemas/WorkspaceOAuthConfig'
+          $ref: "#/components/schemas/WorkspaceOAuthConfig"
       required:
         - service_name
-
 
     WorkspaceOAuthConfig:
       type: object
@@ -22618,7 +22692,7 @@ components:
           type: string
           enum: [webhook]
         request_type:
-          $ref: '#/components/schemas/WebhookRequestType'
+          $ref: "#/components/schemas/WebhookRequestType"
       required:
         - type
         - request_type
@@ -22634,11 +22708,9 @@ components:
       type: object
       properties:
         redirect_uri:
-          type:
-            string
+          type: string
       required:
         - redirect_uri
-
 
     NativeTriggerData:
       type: object

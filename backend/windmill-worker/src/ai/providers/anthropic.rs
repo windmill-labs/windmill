@@ -468,11 +468,18 @@ impl QueryBuilder for AnthropicQueryBuilder {
             events_str,
             annotations,
             used_websearch,
+            usage: anthropic_usage,
             ..
         } = anthropic_sse_parser;
 
         // Note: Tool call arguments events are already sent by the parser during streaming
         // when content_block_stop is received
+
+        // Convert Anthropic usage to TokenUsage
+        let usage = anthropic_usage.map(|u| {
+            TokenUsage::from_input_output(u.input_tokens, u.output_tokens)
+                .with_cache(u.cache_read_input_tokens, u.cache_creation_input_tokens)
+        });
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
@@ -484,6 +491,7 @@ impl QueryBuilder for AnthropicQueryBuilder {
             events_str: Some(events_str),
             annotations,
             used_websearch,
+            usage,
         })
     }
 
