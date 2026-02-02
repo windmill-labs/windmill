@@ -112,6 +112,8 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
+# Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
+tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
 
 [dependencies]
 anyhow.workspace = true

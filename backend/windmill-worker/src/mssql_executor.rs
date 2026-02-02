@@ -46,6 +46,7 @@ struct MssqlDatabase {
     #[serde(default, deserialize_with = "empty_as_none")]
     ca_cert: Option<String>,
     encrypt: Option<bool>,
+    integrated_auth: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -129,7 +130,11 @@ pub async fn do_mssql(
     }
 
     // Handle authentication based on available credentials
-    if let Some(token_value) = &database.aad_token {
+    if database.integrated_auth.unwrap_or(false) {
+        config.authentication(AuthMethod::Integrated);
+        let logs = format!("\nUsing Windows Integrated Authentication (Kerberos)");
+        append_logs(&job.id, &job.workspace_id, logs, conn).await;
+    } else if let Some(token_value) = &database.aad_token {
         if let Some(token) = &token_value.token {
             config.authentication(AuthMethod::aad_token(token));
         } else {
@@ -141,7 +146,7 @@ pub async fn do_mssql(
         config.authentication(AuthMethod::sql_server(user.clone(), password.clone()));
     } else {
         return Err(Error::BadRequest(
-            "Neither AAD token nor username/password credentials are set".to_string(),
+            "No authentication method configured. Set integrated_auth, aad_token, or user/password.".to_string(),
         ));
     }
 
