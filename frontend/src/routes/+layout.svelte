@@ -17,7 +17,7 @@
 		pausable: true, // pause progress bar tween on mouse hover
 		dismissable: true, // allow dismiss with close button
 		reversed: false, // insert new toast to bottom of stack
-		intro: { x: 256 }, // toast intro fly animation settings
+		intro: { y: -32 }, // toast intro fly animation settings
 		theme: {} // css var overrides
 	}
 
@@ -43,11 +43,14 @@
 
 <style>
 	.wrap {
-		display: contents;
+		display: flex;
 		font-family: 'Inter', sans-serif;
-		font-size: 0.875rem;
-	}
-	.wrap :global(strong) {
-		font-weight: 600;
+		width: 100%;
+		height: 100%;
+		justify-content: center;
+
+		--toastContainerRight: auto;
+		--toastContainerTop: auto;
+		--toastContainerBottom: 1rem;
 	}
 </style>
