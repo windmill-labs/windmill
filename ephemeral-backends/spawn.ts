@@ -3,7 +3,6 @@
 import { spawn, exec } from "child_process";
 import { promisify } from "util";
 import * as readline from "readline";
-import path from "path";
 import { WorktreePool, WorktreeInfo } from "./worktree-pool";
 import { Logger } from "./logger";
 

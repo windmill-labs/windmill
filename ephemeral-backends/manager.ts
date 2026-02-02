@@ -24,6 +24,14 @@ if (!githubToken) {
   process.exit(1);
 }
 
+const managerAuthToken = process.env.MANAGER_AUTH_TOKEN;
+if (!managerAuthToken) {
+  console.log("⚠️  MANAGER_AUTH_TOKEN environment variable not set");
+  console.log("\n📝 Set a secure random token for API authentication:");
+  console.log("   export MANAGER_AUTH_TOKEN=$(openssl rand -hex 32)");
+  process.exit(1);
+}
+
 if (!process.env.GIT_EE_DEPLOY_KEY_FILE) {
   console.log("⚠️  GIT_EE_DEPLOY_KEY_FILE environment variable not set");
   console.log("\n📝 Set a read-only SSH deploy key:");
@@ -122,6 +130,30 @@ class EphemeralBackendManager {
             });
           }
 
+          // Authentication check function
+          const checkAuth = (): boolean => {
+            const authHeader = req.headers.get("authorization");
+            return authHeader === `Bearer ${managerAuthToken}`;
+          };
+
+          // Unauthorized response helper
+          const unauthorizedResponse = () => {
+            return new Response(
+              JSON.stringify({
+                error: "Unauthorized",
+                message: "Valid Bearer token required in Authorization header",
+              }),
+              {
+                status: 401,
+                headers: {
+                  ...corsHeaders,
+                  "Content-Type": "application/json",
+                  "WWW-Authenticate": 'Bearer realm="Manager API"',
+                },
+              }
+            );
+          };
+
           // Health check endpoint
           if (url.pathname === "/health") {
             return new Response(
@@ -135,6 +167,10 @@ class EphemeralBackendManager {
 
           // Status endpoint - shows all running backends and worktree pool stats
           if (url.pathname === "/status") {
+            if (!checkAuth()) {
+              return unauthorizedResponse();
+            }
+
             const backends = Array.from(
               self.resources.ephemeralBackends.entries()
             ).map(([commitHash, backendInfo]) => {
@@ -179,6 +215,10 @@ class EphemeralBackendManager {
           // Match /logs/{commit_hash} - serve log files
           const logsMatch = url.pathname.match(/^\/logs\/([a-f0-9]+)$/);
           if (logsMatch && req.method === "GET") {
+            if (!checkAuth()) {
+              return unauthorizedResponse();
+            }
+
             const commitHash = logsMatch[1];
 
             // Validate commit hash format (7-40 hex characters)
@@ -220,6 +260,10 @@ class EphemeralBackendManager {
           // Match /spawn/{commit_hash}
           const spawnMatch = url.pathname.match(/^\/spawn\/([a-f0-9]+)$/);
           if (spawnMatch && req.method === "POST") {
+            if (!checkAuth()) {
+              return unauthorizedResponse();
+            }
+
             let body = await req.json();
             if (typeof body !== "object")
               return new Response("Invalid JSON body", { status: 400 });
