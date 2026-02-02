@@ -15,6 +15,7 @@
 	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 	import { getRelevantFields, getTriggerInfo, type FieldConfig } from './JobDetailFieldConfig'
 	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		job: Job
@@ -348,9 +349,14 @@
 		{/if}
 	</div>
 {:else}
-	<div class="rounded-md border bg-surface-tertiary overflow-auto w-full flex flex-wrap">
+	<div
+		class={twMerge(
+			'rounded-md border bg-surface-tertiary overflow-auto w-full flex ',
+			compact ? 'flex-col' : 'flex-row flex-wrap'
+		)}
+	>
 		<!-- Top section: Title with Status Dot and Badges Below -->
-		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style="flex: 3 1 300px;">
+		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style={compact ? '' : 'flex: 3 1 300px;'}>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
 				<div class="flex items-center gap-3">
@@ -465,7 +471,7 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 py-2 bg-surface-secondary" style="flex: 1 1 200px; min-width: 200px;">
+			<div class="px-4 py-2 bg-surface-secondary">
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-1 text-xs text-primary font-normal"
 				>
