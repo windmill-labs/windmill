@@ -321,7 +321,7 @@
 {:else}
 	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
 		<!-- Top section: Title with Status Dot and Badges Below -->
-		<div class={compact ? 'py-3 px-4' : 'py-4 px-6'}>
+		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'}>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
 				<div class="flex items-center gap-3">
@@ -398,13 +398,13 @@
 		</div>
 
 		<!-- Separation bar -->
-		<div class="border-t mx-6"></div>
+		<div class="border-t mx-8"></div>
 
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div class="px-6 py-4">
-				<div class="grid grid-cols-2 gap-x-12 gap-y-3">
+			<div class="px-8 py-6">
+				<div class="grid grid-cols-2 gap-x-12 gap-y-2">
 					{#if job}
 						{#each fields as config}
 							{@const value = getDisplayValue(config, job)}
