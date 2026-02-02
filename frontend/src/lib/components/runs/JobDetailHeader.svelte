@@ -169,15 +169,17 @@
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div class={compact ? 'py-3 px-4' : 'py-4 px-6'}>
 			{#if job}
-				<!-- Header with status icon aligned with title+badge group -->
-				<div class="flex items-center justify-between">
-					<div class="flex items-center gap-3">
-						<!-- Status icon -->
+				<!-- Header with status icon and two-row title/badges section -->
+				<div class="flex items-center gap-3">
+					<!-- Status icon -->
+					<div class="flex-shrink-0">
 						<JobStatusIcon {job} roundedFull />
+					</div>
 
-						<!-- Title and badges container -->
-						<div class="flex items-center gap-3 flex-wrap">
-							<!-- Title -->
+					<!-- Two-row section: title on top, badges on bottom -->
+					<div class="flex flex-col gap-.5 flex-1 min-w-0">
+						<!-- Title row -->
+						<div>
 							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
@@ -213,8 +215,14 @@
 									{/if}
 								</span>
 							{/if}
+						</div>
 
-							<!-- Badges after title -->
+						<!-- Badges row -->
+						<div class="flex items-center gap-3 flex-wrap">
+							<!-- Job Status -->
+							<JobStatus {job} />
+
+							<!-- Run Badges -->
 							<RunBadges
 								{job}
 								{displayPersistentScriptDefinition}
