@@ -356,7 +356,7 @@
 		)}
 	>
 		<!-- Top section: Title with Status Dot and Badges Below -->
-		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style={compact ? '' : 'flex: 3 1 300px;'}>
+		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style={compact ? '' : 'flex: 1 1 300px;'}>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
 				<div class="flex items-center gap-3">
@@ -433,11 +433,11 @@
 			{@const fields = relevantFields()}
 			<div
 				class="px-8 py-4 bg-surface-secondary flex items-center"
-				style="flex: 1 1 200px; min-width: 650px;"
+				style="flex: 3 1 100px; min-width: 350px;"
 			>
 				<div
-					class="grid gap-x-16 gap-y-1.5 max-w-xl"
-					style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
+					class="grid gap-x-16 gap-y-1.5"
+					style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"
 				>
 					{#if job}
 						{#each fields as config}
