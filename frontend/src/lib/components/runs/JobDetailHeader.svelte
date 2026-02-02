@@ -79,16 +79,7 @@
 		switch (config.field) {
 			case 'script_hash':
 				return truncateHash(value.toString())
-			case 'worker':
-				return truncateRev(value, compact ? 15 : 20)
-			case 'created_by':
-				return truncateRev(value, 30)
-			case 'parent_job':
-				return truncateRev(value, 8)
-			case 'schedule_path':
-				return truncateRev(value, 20)
-			case 'run_id':
-				return value
+
 			default:
 				return value
 		}
@@ -327,9 +318,7 @@
 		{/if}
 	</div>
 {:else}
-	<div
-		class="rounded-md border bg-surface-tertiary overflow-hidden w-full flex flex-wrap"
-	>
+	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full flex flex-wrap">
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style="flex: 3 1 300px;">
 			{#if job}
@@ -409,9 +398,9 @@
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div class="px-8 py-4 bg-surface-secondary" style="flex: 1 1 200px;">
+			<div class="px-8 py-4 bg-surface-secondary flex items-center" style="flex: 1 1 200px; min-width: 600px;">
 				<div
-					class="grid gap-x-12 gap-y-1.5 max-w-xl"
+					class="grid gap-x-16 gap-y-1.5 max-w-xl"
 					style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
 				>
 					{#if job}
@@ -445,7 +434,7 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 py-2 bg-surface-secondary" style="flex: 1 1 200px;">
+			<div class="px-4 py-2 bg-surface-secondary" style="flex: 1 1 200px; min-width: 200px;">
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-1 text-xs text-primary font-normal"
 				>
