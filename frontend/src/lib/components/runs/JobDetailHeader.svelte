@@ -6,14 +6,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import {
-		IdCard,
-		ExternalLink,
-		ListFilter,
-		ListFilterPlus,
-		ChevronDown,
-		ChevronRight
-	} from 'lucide-svelte'
+	import { IdCard, ExternalLink, ListFilter, ChevronDown } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -105,6 +98,122 @@
 	}
 </script>
 
+{#snippet fieldValueRenderer(config, job, value, href)}
+	{#if config.field === 'created_at'}
+		<span class="whitespace-nowrap">
+			{#if shouldShowTimeAgo(config, job)}
+				<TimeAgo date={job.created_at ?? ''} />
+			{:else}
+				{displayDate(job.created_at ?? '')}
+			{/if}
+			<Tooltip small>{#snippet text()}{job?.created_at}{/snippet}</Tooltip>
+		</span>
+	{:else if config.field === 'started_at' && 'started_at' in job}
+		<span class="whitespace-nowrap">
+			<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
+			<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
+		</span>
+	{:else if config.field === 'created_by'}
+		<span>
+			{value}
+			{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
+				<span class="text-secondary"> ({job.permissioned_as})</span>
+				<Tooltip small>
+					{#snippet text()}
+						{#if (job?.created_by?.length ?? 0) > 30}
+							Created by: {job.created_by}<br />
+						{/if}
+						But permissioned as {job.permissioned_as}
+					{/snippet}
+				</Tooltip>
+			{:else if (job?.created_by?.length ?? 0) > 30}
+				<Tooltip small>
+					{#snippet text()}{job.created_by}{/snippet}
+				</Tooltip>
+			{/if}
+		</span>
+	{:else if config.field === 'worker'}
+		<span>
+			{#if onFilterByWorker}
+				<Tooltip>
+					{#snippet text()}
+						This job was run on worker:
+						<Button
+							class="inline-text"
+							size="xs2"
+							color="light"
+							onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+						>
+							{job?.worker}
+							<ListFilter class="inline-block" size={10} />
+						</Button>
+						<br />
+						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+					{/snippet}
+					<button onclick={() => job?.worker && onFilterByWorker?.(job.worker)}>
+						{value}
+						<ExternalLink size={12} class="inline-block" />
+					</button>
+				</Tooltip>
+			{:else}
+				<Tooltip>
+					{#snippet text()}
+						This job was run on worker:
+						<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+							{job?.worker}
+						</a>
+						<br />
+						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
+					{/snippet}
+					<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
+						{value}
+						<ExternalLink size={12} class="inline-block" />
+					</a>
+				</Tooltip>
+			{/if}
+		</span>
+	{:else if config.field === 'schedule_path' && job.schedule_path}
+		<span class="whitespace-nowrap">
+			<button
+				class="text-accent"
+				onclick={() => scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
+			>
+				{value}
+				<ExternalLink size={12} class="inline-block" />
+			</button>
+		</span>
+	{:else if config.field === 'parent_job' && job.parent_job}
+		<span class="whitespace-nowrap">
+			{#if job.is_flow_step}
+				Step of flow
+			{:else}
+				Triggered by
+			{/if}
+			<a href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`} class="text-accent">
+				{value}
+				<ExternalLink size={12} class="inline-block" />
+			</a>
+		</span>
+	{:else if config.field === 'run_id'}
+		<span class="whitespace-nowrap">
+			{value}
+		</span>
+	{:else if config.field === 'trigger_info'}
+		<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span>
+	{:else if href}
+		<a
+			{href}
+			class="text-accent hover:underline flex items-center gap-1 min-w-0"
+			title={config.field === 'script_hash' ? `Script hash: ${job.script_hash}` : undefined}
+		>
+			<span class="truncate flex-shrink min-w-0">{value}</span>
+			<ExternalLink size={12} class="flex-shrink-0" />
+		</a>
+	{:else}
+		<span>{value}</span>
+	{/if}
+{/snippet}
+
 {#if extraCompact}
 	<!-- Extra compact variant: only status, ID and expandable chevron -->
 	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
@@ -150,7 +259,14 @@
 						{#if value}
 							<div class="flex items-center gap-1">
 								<IconComponent size={10} class="text-tertiary flex-shrink-0" />
-								<span class="truncate">{config.label}: {value}</span>
+								<span class="truncate"
+									>{config.label}: {@render fieldValueRenderer(
+										config,
+										job,
+										value,
+										config.getHref?.(job, $workspaceStore || '')
+									)}</span
+								>
 							</div>
 						{/if}
 					{/each}
@@ -233,15 +349,13 @@
 		</div>
 
 		<!-- Separation bar -->
-		{#if !compact}
-			<div class="border-t mx-6"></div>
-		{/if}
+		<div class="border-t mx-6"></div>
 
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
 			<div class="px-6 py-4">
-				<div class="grid grid-cols-2 gap-x-12 gap-y-4">
+				<div class="grid grid-cols-2 gap-x-12 gap-y-3">
 					{#if job}
 						{#each fields as config}
 							{@const value = getDisplayValue(config, job)}
@@ -257,129 +371,7 @@
 										{/if}
 									</span>
 									<span class="text-primary">
-										{#if config.field === 'created_at'}
-											<span class="whitespace-nowrap">
-												{#if shouldShowTimeAgo(config, job)}
-													<TimeAgo date={job.created_at ?? ''} />
-												{:else}
-													{displayDate(job.created_at ?? '')}
-												{/if}
-												<Tooltip small>{#snippet text()}{job?.created_at}{/snippet}</Tooltip>
-											</span>
-										{:else if config.field === 'started_at' && 'started_at' in job}
-											<span class="whitespace-nowrap">
-												<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-												<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
-											</span>
-										{:else if config.field === 'created_by'}
-											<span>
-												{value}
-												{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-													<span class="text-secondary"> ({job.permissioned_as})</span>
-													<Tooltip small>
-														{#snippet text()}
-															{#if (job?.created_by?.length ?? 0) > 30}
-																Created by: {job.created_by}<br />
-															{/if}
-															But permissioned as {job.permissioned_as}
-														{/snippet}
-													</Tooltip>
-												{:else if (job?.created_by?.length ?? 0) > 30}
-													<Tooltip small>
-														{#snippet text()}{job.created_by}{/snippet}
-													</Tooltip>
-												{/if}
-											</span>
-										{:else if config.field === 'worker'}
-											<span>
-												{#if onFilterByWorker}
-													<Tooltip>
-														{#snippet text()}
-															This job was run on worker:
-															<Button
-																class="inline-text"
-																size="xs2"
-																color="light"
-																onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
-															>
-																{job?.worker}
-																<ListFilter class="inline-block" size={10} />
-															</Button>
-															<br />
-															<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-														{/snippet}
-														<button onclick={() => job?.worker && onFilterByWorker?.(job.worker)}>
-															{value}
-															<ExternalLink size={12} class="inline-block" />
-														</button>
-													</Tooltip>
-												{:else}
-													<Tooltip>
-														{#snippet text()}
-															This job was run on worker:
-															<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-																{job?.worker}
-															</a>
-															<br />
-															<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-														{/snippet}
-														<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-															{value}
-															<ExternalLink size={12} class="inline-block" />
-														</a>
-													</Tooltip>
-												{/if}
-											</span>
-										{:else if config.field === 'schedule_path' && job.schedule_path}
-											<span class="whitespace-nowrap">
-												<button
-													class="text-accent"
-													onclick={() =>
-														scheduleEditor?.openEdit?.(
-															job.schedule_path ?? '',
-															job.job_kind == 'flow'
-														)}
-												>
-													{value}
-													<ExternalLink size={12} class="inline-block" />
-												</button>
-											</span>
-										{:else if config.field === 'parent_job' && job.parent_job}
-											<span class="whitespace-nowrap">
-												{#if job.is_flow_step}
-													Step of flow
-												{:else}
-													Triggered by
-												{/if}
-												<a
-													href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
-													class="text-accent"
-												>
-													{value}
-													<ExternalLink size={12} class="inline-block" />
-												</a>
-											</span>
-										{:else if config.field === 'run_id'}
-											<span class="whitespace-nowrap">
-												{value}
-											</span>
-										{:else if config.field === 'trigger_info'}
-											<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span
-											>
-										{:else if href}
-											<a
-												{href}
-												class="text-accent hover:underline flex items-center gap-1 min-w-0"
-												title={config.field === 'script_hash'
-													? `Script hash: ${job.script_hash}`
-													: undefined}
-											>
-												<span class="truncate flex-shrink min-w-0">{value}</span>
-												<ExternalLink size={12} class="flex-shrink-0" />
-											</a>
-										{:else}
-											<span>{value}</span>
-										{/if}
+										{@render fieldValueRenderer(config, job, value, href)}
 									</span>
 								</div>
 							{/if}
@@ -395,7 +387,7 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 pb-2">
+			<div class="px-4 py-2">
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-2 text-xs text-primary font-normal"
 				>
@@ -415,7 +407,7 @@
 								</span>
 							</div>
 
-							{#each fields as config, index}
+							{#each fields as config (config.field)}
 								{@const value = getDisplayValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
@@ -429,61 +421,7 @@
 									<div class="flex items-baseline gap-1 text-xs">
 										<span class="text-secondary flex-shrink-0">{config.label}</span>
 										<span class="text-primary">
-											{#if config.field === 'worker'}
-												{#if onFilterByWorker}
-													<Tooltip>
-														{#snippet text()}
-															This job was run on worker:
-															<Button
-																class="inline-text"
-																size="xs2"
-																color="light"
-																onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
-															>
-																{job?.worker}
-																<ListFilter class="inline-block" size={10} />
-															</Button>
-															<br />
-															<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-														{/snippet}
-														<button
-															onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
-															class="text-accent hover:underline flex items-center gap-1"
-														>
-															{value}
-															<ListFilterPlus size={12} class="inline-block" />
-														</button>
-													</Tooltip>
-												{:else}
-													<Tooltip>
-														{#snippet text()}
-															This job was run on worker:
-															<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-																{job?.worker}
-															</a>
-															<br />
-															<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-														{/snippet}
-														<a
-															href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
-															class="text-accent hover:underline flex items-center gap-1"
-														>
-															{value}
-															<ExternalLink size={12} class="inline-block" />
-														</a>
-													</Tooltip>
-												{/if}
-											{:else if href}
-												<a
-													{href}
-													class="text-accent hover:underline flex items-center gap-1 min-w-0"
-												>
-													<span class="truncate flex-shrink min-w-0">{value}</span>
-													<ExternalLink size={12} class="flex-shrink-0" />
-												</a>
-											{:else}
-												<span>{value}</span>
-											{/if}
+											{@render fieldValueRenderer(config, job, value, href)}
 										</span>
 									</div>
 								{/if}
@@ -530,129 +468,7 @@
 											{/if}
 										</span>
 										<span class="text-primary">
-											{#if config.field === 'created_at'}
-												<span class="whitespace-nowrap">
-													{#if shouldShowTimeAgo(config, job)}
-														<TimeAgo date={job.created_at ?? ''} />
-													{:else}
-														{displayDate(job.created_at ?? '')}
-													{/if}
-													<Tooltip small>{#snippet text()}{job?.created_at}{/snippet}</Tooltip>
-												</span>
-											{:else if config.field === 'started_at' && 'started_at' in job}
-												<span class="whitespace-nowrap">
-													<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
-													<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
-												</span>
-											{:else if config.field === 'created_by'}
-												<span>
-													{value}
-													{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-														<span class="text-secondary"> ({job.permissioned_as})</span>
-														<Tooltip small>
-															{#snippet text()}
-																{#if (job?.created_by?.length ?? 0) > 30}
-																	Created by: {job.created_by}<br />
-																{/if}
-																But permissioned as {job.permissioned_as}
-															{/snippet}
-														</Tooltip>
-													{:else if (job?.created_by?.length ?? 0) > 30}
-														<Tooltip small>
-															{#snippet text()}{job.created_by}{/snippet}
-														</Tooltip>
-													{/if}
-												</span>
-											{:else if config.field === 'worker'}
-												<span>
-													{#if onFilterByWorker}
-														<Tooltip>
-															{#snippet text()}
-																This job was run on worker:
-																<Button
-																	class="inline-text"
-																	size="xs2"
-																	color="light"
-																	onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
-																>
-																	{job?.worker}
-																	<ListFilter class="inline-block" size={10} />
-																</Button>
-																<br />
-																<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-															{/snippet}
-															<button onclick={() => job?.worker && onFilterByWorker?.(job.worker)}>
-																{value}
-																<ExternalLink size={12} class="inline-block" />
-															</button>
-														</Tooltip>
-													{:else}
-														<Tooltip>
-															{#snippet text()}
-																This job was run on worker:
-																<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-																	{job?.worker}
-																</a>
-																<br />
-																<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
-															{/snippet}
-															<a href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}>
-																{value}
-																<ExternalLink size={12} class="inline-block" />
-															</a>
-														</Tooltip>
-													{/if}
-												</span>
-											{:else if config.field === 'schedule_path' && job.schedule_path}
-												<span class="whitespace-nowrap">
-													<button
-														class="text-accent"
-														onclick={() =>
-															scheduleEditor?.openEdit?.(
-																job.schedule_path ?? '',
-																job.job_kind == 'flow'
-															)}
-													>
-														{value}
-														<ExternalLink size={12} class="inline-block" />
-													</button>
-												</span>
-											{:else if config.field === 'parent_job' && job.parent_job}
-												<span class="whitespace-nowrap">
-													{#if job.is_flow_step}
-														Step of flow
-													{:else}
-														Triggered by
-													{/if}
-													<a
-														href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
-														class="text-accent"
-													>
-														{value}
-														<ExternalLink size={12} class="inline-block" />
-													</a>
-												</span>
-											{:else if config.field === 'run_id'}
-												<span class="whitespace-nowrap">
-													{value}
-												</span>
-											{:else if config.field === 'trigger_info'}
-												<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span
-												>
-											{:else if href}
-												<a
-													{href}
-													class="text-accent hover:underline flex items-center gap-1 min-w-0"
-													title={config.field === 'script_hash'
-														? `Script hash: ${job.script_hash}`
-														: undefined}
-												>
-													<span class="truncate flex-shrink min-w-0">{value}</span>
-													<ExternalLink size={12} class="flex-shrink-0" />
-												</a>
-											{:else}
-												<span>{value}</span>
-											{/if}
+											{@render fieldValueRenderer(config, job, value, href)}
 										</span>
 									</div>
 								{/if}
