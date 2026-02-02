@@ -62,7 +62,7 @@ RUN --mount=type=secret,id=rh_username \
 RUN subscription-manager repos --enable codeready-builder-for-rhel-8-$(arch)-rpms
 
 RUN yum update -y && \
-    yum install -y perl-interpreter perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel clang llvm-devel cmake libtool-ltdl-devel
+    yum install -y perl-interpreter perl-IPC-Cmd perl-Time-Piece libxml2-devel xmlsec1-devel xmlsec1-openssl-devel krb5-devel clang llvm-devel cmake libtool-ltdl-devel
 
 # RUN --mount=type=cache,target=/usr/local/cargo/registry \
 #     CARGO_NET_GIT_FETCH_WITH_CLI=true RUST_BACKTRACE=1 cargo chef cook --release --features "$features" --recipe-path recipe.json

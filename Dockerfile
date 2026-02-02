@@ -77,7 +77,7 @@ ARG features=""
 
 COPY --from=planner /windmill/recipe.json recipe.json
 
-RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
+RUN apt-get update && apt-get install -y libxml2-dev=2.9.* libxmlsec1-dev=1.2.* libkrb5-dev clang=1:14.0-55.* libclang-dev=1:14.0-55.* cmake=3.25.* && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
