@@ -4230,951 +4230,7 @@ wmill sync push
 # Pull triggers from Windmill
 wmill sync pull
 \`\`\`
-
-
-## HttpTrigger (\`*.http_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "route_path": {
-      "type": "string",
-      "description": "The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')"
-    },
-    "static_asset_config": {
-      "type": "object",
-      "properties": {
-        "s3": {
-          "type": "string",
-          "description": "S3 bucket path for static assets"
-        },
-        "storage": {
-          "type": "string",
-          "description": "Storage path for static assets"
-        },
-        "filename": {
-          "type": "string",
-          "description": "Filename for the static asset"
-        }
-      },
-      "description": "Configuration for serving static assets (s3 bucket, storage path, filename)"
-    },
-    "http_method": {
-      "type": "string",
-      "enum": [
-        "get",
-        "post",
-        "put",
-        "delete",
-        "patch"
-      ]
-    },
-    "authentication_resource_path": {
-      "type": "string",
-      "description": "Path to the resource containing authentication configuration (for api_key, basic_http, custom_script, signature methods)"
-    },
-    "summary": {
-      "type": "string",
-      "description": "Short summary describing the purpose of this trigger"
-    },
-    "description": {
-      "type": "string",
-      "description": "Detailed description of what this trigger does"
-    },
-    "request_type": {
-      "type": "string",
-      "enum": [
-        "sync",
-        "async",
-        "sync_sse"
-      ]
-    },
-    "authentication_method": {
-      "type": "string",
-      "enum": [
-        "none",
-        "windmill",
-        "api_key",
-        "basic_http",
-        "custom_script",
-        "signature"
-      ]
-    },
-    "is_static_website": {
-      "type": "boolean",
-      "description": "If true, serves static files from S3/storage instead of running a script"
-    },
-    "workspaced_route": {
-      "type": "boolean",
-      "description": "If true, the route includes the workspace ID in the path"
-    },
-    "wrap_body": {
-      "type": "boolean",
-      "description": "If true, wraps the request body in a 'body' parameter"
-    },
-    "raw_string": {
-      "type": "boolean",
-      "description": "If true, passes the request body as a raw string instead of parsing as JSON"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "route_path",
-    "request_type",
-    "authentication_method",
-    "http_method",
-    "is_static_website",
-    "workspaced_route",
-    "wrap_body",
-    "raw_string"
-  ]
-}
-\`\`\`
-
-## WebsocketTrigger (\`*.websocket_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "url": {
-      "type": "string",
-      "description": "The WebSocket URL to connect to (can be a static URL or computed by a runnable)"
-    },
-    "filters": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string"
-          },
-          "value": {}
-        }
-      },
-      "description": "Array of key-value filters to match incoming messages (only matching messages trigger the script)"
-    },
-    "initial_messages": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      },
-      "description": "Messages to send immediately after connecting (can be raw strings or computed by runnables)"
-    },
-    "url_runnable_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "can_return_message": {
-      "type": "boolean",
-      "description": "If true, the script can return a message to send back through the WebSocket"
-    },
-    "can_return_error_result": {
-      "type": "boolean",
-      "description": "If true, error results are sent back through the WebSocket"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "url",
-    "filters",
-    "can_return_message",
-    "can_return_error_result"
-  ]
-}
-\`\`\`
-
-## KafkaTrigger (\`*.kafka_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "kafka_resource_path": {
-      "type": "string",
-      "description": "Path to the Kafka resource containing connection configuration"
-    },
-    "group_id": {
-      "type": "string",
-      "description": "Kafka consumer group ID for this trigger"
-    },
-    "topics": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Array of Kafka topic names to subscribe to"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "kafka_resource_path",
-    "group_id",
-    "topics"
-  ]
-}
-\`\`\`
-
-## NatsTrigger (\`*.nats_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "nats_resource_path": {
-      "type": "string",
-      "description": "Path to the NATS resource containing connection configuration"
-    },
-    "use_jetstream": {
-      "type": "boolean",
-      "description": "If true, uses NATS JetStream for durable message delivery"
-    },
-    "stream_name": {
-      "type": "string",
-      "description": "JetStream stream name (required when use_jetstream is true)"
-    },
-    "consumer_name": {
-      "type": "string",
-      "description": "JetStream consumer name (required when use_jetstream is true)"
-    },
-    "subjects": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Array of NATS subjects to subscribe to"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "nats_resource_path",
-    "use_jetstream",
-    "subjects"
-  ]
-}
-\`\`\`
-
-## PostgresTrigger (\`*.postgres_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "postgres_resource_path": {
-      "type": "string",
-      "description": "Path to the PostgreSQL resource containing connection configuration"
-    },
-    "publication_name": {
-      "type": "string",
-      "description": "Name of the PostgreSQL publication to subscribe to for change data capture"
-    },
-    "replication_slot_name": {
-      "type": "string",
-      "description": "Name of the PostgreSQL logical replication slot to use"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "postgres_resource_path",
-    "replication_slot_name",
-    "publication_name"
-  ]
-}
-\`\`\`
-
-## MqttTrigger (\`*.mqtt_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "mqtt_resource_path": {
-      "type": "string",
-      "description": "Path to the MQTT resource containing broker connection configuration"
-    },
-    "subscribe_topics": {
-      "type": "array",
-      "items": {
-        "type": "object"
-      },
-      "description": "Array of MQTT topics to subscribe to, each with topic name and QoS level"
-    },
-    "v3_config": {
-      "type": "object",
-      "properties": {
-        "clean_session": {
-          "type": "boolean"
-        }
-      }
-    },
-    "v5_config": {
-      "type": "object",
-      "properties": {
-        "clean_start": {
-          "type": "boolean"
-        },
-        "topic_alias_maximum": {
-          "type": "number"
-        },
-        "session_expiry_interval": {
-          "type": "number"
-        }
-      }
-    },
-    "client_id": {
-      "type": "string",
-      "description": "MQTT client ID for this connection"
-    },
-    "client_version": {
-      "type": "string",
-      "enum": [
-        "v3",
-        "v5"
-      ]
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "subscribe_topics",
-    "mqtt_resource_path"
-  ]
-}
-\`\`\`
-
-## SqsTrigger (\`*.sqs_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "queue_url": {
-      "type": "string",
-      "description": "The full URL of the AWS SQS queue to poll for messages"
-    },
-    "aws_auth_resource_type": {
-      "type": "string",
-      "enum": [
-        "oidc",
-        "credentials"
-      ]
-    },
-    "aws_resource_path": {
-      "type": "string",
-      "description": "Path to the AWS resource containing credentials or OIDC configuration"
-    },
-    "message_attributes": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      },
-      "description": "Array of SQS message attribute names to include with each message"
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails"
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "queue_url",
-    "aws_resource_path",
-    "aws_auth_resource_type"
-  ]
-}
-\`\`\`
-
-## GcpTrigger (\`*.gcp_trigger.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "gcp_resource_path": {
-      "type": "string",
-      "description": "Path to the GCP resource containing service account credentials for authentication."
-    },
-    "topic_id": {
-      "type": "string",
-      "description": "Google Cloud Pub/Sub topic ID to subscribe to."
-    },
-    "subscription_id": {
-      "type": "string",
-      "description": "Google Cloud Pub/Sub subscription ID."
-    },
-    "delivery_type": {
-      "type": "string",
-      "enum": [
-        "push",
-        "pull"
-      ],
-      "description": "Delivery mode for messages. 'push' for HTTP push delivery where messages are sent to a webhook endpoint, 'pull' for polling where the trigger actively fetches messages."
-    },
-    "delivery_config": {
-      "type": "object",
-      "properties": {
-        "audience": {
-          "type": "string",
-          "description": "The audience claim for OIDC tokens used in push authentication."
-        },
-        "authenticate": {
-          "type": "boolean",
-          "description": "If true, push messages will include OIDC authentication tokens."
-        }
-      },
-      "description": "Configuration for push delivery mode."
-    },
-    "subscription_mode": {
-      "type": "string",
-      "enum": [
-        "existing",
-        "create_update"
-      ],
-      "description": "The mode of subscription. 'existing' means using an existing GCP subscription, while 'create_update' involves creating or updating a new subscription."
-    },
-    "error_handler_path": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the triggered job fails."
-    },
-    "error_handler_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    }
-  },
-  "required": [
-    "script_path",
-    "is_flow",
-    "gcp_resource_path",
-    "topic_id",
-    "subscription_id",
-    "delivery_type",
-    "subscription_mode"
-  ]
-}
-\`\`\``,
+`,
   "schedules": `---
 name: schedules
 description: MUST use when configuring schedules.
@@ -5226,161 +4282,7 @@ wmill sync pull
 # List schedules
 wmill schedule
 \`\`\`
-
-
-## Schedule (\`*.schedule.yaml\`)
-
-Must be a YAML file that adheres to the following schema:
-
-\`\`\`json
-{
-  "type": "object",
-  "properties": {
-    "schedule": {
-      "type": "string",
-      "description": "Cron expression with 6 fields (seconds, minutes, hours, day of month, month, day of week). Example '0 0 12 * * *' for daily at noon"
-    },
-    "timezone": {
-      "type": "string",
-      "description": "IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')"
-    },
-    "script_path": {
-      "type": "string",
-      "description": "Path to the script or flow to execute when triggered"
-    },
-    "is_flow": {
-      "type": "boolean",
-      "description": "True if script_path points to a flow, false if it points to a script"
-    },
-    "args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "on_failure": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the scheduled job fails"
-    },
-    "on_failure_times": {
-      "type": "number",
-      "description": "Number of consecutive failures before the on_failure handler is triggered (default 1)"
-    },
-    "on_failure_exact": {
-      "type": "boolean",
-      "description": "If true, trigger on_failure handler only on exactly N failures, not on every failure after N"
-    },
-    "on_failure_extra_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "on_recovery": {
-      "type": "string",
-      "description": "Path to a script or flow to run when the schedule recovers after failures"
-    },
-    "on_recovery_times": {
-      "type": "number",
-      "description": "Number of consecutive successes before the on_recovery handler is triggered (default 1)"
-    },
-    "on_recovery_extra_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "on_success": {
-      "type": "string",
-      "description": "Path to a script or flow to run after each successful execution"
-    },
-    "on_success_extra_args": {
-      "type": "object",
-      "description": "The arguments to pass to the script or flow"
-    },
-    "ws_error_handler_muted": {
-      "type": "boolean",
-      "description": "If true, the workspace-level error handler will not be triggered for this schedule's failures"
-    },
-    "retry": {
-      "type": "object",
-      "properties": {
-        "constant": {
-          "type": "object",
-          "description": "Retry with constant delay between attempts",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "seconds": {
-              "type": "integer",
-              "description": "Seconds to wait between retries"
-            }
-          }
-        },
-        "exponential": {
-          "type": "object",
-          "description": "Retry with exponential backoff (delay doubles each time)",
-          "properties": {
-            "attempts": {
-              "type": "integer",
-              "description": "Number of retry attempts"
-            },
-            "multiplier": {
-              "type": "integer",
-              "description": "Multiplier for exponential backoff"
-            },
-            "seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Initial delay in seconds"
-            },
-            "random_factor": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 100,
-              "description": "Random jitter percentage (0-100) to avoid thundering herd"
-            }
-          }
-        },
-        "retry_if": {
-          "$ref": "#/components/schemas/RetryIf"
-        }
-      },
-      "description": "Retry configuration for failed module executions"
-    },
-    "summary": {
-      "type": "string",
-      "description": "Short summary describing the purpose of this schedule"
-    },
-    "description": {
-      "type": "string",
-      "description": "Detailed description of what this schedule does"
-    },
-    "no_flow_overlap": {
-      "type": "boolean",
-      "description": "If true, skip this schedule's execution if the previous run is still in progress (prevents concurrent runs)"
-    },
-    "tag": {
-      "type": "string",
-      "description": "Worker tag to route jobs to specific worker groups"
-    },
-    "paused_until": {
-      "type": "string",
-      "description": "ISO 8601 datetime until which the schedule is paused. Schedule resumes automatically after this time"
-    },
-    "cron_version": {
-      "type": "string",
-      "description": "Cron parser version. Use 'v2' for extended syntax with additional features"
-    },
-    "dynamic_skip": {
-      "type": "string",
-      "description": "Path to a script that validates scheduled datetimes. Receives scheduled_for datetime and returns boolean to skip (true) or run (false)"
-    }
-  },
-  "required": [
-    "schedule",
-    "script_path",
-    "timezone",
-    "is_flow"
-  ]
-}
-\`\`\``,
+`,
   "resources": `---
 name: resources
 description: MUST use when managing resources.
@@ -6034,4 +4936,819 @@ workspace related commands
   - \`-y --yes\` - Skip confirmation prompt
 
 `,
+};
+
+// YAML schema content for triggers and schedules
+export const SCHEMAS: Record<string, string> = {
+  "gcp_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  gcp_resource_path:
+    type: string
+    description: Path to the GCP resource containing service account credentials for
+      authentication.
+  topic_id:
+    type: string
+    description: Google Cloud Pub/Sub topic ID to subscribe to.
+  subscription_id:
+    type: string
+    description: Google Cloud Pub/Sub subscription ID.
+  delivery_type:
+    type: string
+    enum:
+    - push
+    - pull
+    description: Delivery mode for messages. 'push' for HTTP push delivery where messages
+      are sent to a webhook endpoint, 'pull' for polling where the trigger actively
+      fetches messages.
+  delivery_config:
+    type: object
+    properties:
+      audience:
+        type: string
+        description: The audience claim for OIDC tokens used in push authentication.
+      authenticate:
+        type: boolean
+        description: If true, push messages will include OIDC authentication tokens.
+    description: Configuration for push delivery mode.
+  subscription_mode:
+    type: string
+    enum:
+    - existing
+    - create_update
+    description: The mode of subscription. 'existing' means using an existing GCP
+      subscription, while 'create_update' involves creating or updating a new subscription.
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails.
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- gcp_resource_path
+- topic_id
+- subscription_id
+- delivery_type
+- subscription_mode
+`,
+  "http_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  route_path:
+    type: string
+    description: The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')
+  static_asset_config:
+    type: object
+    properties:
+      s3:
+        type: string
+        description: S3 bucket path for static assets
+      storage:
+        type: string
+        description: Storage path for static assets
+      filename:
+        type: string
+        description: Filename for the static asset
+    description: Configuration for serving static assets (s3 bucket, storage path,
+      filename)
+  http_method:
+    type: string
+    enum:
+    - get
+    - post
+    - put
+    - delete
+    - patch
+  authentication_resource_path:
+    type: string
+    description: Path to the resource containing authentication configuration (for
+      api_key, basic_http, custom_script, signature methods)
+  summary:
+    type: string
+    description: Short summary describing the purpose of this trigger
+  description:
+    type: string
+    description: Detailed description of what this trigger does
+  request_type:
+    type: string
+    enum:
+    - sync
+    - async
+    - sync_sse
+  authentication_method:
+    type: string
+    enum:
+    - none
+    - windmill
+    - api_key
+    - basic_http
+    - custom_script
+    - signature
+  is_static_website:
+    type: boolean
+    description: If true, serves static files from S3/storage instead of running a
+      script
+  workspaced_route:
+    type: boolean
+    description: If true, the route includes the workspace ID in the path
+  wrap_body:
+    type: boolean
+    description: If true, wraps the request body in a 'body' parameter
+  raw_string:
+    type: boolean
+    description: If true, passes the request body as a raw string instead of parsing
+      as JSON
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- route_path
+- request_type
+- authentication_method
+- http_method
+- is_static_website
+- workspaced_route
+- wrap_body
+- raw_string
+`,
+  "kafka_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  kafka_resource_path:
+    type: string
+    description: Path to the Kafka resource containing connection configuration
+  group_id:
+    type: string
+    description: Kafka consumer group ID for this trigger
+  topics:
+    type: array
+    items:
+      type: string
+    description: Array of Kafka topic names to subscribe to
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- kafka_resource_path
+- group_id
+- topics
+`,
+  "mqtt_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  mqtt_resource_path:
+    type: string
+    description: Path to the MQTT resource containing broker connection configuration
+  subscribe_topics:
+    type: array
+    items:
+      type: object
+    description: Array of MQTT topics to subscribe to, each with topic name and QoS
+      level
+  v3_config:
+    type: object
+    properties:
+      clean_session:
+        type: boolean
+  v5_config:
+    type: object
+    properties:
+      clean_start:
+        type: boolean
+      topic_alias_maximum:
+        type: number
+      session_expiry_interval:
+        type: number
+  client_id:
+    type: string
+    description: MQTT client ID for this connection
+  client_version:
+    type: string
+    enum:
+    - v3
+    - v5
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- subscribe_topics
+- mqtt_resource_path
+`,
+  "nats_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  nats_resource_path:
+    type: string
+    description: Path to the NATS resource containing connection configuration
+  use_jetstream:
+    type: boolean
+    description: If true, uses NATS JetStream for durable message delivery
+  stream_name:
+    type: string
+    description: JetStream stream name (required when use_jetstream is true)
+  consumer_name:
+    type: string
+    description: JetStream consumer name (required when use_jetstream is true)
+  subjects:
+    type: array
+    items:
+      type: string
+    description: Array of NATS subjects to subscribe to
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- nats_resource_path
+- use_jetstream
+- subjects
+`,
+  "postgres_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  postgres_resource_path:
+    type: string
+    description: Path to the PostgreSQL resource containing connection configuration
+  publication_name:
+    type: string
+    description: Name of the PostgreSQL publication to subscribe to for change data
+      capture
+  replication_slot_name:
+    type: string
+    description: Name of the PostgreSQL logical replication slot to use
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- postgres_resource_path
+- replication_slot_name
+- publication_name
+`,
+  "schedule": `type: object
+properties:
+  schedule:
+    type: string
+    description: Cron expression with 6 fields (seconds, minutes, hours, day of month,
+      month, day of week). Example '0 0 12 * * *' for daily at noon
+  timezone:
+    type: string
+    description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  args:
+    type: object
+    description: The arguments to pass to the script or flow
+  on_failure:
+    type: string
+    description: Path to a script or flow to run when the scheduled job fails
+  on_failure_times:
+    type: number
+    description: Number of consecutive failures before the on_failure handler is triggered
+      (default 1)
+  on_failure_exact:
+    type: boolean
+    description: If true, trigger on_failure handler only on exactly N failures, not
+      on every failure after N
+  on_failure_extra_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  on_recovery:
+    type: string
+    description: Path to a script or flow to run when the schedule recovers after
+      failures
+  on_recovery_times:
+    type: number
+    description: Number of consecutive successes before the on_recovery handler is
+      triggered (default 1)
+  on_recovery_extra_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  on_success:
+    type: string
+    description: Path to a script or flow to run after each successful execution
+  on_success_extra_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  ws_error_handler_muted:
+    type: boolean
+    description: If true, the workspace-level error handler will not be triggered
+      for this schedule's failures
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+  summary:
+    type: string
+    description: Short summary describing the purpose of this schedule
+  description:
+    type: string
+    description: Detailed description of what this schedule does
+  no_flow_overlap:
+    type: boolean
+    description: If true, skip this schedule's execution if the previous run is still
+      in progress (prevents concurrent runs)
+  tag:
+    type: string
+    description: Worker tag to route jobs to specific worker groups
+  paused_until:
+    type: string
+    description: ISO 8601 datetime until which the schedule is paused. Schedule resumes
+      automatically after this time
+  cron_version:
+    type: string
+    description: Cron parser version. Use 'v2' for extended syntax with additional
+      features
+  dynamic_skip:
+    type: string
+    description: Path to a script that validates scheduled datetimes. Receives scheduled_for
+      datetime and returns boolean to skip (true) or run (false)
+required:
+- schedule
+- script_path
+- timezone
+- is_flow
+`,
+  "sqs_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  queue_url:
+    type: string
+    description: The full URL of the AWS SQS queue to poll for messages
+  aws_auth_resource_type:
+    type: string
+    enum:
+    - oidc
+    - credentials
+  aws_resource_path:
+    type: string
+    description: Path to the AWS resource containing credentials or OIDC configuration
+  message_attributes:
+    type: array
+    items:
+      type: string
+    description: Array of SQS message attribute names to include with each message
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- queue_url
+- aws_resource_path
+- aws_auth_resource_type
+`,
+  "websocket_trigger": `type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  url:
+    type: string
+    description: The WebSocket URL to connect to (can be a static URL or computed
+      by a runnable)
+  filters:
+    type: array
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+        value: {}
+    description: Array of key-value filters to match incoming messages (only matching
+      messages trigger the script)
+  initial_messages:
+    type: array
+    items:
+      type: object
+    description: Messages to send immediately after connecting (can be raw strings
+      or computed by runnables)
+  url_runnable_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  can_return_message:
+    type: boolean
+    description: If true, the script can return a message to send back through the
+      WebSocket
+  can_return_error_result:
+    type: boolean
+    description: If true, error results are sent back through the WebSocket
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- url
+- filters
+- can_return_message
+- can_return_error_result
+`,
+};
+
+// Maps skill names to their schema types and file patterns
+export interface SchemaMapping {
+  name: string;
+  schemaKey: string;
+  filePattern: string;
+}
+
+export const SCHEMA_MAPPINGS: Record<string, SchemaMapping[]> = {
+  "triggers": [
+    { name: "HttpTrigger", schemaKey: "http_trigger", filePattern: "*.http_trigger.yaml" },
+    { name: "WebsocketTrigger", schemaKey: "websocket_trigger", filePattern: "*.websocket_trigger.yaml" },
+    { name: "KafkaTrigger", schemaKey: "kafka_trigger", filePattern: "*.kafka_trigger.yaml" },
+    { name: "NatsTrigger", schemaKey: "nats_trigger", filePattern: "*.nats_trigger.yaml" },
+    { name: "PostgresTrigger", schemaKey: "postgres_trigger", filePattern: "*.postgres_trigger.yaml" },
+    { name: "MqttTrigger", schemaKey: "mqtt_trigger", filePattern: "*.mqtt_trigger.yaml" },
+    { name: "SqsTrigger", schemaKey: "sqs_trigger", filePattern: "*.sqs_trigger.yaml" },
+    { name: "GcpTrigger", schemaKey: "gcp_trigger", filePattern: "*.gcp_trigger.yaml" },
+  ],
+  "schedules": [
+    { name: "Schedule", schemaKey: "schedule", filePattern: "*.schedule.yaml" },
+  ],
 };

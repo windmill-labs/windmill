@@ -30,6 +30,29 @@ OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
 OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
 OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
 OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
+OUTPUT_SCHEMAS_DIR = SCRIPT_DIR / "auto-generated" / "schemas"
+
+# =============================================================================
+# Schema Mappings for Triggers and Schedules
+# =============================================================================
+
+# Maps skill names to their schema types and file patterns
+# Used for generating standalone schema files and combining at CLI init time
+SCHEMA_MAPPINGS = {
+    'triggers': [
+        ('HttpTrigger', 'http_trigger'),
+        ('WebsocketTrigger', 'websocket_trigger'),
+        ('KafkaTrigger', 'kafka_trigger'),
+        ('NatsTrigger', 'nats_trigger'),
+        ('PostgresTrigger', 'postgres_trigger'),
+        ('MqttTrigger', 'mqtt_trigger'),
+        ('SqsTrigger', 'sqs_trigger'),
+        ('GcpTrigger', 'gcp_trigger'),
+    ],
+    'schedules': [
+        ('Schedule', 'schedule'),
+    ],
+}
 
 # CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
 CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"

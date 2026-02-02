@@ -3,7 +3,20 @@ import { GlobalOptions } from "../../types.ts";
 import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
-import { SKILLS, SKILL_CONTENT } from "../../guidance/skills.ts";
+import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
+
+/**
+ * Format a YAML schema for inclusion in skill markdown files.
+ */
+function formatSchemaForMarkdown(schemaYaml: string, schemaName: string, filePattern: string): string {
+  return `## ${schemaName} (\`${filePattern}\`)
+
+Must be a YAML file that adheres to the following schema:
+
+\`\`\`yaml
+${schemaYaml.trim()}
+\`\`\``;
+}
 
 export interface InitOptions {
   useDefault?: boolean;
@@ -309,8 +322,27 @@ ${skillsReference}
         const skillDir = `.claude/skills/${skill.name}`;
         await Deno.mkdir(skillDir, { recursive: true });
 
-        const skillContent = SKILL_CONTENT[skill.name];
+        let skillContent = SKILL_CONTENT[skill.name];
         if (skillContent) {
+          // Check if this skill has schemas that need to be appended
+          const schemaMappings = SCHEMA_MAPPINGS[skill.name];
+          if (schemaMappings && schemaMappings.length > 0) {
+            // Combine base content with schemas
+            const schemaDocs = schemaMappings
+              .map((mapping) => {
+                const schemaYaml = SCHEMAS[mapping.schemaKey];
+                if (schemaYaml) {
+                  return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
+                }
+                return null;
+              })
+              .filter((doc): doc is string => doc !== null);
+
+            if (schemaDocs.length > 0) {
+              skillContent = skillContent + "\n\n" + schemaDocs.join("\n\n");
+            }
+          }
+
           await Deno.writeTextFile(`${skillDir}/SKILL.md`, skillContent);
         }
       }
