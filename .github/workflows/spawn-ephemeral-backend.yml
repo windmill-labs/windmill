@@ -154,5 +154,5 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: `🚀 Ephemeral backend spawning started!\n\nView logs: ${appUrl}`
+              body: `🚀 Spawning new ephemeral backend!\n\n${appUrl}`
             });
