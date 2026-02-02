@@ -357,6 +357,10 @@ async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, des
  */
 async databaseUrlFromResource(path: string): Promise<string>
 
+async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
 /**
  * Get S3 client settings from a resource or workspace default
  * @param s3_resource_path - Path to S3 resource (uses workspace default if undefined)
@@ -586,7 +590,3 @@ datatable(name: string = "main"): DatatableSqlTemplateFunction
  * `.fetch()
  */
 ducklake(name: string = "main"): SqlTemplateFunction
-
-async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>

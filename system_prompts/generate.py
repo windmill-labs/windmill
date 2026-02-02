@@ -20,214 +20,43 @@ from pathlib import Path
 
 import yaml
 
-# Paths relative to this script
-SCRIPT_DIR = Path(__file__).parent
-ROOT_DIR = SCRIPT_DIR.parent
-
-TS_SDK_DIR = ROOT_DIR / "typescript-client"
-PY_SDK_PATH = ROOT_DIR / "python-client" / "wmill" / "wmill" / "client.py"
-OPENFLOW_SCHEMA_PATH = ROOT_DIR / "openflow.openapi.yaml"
-BACKEND_OPENAPI_PATH = ROOT_DIR / "backend" / "windmill-api" / "openapi.yaml"
-
-OUTPUT_SDKS_DIR = SCRIPT_DIR / "auto-generated" / "sdks"
-OUTPUT_GENERATED_DIR = SCRIPT_DIR / "auto-generated"
-OUTPUT_CLI_DIR = SCRIPT_DIR / "auto-generated" / "cli"
-OUTPUT_SKILLS_DIR = SCRIPT_DIR / "auto-generated" / "skills"
-
-# Fields stripped by CLI/sync format (to_string_without_metadata equivalent)
-# These are server-managed fields that don't appear in YAML/JSON files pulled via CLI
-CLI_EXCLUDED_FIELDS = [
-    'workspace_id', 'path', 'name', 'versions', 'id',
-    'created_at', 'updated_at', 'created_by', 'updated_by',
-    'edited_at', 'edited_by', 'archived', 'has_draft',
-    'error', 'last_server_ping', 'server_id',
-    'extra_perms', 'email', 'enabled', 'mode'
-]
-
-# CLI guidance directory (DNT can't import from outside cli/, so we copy files there)
-CLI_GUIDANCE_DIR = ROOT_DIR / "cli" / "src" / "guidance"
-
-# Mapping of language file names to friendly names and descriptions
-LANGUAGE_METADATA = {
-    'bun': {
-        'name': 'TypeScript (Bun)',
-        'description': 'MUST use when writing Bun/TypeScript scripts.',
-        'use_cases': 'TypeScript automation, npm packages, data processing, API integrations'
-    },
-    'deno': {
-        'name': 'TypeScript (Deno)',
-        'description': 'MUST use when writing Deno/TypeScript scripts.',
-        'use_cases': 'TypeScript with Deno stdlib, secure sandboxed execution'
-    },
-    'nativets': {
-        'name': 'Native TypeScript',
-        'description': 'MUST use when writing Native TypeScript scripts.',
-        'use_cases': 'simple API calls, lightweight TypeScript, no dependencies'
-    },
-    'bunnative': {
-        'name': 'Bun Native',
-        'description': 'MUST use when writing Bun Native scripts.',
-        'use_cases': 'simple Bun scripts, lightweight, no dependencies'
-    },
-    'python3': {
-        'name': 'Python',
-        'description': 'MUST use when writing Python scripts.',
-        'use_cases': 'Python automation, data processing, machine learning, scripting'
-    },
-    'bash': {
-        'name': 'Bash',
-        'description': 'MUST use when writing Bash scripts.',
-        'use_cases': 'shell scripts, system administration, CLI tools'
-    },
-    'go': {
-        'name': 'Go',
-        'description': 'MUST use when writing Go scripts.',
-        'use_cases': 'Go automation, high performance, concurrent processing'
-    },
-    'rust': {
-        'name': 'Rust',
-        'description': 'MUST use when writing Rust scripts.',
-        'use_cases': 'Rust automation, high performance, memory safety'
-    },
-    'postgresql': {
-        'name': 'PostgreSQL',
-        'description': 'MUST use when writing PostgreSQL queries.',
-        'use_cases': 'PostgreSQL database queries, data analysis'
-    },
-    'mysql': {
-        'name': 'MySQL',
-        'description': 'MUST use when writing MySQL queries.',
-        'use_cases': 'MySQL database queries, data operations'
-    },
-    'mssql': {
-        'name': 'MS SQL Server',
-        'description': 'MUST use when writing MS SQL Server queries.',
-        'use_cases': 'SQL Server database queries, enterprise data'
-    },
-    'bigquery': {
-        'name': 'BigQuery',
-        'description': 'MUST use when writing BigQuery queries.',
-        'use_cases': 'BigQuery analytics, large-scale data analysis'
-    },
-    'snowflake': {
-        'name': 'Snowflake',
-        'description': 'MUST use when writing Snowflake queries.',
-        'use_cases': 'Snowflake data warehouse queries, analytics'
-    },
-    'duckdb': {
-        'name': 'DuckDB',
-        'description': 'MUST use when writing DuckDB queries.',
-        'use_cases': 'DuckDB analytics, local data processing, Ducklake'
-    },
-    'graphql': {
-        'name': 'GraphQL',
-        'description': 'MUST use when writing GraphQL queries.',
-        'use_cases': 'GraphQL API calls, federated queries'
-    },
-    'php': {
-        'name': 'PHP',
-        'description': 'MUST use when writing PHP scripts.',
-        'use_cases': 'PHP automation, web integrations'
-    },
-    'powershell': {
-        'name': 'PowerShell',
-        'description': 'MUST use when writing PowerShell scripts.',
-        'use_cases': 'Windows automation, system administration'
-    },
-    'csharp': {
-        'name': 'C#',
-        'description': 'MUST use when writing C# scripts.',
-        'use_cases': 'C# automation, .NET integrations'
-    },
-    'java': {
-        'name': 'Java',
-        'description': 'MUST use when writing Java scripts.',
-        'use_cases': 'Java automation, enterprise integrations'
-    },
-}
-
-# CLI source paths for extracting command documentation
-CLI_DIR = ROOT_DIR / "cli"
-CLI_MAIN = CLI_DIR / "src" / "main.ts"
-CLI_COMMANDS_DIR = CLI_DIR / "src" / "commands"
+from utils import (
+    # Path constants
+    SCRIPT_DIR,
+    TS_SDK_DIR,
+    PY_SDK_PATH,
+    OPENFLOW_SCHEMA_PATH,
+    BACKEND_OPENAPI_PATH,
+    OUTPUT_SDKS_DIR,
+    OUTPUT_GENERATED_DIR,
+    OUTPUT_CLI_DIR,
+    OUTPUT_SKILLS_DIR,
+    CLI_GUIDANCE_DIR,
+    CLI_MAIN,
+    CLI_COMMANDS_DIR,
+    # Language metadata
+    LANGUAGE_METADATA,
+    TS_SDK_LANGUAGES,
+    PY_SDK_LANGUAGES,
+    # String/file utilities
+    clean_jsdoc,
+    clean_params,
+    escape_for_ts,
+    read_markdown_file,
+    # Parsing utilities
+    extract_balanced,
+    extract_return_type,
+    parse_default_imports,
+    extract_options,
+    # Schema utilities
+    extract_cli_schema,
+    format_schema_for_markdown,
+)
 
 
-def clean_jsdoc(jsdoc: str) -> str:
-    """Clean up JSDoc comment, removing delimiters and leading asterisks."""
-    # Remove /** and */
-    jsdoc = re.sub(r'^/\*\*\s*', '', jsdoc)
-    jsdoc = re.sub(r'\s*\*/$', '', jsdoc)
-    # Remove leading * from each line
-    lines = jsdoc.split('\n')
-    cleaned = []
-    for line in lines:
-        line = re.sub(r'^\s*\*\s?', '', line)
-        cleaned.append(line)
-    return '\n'.join(cleaned).strip()
-
-
-def extract_balanced(content: str, start_pos: int, open_char: str, close_char: str) -> tuple[str, int]:
-    """
-    Extract content between balanced brackets starting at start_pos.
-    Returns (extracted_content, end_position) or ('', -1) if not found.
-    """
-    if start_pos >= len(content) or content[start_pos] != open_char:
-        return '', -1
-
-    depth = 0
-    i = start_pos
-    while i < len(content):
-        if content[i] == open_char:
-            depth += 1
-        elif content[i] == close_char:
-            depth -= 1
-            if depth == 0:
-                return content[start_pos + 1:i], i
-        i += 1
-    return '', -1
-
-
-def extract_return_type(content: str, start_pos: int) -> tuple[str, int]:
-    """
-    Extract return type from position after ')', handling nested braces.
-    Returns (return_type, end_position of function body open brace).
-    """
-    i = start_pos
-    # Skip whitespace
-    while i < len(content) and content[i] in ' \t\n':
-        i += 1
-
-    if i >= len(content) or content[i] != ':':
-        # No return type, find opening brace
-        while i < len(content) and content[i] != '{':
-            i += 1
-        return '', i
-
-    i += 1  # Skip ':'
-
-    # Now extract the return type, handling nested braces and angle brackets
-    return_type_start = i
-    brace_depth = 0
-    angle_depth = 0
-
-    while i < len(content):
-        char = content[i]
-        if char == '<':
-            angle_depth += 1
-        elif char == '>':
-            angle_depth -= 1
-        elif char == '{':
-            if angle_depth > 0:
-                # Inside a type like Promise<{...}>
-                brace_depth += 1
-            else:
-                # This is the function body opening brace
-                return content[return_type_start:i].strip(), i
-        elif char == '}':
-            brace_depth -= 1
-        i += 1
-
-    return '', -1
+# =============================================================================
+# TypeScript SDK Parsing
+# =============================================================================
 
 
 def extract_ts_functions(content: str) -> list[dict]:
@@ -235,24 +64,16 @@ def extract_ts_functions(content: str) -> list[dict]:
     functions = []
     seen_names = set()
 
-    # Pattern to find JSDoc followed by export function declaration
-    # Only captures up to the function name and optional generic
-    jsdoc_func_pattern = re.compile(
-        r'(/\*\*(?:[^*]|\*(?!/))*\*/)\s*'  # JSDoc comment
+    # Pattern to find export function declarations (with or without JSDoc)
+    # Captures JSDoc if present, then the function declaration
+    pattern = re.compile(
+        r'(?:(/\*\*(?:[^*]|\*(?!/))*\*/)\s*)?'  # Optional JSDoc comment
         r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
         r'(<[^>]+>)?\s*',  # optional generic
         re.MULTILINE
     )
 
-    # Pattern to find export function without JSDoc
-    func_pattern = re.compile(
-        r'export\s+(async\s+)?function\s+(\w+)\s*'  # export [async] function name
-        r'(<[^>]+>)?\s*',  # optional generic
-        re.MULTILINE
-    )
-
-    # First, find all functions with JSDoc
-    for match in jsdoc_func_pattern.finditer(content):
+    for match in pattern.finditer(content):
         jsdoc_raw, is_async, name, generic = match.groups()
 
         if name in seen_names:
@@ -277,7 +98,7 @@ def extract_ts_functions(content: str) -> list[dict]:
         if not return_type:
             return_type = 'Promise<void>' if is_async else 'void'
 
-        docstring = clean_jsdoc(jsdoc_raw)
+        docstring = clean_jsdoc(jsdoc_raw) if jsdoc_raw else ''
         seen_names.add(name)
         functions.append({
             'name': name,
@@ -288,52 +109,7 @@ def extract_ts_functions(content: str) -> list[dict]:
             'docstring': docstring
         })
 
-    # Then find functions without JSDoc (that weren't already captured)
-    for match in func_pattern.finditer(content):
-        is_async, name, generic = match.groups()
-
-        if name in seen_names:
-            continue
-
-        # Find the opening parenthesis for parameters
-        pos = match.end()
-        while pos < len(content) and content[pos] in ' \t\n':
-            pos += 1
-
-        if pos >= len(content) or content[pos] != '(':
-            continue
-
-        # Extract balanced parameters
-        params, paren_end = extract_balanced(content, pos, '(', ')')
-        if paren_end == -1:
-            continue
-
-        # Extract return type (handles multi-line types like Promise<{...}>)
-        return_type, _ = extract_return_type(content, paren_end + 1)
-
-        if not return_type:
-            return_type = 'Promise<void>' if is_async else 'void'
-
-        seen_names.add(name)
-        functions.append({
-            'name': name,
-            'generic': generic or '',
-            'params': clean_params(params),
-            'return_type': return_type,
-            'async': bool(is_async),
-            'docstring': ''
-        })
-
     return functions
-
-
-def clean_params(params: str) -> str:
-    """Clean up parameter string."""
-    if not params:
-        return ''
-    # Remove excessive whitespace and newlines
-    params = re.sub(r'\s+', ' ', params).strip()
-    return params
 
 
 def extract_ts_types(content: str) -> list[dict]:
@@ -369,6 +145,11 @@ def extract_ts_types(content: str) -> list[dict]:
         })
 
     return types
+
+
+# =============================================================================
+# Python SDK Parsing
+# =============================================================================
 
 
 def extract_py_functions(content: str) -> list[dict]:
@@ -488,22 +269,18 @@ def extract_py_classes(content: str) -> list[dict]:
     return classes
 
 
-def parse_default_imports(content: str) -> dict[str, str]:
-    """
-    Parse default imports from TypeScript content.
-    Returns a dict mapping variable names to relative file paths.
-    E.g., 'import devCommand from "./dev.ts"' -> {'devCommand': './dev.ts'}
-    """
-    imports = {}
-    # Match: import varName from "./path.ts" or import varName from './path.ts'
-    import_pattern = re.compile(
-        r'import\s+(\w+)\s+from\s+["\']([^"\']+)["\']',
-        re.MULTILINE
-    )
-    for match in import_pattern.finditer(content):
-        var_name, path = match.groups()
-        imports[var_name] = path
-    return imports
+# =============================================================================
+# CLI Command Parsing
+# =============================================================================
+
+
+# Reusable option pattern for CLI parsing
+OPTION_PATTERN = re.compile(
+    r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
+    r'|'
+    r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
+    re.MULTILINE | re.DOTALL
+)
 
 
 def parse_command_block(content: str, file_path: Path | None = None) -> dict:
@@ -522,8 +299,7 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
         'alias': ''
     }
 
-    # Find the command block - starts with "new Command()" or "const command = new Command()"
-    # and ends with "export default"
+    # Find the command block
     command_match = re.search(
         r'(?:const\s+command\s*=\s*)?new\s+Command\(\)([\s\S]*?)(?=export\s+default)',
         content
@@ -533,17 +309,15 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
 
     block = command_match.group(1)
 
-    # Extract main description (first one in the block, before any subcommand)
+    # Find where subcommands start
     first_subcommand_pos = block.find('.command(')
     if first_subcommand_pos == -1:
         first_subcommand_pos = len(block)
     top_section = block[:first_subcommand_pos]
 
-    # Handle multi-line descriptions with template literals or string concatenation
-    # Pattern: .description("text") or .description(\n  "text",\n)
+    # Extract main description
     desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', top_section, re.DOTALL)
     if not desc_match:
-        # Try matching descriptions that use template literals
         desc_match = re.search(r'\.description\(\s*`([^`]+)`\s*,?\s*\)', top_section, re.DOTALL)
     if desc_match:
         result['description'] = desc_match.group(1).strip()
@@ -553,26 +327,9 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     if alias_match:
         result['alias'] = alias_match.group(1)
 
-    # Extract options pattern - handles multi-line options and options with config objects
-    # Matches: .option("flag", "desc") and .option("flag", "desc", { ... })
-    # Uses separate patterns for double and single quoted strings to handle apostrophes
-    option_pattern = re.compile(
-        r'\.option\(\s*"([^"]+)"\s*,\s*"([^"]+)"'  # double-quoted
-        r'|'
-        r"\.option\(\s*'([^']+)'\s*,\s*'([^']+)'",  # single-quoted
-        re.MULTILINE | re.DOTALL
-    )
-
     # Extract top-level options (before any .command() or .action())
     top_section_until_action = re.split(r'\.action\(', top_section)[0]
-    for match in option_pattern.finditer(top_section_until_action):
-        groups = match.groups()
-        # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
-        # Either double-quoted or single-quoted pair will be non-None
-        flag = groups[0] or groups[2]
-        desc = groups[1] or groups[3]
-        if flag and desc:
-            result['options'].append({'flag': flag, 'description': desc})
+    result['options'] = extract_options(top_section_until_action, OPTION_PATTERN)
 
     # Extract top-level arguments
     args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', top_section)
@@ -582,90 +339,72 @@ def parse_command_block(content: str, file_path: Path | None = None) -> dict:
     # Parse imports if we have a file path (for resolving imported subcommands)
     imports = parse_default_imports(content) if file_path else {}
 
-    # Extract subcommands with their arguments, options, and descriptions
-    # Split by .command( to find subcommand boundaries
+    # Extract subcommands
     subcommand_sections = re.split(r'(?=\.command\()', block)
 
     for section in subcommand_sections:
-        # Check if this starts a new subcommand
-        # Pattern matches both: .command("name", "description") and .command("name", variableName)
         cmd_match = re.match(r'\.command\(\s*["\']([^"\']+)["\']\s*(?:,\s*([^)]+))?\s*\)', section)
-        if cmd_match:
-            cmd_name = cmd_match.group(1)
-            second_arg = cmd_match.group(2).strip() if cmd_match.group(2) else ''
+        if not cmd_match:
+            continue
 
-            # Check if second arg is a string (description) or a variable (imported command)
-            is_string_desc = second_arg.startswith('"') or second_arg.startswith("'")
+        cmd_name = cmd_match.group(1)
+        second_arg = cmd_match.group(2).strip() if cmd_match.group(2) else ''
 
-            if is_string_desc:
-                # Inline string description
-                cmd_desc = second_arg.strip('"\'')
-            elif second_arg and second_arg in imports and file_path:
-                # Imported command - resolve and parse the imported file
-                import_path = imports[second_arg]
-                if import_path.startswith('./') or import_path.startswith('../'):
-                    imported_file = (file_path.parent / import_path).resolve()
-                    if imported_file.exists():
-                        try:
-                            imported_content = imported_file.read_text()
-                            imported_cmd = parse_command_block(imported_content, imported_file)
-                            # Use the imported command's metadata
-                            result['subcommands'].append({
-                                'name': cmd_name,
-                                'description': imported_cmd.get('description', ''),
-                                'arguments': imported_cmd.get('arguments', ''),
-                                'options': imported_cmd.get('options', [])
-                            })
-                            continue  # Skip the normal processing below
-                        except Exception as e:
-                            print(f"  Warning: Could not parse imported command {second_arg}: {e}")
-                cmd_desc = ''
-            else:
-                cmd_desc = ''
+        # Check if second arg is a string (description) or a variable (imported command)
+        is_string_desc = second_arg.startswith('"') or second_arg.startswith("'")
 
-            # Check for description in chained .description() call
-            # Handle multi-line descriptions
-            desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', section, re.DOTALL)
-            if desc_match:
-                cmd_desc = desc_match.group(1).strip()
+        if is_string_desc:
+            cmd_desc = second_arg.strip('"\'')
+        elif second_arg and second_arg in imports and file_path:
+            # Imported command - resolve and parse the imported file
+            import_path = imports[second_arg]
+            if import_path.startswith('./') or import_path.startswith('../'):
+                imported_file = (file_path.parent / import_path).resolve()
+                if imported_file.exists():
+                    try:
+                        imported_content = imported_file.read_text()
+                        imported_cmd = parse_command_block(imported_content, imported_file)
+                        result['subcommands'].append({
+                            'name': cmd_name,
+                            'description': imported_cmd.get('description', ''),
+                            'arguments': imported_cmd.get('arguments', ''),
+                            'options': imported_cmd.get('options', [])
+                        })
+                        continue
+                    except Exception as e:
+                        print(f"  Warning: Could not parse imported command {second_arg}: {e}")
+            cmd_desc = ''
+        else:
+            cmd_desc = ''
 
-            # Check for arguments
-            args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', section)
-            cmd_args = args_match.group(1) if args_match else ''
+        # Check for description in chained .description() call
+        desc_match = re.search(r'\.description\(\s*["\']([^"\']+)["\']\s*,?\s*\)', section, re.DOTALL)
+        if desc_match:
+            cmd_desc = desc_match.group(1).strip()
 
-            # Check for options specific to this subcommand
-            # Only get options that appear before .action()
-            cmd_options = []
-            section_until_action = re.split(r'\.action\(', section)[0]
-            for opt_match in option_pattern.finditer(section_until_action):
-                groups = opt_match.groups()
-                # Pattern has 4 groups: (dq_flag, dq_desc, sq_flag, sq_desc)
-                flag = groups[0] or groups[2]
-                desc = groups[1] or groups[3]
-                if flag and desc:
-                    cmd_options.append({'flag': flag, 'description': desc})
+        # Check for arguments
+        args_match = re.search(r'\.arguments\(\s*["\']([^"\']+)["\']\s*\)', section)
+        cmd_args = args_match.group(1) if args_match else ''
 
-            result['subcommands'].append({
-                'name': cmd_name,
-                'description': cmd_desc,
-                'arguments': cmd_args,
-                'options': cmd_options
-            })
+        # Extract options specific to this subcommand (before .action())
+        section_until_action = re.split(r'\.action\(', section)[0]
+        cmd_options = extract_options(section_until_action, OPTION_PATTERN)
+
+        result['subcommands'].append({
+            'name': cmd_name,
+            'description': cmd_desc,
+            'arguments': cmd_args,
+            'options': cmd_options
+        })
 
     return result
 
 
 def find_command_file(cmd_name: str) -> Path | None:
-    """Find the command file for a given command name.
-
-    Convention: directory name should match main command file name.
-    E.g., flow/flow.ts, app/app.ts, worker-groups/worker-groups.ts
-    """
-    # Standard pattern: command-name/command-name.ts
+    """Find the command file for a given command name."""
     standard_path = CLI_COMMANDS_DIR / cmd_name / f"{cmd_name}.ts"
     if standard_path.exists():
         return standard_path
-
     return None
 
 
@@ -701,13 +440,11 @@ def extract_cli_commands() -> dict:
         result['global_options'].append({'flag': flag, 'description': desc})
 
     # Extract command registrations from main.ts
-    # Pattern: .command("name", importedCommand) or .command("name with desc", ...)
     cmd_reg_pattern = re.compile(
         r'\.command\(\s*["\']([^"\']+)["\']\s*,\s*(\w+)\s*\)',
         re.MULTILINE
     )
 
-    # Also handle inline commands like .command("version --version", "description")
     inline_cmd_pattern = re.compile(
         r'\.command\(\s*["\']([^"\']+)["\']\s*,\s*["\']([^"\']+)["\']\s*\)',
         re.MULTILINE
@@ -716,7 +453,7 @@ def extract_cli_commands() -> dict:
     registered_commands = []
 
     for match in cmd_reg_pattern.finditer(main_content):
-        cmd_name = match.group(1).split()[0]  # Get just the name, not flags
+        cmd_name = match.group(1).split()[0]
         registered_commands.append(cmd_name)
 
     # Process each registered command
@@ -730,9 +467,6 @@ def extract_cli_commands() -> dict:
                 result['commands'].append(cmd_data)
             except Exception as e:
                 print(f"Warning: Could not parse command file for {cmd_name}: {e}")
-        else:
-            # Some commands might be inline (like 'version', 'upgrade', 'completions')
-            pass
 
     # Handle special inline commands from main.ts
     for match in inline_cmd_pattern.finditer(main_content):
@@ -749,6 +483,11 @@ def extract_cli_commands() -> dict:
             })
 
     return result
+
+
+# =============================================================================
+# Markdown Generation
+# =============================================================================
 
 
 def generate_cli_commands_markdown(cli_data: dict) -> str:
@@ -814,165 +553,7 @@ def generate_cli_commands_markdown(cli_data: dict) -> str:
     return md
 
 
-def extract_cli_schema(schema: dict, all_schemas: dict, openflow_schemas: dict | None = None) -> dict:
-    """
-    Transform an OpenAPI schema to CLI format by removing server-managed fields.
-    Resolves $ref references and handles allOf compositions.
-
-    Args:
-        schema: The schema to transform
-        all_schemas: All schemas from the backend OpenAPI
-        openflow_schemas: Schemas from the openflow.openapi.yaml file (for external refs)
-    """
-    if not schema:
-        return {}
-
-    openflow_schemas = openflow_schemas or {}
-    result = {'type': 'object', 'properties': {}, 'required': []}
-
-    # Handle allOf (used for composition, e.g., TriggerExtraProperty)
-    if 'allOf' in schema:
-        for item in schema['allOf']:
-            if '$ref' in item:
-                ref_name = item['$ref'].split('/')[-1]
-                if ref_name in all_schemas:
-                    ref_schema = extract_cli_schema(all_schemas[ref_name], all_schemas, openflow_schemas)
-                    result['properties'].update(ref_schema.get('properties', {}))
-                    result['required'].extend(ref_schema.get('required', []))
-
-    # Handle direct properties
-    if 'properties' in schema:
-        for key, value in schema['properties'].items():
-            if key not in CLI_EXCLUDED_FIELDS:
-                # Resolve $ref in property values
-                if '$ref' in value:
-                    ref_path = value['$ref']
-                    # Handle local references
-                    if ref_path.startswith('#/components/schemas/'):
-                        ref_name = ref_path.split('/')[-1]
-                        if ref_name in all_schemas:
-                            result['properties'][key] = all_schemas[ref_name]
-                        else:
-                            result['properties'][key] = {'type': 'string', 'description': f'See {ref_name}'}
-                    elif 'openflow.openapi.yaml' in ref_path:
-                        # External reference to openflow schema - resolve it
-                        ref_name = ref_path.split('/')[-1]
-                        if ref_name in openflow_schemas:
-                            result['properties'][key] = openflow_schemas[ref_name]
-                        else:
-                            result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_name}')}
-                    else:
-                        # Other external reference
-                        result['properties'][key] = {'type': 'object', 'description': value.get('description', f'See {ref_path}')}
-                else:
-                    result['properties'][key] = value
-
-    # Handle required fields
-    if 'required' in schema:
-        result['required'].extend([
-            r for r in schema['required']
-            if r not in CLI_EXCLUDED_FIELDS
-        ])
-
-    # Remove duplicates from required
-    result['required'] = list(dict.fromkeys(result['required']))
-
-    # Filter out required fields that don't exist in properties
-    result['required'] = [r for r in result['required'] if r in result['properties']]
-
-    return result
-
-
-def format_schema_as_json(schema: dict) -> dict:
-    """Convert a CLI schema to a clean JSON Schema representation."""
-    if not schema or not schema.get('properties'):
-        return {}
-
-    result = {
-        'type': 'object',
-        'properties': {},
-    }
-
-    props = schema.get('properties', {})
-    required = schema.get('required', [])
-
-    for key, value in props.items():
-        prop_def = {}
-
-        # Get type
-        prop_type = value.get('type', 'string')
-        if prop_type == 'array':
-            items = value.get('items', {})
-            prop_def['type'] = 'array'
-            item_type = items.get('type', 'object')
-            if item_type == 'object' and items.get('properties'):
-                prop_def['items'] = {'type': 'object', 'properties': items.get('properties', {})}
-            else:
-                prop_def['items'] = {'type': item_type}
-        elif '$ref' in value:
-            # For refs, just indicate the type
-            ref_name = value['$ref'].split('/')[-1]
-            prop_def['type'] = ref_name
-        elif prop_type == 'object' and value.get('properties'):
-            # Nested object with properties - include them
-            prop_def['type'] = 'object'
-            prop_def['properties'] = value.get('properties', {})
-        else:
-            prop_def['type'] = prop_type
-
-        # Add enum if present
-        if 'enum' in value:
-            prop_def['enum'] = value['enum']
-
-        # Add description if present
-        if value.get('description'):
-            prop_def['description'] = value['description']
-
-        result['properties'][key] = prop_def
-
-    if required:
-        result['required'] = required
-
-    return result
-
-
-def format_schema_for_markdown(schema: dict, schema_name: str, as_json_schema: bool = False) -> str:
-    """Format a CLI schema as markdown documentation."""
-    if not schema or not schema.get('properties'):
-        return ''
-
-    if as_json_schema:
-        # Output as JSON Schema
-        json_schema = format_schema_as_json(schema)
-        schema_json = json.dumps(json_schema, indent=2)
-        return f"## {schema_name}\n\nMust be a YAML file that adheres to the following schema:\n\n```json\n{schema_json}\n```"
-    else:
-        # Output as field list (for schedules)
-        lines = [f"### {schema_name} Schema (CLI Format)\n"]
-        lines.append("Fields available in `.yaml`/`.json` files:\n")
-
-        props = schema.get('properties', {})
-        required = set(schema.get('required', []))
-
-        for key, value in sorted(props.items()):
-            prop_type = value.get('type', 'any')
-            if prop_type == 'array':
-                items = value.get('items', {})
-                item_type = items.get('type', 'any')
-                prop_type = f"array[{item_type}]"
-            elif '$ref' in value:
-                prop_type = value['$ref'].split('/')[-1]
-
-            req_marker = ' (required)' if key in required else ''
-            desc = value.get('description', '')
-            desc_str = f" - {desc}" if desc else ''
-
-            lines.append(f"- `{key}`: {prop_type}{req_marker}{desc_str}")
-
-        return '\n'.join(lines)
-
-
-def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
+def generate_ts_sdk_markdown(functions: list[dict], _types: list[dict]) -> str:
     """Generate compact documentation for TypeScript SDK."""
     md = "# TypeScript SDK (windmill-client)\n\n"
     md += "Import: import * as wmill from 'windmill-client'\n\n"
@@ -994,7 +575,7 @@ def generate_ts_sdk_markdown(functions: list[dict], types: list[dict]) -> str:
     return md
 
 
-def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
+def generate_py_sdk_markdown(functions: list[dict], _classes: list[dict]) -> str:
     """Generate compact documentation for Python SDK."""
     md = "# Python SDK (wmill)\n\n"
     md += "Import: import wmill\n\n"
@@ -1017,11 +598,6 @@ def generate_py_sdk_markdown(functions: list[dict], classes: list[dict]) -> str:
     return md
 
 
-def escape_for_ts(content: str) -> str:
-    """Escape content for TypeScript template literal."""
-    return content.replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
-
-
 def generate_ts_exports(prompts: dict[str, str]) -> str:
     """Generate TypeScript file that exports all prompts."""
     ts = "// Auto-generated by generate.py - DO NOT EDIT\n\n"
@@ -1033,11 +609,9 @@ def generate_ts_exports(prompts: dict[str, str]) -> str:
     return ts
 
 
-def read_markdown_file(path: Path) -> str:
-    """Read a markdown file and return its content."""
-    if path.exists():
-        return path.read_text()
-    return ''
+# =============================================================================
+# Skill Generation
+# =============================================================================
 
 
 def generate_skill_content(
@@ -1063,6 +637,52 @@ def generate_skill_content(
     return '\n'.join(parts)
 
 
+# Skill definitions for config-driven generation
+SKILL_DEFINITIONS = [
+    {
+        'name': 'write-flow',
+        'description': 'MUST use when creating flows.',
+        'content_key': 'flow',
+    },
+    {
+        'name': 'raw-app',
+        'description': 'MUST use when creating raw apps.',
+        'content_key': 'raw_app',
+    },
+    {
+        'name': 'triggers',
+        'description': 'MUST use when configuring triggers.',
+        'content_key': 'triggers',
+        'schema_types': [
+            ('HttpTrigger', 'http_trigger'),
+            ('WebsocketTrigger', 'websocket_trigger'),
+            ('KafkaTrigger', 'kafka_trigger'),
+            ('NatsTrigger', 'nats_trigger'),
+            ('PostgresTrigger', 'postgres_trigger'),
+            ('MqttTrigger', 'mqtt_trigger'),
+            ('SqsTrigger', 'sqs_trigger'),
+            ('GcpTrigger', 'gcp_trigger'),
+        ],
+    },
+    {
+        'name': 'schedules',
+        'description': 'MUST use when configuring schedules.',
+        'content_key': 'schedules',
+        'schema_types': [('Schedule', 'schedule')],
+    },
+    {
+        'name': 'resources',
+        'description': 'MUST use when managing resources.',
+        'content_key': 'resources',
+    },
+    {
+        'name': 'cli-commands',
+        'description': 'MUST use when using the CLI.',
+        'content_key': 'cli_commands',
+    },
+]
+
+
 def generate_skills(
     languages: dict[str, str],
     ts_sdk_md: str,
@@ -1082,11 +702,14 @@ def generate_skills(
 
     # Read base files for additional skills
     base_dir = SCRIPT_DIR / "base"
-    script_base = read_markdown_file(base_dir / "script-base.md")
-    raw_app_content = read_markdown_file(base_dir / "raw-app.md")
-    triggers_content = read_markdown_file(base_dir / "triggers.md")
-    schedules_content = read_markdown_file(base_dir / "schedules.md")
-    resources_content = read_markdown_file(base_dir / "resources.md")
+    base_content = {
+        'flow': f"{flow_base}\n\n{openflow_content}",
+        'raw_app': read_markdown_file(base_dir / "raw-app.md"),
+        'triggers': read_markdown_file(base_dir / "triggers.md"),
+        'schedules': read_markdown_file(base_dir / "schedules.md"),
+        'resources': read_markdown_file(base_dir / "resources.md"),
+        'cli_commands': cli_commands,
+    }
 
     # CLI intro for script skills
     script_cli_intro = """## CLI Commands
@@ -1098,11 +721,6 @@ Place scripts in a folder. After writing, run:
 Use `wmill resource-type list --schema` to discover available resource types."""
 
     skills_generated = []
-
-    # Languages that use TypeScript SDK
-    ts_sdk_languages = ['bun', 'deno', 'nativets', 'bunnative']
-    # Languages that use Python SDK
-    py_sdk_languages = ['python3']
 
     # Generate script skills for each language
     for lang_key, lang_content in languages.items():
@@ -1117,12 +735,11 @@ Use `wmill resource-type list --schema` to discover available resource types."""
 
         # Determine which SDK to include
         sdk_content = ''
-        if lang_key in ts_sdk_languages:
+        if lang_key in TS_SDK_LANGUAGES:
             sdk_content = ts_sdk_md
-        elif lang_key in py_sdk_languages:
+        elif lang_key in PY_SDK_LANGUAGES:
             sdk_content = py_sdk_md
 
-        # Language skills only include language-specific content, not the general script-base
         skill_content = generate_skill_content(
             skill_name=skill_name,
             description=metadata['description'],
@@ -1134,113 +751,40 @@ Use `wmill resource-type list --schema` to discover available resource types."""
         (skill_dir / "SKILL.md").write_text(skill_content)
         skills_generated.append(skill_name)
 
-    # Generate write-flow skill
-    flow_skill_dir = OUTPUT_SKILLS_DIR / "write-flow"
-    flow_skill_dir.mkdir(parents=True, exist_ok=True)
-    flow_skill_content = generate_skill_content(
-        skill_name="write-flow",
-        description="MUST use when creating flows.",
-        intro="",
-        content=f"{flow_base}\n\n{openflow_content}"
-    )
-    (flow_skill_dir / "SKILL.md").write_text(flow_skill_content)
-    skills_generated.append("write-flow")
+    # Generate other skills from definitions
+    for skill_def in SKILL_DEFINITIONS:
+        content = base_content.get(skill_def['content_key'], '')
+        if not content:
+            continue
 
-    # Generate raw-app skill (if content exists)
-    if raw_app_content:
-        raw_app_skill_dir = OUTPUT_SKILLS_DIR / "raw-app"
-        raw_app_skill_dir.mkdir(parents=True, exist_ok=True)
-        raw_app_skill_content = generate_skill_content(
-            skill_name="raw-app",
-            description="MUST use when creating raw apps.",
+        skill_name = skill_def['name']
+        skill_dir = OUTPUT_SKILLS_DIR / skill_name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        # Append schemas if defined
+        if 'schema_types' in skill_def:
+            schema_docs = []
+            for schema_name, file_suffix in skill_def['schema_types']:
+                if schema_name in cli_schemas:
+                    schema_doc = format_schema_for_markdown(
+                        cli_schemas[schema_name],
+                        f"{schema_name} (`*.{file_suffix}.yaml`)",
+                        as_json_schema=True
+                    )
+                    if schema_doc:
+                        schema_docs.append(schema_doc)
+            if schema_docs:
+                content = content + "\n\n" + "\n\n".join(schema_docs)
+
+        skill_content = generate_skill_content(
+            skill_name=skill_name,
+            description=skill_def['description'],
             intro="",
-            content=raw_app_content
+            content=content
         )
-        (raw_app_skill_dir / "SKILL.md").write_text(raw_app_skill_content)
-        skills_generated.append("raw-app")
 
-    # Generate triggers skill (if content exists)
-    if triggers_content:
-        triggers_skill_dir = OUTPUT_SKILLS_DIR / "triggers"
-        triggers_skill_dir.mkdir(parents=True, exist_ok=True)
-
-        # Generate trigger schemas from OpenAPI as primary documentation
-        trigger_schema_docs = []
-        trigger_types = [
-            ('HttpTrigger', 'http_trigger'),
-            ('WebsocketTrigger', 'websocket_trigger'),
-            ('KafkaTrigger', 'kafka_trigger'),
-            ('NatsTrigger', 'nats_trigger'),
-            ('PostgresTrigger', 'postgres_trigger'),
-            ('MqttTrigger', 'mqtt_trigger'),
-            ('SqsTrigger', 'sqs_trigger'),
-            ('GcpTrigger', 'gcp_trigger'),
-        ]
-        for schema_name, file_suffix in trigger_types:
-            if schema_name in cli_schemas:
-                schema_doc = format_schema_for_markdown(cli_schemas[schema_name], f"{schema_name} (`*.{file_suffix}.yaml`)", as_json_schema=True)
-                if schema_doc:
-                    trigger_schema_docs.append(schema_doc)
-
-        triggers_with_schemas = triggers_content
-        if trigger_schema_docs:
-            triggers_with_schemas = triggers_content + "\n\n" + "\n\n".join(trigger_schema_docs)
-
-        triggers_skill_content = generate_skill_content(
-            skill_name="triggers",
-            description="MUST use when configuring triggers.",
-            intro="",
-            content=triggers_with_schemas
-        )
-        (triggers_skill_dir / "SKILL.md").write_text(triggers_skill_content)
-        skills_generated.append("triggers")
-
-    # Generate schedules skill (if content exists)
-    if schedules_content:
-        schedules_skill_dir = OUTPUT_SKILLS_DIR / "schedules"
-        schedules_skill_dir.mkdir(parents=True, exist_ok=True)
-
-        # Append schedule schema from OpenAPI as JSON schema (like triggers)
-        schedules_with_schema = schedules_content
-        if 'Schedule' in cli_schemas:
-            schedule_schema_doc = format_schema_for_markdown(cli_schemas['Schedule'], 'Schedule (`*.schedule.yaml`)', as_json_schema=True)
-            if schedule_schema_doc:
-                schedules_with_schema = schedules_content + "\n\n" + schedule_schema_doc
-
-        schedules_skill_content = generate_skill_content(
-            skill_name="schedules",
-            description="MUST use when configuring schedules.",
-            intro="",
-            content=schedules_with_schema
-        )
-        (schedules_skill_dir / "SKILL.md").write_text(schedules_skill_content)
-        skills_generated.append("schedules")
-
-    # Generate resources skill (if content exists)
-    if resources_content:
-        resources_skill_dir = OUTPUT_SKILLS_DIR / "resources"
-        resources_skill_dir.mkdir(parents=True, exist_ok=True)
-        resources_skill_content = generate_skill_content(
-            skill_name="resources",
-            description="MUST use when managing resources.",
-            intro="",
-            content=resources_content
-        )
-        (resources_skill_dir / "SKILL.md").write_text(resources_skill_content)
-        skills_generated.append("resources")
-
-    # Generate cli-commands skill
-    if cli_commands:
-        cli_skill_dir = OUTPUT_SKILLS_DIR / "cli-commands"
-        cli_skill_dir.mkdir(parents=True, exist_ok=True)
-        cli_skill_content = generate_skill_content(
-            skill_name="cli-commands",
-            description="MUST use when using the CLI.",
-            intro="",
-            content=cli_commands
-        )
-        (cli_skill_dir / "SKILL.md").write_text(cli_skill_content)
-        skills_generated.append("cli-commands")
+        (skill_dir / "SKILL.md").write_text(skill_content)
+        skills_generated.append(skill_name)
 
     print(f"  Generated {len(skills_generated)} skills")
     return skills_generated
@@ -1293,6 +837,11 @@ def generate_skills_ts_export(skills: list[str]) -> str:
     ts += "};\n"
 
     return ts
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
 
 
 def main():
@@ -1464,20 +1013,8 @@ export function getFlowPrompt(): string {
 """
     (OUTPUT_GENERATED_DIR / "index.ts").write_text(index_content)
 
-    # Generate CLI-specific prompts.ts with base prompts and full prompts
-    print("Generating CLI prompts...")
-    CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
-    cli_prompts = {
-        'SCRIPT_BASE': script_base,
-        'FLOW_BASE': flow_base,
-        'SCRIPT_PROMPT': script_md,
-        'FLOW_PROMPT': flow_md,
-        'CLI_COMMANDS': cli_commands,
-    }
-    cli_prompts_ts = generate_ts_exports(cli_prompts)
-    (CLI_GUIDANCE_DIR / "prompts.ts").write_text(cli_prompts_ts)
-
     # Generate skill files for Claude Code
+    CLI_GUIDANCE_DIR.mkdir(parents=True, exist_ok=True)
     skills = generate_skills(
         languages=languages,
         ts_sdk_md=ts_sdk_md,
@@ -1502,7 +1039,6 @@ export function getFlowPrompt(): string {
     print(f"  - auto-generated/flow.md")
     print(f"  - auto-generated/skills/ ({len(skills)} skills)")
     print(f"\nGenerated for CLI:")
-    print(f"  - cli/src/guidance/prompts.ts")
     print(f"  - cli/src/guidance/skills.ts")
     print("\nDone!")
 
