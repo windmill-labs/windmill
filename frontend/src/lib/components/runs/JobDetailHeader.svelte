@@ -48,6 +48,10 @@
 	// Expansion state for compact modes
 	let isExpanded = $state(false)
 
+	// Container width tracking for responsive layout
+	let clientWidth = $state(0)
+	let useOneColumn = $derived(clientWidth < 800)
+
 	/**
 	 * Renders the value for a field configuration
 	 */
@@ -120,7 +124,6 @@
 		</Tooltip>
 	{:else if config.field === 'created_by'}
 		<span>
-			{value}
 			{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
 				<Tooltip small>
 					{#snippet text()}
@@ -129,17 +132,19 @@
 						{/if}
 						But permissioned as {job.permissioned_as}
 					{/snippet}
+					{value}
 					<span class="text-secondary"> ({job.permissioned_as})</span>
 				</Tooltip>
 			{:else if (job?.created_by?.length ?? 0) > 30}
 				<Tooltip small>
 					{#snippet text()}{job.created_by}{/snippet}
+					{value}
 					<span class="inline"><!-- empty wrapper for tooltip alignment --></span>
 				</Tooltip>
 			{/if}
 		</span>
 	{:else if config.field === 'worker'}
-		<span>
+		<span title={value}>
 			{#if onFilterByWorker}
 				<Tooltip>
 					{#snippet text()}
@@ -185,7 +190,7 @@
 			{/if}
 		</span>
 	{:else if config.field === 'schedule_path' && job.schedule_path}
-		<span class="whitespace-nowrap">
+		<span class="whitespace-nowrap" title={value}>
 			<button
 				onclick={() => scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
 				class="flex items-center gap-1"
@@ -195,7 +200,7 @@
 			</button>
 		</span>
 	{:else if config.field === 'parent_job' && job.parent_job}
-		<span class="whitespace-nowrap">
+		<span class="whitespace-nowrap" title={value}>
 			{#if job.is_flow_step}
 				Step of flow
 			{:else}
@@ -243,7 +248,8 @@
 			</DropdownV2>
 		</div>
 	{:else if config.field === 'trigger_info'}
-		<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span>
+		{@const triggerInfoText = value + (triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : '')}
+		<span title={triggerInfoText}>{triggerInfoText}</span>
 	{:else if href}
 		<a
 			{href}
@@ -254,7 +260,7 @@
 			<ExternalLink size={12} class="flex-shrink-0" />
 		</a>
 	{:else}
-		<span>{value}</span>
+		<span title={value} class="truncate">{value}</span>
 	{/if}
 {/snippet}
 
@@ -319,7 +325,7 @@
 		{/if}
 	</div>
 {:else}
-	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
+	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full" bind:clientWidth>
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'}>
 			{#if job}
@@ -404,7 +410,11 @@
 		{#if !compact}
 			{@const fields = relevantFields()}
 			<div class="px-8 py-6">
-				<div class="grid grid-cols-2 gap-x-12 gap-y-2">
+				<div
+					class="grid gap-x-12 gap-y-2"
+					class:grid-cols-1={useOneColumn}
+					class:grid-cols-2={!useOneColumn}
+				>
 					{#if job}
 						{#each fields as config}
 							{@const value = getDisplayValue(config, job)}
@@ -415,8 +425,10 @@
 									<span class="text-secondary min-w-[70px] flex-shrink-0">
 										{config.label}
 									</span>
-									<span class="text-primary">
-										{@render fieldValueRenderer(config, job, value, href)}
+									<span class="text-primary min-w-0 flex-1">
+										<div class="truncate">
+											{@render fieldValueRenderer(config, job, value, href)}
+										</div>
 									</span>
 								</div>
 							{/if}
@@ -463,10 +475,12 @@
 									</div>
 
 									<!-- Field -->
-									<div class="flex items-baseline gap-1 text-xs">
+									<div class="flex items-baseline gap-1 text-xs min-w-0">
 										<span class="text-secondary flex-shrink-0">{config.label}</span>
-										<span class="text-primary">
-											{@render fieldValueRenderer(config, job, value, href)}
+										<span class="text-primary min-w-0 flex-1">
+											<div class="truncate" title={value}>
+												{@render fieldValueRenderer(config, job, value, href)}
+											</div>
 										</span>
 									</div>
 								{/if}
@@ -512,8 +526,10 @@
 												{config.label}
 											{/if}
 										</span>
-										<span class="text-primary">
-											{@render fieldValueRenderer(config, job, value, href)}
+										<span class="text-primary min-w-0 flex-1">
+											<div class="truncate" title={value}>
+												{@render fieldValueRenderer(config, job, value, href)}
+											</div>
 										</span>
 									</div>
 								{/if}

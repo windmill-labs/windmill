@@ -695,6 +695,7 @@
 					bind:currentSubJobProgress={scriptProgress}
 					class="w-full"
 					textPosition="bottom"
+					slim
 				/>
 				{#if suspendStatus}
 					<FlowExecutionStatus
