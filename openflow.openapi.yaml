@@ -769,25 +769,72 @@ components:
           description: Input parameters for the AI agent mapped to their values
           properties:
             provider:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                AI model provider configuration object.
+                Format: { kind: string, resource: object, model: string }
+                - kind: Provider type. Valid values: 'openai', 'azure_openai', 'anthropic', 'mistral', 'deepseek', 'googleai', 'groq', 'openrouter', 'togetherai', 'customai', 'aws_bedrock'
+                - resource: Credentials object containing api_key, base_url (optional), region (for AWS)
+                - model: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
             output_type:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Output format type.
+                Valid values: 'text' (default) - plain text response, 'image' - image generation
             user_message:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: The user's prompt/message to the AI agent. Supports variable interpolation with flow.input syntax.
             system_prompt:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: System instructions that guide the AI's behavior, persona, and response style. Optional.
             streaming:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Boolean. If true, stream the AI response incrementally.
+                Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Conversation history configuration. Tagged union with 'kind' discriminator.
+                Valid formats:
+                - { kind: 'off' } - No memory/context
+                - { kind: 'auto', context_length?: number, memory_id?: string } - Automatic context management
+                - { kind: 'manual', messages: Array<{role: 'user'|'assistant'|'system', content: string}> } - Explicit message history
             output_schema:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                JSON Schema object defining structured output format. Used when you need the AI to return data in a specific shape.
+                Supports standard JSON Schema properties: type, properties, required, items, enum, pattern, minLength, maxLength, minimum, maximum, etc.
+                Example: { type: 'object', properties: { name: { type: 'string' }, age: { type: 'integer' } }, required: ['name'] }
             user_images:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Array of image references for vision-capable models.
+                Format: Array<{ bucket: string, key: string }> - S3 object references
+                Example: [{ bucket: 'my-bucket', key: 'images/photo.jpg' }]
             max_completion_tokens:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Integer. Maximum number of tokens the AI will generate in its response.
+                Range: 1 to 4,294,967,295. Typical values: 256-4096 for most use cases.
             temperature:
-              $ref: '#/components/schemas/InputTransform'
+              allOf:
+                - $ref: '#/components/schemas/InputTransform'
+              description: |
+                Float. Controls randomness/creativity of responses.
+                Range: 0.0 to 2.0 (provider-dependent)
+                - 0.0 = deterministic, focused responses
+                - 0.7 = balanced (common default)
+                - 1.0+ = more creative/random
           required:
             - provider
             - user_message
