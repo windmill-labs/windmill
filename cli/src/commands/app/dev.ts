@@ -215,6 +215,7 @@ const createHTML = (jsPath: string, cssPath: string) => `
     // SQL Migration Modal handling
     let pendingSqlMigration = null;
     let sqlWebSocket = null;
+    let closeModalTimeout = null;
 
     function initSqlWebSocket() {
       const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -236,12 +237,18 @@ const createHTML = (jsPath: string, cssPath: string) => `
     }
 
     function showSqlModal(data) {
+      // Cancel any pending close from a previous migration's success
+      if (closeModalTimeout) {
+        clearTimeout(closeModalTimeout);
+        closeModalTimeout = null;
+      }
       pendingSqlMigration = data;
       document.getElementById('sql-file-name').textContent = data.fileName;
       document.getElementById('sql-datatable').textContent = data.datatable || 'Not configured';
       document.getElementById('sql-content').textContent = data.sql;
       document.getElementById('sql-result').innerHTML = '';
       document.getElementById('apply-sql-btn').disabled = !data.datatable;
+      document.getElementById('apply-sql-btn').textContent = 'Apply SQL';
       document.getElementById('sql-modal-overlay').classList.add('visible');
     }
 
@@ -282,7 +289,11 @@ const createHTML = (jsPath: string, cssPath: string) => `
         resultDiv.className = 'sql-result success';
         resultDiv.innerHTML = '<strong>Success!</strong> SQL applied and file deleted.';
         // Auto-close after success (don't send skip since server already handled it)
-        setTimeout(() => closeSqlModal(false), 1500);
+        // Save timeout ID so it can be cancelled if a new migration arrives
+        closeModalTimeout = setTimeout(() => {
+          closeModalTimeout = null;
+          closeSqlModal(false);
+        }, 1500);
       }
     }
 
