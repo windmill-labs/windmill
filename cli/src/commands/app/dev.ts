@@ -247,6 +247,7 @@ const createHTML = (jsPath: string, cssPath: string) => `
       document.getElementById('sql-datatable').textContent = data.datatable || 'Not configured';
       document.getElementById('sql-content').textContent = data.sql;
       document.getElementById('sql-result').innerHTML = '';
+      document.getElementById('sql-result').className = 'sql-result';
       document.getElementById('apply-sql-btn').disabled = !data.datatable;
       document.getElementById('apply-sql-btn').textContent = 'Apply SQL';
       document.getElementById('sql-modal-overlay').classList.add('visible');
