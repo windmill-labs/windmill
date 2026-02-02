@@ -115,6 +115,26 @@
 	function shouldShowTimeAgo(config: FieldConfig, job: Job): boolean {
 		return config.field === 'created_at' && job['success'] == undefined
 	}
+
+	function getJobKindDisplayName(job: Job): string {
+		return job.script_path
+			? job.script_path
+			: job.job_kind === 'dependencies'
+				? 'lock dependencies'
+				: job.job_kind === 'flowdependencies'
+					? 'flow dependencies'
+					: job.job_kind === 'appdependencies'
+						? 'app dependencies'
+						: job.job_kind === 'deploymentcallback'
+							? 'deployment callback'
+							: job.job_kind === 'identity'
+								? 'Identity job'
+								: job.job_kind === 'script_hub'
+									? 'Script from hub'
+									: job.job_kind === 'aiagent'
+										? 'AI Agent'
+										: job.job_kind || 'Unknown job type'
+	}
 </script>
 
 {#snippet fieldValueRenderer(config, job, displayValue, fullValue, href)}
@@ -170,20 +190,20 @@
 					{#snippet text()}
 						This job was run on worker:
 						<Button
-							class="inline-text"
-							size="xs2"
-							color="light"
-							onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
+							variant="subtle"
+							unifiedSize="xs"
+							endIcon={{ icon: ListFilter }}
+							onClick={() => job?.worker && onFilterByWorker?.(job.worker)}
+							wrapperClasses="w-fit"
 						>
 							{job?.worker}
-							<ListFilter class="inline-block" size={10} />
 						</Button>
 						<br />
 						<WorkerHostname worker={job.worker!} minTs={job?.['created_at']} />
 					{/snippet}
 					<button
 						onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
-						class="flex items-center gap-1"
+						class="flex items-center gap-1 font-normal"
 					>
 						{displayValue}
 						<ExternalLink size={12} class="flex-shrink-0" />
@@ -323,7 +343,7 @@
 			{@const expandedFields = relevantFields()
 				.filter((f) => f.field !== 'run_id' && f.field !== 'created_at')
 				.slice(0, 3)}
-			<div class="px-3 pb-2 border-t border-surface-secondary bg-surface">
+			<div class="px-3 pb-2 border-t border-surface-secondary/50 bg-surface">
 				<div class="flex flex-col gap-y-1 text-xs pt-2">
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
@@ -350,27 +370,30 @@
 {:else}
 	<div
 		class={twMerge(
-			'rounded-md border bg-surface-tertiary overflow-auto w-full flex',
-			compact ? 'flex-col' : 'flex-wrap items-stretch'
+			'rounded-md border overflow-auto w-full flex',
+			compact ? 'flex-col' : 'bg-border-light flex-wrap items-stretch gap-y-[1px] gap-x-[1px]'
 		)}
 	>
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div
-			class={compact ? 'py-3 px-4' : 'py-6 px-8 flex items-center'}
+			class={twMerge(
+				compact ? 'py-3 px-4 min-w-0 grow' : 'py-6 px-8 flex items-center min-w-0 grow',
+				'bg-surface-tertiary'
+			)}
 			style={compact ? '' : 'flex: 1 1 min-content;'}
 		>
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
-				<div class="flex items-center gap-3">
+				<div class="flex items-center gap-3 min-w-0 grow">
 					<!-- Status icon -->
 					<div class="flex-shrink-0">
 						<JobStatusIcon {job} roundedFull />
 					</div>
 
 					<!-- Two-row section: title on top, badges on bottom -->
-					<div class="flex flex-col gap-.5 flex-1 min-w-0">
+					<div class="flex flex-col gap-1 flex-1 min-w-0">
 						<!-- Title row -->
-						<div>
+						<div class="min-w-0 grow">
 							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
 								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
 								{@const isScript = job.job_kind === 'script'}
@@ -378,41 +401,25 @@
 								<a
 									href={viewHref}
 									class="text-emphasis {compact
-										? 'text-base'
-										: 'text-lg'} font-semibold flex items-center gap-1 whitespace-nowrap"
+										? 'text-xs'
+										: 'text-lg'} font-semibold flex items-center gap-1"
 								>
-									{job.script_path}
+									<span class="truncate" title={job.script_path}>{job.script_path}</span>
 									<ExternalLink size={14} class="flex-shrink-0" />
 								</a>
 							{:else}
-								<span class="text-emphasis {compact ? 'text-sm' : 'text-lg'} font-semibold">
-									{#if job.script_path}
-										{job.script_path}
-									{:else if job.job_kind == 'dependencies'}
-										lock dependencies
-									{:else if job.job_kind == 'flowdependencies'}
-										flow dependencies
-									{:else if job.job_kind == 'appdependencies'}
-										app dependencies
-									{:else if job.job_kind == 'deploymentcallback'}
-										deployment callback
-									{:else if job.job_kind == 'identity'}
-										Identity job
-									{:else if job.job_kind == 'script_hub'}
-										Script from hub
-									{:else if job.job_kind == 'aiagent'}
-										AI Agent
-									{:else}
-										{job.job_kind || 'Unknown job type'}
-									{/if}
-								</span>
+								{@const displayName = getJobKindDisplayName(job)}
+								<div
+									class="text-emphasis {compact ? 'text-xs' : 'text-lg'} font-semibold truncate"
+									title={displayName}>{displayName}</div
+								>
 							{/if}
 						</div>
 
 						<!-- Badges row -->
 
 						<!-- Job Status -->
-						<div class="flex items-baseline flex-wrap gap-2">
+						<div class="flex items-baseline flex-wrap gap-x-2 gap-y-1">
 							<JobStatus {job} />
 
 							<RunBadges
@@ -433,12 +440,9 @@
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div
-				class="px-8 py-4 bg-surface-secondary flex items-center"
-				style="flex: 2 1 100px; min-width: 350px;"
-			>
+			<div class="bg-surface flex items-center" style="flex: 2 1 100px; min-width: 350px;">
 				<div
-					class="grid gap-x-6 gap-y-1.5 w-full"
+					class="grid gap-x-6 gap-y-1.5 w-full px-8 py-4 bg-surface-secondary/50"
 					style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"
 				>
 					{#if job}
@@ -473,7 +477,7 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 py-2 bg-surface-secondary">
+			<div class="px-4 py-2 bg-surface-secondary/50 border-t">
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-1 text-xs text-primary font-normal"
 				>
