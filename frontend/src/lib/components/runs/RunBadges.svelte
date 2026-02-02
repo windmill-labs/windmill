@@ -49,6 +49,11 @@
 		<Badge color="blue" {large}>Job kind: {job.job_kind}</Badge>
 	</div>
 {/if}
+{#if job && job['success'] !== undefined && 'duration_ms' in job}
+	<div>
+		<Badge color="gray" {large}>Ran in {(job.duration_ms / 1000).toFixed(3)}s</Badge>
+	</div>
+{/if}
 {#if job && job.flow_status && job.job_kind === 'script'}
 	<PreprocessedArgsDisplay preprocessed={job.preprocessed} />
 {/if}

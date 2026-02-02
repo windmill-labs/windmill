@@ -12,7 +12,10 @@
 		ListFilter,
 		ListFilterPlus,
 		ChevronDown,
-		ChevronRight
+		ChevronRight,
+		Check,
+		X,
+		Clock
 	} from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -61,11 +64,7 @@
 	function renderFieldValue(config: FieldConfig, job: Job): string {
 		switch (config.field) {
 			case 'created_at':
-				if (job['success'] != undefined) {
-					return `Received: ${displayDate(job.created_at ?? '')}`
-				} else {
-					return `Received`
-				}
+				return 'Received'
 			case 'started_at':
 				return 'Started'
 			case 'trigger_info':
@@ -169,99 +168,111 @@
 	</div>
 {:else}
 	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
-		<!-- Top section: Status, Path, Badges -->
-		<div
-			class="flex flex-row flex-wrap justify-between items-center gap-x-4 {compact
-				? 'py-3 px-4'
-				: 'py-4 px-6'}"
-		>
-			<div class="flex flex-wrap gap-y-2 {compact ? 'gap-3 items-start' : 'gap-6 items-center'}">
-				{#if job}
-					<div class="flex flex-wrap gap-x-4 gap-y-2 items-center">
-						<JobStatus {job} large={!compact} />
+		<!-- Top section: Title with Status Dot and Badges Below -->
+		<div class={compact ? 'py-3 px-4' : 'py-4 px-6'}>
+			{#if job}
+				<!-- Header with status icon aligned with title+badge group -->
+				<div class="flex items-center justify-between">
+					<div class="flex items-center gap-3">
+						<!-- Status icon with background -->
+						<div
+							class="p-1.5 rounded-full {job['success'] === true
+								? 'bg-green-100'
+								: job['success'] === false
+									? 'bg-red-100'
+									: 'bg-yellow-100'}"
+						>
+							{#if job['success'] === true}
+								<Check size={16} class="text-green-600" />
+							{:else if job['success'] === false}
+								<X size={16} class="text-red-600" />
+							{:else}
+								<Clock size={16} class="text-yellow-600" />
+							{/if}
+						</div>
 
-						<RunBadges
-							{job}
-							{displayPersistentScriptDefinition}
-							{openPersistentScriptDrawer}
-							{concurrencyKey}
-							{onFilterByConcurrencyKey}
-							showScriptHash={showScriptHashInBadges}
-							large={!compact}
-						/>
-						{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
-							{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
-							{@const isScript = job.job_kind === 'script'}
-							{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
-							<a
-								href={viewHref}
-								class="text-emphasis {compact
-									? 'text-sm'
-									: 'text-lg'} font-semibold whitespace-nowrap hover:underline flex items-center gap-2"
-							>
-								<span>{job.script_path}</span>
-								<ExternalLink size={compact ? 12 : 14} class="text-secondary opacity-60" />
-							</a>
-						{:else}
-							<span
-								class="text-emphasis {compact
-									? 'text-sm'
-									: 'text-lg'} font-semibold whitespace-nowrap"
-							>
-								{#if job.script_path}
+						<!-- Title and badges container -->
+						<div class="flex items-center gap-3 flex-wrap">
+							<!-- Title -->
+							{#if job.script_path && (job.job_kind === 'script' || job.job_kind === 'flow' || job.job_kind === 'singlestepflow')}
+								{@const stem = job.job_kind === 'script' ? 'scripts' : 'flows'}
+								{@const isScript = job.job_kind === 'script'}
+								{@const viewHref = `${base}/${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
+								<a
+									href={viewHref}
+									class="text-emphasis {compact
+										? 'text-base'
+										: 'text-lg'} font-semibold hover:underline"
+								>
 									{job.script_path}
-								{:else if job.job_kind == 'dependencies'}
-									lock dependencies
-								{:else if job.job_kind == 'flowdependencies'}
-									flow dependencies
-								{:else if job.job_kind == 'appdependencies'}
-									app dependencies
-								{:else if job.job_kind == 'deploymentcallback'}
-									deployment callback
-								{:else if job.job_kind == 'identity'}
-									Identity job
-								{:else if job.job_kind == 'script_hub'}
-									Script from hub
-								{:else if job.job_kind == 'aiagent'}
-									AI Agent
-								{:else}
-									{job.job_kind || 'Unknown job type'}
-								{/if}
-							</span>
-						{/if}
+								</a>
+							{:else}
+								<span class="text-emphasis {compact ? 'text-base' : 'text-lg'} font-semibold">
+									{#if job.script_path}
+										{job.script_path}
+									{:else if job.job_kind == 'dependencies'}
+										lock dependencies
+									{:else if job.job_kind == 'flowdependencies'}
+										flow dependencies
+									{:else if job.job_kind == 'appdependencies'}
+										app dependencies
+									{:else if job.job_kind == 'deploymentcallback'}
+										deployment callback
+									{:else if job.job_kind == 'identity'}
+										Identity job
+									{:else if job.job_kind == 'script_hub'}
+										Script from hub
+									{:else if job.job_kind == 'aiagent'}
+										AI Agent
+									{:else}
+										{job.job_kind || 'Unknown job type'}
+									{/if}
+								</span>
+							{/if}
+
+							<!-- Badges after title -->
+							<RunBadges
+								{job}
+								{displayPersistentScriptDefinition}
+								{openPersistentScriptDrawer}
+								{concurrencyKey}
+								{onFilterByConcurrencyKey}
+								showScriptHash={showScriptHashInBadges}
+								large={false}
+							/>
+						</div>
 					</div>
-				{/if}
-			</div>
+				</div>
+			{/if}
 		</div>
 
-		<!-- Bottom section: Adaptive Metadata Grid -->
+		<!-- Separation bar -->
+		{#if !compact}
+			<div class="border-t mx-6"></div>
+		{/if}
+
+		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			{@const gridCols = Math.min(3, fields.length)}
 			<div class="px-6 py-4">
-				<div
-					class="grid gap-x-8 gap-y-3 text-xs text-primary font-normal"
-					style="grid-template-columns: repeat({gridCols}, 1fr);"
-				>
+				<div class="grid grid-cols-2 gap-x-12 gap-y-4">
 					{#if job}
 						{#each fields as config}
 							{@const value = getDisplayValue(config, job)}
 							{@const href = config.getHref?.(job, $workspaceStore || '')}
-							{@const IconComponent =
-								config.field === 'trigger_info' && triggerInfo()
-									? triggerInfo()?.icon
-									: config.icon}
 
 							{#if value}
-								<div class="flex flex-row gap-2 items-center min-w-0">
-									<IconComponent
-										size={SMALL_ICON_SIZE}
-										class="min-w-3.5 text-secondary flex-shrink-0"
-									/>
-									<span class="min-w-0 flex-1">
+								<div class="flex items-baseline gap-3 text-xs">
+									<span class="text-secondary min-w-[70px] flex-shrink-0">
+										{#if config.field === 'created_at'}
+											{renderFieldValue(config, job)}
+										{:else}
+											{config.label}
+										{/if}
+									</span>
+									<span class="text-primary">
 										{#if config.field === 'created_at'}
 											<span class="whitespace-nowrap">
-												{renderFieldValue(config, job)}
 												{#if shouldShowTimeAgo(config, job)}
 													<TimeAgo date={job.created_at ?? ''} />
 												{:else}
@@ -271,27 +282,30 @@
 											</span>
 										{:else if config.field === 'started_at' && 'started_at' in job}
 											<span class="whitespace-nowrap">
-												{config.label}
 												<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
 												<Tooltip small>{#snippet text()}{job?.started_at}{/snippet}</Tooltip>
 											</span>
 										{:else if config.field === 'created_by'}
 											<span>
-												By {value}
-												{#if (job?.created_by?.length ?? 0) > 30}
+												{value}
+												{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
+													<span class="text-secondary"> ({job.permissioned_as})</span>
+													<Tooltip small>
+														{#snippet text()}
+															{#if (job?.created_by?.length ?? 0) > 30}
+																Created by: {job.created_by}<br />
+															{/if}
+															But permissioned as {job.permissioned_as}
+														{/snippet}
+													</Tooltip>
+												{:else if (job?.created_by?.length ?? 0) > 30}
 													<Tooltip small>
 														{#snippet text()}{job.created_by}{/snippet}
 													</Tooltip>
 												{/if}
-												{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-													<span class="text-secondary text-2xs"
-														><br />but permissioned as {job.permissioned_as}</span
-													>
-												{/if}
 											</span>
 										{:else if config.field === 'worker'}
 											<span>
-												{config.label}:
 												{#if onFilterByWorker}
 													<Tooltip>
 														{#snippet text()}
@@ -332,7 +346,6 @@
 											</span>
 										{:else if config.field === 'schedule_path' && job.schedule_path}
 											<span class="whitespace-nowrap">
-												{config.label}:
 												<button
 													class="text-accent"
 													onclick={() =>
@@ -361,10 +374,9 @@
 												</a>
 											</span>
 										{:else if config.field === 'run_id'}
-											<div class="flex text-primary text-2xs min-w-0 flex-1 whitespace-nowrap">
-												<span class="whitespace-nowrap">{config.label}:&nbsp;</span>
-												<div class="truncate flex-shrink min-w-0">{value}</div>
-											</div>
+											<span class="whitespace-nowrap">
+												{value}
+											</span>
 										{:else if config.field === 'trigger_info'}
 											<span>{value}{triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : ''}</span
 											>
@@ -376,13 +388,11 @@
 													? `Script hash: ${job.script_hash}`
 													: undefined}
 											>
-												<span class="truncate flex-shrink min-w-0">
-													{config.label}: {value}
-												</span>
+												<span class="truncate flex-shrink min-w-0">{value}</span>
 												<ExternalLink size={12} class="flex-shrink-0" />
 											</a>
 										{:else}
-											<span>{config.label}: {value}</span>
+											<span>{value}</span>
 										{/if}
 									</span>
 								</div>

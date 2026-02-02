@@ -206,9 +206,8 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 	memory_peak: {
 		field: 'memory_peak',
 		icon: MemoryStick,
-		label: 'Memory peak',
-		getValue: (job) =>
-			job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null,
+		label: 'Mem peak',
+		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null),
 		isRelevant: (job) => {
 			const category = getJobCategory(job)
 			return category === 'script' || category === 'flow_node'
@@ -423,9 +422,7 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 		case 'dependencies':
 			// Dependencies jobs need minimal fields
 			prioritizedFields = prioritizedFields
-				.filter((f) =>
-					['created_at', 'created_by', 'worker', 'duration'].includes(f.field)
-				)
+				.filter((f) => ['created_at', 'created_by', 'worker', 'duration'].includes(f.field))
 				.slice(0, 4)
 			break
 
@@ -437,18 +434,14 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 		case 'ai_agent':
 			// AI agents have specific relevant fields
 			prioritizedFields = prioritizedFields
-				.filter((f) =>
-					!['script_hash', 'tag'].includes(f.field)
-				)
+				.filter((f) => !['script_hash', 'tag'].includes(f.field))
 				.slice(0, 5)
 			break
 
 		case 'system':
 			// System jobs need minimal display
 			prioritizedFields = prioritizedFields
-				.filter((f) =>
-					['created_at', 'created_by', 'worker', 'duration'].includes(f.field)
-				)
+				.filter((f) => ['created_at', 'created_by', 'worker', 'duration'].includes(f.field))
 				.slice(0, 4)
 			break
 
