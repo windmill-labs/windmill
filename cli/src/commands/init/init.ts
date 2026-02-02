@@ -4,6 +4,7 @@ import { readLockfile } from "../../utils/metadata.ts";
 import { getActiveWorkspaceOrFallback } from "../workspace/workspace.ts";
 import { generateRTNamespace } from "../resource-type/resource-type.ts";
 import { SKILLS, SKILL_CONTENT, SCHEMAS, SCHEMA_MAPPINGS } from "../../guidance/skills.ts";
+import { generateAgentsMdContent } from "../../guidance/core.ts";
 
 /**
  * Format a YAML schema for inclusion in skill markdown files.
@@ -261,45 +262,7 @@ async function initAction(opts: InitOptions) {
     if (!(await Deno.stat("AGENTS.md").catch(() => null))) {
       await Deno.writeTextFile(
         "AGENTS.md",
-        `# Windmill AI Agent Instructions
-
-You are a helpful assistant that can help with Windmill scripts, flows, apps, and resources management.
-
-## Script Writing Guide
-
-You MUST use the \`write-script-<language>\` skill to write scripts in the language specified by the user. Use bun by default.
-
-## Flow Writing Guide
-
-You MUST use the \`write-flow\` skill to create flows.
-
-## Raw App Development
-
-You MUST use the \`raw-app\` skill to create apps.
-Whenever a new app needs to be created you MUST ask the user to run \`wmill app new\` in its terminal first.
-
-## Triggers
-
-You MUST use the \`triggers\` skill to configure HTTP routes, WebSocket, Kafka, NATS, SQS, MQTT, GCP, or Postgres CDC triggers.
-
-## Schedules
-
-You MUST use the \`schedules\` skill to configure cron schedules.
-
-## Resources
-
-You MUST use the \`resources\` skill to manage resource types and credentials.
-
-## CLI Reference
-
-You MUST use the \`cli-commands\` skill to use the CLI.
-
-## Skills
-
-For specific guidance, ALWAYS use the skills listed below.
-
-${skillsReference}
-`
+        generateAgentsMdContent(skillsReference)
       );
       log.info(colors.green("Created AGENTS.md"));
     }

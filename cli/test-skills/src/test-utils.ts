@@ -1,4 +1,6 @@
 import { query, type Options } from "@anthropic-ai/claude-agent-sdk";
+import { existsSync } from "fs";
+import { join } from "path";
 
 export interface ToolInvocation {
   tool: string;
@@ -13,20 +15,61 @@ export interface TestResult {
 }
 
 /**
+ * Get the test-skills directory path
+ */
+export function getTestSkillsDir(): string {
+  return new URL("..", import.meta.url).pathname;
+}
+
+/**
+ * Get the test-folder directory path (where user places .claude/skills)
+ */
+export function getTestFolder(): string {
+  return join(getTestSkillsDir(), "test-folder");
+}
+
+/**
+ * Validate that test-folder exists and has .claude/skills
+ * Throws an error if validation fails
+ */
+export function validateTestFolder(): void {
+  const testFolder = getTestFolder();
+  const skillsFolder = join(testFolder, ".claude", "skills");
+
+  if (!existsSync(testFolder)) {
+    throw new Error(
+      `test-folder does not exist at: ${testFolder}\n` +
+      `Please create it and add your .claude/skills directory inside.`
+    );
+  }
+
+  if (!existsSync(skillsFolder)) {
+    throw new Error(
+      `.claude/skills directory not found in test-folder at: ${skillsFolder}\n` +
+      `Please add your auto-generated Windmill skills to test-folder/.claude/skills/`
+    );
+  }
+}
+
+/**
  * Runs a prompt through the Claude Agent SDK and captures tool invocations
+ * Uses test-folder as cwd where user-provided skills are located
  */
 export async function runPromptAndCapture(
   prompt: string,
-  cwd: string,
+  cwd?: string,
   maxTurns: number = 3
 ): Promise<TestResult> {
+  const workingDir = cwd ?? getTestFolder();
   const toolsUsed: ToolInvocation[] = [];
   const skillsInvoked: string[] = [];
   let output = "";
 
   const options: Options = {
-    cwd,
+    cwd: workingDir,
+    model: "haiku",
     maxTurns,
+    settingSources: ["project"],  // Required to load Skills from filesystem
     allowedTools: ["Skill", "Read", "Glob", "Grep", "Bash", "Write", "Edit"],
   };
 
