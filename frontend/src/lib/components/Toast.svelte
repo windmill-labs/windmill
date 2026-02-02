@@ -37,25 +37,22 @@
 		}
 	}
 
-	setInterval(() => {
-		sendUserToast('Testing new toasts ! Success.')
-	}, 3000)
+	export type ToastType = AlertType
 </script>
 
 <script lang="ts">
 	import { toast } from '@zerodevx/svelte-toast'
-	import { CheckCircle2, XCircleIcon } from 'lucide-svelte'
 	import Button from './common/button/Button.svelte'
-	import { sendUserToast, type ToastAction } from '$lib/toast'
+	import { type ToastAction } from '$lib/toast'
 	import { processMessage } from './toast'
 	import { onDestroy, untrack } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { classes } from '$lib/components/common/alert/model'
+	import { classes, icons, type AlertType } from '$lib/components/common/alert/model'
 
 	interface Props {
 		message: string
 		toastId: string
-		error?: boolean
+		type?: ToastType
 		actions?: ToastAction[]
 		errorMessage?: string | undefined
 		duration?: number
@@ -64,7 +61,7 @@
 	let {
 		message,
 		toastId,
-		error = false,
+		type = 'success',
 		actions = [],
 		errorMessage = undefined,
 		duration = 5000
@@ -87,14 +84,25 @@
 		}
 	})
 
-	let color = error ? classes.error : classes.success
+	let color = classes[type]
+
+	let containerClass = {
+		success: 'toast-success',
+		error: 'toast-error',
+		info: 'toast-info',
+		warning: 'toast-warning'
+	}[type]
+
+	let Icon = $derived(icons[type])
+
+	// let hover = $derived(Object.values(toastStates).some((state) => state.hover))
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={twMerge(
 		'pointer-events-auto w-full overflow-hidden rounded-md relative flex items-center bg-surface',
-		error ? 'toast-error' : 'toast-success'
+		containerClass
 	)}
 	onmouseenter={() => state && (state.hover = true)}
 	onmouseleave={() => state && (state.hover = false)}
@@ -103,11 +111,7 @@
 		class="flex items-center h-full w-full min-h-10 rounded-md px-2 py-1 {color.descriptionClass} {color.bgClass}"
 	>
 		<div class="flex-shrink-0 mt-0.5">
-			{#if error}
-				<XCircleIcon class="h-4 w-4 {color.iconClass}" />
-			{:else}
-				<CheckCircle2 class="h-4 w-4 {color.iconClass}" />
-			{/if}
+			<Icon class="h-4 w-4 {color.iconClass}" />
 		</div>
 		<div class="ml-3 flex-1 w-0">
 			<p class="text-xs break-words">
@@ -120,7 +124,7 @@
 			{/if}
 		</div>
 
-		<div class="flex gap-2 items-center">
+		<div class="flex flex-col gap-1 justify-center ml-1">
 			{#each actions as action, index (index)}
 				<Button
 					variant={action.buttonType ?? 'subtle'}
@@ -152,9 +156,7 @@
 	</div>
 	<!-- Duration indicator -->
 	<div
-		class="h-[1px] absolute bottom-0 transition-colors bg-current {classes.success[
-			'iconClass'
-		]} opacity-40"
+		class="h-[1px] absolute bottom-0 transition-colors bg-current {color.iconClass} opacity-60"
 		style="width: {Math.max(0, 1 - (state?.elapsed ?? duration) / duration) * 100}%"
 	>
 	</div>

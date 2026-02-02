@@ -1,14 +1,7 @@
 <script lang="ts">
-	import { type AlertType, classes } from './model'
+	import { type AlertType, classes, icons } from './model'
 	import Tooltip from '$lib/components/Tooltip.svelte'
-	import {
-		AlertCircle,
-		AlertTriangle,
-		CheckCircle2,
-		Info,
-		ChevronDown,
-		ChevronUp
-	} from 'lucide-svelte'
+	import { ChevronDown, ChevronUp } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
 
@@ -53,13 +46,6 @@
 		isCollapsed = $bindable(true),
 		children
 	}: Props = $props()
-
-	const icons: Record<AlertType, any> = {
-		info: Info,
-		warning: AlertCircle,
-		error: AlertTriangle,
-		success: CheckCircle2
-	}
 
 	function toggleCollapse() {
 		if (collapsible) {

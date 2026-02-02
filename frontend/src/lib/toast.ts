@@ -1,4 +1,4 @@
-import Toast from '$lib/components/Toast.svelte'
+import Toast, { type ToastType } from '$lib/components/Toast.svelte'
 import { toast } from '@zerodevx/svelte-toast'
 import type { ComponentProps } from 'svelte'
 import type { Button } from './components/common'
@@ -11,15 +11,18 @@ export type ToastAction = {
 
 export function sendUserToast(
 	message: string,
-	error: boolean = false,
+	_type: boolean | ToastType = 'success',
 	actions: ToastAction[] = [],
 	errorMessage: string | undefined = undefined,
 	duration: number = 5000
 ): void {
+	const type = typeof _type === 'boolean' ? (_type ? 'error' : 'success') : _type
+	const error = type === 'error'
 	if (globalThis.windmillToast) {
 		globalThis.windmillToast({
 			message,
 			error,
+			type,
 			actions,
 			errorMessage,
 			duration
@@ -34,7 +37,7 @@ export function sendUserToast(
 			src: Toast,
 			props: {
 				message,
-				error,
+				type,
 				actions,
 				errorMessage,
 				duration
