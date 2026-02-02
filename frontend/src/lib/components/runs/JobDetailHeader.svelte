@@ -70,19 +70,42 @@
 	}
 
 	/**
+	 * Gets the raw value for a field (without truncation)
+	 */
+	function getFullValue(config: FieldConfig, job: Job): string {
+		const value = config.getValue(job)
+		if (!value) return 'no value'
+		return value
+	}
+
+	/**
+	 * Gets the truncated display value for a field
+	 */
+	function getTruncatedValue(config: FieldConfig, job: Job, compact: boolean = false): string {
+		const fullValue = getFullValue(config, job)
+		if (fullValue === 'no value') return fullValue
+
+		switch (config.field) {
+			case 'run_id':
+				return truncateRev(fullValue, 8)
+			case 'script_hash':
+				return truncateHash(fullValue.toString())
+			case 'worker':
+				return truncateRev(fullValue, compact ? 8 : 12)
+			case 'parent_job':
+				return truncateRev(fullValue, 6)
+			case 'schedule_path':
+				return truncateRev(fullValue, 20)
+			default:
+				return fullValue
+		}
+	}
+
+	/**
 	 * Gets the display value for a field
 	 */
 	function getDisplayValue(config: FieldConfig, job: Job): string {
-		const value = config.getValue(job)
-		if (!value) return 'no value'
-
-		switch (config.field) {
-			case 'script_hash':
-				return truncateHash(value.toString())
-
-			default:
-				return value
-		}
+		return getTruncatedValue(config, job, compact)
 	}
 
 	/**
@@ -93,7 +116,7 @@
 	}
 </script>
 
-{#snippet fieldValueRenderer(config, job, value, href)}
+{#snippet fieldValueRenderer(config, job, displayValue, fullValue, href)}
 	{#if config.field === 'created_at'}
 		<Tooltip small>
 			{#snippet text()}{job?.created_at}{/snippet}
@@ -113,30 +136,34 @@
 			</span>
 		</Tooltip>
 	{:else if config.field === 'created_by'}
-		<span>
+		<div class="flex items-center gap-1 min-w-0">
 			{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-				<Tooltip small>
+				<Tooltip small class="truncate" style="direction: rtl;">
 					{#snippet text()}
 						{#if (job?.created_by?.length ?? 0) > 30}
 							Created by: {job.created_by}<br />
 						{/if}
 						But permissioned as {job.permissioned_as}
 					{/snippet}
-					{value}
-					<span class="text-secondary"> ({job.permissioned_as})</span>
+
+					<span
+						class="text-secondary flex-shrink whitespace-nowrap overflow-hidden"
+						style="direction: rtl;"
+					>
+						<span class="text-primary">{displayValue}</span> ({job.permissioned_as})
+					</span>
 				</Tooltip>
 			{:else}
 				<Tooltip small>
 					{#snippet text()}{job.created_by}{/snippet}
-					{value}
-					<span class="inline"><!-- empty wrapper for tooltip alignment --></span>
+					<span>{displayValue}</span>
 				</Tooltip>
 			{/if}
-		</span>
+		</div>
 	{:else if config.field === 'worker'}
-		<span title={value}>
-			{#if value === 'no value'}
-				{value}
+		<span title={fullValue}>
+			{#if displayValue === 'no value'}
+				{displayValue}
 			{:else if onFilterByWorker}
 				<Tooltip>
 					{#snippet text()}
@@ -157,7 +184,7 @@
 						onclick={() => job?.worker && onFilterByWorker?.(job.worker)}
 						class="flex items-center gap-1"
 					>
-						{value}
+						{displayValue}
 						<ExternalLink size={12} class="flex-shrink-0" />
 					</button>
 				</Tooltip>
@@ -175,24 +202,24 @@
 						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
 						class="flex items-center gap-1 text-primary"
 					>
-						{value}
+						{displayValue}
 						<ExternalLink size={12} class="flex-shrink-0" />
 					</a>
 				</Tooltip>
 			{/if}
 		</span>
 	{:else if config.field === 'schedule_path' && job.schedule_path}
-		<span class="whitespace-nowrap" title={value}>
+		<span class="whitespace-nowrap" title={fullValue}>
 			<button
 				onclick={() => scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
 				class="flex items-center gap-1"
 			>
-				{value}
+				{displayValue}
 				<ExternalLink size={12} class="flex-shrink-0" />
 			</button>
 		</span>
 	{:else if config.field === 'parent_job' && job.parent_job}
-		<span class="whitespace-nowrap flex items-center gap-1" title={value}>
+		<span class="whitespace-nowrap flex items-center gap-1" title={fullValue}>
 			{#if job.is_flow_step}
 				Step of flow
 			{:else}
@@ -202,13 +229,13 @@
 				href={`${base}/run/${job.parent_job}?workspace=${$workspaceStore}`}
 				class="flex items-center gap-1"
 			>
-				{value}
+				{displayValue}
 				<ExternalLink size={12} class="flex-shrink-0" />
 			</a>
 		</span>
 	{:else if config.field === 'run_id'}
 		<div class="flex items-center gap-2 whitespace-nowrap">
-			<span title={value}>{truncateRev(value, 15)}</span>
+			<span title={fullValue}>{displayValue}</span>
 			<DropdownV2
 				size="xs"
 				items={[
@@ -240,25 +267,26 @@
 			</DropdownV2>
 		</div>
 	{:else if config.field === 'trigger_info'}
-		{@const triggerInfoText = value + (triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : '')}
+		{@const triggerInfoText =
+			displayValue + (triggerInfo()?.detail ? `: ${triggerInfo()?.detail}` : '')}
 		<span title={triggerInfoText}>{triggerInfoText}</span>
 	{:else if href}
 		<a
 			{href}
 			class="flex items-center gap-1 min-w-0 text-primary"
-			title={config.field === 'script_hash' ? `Script hash: ${job.script_hash}` : undefined}
+			title={config.field === 'script_hash' ? `Script hash: ${fullValue}` : fullValue}
 		>
-			<span class="truncate flex-shrink min-w-0">{value}</span>
+			<span class="truncate flex-shrink min-w-0">{displayValue}</span>
 			<ExternalLink size={12} class="flex-shrink-0" />
 		</a>
 	{:else}
-		<span title={value} class="truncate">{value}</span>
+		<span title={fullValue} class="truncate">{displayValue}</span>
 	{/if}
 {/snippet}
 
 {#if extraCompact}
 	<!-- Extra compact variant: only status, ID and expandable chevron -->
-	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
+	<div class="rounded-md border bg-surface-tertiary overflow-auto w-full">
 		<div class="flex flex-row flex-wrap justify-between items-center gap-x-4 py-2 px-3">
 			<div class="flex flex-row flex-wrap gap-2 items-center flex-1">
 				{#if job}
@@ -295,19 +323,21 @@
 			<div class="px-3 pb-2 border-t border-surface-secondary bg-surface">
 				<div class="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-secondary pt-2">
 					{#each expandedFields as config}
-						{@const value = getDisplayValue(config, job)}
+						{@const displayValue = getDisplayValue(config, job)}
+						{@const fullValue = getFullValue(config, job)}
 						{@const IconComponent =
 							config.field === 'trigger_info' && triggerInfo() ? triggerInfo()?.icon : config.icon}
 						<div class="flex items-center gap-1">
 							<IconComponent size={10} class="text-tertiary flex-shrink-0" />
 							<span
-								class:text-secondary={value === 'no value'}
-								class:text-primary={value !== 'no value'}
+								class:text-secondary={displayValue === 'no value'}
+								class:text-primary={displayValue !== 'no value'}
 								class="truncate"
 								>{config.label}: {@render fieldValueRenderer(
 									config,
 									job,
-									value,
+									displayValue,
+									fullValue,
 									config.getHref?.(job, $workspaceStore || '')
 								)}</span
 							>
@@ -318,7 +348,7 @@
 		{/if}
 	</div>
 {:else}
-	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full flex flex-wrap">
+	<div class="rounded-md border bg-surface-tertiary overflow-auto w-full flex flex-wrap">
 		<!-- Top section: Title with Status Dot and Badges Below -->
 		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style="flex: 3 1 300px;">
 			{#if job}
@@ -392,20 +422,21 @@
 			{/if}
 		</div>
 
-		<!-- Separation bar -->
-		<div class="border-t"></div>
-
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div class="px-8 py-4 bg-surface-secondary flex items-center" style="flex: 1 1 200px; min-width: 600px;">
+			<div
+				class="px-8 py-4 bg-surface-secondary flex items-center"
+				style="flex: 1 1 200px; min-width: 650px;"
+			>
 				<div
 					class="grid gap-x-16 gap-y-1.5 max-w-xl"
 					style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
 				>
 					{#if job}
 						{#each fields as config}
-							{@const value = getDisplayValue(config, job)}
+							{@const displayValue = getDisplayValue(config, job)}
+							{@const fullValue = getFullValue(config, job)}
 							{@const href = config.getHref?.(job, $workspaceStore || '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
@@ -413,12 +444,12 @@
 									{config.label}
 								</span>
 								<span
-									class:text-primary={value !== 'no value'}
-									class:text-secondary={value === 'no value'}
+									class:text-primary={displayValue !== 'no value'}
+									class:text-secondary={displayValue === 'no value'}
 									class="min-w-0 flex-1"
 								>
-									<div class="truncate">
-										{@render fieldValueRenderer(config, job, value, href)}
+									<div class:truncate={config.field !== 'created_by'}>
+										{@render fieldValueRenderer(config, job, displayValue, fullValue, href)}
 									</div>
 								</span>
 							</div>
@@ -455,19 +486,20 @@
 							</div>
 
 							{#each fields as config (config.field)}
-								{@const value = getDisplayValue(config, job)}
+								{@const displayValue = getDisplayValue(config, job)}
+								{@const fullValue = getFullValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
 								<!-- Field -->
 								<div class="flex items-baseline gap-1 text-xs min-w-0">
 									<span class="text-secondary flex-shrink-0">{config.label}</span>
 									<span
-										class:text-primary={value !== 'no value'}
-										class:text-secondary={value === 'no value'}
+										class:text-primary={displayValue !== 'no value'}
+										class:text-secondary={displayValue === 'no value'}
 										class="min-w-0 flex-1"
 									>
-										<div class="truncate" title={value}>
-											{@render fieldValueRenderer(config, job, value, href)}
+										<div class:truncate={config.field !== 'created_by'} title={fullValue}>
+											{@render fieldValueRenderer(config, job, displayValue, fullValue, href)}
 										</div>
 									</span>
 								</div>
@@ -502,7 +534,8 @@
 					<div class="mt-2 pt-2 border-t" transition:slide={{ duration: 150 }}>
 						<div class="flex flex-col gap-y-1">
 							{#each expandedFields as config}
-								{@const value = getDisplayValue(config, job)}
+								{@const displayValue = getDisplayValue(config, job)}
+								{@const fullValue = getFullValue(config, job)}
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
@@ -514,12 +547,16 @@
 										{/if}
 									</span>
 									<span
-										class:text-primary={value !== 'no value'}
-										class:text-secondary={value === 'no value'}
+										class:text-primary={displayValue !== 'no value'}
+										class:text-secondary={displayValue === 'no value'}
 										class="min-w-0 flex-1"
 									>
-										<div class="truncate" title={value}>
-											{@render fieldValueRenderer(config, job, value, href)}
+										<div
+											class:truncate={config.field !== 'created_by'}
+											class:truncate-start={config.field === 'created_by'}
+											title={fullValue}
+										>
+											{@render fieldValueRenderer(config, job, displayValue, fullValue, href)}
 										</div>
 									</span>
 								</div>
@@ -531,3 +568,16 @@
 		{/if}
 	</div>
 {/if}
+
+<style>
+	.truncate-start {
+		overflow: hidden;
+		white-space: nowrap;
+		direction: rtl;
+		text-align: left;
+	}
+
+	.truncate-start > * {
+		direction: ltr;
+	}
+</style>
