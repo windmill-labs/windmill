@@ -6,7 +6,7 @@
 	import TimeAgo from '$lib/components/TimeAgo.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import Tooltip from '$lib/components/meltComponents/Tooltip.svelte'
-	import { IdCard, ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
+	import { ExternalLink, ListFilter, ChevronDown, Share2, Link, Copy } from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
 	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
@@ -292,15 +292,17 @@
 			<div class="flex flex-row flex-wrap gap-2 items-center flex-1">
 				{#if job}
 					<JobStatus {job} />
-					<div class="flex items-center gap-1">
-						<IdCard size={12} class="text-secondary flex-shrink-0" />
-						<a
-							href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
-							class="text-xs flex items-center gap-1"
-						>
-							<span class="truncate">{job.id}</span>
-							<ExternalLink size={10} class="flex-shrink-0" />
-						</a>
+					<div class="flex items-baseline gap-1 text-xs">
+						<span class="text-secondary flex-shrink-0">Job ID</span>
+						<span class="text-primary">
+							<a
+								href={`${base}/run/${job.id}?workspace=${job.workspace_id}`}
+								class="flex items-center gap-1 min-w-0"
+							>
+								<span class="truncate flex-shrink min-w-0">{truncateRev(job.id, 8)}</span>
+								<ExternalLink size={10} class="flex-shrink-0" />
+							</a>
+						</span>
 					</div>
 				{/if}
 			</div>
@@ -322,26 +324,23 @@
 				.filter((f) => f.field !== 'run_id' && f.field !== 'created_at')
 				.slice(0, 3)}
 			<div class="px-3 pb-2 border-t border-surface-secondary bg-surface">
-				<div class="flex flex-wrap gap-x-4 gap-y-1 text-2xs text-secondary pt-2">
+				<div class="flex flex-col gap-y-1 text-xs pt-2">
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
 						{@const fullValue = getFullValue(config, job)}
-						{@const IconComponent =
-							config.field === 'trigger_info' && triggerInfo() ? triggerInfo()?.icon : config.icon}
-						<div class="flex items-center gap-1">
-							<IconComponent size={10} class="text-tertiary flex-shrink-0" />
+						{@const href = config.getHref?.(job, $workspaceStore || '')}
+
+						<div class="flex items-baseline gap-1 text-xs">
+							<span class="text-secondary flex-shrink-0">{config.label}</span>
 							<span
-								class:text-secondary={displayValue === 'no value'}
 								class:text-primary={displayValue !== 'no value'}
-								class="truncate"
-								>{config.label}: {@render fieldValueRenderer(
-									config,
-									job,
-									displayValue,
-									fullValue,
-									config.getHref?.(job, $workspaceStore || '')
-								)}</span
+								class:text-secondary={displayValue === 'no value'}
+								class="min-w-0 flex-1"
 							>
+								<div class:truncate={config.field !== 'created_by'}>
+									{@render fieldValueRenderer(config, job, displayValue, fullValue, href)}
+								</div>
+							</span>
 						</div>
 					{/each}
 				</div>
