@@ -1,21 +1,6 @@
 import type { Job } from '$lib/gen'
 import { triggerIconMap } from '$lib/components/triggers/utils'
-import {
-	Clock,
-	MemoryStick,
-	Calendar,
-	Bot,
-	User,
-	Code,
-	IdCard,
-	Hash,
-	HardHat,
-	Webhook,
-	FileText,
-	GitBranch,
-	PlayCircle,
-	Layers
-} from 'lucide-svelte'
+import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
 /**
@@ -57,7 +42,6 @@ export type JobField =
  */
 export interface FieldConfig {
 	field: JobField
-	icon: any
 	label: string
 	getValue: (job: Job) => string | null
 	getHref?: (job: Job, workspaceId: string) => string | null
@@ -179,42 +163,36 @@ function getTriggerDisplayName(triggerKind: string): string {
 export const fieldConfigs: Record<JobField, FieldConfig> = {
 	created_at: {
 		field: 'created_at',
-		icon: Clock,
 		label: 'Received',
 		getValue: (job) => job.created_at || null
 	},
 
 	started_at: {
 		field: 'started_at',
-		icon: PlayCircle,
 		label: 'Started',
 		getValue: (job) => ('started_at' in job ? job.started_at : null) || null
 	},
 
 	created_by: {
 		field: 'created_by',
-		icon: User,
 		label: 'By',
 		getValue: (job) => job.created_by || 'unknown'
 	},
 
 	memory_peak: {
 		field: 'memory_peak',
-		icon: MemoryStick,
 		label: 'Mem peak',
 		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null)
 	},
 
 	run_id: {
 		field: 'run_id',
-		icon: IdCard,
 		label: 'Run ID',
 		getValue: (job) => job.id
 	},
 
 	trigger_info: {
 		field: 'trigger_info',
-		icon: Webhook, // Default, will be overridden by getTriggerInfo
 		label: 'Trigger',
 		getValue: (job) => {
 			const triggerInfo = getTriggerInfo(job)
@@ -224,7 +202,6 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	parent_job: {
 		field: 'parent_job',
-		icon: GitBranch,
 		label: 'Parent',
 		getValue: (job) => job.parent_job || null,
 		getHref: (job, workspaceId) =>
@@ -233,14 +210,12 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	schedule_path: {
 		field: 'schedule_path',
-		icon: Calendar,
 		label: 'Schedule',
 		getValue: (job) => job.schedule_path || null
 	},
 
 	script_hash: {
 		field: 'script_hash',
-		icon: Hash,
 		label: 'Hash',
 		getValue: (job) => job.script_hash?.toString() || null,
 		getHref: (job, workspaceId) =>
@@ -251,7 +226,6 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	script_path: {
 		field: 'script_path',
-		icon: Code,
 		label: 'Path',
 		getValue: (job) => job.script_path || null,
 		getHref: (job, workspaceId) => {
@@ -264,21 +238,18 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	worker: {
 		field: 'worker',
-		icon: HardHat,
 		label: 'Worker',
 		getValue: (job) => job.worker || null
 	},
 
 	language: {
 		field: 'language',
-		icon: Code,
 		label: 'Language',
 		getValue: (job) => job.language || null
 	},
 
 	step_info: {
 		field: 'step_info',
-		icon: Layers,
 		label: 'Step',
 		getValue: (job) => {
 			if (job.is_flow_step && 'flow_step_id' in job) {
@@ -290,7 +261,6 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	flow_status: {
 		field: 'flow_status',
-		icon: BarsStaggered,
 		label: 'Flow Status',
 		getValue: (job) => {
 			if (job.flow_status?.step !== undefined) {
@@ -302,7 +272,6 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	duration: {
 		field: 'duration',
-		icon: Clock,
 		label: 'Duration',
 		getValue: (job) => {
 			if ('duration_ms' in job && job.duration_ms) {
@@ -317,14 +286,12 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 
 	priority: {
 		field: 'priority',
-		icon: FileText,
 		label: 'Priority',
 		getValue: (job) => job.priority?.toString() || null
 	},
 
 	concurrency_key: {
 		field: 'concurrency_key',
-		icon: Layers,
 		label: 'Concurrency',
 		getValue: () => null // This will be provided separately as a prop
 	}
@@ -487,8 +454,8 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 	// Define the field ordering: created_by, started_at, worker, then others
 	const fieldOrder: JobField[] = [
 		'created_at',
-		'created_by',
 		'started_at',
+		'created_by',
 		'worker',
 		'run_id',
 		'memory_peak',

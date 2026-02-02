@@ -182,7 +182,7 @@
 			{/if}
 		</div>
 	{:else if config.field === 'worker'}
-		<span title={fullValue}>
+		<span>
 			{#if displayValue === 'no value'}
 				{displayValue}
 			{:else if onFilterByWorker}
