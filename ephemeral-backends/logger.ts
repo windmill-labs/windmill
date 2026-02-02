@@ -40,7 +40,7 @@ export class Logger {
   }
 
   log(message: string): void {
-    const formatted = this.formatMessage("INFO", message);
+    const formatted = this.formatMessage("stdin ", message);
     try {
       appendFileSync(this.logFilePath, formatted);
     } catch (error) {
@@ -53,7 +53,7 @@ export class Logger {
   }
 
   error(message: string): void {
-    const formatted = this.formatMessage("ERROR", message);
+    const formatted = this.formatMessage("stderr", message);
     try {
       appendFileSync(this.logFilePath, formatted);
     } catch (error) {
@@ -65,7 +65,7 @@ export class Logger {
   }
 
   warn(message: string): void {
-    const formatted = this.formatMessage("WARN", message);
+    const formatted = this.formatMessage("warn  ", message);
     try {
       appendFileSync(this.logFilePath, formatted);
     } catch (error) {
