@@ -373,20 +373,24 @@
 						</div>
 
 						<!-- Badges row -->
-						<div class="flex items-center gap-3 flex-wrap">
+						<div class="flex items-baseline gap-3 flex-wrap">
 							<!-- Job Status -->
-							<JobStatus {job} />
+							<div class="flex items-center">
+								<JobStatus {job} />
+							</div>
 
 							<!-- Run Badges -->
-							<RunBadges
-								{job}
-								{displayPersistentScriptDefinition}
-								{openPersistentScriptDrawer}
-								{concurrencyKey}
-								{onFilterByConcurrencyKey}
-								showScriptHash={showScriptHashInBadges}
-								large={false}
-							/>
+							<div class="flex items-center">
+								<RunBadges
+									{job}
+									{displayPersistentScriptDefinition}
+									{openPersistentScriptDrawer}
+									{concurrencyKey}
+									{onFilterByConcurrencyKey}
+									showScriptHash={showScriptHashInBadges}
+									large={false}
+								/>
+							</div>
 						</div>
 					</div>
 				</div>
