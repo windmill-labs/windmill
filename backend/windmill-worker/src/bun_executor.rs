@@ -79,7 +79,11 @@ pub fn generate_dedicated_worker_wrapper(
     let spread = arg_names.join(",");
     let dates = date_conversions.unwrap_or("");
     let is_debug = std::env::var("RUST_LOG").is_ok_and(|x| x == "windmill=debug");
-    let print_lines = if is_debug { r#"console.log(line);"# } else { "" };
+    let print_lines = if is_debug {
+        r#"console.log(line);"#
+    } else {
+        ""
+    };
 
     format!(
         r#"
@@ -171,7 +175,10 @@ pub async fn gen_bun_lockfile(
             .replace("W_ID", w_id)
             .replace("BASE_INTERNAL_URL", base_internal_url)
             .replace("TOKEN", token)
-            .replace("CURRENT_PATH", &crate::common::use_flow_root_path(script_path))
+            .replace(
+                "CURRENT_PATH",
+                &crate::common::use_flow_root_path(script_path),
+            )
             .replace("RAW_GET_ENDPOINT", "raw");
 
         write_file(
@@ -451,7 +458,10 @@ pub async fn build_loader(
         .replace("W_ID", w_id)
         .replace("BASE_INTERNAL_URL", base_internal_url)
         .replace("TOKEN", token)
-        .replace("CURRENT_PATH", &crate::common::use_flow_root_path(current_path))
+        .replace(
+            "CURRENT_PATH",
+            &crate::common::use_flow_root_path(current_path),
+        )
         .replace("RAW_GET_ENDPOINT", "raw_unpinned");
 
     if mode == LoaderMode::Node {
@@ -1652,15 +1662,8 @@ pub async fn start_worker(
 
     let mut annotation = windmill_common::worker::TypeScriptAnnotations::parse(inner_content);
 
-    // Allow forcing native Bun runtime via environment variable for testing
-    let force_bun_runtime = std::env::var("DEDICATED_WORKER_FORCE_BUN")
-        .map(|v| v == "true" || v == "1")
-        .unwrap_or(false);
-
-    if !force_bun_runtime {
-        //TODO: remove this when bun dedicated workers work without issues
-        annotation.nodejs = true;
-    }
+    //TODO: remove this when bun dedicated workers work without issues
+    annotation.nodejs = true;
 
     let context = variables::get_reserved_variables(
         &Connection::from(db.clone()),
@@ -1786,7 +1789,11 @@ pub async fn start_worker(
         } else {
             "./main.ts"
         };
-        let dates_opt = if dates.is_empty() { None } else { Some(dates.as_str()) };
+        let dates_opt = if dates.is_empty() {
+            None
+        } else {
+            Some(dates.as_str())
+        };
         let wrapper_content = generate_dedicated_worker_wrapper(&arg_names, main_import, dates_opt);
         write_file(job_dir, "wrapper.mjs", &wrapper_content)?;
     }
