@@ -12,12 +12,10 @@
 		ListFilter,
 		ListFilterPlus,
 		ChevronDown,
-		ChevronRight,
-		Check,
-		X,
-		Clock
+		ChevronRight
 	} from 'lucide-svelte'
 	import JobStatus from '$lib/components/JobStatus.svelte'
+	import JobStatusIcon from '$lib/components/runs/JobStatusIcon.svelte'
 	import RunBadges from '$lib/components/runs/RunBadges.svelte'
 	import WorkerHostname from '$lib/components/WorkerHostname.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
@@ -174,22 +172,8 @@
 				<!-- Header with status icon aligned with title+badge group -->
 				<div class="flex items-center justify-between">
 					<div class="flex items-center gap-3">
-						<!-- Status icon with background -->
-						<div
-							class="p-1.5 rounded-full {job['success'] === true
-								? 'bg-green-100'
-								: job['success'] === false
-									? 'bg-red-100'
-									: 'bg-yellow-100'}"
-						>
-							{#if job['success'] === true}
-								<Check size={16} class="text-green-600" />
-							{:else if job['success'] === false}
-								<X size={16} class="text-red-600" />
-							{:else}
-								<Clock size={16} class="text-yellow-600" />
-							{/if}
-						</div>
+						<!-- Status icon -->
+						<JobStatusIcon {job} roundedFull />
 
 						<!-- Title and badges container -->
 						<div class="flex items-center gap-3 flex-wrap">
