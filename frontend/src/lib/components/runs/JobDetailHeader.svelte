@@ -327,9 +327,11 @@
 		{/if}
 	</div>
 {:else}
-	<div class="rounded-md border bg-surface-tertiary overflow-hidden w-full">
+	<div
+		class="rounded-md border bg-surface-tertiary overflow-hidden w-full flex flex-wrap"
+	>
 		<!-- Top section: Title with Status Dot and Badges Below -->
-		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'}>
+		<div class={compact ? 'py-3 px-4' : 'py-6 px-8'} style="flex: 3 1 300px;">
 			{#if job}
 				<!-- Header with status icon and two-row title/badges section -->
 				<div class="flex items-center gap-3">
@@ -407,7 +409,7 @@
 		<!-- Bottom section: Adaptive Metadata in single grid layout -->
 		{#if !compact}
 			{@const fields = relevantFields()}
-			<div class="px-8 py-4 bg-surface-secondary">
+			<div class="px-8 py-4 bg-surface-secondary" style="flex: 1 1 200px;">
 				<div
 					class="grid gap-x-12 gap-y-1.5 max-w-xl"
 					style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));"
@@ -443,7 +445,7 @@
 			<!-- Exclude run_id since we show it separately, limit to 2 other fields -->
 			{@const additionalFieldsCount = relevantFields().length - fields.length - 1}
 			<!-- -1 for run_id -->
-			<div class="px-4 py-2 bg-surface-secondary">
+			<div class="px-4 py-2 bg-surface-secondary" style="flex: 1 1 200px;">
 				<div
 					class="flex flex-wrap justify-between items-start gap-x-4 gap-y-1 text-xs text-primary font-normal"
 				>
