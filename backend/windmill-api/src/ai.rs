@@ -132,19 +132,11 @@ struct AIOAuthResource {
     user: Option<String>,
 }
 
-/// Platform for Anthropic API
+/// Platform for AI providers (Anthropic, Google AI)
+/// Both Anthropic and Google AI can run on standard endpoints or Google Vertex AI
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-enum AnthropicPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
-}
-
-/// Platform for Google AI API
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-enum GoogleAIPlatform {
+enum AIPlatform {
     #[default]
     Standard,
     GoogleVertexAi,
@@ -164,12 +156,10 @@ struct AIStandardResource {
     aws_access_key_id: Option<String>,
     #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     aws_secret_access_key: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform for AI providers (standard or google_vertex_ai)
+    /// Used by both Anthropic and Google AI providers to indicate Vertex AI usage
     #[serde(default)]
-    platform: AnthropicPlatform,
-    /// Platform for Google AI API (standard or google_vertex_ai)
-    #[serde(default)]
-    google_platform: GoogleAIPlatform,
+    platform: AIPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -197,8 +187,8 @@ struct AIRequestConfig {
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
-    pub platform: AnthropicPlatform,
-    pub google_platform: GoogleAIPlatform,
+    /// Platform for AI providers (standard or google_vertex_ai)
+    pub platform: AIPlatform,
 }
 
 impl AIRequestConfig {
@@ -218,19 +208,15 @@ impl AIRequestConfig {
             aws_access_key_id,
             aws_secret_access_key,
             platform,
-            google_platform,
         ) = match resource {
             AIResource::Standard(resource) => {
                 let region = resource.region.clone();
                 let platform = resource.platform.clone();
-                let google_platform = resource.google_platform.clone();
                 // Skip get_base_url for Bedrock - it uses SDK directly, not HTTP
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
                 } else {
-                    provider
-                        .get_base_url(resource.base_url, db)
-                        .await?
+                    provider.get_base_url(resource.base_url, db).await?
                 };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
@@ -264,7 +250,6 @@ impl AIRequestConfig {
                     aws_access_key_id,
                     aws_secret_access_key,
                     platform,
-                    google_platform,
                 )
             }
             AIResource::OAuth(resource) => {
@@ -285,8 +270,7 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
-                    AnthropicPlatform::Standard,
-                    GoogleAIPlatform::Standard,
+                    AIPlatform::Standard,
                 )
             }
         };
@@ -301,7 +285,6 @@ impl AIRequestConfig {
             aws_access_key_id,
             aws_secret_access_key,
             platform,
-            google_platform,
         })
     }
 
@@ -356,10 +339,10 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+        let is_anthropic_vertex = is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
-        let is_google_ai_vertex = is_google_ai && self.google_platform == GoogleAIPlatform::GoogleVertexAi;
+        let is_google_ai_vertex = is_google_ai && self.platform == AIPlatform::GoogleVertexAi;
 
         // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
         // For Vertex AI, the base_url is already properly configured, no need to add /openai

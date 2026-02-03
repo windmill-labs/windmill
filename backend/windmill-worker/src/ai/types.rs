@@ -156,17 +156,11 @@ impl From<AIAgentArgsRaw> for AIAgentArgs {
     }
 }
 
+/// Platform for AI providers (Anthropic, Google AI)
+/// Both Anthropic and Google AI can run on standard endpoints or Google Vertex AI
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum AnthropicPlatform {
-    #[default]
-    Standard,
-    GoogleVertexAi,
-}
-
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum GoogleAIPlatform {
+pub enum AIPlatform {
     #[default]
     Standard,
     GoogleVertexAi,
@@ -187,12 +181,10 @@ pub struct ProviderResource {
     #[allow(dead_code)]
     #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     pub aws_secret_access_key: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform for AI providers (standard or google_vertex_ai)
+    /// Used by both Anthropic and Google AI providers to indicate Vertex AI usage
     #[serde(default)]
-    pub platform: AnthropicPlatform,
-    /// Platform for Google AI API (standard or google_vertex_ai)
-    #[serde(default)]
-    pub google_platform: GoogleAIPlatform,
+    pub platform: AIPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -235,12 +227,8 @@ impl ProviderWithResource {
         self.resource.aws_secret_access_key.as_deref()
     }
 
-    pub fn get_platform(&self) -> &AnthropicPlatform {
+    pub fn get_platform(&self) -> &AIPlatform {
         &self.resource.platform
-    }
-
-    pub fn get_google_platform(&self) -> &GoogleAIPlatform {
-        &self.resource.google_platform
     }
 }
 

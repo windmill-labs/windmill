@@ -324,16 +324,16 @@ pub struct AnthropicResponse {
 pub struct AnthropicQueryBuilder {
     #[allow(dead_code)]
     provider_kind: AIProvider,
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
 }
 
 impl AnthropicQueryBuilder {
-    pub fn new(provider_kind: AIProvider, platform: AnthropicPlatform) -> Self {
+    pub fn new(provider_kind: AIProvider, platform: AIPlatform) -> Self {
         Self { provider_kind, platform }
     }
 
     fn is_vertex(&self) -> bool {
-        self.platform == AnthropicPlatform::GoogleVertexAi
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     async fn build_text_request(

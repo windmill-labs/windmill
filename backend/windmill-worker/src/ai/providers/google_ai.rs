@@ -6,7 +6,7 @@ use crate::ai::{
     image_handler::download_and_encode_s3_image,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{GeminiSSEParser, SSEParser},
-    types::{GoogleAIPlatform, *},
+    types::{AIPlatform, *},
     utils::parse_data_url,
 };
 
@@ -215,16 +215,16 @@ pub struct GeminiPredictCandidate {
 // ============================================================================
 
 pub struct GoogleAIQueryBuilder {
-    platform: GoogleAIPlatform,
+    platform: AIPlatform,
 }
 
 impl GoogleAIQueryBuilder {
-    pub fn new(platform: GoogleAIPlatform) -> Self {
+    pub fn new(platform: AIPlatform) -> Self {
         Self { platform }
     }
 
     fn is_vertex(&self) -> bool {
-        self.platform == GoogleAIPlatform::GoogleVertexAi
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     /// Build a text request using the native Gemini API format
