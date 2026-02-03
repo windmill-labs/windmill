@@ -86,7 +86,7 @@ export function groupItems(items: ItemType[] | undefined): (ItemType | FolderIte
 		if ('folderName' in a && 'username' in b) {
 			return 1
 		}
-		return (a['username'] ?? a['folderName']).localeCompare(b['username'] ?? b['folderName'])
+		return (a['username'] ?? a['folderName'] ?? '').localeCompare(b['username'] ?? b['folderName'])
 	})
 
 	sortGroup(root)
