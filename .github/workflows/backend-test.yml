@@ -75,8 +75,8 @@ jobs:
         run: |
           set -e
 
-          # Install Verdaccio and bcryptjs
-          npm install -g verdaccio bcryptjs
+          # Install Verdaccio globally
+          npm install -g verdaccio
 
           # Create Verdaccio config that requires authentication for @windmill-test packages
           mkdir -p /tmp/verdaccio/storage
@@ -110,12 +110,12 @@ jobs:
           VERDACCIO_CONFIG
 
           # Create htpasswd file with testuser (password: testpass123)
-          # Verdaccio uses bcrypt by default for htpasswd
-          node -e "
-            const bcrypt = require('bcryptjs');
-            const hash = bcrypt.hashSync('testpass123', 10);
-            console.log('testuser:' + hash);
-          " > /tmp/verdaccio/htpasswd
+          # Install bcryptjs locally to generate the hash
+          mkdir -p /tmp/bcrypt-helper && cd /tmp/bcrypt-helper
+          npm init -y > /dev/null
+          npm install bcryptjs > /dev/null
+          node -e "console.log('testuser:' + require('bcryptjs').hashSync('testpass123', 10));" > /tmp/verdaccio/htpasswd
+          cd /tmp
 
           echo "Created htpasswd file:"
           cat /tmp/verdaccio/htpasswd
