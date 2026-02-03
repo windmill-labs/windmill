@@ -1,5 +1,3 @@
-
-https://github.com/user-attachments/assets/aac14391-f1e4-47c3-83ab-839d347bacd8
 <p align="center">
   <a href="https://www.windmill.dev/"><img src="./imgs/windmill-banner.png" alt="windmill.dev"></a>
 </p>
