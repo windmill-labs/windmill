@@ -16,7 +16,7 @@ use monitor::{
     send_current_log_file_to_object_store, send_logs_to_object_store, WORKERS_NAMES,
 };
 use rand::Rng;
-use sqlx::{postgres::PgListener, Pool, Postgres};
+use sqlx::{Pool, Postgres};
 use std::{
     collections::HashMap,
     fs::{create_dir_all, DirBuilder},
@@ -212,11 +212,11 @@ where
 }
 
 lazy_static::lazy_static! {
-    static ref PG_LISTENER_REFRESH_PERIOD_SECS: u64 = std::env::var("PG_LISTENER_REFRESH_PERIOD_SECS")
+    // Period in seconds between full settings reload (12 hours by default)
+    static ref SETTINGS_RELOAD_PERIOD_SECS: u64 = std::env::var("SETTINGS_RELOAD_PERIOD_SECS")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(3600 * 12);
-
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -1138,8 +1138,18 @@ Windmill Community Edition {GIT_VERSION}
                     let base_internal_url = base_internal_url.to_string();
                     let db = db.clone();
                     let h = tokio::spawn(async move {
-                        let mut listener = retry_listen_pg(&db).await;
-                        let mut last_listener_refresh = Instant::now();
+                        // Initialize last_event_id to current max to avoid processing old events on startup
+                        let mut last_event_id: i64 = match windmill_common::notify_events::get_latest_event_id(&db).await {
+                            Ok(id) => {
+                                tracing::info!("Initialized notify event polling with last_event_id: {}", id);
+                                id
+                            }
+                            Err(e) => {
+                                tracing::warn!("Could not get latest event id, starting from 0: {e:#}");
+                                0
+                            }
+                        };
+                        let mut last_settings_reload = Instant::now();
                         let mut monitor_iteration: u64 = 0;
                         let rd_shift: u8 = rand::rng().random_range(0..200);
                         loop {
@@ -1158,349 +1168,36 @@ Windmill Community Edition {GIT_VERSION}
                                     tracing::info!("received killpill for monitor job");
                                     break;
                                 },
-                                notification = listener.try_recv() => {
-                                    match notification {
-                                        Ok(n) => {
-                                            if n.is_none() {
-                                                tracing::error!("Could not receive notification, attempting to reconnect to pg listener");
-                                                continue;
-                                            }
-                                            let n = n.unwrap();
-                                            tracing::info!("Received new pg notification: {n:?}");
-                                            match n.channel() {
-                                                "notify_config_change" => {
-                                                    match n.payload() {
-                                                        "server" if server_mode => {
-                                                            tracing::error!("Server config change detected but server config is obsolete: {}", n.payload());
-                                                        },
-                                                        a@ _ if worker_mode && a == format!("worker__{}", *WORKER_GROUP) => {
-                                                            tracing::info!("Worker config change detected: {}", n.payload());
-                                                            reload_worker_config(&db, tx.clone(), true).await;
-                                                        },
-                                                        _ => {
-                                                            tracing::debug!("config changed but did not target this server/worker");
-                                                        }
-                                                    }
-                                                },
-                                                "notify_webhook_change" => {
-                                                    let workspace_id = n.payload();
-                                                    tracing::info!("Webhook change detected, invalidating webhook cache: {}", workspace_id);
-                                                    windmill_api::webhook_util::WEBHOOK_CACHE.remove(workspace_id);
-                                                },
-                                                "notify_workspace_envs_change" => {
-                                                    let workspace_id = n.payload();
-                                                    tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", workspace_id);
-                                                    windmill_common::variables::CUSTOM_ENVS_CACHE.remove(workspace_id);
-                                                },
-                                                "notify_workspace_key_change" => {
-                                                    let workspace_id = n.payload();
-                                                    tracing::info!("Workspace key change detected, invalidating workspace key cache: {}", workspace_id);
-                                                    windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(workspace_id);
-                                                },
-                                                "notify_workspace_premium_change" => {
-                                                    let workspace_id = n.payload();
-                                                    tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", workspace_id);
-                                                    windmill_common::workspaces::TEAM_PLAN_CACHE.remove(workspace_id);
-                                                },
-                                                "notify_runnable_version_change" => {
-                                                    let payload = n.payload();
-                                                    tracing::info!("Runnable version change detected: {}", payload);
-                                                    match payload.split(':').collect::<Vec<&str>>().as_slice() {
-                                                        [workspace_id, source_type, path, kind] => {
-                                                            let key = (workspace_id.to_string(), path.to_string());
-                                                            match source_type {
-                                                                &"script" => {
-                                                                    windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
-                                                                    match kind {
-                                                                        &"preprocessor" => {
-                                                                            match sqlx::query_scalar!(
-                                                                                "SELECT fv.id
-                                                                                FROM flow f
-                                                                                INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
-                                                                                WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
-                                                                                path,
-                                                                                workspace_id
-                                                                            ).fetch_all(&db).await {
-                                                                                Ok(flow_versions) => {
-                                                                                    tracing::debug!("Workspace preprocessor {} changed, removing runnable format version cache for flow versions {:?}", path, flow_versions);
-                                                                                    for version in flow_versions {
-                                                                                        for trigger_kind in TriggerKind::iter() {
-                                                                                            let key = (windmill_common::triggers::HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()), version, trigger_kind);
-                                                                                            windmill_common::triggers::RUNNABLE_FORMAT_VERSION_CACHE.remove(&key);
-                                                                                        }
-                                                                                    }
-                                                                                }
-                                                                                Err(e) => {
-                                                                                    tracing::error!("Error fetching flow paths: {e:#}");
-                                                                                }
-                                                                            }
-                                                                        },
-                                                                        _ => {}
-                                                                    }
-                                                                }
-                                                                &"flow" => {
-                                                                    let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
-                                                                    windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
-                                                                    windmill_common::FLOW_VERSION_CACHE.remove(&key);
-                                                                },
-                                                                _ => {
-                                                                    tracing::warn!("Unknown runnable version change payload: {}", payload);
-                                                                }
-                                                            }
-                                                        },
-                                                        _ => {
-                                                            tracing::warn!("Unknown runnable version change payload: {}", payload);
-                                                        }
-                                                    }
-                                                },
-                                                #[cfg(feature = "http_trigger")]
-                                                "notify_http_trigger_change" => {
-                                                    tracing::info!("HTTP trigger change detected: {}", n.payload());
-                                                    match windmill_api::triggers::http::refresh_routers(&db).await {
-                                                        Ok((true, _)) => {
-                                                            tracing::info!("Refreshed HTTP routers (trigger change)");
-                                                        },
-                                                        Ok((false, _)) => {
-                                                            tracing::warn!("Should have refreshed HTTP routers (trigger change) but did not");
-                                                        },
-                                                        Err(err) => {
-                                                            tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
-                                                        }
-                                                    };
-                                                },
-                                                "notify_token_invalidation" => {
-                                                    let token = n.payload();
-                                                    tracing::info!("Token invalidation detected for token: {}...", &token[..token.len().min(8)]);
-                                                    windmill_api::auth::invalidate_token_from_cache(token);
-                                                },
-                                                "var_cache_invalidation" => {
-                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) =
-                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
-                                                             payload.get("path").and_then(|v| v.as_str())) {
-                                                            tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
-                                                            windmill_api::var_resource_cache::invalidate_variable_cache(&workspace_id, &path);
-                                                        }
-                                                    }
-                                                },
-                                                "resource_cache_invalidation" => {
-                                                    if let Ok(payload) = serde_json::from_str::<serde_json::Value>(n.payload()) {
-                                                        if let (Some(workspace_id), Some(path)) =
-                                                            (payload.get("workspace_id").and_then(|v| v.as_str()),
-                                                             payload.get("path").and_then(|v| v.as_str())) {
-                                                            tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
-                                                            windmill_api::var_resource_cache::invalidate_resource_cache(&workspace_id, &path);
-                                                        }
-                                                    }
-                                                },
-                                                "notify_global_setting_change" => {
-                                                    tracing::info!("Global setting change detected: {}", n.payload());
-                                                    match n.payload() {
-                                                        BASE_URL_SETTING => {
-                                                            if let Err(e) = reload_base_url_setting(&conn).await {
-                                                                tracing::error!(error = %e, "Could not reload base url setting");
-                                                            }
-                                                        },
-                                                        OAUTH_SETTING => {
-                                                            if let Err(e) = reload_base_url_setting(&conn).await {
-                                                                tracing::error!(error = %e, "Could not reload oauth setting");
-                                                            }
-                                                        },
-                                                        CUSTOM_TAGS_SETTING => {
-                                                            if let Err(e) = reload_custom_tags_setting(&db).await {
-                                                                tracing::error!(error = %e, "Could not reload custom tags setting");
-                                                            }
-                                                        },
-                                                        LICENSE_KEY_SETTING => {
-                                                            if let Err(e) = reload_license_key(&db.into()).await {
-                                                                tracing::error!("Failed to reload license key: {e:#}");
-                                                            }
-                                                        },
-                                                        DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
-                                                            if let Err(e) = load_tag_per_workspace_enabled(&db).await {
-                                                                tracing::error!("Error loading default tag per workspace: {e:#}");
-                                                            }
-                                                        },
-                                                        DEFAULT_TAGS_WORKSPACES_SETTING => {
-                                                            if let Err(e) = load_tag_per_workspace_workspaces(&db).await {
-                                                                tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
-                                                            }
-                                                        },
-                                                        SMTP_SETTING => {
-                                                            reload_smtp_config(&db).await;
-                                                        },
-                                                        TEAMS_SETTING => {
-                                                            tracing::info!("Teams setting changed.");
-                                                        },
-                                                        INDEXER_SETTING => {
-                                                            reload_indexer_config(&db).await;
-                                                        },
-                                                        TIMEOUT_WAIT_RESULT_SETTING => {
-                                                            reload_timeout_wait_result_setting(&conn).await
-                                                        },
-                                                        RETENTION_PERIOD_SECS_SETTING => {
-                                                            reload_retention_period_setting(&conn).await
-                                                        },
-                                                        MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
-                                                            reload_delete_logs_periodically_setting(&conn).await
-                                                        },
-                                                        JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
-                                                            reload_job_default_timeout_setting(&conn).await
-                                                        },
-                                                        #[cfg(feature = "parquet")]
-                                                        OBJECT_STORE_CONFIG_SETTING => {
-                                                            if !disable_s3_store {
-                                                                reload_object_store_setting(&db).await;
-                                                            }
-                                                        },
-                                                        SCIM_TOKEN_SETTING => {
-                                                            reload_scim_token_setting(&conn).await
-                                                        },
-                                                        EXTRA_PIP_INDEX_URL_SETTING => {
-                                                            reload_extra_pip_index_url_setting(&conn).await
-                                                        },
-                                                        PIP_INDEX_URL_SETTING => {
-                                                            reload_pip_index_url_setting(&conn).await
-                                                        },
-                                                        INSTANCE_PYTHON_VERSION_SETTING => {
-                                                            reload_instance_python_version_setting(&conn).await
-                                                        },
-                                                        NPM_CONFIG_REGISTRY_SETTING => {
-                                                            reload_npm_config_registry_setting(&conn).await
-                                                        },
-                                                        BUNFIG_INSTALL_SCOPES_SETTING => {
-                                                            reload_bunfig_install_scopes_setting(&conn).await
-                                                        },
-                                                        NUGET_CONFIG_SETTING => {
-                                                            reload_nuget_config_setting(&conn).await
-                                                        },
-                                                        POWERSHELL_REPO_URL_SETTING => {
-                                                            reload_powershell_repo_url_setting(&conn).await
-                                                        },
-                                                        POWERSHELL_REPO_PAT_SETTING => {
-                                                            reload_powershell_repo_pat_setting(&conn).await
-                                                        },
-                                                        MAVEN_REPOS_SETTING => {
-                                                            reload_maven_repos_setting(&conn).await
-                                                        },
-                                                        NO_DEFAULT_MAVEN_SETTING => {
-                                                            reload_no_default_maven_setting(&conn).await
-                                                        },
-                                                        RUBY_REPOS_SETTING => {
-                                                            reload_ruby_repos_setting(&conn).await
-                                                        },
-                                                        HUB_API_SECRET_SETTING => {
-                                                            reload_hub_api_secret_setting(&conn).await
-                                                        },
-                                                        KEEP_JOB_DIR_SETTING => {
-                                                            load_keep_job_dir(&conn).await;
-                                                        },
-                                                        OTEL_TRACING_PROXY_SETTING => {
-                                                            reload_otel_tracing_proxy_setting(&conn).await;
-                                                            if worker_mode {
-                                                                tracing::info!("OTEL tracing proxy setting changed, restarting worker");
-                                                                send_delayed_killpill(&tx, 4, "OTEL tracing proxy setting change").await;
-                                                            }
-                                                        },
-                                                        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
-                                                            load_require_preexisting_user(&db).await;
-                                                        },
-                                                        EXPOSE_METRICS_SETTING  => {
-                                                            tracing::info!("Metrics setting changed, restarting");
-                                                            send_delayed_killpill(&tx, 40, "metrics setting change").await;
-                                                        },
-                                                        EMAIL_DOMAIN_SETTING => {
-                                                            tracing::info!("Email domain setting changed");
-                                                            if server_mode {
-                                                                send_delayed_killpill(&tx, 4, "email domain setting change").await;
-                                                            }
-                                                        },
-                                                        EXPOSE_DEBUG_METRICS_SETTING => {
-                                                            if let Err(e) = load_metrics_debug_enabled(&conn).await {
-                                                                tracing::error!(error = %e, "Could not reload debug metrics setting");
-                                                            }
-                                                        },
-                                                         APP_WORKSPACED_ROUTE_SETTING => {
-                                                             if let Err(e) = reload_app_workspaced_route_setting(&db).await {
-                                                                tracing::error!(error = %e, "Could not reload app workspaced route setting");
-                                                            }
-                                                        },
-                                                        OTEL_SETTING => {
-                                                            tracing::info!("OTEL setting changed, restarting");
-                                                            send_delayed_killpill(&tx, 4, "OTEL setting change").await;
-                                                        },
-                                                        REQUEST_SIZE_LIMIT_SETTING => {
-                                                            if server_mode {
-                                                                tracing::info!("Request limit size change detected, killing server expecting to be restarted");
-                                                                send_delayed_killpill(&tx, 4, "request size limit change").await;
-                                                            }
-                                                        },
-                                                        SAML_METADATA_SETTING => {
-                                                            tracing::info!("SAML metadata change detected, killing server expecting to be restarted");
-                                                            send_delayed_killpill(&tx, 0, "SAML metadata change").await;
-                                                        },
-                                                        HUB_BASE_URL_SETTING => {
-                                                            if let Err(e) = reload_hub_base_url_setting(&conn, server_mode).await {
-                                                                tracing::error!(error = %e, "Could not reload hub base url setting");
-                                                            }
-                                                        },
-                                                        CRITICAL_ERROR_CHANNELS_SETTING => {
-                                                            if let Err(e) = reload_critical_error_channels_setting(&db).await {
-                                                                tracing::error!(error = %e, "Could not reload critical error emails setting");
-                                                            }
-                                                        },
-                                                        CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING => {
-                                                            if let Err(e) = reload_critical_alerts_on_db_oversize(&db).await {
-                                                                tracing::error!(error = %e, "Could not reload critical alerts on db oversize setting");
-                                                            }
-
-                                                        },
-                                                        JWT_SECRET_SETTING => {
-                                                            if let Err(e) = reload_jwt_secret_setting(&db).await {
-                                                                tracing::error!(error = %e, "Could not reload jwt secret setting");
-                                                            }
-                                                        },
-                                                        CRITICAL_ALERT_MUTE_UI_SETTING => {
-                                                            tracing::info!("Critical alert UI setting changed");
-                                                            if let Err(e) = reload_critical_alert_mute_ui_setting(&conn).await {
-                                                                tracing::error!(error = %e, "Could not reload critical alert UI setting");
-                                                            }
-                                                        },
-                                                        a @_ => {
-                                                            tracing::info!("Unrecognized Global Setting Change Payload: {:?}", a);
-                                                        }
-                                                    }
-                                                },
-                                                _ => {
-                                                    tracing::warn!("Unknown notification received");
-                                                    continue;
+                                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                                    // Poll for new events from notify_event table
+                                    match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
+                                        Ok(events) => {
+                                            for event in events {
+                                                if !*windmill_common::QUIET_LOGS {
+                                                    tracing::info!("Processing notify event: channel={}, payload={}", event.channel, event.payload);
                                                 }
+                                                process_notify_event(
+                                                    &event.channel,
+                                                    &event.payload,
+                                                    &db,
+                                                    &conn,
+                                                    &tx,
+                                                    server_mode,
+                                                    worker_mode,
+                                                    #[cfg(feature = "parquet")]
+                                                    disable_s3_store,
+                                                ).await;
+                                                last_event_id = last_event_id.max(event.id);
                                             }
-                                        },
+                                        }
                                         Err(e) => {
-                                            tracing::error!(error = %e, "Could not receive notification, attempting to reconnect listener");
-                                            let db = db.clone();
-                                            tokio::select! {
-                                                biased;
-                                                _ = monitor_killpill_rx.recv() => {
-                                                    tracing::info!("received killpill for monitor job");
-                                                    break;
-                                                },
-                                                new_listener = async move { retry_listen_pg(&db).await } => {
-                                                    listener = new_listener;
-                                                    continue;
-                                                }
-                                            }
+                                            tracing::error!("Error polling notify events: {e:#}");
                                         }
-                                    };
-                                },
-                                _ = tokio::time::sleep(Duration::from_secs(30))    => {
-                                    if last_listener_refresh.elapsed() > Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS) {
-                                        tracing::info!("Refreshing pg listeners, settings and license key after {}s", Duration::from_secs(*PG_LISTENER_REFRESH_PERIOD_SECS).as_secs());
-                                        if let Err(e) = listener.unlisten_all().await {
-                                            tracing::error!(error = %e, "Could not unlisten to database");
-                                        }
-                                        listener = retry_listen_pg(&db).await;
+                                    }
+
+                                    // Periodic full settings reload
+                                    if last_settings_reload.elapsed() > Duration::from_secs(*SETTINGS_RELOAD_PERIOD_SECS) {
+                                        tracing::info!("Reloading settings and license key after {}s", Duration::from_secs(*SETTINGS_RELOAD_PERIOD_SECS).as_secs());
                                         initial_load(
                                             &conn,
                                             tx.clone(),
@@ -1514,7 +1211,7 @@ Windmill Community Edition {GIT_VERSION}
                                         if let Err(err) = reload_license_key(&conn).await {
                                             tracing::error!("Failed to reload license key: {err:#}");
                                         }
-                                        last_listener_refresh = Instant::now();
+                                        last_settings_reload = Instant::now();
                                     }
 
                                     if server_mode {
@@ -1668,50 +1365,313 @@ Windmill Community Edition {GIT_VERSION}
     std::process::exit(0);
 }
 
-async fn listen_pg(db: &Pool<Postgres>) -> Option<PgListener> {
-    let mut listener = match PgListener::connect_with(db).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!(error = %e, "Could not connect to database");
-            return None;
-        }
-    };
-
-    #[allow(unused_mut)]
-    let mut channels = vec![
-        "notify_config_change",
-        "notify_global_setting_change",
-        "notify_webhook_change",
-        "notify_workspace_envs_change",
-        "notify_workspace_key_change",
-        "notify_runnable_version_change",
-        "notify_token_invalidation",
-    ];
-
-    #[cfg(feature = "http_trigger")]
-    channels.push("notify_http_trigger_change");
-
-    #[cfg(feature = "cloud")]
-    channels.push("notify_workspace_premium_change");
-
-    if let Err(e) = listener.listen_all(channels).await {
-        tracing::error!(error = %e, "Could not listen to database");
-        return None;
-    }
-
-    return Some(listener);
-}
-
-async fn retry_listen_pg(db: &Pool<Postgres>) -> PgListener {
-    let mut listener = listen_pg(db).await;
-    loop {
-        if listener.is_none() {
-            tracing::info!("Retrying listening to pg listen in 5 seconds");
-            tokio::time::sleep(Duration::from_secs(5)).await;
-            listener = listen_pg(db).await;
-        } else {
-            tracing::info!("Successfully connected to pg listen");
-            return listener.unwrap();
+/// Process a single notify event from the polling-based event system.
+/// This replaces the old PgListener notification handling.
+#[allow(unused_variables)]
+async fn process_notify_event(
+    channel: &str,
+    payload: &str,
+    db: &Pool<Postgres>,
+    conn: &Connection,
+    tx: &KillpillSender,
+    server_mode: bool,
+    worker_mode: bool,
+    #[cfg(feature = "parquet")]
+    disable_s3_store: bool,
+) {
+    match channel {
+        "notify_config_change" => {
+            if payload == "server" && server_mode {
+                tracing::error!("Server config change detected but server config is obsolete: {}", payload);
+            } else if worker_mode && payload == format!("worker__{}", *WORKER_GROUP) {
+                tracing::info!("Worker config change detected: {}", payload);
+                reload_worker_config(db, tx.clone(), true).await;
+            } else {
+                tracing::debug!("config changed but did not target this server/worker");
+            }
+        },
+        "notify_webhook_change" => {
+            tracing::info!("Webhook change detected, invalidating webhook cache: {}", payload);
+            windmill_api::webhook_util::WEBHOOK_CACHE.remove(payload);
+        },
+        "notify_workspace_envs_change" => {
+            tracing::info!("Workspace envs change detected, invalidating workspace envs cache: {}", payload);
+            windmill_common::variables::CUSTOM_ENVS_CACHE.remove(payload);
+        },
+        "notify_workspace_key_change" => {
+            tracing::info!("Workspace key change detected, invalidating workspace key cache: {}", payload);
+            windmill_common::variables::WORKSPACE_CRYPT_CACHE.remove(payload);
+        },
+        "notify_workspace_premium_change" => {
+            tracing::info!("Workspace premium change detected, invalidating workspace premium cache: {}", payload);
+            windmill_common::workspaces::TEAM_PLAN_CACHE.remove(payload);
+        },
+        "notify_runnable_version_change" => {
+            tracing::info!("Runnable version change detected: {}", payload);
+            match payload.split(':').collect::<Vec<&str>>().as_slice() {
+                [workspace_id, source_type, path, kind] => {
+                    let key = (workspace_id.to_string(), path.to_string());
+                    match *source_type {
+                        "script" => {
+                            windmill_common::DEPLOYED_SCRIPT_HASH_CACHE.remove(&key);
+                            if *kind == "preprocessor" {
+                                match sqlx::query_scalar::<_, i64>(
+                                    "SELECT fv.id
+                                    FROM flow f
+                                    INNER JOIN flow_version fv ON fv.id = f.versions[array_upper(f.versions, 1)]
+                                    WHERE fv.value->'preprocessor_module'->'value'->>'path' = $1 AND f.workspace_id = $2",
+                                )
+                                .bind(*path)
+                                .bind(*workspace_id)
+                                .fetch_all(db).await {
+                                    Ok(flow_versions) => {
+                                        tracing::debug!("Workspace preprocessor {} changed, removing runnable format version cache for flow versions {:?}", path, flow_versions);
+                                        for version in flow_versions {
+                                            for trigger_kind in TriggerKind::iter() {
+                                                let key = (windmill_common::triggers::HubOrWorkspaceId::WorkspaceId(workspace_id.to_string()), version, trigger_kind);
+                                                windmill_common::triggers::RUNNABLE_FORMAT_VERSION_CACHE.remove(&key);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        tracing::error!("Error fetching flow paths: {e:#}");
+                                    }
+                                }
+                            }
+                        }
+                        "flow" => {
+                            let dynamic_input_key = windmill_common::jobs::generate_dynamic_input_key(workspace_id, path);
+                            windmill_common::DYNAMIC_INPUT_CACHE.remove(&dynamic_input_key);
+                            windmill_common::FLOW_VERSION_CACHE.remove(&key);
+                        },
+                        _ => {
+                            tracing::warn!("Unknown runnable version change payload: {}", payload);
+                        }
+                    }
+                },
+                _ => {
+                    tracing::warn!("Unknown runnable version change payload: {}", payload);
+                }
+            }
+        },
+        #[cfg(feature = "http_trigger")]
+        "notify_http_trigger_change" => {
+            tracing::info!("HTTP trigger change detected: {}", payload);
+            match windmill_api::triggers::http::refresh_routers(db).await {
+                Ok((true, _)) => {
+                    tracing::info!("Refreshed HTTP routers (trigger change)");
+                },
+                Ok((false, _)) => {
+                    tracing::warn!("Should have refreshed HTTP routers (trigger change) but did not");
+                },
+                Err(err) => {
+                    tracing::error!("Error refreshing HTTP routers (trigger change): {err:#}");
+                }
+            };
+        },
+        "notify_token_invalidation" => {
+            tracing::info!("Token invalidation detected for token: {}...", &payload[..payload.len().min(8)]);
+            windmill_api::auth::invalidate_token_from_cache(payload);
+        },
+        "var_cache_invalidation" => {
+            if let Ok(json_payload) = serde_json::from_str::<serde_json::Value>(payload) {
+                if let (Some(workspace_id), Some(path)) =
+                    (json_payload.get("workspace_id").and_then(|v| v.as_str()),
+                     json_payload.get("path").and_then(|v| v.as_str())) {
+                    tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
+                    windmill_api::var_resource_cache::invalidate_variable_cache(workspace_id, path);
+                }
+            }
+        },
+        "resource_cache_invalidation" => {
+            if let Ok(json_payload) = serde_json::from_str::<serde_json::Value>(payload) {
+                if let (Some(workspace_id), Some(path)) =
+                    (json_payload.get("workspace_id").and_then(|v| v.as_str()),
+                     json_payload.get("path").and_then(|v| v.as_str())) {
+                    tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
+                    windmill_api::var_resource_cache::invalidate_resource_cache(workspace_id, path);
+                }
+            }
+        },
+        "notify_global_setting_change" => {
+            tracing::info!("Global setting change detected: {}", payload);
+            match payload {
+                BASE_URL_SETTING => {
+                    if let Err(e) = reload_base_url_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload base url setting");
+                    }
+                },
+                OAUTH_SETTING => {
+                    if let Err(e) = reload_base_url_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload oauth setting");
+                    }
+                },
+                CUSTOM_TAGS_SETTING => {
+                    if let Err(e) = reload_custom_tags_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload custom tags setting");
+                    }
+                },
+                LICENSE_KEY_SETTING => {
+                    if let Err(e) = reload_license_key(&db.into()).await {
+                        tracing::error!("Failed to reload license key: {e:#}");
+                    }
+                },
+                DEFAULT_TAGS_PER_WORKSPACE_SETTING => {
+                    if let Err(e) = load_tag_per_workspace_enabled(db).await {
+                        tracing::error!("Error loading default tag per workspace: {e:#}");
+                    }
+                },
+                DEFAULT_TAGS_WORKSPACES_SETTING => {
+                    if let Err(e) = load_tag_per_workspace_workspaces(db).await {
+                        tracing::error!("Error loading default tag per workspace workspaces: {e:#}");
+                    }
+                },
+                SMTP_SETTING => {
+                    reload_smtp_config(db).await;
+                },
+                TEAMS_SETTING => {
+                    tracing::info!("Teams setting changed.");
+                },
+                INDEXER_SETTING => {
+                    reload_indexer_config(db).await;
+                },
+                TIMEOUT_WAIT_RESULT_SETTING => {
+                    reload_timeout_wait_result_setting(conn).await
+                },
+                RETENTION_PERIOD_SECS_SETTING => {
+                    reload_retention_period_setting(conn).await
+                },
+                MONITOR_LOGS_ON_OBJECT_STORE_SETTING => {
+                    reload_delete_logs_periodically_setting(conn).await
+                },
+                JOB_DEFAULT_TIMEOUT_SECS_SETTING => {
+                    reload_job_default_timeout_setting(conn).await
+                },
+                #[cfg(feature = "parquet")]
+                OBJECT_STORE_CONFIG_SETTING => {
+                    if !disable_s3_store {
+                        reload_object_store_setting(db).await;
+                    }
+                },
+                SCIM_TOKEN_SETTING => {
+                    reload_scim_token_setting(conn).await
+                },
+                EXTRA_PIP_INDEX_URL_SETTING => {
+                    reload_extra_pip_index_url_setting(conn).await
+                },
+                PIP_INDEX_URL_SETTING => {
+                    reload_pip_index_url_setting(conn).await
+                },
+                INSTANCE_PYTHON_VERSION_SETTING => {
+                    reload_instance_python_version_setting(conn).await
+                },
+                NPM_CONFIG_REGISTRY_SETTING => {
+                    reload_npm_config_registry_setting(conn).await
+                },
+                BUNFIG_INSTALL_SCOPES_SETTING => {
+                    reload_bunfig_install_scopes_setting(conn).await
+                },
+                NUGET_CONFIG_SETTING => {
+                    reload_nuget_config_setting(conn).await
+                },
+                POWERSHELL_REPO_URL_SETTING => {
+                    reload_powershell_repo_url_setting(conn).await
+                },
+                POWERSHELL_REPO_PAT_SETTING => {
+                    reload_powershell_repo_pat_setting(conn).await
+                },
+                MAVEN_REPOS_SETTING => {
+                    reload_maven_repos_setting(conn).await
+                },
+                NO_DEFAULT_MAVEN_SETTING => {
+                    reload_no_default_maven_setting(conn).await
+                },
+                RUBY_REPOS_SETTING => {
+                    reload_ruby_repos_setting(conn).await
+                },
+                HUB_API_SECRET_SETTING => {
+                    reload_hub_api_secret_setting(conn).await
+                },
+                KEEP_JOB_DIR_SETTING => {
+                    load_keep_job_dir(conn).await;
+                },
+                OTEL_TRACING_PROXY_SETTING => {
+                    reload_otel_tracing_proxy_setting(conn).await;
+                    if worker_mode {
+                        tracing::info!("OTEL tracing proxy setting changed, restarting worker");
+                        send_delayed_killpill(tx, 4, "OTEL tracing proxy setting change").await;
+                    }
+                },
+                REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING => {
+                    load_require_preexisting_user(db).await;
+                },
+                EXPOSE_METRICS_SETTING => {
+                    tracing::info!("Metrics setting changed, restarting");
+                    send_delayed_killpill(tx, 40, "metrics setting change").await;
+                },
+                EMAIL_DOMAIN_SETTING => {
+                    tracing::info!("Email domain setting changed");
+                    if server_mode {
+                        send_delayed_killpill(tx, 4, "email domain setting change").await;
+                    }
+                },
+                EXPOSE_DEBUG_METRICS_SETTING => {
+                    if let Err(e) = load_metrics_debug_enabled(conn).await {
+                        tracing::error!(error = %e, "Could not reload debug metrics setting");
+                    }
+                },
+                APP_WORKSPACED_ROUTE_SETTING => {
+                    if let Err(e) = reload_app_workspaced_route_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload app workspaced route setting");
+                    }
+                },
+                OTEL_SETTING => {
+                    tracing::info!("OTEL setting changed, restarting");
+                    send_delayed_killpill(tx, 4, "OTEL setting change").await;
+                },
+                REQUEST_SIZE_LIMIT_SETTING => {
+                    if server_mode {
+                        tracing::info!("Request limit size change detected, killing server expecting to be restarted");
+                        send_delayed_killpill(tx, 4, "request size limit change").await;
+                    }
+                },
+                SAML_METADATA_SETTING => {
+                    tracing::info!("SAML metadata change detected, killing server expecting to be restarted");
+                    send_delayed_killpill(tx, 0, "SAML metadata change").await;
+                },
+                HUB_BASE_URL_SETTING => {
+                    if let Err(e) = reload_hub_base_url_setting(conn, server_mode).await {
+                        tracing::error!(error = %e, "Could not reload hub base url setting");
+                    }
+                },
+                CRITICAL_ERROR_CHANNELS_SETTING => {
+                    if let Err(e) = reload_critical_error_channels_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload critical error emails setting");
+                    }
+                },
+                CRITICAL_ALERTS_ON_DB_OVERSIZE_SETTING => {
+                    if let Err(e) = reload_critical_alerts_on_db_oversize(db).await {
+                        tracing::error!(error = %e, "Could not reload critical alerts on db oversize setting");
+                    }
+                },
+                JWT_SECRET_SETTING => {
+                    if let Err(e) = reload_jwt_secret_setting(db).await {
+                        tracing::error!(error = %e, "Could not reload jwt secret setting");
+                    }
+                },
+                CRITICAL_ALERT_MUTE_UI_SETTING => {
+                    tracing::info!("Critical alert UI setting changed");
+                    if let Err(e) = reload_critical_alert_mute_ui_setting(conn).await {
+                        tracing::error!(error = %e, "Could not reload critical alert UI setting");
+                    }
+                },
+                _ => {
+                    tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
+                }
+            }
+        },
+        _ => {
+            tracing::warn!("Unknown notification channel: {}", channel);
         }
     }
 }
