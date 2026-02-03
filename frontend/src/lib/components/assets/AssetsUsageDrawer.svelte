@@ -81,11 +81,13 @@
 {/snippet}
 
 {#snippet columnBadges(columns: Record<string, AssetUsageAccessType>)}
-	<div class="flex gap-1 flex-wrap">
+	<div class="flex gap-1 flex-wrap mt-0.5">
 		{#each Object.entries(columns) as [columnName, accessType]}
 			{@const accessType2 = formatAssetAccessType(accessType)}
 			<Tooltip>
-				<div class="text-xs text-secondary border rounded-md px-1">{columnName}</div>
+				<div class="text-xs text-secondary border rounded-md px-1 bg-surface-secondary">
+					{columnName}
+				</div>
 				<svelte:fragment slot="text">
 					{accessType2} access to column "{columnName}"
 				</svelte:fragment>
@@ -103,7 +105,7 @@
 				<a
 					href={getAssetUsagePageUri(u)}
 					aria-label={`${u.kind}/${u.path}`}
-					class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
+					class="text-xs min-h-14 text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
 				>
 					<RowIcon
 						kind={!u.metadata?.job_kind
@@ -122,8 +124,10 @@
 								)[u.metadata.job_kind] ?? 'script')}
 					/>
 					<div class="flex flex-col justify-center flex-1">
-						<span class="font-semibold text-emphasis">
-							{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
+						<span>
+							<span class="font-semibold text-emphasis">
+								{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
+							</span>
 						</span>
 						{#if u.kind == 'job'}
 							<span class="text-2xs text-secondary">{u.path}</span>
