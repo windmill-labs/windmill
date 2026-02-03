@@ -54,6 +54,32 @@ const p = {
 
     build.onLoad({ filter: /.*\.url$/ }, async (args) => {
       const url = readFileSync(args.path, "utf8");
+
+      // Extract the script path from the URL to check for local file
+      // URL format: {base_url}/api/w/{w_id}/scripts/raw_unpinned/p/{script_path}
+      try {
+        const urlObj = new URL(url);
+        const pathMatch = urlObj.pathname.match(/\/scripts\/raw_unpinned\/p\/(.+)$/);
+
+        if (pathMatch) {
+          const scriptPath = pathMatch[1];
+          // Check if we have this file locally (from raw_scripts)
+          const localPath = resolve("./" + scriptPath);
+          try {
+            const localContent = readFileSync(localPath, "utf8");
+            return {
+              contents: replaceRelativeImports(localContent).contents,
+              loader: "tsx",
+            };
+          } catch {
+            // File not found locally, fall through to fetch from server
+          }
+        }
+      } catch {
+        // URL parsing failed, fall through to fetch from server
+      }
+
+      // Fallback: fetch from server
       const req = await fetch(url, {
         method: "GET",
         headers: {

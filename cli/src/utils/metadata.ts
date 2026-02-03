@@ -27,23 +27,121 @@ export class LockfileGenerationError extends Error {
 
 export async function generateAllMetadata() {}
 
+// =============================================================================
+// CONSTANTS - Import Patterns and File Extensions
+// =============================================================================
+
+const TS_IMPORT_PATTERNS = {
+  ES6_IMPORT: /import\s+(?:(?:\*\s+as\s+\w+)|(?:\{[^}]*\})|(?:\w+))\s+from\s+['"]([^'"]+)['"]/g,
+  DYNAMIC_IMPORT: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  REQUIRE: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+} as const;
+
+const PYTHON_IMPORT_PATTERNS = {
+  RELATIVE: /from\s+(\.+\w*(?:\.\w+)*)\s+import/g,
+  ABSOLUTE: /from\s+([fu]\.\w+(?:\.\w+)*)\s+import/g,
+} as const;
+
+const TS_EXTENSION_PATTERN = /\.ts$/;
+const PATH_SEPARATOR = '/';
+
+const LANGUAGE_EXTENSIONS: Record<string, string[]> = {
+  python3: ['.py'],
+  bun: ['.ts', '.js'],
+  deno: ['.ts', '.js'],
+  nativets: ['.ts', '.js'],
+};
+
+// =============================================================================
+// UTILITY FUNCTIONS - Path Operations
+// =============================================================================
+
+/**
+ * Extract directory path from a script path
+ */
+function getScriptDirectory(scriptPath: string): string {
+  const lastSlashIndex = scriptPath.lastIndexOf(PATH_SEPARATOR);
+  return lastSlashIndex >= 0 ? scriptPath.substring(0, lastSlashIndex) : '';
+}
+
+/**
+ * Convert file path to remote path (remove extension, normalize separators)
+ */
+function toRemotePath(scriptPath: string): string {
+  const lastDotIndex = scriptPath.lastIndexOf('.');
+  const pathWithoutExtension = lastDotIndex >= 0
+    ? scriptPath.substring(0, lastDotIndex)
+    : scriptPath;
+  return pathWithoutExtension.replaceAll(SEP, PATH_SEPARATOR);
+}
+
+/**
+ * Resolve a relative import path against a base script path
+ */
+function resolveImportPath(
+  importPath: string,
+  scriptPath: string
+): string | null {
+  if (importPath.startsWith(PATH_SEPARATOR)) {
+    return importPath.substring(1); // Absolute import - strip leading slash
+  } else if (importPath.startsWith('.')) {
+    const scriptDir = getScriptDirectory(scriptPath);
+    return normalizePath(`${scriptDir}${PATH_SEPARATOR}${importPath}`);
+  }
+  return null; // Not a local import
+}
+
+/**
+ * Get file extensions for a given language
+ */
+function getExtensionsForLanguage(language: ScriptLanguage): string[] {
+  return LANGUAGE_EXTENSIONS[language] ?? ['.ts', '.js'];
+}
+
+/**
+ * Normalize a path by resolving .. and . segments
+ */
+function normalizePath(path: string): string | null {
+  const parts = path.split(PATH_SEPARATOR);
+  const result: string[] = [];
+
+  for (const part of parts) {
+    if (part === '' || part === '.') {
+      continue;
+    } else if (part === '..') {
+      if (result.length === 0) {
+        return null; // Invalid path going above root
+      }
+      result.pop();
+    } else {
+      result.push(part);
+    }
+  }
+
+  return result.join(PATH_SEPARATOR);
+}
+
+// =============================================================================
+// RAW WORKSPACE DEPENDENCIES
+// =============================================================================
+
 export async function getRawWorkspaceDependencies(): Promise<Record<string, string>> {
   const rawWorkspaceDeps: Record<string, string> = {};
-  
+
   try {
     for await (const entry of Deno.readDir("dependencies")) {
       if (entry.isDirectory) continue;
-      
+
       const filePath = `dependencies/${entry.name}`;
       const content = await Deno.readTextFile(filePath);
-      
+
       // Find matching language
       for (const lang of workspaceDependenciesLanguages) {
         if (entry.name.endsWith(lang.filename)) {
           // Check if out of sync
           const contentHash = await generateHash(content + filePath);
           const isUpToDate = await checkifMetadataUptodate(filePath, contentHash, undefined);
-          
+
           if (!isUpToDate) {
             rawWorkspaceDeps[filePath] = content;
           }
@@ -54,7 +152,232 @@ export async function getRawWorkspaceDependencies(): Promise<Record<string, stri
   } catch {
     // dependencies directory doesn't exist
   }
-    return rawWorkspaceDeps;
+  return rawWorkspaceDeps;
+}
+
+// =============================================================================
+// IMPORT EXTRACTION FUNCTIONS
+// =============================================================================
+
+/**
+ * Extract relative imports from TypeScript/JavaScript code
+ * Matches imports like:
+ * - import { foo } from "./bar"
+ * - import { foo } from "../bar"
+ * - import { foo } from "/f/folder/script"
+ */
+function extractTSRelativeImports(code: string, scriptPath: string): string[] {
+  const imports: string[] = [];
+
+  const patterns = [
+    TS_IMPORT_PATTERNS.ES6_IMPORT,
+    TS_IMPORT_PATTERNS.DYNAMIC_IMPORT,
+    TS_IMPORT_PATTERNS.REQUIRE
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of code.matchAll(pattern)) {
+      const importPath = match[1];
+      if (!importPath) continue; // Type guard
+
+      const cleanPath = importPath.replace(TS_EXTENSION_PATTERN, '');
+      const resolved = resolveImportPath(cleanPath, scriptPath);
+
+      if (resolved) {
+        imports.push(resolved);
+      }
+    }
+  }
+
+  return imports;
+}
+
+/**
+ * Parse Python relative import and calculate target path
+ */
+function parsePythonRelativeImport(
+  importMatch: string,
+  scriptPath: string
+): string | null {
+  const leadingDotsMatch = importMatch.match(/^\.+/);
+  const leadingDots = leadingDotsMatch?.[0] ?? '';
+  const module = importMatch.substring(leadingDots.length);
+
+  // Calculate how many levels to go up
+  const levelsUp = Math.max(0, leadingDots.length - 1);
+
+  const scriptDir = getScriptDirectory(scriptPath);
+  const pathParts = scriptDir.split(PATH_SEPARATOR).filter(p => p.length > 0);
+
+  // Go up the specified number of levels
+  const targetParts = pathParts.slice(0, Math.max(0, pathParts.length - levelsUp));
+
+  // Add the module path
+  if (module) {
+    targetParts.push(...module.split('.'));
+  }
+
+  return targetParts.length > 0 ? targetParts.join(PATH_SEPARATOR) : null;
+}
+
+/**
+ * Parse Python absolute import (f.* or u.*)
+ */
+function parsePythonAbsoluteImport(importMatch: string): string {
+  return importMatch.replace(/\./g, PATH_SEPARATOR);
+}
+
+/**
+ * Extract relative imports from Python code
+ * Matches imports like:
+ * - from .module import something
+ * - from ..module import something
+ * - from f.folder.script import something
+ * - from u.folder.script import something
+ */
+function extractPythonRelativeImports(code: string, scriptPath: string): string[] {
+  const imports: string[] = [];
+
+  // Process relative imports
+  for (const match of code.matchAll(PYTHON_IMPORT_PATTERNS.RELATIVE)) {
+    const resolved = parsePythonRelativeImport(match[1], scriptPath);
+    if (resolved) {
+      imports.push(resolved);
+    }
+  }
+
+  // Process absolute folder imports
+  for (const match of code.matchAll(PYTHON_IMPORT_PATTERNS.ABSOLUTE)) {
+    imports.push(parsePythonAbsoluteImport(match[1]));
+  }
+
+  return imports;
+}
+
+// =============================================================================
+// SCRIPT COLLECTION HELPERS
+// =============================================================================
+
+/**
+ * Try to read an imported script file with multiple extension attempts
+ */
+async function tryReadImportedScript(
+  importPath: string,
+  extensions: string[]
+): Promise<{ content: string; filePath: string; language: ScriptLanguage } | null> {
+  const basePath = importPath.replaceAll(PATH_SEPARATOR, SEP);
+
+  for (const ext of extensions) {
+    const filePath = basePath + ext;
+
+    try {
+      const content = await Deno.readTextFile(filePath);
+      const language = inferContentTypeFromFilePath(filePath, 'bun');
+      return { content, filePath, language };
+    } catch (e) {
+      if (!(e instanceof Deno.errors.NotFound)) {
+        // Log unexpected errors (permissions, etc.)
+        log.debug(`Error reading ${filePath}: ${e}`);
+      }
+      continue;
+    }
+  }
+
+  log.debug(`Could not find import '${importPath}' with extensions [${extensions.join(', ')}]`);
+  return null;
+}
+
+/**
+ * Process a single import and collect its dependencies recursively
+ */
+async function processImport(
+  importPath: string,
+  language: ScriptLanguage,
+  visited: Set<string>,
+  localScripts: Record<string, { content: string; language: ScriptLanguage }>
+): Promise<void> {
+  const extensions = getExtensionsForLanguage(language);
+
+  const scriptData = await tryReadImportedScript(importPath, extensions);
+  if (!scriptData) {
+    return; // File not found, already logged
+  }
+
+  // Store the imported script
+  localScripts[importPath] = {
+    content: scriptData.content,
+    language: scriptData.language
+  };
+
+  // Recursively collect imports from this script
+  const nestedScripts = await collectLocalScripts(
+    scriptData.filePath,
+    scriptData.language,
+    visited
+  );
+
+  // Merge nested scripts (avoid overwriting)
+  for (const [path, data] of Object.entries(nestedScripts)) {
+    localScripts[path] ??= data; // Use nullish coalescing assignment
+  }
+}
+
+/**
+ * Extract imports based on script language
+ */
+function extractImportsForLanguage(
+  content: string,
+  remotePath: string,
+  language: ScriptLanguage
+): string[] {
+  if (language === 'bun' || language === 'deno' || language === 'nativets') {
+    return extractTSRelativeImports(content, remotePath);
+  } else if (language === 'python3') {
+    return extractPythonRelativeImports(content, remotePath);
+  }
+  return [];
+}
+
+/**
+ * Collect local scripts that are imported by the given script
+ * This function recursively traverses imports to find all dependencies
+ *
+ * @param scriptPath The path to the script file to analyze
+ * @param language The language of the script
+ * @param visited Set of already visited script paths to avoid cycles
+ * @returns Record of script path -> script content for all imported local scripts
+ */
+export async function collectLocalScripts(
+  scriptPath: string,
+  language: ScriptLanguage,
+  visited: Set<string> = new Set()
+): Promise<Record<string, { content: string; language: ScriptLanguage }>> {
+  const localScripts: Record<string, { content: string; language: ScriptLanguage }> = {};
+
+  const remotePath = toRemotePath(scriptPath);
+
+  if (visited.has(remotePath)) {
+    return localScripts;
+  }
+  visited.add(remotePath);
+
+  let scriptContent: string;
+  try {
+    scriptContent = await Deno.readTextFile(scriptPath);
+  } catch (e) {
+    log.debug(`Could not read script file ${scriptPath}: ${e}`);
+    return localScripts;
+  }
+
+  // Extract imports based on language
+  const imports = extractImportsForLanguage(scriptContent, remotePath, language);
+
+  // Process each import
+  for (const importPath of imports) {
+    await processImport(importPath, language, visited, localScripts);
+  }
+
+  return localScripts;
 }
 
 export function workspaceDependenciesPathToLanguageAndFilename(path: string): { name: string | undefined, language: ScriptLanguage } | undefined {
@@ -155,7 +478,8 @@ export async function generateScriptMetadataInternal(
         language,
         remotePath,
         metadataParsedContent,
-        filteredRawWorkspaceDependencies
+        filteredRawWorkspaceDependencies,
+        scriptPath
       );
     } else {
       metadataParsedContent.lock = "";
@@ -211,13 +535,48 @@ export async function updateScriptSchema(
   }
 }
 
+// =============================================================================
+// LOCKFILE GENERATION HELPERS
+// =============================================================================
+
+/**
+ * Raw script entry for API payload
+ */
+interface RawScriptEntry {
+  raw_code: string;
+  language: ScriptLanguage;
+  script_path: string;
+}
+
+/**
+ * Build the raw_scripts payload for lockfile generation
+ */
+function buildRawScriptsPayload(
+  mainScript: { content: string; language: ScriptLanguage; path: string },
+  localScripts: Record<string, { content: string; language: ScriptLanguage }>
+): RawScriptEntry[] {
+  return [
+    {
+      raw_code: mainScript.content,
+      language: mainScript.language,
+      script_path: mainScript.path,
+    },
+    ...Object.entries(localScripts).map(([importPath, scriptData]) => ({
+      raw_code: scriptData.content,
+      language: scriptData.language,
+      script_path: importPath,
+    }))
+  ];
+}
+
 async function updateScriptLock(
   workspace: Workspace,
   scriptContent: string,
   language: ScriptLanguage,
   remotePath: string,
   metadataContent: Record<string, any>,
-  rawWorkspaceDependencies: Record<string, string>
+  rawWorkspaceDependencies: Record<string, string>,
+  scriptPath: string
 ): Promise<void> {
   if (
     !(
@@ -230,12 +589,27 @@ async function updateScriptLock(
     return;
   }
 
+  // Collect local scripts that are imported by this script
+  const localScripts = await collectLocalScripts(scriptPath, language);
+  const localScriptCount = Object.keys(localScripts).length;
 
+  // Log workspace dependencies and local scripts
   if (Object.keys(rawWorkspaceDependencies).length > 0) {
     const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
     log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
-  
+
+  if (localScriptCount > 0) {
+    const scriptPaths = Object.keys(localScripts).join(', ');
+    log.info(`Found ${localScriptCount} local script(s) imported by ${remotePath}: ${scriptPaths}`);
+  }
+
+  // Build raw_scripts payload with main script and all its local imports
+  const rawScripts = buildRawScriptsPayload(
+    { content: scriptContent, language, path: remotePath },
+    localScripts
+  );
+
   // generate the script lock running a dependency job in Windmill and update it inplace
   // TODO: update this once the client is released
   const extraHeaders = getHeaders();
@@ -249,14 +623,8 @@ async function updateScriptLock(
         ...extraHeaders,
       },
       body: JSON.stringify({
-        raw_scripts: [
-          {
-            raw_code: scriptContent,
-            language: language,
-            script_path: remotePath,
-          },
-        ],
-        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
+        raw_scripts: rawScripts,
+        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
           ? rawWorkspaceDependencies : null,
         entrypoint: remotePath,
       }),
