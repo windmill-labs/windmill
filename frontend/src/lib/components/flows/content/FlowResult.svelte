@@ -31,7 +31,9 @@
 					{/if}
 				</div>
 
-				<Button variant="default" size="xs" on:click={() => onOpenDetails?.()}>Open details</Button>
+				<Button variant="default" unifiedSize="md" onClick={() => onOpenDetails?.()}
+					>Open preview</Button
+				>
 			</div>
 
 			{#if isOwner !== undefined && suspendStatus}
@@ -46,13 +48,11 @@
 				<div class="py-2"></div>
 			{/if}
 
-			<div class="grid grid-cols-2 gap-4 h-full min-h-[200px] max-h-[400px] w-full">
+			<div class="flex flex-col gap-4 h-full w-full">
 				<!-- Result Column -->
-				<div class="flex flex-col min-h-0 max-h-full">
+				<div class="flex flex-col">
 					<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-					<div
-						class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary p-4"
-					>
+					<div class="flex-1 overflow-auto rounded-md border bg-surface-tertiary p-4 max-h-[400px]">
 						{#if job !== undefined && (job['result_stream'] || (job.type == 'CompletedJob' && 'result' in job && job.result !== undefined))}
 							<DisplayResult
 								workspaceId={job?.workspace_id}
@@ -75,11 +75,9 @@
 				</div>
 
 				<!-- Logs Column -->
-				<div class="flex flex-col min-h-0 max-h-full">
+				<div class="flex flex-col">
 					<h3 class="text-xs font-semibold text-emphasis mb-1">Logs</h3>
-					<div
-						class="flex-1 min-h-0 max-h-full overflow-auto rounded-md border bg-surface-tertiary"
-					>
+					<div class="max-h-[400px] rounded-md border overflow-auto">
 						<LogViewer
 							jobId={job.id}
 							duration={job?.['duration_ms']}

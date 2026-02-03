@@ -328,13 +328,17 @@
 			</div>
 			<!-- Expansion toggle -->
 			{#if relevantFields().filter((f) => f.field !== 'run_id' && f.field !== 'created_at').length > 0}
-				<button
-					onclick={() => (isExpanded = !isExpanded)}
-					class="text-secondary hover:text-primary transition-colors p-1 rounded"
+				<Button
+					variant="subtle"
+					unifiedSize="sm"
+					onClick={() => (isExpanded = !isExpanded)}
 					title={isExpanded ? 'Show less' : 'Show more details'}
-				>
-					<ChevronDown size={14} class={isExpanded ? 'transform rotate-180' : ''} />
-				</button>
+					iconOnly
+					startIcon={{
+						icon: ChevronDown,
+						classes: isExpanded ? 'transform rotate-180 transition-transform' : ''
+					}}
+				/>
 			{/if}
 		</div>
 
@@ -343,7 +347,10 @@
 			{@const expandedFields = relevantFields()
 				.filter((f) => f.field !== 'run_id' && f.field !== 'created_at')
 				.slice(0, 3)}
-			<div class="px-3 pb-2 border-t border-surface-secondary/50 bg-surface">
+			<div
+				class="px-3 pb-2 border-t border-surface-secondary/50 bg-surface"
+				transition:slide={{ duration: 150 }}
+			>
 				<div class="flex flex-col gap-y-1 text-xs pt-2">
 					{#each expandedFields as config}
 						{@const displayValue = getDisplayValue(config, job)}
