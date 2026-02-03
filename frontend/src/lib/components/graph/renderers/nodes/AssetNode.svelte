@@ -269,7 +269,7 @@
 <NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
 	{#snippet children({ darkMode })}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
-		<Tooltip>
+		<Tooltip customBgClass="bg-surface-tertiary">
 			<div
 				class={twMerge(
 					'h-6 flex items-center rounded-md drop-shadow-base overflow-clip transition-colors',
