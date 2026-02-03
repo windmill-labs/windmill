@@ -164,6 +164,14 @@ pub enum AnthropicPlatform {
     GoogleVertexAi,
 }
 
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum GoogleAIPlatform {
+    #[default]
+    Standard,
+    GoogleVertexAi,
+}
+
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
     #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
@@ -182,6 +190,9 @@ pub struct ProviderResource {
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
     pub platform: AnthropicPlatform,
+    /// Platform for Google AI API (standard or google_vertex_ai)
+    #[serde(default)]
+    pub google_platform: GoogleAIPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -226,6 +237,10 @@ impl ProviderWithResource {
 
     pub fn get_platform(&self) -> &AnthropicPlatform {
         &self.resource.platform
+    }
+
+    pub fn get_google_platform(&self) -> &GoogleAIPlatform {
+        &self.resource.google_platform
     }
 }
 

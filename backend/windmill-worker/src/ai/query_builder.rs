@@ -113,8 +113,10 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
     use windmill_common::ai_providers::AIProvider;
 
     match provider.kind {
-        // Google AI uses the Gemini API
-        AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
+        // Google AI uses the Gemini API (with platform-specific handling for Vertex AI)
+        AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new(
+            provider.get_google_platform().clone(),
+        )),
         // OpenAI use the Responses API
         AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
         // Anthropic uses its own API format (with platform-specific handling for Vertex AI)
