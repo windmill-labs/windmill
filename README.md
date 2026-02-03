@@ -140,7 +140,7 @@ Windmill supports multiple ways to develop locally and sync with your instance:
 | **[Git Sync](https://www.windmill.dev/docs/advanced/git_sync)** | Two-way sync between Windmill and your Git repository |
 | **[Claude Code](https://www.windmill.dev/docs/core_concepts/ai_generation)** | AI-assisted development with Claude for scripts, flows, and apps |
 
-![CLI Screencast](./cli/vhs/output/setup.gif)
+https://github.com/user-attachments/assets/c541c326-e9ae-4602-a09a-1989aaded1e9
 
 You can run scripts locally by passing the right environment variables for the `wmill` client library to fetch resources and variables from your instance. See [local development docs](https://www.windmill.dev/docs/advanced/local_development).
 
