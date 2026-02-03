@@ -59,14 +59,19 @@ async fn cleanup_test_events(db: &Pool<Postgres>) {
 // ============================================================================
 
 #[tokio::test]
-async fn test_get_latest_event_id_empty_table() {
+async fn test_get_latest_event_id_returns_valid_id() {
     let db = get_db().await;
 
-    // Clear any existing events first for a clean test
-    let _ = sqlx::query("DELETE FROM notify_event").execute(&db).await;
-
+    // Get current latest id
     let latest_id = get_latest_event_id(&db).await.expect("Should get latest event id");
-    assert_eq!(latest_id, 0, "Empty table should return 0");
+    assert!(latest_id >= 0, "Latest id should be non-negative");
+
+    // Insert a new event and verify latest_id increases
+    let new_id = insert_test_event(&db, "test_latest_id", "payload").await;
+    let new_latest_id = get_latest_event_id(&db).await.expect("Should get latest event id");
+    assert!(new_latest_id >= new_id, "Latest id should be >= new event id");
+
+    cleanup_test_events(&db).await;
 }
 
 #[tokio::test]
@@ -85,12 +90,15 @@ async fn test_get_latest_event_id_with_events() {
 }
 
 #[tokio::test]
-async fn test_poll_notify_events_empty() {
+async fn test_poll_notify_events_no_new_events() {
     let db = get_db().await;
 
+    // Get latest id first
     let latest_id = get_latest_event_id(&db).await.unwrap();
+
+    // Poll from the latest id - should return empty since no new events
     let events = poll_notify_events(&db, latest_id).await.expect("Should poll events");
-    assert!(events.is_empty(), "Should return empty vec when no new events");
+    assert!(events.is_empty(), "Should return empty vec when polling from latest id");
 }
 
 #[tokio::test]
@@ -144,34 +152,54 @@ async fn test_poll_notify_events_respects_last_event_id() {
 #[tokio::test]
 async fn test_cleanup_old_events() {
     let db = get_db().await;
-    cleanup_test_events(&db).await;
+
+    // Use unique channel names to avoid interference from other tests
+    let old_channel = format!("test_cleanup_old_{}", uuid::Uuid::new_v4());
+    let recent_channel = format!("test_cleanup_recent_{}", uuid::Uuid::new_v4());
 
     // Insert an event with old timestamp
     sqlx::query(
         "INSERT INTO notify_event (channel, payload, created_at) VALUES ($1, $2, now() - interval '15 minutes')",
     )
-    .bind("test_cleanup_old")
+    .bind(&old_channel)
     .bind("old_payload")
     .execute(&db)
     .await
     .expect("Failed to insert old event");
 
     // Insert a recent event
-    insert_test_event(&db, "test_cleanup_recent", "recent_payload").await;
+    sqlx::query(
+        "INSERT INTO notify_event (channel, payload) VALUES ($1, $2)",
+    )
+    .bind(&recent_channel)
+    .bind("recent_payload")
+    .execute(&db)
+    .await
+    .expect("Failed to insert recent event");
+
+    // Count before cleanup
+    let old_count_before = count_events_for_channel(&db, &old_channel).await;
+    assert_eq!(old_count_before, 1, "Should have 1 old event before cleanup");
 
     // Cleanup events older than 10 minutes
     let deleted = cleanup_old_events(&db, 10).await.expect("Should cleanup events");
     assert!(deleted >= 1, "Should delete at least 1 old event");
 
     // Verify old event is gone
-    let old_count = count_events_for_channel(&db, "test_cleanup_old").await;
+    let old_count = count_events_for_channel(&db, &old_channel).await;
     assert_eq!(old_count, 0, "Old event should be deleted");
 
     // Verify recent event is still there
-    let recent_count = count_events_for_channel(&db, "test_cleanup_recent").await;
+    let recent_count = count_events_for_channel(&db, &recent_channel).await;
     assert_eq!(recent_count, 1, "Recent event should still exist");
 
-    cleanup_test_events(&db).await;
+    // Cleanup
+    sqlx::query("DELETE FROM notify_event WHERE channel IN ($1, $2)")
+        .bind(&old_channel)
+        .bind(&recent_channel)
+        .execute(&db)
+        .await
+        .ok();
 }
 
 // ============================================================================
@@ -405,8 +433,8 @@ async fn test_trigger_var_cache_invalidation() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
 
-    // Insert a variable
-    let var_path = format!("test_var_{}", uuid::Uuid::new_v4());
+    // Insert a variable - path must match proper_id constraint (u/xxx or f/xxx format)
+    let var_path = format!("u/test/var_{}", uuid::Uuid::new_v4().to_string().chars().take(8).collect::<String>());
     sqlx::query(
         "INSERT INTO variable (workspace_id, path, value, is_secret, description)
          VALUES ('test-workspace', $1, 'test_value', false, 'test variable')",
@@ -445,8 +473,8 @@ async fn test_trigger_resource_cache_invalidation() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
 
-    // Insert a resource
-    let resource_path = format!("test_resource_{}", uuid::Uuid::new_v4());
+    // Insert a resource - path must match proper_id constraint (u/xxx or f/xxx format)
+    let resource_path = format!("u/test/res_{}", uuid::Uuid::new_v4().to_string().chars().take(8).collect::<String>());
     sqlx::query(
         "INSERT INTO resource (workspace_id, path, value, resource_type, description)
          VALUES ('test-workspace', $1, '{}'::jsonb, 'test_type', 'test resource')",
@@ -638,12 +666,12 @@ async fn test_trigger_notify_runnable_version_change_script() {
 async fn test_trigger_notify_runnable_version_change_flow() {
     let db = get_db().await;
 
-    // First create a flow
+    // First create a flow with empty versions array
     let flow_path = format!("f/test/flow_{}", uuid::Uuid::new_v4());
 
     sqlx::query(
-        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, schema)
-         VALUES ('test-workspace', $1, 'test', 'test', '{}'::jsonb, 'test-user', '{}'::json)",
+        "INSERT INTO flow (workspace_id, path, summary, description, value, edited_by, schema, versions)
+         VALUES ('test-workspace', $1, 'test', 'test', '{}'::jsonb, 'test-user', '{}'::json, ARRAY[]::bigint[])",
     )
     .bind(&flow_path)
     .execute(&db)
@@ -652,15 +680,14 @@ async fn test_trigger_notify_runnable_version_change_flow() {
 
     let before_id = get_latest_event_id(&db).await.unwrap();
 
-    // Insert a flow version (this should trigger the notification)
+    // Update the flow's versions array (this triggers flow_versions_append_trigger)
     sqlx::query(
-        "INSERT INTO flow_version (workspace_id, path, value, schema, created_by)
-         VALUES ('test-workspace', $1, '{}'::jsonb, '{}'::json, 'test-user')",
+        "UPDATE flow SET versions = array_append(versions, 1::bigint) WHERE workspace_id = 'test-workspace' AND path = $1",
     )
     .bind(&flow_path)
     .execute(&db)
     .await
-    .expect("Failed to insert flow version");
+    .expect("Failed to update flow versions");
 
     let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
     let flow_events: Vec<_> = events
@@ -678,11 +705,6 @@ async fn test_trigger_notify_runnable_version_change_flow() {
     assert_eq!(parts[1], "flow", "Second part should be 'flow'");
 
     // Cleanup
-    sqlx::query("DELETE FROM flow_version WHERE workspace_id = 'test-workspace' AND path = $1")
-        .bind(&flow_path)
-        .execute(&db)
-        .await
-        .ok();
     sqlx::query("DELETE FROM flow WHERE workspace_id = 'test-workspace' AND path = $1")
         .bind(&flow_path)
         .execute(&db)
@@ -697,14 +719,25 @@ async fn test_trigger_notify_runnable_version_change_flow() {
 #[tokio::test]
 async fn test_concurrent_event_insertion() {
     let db = get_db().await;
+
+    // Use a unique channel name for this test run
+    let channel = format!("test_concurrent_{}", uuid::Uuid::new_v4());
     let before_id = get_latest_event_id(&db).await.unwrap();
 
     // Insert multiple events concurrently
     let handles: Vec<_> = (0..10)
         .map(|i| {
             let db = db.clone();
+            let ch = channel.clone();
             tokio::spawn(async move {
-                insert_test_event(&db, "test_concurrent", &format!("payload_{}", i)).await
+                sqlx::query_scalar::<_, i64>(
+                    "INSERT INTO notify_event (channel, payload) VALUES ($1, $2) RETURNING id",
+                )
+                .bind(&ch)
+                .bind(format!("payload_{}", i))
+                .fetch_one(&db)
+                .await
+                .expect("Failed to insert event")
             })
         })
         .collect();
@@ -717,7 +750,7 @@ async fn test_concurrent_event_insertion() {
     let events = poll_notify_events(&db, before_id).await.expect("Should poll events");
     let concurrent_events: Vec<_> = events
         .iter()
-        .filter(|e| e.channel == "test_concurrent")
+        .filter(|e| e.channel == channel)
         .collect();
 
     assert_eq!(concurrent_events.len(), 10, "Should have all 10 concurrent events");
@@ -726,33 +759,72 @@ async fn test_concurrent_event_insertion() {
     let ids: std::collections::HashSet<i64> = concurrent_events.iter().map(|e| e.id).collect();
     assert_eq!(ids.len(), 10, "All events should have unique IDs");
 
-    cleanup_test_events(&db).await;
+    // Cleanup
+    sqlx::query("DELETE FROM notify_event WHERE channel = $1")
+        .bind(&channel)
+        .execute(&db)
+        .await
+        .ok();
 }
 
 #[tokio::test]
 async fn test_polling_isolation() {
     let db = get_db().await;
 
+    // Use a unique channel name for this test
+    let channel = format!("test_isolation_{}", uuid::Uuid::new_v4());
+
+    // Get baseline before inserting
+    let baseline_id = get_latest_event_id(&db).await.unwrap();
+
     // Insert some events
-    let id1 = insert_test_event(&db, "test_isolation", "payload1").await;
-    let id2 = insert_test_event(&db, "test_isolation", "payload2").await;
-    let _id3 = insert_test_event(&db, "test_isolation", "payload3").await;
+    let id1 = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO notify_event (channel, payload) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(&channel)
+    .bind("payload1")
+    .fetch_one(&db)
+    .await
+    .expect("Failed to insert event");
+
+    let id2 = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO notify_event (channel, payload) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(&channel)
+    .bind("payload2")
+    .fetch_one(&db)
+    .await
+    .expect("Failed to insert event");
+
+    let _id3 = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO notify_event (channel, payload) VALUES ($1, $2) RETURNING id",
+    )
+    .bind(&channel)
+    .bind("payload3")
+    .fetch_one(&db)
+    .await
+    .expect("Failed to insert event");
 
     // Two different "consumers" polling from different points
-    let events_from_0 = poll_notify_events(&db, 0).await.expect("Should poll events");
+    let events_from_baseline = poll_notify_events(&db, baseline_id).await.expect("Should poll events");
     let events_from_id1 = poll_notify_events(&db, id1).await.expect("Should poll events");
     let events_from_id2 = poll_notify_events(&db, id2).await.expect("Should poll events");
 
     // Filter to our test events
-    let from_0: Vec<_> = events_from_0.iter().filter(|e| e.channel == "test_isolation").collect();
-    let from_id1: Vec<_> = events_from_id1.iter().filter(|e| e.channel == "test_isolation").collect();
-    let from_id2: Vec<_> = events_from_id2.iter().filter(|e| e.channel == "test_isolation").collect();
+    let from_baseline: Vec<_> = events_from_baseline.iter().filter(|e| e.channel == channel).collect();
+    let from_id1: Vec<_> = events_from_id1.iter().filter(|e| e.channel == channel).collect();
+    let from_id2: Vec<_> = events_from_id2.iter().filter(|e| e.channel == channel).collect();
 
-    assert!(from_0.len() >= 3, "Polling from 0 should include all events");
+    assert_eq!(from_baseline.len(), 3, "Polling from baseline should include all 3 events");
     assert_eq!(from_id1.len(), 2, "Polling from id1 should include id2 and id3");
     assert_eq!(from_id2.len(), 1, "Polling from id2 should include only id3");
 
-    cleanup_test_events(&db).await;
+    // Cleanup
+    sqlx::query("DELETE FROM notify_event WHERE channel = $1")
+        .bind(&channel)
+        .execute(&db)
+        .await
+        .ok();
 }
 
 // ============================================================================
@@ -822,21 +894,38 @@ async fn test_special_characters_in_payload() {
 #[tokio::test]
 async fn test_cleanup_with_no_old_events() {
     let db = get_db().await;
-    cleanup_test_events(&db).await;
+
+    // Use a unique channel name for this test
+    let channel = format!("test_no_old_{}", uuid::Uuid::new_v4());
 
     // Insert only recent events
-    insert_test_event(&db, "test_no_old", "recent1").await;
-    insert_test_event(&db, "test_no_old", "recent2").await;
+    sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+        .bind(&channel)
+        .bind("recent1")
+        .execute(&db)
+        .await
+        .expect("Failed to insert event");
 
-    let before_count = count_events_for_channel(&db, "test_no_old").await;
+    sqlx::query("INSERT INTO notify_event (channel, payload) VALUES ($1, $2)")
+        .bind(&channel)
+        .bind("recent2")
+        .execute(&db)
+        .await
+        .expect("Failed to insert event");
+
+    let before_count = count_events_for_channel(&db, &channel).await;
     assert_eq!(before_count, 2, "Should have 2 recent events");
 
-    // Cleanup old events (none should be deleted)
+    // Cleanup old events (none of our events should be deleted since they're recent)
     let _deleted = cleanup_old_events(&db, 10).await.expect("Should cleanup events");
-    // Note: deleted might be 0 or might include other test artifacts
 
-    let after_count = count_events_for_channel(&db, "test_no_old").await;
+    let after_count = count_events_for_channel(&db, &channel).await;
     assert_eq!(after_count, 2, "Recent events should not be deleted");
 
-    cleanup_test_events(&db).await;
+    // Cleanup
+    sqlx::query("DELETE FROM notify_event WHERE channel = $1")
+        .bind(&channel)
+        .execute(&db)
+        .await
+        .ok();
 }

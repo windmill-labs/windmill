@@ -152,3 +152,14 @@ BEGIN
     RETURN COALESCE(NEW, OLD);
 END;
 $$ LANGUAGE plpgsql;
+
+-- Create triggers for variable and resource tables if they don't exist
+DROP TRIGGER IF EXISTS variable_cache_invalidate_trigger ON variable;
+CREATE TRIGGER variable_cache_invalidate_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON variable
+    FOR EACH ROW EXECUTE FUNCTION notify_var_resource_cache_change();
+
+DROP TRIGGER IF EXISTS resource_cache_invalidate_trigger ON resource;
+CREATE TRIGGER resource_cache_invalidate_trigger
+    AFTER INSERT OR UPDATE OR DELETE ON resource
+    FOR EACH ROW EXECUTE FUNCTION notify_var_resource_cache_change();
