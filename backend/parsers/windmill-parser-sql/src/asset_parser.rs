@@ -362,18 +362,48 @@ impl Visitor for AssetCollector {
                             self.get_associated_asset_from_obj_name(name, Some(access_type))
                         {
                             // Add table-level asset
-                            self.assets.push(asset.clone());
+                            self.assets.push(ParseAssetsResult {
+                                kind: asset.kind,
+                                path: asset.path.clone(),
+                                access_type: asset.access_type,
+                                columns: None,
+                            });
 
-                            // Extract column information for INSERT with explicit columns
+                            // Extract column information for INSERT with explicit columns (Write access)
                             if !insert.columns.is_empty() {
                                 for col in &insert.columns {
-                                    let columns = ;
+                                    let columns = HashMap::from([(col.value.clone(), W)]);
                                     self.assets.push(ParseAssetsResult {
                                         kind: asset.kind,
                                         path: asset.path.clone(),
-                                        access_type: Some(access_type),
+                                        access_type: Some(W),
                                         columns: Some(columns),
                                     });
+                                }
+                            }
+
+                            // Extract column information from RETURNING clause (Read access)
+                            if let Some(returning) = &insert.returning {
+                                for item in returning {
+                                    match item {
+                                        SelectItem::UnnamedExpr(Expr::Identifier(ident))
+                                        | SelectItem::ExprWithAlias {
+                                            expr: Expr::Identifier(ident),
+                                            ..
+                                        } => {
+                                            let mut col_map = HashMap::new();
+                                            col_map.insert(ident.value.clone(), R);
+                                            self.assets.push(ParseAssetsResult {
+                                                kind: asset.kind,
+                                                path: asset.path.clone(),
+                                                access_type: Some(R),
+                                                columns: Some(col_map),
+                                            });
+                                        }
+                                        _ => {
+                                            // Ignore wildcards and complex expressions
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1110,10 +1140,10 @@ mod tests {
     }
 
     #[test]
-    fn test_sql_asset_parser_insert_returning() {
+    fn test_sql_asset_parser_update_returning() {
         let input = r#"
             ATTACH 'ducklake://my_dl' AS dl;
-            INSERT INTO dl.table1 (name, age) VALUES ('John', 30) RETURNING id;
+            UPDATE dl.table1 SET name = 'Jane', age = 26 RETURNING id, name;
         "#;
         let s = parse_assets(input).map(|s| s.assets);
 
@@ -1124,10 +1154,13 @@ mod tests {
         assert_eq!(result[0].path, "my_dl/table1");
         assert_eq!(result[0].access_type, Some(RW));
 
-        // Check that columns are present
+        // Check that columns are present with correct access types
+        // name and age are written (W), id and name are read (R)
+        // name should be RW (both written and read)
         let columns = result[0].columns.as_ref().expect("Should have columns");
-        assert_eq!(columns.len(), 2);
-        assert_eq!(columns.get("name"), Some(&RW));
-        assert_eq!(columns.get("age"), Some(&RW));
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&RW)); // Written in SET, read in RETURNING
+        assert_eq!(columns.get("age"), Some(&W)); // Only written
+        assert_eq!(columns.get("id"), Some(&R)); // Only read
     }
 }
