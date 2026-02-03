@@ -161,6 +161,48 @@ class AIAgentTestClient:
             if "already exists" not in error.lower():
                 raise Exception(f"Failed to create resource: {error}")
 
+    def script_exists(self, path: str) -> bool:
+        """Check if a script exists at the given path."""
+        response = self._client.get(
+            f"/api/w/{self.workspace}/scripts/exists/p/{path}",
+        )
+        return response.status_code == 200 and response.content.decode() == "true"
+
+    def create_script(
+        self,
+        path: str,
+        content: str,
+        language: str = "bun",
+        summary: str = "",
+        description: str = "",
+        schema: dict[str, Any] | None = None,
+    ):
+        """Create a script in the workspace."""
+        # Check if script already exists
+        if self.script_exists(path):
+            return
+
+        payload = {
+            "path": path,
+            "summary": summary,
+            "description": description,
+            "content": content,
+            "schema": schema or {"type": "object", "properties": {}, "required": []},
+            "is_template": False,
+            "language": language,
+            "kind": "script",
+        }
+
+        response = self._client.post(
+            f"/api/w/{self.workspace}/scripts/create",
+            json=payload,
+        )
+        if response.status_code // 100 != 2:
+            error = response.content.decode()
+            # Ignore if script already exists
+            if "already exists" not in error.lower():
+                raise Exception(f"Failed to create script: {error}")
+
     def upload_s3_file(self, s3_key: str, file_content: bytes, content_type: str = "image/png") -> dict:
         """Upload a file to S3 storage via Windmill API."""
         response = self._client.post(
@@ -343,6 +385,36 @@ def create_websearch_tool() -> dict[str, Any]:
     }
 
 
+def create_script_tool(
+    tool_id: str,
+    script_path: str,
+    params: list[str],
+) -> dict[str, Any]:
+    """
+    Create a tool that references an existing script in the workspace.
+
+    Args:
+        tool_id: Unique ID for the tool
+        script_path: Path to the script in the workspace (e.g., "u/admin/sum_script")
+        params: List of parameter names (each gets type: ai so the agent provides values)
+
+    Returns:
+        A tool definition dictionary
+    """
+    input_transforms = {param: {"type": "ai"} for param in params}
+
+    return {
+        "id": tool_id,
+        "summary": tool_id,
+        "value": {
+            "tool_type": "flowmodule",
+            "type": "script",
+            "path": script_path,
+            "input_transforms": input_transforms,
+        },
+    }
+
+
 @pytest.fixture(scope="session")
 def client():
     """Create and return an AI agent test client."""
@@ -416,6 +488,33 @@ def setup_providers(client):
         "url": "https://mcp.deepwiki.com/mcp",
         "name": "deepwiki"
     })
+
+    # Create sum script for workspace script tool tests
+    client.create_script(
+        path="u/admin/sum_script",
+        content="""export function main(a: number, b: number): number {
+    return a + b;
+}
+""",
+        language="bun",
+        summary="Sum two numbers",
+        description="A simple script that adds two numbers together",
+        schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "a": {
+                    "type": "number",
+                    "description": "First number to add",
+                },
+                "b": {
+                    "type": "number",
+                    "description": "Second number to add",
+                },
+            },
+            "required": ["a", "b"],
+        },
+    )
 
     yield
 

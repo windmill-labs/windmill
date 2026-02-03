@@ -3,13 +3,14 @@ Tool calling tests for AI agents.
 
 Tests AI agent tool calling with different tool types:
 - Rawscript tools (inline Bun/TypeScript)
+- Workspace script tools (scripts deployed to the workspace)
 - MCP tools (external MCP servers)
 - Websearch tools (built-in web search)
 """
 
 import pytest
 
-from .conftest import AIAgentTestClient, create_ai_agent_flow, create_rawscript_tool
+from .conftest import AIAgentTestClient, create_ai_agent_flow, create_rawscript_tool, create_script_tool
 from .providers import ALL_PROVIDERS, ANTHROPIC, GOOGLE_AI, OPENAI
 
 
@@ -67,6 +68,47 @@ class TestToolCalling:
         result_str = str(result)
         assert "12" in result_str, f"Expected '12' in result: {result}"
         print(f"Sum tool result from {provider_config['name']}: {result}")
+
+    @pytest.mark.parametrize(
+        "provider_config",
+        ALL_PROVIDERS,
+        ids=get_provider_ids(ALL_PROVIDERS),
+    )
+    def test_workspace_script_tool(
+        self,
+        client: AIAgentTestClient,
+        setup_providers,
+        provider_config,
+    ):
+        """
+        Test that an AI agent can call a workspace script tool to add numbers.
+
+        This test uses a script that was deployed to the workspace (u/admin/sum_script)
+        rather than an inline rawscript.
+        """
+        tools = [
+            create_script_tool(
+                tool_id="sum_numbers",
+                script_path="u/admin/sum_script",
+                params=["a", "b"],
+            )
+        ]
+
+        flow_value = create_ai_agent_flow(
+            provider_input_transform=provider_config["input_transform"],
+            system_prompt="You are a helpful assistant. Use the sum_numbers tool to perform arithmetic.",
+            tools=tools,
+        )
+
+        result = client.run_preview_flow(
+            flow_value=flow_value,
+            args={"user_message": "What is 8 + 15? Use the sum_numbers tool."},
+        )
+
+        assert result is not None
+        result_str = str(result)
+        assert "23" in result_str, f"Expected '23' in result: {result}"
+        print(f"Workspace script tool result from {provider_config['name']}: {result}")
 
     @pytest.mark.parametrize(
         "provider_config",

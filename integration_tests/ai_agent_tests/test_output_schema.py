@@ -26,6 +26,7 @@ export function main(a: number, b: number): number {
 
 # Output schema for structured result
 RESULT_SCHEMA = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
         "sum": {"type": "number"}
@@ -163,6 +164,7 @@ class TestSchemaVariations:
     ):
         """Test deeply nested object structure."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "user": {
@@ -205,6 +207,7 @@ class TestSchemaVariations:
     ):
         """Test array with object items."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "items": {
@@ -250,6 +253,7 @@ class TestSchemaVariations:
     ):
         """Test enum constraints."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "status": {
@@ -290,6 +294,7 @@ class TestSchemaVariations:
     ):
         """Test that optional fields are handled correctly (made nullable)."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "name": {"type": "string"},
@@ -327,6 +332,7 @@ class TestSchemaVariations:
     ):
         """Test min/max constraints on numbers."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "rating": {
@@ -372,6 +378,7 @@ class TestSchemaVariations:
             pytest.xfail("Google AI does not support $ref with definitions in output_schema")
 
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "primary": {"$ref": "#/definitions/Color"},
@@ -419,6 +426,7 @@ class TestSchemaVariations:
     ):
         """Test anyOf for union types."""
         schema = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
             "properties": {
                 "value": {
