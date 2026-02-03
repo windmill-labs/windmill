@@ -1,3 +1,5 @@
+
+https://github.com/user-attachments/assets/aac14391-f1e4-47c3-83ab-839d347bacd8
 <p align="center">
   <a href="https://www.windmill.dev/"><img src="./imgs/windmill-banner.png" alt="windmill.dev"></a>
 </p>
@@ -40,7 +42,7 @@ Windmill is fully open-sourced (AGPLv3) and Windmill Labs offers dedicated insta
 
 ![Windmill Diagram](./imgs/stacks.svg)
 
-https://github.com/windmill-labs/windmill/assets/122811744/0b132cd1-ee67-4505-822f-0c7ee7104252
+https://github.com/user-attachments/assets/d80de1d9-64de-4d89-aacd-6df23fa81fc4
 
 - [Windmill - Developer platform for APIs, background jobs, workflows and UIs](#windmill---developer-platform-for-apis-background-jobs-workflows-and-uis)
   - [Main Concepts](#main-concepts)
