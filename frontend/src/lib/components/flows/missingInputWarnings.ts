@@ -7,8 +7,7 @@ import type { StateStore } from '$lib/utils'
 import type { FlowState } from './flowState'
 import { dfs } from './dfs'
 
-const isAiTransform = (transform: InputTransform | undefined) =>
-	(transform as { type?: string })?.type === 'ai'
+const isAiTransform = (transform: InputTransform | undefined) => transform?.type === 'ai'
 
 function isInputFilled(
 	inputTransforms: Record<string, InputTransform>,
