@@ -103,6 +103,44 @@ export async function replaceInlineScripts(
           await replaceInlineScripts(branch.modules, fileReader, logger, localPath, separator, removeLocks);
         }));
         await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks);
+      } else if (module.value.type === "aiagent") {
+        await Promise.all((module.value.tools ?? []).map(async (tool: any) => {
+          const toolValue = tool.value;
+          if (!toolValue || toolValue.tool_type === 'mcp' || toolValue.tool_type === 'websearch') {
+            return;
+          }
+          if (toolValue.type !== "rawscript" || !toolValue.content || !toolValue.content.startsWith("!inline")) {
+            return;
+          }
+
+          const path = toolValue.content.split(" ")[1];
+          const pathSuffix = path.split(".").slice(1).join(".");
+          const newPath = tool.id + "." + pathSuffix;
+
+          try {
+            toolValue.content = await fileReader(path);
+          } catch {
+            logger.error(`Script file ${path} not found`);
+            try {
+              toolValue.content = await fileReader(newPath);
+            } catch {
+              logger.error(`Script file ${newPath} not found`);
+            }
+          }
+
+          const lock = toolValue.lock;
+          if (removeLocks && removeLocks.includes(path)) {
+            toolValue.lock = undefined;
+          } else if (lock && typeof lock === "string" && lock.trimStart().startsWith("!inline ")) {
+            const lockPath = lock.split(" ")[1];
+            try {
+              toolValue.lock = await fileReader(lockPath.replaceAll("/", separator));
+            } catch {
+              logger.error(`Lock file ${lockPath} not found, treating as empty`);
+              toolValue.lock = "";
+            }
+          }
+        }));
       }
     }));
   }

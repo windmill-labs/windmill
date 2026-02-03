@@ -95,6 +95,30 @@ export function extractInlineScripts(
           assigner
         ),
       ];
+    } else if (m.value.type == "aiagent") {
+      return (m.value.tools ?? []).flatMap((tool: any) => {
+        const toolValue = tool.value;
+        // Only process flowmodule tools with rawscript type
+        if (!toolValue || toolValue.tool_type === 'mcp' || toolValue.tool_type === 'websearch') {
+          return [];
+        }
+        if (toolValue.type !== "rawscript") {
+          return [];
+        }
+
+        const [basePath, ext] = assigner.assignPath(tool.summary ?? tool.id, toolValue.language);
+        const path = mapping[tool.id] ?? basePath + ext;
+        const content = toolValue.content;
+        const r = [{ path: path, content: content }];
+        toolValue.content = "!inline " + path.replaceAll(separator, "/");
+        const lock = toolValue.lock;
+        if (lock && lock != "") {
+          const lockPath = basePath + "lock";
+          toolValue.lock = "!inline " + lockPath.replaceAll(separator, "/");
+          r.push({ path: lockPath, content: lock });
+        }
+        return r;
+      });
     } else {
       return [];
     }
@@ -140,6 +164,16 @@ export function extractCurrentMapping(
         extractCurrentMapping(b.modules, mapping)
       );
       extractCurrentMapping(m.value.default, mapping);
+    } else if (m.value.type === "aiagent") {
+      (m.value.tools ?? []).forEach((tool: any) => {
+        const toolValue = tool.value;
+        if (!toolValue || toolValue.tool_type === 'mcp' || toolValue.tool_type === 'websearch') {
+          return;
+        }
+        if (toolValue.type === "rawscript" && toolValue.content && toolValue.content.startsWith("!inline ")) {
+          mapping[tool.id] = toolValue.content.trim().split(" ")[1];
+        }
+      });
     }
   });
 
