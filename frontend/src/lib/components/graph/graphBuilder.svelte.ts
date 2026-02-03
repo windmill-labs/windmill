@@ -297,6 +297,7 @@ export type AssetN = {
 	type: 'asset'
 	data: {
 		asset: AssetWithAltAccessType
+		displayedAccessType: 'r' | 'w'
 	}
 }
 

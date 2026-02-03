@@ -73,7 +73,7 @@
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset },
+					data: { asset, displayedAccessType: 'r' as const },
 					id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
 					width: inputAssetWidth,
 					position: {
@@ -110,7 +110,7 @@
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset },
+					data: { asset, displayedAccessType: 'w' as const },
 					id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
 					width: outputAssetWidth,
 					position: {
@@ -237,6 +237,7 @@
 	import { userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
+	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
 
 	interface Props {
 		data: AssetN['data']
@@ -254,6 +255,15 @@
 	})
 	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))
 	const colors = $derived(getNodeColorClasses(undefined, isSelected))
+
+	let assetColumns = $derived(
+		data.asset.columns &&
+			Object.fromEntries(
+				Object.entries(data.asset.columns).filter(
+					([_, accessType]) => accessType && accessType === data.displayedAccessType
+				)
+			)
+	)
 </script>
 
 <NodeWrapper wrapperClass="bg-surface-secondary rounded-md">
@@ -319,6 +329,9 @@
 				<span class="text-hint text-xs">
 					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
+				{#if assetColumns}
+					<AssetColumnBadges columns={assetColumns} disableTooltip />
+				{/if}
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}

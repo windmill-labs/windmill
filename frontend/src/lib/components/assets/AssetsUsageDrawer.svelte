@@ -8,7 +8,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { capitalize, displayDate } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
-	import { type AssetUsageAccessType } from 'windmill-utils-internal/dist/gen/types.gen'
+	import AssetColumnBadges from './AssetColumnBadges.svelte'
 
 	let usagesDrawerData:
 		| {
@@ -80,22 +80,6 @@
 	{/if}
 {/snippet}
 
-{#snippet columnBadges(columns: Record<string, AssetUsageAccessType>)}
-	<div class="flex gap-1 flex-wrap mt-0.5">
-		{#each Object.entries(columns) as [columnName, accessType]}
-			{@const accessType2 = formatAssetAccessType(accessType)}
-			<Tooltip>
-				<div class="text-xs text-secondary border rounded-md px-1 bg-surface-secondary">
-					{columnName}
-				</div>
-				<svelte:fragment slot="text">
-					{accessType2} access to column "{columnName}"
-				</svelte:fragment>
-			</Tooltip>
-		{/each}
-	</div>
-{/snippet}
-
 {#snippet list(items: AssetUsage[])}
 	<ul class="flex flex-col border rounded-md divide-y">
 		{#each items as u}
@@ -133,7 +117,7 @@
 							{u.kind == 'job' ? u.path : capitalize(u.kind)}
 						</span>
 						{#if u.columns}
-							{@render columnBadges(u.columns)}
+							<AssetColumnBadges columns={u.columns} />
 						{/if}
 					</div>
 					{@render rightBadge(displayDate(u.created_at), 'Asset detection time')}
