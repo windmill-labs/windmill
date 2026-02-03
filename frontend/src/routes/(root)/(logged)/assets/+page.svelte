@@ -14,23 +14,21 @@
 		type ListAssetsResponse
 	} from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { capitalize, pluralize, truncate } from '$lib/utils'
+	import { pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { AlertTriangle, ArrowRight, Loader2, SettingsIcon } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, SettingsIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
-	import { Debounced, resource, watch } from 'runed'
+	import { Debounced, resource, watch, type ResourceReturn } from 'runed'
 	import Label from '$lib/components/Label.svelte'
 	import MultiSelect from '$lib/components/select/MultiSelect.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
-	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
-	import Tab from '$lib/components/common/tabs/Tab.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
 
 	interface AssetCursor {
@@ -87,20 +85,6 @@
 	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
-	let labels = {
-		datatable: 'Data Table',
-		ducklake: 'Ducklake',
-		s3: 'Workspace Object Storage',
-		resource: 'Resource'
-	}
-	let settingsHrefs = {
-		datatable: '/workspace_settings?tab=windmill_data_tables',
-		ducklake: '/workspace_settings?tab=windmill_lfs',
-		s3: '/workspace_settings?tab=windmill_lfs',
-		resource: '/resources'
-	}
-	let selectedTab: keyof typeof labels = $state('datatable')
-
 	let allS3Storages = resource(
 		() => $workspaceStore,
 		() =>
@@ -117,12 +101,6 @@
 		() => $workspaceStore,
 		() => WorkspaceService.listDataTables({ workspace: $workspaceStore! })
 	)
-	let selectedTabAllData: string[] = $derived.by(() => {
-		if (selectedTab === 's3') return allS3Storages.current ?? []
-		if (selectedTab === 'ducklake') return allDucklakes.current ?? []
-		if (selectedTab === 'datatable') return allDataTables.current ?? []
-		return []
-	})
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.assets}
@@ -137,32 +115,73 @@
 			tooltip="Assets show up here whenever you use them in Windmill."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
-		<Tabs bind:selected={selectedTab}>
-			{#each Object.entries(labels) as [kind, label]}
-				<Tab value={kind} {label} />
-			{/each}
-		</Tabs>
-		<div class="border-b mb-2 pb-8 pt-2">
-			{#if selectedTab === 'resource'}
-				<Button
-					href="/resources"
-					endIcon={{ icon: ArrowRight }}
-					variant="accent"
-					wrapperClasses="w-fit"
-				>
-					Go to resources
-				</Button>
-			{:else}
-				{JSON.stringify(selectedTabAllData)}
-				<Button
-					href={settingsHrefs[selectedTab]}
-					endIcon={{ icon: SettingsIcon }}
-					wrapperClasses="w-fit"
-				>
-					{capitalize(labels[selectedTab].toLowerCase())} settings
-				</Button>
-			{/if}
-		</div>
+
+		<Section label="All workspace assets">
+			<div class="mb-2 pb-8 flex gap-4">
+				{#snippet card(props: {
+					title: string
+					assetKind: AssetKind
+					data: ResourceReturn<string[]>
+					settingsHref: string
+				})}
+					<div
+						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md px-6 py-5 flex-1"
+					>
+						<div class="divide-y">
+							<div class="flex justify-between">
+								<h3 class="text-sm font-bold mb-4">{props.title}</h3>
+								<a class="text-xs" href={props.settingsHref}>Settings </a>
+							</div>
+							{#each props.data.current ?? [] as item}
+								<div class="text-sm py-2.5 text-primary flex justify-between items-center">
+									{item}
+									<ExploreAssetButton
+										asset={{ kind: props.assetKind, path: item }}
+										{s3FilePicker}
+										{dbManagerDrawer}
+									/>
+								</div>
+							{/each}
+						</div>
+						{#if props.data.loading}
+							<div class="flex items-center gap-2 mt-2 text-sm text-secondary">
+								<Loader2 size={16} class="animate-spin" />
+							</div>
+						{:else if props.data.error}
+							<div class="text-sm text-red-600 mt-2">Error loading {props.title.toLowerCase()}</div>
+						{:else if props.data.current?.length === 0}
+							<div class="text-sm text-secondary mt-2 mb-3">No {props.title.toLowerCase()} yet</div>
+							<Button
+								endIcon={{ icon: SettingsIcon }}
+								href={props.settingsHref}
+								variant="accent"
+								wrapperClasses="w-fit"
+							>
+								{props.title} settings
+							</Button>
+						{/if}
+					</div>
+				{/snippet}
+				{@render card({
+					title: 'Data tables',
+					data: allDataTables,
+					assetKind: 'datatable',
+					settingsHref: '/workspace_settings?tab=windmill_data_tables'
+				})}
+				{@render card({
+					title: 'Ducklakes',
+					data: allDucklakes,
+					assetKind: 'ducklake',
+					settingsHref: '/workspace_settings?tab=windmill_lfs'
+				})}
+				{@render card({
+					title: 'Workspace object storages',
+					data: allS3Storages,
+					assetKind: 's3object',
+					settingsHref: '/workspace_settings?tab=windmill_lfs'
+				})}
+			</div>
+		</Section>
 		<Section label="Latest assets used">
 			<div class="flex gap-2 mb-4 items-end justify-between">
 				<div class="flex gap-2">

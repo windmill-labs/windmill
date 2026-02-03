@@ -913,8 +913,7 @@ async fn get_secondary_storage_names(
         let has_primary_storage: Option<bool> = sqlx::query_scalar!(
             "SELECT (large_file_storage IS NOT NULL
                      AND large_file_storage != 'null'::jsonb
-                     AND jsonb_typeof(large_file_storage) = 'object'
-                     AND large_file_storage ? 'large_file_storage') AS \"has_primary!\"
+                     AND jsonb_typeof(large_file_storage) = 'object') AS \"has_primary!\"
             FROM workspace_settings WHERE workspace_id = $1",
             &w_id
         )
