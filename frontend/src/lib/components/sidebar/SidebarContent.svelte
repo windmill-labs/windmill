@@ -15,7 +15,7 @@
 	import { SIDEBAR_SHOW_SCHEDULES } from '$lib/consts'
 	import {
 		BookOpen,
-		HardHat,
+		ServerCog,
 		Boxes,
 		Calendar,
 		DollarSign,
@@ -31,7 +31,6 @@
 		Newspaper,
 		Play,
 		Route,
-		ServerCog,
 		Settings,
 		UserCog,
 		Plus,
@@ -455,7 +454,7 @@
 		{
 			label: 'Workers',
 			href: `${base}/workers`,
-			icon: HardHat,
+			icon: ServerCog,
 			disabled: $userStore?.operator,
 			aiId: 'sidebar-menu-link-workers',
 			aiDescription: 'Button to navigate to workers'
