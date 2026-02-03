@@ -8,7 +8,8 @@ properties:
     description: True if script_path points to a flow, false if it points to a script
   route_path:
     type: string
-    description: The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')
+    description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint').
+      Must NOT start with a /.
   static_asset_config:
     type: object
     properties:

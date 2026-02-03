@@ -19730,7 +19730,7 @@ components:
       properties:
         route_path:
           type: string
-          description: The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         static_asset_config:
           type: object
           description: Configuration for serving static assets (s3 bucket, storage path, filename)
@@ -19891,7 +19891,7 @@ components:
           description: Path to the script or flow to execute when triggered
         route_path:
           type: string
-          description: The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         summary:
           type: string
           description: Short summary describing the purpose of this trigger
