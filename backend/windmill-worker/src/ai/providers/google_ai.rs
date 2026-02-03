@@ -522,10 +522,11 @@ impl GoogleAIQueryBuilder {
             .unwrap_or(false);
 
         let (response_mime_type, response_schema) = if has_output_schema {
-            let schema = args.output_schema.unwrap();
+            let mut schema = args.output_schema.unwrap().clone();
+            schema.sanitize_for_google();
             (
                 Some("application/json".to_string()),
-                serde_json::to_value(schema).ok(),
+                serde_json::to_value(&schema).ok(),
             )
         } else {
             (None, None)
