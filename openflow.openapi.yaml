@@ -380,6 +380,168 @@ components:
       required:
         - type
 
+    # Provider configuration schemas
+    AIProviderKind:
+      type: string
+      description: Supported AI provider types
+      enum:
+        - openai
+        - azure_openai
+        - anthropic
+        - mistral
+        - deepseek
+        - googleai
+        - groq
+        - openrouter
+        - togetherai
+        - customai
+        - aws_bedrock
+
+    ProviderConfig:
+      type: object
+      description: Complete AI provider configuration with resource reference and model selection
+      properties:
+        kind:
+          $ref: '#/components/schemas/AIProviderKind'
+        resource:
+          type: string
+          description: Resource reference in format '$res:{resource_path}' pointing to provider credentials
+        model:
+          type: string
+          description: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+      required:
+        - kind
+        - resource
+        - model
+
+    StaticProviderTransform:
+      type: object
+      description: Static provider configuration passed directly to the AI agent
+      properties:
+        value:
+          $ref: '#/components/schemas/ProviderConfig'
+        type:
+          type: string
+          enum:
+            - static
+      required:
+        - type
+        - value
+
+    ProviderTransform:
+      description: Provider configuration - can be static (ProviderConfig), JavaScript expression, or AI-determined
+      oneOf:
+        - $ref: '#/components/schemas/StaticProviderTransform'
+        - $ref: '#/components/schemas/JavascriptTransform'
+        - $ref: '#/components/schemas/AiTransform'
+      discriminator:
+        propertyName: type
+        mapping:
+          static: '#/components/schemas/StaticProviderTransform'
+          javascript: '#/components/schemas/JavascriptTransform'
+          ai: '#/components/schemas/AiTransform'
+
+    # Memory configuration schemas
+    MemoryOff:
+      type: object
+      description: No conversation memory/context
+      properties:
+        kind:
+          type: string
+          enum:
+            - 'off'
+      required:
+        - kind
+
+    MemoryAuto:
+      type: object
+      description: Automatic context management
+      properties:
+        kind:
+          type: string
+          enum:
+            - auto
+        context_length:
+          type: integer
+          description: Maximum number of messages to retain in context
+        memory_id:
+          type: string
+          description: Identifier for persistent memory across agent invocations
+      required:
+        - kind
+
+    MemoryMessage:
+      type: object
+      description: A single message in conversation history
+      properties:
+        role:
+          type: string
+          enum:
+            - user
+            - assistant
+            - system
+        content:
+          type: string
+      required:
+        - role
+        - content
+
+    MemoryManual:
+      type: object
+      description: Explicit message history
+      properties:
+        kind:
+          type: string
+          enum:
+            - manual
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryMessage'
+      required:
+        - kind
+        - messages
+
+    MemoryConfig:
+      description: Conversation memory configuration
+      oneOf:
+        - $ref: '#/components/schemas/MemoryOff'
+        - $ref: '#/components/schemas/MemoryAuto'
+        - $ref: '#/components/schemas/MemoryManual'
+      discriminator:
+        propertyName: kind
+        mapping:
+          'off': '#/components/schemas/MemoryOff'
+          auto: '#/components/schemas/MemoryAuto'
+          manual: '#/components/schemas/MemoryManual'
+
+    StaticMemoryTransform:
+      type: object
+      description: Static memory configuration passed directly to the AI agent
+      properties:
+        value:
+          $ref: '#/components/schemas/MemoryConfig'
+        type:
+          type: string
+          enum:
+            - static
+      required:
+        - type
+        - value
+
+    MemoryTransform:
+      description: Memory configuration - can be static (MemoryConfig), JavaScript expression, or AI-determined
+      oneOf:
+        - $ref: '#/components/schemas/StaticMemoryTransform'
+        - $ref: '#/components/schemas/JavascriptTransform'
+        - $ref: '#/components/schemas/AiTransform'
+      discriminator:
+        propertyName: type
+        mapping:
+          static: '#/components/schemas/StaticMemoryTransform'
+          javascript: '#/components/schemas/JavascriptTransform'
+          ai: '#/components/schemas/AiTransform'
+
     FlowModuleValue:
       description: The actual implementation of a flow step. Can be a script (inline or referenced), subflow, loop, branch, or special module type
       oneOf:
@@ -769,14 +931,7 @@ components:
           description: Input parameters for the AI agent mapped to their values
           properties:
             provider:
-              allOf:
-                - $ref: '#/components/schemas/InputTransform'
-              description: |
-                AI model provider configuration object.
-                Format: { kind: string, resource: object, model: string }
-                - kind: Provider type. Valid values: 'openai', 'azure_openai', 'anthropic', 'mistral', 'deepseek', 'googleai', 'groq', 'openrouter', 'togetherai', 'customai', 'aws_bedrock'
-                - resource: Credentials object containing api_key, base_url (optional), region (for AWS)
-                - model: Model identifier (e.g., 'gpt-4', 'claude-3-opus-20240229', 'gemini-pro')
+              $ref: '#/components/schemas/ProviderTransform'
             output_type:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
@@ -798,14 +953,7 @@ components:
                 Boolean. If true, stream the AI response incrementally.
                 Streaming events include: token_delta, tool_call, tool_call_arguments, tool_execution, tool_result
             memory:
-              allOf:
-                - $ref: '#/components/schemas/InputTransform'
-              description: |
-                Conversation history configuration. Tagged union with 'kind' discriminator.
-                Valid formats:
-                - { kind: 'off' } - No memory/context
-                - { kind: 'auto', context_length?: number, memory_id?: string } - Automatic context management
-                - { kind: 'manual', messages: Array<{role: 'user'|'assistant'|'system', content: string}> } - Explicit message history
+              $ref: '#/components/schemas/MemoryTransform'
             output_schema:
               allOf:
                 - $ref: '#/components/schemas/InputTransform'
