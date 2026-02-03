@@ -9,7 +9,7 @@
 		workspaceColor,
 		clearWorkspaceFromStorage
 	} from '$lib/stores'
-	import { isRuleActive } from '$lib/workspaceProtectionRulesStore'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'

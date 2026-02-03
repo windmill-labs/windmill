@@ -8,6 +8,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -62,6 +63,9 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showEditButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function archiveFlow(path: string, archived: boolean): Promise<void> {
 		try {
@@ -126,7 +130,7 @@
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if flow.canWrite && !flow.archived}
+				{#if flow.canWrite && !flow.archived && showEditButton}
 					<div>
 						<Button
 							variant="subtle"

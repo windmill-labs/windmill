@@ -22,6 +22,7 @@
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
@@ -45,6 +46,9 @@
 	let filter = $state('')
 	let variables = $state(undefined) as ListableVariableW[] | undefined
 	let filteredItems = $state(undefined) as (ListableVariableW & { marked?: string })[] | undefined
+
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showCreateButtons = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 	let contextualVariables: ContextualVariable[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
@@ -183,27 +187,29 @@
 			tooltip="Save and permission strings to be reused in Scripts and Flows."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/variables_and_secrets"
 		>
-			<div class="flex flex-row justify-end">
-				{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => contextualVariableEditor?.initNew()}
-					>
-						New&nbsp;contextual&nbsp;variable
-					</Button>
-				{:else}
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Plus }}
-						on:click={() => variableEditor?.initNew()}
-					>
-						New&nbsp;variable
-					</Button>
-				{/if}
-			</div>
+			{#if showCreateButtons}
+				<div class="flex flex-row justify-end">
+					{#if tab == 'contextual' && ($userStore?.is_admin || $userStore?.is_super_admin)}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							on:click={() => contextualVariableEditor?.initNew()}
+						>
+							New&nbsp;contextual&nbsp;variable
+						</Button>
+					{:else}
+						<Button
+							unifiedSize="md"
+							variant="accent"
+							startIcon={{ icon: Plus }}
+							on:click={() => variableEditor?.initNew()}
+						>
+							New&nbsp;variable
+						</Button>
+					{/if}
+				</div>
+			{/if}
 		</PageHeader>
 
 		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />

@@ -1,45 +1,78 @@
-import { writable, get } from 'svelte/store'
 import { WorkspaceService, type ProtectionRuleset, type ProtectionRuleKind } from './gen'
 import type { UserExt } from './stores'
 
 /**
- * Store for workspace protection rules state
+ * Internal reactive state using Svelte 5 $state rune
  */
-export const protectionRulesStore = writable<{
+let state = $state<{
 	rulesets: ProtectionRuleset[] | undefined
 	loading: boolean
 	error: string | undefined
+	workspace: string | undefined
 }>({
 	rulesets: undefined,
 	loading: false,
-	error: undefined
+	error: undefined,
+	workspace: undefined
 })
 
 /**
- * Loads protection rules for a workspace from the API and updates the store
+ * Exported reactive state object with readonly getters
  */
-export async function loadProtectionRules(workspace: string): Promise<void> {
-	protectionRulesStore.update((state) => ({ ...state, loading: true }))
-
-	try {
-		const rulesets = await WorkspaceService.listProtectionRules({ workspace })
-		protectionRulesStore.set({
-			rulesets,
-			loading: false,
-			error: undefined
-		})
-	} catch (error) {
-		console.error('Failed to load protection rulesets:', error)
-		protectionRulesStore.set({
-			rulesets: [],
-			loading: false,
-			error: error instanceof Error ? error.message : 'Unknown error'
-		})
+export const protectionRulesState = {
+	get rulesets() {
+		return state.rulesets
+	},
+	get loading() {
+		return state.loading
+	},
+	get error() {
+		return state.error
+	},
+	get workspace() {
+		return state.workspace
 	}
 }
 
 /**
- * Fetches protection rules for a specific workspace without updating the store
+ * Internal function to reset state (used by storeUtils)
+ */
+export function resetProtectionRules() {
+	state.rulesets = undefined
+	state.loading = false
+	state.error = undefined
+	state.workspace = undefined
+}
+
+/**
+ * Loads protection rules for a workspace from the API and updates the state
+ * Early returns if already loading the same workspace to prevent duplicate requests
+ */
+export async function loadProtectionRules(workspace: string): Promise<void> {
+	// Early return if already loading for this workspace
+	if (state.loading && state.workspace === workspace) {
+		return
+	}
+
+	state.loading = true
+	state.workspace = workspace
+
+	try {
+		const rulesets = await WorkspaceService.listProtectionRules({ workspace })
+		state.rulesets = rulesets
+		state.loading = false
+		state.error = undefined
+	} catch (error) {
+		console.error('Failed to load protection rulesets:', error)
+		// Fail open: set empty array to allow operations
+		state.rulesets = []
+		state.loading = false
+		state.error = error instanceof Error ? error.message : 'Unknown error'
+	}
+}
+
+/**
+ * Fetches protection rules for a specific workspace without updating the state
  * @param workspace The workspace ID to fetch rules for
  * @returns Array of protection rulesets, or empty array on error
  */
@@ -84,11 +117,12 @@ export function canUserBypassRule(ruleset: ProtectionRuleset, userInfo: UserExt)
 
 /**
  * Checks if a specific rule type is active in ANY ruleset
+ * FIXED: No longer uses await without async context
  * @param ruleKind The rule type to check
- * @returns true if the rule is active in at least one ruleset
+ * @returns true if the rule is active in at least one ruleset, false if not loaded or not active
  */
 export function isRuleActive(ruleKind: ProtectionRuleKind): boolean {
-	const state = get(protectionRulesStore)
+	// Safe default: return false if rules not loaded yet
 	if (!state.rulesets) {
 		return false
 	}
@@ -111,7 +145,6 @@ export function canUserBypassRuleKind(
 		return true
 	}
 
-	const state = get(protectionRulesStore)
 	if (!state.rulesets) {
 		return true // No rules loaded, allow
 	}
@@ -125,4 +158,24 @@ export function canUserBypassRuleKind(
 
 	// User must be able to bypass ALL rulesets containing this rule
 	return rulesetsWithThisRule.every((rs) => canUserBypassRule(rs, userInfo))
+}
+
+/**
+ * Checks if direct web UI deployments are blocked
+ * @returns true if RequireForkOrBranchToDeploy rule is active
+ */
+export function isDirectDeployBlocked(): boolean {
+	return isRuleActive('RequireForkOrBranchToDeploy')
+}
+
+/**
+ * Checks if user can bypass direct deploy block
+ * @param user The user information
+ * @returns true if user can bypass the RequireForkOrBranchToDeploy rule
+ */
+export function canBypassDirectDeployBlock(user: UserExt | undefined): boolean {
+	if (!user) {
+		return true // Permissive default
+	}
+	return canUserBypassRuleKind('RequireForkOrBranchToDeploy', user)
 }

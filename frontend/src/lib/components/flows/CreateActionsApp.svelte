@@ -9,6 +9,8 @@
 	import { LayoutDashboard, Loader2, Plus, Code2, FlaskConical } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
+	import { userStore } from '$lib/stores'
 
 	import YAML from 'yaml'
 
@@ -20,6 +22,9 @@
 	// Modal states
 	let appTypeModalOpen = $state(false)
 	let featurePreviewModalOpen = $state(false)
+
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showCreateButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function importRaw() {
 		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
@@ -48,36 +53,38 @@
 </script>
 
 <!-- Buttons -->
-<div class="flex flex-row gap-2">
-	<Button
-		id="create-app-button"
-		aiId="apps-create-actions-app"
-		aiDescription="Create a new app"
-		unifiedSize="lg"
-		startIcon={{ icon: Plus }}
-		endIcon={{ icon: LayoutDashboard }}
-		on:click={openAppTypeModal}
-		variant="accent"
-		dropdownItems={[
-			{
-				label: 'Import low-code app from YAML',
-				onClick: () => {
-					drawer?.toggleDrawer?.()
-					importType = 'yaml'
+{#if showCreateButton}
+	<div class="flex flex-row gap-2">
+		<Button
+			id="create-app-button"
+			aiId="apps-create-actions-app"
+			aiDescription="Create a new app"
+			unifiedSize="lg"
+			startIcon={{ icon: Plus }}
+			endIcon={{ icon: LayoutDashboard }}
+			on:click={openAppTypeModal}
+			variant="accent"
+			dropdownItems={[
+				{
+					label: 'Import low-code app from YAML',
+					onClick: () => {
+						drawer?.toggleDrawer?.()
+						importType = 'yaml'
+					}
+				},
+				{
+					label: 'Import low-code app from JSON',
+					onClick: () => {
+						drawer?.toggleDrawer?.()
+						importType = 'json'
+					}
 				}
-			},
-			{
-				label: 'Import low-code app from JSON',
-				onClick: () => {
-					drawer?.toggleDrawer?.()
-					importType = 'json'
-				}
-			}
-		]}
-	>
-		<div class="flex flex-row items-center"> App </div>
-	</Button>
-</div>
+			]}
+		>
+			<div class="flex flex-row items-center"> App </div>
+		</Button>
+	</div>
+{/if}
 
 <!-- App Type Selection Modal -->
 <Modal bind:open={appTypeModalOpen} title="Choose your app builder">

@@ -6,6 +6,7 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { AppService, DraftService, type ListableApp } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Button from '../button/Button.svelte'
 	import Row from './Row.svelte'
@@ -59,6 +60,9 @@
 
 	const dispatch = createEventDispatcher()
 
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showEditButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
+
 	let appExport: { open: (path: string) => void } | undefined = $state(undefined)
 	let appDeploymentHistory: AppDeploymentHistory | undefined = $state(undefined)
 
@@ -103,7 +107,7 @@
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
 			{#if !$userStore?.operator}
-				{#if app.canWrite}
+				{#if app.canWrite && showEditButton}
 					<div>
 						<Button
 							aiId={`edit-app-button-${app.summary?.length > 0 ? app.summary : app.path}`}

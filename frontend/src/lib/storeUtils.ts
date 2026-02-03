@@ -8,7 +8,7 @@ import {
 	devopsRole,
 	clearWorkspaceFromStorage
 } from './stores'
-import { protectionRulesStore, loadProtectionRules } from './workspaceProtectionRulesStore'
+import { resetProtectionRules, loadProtectionRules } from './workspaceProtectionRules.svelte'
 
 export function switchWorkspace(workspace: string | undefined) {
 	try {
@@ -19,12 +19,8 @@ export function switchWorkspace(workspace: string | undefined) {
 	}
 	resourceTypesStore.set(undefined)
 
-	// Clear protection rules store
-	protectionRulesStore.set({
-		rulesets: undefined,
-		loading: false,
-		error: undefined
-	})
+	// Clear protection rules state
+	resetProtectionRules()
 
 	workspaceStore.set(workspace)
 
@@ -44,11 +40,7 @@ export function clearStores(): void {
 	}
 
 	resourceTypesStore.set(undefined)
-	protectionRulesStore.set({
-		rulesets: undefined,
-		loading: false,
-		error: undefined
-	})
+	resetProtectionRules()
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)

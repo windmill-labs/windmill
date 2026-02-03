@@ -30,6 +30,7 @@
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -116,6 +117,9 @@
 
 	let filter = $state('')
 	let ownerFilter: string | undefined = $state(undefined)
+
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showCreateButtons = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	let typeFilter: string | undefined = $state(undefined)
 
@@ -712,28 +716,30 @@
 			tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		>
-			<div class="flex flex-row justify-end gap-4">
-				<Button
-					variant="default"
-					unifiedSize="md"
-					startIcon={{ icon: Plus }}
-					on:click={startNewType}
-					aiId="resources-add-resource-type"
-					aiDescription="Add resource type"
-				>
-					Add resource type
-				</Button>
-				<Button
-					unifiedSize="md"
-					variant="accent"
-					startIcon={{ icon: Boxes }}
-					on:click={() => appConnect?.open?.()}
-					aiId="resources-add-resource"
-					aiDescription="Add resource"
-				>
-					Add resource
-				</Button>
-			</div>
+			{#if showCreateButtons}
+				<div class="flex flex-row justify-end gap-4">
+					<Button
+						variant="default"
+						unifiedSize="md"
+						startIcon={{ icon: Plus }}
+						on:click={startNewType}
+						aiId="resources-add-resource-type"
+						aiDescription="Add resource type"
+					>
+						Add resource type
+					</Button>
+					<Button
+						unifiedSize="md"
+						variant="accent"
+						startIcon={{ icon: Boxes }}
+						on:click={() => appConnect?.open?.()}
+						aiId="resources-add-resource"
+						aiDescription="Add resource"
+					>
+						Add resource
+					</Button>
+				</div>
+			{/if}
 		</PageHeader>
 		<div class="flex justify-between">
 			<Tabs

@@ -9,6 +9,7 @@
 
 	import { ScriptService, type Script, DraftService } from '$lib/gen'
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -73,6 +74,9 @@
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
+
+	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
+	let showEditButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
@@ -162,7 +166,7 @@
 							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
 						></Badge
 					>
-				{:else if script.canWrite && !script.archived}
+				{:else if script.canWrite && !script.archived && showEditButton}
 					<div>
 						<Button
 							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
