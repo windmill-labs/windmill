@@ -570,7 +570,7 @@
 		{/snippet}
 		<div class="flex flex-col gap-6">
 			<label for="inp">
-				<div class="mb-1 font-semibold text-secondary gap-1 flex flex-row items-center"
+				<div class="mb-1 font-semibold text-emphasis text-xs gap-1 flex flex-row items-center"
 					>Name
 					<div class="flex flex-row items-center gap-x-4">
 						<div class="flex flex-row items-center">
@@ -588,7 +588,7 @@
 				</div></label
 			>
 			<label>
-				<div class="mb-1 font-semibold text-secondary">Description</div>
+				<div class="mb-1 font-semibold text-emphasis text-xs">Description</div>
 				<textarea use:autosize autocomplete="off" bind:value={editResourceType.description}
 				></textarea></label
 			>
@@ -602,7 +602,7 @@
 						contains a `content` field and thus cannot be edited.
 					</Alert>
 				{:else}
-					<div class="mb-1 font-semibold text-secondary">Schema</div>
+					<div class="mb-1 font-semibold text-emphasis text-xs">Schema</div>
 					<div class="flex flex-col gap-2">
 						<EditableSchemaWrapper bind:schema={editResourceType.schema} noPreview />
 					</div>
