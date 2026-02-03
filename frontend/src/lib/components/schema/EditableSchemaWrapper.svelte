@@ -127,7 +127,7 @@
 {#if resourceIsTextFile}
 	<label
 		for="format-extension"
-		class="text-base font-medium whitespace-nowrap flex items-center gap-4"
+		class="text-xs font-semibold text-emphasis whitespace-nowrap flex items-center gap-4"
 	>
 		File extension :
 		<Select
