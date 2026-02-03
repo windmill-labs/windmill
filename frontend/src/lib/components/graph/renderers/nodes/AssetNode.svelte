@@ -57,7 +57,7 @@
 			// All asset nodes displayed on top
 			const inputAssetNodes: (Node & AssetN)[] = displayedInputAssets.map((asset, i) => {
 				let inputAssetXGap = 12
-				let inputAssetWidth = 150
+				let inputAssetWidth = 165
 
 				const targetRowW =
 					MAX_ASSET_ROW_WIDTH -
@@ -73,7 +73,7 @@
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset, displayedAccessType: 'r' as const },
+					data: { asset, displayedAccessType: 'r' },
 					id: `${node.id}-asset-in-${asset.kind}-${asset.path}`,
 					width: inputAssetWidth,
 					position: {
@@ -94,7 +94,7 @@
 			// All asset nodes displayed on the bottom
 			const outputAssetNodes: (Node & AssetN)[] = displayedOutputAssets.map((asset, i) => {
 				let outputAssetXGap = 12
-				let outputAssetWidth = 150
+				let outputAssetWidth = 165
 
 				const targetRowW =
 					MAX_ASSET_ROW_WIDTH -
@@ -110,7 +110,7 @@
 				return {
 					type: 'asset' as const,
 					parentId: node.id,
-					data: { asset, displayedAccessType: 'w' as const },
+					data: { asset, displayedAccessType: 'w' },
 					id: `${node.id}-asset-out-${asset.kind}-${asset.path}`,
 					width: outputAssetWidth,
 					position: {
@@ -150,7 +150,7 @@
 			if (overflowedInputAssets.length)
 				allAssetNodes.push({
 					type: 'assetsOverflowed',
-					data: { overflowedAssets: overflowedInputAssets },
+					data: { overflowedAssets: overflowedInputAssets, displayedAccessType: 'r' },
 					id: `${node.id}-assets-overflowed-in`,
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
@@ -169,7 +169,7 @@
 			if (overflowedOutputAssets.length)
 				allAssetNodes.push({
 					type: 'assetsOverflowed',
-					data: { overflowedAssets: overflowedOutputAssets },
+					data: { overflowedAssets: overflowedOutputAssets, displayedAccessType: 'w' },
 					id: `${node.id}-assets-overflowed-out`,
 					parentId: node.id,
 					width: ASSETS_OVERFLOWED_NODE_WIDTH,
@@ -272,7 +272,7 @@
 		<Tooltip>
 			<div
 				class={twMerge(
-					'h-6 flex items-center gap-1.5 rounded-md drop-shadow-base overflow-clip transition-colors',
+					'h-6 flex items-center rounded-md drop-shadow-base overflow-clip transition-colors',
 					colors.outline,
 					colors.text,
 					colors.bg
@@ -284,11 +284,19 @@
 			>
 				<AssetGenericIcon
 					assetKind={data.asset.kind}
-					class="shrink-0 ml-1 {isSelected ? 'text-accent' : 'text-tertiary'}"
+					class="shrink-0 ml-1 mr-1.5 {isSelected ? 'text-accent' : 'text-tertiary'}"
 					size="16px"
 				/>
-				<span class="text-3xs truncate flex-1">
+				<span
+					class="text-3xs truncate flex-1 flex items-center gap-1 [mask-image:linear-gradient(to_right,black_85%,transparent)] mr-0.5"
+				>
 					{formatShortAssetPath(data.asset)}
+					<AssetColumnBadges
+						columns={assetColumns}
+						disableTooltip
+						disableWrap
+						badgeClasses="text-3xs transition-opacity opacity-50 {isSelected ? 'opacity-0' : ''}"
+					/>
 				</span>
 				{#if data.asset.kind === 'resource' && cachedResourceMetadata === undefined}
 					<Tooltip class={'pr-1 flex items-center justify-center'}>
@@ -329,9 +337,7 @@
 				<span class="text-hint text-xs">
 					{formatAssetKind({ ...data.asset, metadata: cachedResourceMetadata })}</span
 				>
-				{#if assetColumns}
-					<AssetColumnBadges columns={assetColumns} disableTooltip />
-				{/if}
+				<AssetColumnBadges columns={assetColumns} disableTooltip />
 			</svelte:fragment>
 		</Tooltip>
 	{/snippet}

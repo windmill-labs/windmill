@@ -116,9 +116,7 @@
 						<span class="text-2xs text-secondary">
 							{u.kind == 'job' ? u.path : capitalize(u.kind)}
 						</span>
-						{#if u.columns}
-							<AssetColumnBadges columns={u.columns} />
-						{/if}
+						<AssetColumnBadges columns={u.columns} badgeClasses="mt-0.5" />
 					</div>
 					{@render rightBadge(displayDate(u.created_at), 'Asset detection time')}
 					{@render rightBadge(accessType)}

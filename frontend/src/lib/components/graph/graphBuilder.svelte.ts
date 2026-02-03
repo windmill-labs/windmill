@@ -305,6 +305,7 @@ export type AssetsOverflowedN = {
 	type: 'assetsOverflowed'
 	data: {
 		overflowedAssets: AssetWithAltAccessType[]
+		displayedAccessType: 'r' | 'w'
 	}
 }
 
