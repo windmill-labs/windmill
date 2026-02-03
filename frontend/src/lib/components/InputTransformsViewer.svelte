@@ -37,6 +37,8 @@
 							<span class="text-xs text-primary whitespace-pre-wrap font-mono">
 								{cleanExpr(val.expr)}
 							</span>
+						{:else if val.type == 'ai'}
+							<span class="text-xs text-primary whitespace-pre-wrap font-mono">Filled by AI</span>
 						{/if}
 					</Cell>
 				</Row>
