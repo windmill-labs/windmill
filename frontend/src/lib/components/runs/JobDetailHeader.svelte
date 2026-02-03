@@ -348,7 +348,7 @@
 				.filter((f) => f.field !== 'run_id' && f.field !== 'created_at')
 				.slice(0, 3)}
 			<div
-				class="px-3 pb-2 border-t border-surface-secondary/50 bg-surface"
+				class="px-3 pb-2 border-t border-surface-secondary/30 bg-surface"
 				transition:slide={{ duration: 150 }}
 			>
 				<div class="flex flex-col gap-y-1 text-xs pt-2">
@@ -449,7 +449,7 @@
 			{@const fields = relevantFields()}
 			<div class="bg-surface flex items-center" style="flex: 2 1 100px; min-width: 350px;">
 				<div
-					class="grid gap-x-6 gap-y-1.5 w-full px-8 py-4 bg-surface-secondary/30"
+					class="grid gap-x-6 gap-y-1.5 w-full h-full px-8 py-4 bg-surface-secondary/30"
 					style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"
 				>
 					{#if job}
