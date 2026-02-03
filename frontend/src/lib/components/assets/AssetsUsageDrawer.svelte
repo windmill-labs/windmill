@@ -6,7 +6,7 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { displayDate } from '$lib/utils'
+	import { capitalize, displayDate } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
 	import { type AssetUsageAccessType } from 'windmill-utils-internal/dist/gen/types.gen'
 
@@ -105,7 +105,7 @@
 				<a
 					href={getAssetUsagePageUri(u)}
 					aria-label={`${u.kind}/${u.path}`}
-					class="text-xs min-h-14 text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
+					class="text-xs min-h-14 text-primary font-normal flex items-center py-2 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
 				>
 					<RowIcon
 						kind={!u.metadata?.job_kind
@@ -123,15 +123,15 @@
 									} as const
 								)[u.metadata.job_kind] ?? 'script')}
 					/>
-					<div class="flex flex-col justify-center flex-1">
+					<div class="flex flex-col justify-center flex-1 ml-2">
 						<span>
 							<span class="font-semibold text-emphasis">
 								{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
 							</span>
 						</span>
-						{#if u.kind == 'job'}
-							<span class="text-2xs text-secondary">{u.path}</span>
-						{/if}
+						<span class="text-2xs text-secondary">
+							{u.kind == 'job' ? u.path : capitalize(u.kind)}
+						</span>
 						{#if u.columns}
 							{@render columnBadges(u.columns)}
 						{/if}
