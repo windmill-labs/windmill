@@ -19807,7 +19807,7 @@ components:
           description: Path to the script or flow to execute when triggered
         route_path:
           type: string
-          description: The URL route path that will trigger this endpoint (e.g., '/api/myendpoint')
+          description: The URL route path that will trigger this endpoint (e.g., 'api/myendpoint'). Must NOT start with a /.
         workspaced_route:
           type: boolean
           description: If true, the route includes the workspace ID in the path
