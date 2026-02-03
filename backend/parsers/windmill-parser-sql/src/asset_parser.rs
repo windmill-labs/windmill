@@ -426,7 +426,7 @@ impl Visitor for AssetCollector {
                 let access_type = if returning.is_some() { RW } else { W };
                 self.handle_table_with_joins(table, Some(access_type));
 
-                // Extract column information from UPDATE SET clauses
+                // Extract column information from UPDATE SET clauses (Write access)
                 // Only process if it's a single table update
                 if let TableFactor::Table { name, .. } = &table.relation {
                     if let Some(asset) =
@@ -445,13 +445,35 @@ impl Visitor for AssetCollector {
                                         col_name.0.first().and_then(|p| p.as_ident())
                                     {
                                         let mut col_map = HashMap::new();
-                                        col_map.insert(col_ident.value.clone(), access_type);
+                                        col_map.insert(col_ident.value.clone(), W);
                                         self.assets.push(ParseAssetsResult {
                                             kind: asset.kind,
                                             path: asset.path.clone(),
-                                            access_type: Some(access_type),
+                                            access_type: Some(W),
                                             columns: Some(col_map),
                                         });
+                                    }
+                                }
+                            }
+                        }
+
+                        // Extract column information from RETURNING clause (Read access)
+                        if let Some(returning_items) = returning {
+                            for item in returning_items {
+                                match item {
+                                    SelectItem::UnnamedExpr(Expr::Identifier(ident))
+                                    | SelectItem::ExprWithAlias { expr: Expr::Identifier(ident), .. } => {
+                                        let mut col_map = HashMap::new();
+                                        col_map.insert(ident.value.clone(), R);
+                                        self.assets.push(ParseAssetsResult {
+                                            kind: asset.kind,
+                                            path: asset.path.clone(),
+                                            access_type: Some(R),
+                                            columns: Some(col_map),
+                                        });
+                                    }
+                                    _ => {
+                                        // Ignore wildcards and complex expressions
                                     }
                                 }
                             }
