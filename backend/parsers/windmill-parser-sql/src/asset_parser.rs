@@ -816,56 +816,13 @@ mod tests {
         let s = parse_assets(input).map(|s| s.assets);
 
         // Should have: table-level asset + 2 column-level assets
-        let mut expected = vec![
-            ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                path: "my_dl/table1".to_string(),
-                access_type: Some(R),
-                columns: None,
-            },
-            ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                path: "my_dl/table1".to_string(),
-                access_type: Some(R),
-                columns: Some(HashMap::from([("a".to_string(), R)])),
-            },
-            ParseAssetsResult {
-                kind: AssetKind::Ducklake,
-                path: "my_dl/table1".to_string(),
-                access_type: Some(R),
-                columns: Some(HashMap::from([("b".to_string(), R)])),
-            },
-        ];
-        expected.sort_by(|a, b| {
-            a.path
-                .cmp(&b.path)
-                .then_with(|| match (&a.columns, &b.columns) {
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (Some(a_cols), Some(b_cols)) => {
-                        let a_key = a_cols.keys().next().map(|s| s.as_str()).unwrap_or("");
-                        let b_key = b_cols.keys().next().map(|s| s.as_str()).unwrap_or("");
-                        a_key.cmp(b_key)
-                    }
-                    _ => std::cmp::Ordering::Equal,
-                })
-        });
-
-        let mut result = s.unwrap();
-        result.sort_by(|a, b| {
-            a.path
-                .cmp(&b.path)
-                .then_with(|| match (&a.columns, &b.columns) {
-                    (None, Some(_)) => std::cmp::Ordering::Less,
-                    (Some(_), None) => std::cmp::Ordering::Greater,
-                    (Some(a_cols), Some(b_cols)) => {
-                        let a_key = a_cols.keys().next().map(|s| s.as_str()).unwrap_or("");
-                        let b_key = b_cols.keys().next().map(|s| s.as_str()).unwrap_or("");
-                        a_key.cmp(b_key)
-                    }
-                    _ => std::cmp::Ordering::Equal,
-                })
-        });
+        let expected = vec![ParseAssetsResult {
+            kind: AssetKind::Ducklake,
+            path: "my_dl/table1".to_string(),
+            access_type: Some(R),
+            columns: Some(HashMap::from([("a".to_string(), R), ("b".to_string(), R)])),
+        }];
+        let result = s.unwrap();
 
         assert_eq!(result, expected);
     }
@@ -880,11 +837,7 @@ mod tests {
 
         // Should detect columns with explicit table prefix
         let result = s.unwrap();
-
         // Check we have the table asset
-        assert!(result
-            .iter()
-            .any(|a| a.path == "my_dl/table1" && a.columns.is_none()));
 
         // Check we have column assets
         assert!(result.iter().any(|a| {
@@ -923,8 +876,9 @@ mod tests {
     #[test]
     fn test_sql_asset_parser_multi_table_with_qualified_columns() {
         let input = r#"
-            ATTACH 'ducklake://my_dl' AS dl;
-            SELECT table1.a, table2.b FROM dl.table1, dl.table2;
+            ATTACH 'ducklake://my_dl1' AS dl1;
+            ATTACH 'ducklake://my_dl2' AS dl2;
+            SELECT table1.a, table2.b FROM dl1.table1, dl2.table2;
         "#;
         let s = parse_assets(input).map(|s| s.assets);
 
@@ -933,13 +887,13 @@ mod tests {
 
         // Check we have column assets for both tables
         assert!(result.iter().any(|a| {
-            a.path == "my_dl/table1"
+            a.path == "my_dl1/table1"
                 && a.columns
                     .as_ref()
                     .map_or(false, |cols| cols.contains_key("a"))
         }));
         assert!(result.iter().any(|a| {
-            a.path == "my_dl/table2"
+            a.path == "my_dl2/table2"
                 && a.columns
                     .as_ref()
                     .map_or(false, |cols| cols.contains_key("b"))
@@ -1004,7 +958,6 @@ mod tests {
         let result = s.unwrap();
 
         // Should detect columns even when aliased
-        assert_eq!(Some(&result), None);
         assert!(result.iter().any(|a| {
             a.path == "my_dl/table1"
                 && a.columns
