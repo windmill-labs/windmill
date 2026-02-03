@@ -1,3 +1,5 @@
+import { AlertCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-svelte'
+
 export type AlertType = 'success' | 'error' | 'warning' | 'info'
 
 export const classes: Record<AlertType, Record<string, string>> = {
@@ -26,4 +28,11 @@ export const classes: Record<AlertType, Record<string, string>> = {
 		titleClass: 'text-green-800 dark:text-green-100/90',
 		descriptionClass: 'text-green-700 dark:text-green-100/90'
 	}
+}
+
+export const icons: Record<AlertType, any> = {
+	info: Info,
+	warning: AlertCircle,
+	error: AlertTriangle,
+	success: CheckCircle2
 }
