@@ -93,12 +93,12 @@
 						title={user}
 					>
 						<span class="text-sm font-medium leading-none text-white"
-							>{user.substring(0, 2).toLocaleUpperCase()}</span
+							>{user?.substring(0, 2).toLocaleUpperCase()}</span
 						>
 					</span>
 					<div class="flex flex-col">
 						<span class="text-xs text-primary truncate">{user}</span>
-						<span class="text-2xs text-secondary truncate">{showActivity(url)}</span>
+						<span class="text-2xs text-secondary truncate">{showActivity(url ?? '')}</span>
 					</div>
 				</div>
 			{/each}
