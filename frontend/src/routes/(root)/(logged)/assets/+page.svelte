@@ -91,15 +91,21 @@
 			SettingService.getSecondaryStorageNames({
 				workspace: $workspaceStore!,
 				includeDefault: true
-			})
+			}).then((s) => s.map((s) => (s == '_default_' ? 'Primary storage' : s)))
 	)
 	let allDucklakes = resource(
 		() => $workspaceStore,
-		() => WorkspaceService.listDucklakes({ workspace: $workspaceStore! })
+		() =>
+			WorkspaceService.listDucklakes({ workspace: $workspaceStore! }).then((d) =>
+				d.map((d) => (d == 'main' ? 'Primary ducklake' : d))
+			)
 	)
 	let allDataTables = resource(
 		() => $workspaceStore,
-		() => WorkspaceService.listDataTables({ workspace: $workspaceStore! })
+		() =>
+			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
+				d.map((d) => (d == 'main' ? 'Primary data table' : d))
+			)
 	)
 </script>
 
@@ -133,7 +139,7 @@
 								<a class="text-xs" href={props.settingsHref}>Settings </a>
 							</div>
 							{#each props.data.current ?? [] as item}
-								<div class="text-sm py-2.5 text-primary flex justify-between items-center">
+								<div class="text-xs py-2.5 text-primary flex justify-between items-center">
 									{item}
 									<ExploreAssetButton
 										asset={{ kind: props.assetKind, path: item }}
