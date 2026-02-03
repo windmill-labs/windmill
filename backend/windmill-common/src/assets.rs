@@ -125,6 +125,28 @@ pub fn merge_asset_usage_access_types(
     }
 }
 
+pub fn merge_asset_columns(
+    a: &Option<BTreeMap<String, AssetUsageAccessType>>,
+    b: &Option<BTreeMap<String, AssetUsageAccessType>>,
+) -> Option<BTreeMap<String, AssetUsageAccessType>> {
+    match (a, b) {
+        (None, None) => None,
+        (Some(cols), None) | (None, Some(cols)) => Some(cols.clone()),
+        (Some(cols_a), Some(cols_b)) => {
+            let mut merged = cols_a.clone();
+            for (col, access_b) in cols_b {
+                let access_a = merged.get(col);
+                let merged_access =
+                    merge_asset_usage_access_types(access_a.cloned(), Some(*access_b));
+                if let Some(access) = merged_access {
+                    merged.insert(col.clone(), access);
+                }
+            }
+            Some(merged)
+        }
+    }
+}
+
 impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
     fn from(parser_kind: windmill_parser::asset_parser::AssetKind) -> Self {
         match parser_kind {
