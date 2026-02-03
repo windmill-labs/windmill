@@ -361,14 +361,28 @@ impl Visitor for AssetCollector {
                         if let Some(asset) =
                             self.get_associated_asset_from_obj_name(name, Some(access_type))
                         {
-                            self.assets.push(asset);
+                            // Add table-level asset
+                            self.assets.push(asset.clone());
+
+                            // Extract column information for INSERT with explicit columns
+                            if !insert.columns.is_empty() {
+                                for col in &insert.columns {
+                                    let columns = ;
+                                    self.assets.push(ParseAssetsResult {
+                                        kind: asset.kind,
+                                        path: asset.path.clone(),
+                                        access_type: Some(access_type),
+                                        columns: Some(columns),
+                                    });
+                                }
+                            }
                         }
                     }
                     _ => {}
                 }
             }
 
-            sqlparser::ast::Statement::Update { returning, table, from, .. } => {
+            sqlparser::ast::Statement::Update { returning, table, from, assignments, .. } => {
                 if let Some(from_tables) = from {
                     let from_tables = match from_tables {
                         sqlparser::ast::UpdateTableFromKind::AfterSet(tables) => tables,
@@ -381,6 +395,39 @@ impl Visitor for AssetCollector {
 
                 let access_type = if returning.is_some() { RW } else { W };
                 self.handle_table_with_joins(table, Some(access_type));
+
+                // Extract column information from UPDATE SET clauses
+                // Only process if it's a single table update
+                if let TableFactor::Table { name, .. } = &table.relation {
+                    if let Some(asset) =
+                        self.get_associated_asset_from_obj_name(name, Some(access_type))
+                    {
+                        // Process each assignment to extract column names
+                        for assignment in assignments {
+                            // assignment.target is an AssignmentTarget enum
+                            // We only handle simple column names (ColumnName variant)
+                            if let sqlparser::ast::AssignmentTarget::ColumnName(col_name) =
+                                &assignment.target
+                            {
+                                // For simple column updates, this is typically a single ident
+                                if col_name.0.len() == 1 {
+                                    if let Some(col_ident) =
+                                        col_name.0.first().and_then(|p| p.as_ident())
+                                    {
+                                        let mut col_map = HashMap::new();
+                                        col_map.insert(col_ident.value.clone(), access_type);
+                                        self.assets.push(ParseAssetsResult {
+                                            kind: asset.kind,
+                                            path: asset.path.clone(),
+                                            access_type: Some(access_type),
+                                            columns: Some(col_map),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             sqlparser::ast::Statement::Delete(delete) => {
@@ -726,7 +773,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W),
-                columns: None
+                columns: Some(HashMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -763,7 +810,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W),
-                columns: None
+                columns: Some(HashMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -782,7 +829,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
                 access_type: Some(RW),
-                columns: None
+                columns: Some(HashMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -802,7 +849,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
                 access_type: Some(RW),
-                columns: None
+                columns: Some(HashMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -815,16 +862,18 @@ mod tests {
         "#;
         let s = parse_assets(input).map(|s| s.assets);
 
-        // Should have: table-level asset + 2 column-level assets
-        let expected = vec![ParseAssetsResult {
-            kind: AssetKind::Ducklake,
-            path: "my_dl/table1".to_string(),
-            access_type: Some(R),
-            columns: Some(HashMap::from([("a".to_string(), R), ("b".to_string(), R)])),
-        }];
         let result = s.unwrap();
 
-        assert_eq!(result, expected);
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(R));
+
+        // Check that both columns are present in the merged asset
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns.get("a"), Some(&R));
+        assert_eq!(columns.get("b"), Some(&R));
     }
 
     #[test]
@@ -995,5 +1044,90 @@ mod tests {
                     .as_ref()
                     .map_or(false, |cols| cols.contains_key("b"))
         }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_insert_with_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            INSERT INTO dl.table1 (name, age, email) VALUES ('John', 30, 'john@example.com');
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+
+        // Check that all columns are present in the merged asset
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&W));
+        assert_eq!(columns.get("age"), Some(&W));
+        assert_eq!(columns.get("email"), Some(&W));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_insert_without_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            INSERT INTO dl.table1 VALUES ('John', 30);
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset without column information
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_update_multiple_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            UPDATE dl.table1 SET name = 'Jane', age = 25, active = true;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+
+        // Check that all columns are present
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&W));
+        assert_eq!(columns.get("age"), Some(&W));
+        assert_eq!(columns.get("active"), Some(&W));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_insert_returning() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            INSERT INTO dl.table1 (name, age) VALUES ('John', 30) RETURNING id;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have RW access type when RETURNING is used
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(RW));
+
+        // Check that columns are present
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns.get("name"), Some(&RW));
+        assert_eq!(columns.get("age"), Some(&RW));
     }
 }
