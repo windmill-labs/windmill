@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use sqlparser::{
     ast::{
@@ -42,7 +42,7 @@ struct AssetCollector {
     // e.g set to Read when we are inside a SELECT ... FROM ... statement
     current_access_type_stack: Vec<AssetUsageAccessType>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
-    var_identifiers: HashMap<String, (AssetKind, String)>,
+    var_identifiers: BTreeMap<String, (AssetKind, String)>,
     // e.g USE dl;
     currently_used_asset: Option<(AssetKind, String)>,
 }
@@ -52,7 +52,7 @@ impl AssetCollector {
         Self {
             assets: Vec::new(),
             current_access_type_stack: Vec::with_capacity(8),
-            var_identifiers: HashMap::new(),
+            var_identifiers: BTreeMap::new(),
             currently_used_asset: None,
         }
     }
@@ -191,7 +191,7 @@ impl AssetCollector {
         };
 
         // Build a map of table aliases/names to assets for multi-table queries
-        let mut table_to_asset: HashMap<String, ParseAssetsResult> = HashMap::new();
+        let mut table_to_asset: BTreeMap<String, ParseAssetsResult> = BTreeMap::new();
         for table_with_joins in from_tables {
             if let TableFactor::Table { name, alias, args, .. } = &table_with_joins.relation {
                 if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
@@ -222,7 +222,7 @@ impl AssetCollector {
                     // Simple column: SELECT a
                     // Only add if we have a single table (unambiguous)
                     if let Some(asset) = &single_table {
-                        let mut columns = HashMap::new();
+                        let mut columns = BTreeMap::new();
                         columns.insert(ident.value.clone(), R);
                         self.assets.push(ParseAssetsResult {
                             kind: asset.kind,
@@ -245,7 +245,7 @@ impl AssetCollector {
                             if let Some(table_prefix) = table_prefix {
                                 if let Some(asset) = table_to_asset.get(&table_prefix) {
                                     // Found a matching table, add column asset
-                                    let mut columns = HashMap::new();
+                                    let mut columns = BTreeMap::new();
                                     columns.insert(column_name.clone(), R);
                                     self.assets.push(ParseAssetsResult {
                                         kind: asset.kind,
@@ -265,7 +265,7 @@ impl AssetCollector {
                                     if let Some(asset) =
                                         self.get_associated_asset_from_obj_name(&obj_name, Some(R))
                                     {
-                                        let mut columns = HashMap::new();
+                                        let mut columns = BTreeMap::new();
                                         columns.insert(column_name.clone(), R);
                                         self.assets.push(ParseAssetsResult {
                                             kind: asset.kind,
@@ -372,7 +372,7 @@ impl Visitor for AssetCollector {
                             // Extract column information for INSERT with explicit columns (Write access)
                             if !insert.columns.is_empty() {
                                 for col in &insert.columns {
-                                    let columns = HashMap::from([(col.value.clone(), W)]);
+                                    let columns = BTreeMap::from([(col.value.clone(), W)]);
                                     self.assets.push(ParseAssetsResult {
                                         kind: asset.kind,
                                         path: asset.path.clone(),
@@ -391,7 +391,7 @@ impl Visitor for AssetCollector {
                                             expr: Expr::Identifier(ident),
                                             ..
                                         } => {
-                                            let mut col_map = HashMap::new();
+                                            let mut col_map = BTreeMap::new();
                                             col_map.insert(ident.value.clone(), R);
                                             self.assets.push(ParseAssetsResult {
                                                 kind: asset.kind,
@@ -444,7 +444,7 @@ impl Visitor for AssetCollector {
                                     if let Some(col_ident) =
                                         col_name.0.first().and_then(|p| p.as_ident())
                                     {
-                                        let mut col_map = HashMap::new();
+                                        let mut col_map = BTreeMap::new();
                                         col_map.insert(col_ident.value.clone(), W);
                                         self.assets.push(ParseAssetsResult {
                                             kind: asset.kind,
@@ -462,8 +462,11 @@ impl Visitor for AssetCollector {
                             for item in returning_items {
                                 match item {
                                     SelectItem::UnnamedExpr(Expr::Identifier(ident))
-                                    | SelectItem::ExprWithAlias { expr: Expr::Identifier(ident), .. } => {
-                                        let mut col_map = HashMap::new();
+                                    | SelectItem::ExprWithAlias {
+                                        expr: Expr::Identifier(ident),
+                                        ..
+                                    } => {
+                                        let mut col_map = BTreeMap::new();
                                         col_map.insert(ident.value.clone(), R);
                                         self.assets.push(ParseAssetsResult {
                                             kind: asset.kind,
@@ -825,7 +828,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W),
-                columns: Some(HashMap::from([("id".to_string(), W)])),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -862,7 +865,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
                 access_type: Some(W),
-                columns: Some(HashMap::from([("id".to_string(), W)])),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -881,7 +884,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
                 access_type: Some(RW),
-                columns: Some(HashMap::from([("id".to_string(), W)])),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -901,7 +904,7 @@ mod tests {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
                 access_type: Some(RW),
-                columns: Some(HashMap::from([("id".to_string(), W)])),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }

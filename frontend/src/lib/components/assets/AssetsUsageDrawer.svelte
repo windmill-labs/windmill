@@ -8,6 +8,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { displayDate } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
+	import { type AssetUsageAccessType } from 'windmill-utils-internal/dist/gen/types.gen'
 
 	let usagesDrawerData:
 		| {
@@ -64,14 +65,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#snippet badge(text: string | undefined, tooltip?: string)}
+{#snippet rightBadge(text: string | undefined, tooltip?: string)}
 	{#if text}
 		<Tooltip disablePopup={!tooltip}>
-			<div
-				class={twMerge(
-					'text-xs bg-surface font-normal border text-primary min-w-12 p-1 text-center rounded-md'
-				)}
-			>
+			<div class={twMerge('text-xs 	font-normal text-primary min-w-12 p-1 text-center rounded-md')}>
 				{text}
 			</div>
 			<svelte:fragment slot="text">
@@ -81,6 +78,20 @@
 			</svelte:fragment>
 		</Tooltip>
 	{/if}
+{/snippet}
+
+{#snippet columnBadges(columns: Record<string, AssetUsageAccessType>)}
+	<div class="flex gap-1 flex-wrap">
+		{#each Object.entries(columns) as [columnName, accessType]}
+			{@const accessType2 = formatAssetAccessType(accessType)}
+			<Tooltip>
+				<div class="text-xs text-secondary border rounded-md px-1">{columnName}</div>
+				<svelte:fragment slot="text">
+					{accessType2} access to column "{columnName}"
+				</svelte:fragment>
+			</Tooltip>
+		{/each}
+	</div>
 {/snippet}
 
 {#snippet list(items: AssetUsage[])}
@@ -114,10 +125,15 @@
 						<span class="font-semibold text-emphasis">
 							{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
 						</span>
-						<span class="text-2xs text-secondary">{u.kind == 'job' ? u.path : u.kind}</span>
+						{#if u.kind == 'job'}
+							<span class="text-2xs text-secondary">{u.path}</span>
+						{/if}
+						{#if u.columns}
+							{@render columnBadges(u.columns)}
+						{/if}
 					</div>
-					{@render badge(displayDate(u.created_at), 'Asset detection time')}
-					{@render badge(accessType)}
+					{@render rightBadge(displayDate(u.created_at), 'Asset detection time')}
+					{@render rightBadge(accessType)}
 				</a>
 			</li>
 		{/each}

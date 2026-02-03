@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
@@ -27,7 +27,7 @@ pub struct ParseAssetsResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub columns: Option<HashMap<String, AssetUsageAccessType>>, // Map column name to access type, "*" represents wildcard
+    pub columns: Option<BTreeMap<String, AssetUsageAccessType>>, // Map column name to access type, "*" represents wildcard
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -80,9 +80,9 @@ pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
 }
 
 fn merge_column_maps(
-    existing: Option<HashMap<String, AssetUsageAccessType>>,
-    new: Option<HashMap<String, AssetUsageAccessType>>,
-) -> Option<HashMap<String, AssetUsageAccessType>> {
+    existing: Option<BTreeMap<String, AssetUsageAccessType>>,
+    new: Option<BTreeMap<String, AssetUsageAccessType>>,
+) -> Option<BTreeMap<String, AssetUsageAccessType>> {
     match (existing, new) {
         (None, None) => None,
         (Some(map), None) | (None, Some(map)) => Some(map),

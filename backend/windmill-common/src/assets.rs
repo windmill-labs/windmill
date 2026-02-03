@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
+use std::collections::BTreeMap;
 
 use crate::{error, scripts::ScriptHash};
 
@@ -37,23 +38,15 @@ pub enum AssetUsageAccessType {
     RW,
 }
 
-pub struct Asset {
-    pub path: String,
-    pub kind: AssetKind,
-}
-
-pub struct AssetUsage {
-    pub path: String,
-    pub kind: AssetUsageKind,
-    pub access_type: AssetUsageAccessType,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, sqlx::Type)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct AssetWithAltAccessType {
     pub path: String,
     pub kind: AssetKind,
     pub access_type: Option<AssetUsageAccessType>,
     pub alt_access_type: Option<AssetUsageAccessType>,
+    /// Map of column name to access type for column-level access tracking
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns: Option<BTreeMap<String, AssetUsageAccessType>>,
 }
 
 pub async fn insert_static_asset_usage<'e>(
@@ -63,15 +56,22 @@ pub async fn insert_static_asset_usage<'e>(
     usage_path: &str,
     usage_kind: AssetUsageKind,
 ) -> error::Result<()> {
+    // Convert columns BTreeMap to JSONB format
+    let columns_json = asset
+        .columns
+        .as_ref()
+        .map(|cols| serde_json::to_value(cols).unwrap_or(serde_json::Value::Null));
+
     sqlx::query!(
-        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind)
-                VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING"#,
+        r#"INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)
+                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING"#,
         workspace_id,
         asset.path,
         asset.kind as AssetKind,
         (asset.access_type.or(asset.alt_access_type)) as Option<AssetUsageAccessType>,
         usage_path,
-        usage_kind as AssetUsageKind
+        usage_kind as AssetUsageKind,
+        columns_json as Option<serde_json::Value>
     )
     .execute(executor)
     .await?;
