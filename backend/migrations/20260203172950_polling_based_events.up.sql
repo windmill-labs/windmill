@@ -1,15 +1,15 @@
 -- Create notify_event table for polling-based event system
 -- This replaces PostgreSQL LISTEN/NOTIFY with a table-based approach
 
-CREATE TABLE notify_event (
+CREATE TABLE IF NOT EXISTS notify_event (
     id BIGSERIAL PRIMARY KEY,
     channel TEXT NOT NULL,
     payload TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX notify_event_id_idx ON notify_event (id);
-CREATE INDEX notify_event_created_at_idx ON notify_event (created_at);
+CREATE INDEX IF NOT EXISTS notify_event_id_idx ON notify_event (id);
+CREATE INDEX IF NOT EXISTS notify_event_created_at_idx ON notify_event (created_at);
 
 -- Update notify_config_change function
 CREATE OR REPLACE FUNCTION notify_config_change()

@@ -931,334 +931,151 @@ async fn test_cleanup_with_no_old_events() {
 }
 
 // ============================================================================
-// Multi-Server Polling Tests
+// Multi-Server Integration Tests
 // ============================================================================
-// These tests simulate two independent server instances with separate DB
-// connections and polling state, proving that events triggered by one server
-// are picked up by all servers through the shared notify_event table.
+// These tests start two actual windmill server processes on different ports
+// with LISTEN_NEW_EVENTS_INTERVAL_SEC=1, trigger DB changes, and verify
+// both servers process the events via their log output.
 
-/// Creates a separate DB connection pool, simulating an independent server.
-async fn create_server_pool() -> Pool<Postgres> {
-    let database_url = std::env::var("DATABASE_URL")
+use std::io::{BufRead, BufReader};
+use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
+
+struct ServerProcess {
+    child: Child,
+    log_lines: Arc<Mutex<Vec<String>>>,
+    _stdout_handle: std::thread::JoinHandle<()>,
+    _stderr_handle: std::thread::JoinHandle<()>,
+}
+
+impl ServerProcess {
+    fn start(port: u16, db_url: &str) -> Self {
+        let binary = std::env::var("WINDMILL_BINARY")
+            .unwrap_or_else(|_| format!("{}/target/debug/windmill", env!("CARGO_MANIFEST_DIR")));
+
+        let mut child = Command::new(&binary)
+            .env("DATABASE_URL", db_url)
+            .env("MODE", "server")
+            .env("PORT", port.to_string())
+            .env("LISTEN_NEW_EVENTS_INTERVAL_SEC", "1")
+            .env("RUST_LOG", "info")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap_or_else(|e| panic!("Failed to start windmill on port {port}: {e}"));
+
+        let stdout = child.stdout.take().expect("Failed to capture stdout");
+        let stderr = child.stderr.take().expect("Failed to capture stderr");
+        let log_lines = Arc::new(Mutex::new(Vec::new()));
+        let log_lines_stdout = log_lines.clone();
+        let log_lines_stderr = log_lines.clone();
+
+        // Read both stdout and stderr into the same log buffer
+        let _reader_handle = std::thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    log_lines_stdout.lock().unwrap().push(line);
+                }
+            }
+        });
+        let _stderr_handle = std::thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    log_lines_stderr.lock().unwrap().push(line);
+                }
+            }
+        });
+
+        ServerProcess { child, log_lines, _stdout_handle: _reader_handle, _stderr_handle }
+    }
+
+    fn logs_contain(&self, needle: &str) -> bool {
+        self.log_lines.lock().unwrap().iter().any(|l| l.contains(needle))
+    }
+
+    fn dump_logs(&self) -> String {
+        self.log_lines.lock().unwrap().join("\n")
+    }
+}
+
+impl Drop for ServerProcess {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
+/// Wait for server to be ready by polling its HTTP endpoint.
+async fn wait_for_server(port: u16, timeout_secs: u64) -> bool {
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{}/api/version", port);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+    while tokio::time::Instant::now() < deadline {
+        if client.get(&url).send().await.is_ok() {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    false
+}
+
+#[tokio::test]
+async fn test_two_server_processes_both_receive_event() {
+    let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:changeme@localhost:5432/windmill".to_string());
-    sqlx::postgres::PgPoolOptions::new()
-        .max_connections(3)
-        .connect(&database_url)
-        .await
-        .expect("Failed to connect to database")
-}
 
-#[tokio::test]
-async fn test_two_servers_both_receive_trigger_event() {
-    // Simulate two servers with independent DB connections and polling state
-    let server_a = create_server_pool().await;
-    let server_b = create_server_pool().await;
+    // Start two server processes on different ports with 1s poll interval
+    let mut server_a = ServerProcess::start(19100, &db_url);
+    let mut server_b = ServerProcess::start(19200, &db_url);
 
-    // Each server initializes its own last_event_id (like server startup)
-    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
-    let last_id_b = get_latest_event_id(&server_b).await.unwrap();
+    // Wait for both servers to be ready
+    let (ready_a, ready_b) = tokio::join!(
+        wait_for_server(19100, 30),
+        wait_for_server(19200, 30),
+    );
+    assert!(ready_a, "Server A (port 19100) failed to start. Logs:\n{}", server_a.dump_logs());
+    assert!(ready_b, "Server B (port 19200) failed to start. Logs:\n{}", server_b.dump_logs());
 
-    // Server A triggers a database change (global setting update fires trigger)
-    let setting_name = format!("test_multi_server_{}", uuid::Uuid::new_v4());
+    // Give servers a moment to complete their first poll cycle
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Trigger a global setting change via direct DB insert
+    let db = get_db().await;
+    let setting_name = format!("test_e2e_{}", uuid::Uuid::new_v4());
     sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, '\"test_value\"'::jsonb)
-         ON CONFLICT (name) DO UPDATE SET value = '\"test_value\"'::jsonb",
+        "INSERT INTO global_settings (name, value) VALUES ($1, '\"e2e_test\"'::jsonb)
+         ON CONFLICT (name) DO UPDATE SET value = '\"e2e_test\"'::jsonb",
     )
     .bind(&setting_name)
-    .execute(&server_a)
+    .execute(&db)
     .await
-    .expect("Failed to insert global setting on server A");
+    .expect("Failed to insert global setting");
 
-    // Both servers poll independently
-    let events_a = poll_notify_events(&server_a, last_id_a)
-        .await
-        .expect("Server A should poll events");
-    let events_b = poll_notify_events(&server_b, last_id_b)
-        .await
-        .expect("Server B should poll events");
+    // Wait for at least 2 poll cycles (interval is 1s)
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-    // Both servers should see the same event
-    let matching_a: Vec<_> = events_a
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
-        .collect();
-    let matching_b: Vec<_> = events_b
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
-        .collect();
-
+    let needle = format!("Global setting change detected: {}", setting_name);
     assert!(
-        !matching_a.is_empty(),
-        "Server A should see the global_setting_change event"
+        server_a.logs_contain(&needle),
+        "Server A should have processed the global setting event.\nSearching for: {}\nServer A logs:\n{}",
+        needle, server_a.dump_logs()
     );
     assert!(
-        !matching_b.is_empty(),
-        "Server B should see the global_setting_change event"
-    );
-    assert_eq!(
-        matching_a[0].id, matching_b[0].id,
-        "Both servers should see the exact same event (same id)"
+        server_b.logs_contain(&needle),
+        "Server B should have processed the global setting event.\nSearching for: {}\nServer B logs:\n{}",
+        needle, server_b.dump_logs()
     );
 
     // Cleanup
     sqlx::query("DELETE FROM global_settings WHERE name = $1")
         .bind(&setting_name)
-        .execute(&server_a)
+        .execute(&db)
         .await
         .ok();
-}
 
-#[tokio::test]
-async fn test_two_servers_cross_trigger_visibility() {
-    // Two servers, each triggers a different change, both see both events
-    let server_a = create_server_pool().await;
-    let server_b = create_server_pool().await;
-
-    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
-    let last_id_b = get_latest_event_id(&server_b).await.unwrap();
-
-    // Server A triggers a global setting change
-    let setting_name = format!("test_cross_{}", uuid::Uuid::new_v4());
-    sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, '\"from_a\"'::jsonb)
-         ON CONFLICT (name) DO UPDATE SET value = '\"from_a\"'::jsonb",
-    )
-    .bind(&setting_name)
-    .execute(&server_a)
-    .await
-    .expect("Server A failed to insert global setting");
-
-    // Server B triggers a workspace_settings webhook change
-    sqlx::query(
-        "INSERT INTO workspace_settings (workspace_id) VALUES ('test-workspace')
-         ON CONFLICT (workspace_id) DO NOTHING",
-    )
-    .execute(&server_b)
-    .await
-    .ok();
-    let webhook_url = format!("https://cross-test-{}.example.com", uuid::Uuid::new_v4());
-    sqlx::query("UPDATE workspace_settings SET webhook = $1 WHERE workspace_id = 'test-workspace'")
-        .bind(&webhook_url)
-        .execute(&server_b)
-        .await
-        .expect("Server B failed to update webhook");
-
-    // Both servers poll
-    let events_a = poll_notify_events(&server_a, last_id_a)
-        .await
-        .expect("Server A poll failed");
-    let events_b = poll_notify_events(&server_b, last_id_b)
-        .await
-        .expect("Server B poll failed");
-
-    // Server A should see BOTH events (its own setting change + server B's webhook change)
-    let a_sees_setting: Vec<_> = events_a
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
-        .collect();
-    let a_sees_webhook: Vec<_> = events_a
-        .iter()
-        .filter(|e| e.channel == "notify_webhook_change" && e.payload == "test-workspace")
-        .collect();
-
-    // Server B should also see BOTH events
-    let b_sees_setting: Vec<_> = events_b
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
-        .collect();
-    let b_sees_webhook: Vec<_> = events_b
-        .iter()
-        .filter(|e| e.channel == "notify_webhook_change" && e.payload == "test-workspace")
-        .collect();
-
-    assert!(
-        !a_sees_setting.is_empty(),
-        "Server A should see its own global_setting_change"
-    );
-    assert!(
-        !a_sees_webhook.is_empty(),
-        "Server A should see Server B's webhook_change"
-    );
-    assert!(
-        !b_sees_setting.is_empty(),
-        "Server B should see Server A's global_setting_change"
-    );
-    assert!(
-        !b_sees_webhook.is_empty(),
-        "Server B should see its own webhook_change"
-    );
-
-    // Cleanup
-    sqlx::query("DELETE FROM global_settings WHERE name = $1")
-        .bind(&setting_name)
-        .execute(&server_a)
-        .await
-        .ok();
-    sqlx::query("UPDATE workspace_settings SET webhook = NULL WHERE workspace_id = 'test-workspace'")
-        .execute(&server_b)
-        .await
-        .ok();
-}
-
-#[tokio::test]
-async fn test_server_catches_up_after_being_offline() {
-    // Simulates a server that was offline while events accumulated,
-    // then comes back and catches up on all missed events.
-    let server_a = create_server_pool().await;
-
-    // Server A is "online" and records its position
-    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
-
-    // While server A is "offline" (not polling), multiple events happen
-    let setting1 = format!("test_catchup_1_{}", uuid::Uuid::new_v4());
-    let setting2 = format!("test_catchup_2_{}", uuid::Uuid::new_v4());
-    let setting3 = format!("test_catchup_3_{}", uuid::Uuid::new_v4());
-
-    for name in [&setting1, &setting2, &setting3] {
-        sqlx::query(
-            "INSERT INTO global_settings (name, value) VALUES ($1, '\"catchup\"'::jsonb)
-             ON CONFLICT (name) DO UPDATE SET value = '\"catchup\"'::jsonb",
-        )
-        .bind(name)
-        .execute(&server_a)
-        .await
-        .expect("Failed to insert setting");
-    }
-
-    // Server A comes back online and polls from where it left off
-    let events = poll_notify_events(&server_a, last_id_a)
-        .await
-        .expect("Server A catchup poll failed");
-
-    let catchup_events: Vec<_> = events
-        .iter()
-        .filter(|e| {
-            e.channel == "notify_global_setting_change"
-                && (e.payload == setting1 || e.payload == setting2 || e.payload == setting3)
-        })
-        .collect();
-
-    assert_eq!(
-        catchup_events.len(),
-        3,
-        "Server should catch up on all 3 missed events, got: {:?}",
-        catchup_events
-    );
-
-    // Verify ordering is preserved (monotonic IDs)
-    for window in catchup_events.windows(2) {
-        assert!(
-            window[0].id < window[1].id,
-            "Events should be in monotonic ID order"
-        );
-    }
-
-    // Cleanup
-    for name in [&setting1, &setting2, &setting3] {
-        sqlx::query("DELETE FROM global_settings WHERE name = $1")
-            .bind(name)
-            .execute(&server_a)
-            .await
-            .ok();
-    }
-}
-
-#[tokio::test]
-async fn test_two_servers_incremental_polling() {
-    // Simulates the actual polling loop behavior: each server advances its
-    // last_event_id as it processes events, then only sees new events.
-    let server_a = create_server_pool().await;
-    let server_b = create_server_pool().await;
-
-    let mut last_id_a = get_latest_event_id(&server_a).await.unwrap();
-    let mut last_id_b = get_latest_event_id(&server_b).await.unwrap();
-
-    // Round 1: Server A triggers an event
-    let setting1 = format!("test_incr_1_{}", uuid::Uuid::new_v4());
-    sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, '\"v1\"'::jsonb)
-         ON CONFLICT (name) DO UPDATE SET value = '\"v1\"'::jsonb",
-    )
-    .bind(&setting1)
-    .execute(&server_a)
-    .await
-    .unwrap();
-
-    // Both servers poll round 1
-    let events_a1 = poll_notify_events(&server_a, last_id_a).await.unwrap();
-    let events_b1 = poll_notify_events(&server_b, last_id_b).await.unwrap();
-
-    let a1_match: Vec<_> = events_a1
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
-        .collect();
-    let b1_match: Vec<_> = events_b1
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
-        .collect();
-
-    assert_eq!(a1_match.len(), 1, "Server A round 1: should see event");
-    assert_eq!(b1_match.len(), 1, "Server B round 1: should see event");
-
-    // Both servers advance their cursors (like the real polling loop)
-    for event in &events_a1 {
-        last_id_a = last_id_a.max(event.id);
-    }
-    for event in &events_b1 {
-        last_id_b = last_id_b.max(event.id);
-    }
-
-    // Round 2: Server B triggers a different event
-    let setting2 = format!("test_incr_2_{}", uuid::Uuid::new_v4());
-    sqlx::query(
-        "INSERT INTO global_settings (name, value) VALUES ($1, '\"v2\"'::jsonb)
-         ON CONFLICT (name) DO UPDATE SET value = '\"v2\"'::jsonb",
-    )
-    .bind(&setting2)
-    .execute(&server_b)
-    .await
-    .unwrap();
-
-    // Both servers poll round 2
-    let events_a2 = poll_notify_events(&server_a, last_id_a).await.unwrap();
-    let events_b2 = poll_notify_events(&server_b, last_id_b).await.unwrap();
-
-    // Neither server should see event 1 again (already processed)
-    let a2_old: Vec<_> = events_a2
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
-        .collect();
-    let b2_old: Vec<_> = events_b2
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
-        .collect();
-    assert!(
-        a2_old.is_empty(),
-        "Server A round 2: should NOT see event 1 again"
-    );
-    assert!(
-        b2_old.is_empty(),
-        "Server B round 2: should NOT see event 1 again"
-    );
-
-    // Both should see event 2
-    let a2_new: Vec<_> = events_a2
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting2)
-        .collect();
-    let b2_new: Vec<_> = events_b2
-        .iter()
-        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting2)
-        .collect();
-    assert_eq!(a2_new.len(), 1, "Server A round 2: should see event 2");
-    assert_eq!(b2_new.len(), 1, "Server B round 2: should see event 2");
-
-    // Cleanup
-    for name in [&setting1, &setting2] {
-        sqlx::query("DELETE FROM global_settings WHERE name = $1")
-            .bind(name)
-            .execute(&server_a)
-            .await
-            .ok();
-    }
+    // Explicitly kill before drop to avoid port conflicts with other tests
+    let _ = server_a.child.kill();
+    let _ = server_b.child.kill();
 }

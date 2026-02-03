@@ -217,6 +217,12 @@ lazy_static::lazy_static! {
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(3600 * 12);
+
+    // Period in seconds between polling for notify events (30s by default)
+    static ref LISTEN_NEW_EVENTS_INTERVAL_SEC: u64 = std::env::var("LISTEN_NEW_EVENTS_INTERVAL_SEC")
+        .ok()
+        .and_then(|x| x.parse::<u64>().ok())
+        .unwrap_or(30);
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -1168,7 +1174,7 @@ Windmill Community Edition {GIT_VERSION}
                                     tracing::info!("received killpill for monitor job");
                                     break;
                                 },
-                                _ = tokio::time::sleep(Duration::from_secs(30)) => {
+                                _ = tokio::time::sleep(Duration::from_secs(*LISTEN_NEW_EVENTS_INTERVAL_SEC)) => {
                                     // Poll for new events from notify_event table
                                     match windmill_common::notify_events::poll_notify_events(&db, last_event_id).await {
                                         Ok(events) => {
