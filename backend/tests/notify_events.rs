@@ -59,6 +59,7 @@ async fn cleanup_test_events(db: &Pool<Postgres>) {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_get_latest_event_id_returns_valid_id() {
     let db = get_db().await;
 
@@ -75,6 +76,7 @@ async fn test_get_latest_event_id_returns_valid_id() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_get_latest_event_id_with_events() {
     let db = get_db().await;
     cleanup_test_events(&db).await;
@@ -90,6 +92,7 @@ async fn test_get_latest_event_id_with_events() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_poll_notify_events_no_new_events() {
     let db = get_db().await;
 
@@ -102,6 +105,7 @@ async fn test_poll_notify_events_no_new_events() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_poll_notify_events_returns_new_events() {
     let db = get_db().await;
     cleanup_test_events(&db).await;
@@ -128,6 +132,7 @@ async fn test_poll_notify_events_returns_new_events() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_poll_notify_events_respects_last_event_id() {
     let db = get_db().await;
     cleanup_test_events(&db).await;
@@ -150,6 +155,7 @@ async fn test_poll_notify_events_respects_last_event_id() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_cleanup_old_events() {
     let db = get_db().await;
 
@@ -207,6 +213,7 @@ async fn test_cleanup_old_events() {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_config_change() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -236,6 +243,7 @@ async fn test_trigger_notify_config_change() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_global_setting_change_insert() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -267,6 +275,7 @@ async fn test_trigger_notify_global_setting_change_insert() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_global_setting_change_update() {
     let db = get_db().await;
 
@@ -306,6 +315,7 @@ async fn test_trigger_notify_global_setting_change_update() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_global_setting_change_delete() {
     let db = get_db().await;
 
@@ -338,6 +348,7 @@ async fn test_trigger_notify_global_setting_change_delete() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_workspace_envs_change() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -367,6 +378,7 @@ async fn test_trigger_notify_workspace_envs_change() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_workspace_key_change() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -396,6 +408,7 @@ async fn test_trigger_notify_workspace_key_change() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_token_invalidation() {
     let db = get_db().await;
 
@@ -429,6 +442,7 @@ async fn test_trigger_notify_token_invalidation() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_var_cache_invalidation() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -469,6 +483,7 @@ async fn test_trigger_var_cache_invalidation() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_resource_cache_invalidation() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -509,6 +524,7 @@ async fn test_trigger_resource_cache_invalidation() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_webhook_change() {
     let db = get_db().await;
 
@@ -545,6 +561,7 @@ async fn test_trigger_notify_webhook_change() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_workspace_premium_change() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -575,6 +592,7 @@ async fn test_trigger_notify_workspace_premium_change() {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_http_trigger_change() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -613,6 +631,7 @@ async fn test_trigger_notify_http_trigger_change() {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_runnable_version_change_script() {
     let db = get_db().await;
 
@@ -663,6 +682,7 @@ async fn test_trigger_notify_runnable_version_change_script() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_trigger_notify_runnable_version_change_flow() {
     let db = get_db().await;
 
@@ -717,6 +737,7 @@ async fn test_trigger_notify_runnable_version_change_flow() {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_concurrent_event_insertion() {
     let db = get_db().await;
 
@@ -768,6 +789,7 @@ async fn test_concurrent_event_insertion() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_polling_isolation() {
     let db = get_db().await;
 
@@ -832,6 +854,7 @@ async fn test_polling_isolation() {
 // ============================================================================
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_empty_payload() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -851,6 +874,7 @@ async fn test_empty_payload() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_large_payload() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -872,6 +896,7 @@ async fn test_large_payload() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_special_characters_in_payload() {
     let db = get_db().await;
     let before_id = get_latest_event_id(&db).await.unwrap();
@@ -892,6 +917,7 @@ async fn test_special_characters_in_payload() {
 }
 
 #[tokio::test]
+#[ignore = "requires notify_event table from polling-based events migration"]
 async fn test_cleanup_with_no_old_events() {
     let db = get_db().await;
 
@@ -1022,7 +1048,7 @@ async fn wait_for_server(port: u16, timeout_secs: u64) -> bool {
 }
 
 #[tokio::test]
-#[ignore = "slow - starts two server processes, run with --ignored flag"]
+#[ignore = "requires notify_event table and is slow - starts two server processes"]
 async fn test_two_server_processes_both_receive_event() {
     let db_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://postgres:changeme@localhost:5432/windmill".to_string());
