@@ -8,10 +8,11 @@ use tokio_stream::StreamExt;
 use windmill_common::{error::Error, utils::rd_string};
 
 use crate::ai::{
-    providers::openai::{ExtraContent, OpenAIFunction, OpenAIToolCall},
     query_builder::StreamEventProcessor,
     types::{StreamingEvent, UrlCitation},
 };
+
+use windmill_common::ai_types::{ExtraContent, GoogleExtraContent, OpenAIFunction, OpenAIToolCall};
 
 #[derive(Deserialize)]
 pub struct OpenAIChoiceDeltaToolCallFunction {
@@ -24,8 +25,6 @@ pub struct OpenAIChoiceDeltaToolCall {
     pub index: Option<i64>,
     pub id: Option<String>,
     pub function: Option<OpenAIChoiceDeltaToolCallFunction>,
-    /// Extra content for provider-specific metadata (e.g., Google Gemini thought signatures)
-    pub extra_content: Option<ExtraContent>,
 }
 
 #[derive(Deserialize)]
@@ -39,9 +38,22 @@ pub struct OpenAIChoice {
     pub delta: Option<OpenAIChoiceDelta>,
 }
 
+/// OpenAI Chat Completions API usage information (from final chunk with stream_options.include_usage)
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct OpenAIChatUsage {
+    #[serde(default)]
+    pub prompt_tokens: Option<i32>,
+    #[serde(default)]
+    pub completion_tokens: Option<i32>,
+    #[serde(default)]
+    pub total_tokens: Option<i32>,
+}
+
 #[derive(Deserialize)]
 pub struct OpenAISSEEvent {
     pub choices: Option<Vec<OpenAIChoice>>,
+    #[serde(default)]
+    pub usage: Option<OpenAIChatUsage>,
 }
 
 lazy_static::lazy_static! {
@@ -55,10 +67,12 @@ pub trait SSEParser {
 
     async fn parse_events(&mut self, response: Response) -> Result<(), Error> {
         let mut stream = response.bytes_stream().eventsource();
+        let mut consecutive_errors = 0;
 
         while let Some(event) = stream.next().await {
             match event {
                 Ok(event) => {
+                    consecutive_errors = 0;
                     if *DEBUG_SSE_STREAM {
                         tracing::info!("SSE event: {:?}", event);
                     }
@@ -66,7 +80,18 @@ pub trait SSEParser {
                     self.parse_event_data(&event.data).await?;
                 }
                 Err(e) => {
+                    consecutive_errors += 1;
                     tracing::error!("Failed to parse SSE event: {}", e);
+                    if consecutive_errors >= 5 {
+                        tracing::error!(
+                            "Breaking SSE stream after {} consecutive parsing errors",
+                            consecutive_errors
+                        );
+                        return Err(Error::InternalErr(format!(
+                            "SSE stream terminated after {} consecutive parsing errors",
+                            consecutive_errors
+                        )));
+                    }
                 }
             }
         }
@@ -80,6 +105,8 @@ pub struct OpenAISSEParser {
     pub accumulated_tool_calls: HashMap<i64, OpenAIToolCall>,
     pub events_str: String,
     pub stream_event_processor: StreamEventProcessor,
+    /// Token usage from final chunk (when stream_options.include_usage is true)
+    pub usage: Option<OpenAIChatUsage>,
 }
 
 impl OpenAISSEParser {
@@ -89,6 +116,7 @@ impl OpenAISSEParser {
             accumulated_tool_calls: HashMap::new(),
             events_str: String::new(),
             stream_event_processor,
+            usage: None,
         }
     }
 }
@@ -106,6 +134,11 @@ impl SSEParser for OpenAISSEParser {
             .ok();
 
         if let Some(event) = event {
+            // Extract usage from final chunk (when stream_options.include_usage is true)
+            if let Some(usage) = event.usage {
+                self.usage = Some(usage);
+            }
+
             if let Some(mut choices) = event.choices.filter(|s| !s.is_empty()) {
                 if let Some(delta) = choices.remove(0).delta {
                     if let Some(content) = delta.content.filter(|s| !s.is_empty()) {
@@ -127,10 +160,6 @@ impl SSEParser for OpenAISSEParser {
                                     if let Some(arguments) = function.arguments {
                                         existing_tool_call.function.arguments += &arguments;
                                     }
-                                    // Update extra_content if provided in this delta (for thought signatures)
-                                    if let Some(extra) = tool_call.extra_content {
-                                        existing_tool_call.extra_content = Some(extra);
-                                    }
                                 } else {
                                     let fun_name = function.name.unwrap_or_default();
                                     let call_id = tool_call.id.unwrap_or_else(|| rd_string(24));
@@ -150,7 +179,7 @@ impl SSEParser for OpenAISSEParser {
                                                 arguments: function.arguments.unwrap_or_default(),
                                             },
                                             r#type: "function".to_string(),
-                                            extra_content: tool_call.extra_content,
+                                            extra_content: None,
                                         },
                                     );
                                 }
@@ -214,6 +243,19 @@ pub enum AnthropicDelta {
     Unknown,
 }
 
+/// Anthropic usage information from message_delta event
+#[derive(Deserialize, Debug, Clone)]
+pub struct AnthropicUsage {
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<i32>,
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<i32>,
+}
+
 /// Anthropic SSE event structure
 #[derive(Deserialize, Debug)]
 #[serde(tag = "type")]
@@ -227,7 +269,10 @@ pub enum AnthropicSSEEvent {
     #[serde(rename = "content_block_stop")]
     ContentBlockStop { index: usize },
     #[serde(rename = "message_delta")]
-    MessageDelta {},
+    MessageDelta {
+        #[serde(default)]
+        usage: Option<AnthropicUsage>,
+    },
     #[serde(rename = "message_stop")]
     MessageStop {},
     #[serde(rename = "ping")]
@@ -262,6 +307,8 @@ pub struct AnthropicSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from message_delta event
+    pub usage: Option<AnthropicUsage>,
 }
 
 impl AnthropicSSEParser {
@@ -274,6 +321,7 @@ impl AnthropicSSEParser {
             content_blocks: HashMap::new(),
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -388,9 +436,13 @@ impl SSEParser for AnthropicSSEParser {
                     let error_msg = message.unwrap_or_else(|| "Unknown error".to_string());
                     tracing::error!("Anthropic streaming error: {}", error_msg);
                 }
+                AnthropicSSEEvent::MessageDelta { usage } => {
+                    if let Some(u) = usage {
+                        self.usage = Some(u);
+                    }
+                }
                 // Ignore other events
                 AnthropicSSEEvent::MessageStart {}
-                | AnthropicSSEEvent::MessageDelta {}
                 | AnthropicSSEEvent::MessageStop {}
                 | AnthropicSSEEvent::Ping {}
                 | AnthropicSSEEvent::Unknown => {}
@@ -412,6 +464,9 @@ pub struct GeminiSSEPart {
     pub text: Option<String>,
     #[serde(rename = "functionCall")]
     pub function_call: Option<GeminiSSEFunctionCall>,
+    /// Thought signature for Gemini 3+ models - required for function calling
+    #[serde(rename = "thoughtSignature")]
+    pub thought_signature: Option<String>,
 }
 
 /// Function call in Gemini streaming response
@@ -461,10 +516,23 @@ pub struct GeminiSSECandidate {
     pub grounding_metadata: Option<GeminiGroundingMetadata>,
 }
 
+/// Gemini usage metadata from SSE response
+#[derive(Deserialize, Debug, Clone)]
+pub struct GeminiUsageMetadata {
+    #[serde(rename = "promptTokenCount", default)]
+    pub prompt_token_count: Option<i32>,
+    #[serde(rename = "candidatesTokenCount", default)]
+    pub candidates_token_count: Option<i32>,
+    #[serde(rename = "totalTokenCount", default)]
+    pub total_token_count: Option<i32>,
+}
+
 /// Gemini SSE event structure
 #[derive(Deserialize, Debug)]
 pub struct GeminiSSEEvent {
     pub candidates: Option<Vec<GeminiSSECandidate>>,
+    #[serde(rename = "usageMetadata")]
+    pub usage_metadata: Option<GeminiUsageMetadata>,
 }
 
 /// Gemini SSE Parser for streaming responses
@@ -478,6 +546,8 @@ pub struct GeminiSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from usageMetadata
+    pub usage: Option<GeminiUsageMetadata>,
 }
 
 impl GeminiSSEParser {
@@ -490,6 +560,7 @@ impl GeminiSSEParser {
             tool_call_index: 0,
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -534,6 +605,14 @@ impl SSEParser for GeminiSSEParser {
                                         .send(event, &mut self.events_str)
                                         .await?;
 
+                                    // Build extra_content with thought_signature if present
+                                    let extra_content =
+                                        part.thought_signature.map(|sig| ExtraContent {
+                                            google: Some(GoogleExtraContent {
+                                                thought_signature: Some(sig),
+                                            }),
+                                        });
+
                                     // Store accumulated tool call
                                     self.accumulated_tool_calls.insert(
                                         idx,
@@ -547,7 +626,7 @@ impl SSEParser for GeminiSSEParser {
                                                 .unwrap_or_else(|_| "{}".to_string()),
                                             },
                                             r#type: "function".to_string(),
-                                            extra_content: None,
+                                            extra_content,
                                         },
                                     );
                                 }
@@ -577,6 +656,11 @@ impl SSEParser for GeminiSSEParser {
                         }
                     }
                 }
+            }
+
+            // Extract usage metadata
+            if let Some(usage_metadata) = event.usage_metadata {
+                self.usage = Some(usage_metadata);
             }
         }
 
@@ -608,6 +692,24 @@ pub struct OpenAIUrlCitationEvent {
     pub title: Option<String>,
 }
 
+/// OpenAI Responses API usage information
+#[derive(Deserialize, Debug, Clone)]
+pub struct OpenAIResponsesUsage {
+    #[serde(default)]
+    pub input_tokens: Option<i32>,
+    #[serde(default)]
+    pub output_tokens: Option<i32>,
+    #[serde(default)]
+    pub total_tokens: Option<i32>,
+}
+
+/// OpenAI Responses API response object (from response.completed event)
+#[derive(Deserialize, Debug)]
+pub struct OpenAIResponsesResponse {
+    #[serde(default)]
+    pub usage: Option<OpenAIResponsesUsage>,
+}
+
 /// SSE event types for OpenAI Responses API streaming
 /// Based on frontend implementation: openai-responses.ts:220-302
 #[derive(Deserialize, Debug)]
@@ -632,6 +734,10 @@ pub enum OpenAIResponsesSSEEvent {
     /// Response complete
     #[serde(rename = "response.done")]
     Done {},
+
+    /// Response completed with full response object (contains usage)
+    #[serde(rename = "response.completed")]
+    Completed { response: OpenAIResponsesResponse },
 
     /// Response created
     #[serde(rename = "response.created")]
@@ -676,6 +782,8 @@ pub struct OpenAIResponsesSSEParser {
     pub annotations: Vec<UrlCitation>,
     /// Whether web search was used in this response
     pub used_websearch: bool,
+    /// Token usage from response.completed event
+    pub usage: Option<OpenAIResponsesUsage>,
 }
 
 impl OpenAIResponsesSSEParser {
@@ -689,6 +797,7 @@ impl OpenAIResponsesSSEParser {
             stream_event_processor,
             annotations: Vec::new(),
             used_websearch: false,
+            usage: None,
         }
     }
 }
@@ -789,6 +898,13 @@ impl SSEParser for OpenAIResponsesSSEParser {
                         url: annotation.url,
                         title: annotation.title,
                     });
+                }
+
+                OpenAIResponsesSSEEvent::Completed { response } => {
+                    // Extract usage from response.completed event
+                    if let Some(usage) = response.usage {
+                        self.usage = Some(usage);
+                    }
                 }
 
                 // Ignore other event types

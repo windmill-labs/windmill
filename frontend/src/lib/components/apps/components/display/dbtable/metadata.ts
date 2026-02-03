@@ -1,4 +1,4 @@
-import { JobService, ResourceService } from '$lib/gen'
+import { JobService, ResourceService, type ScriptLang } from '$lib/gen'
 
 import { runScriptAndPollResult } from '$lib/components/jobs/utils'
 import type { DbInput } from '$lib/components/dbTypes'
@@ -11,9 +11,8 @@ import {
 } from './utils'
 
 import { type Preview } from '$lib/gen'
-import type { DBSchema, DBSchemas, GraphqlSchema, SQLSchema } from '$lib/stores'
+import type { DBSchema, GraphqlSchema, SQLSchema } from '$lib/stores'
 
-import { tryEvery } from '$lib/utils'
 import { stringifySchema } from '$lib/components/copilot/lib'
 import type { DbType } from '$lib/components/dbTypes'
 import { getDatabaseArg } from '$lib/components/dbOps'
@@ -25,16 +24,11 @@ export async function loadTableMetaData(
 ): Promise<TableMetadata | undefined> {
 	if (!input || !table || !workspace) return undefined
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
-	let content = await makeLoadTableMetaDataQuery(input, workspace, table)
+	let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, table)
 
 	const job = await JobService.runScriptPreview({
 		workspace: workspace,
-		requestBody: {
-			language,
-			content,
-			args: getDatabaseArg(input)
-		}
+		requestBody: { language, content: query, args: getDatabaseArg(input) }
 	})
 
 	const maxRetries = 8
@@ -51,7 +45,19 @@ export async function loadTableMetaData(
 			if (testResult.success) {
 				attempts = maxRetries
 
-				return testResult.result.map(lowercaseKeys)
+				const result = testResult.result.map(lowercaseKeys)
+
+				// For Snowflake, fetch primary keys separately
+				if (
+					input.type === 'database' &&
+					(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+				) {
+					const map: Record<string, TableMetadata> = { [table]: result }
+					await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace, table)
+					return map[table]
+				}
+
+				return result
 			} else {
 				attempts++
 			}
@@ -70,29 +76,22 @@ export async function loadAllTablesMetaData(
 ): Promise<Record<string, TableMetadata> | undefined> {
 	if (!input || !workspace) return undefined
 
-	let language = input.type == 'ducklake' ? 'duckdb' : getLanguageByResourceType(input.resourceType)
-
 	try {
+		let { language, query } = await makeLoadTableMetaDataQuery(input, workspace, undefined)
 		let result = (await runScriptAndPollResult({
 			workspace: workspace,
-			requestBody: {
-				language,
-				content: await makeLoadTableMetaDataQuery(input, workspace, undefined),
-				args: getDatabaseArg(input)
-			}
+			requestBody: { language, content: query, args: getDatabaseArg(input) }
 		})) as ({ table_name: string; schema_name?: string } & object)[]
 		const map: Record<string, TableMetadata> = {}
 
 		for (const _col of result) {
 			const col = lowercaseKeys(_col)
 			const tableKey = col.schema_name ? `${col.schema_name}.${col.table_name}` : col.table_name
-			if (!(tableKey in map)) {
-				map[tableKey] = []
-			}
+			map[tableKey] ??= []
 			map[tableKey].push(col)
 		}
 
-		fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
+		await fetchAndAddSnowflakePrimaryKeysInMap(map, input, workspace)
 
 		return map
 	} catch (e) {
@@ -104,9 +103,9 @@ async function makeLoadTableMetaDataQuery(
 	input: DbInput,
 	workspace: string,
 	table: string | undefined
-): Promise<string> {
+): Promise<{ query: string; language: ScriptLang }> {
 	if (input.type === 'ducklake') {
-		return `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
+		const query = `ATTACH 'ducklake://${input.ducklake}' AS __ducklake__;
 		SELECT
 			COLUMN_NAME as field,
 			DATA_TYPE as DataType,
@@ -118,12 +117,13 @@ async function makeLoadTableMetaDataQuery(
 			TABLE_NAME as table_name
 		FROM information_schema.columns c
 		WHERE table_catalog = '__ducklake__' AND table_schema = current_schema()`
+		return { query, language: 'duckdb' }
 	} else if (input.resourceType === 'mysql') {
 		const resourceObj = (await ResourceService.getResourceValue({
 			workspace,
 			path: input.resourcePath
 		})) as any
-		return `
+		const query = `
 	SELECT 
 			COLUMN_NAME as field,
 			COLUMN_TYPE as DataType,
@@ -153,8 +153,9 @@ async function makeLoadTableMetaDataQuery(
 			TABLE_NAME,
 			ORDINAL_POSITION;
 	`
+		return { query, language: 'mysql' }
 	} else if (input.resourceType === 'postgresql') {
-		return `
+		const query = `
 	SELECT 
 		a.attname as field,
 		pg_catalog.format_type(a.atttypid, a.atttypmod) as DataType,
@@ -200,8 +201,9 @@ async function makeLoadTableMetaDataQuery(
 	ORDER BY ${table ? 'a.attnum' : 'ns.nspname, c.relname, a.attnum'};
 	
 	`
+		return { query, language: 'postgresql' }
 	} else if (input.resourceType === 'ms_sql_server') {
-		return `
+		const query = `
 		SELECT
     c.COLUMN_NAME as field,
     c.DATA_TYPE as DataType,
@@ -245,11 +247,12 @@ WHERE
 ORDER BY
     c.ORDINAL_POSITION;
 	`
+		return { query, language: 'mssql' }
 	} else if (
 		input.resourceType === 'snowflake' ||
 		(input.resourceType as any) === 'snowflake_oauth'
 	) {
-		return `
+		const query = `
 		select COLUMN_NAME as field,
 		DATA_TYPE as DataType,
 		COLUMN_DEFAULT as DefaultValue,
@@ -273,10 +276,10 @@ ORDER BY
 	}
 	order by ORDINAL_POSITION;
 	`
+		return { query, language: 'snowflake' }
 	} else if (input.resourceType === 'bigquery') {
-		// TODO: find a solution for this (query uses hardcoded dataset name)
-		if (!table) throw new Error('Table name is required for BigQuery')
-		return `SELECT 
+		if (table) {
+			const query = `SELECT 
     c.COLUMN_NAME as field,
     DATA_TYPE as DataType,
     CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
@@ -292,6 +295,40 @@ FROM
 WHERE   
     c.TABLE_NAME = '${table.split('.')[1]}'
 order by c.ORDINAL_POSITION;`
+			return { query, language: 'bigquery' }
+		} else {
+			const query = `import { BigQuery } from '@google-cloud/bigquery@7.5.0';
+export async function main(database: bigquery) {
+const bq = new BigQuery({
+	credentials: database
+})
+const [datasets] = await bq.getDatasets();
+if (!datasets) return {}
+const schema = {} as any
+let queries = datasets.map(dataset => \`
+	(SELECT 
+    c.COLUMN_NAME as field,
+		'\${dataset.id}' as schema_name,
+		c.TABLE_NAME as table_name,
+    DATA_TYPE as DataType,
+    CASE WHEN COLUMN_DEFAULT = 'NULL' THEN '' ELSE COLUMN_DEFAULT END as DefaultValue,
+    CASE WHEN constraint_name is not null THEN true ELSE false END as IsPrimaryKey,
+    'No' as IsIdentity,
+    IS_NULLABLE as IsNullable,
+    false as IsEnum
+FROM
+    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN
+    \\\`\${dataset.id}\\\`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE p
+    on c.table_name = p.table_name AND c.column_name = p.COLUMN_NAME
+ORDER BY c.ORDINAL_POSITION)\`
+)
+let query = queries.join('\\nUNION ALL \\n')
+const [rows] = await bq.query(query)
+return rows
+}`
+			return { query, language: 'bun' }
+		}
 	} else {
 		throw new Error('Unsupported database type:' + input.resourceType)
 	}
@@ -311,14 +348,23 @@ async function fetchAndAddSnowflakePrimaryKeysInMap(
 	workspace: string,
 	tableKey?: string
 ) {
-	if (input.type == 'database' && input.resourceType === 'snowflake') {
+	if (
+		input.type == 'database' &&
+		(input.resourceType === 'snowflake' || (input.resourceType as any) === 'snowflake_oauth')
+	) {
 		let pkResult = await fetchSnowflakePrimaryKeys(workspace, getDatabaseArg(input), tableKey)
 		for (const pk of pkResult) {
-			const tableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
-			if (tableKey in map) {
-				for (const col of map[tableKey]) {
-					if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
-						col.isprimarykey = true
+			const pkTableKey = `${pk.schema_name}.${pk.table_name}`.toUpperCase()
+			// Also check the original casing and the provided tableKey
+			const keysToCheck = [pkTableKey, `${pk.schema_name}.${pk.table_name}`, tableKey].filter(
+				Boolean
+			) as string[]
+			for (const key of keysToCheck) {
+				if (key in map) {
+					for (const col of map[key]) {
+						if (col.field.toLowerCase() === pk.column_name.toLowerCase()) {
+							col.isprimarykey = true
+						}
 					}
 				}
 			}
@@ -336,7 +382,7 @@ async function fetchSnowflakePrimaryKeys(
 		requestBody: {
 			language: 'snowflake',
 			args: dbArg,
-			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS'
+			content: tableKey ? `SHOW PRIMARY KEYS IN TABLE ${tableKey}` : 'SHOW PRIMARY KEYS IN ACCOUNT'
 		}
 	})) as SnowflakeShowPrimaryKeysResult[]
 }
@@ -353,25 +399,20 @@ export async function getDbSchemas(
 	resourceType: string,
 	resourcePath: string,
 	workspace: string | undefined,
-	dbSchemas: DBSchemas,
 	errorCallback: (message: string) => void,
 	options: {
 		useLegacyScripts?: boolean // To avoid breaking app policies
 	} = {}
-): Promise<void> {
+): Promise<DBSchema | undefined> {
 	let scripts = options.useLegacyScripts ? legacyScripts : scriptsV2
 	let sqlScript = scripts[getLanguageByResourceType(resourceType)]
 
-	if (!sqlScript) return
+	if (!resourceType || !resourcePath || !workspace || !sqlScript) return
 
-	return new Promise(async (resolve, reject) => {
-		if (!resourceType || !resourcePath || !workspace) {
-			resolve()
-			return
-		}
-
-		const job = await JobService.runScriptPreview({
-			workspace: workspace,
+	let result: unknown
+	try {
+		result = await JobService.runScriptPreviewAndWaitResult({
+			workspace,
 			requestBody: {
 				language: sqlScript.lang as Preview['language'],
 				content: sqlScript.code,
@@ -382,91 +423,43 @@ export async function getDbSchemas(
 				}
 			}
 		})
+	} catch (e) {
+		console.error(e)
+		errorCallback('Error fetching schema: ' + ((e as Error)?.message || e))
+		return
+	}
 
-		tryEvery({
-			tryCode: async () => {
-				if (resourcePath) {
-					const testResult = await JobService.getCompletedJob({
-						workspace,
-						id: job
-					})
-					if (!testResult.success) {
-						console.error(testResult.result?.['error']?.['message'])
-					} else {
-						if (testResult.result === 'WINDMILL_TOO_BIG') {
-							console.info('Result is too big, fetching result separately')
-							const data = await JobService.getCompletedJobResult({
-								workspace,
-								id: job
-							})
-							testResult.result = data
-						}
-						if (resourceType !== undefined) {
-							if (resourceType !== 'graphql') {
-								const { processingFn } = sqlScript
-								let schema: any
-								try {
-									schema =
-										processingFn !== undefined ? processingFn(testResult.result) : testResult.result
-								} catch (e) {
-									console.error(e)
-									errorCallback('Error processing schema')
-									resolve()
-									return
-								}
-								const dbSchema = {
-									lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
-									schema,
-									publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
-								}
-								dbSchemas[resourcePath] = {
-									...dbSchema,
-									stringified: stringifySchema(dbSchema)
-								}
-							} else {
-								if (
-									typeof testResult.result !== 'object' ||
-									!('__schema' in (testResult?.result ?? {}))
-								) {
-									console.error('Invalid GraphQL schema')
-
-									errorCallback('Invalid GraphQL schema')
-								} else {
-									const dbSchema = {
-										lang: 'graphql' as GraphqlSchema['lang'],
-										schema: testResult.result
-									}
-									dbSchemas[resourcePath] = {
-										...(dbSchema as any),
-										stringified: stringifySchema(dbSchema as any)
-									}
-								}
-							}
-						}
-					}
-					resolve()
+	if (resourceType !== undefined) {
+		if (resourceType !== 'graphql') {
+			const { processingFn } = sqlScript
+			let schema: any
+			try {
+				schema = processingFn !== undefined ? processingFn(result) : result
+			} catch (e) {
+				console.error(e)
+				errorCallback('Error processing schema')
+				return
+			}
+			const dbSchema = {
+				lang: resourceTypeToLang(resourceType) as SQLSchema['lang'],
+				schema,
+				publicOnly: !!schema.public || !!schema.PUBLIC || !!schema.dbo
+			}
+			return { ...dbSchema, stringified: stringifySchema(dbSchema) }
+		} else {
+			if (typeof result !== 'object' || !('__schema' in (result ?? {}))) {
+				console.error('Invalid GraphQL schema')
+				errorCallback('Invalid GraphQL schema')
+				return
+			} else {
+				const dbSchema = {
+					lang: 'graphql' as GraphqlSchema['lang'],
+					schema: result
 				}
-			},
-			timeoutCode: async () => {
-				console.error('Could not query schema within 5s')
-				errorCallback('Could not query schema within 5s')
-				try {
-					await JobService.cancelQueuedJob({
-						workspace,
-						id: job,
-						requestBody: {
-							reason: 'Could not query schema within 5s'
-						}
-					})
-				} catch (err) {
-					console.error(err)
-				}
-				reject()
-			},
-			interval: 500,
-			timeout: 5000
-		})
-	})
+				return { ...(dbSchema as any), stringified: stringifySchema(dbSchema as any) }
+			}
+		}
+	}
 }
 
 export async function getTablesByResource(

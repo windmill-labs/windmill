@@ -64,6 +64,8 @@
 	} from '$lib/components/flows/FlowAssetsHandler.svelte'
 	import { page } from '$app/state'
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
+	import { slide } from 'svelte/transition'
+	import { twMerge } from 'tailwind-merge'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -202,7 +204,11 @@
 		}
 	}
 
-	async function runFlowForChat(userMessage: string, conversationId: string, additionalInputs?: Record<string, any>): Promise<string> {
+	async function runFlowForChat(
+		userMessage: string,
+		conversationId: string,
+		additionalInputs?: Record<string, any>
+	): Promise<string> {
 		const run = await JobService.runFlowByPath({
 			workspace: $workspaceStore!,
 			path,
@@ -400,6 +406,16 @@
 	let flowHistory: FlowHistory | undefined = $state(undefined)
 	let path = $derived(page.params.path ?? '')
 
+	let topSectionHeight = $state(0)
+	let paneHeight = $state(0)
+	let flowGraphHeight = $state(0)
+
+	let graphMinHeight = $derived.by(() => {
+		if (!topSectionHeight || !paneHeight) return 400
+		const availableHeight = paneHeight - topSectionHeight - 1 // Account for the separator between the top section and the graph
+		return Math.max(400, availableHeight)
+	})
+
 	$effect(() => {
 		const cliTrigger = triggersState.triggers.find((t) => t.type === 'cli')
 		if (cliTrigger) {
@@ -466,7 +482,6 @@
 			}}
 			{mainButtons}
 			menuItems={getMenuItems(flow, deployUiSettings)}
-			title={defaultIfEmptyString(flow?.summary, flow?.path ?? '')}
 			bind:errorHandlerMuted={
 				() => flow?.ws_error_handler_muted ?? false,
 				(v) => {
@@ -476,6 +491,8 @@
 			scriptOrFlowPath={flow?.path ?? ''}
 			errorHandlerKind="flow"
 			tag={flow?.tag ?? ''}
+			summary={flow?.summary}
+			path={flow?.path}
 		>
 			<!-- @migration-task: migrate this slot by hand, `trigger-badges` is an invalid identifier -->
 			{#snippet trigger_badges()}
@@ -500,8 +517,8 @@
 					path={flow.path}
 					{starred}
 					workspace_id={$workspaceStore}
-					on:starred={() => {
-						starred = !starred
+					onStarred={(newStarred) => {
+						starred = newStarred
 					}}
 				/>
 			{/if}
@@ -523,123 +540,141 @@
 	{/snippet}
 	{#snippet form()}
 		{#if flow}
-			<div class="flex flex-col h-full justify-between">
-				<div
-					class="w-full {chatInputEnabled
-						? 'p-3 flex flex-col h-full'
-						: 'max-w-3xl p-8'} mx-auto gap-2 bg-surface"
-				>
-					{#if flow?.archived}
-						<Alert type="error" title="Archived">This flow was archived</Alert>
-					{/if}
+			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
+				<div bind:clientHeight={topSectionHeight} class={twMerge(chatInputEnabled ? 'h-full' : '')}>
+					<div
+						class={twMerge(
+							'w-full flex flex-col',
+							chatInputEnabled ? 'p-3 h-full' : 'max-w-3xl p-6 min-h-[300px] justify-center',
+							'mx-auto'
+						)}
+					>
+						{#if flow?.archived}
+							<Alert type="error" title="Archived">This flow was archived</Alert>
+							<div class="h-4"></div>
+						{/if}
 
-					<div class="mb-1">
 						{#if !emptyString(flow?.description)}
-							<GfmMarkdown md={defaultIfEmptyString(flow?.description, 'No description')} />
+							<div class="p-4 rounded-md bg-surface-secondary">
+								<GfmMarkdown
+									md={defaultIfEmptyString(flow?.description, 'No description')}
+									noPadding
+								/>
+							</div>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if deploymentInProgress}
+							<div class="pb-4" transition:slide={{ duration: 150 }}>
+								<HeaderBadge color="yellow">
+									<Loader2 size={12} class="inline animate-spin mr-1" />
+									Deployment in progress
+									{#if deploymentJobId}
+										<a
+											href="/run/{deploymentJobId}?workspace={$workspaceStore}"
+											class="underline"
+											target="_blank">view job</a
+										>
+									{/if}
+								</HeaderBadge>
+							</div>
+						{/if}
+						{#if flow.lock_error_logs && flow.lock_error_logs != ''}
+							<Alert type="error" title="Deployment failed">
+								<p>
+									This flow has not been deployed successfully because of the following errors:
+								</p>
+								<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
+							</Alert>
+							<div class="h-4"></div>
+						{/if}
+
+						{#if chatInputEnabled}
+							<!-- Chat Layout with Sidebar -->
+							<FlowChat
+								onRunFlow={runFlowForChat}
+								{deploymentInProgress}
+								path={flow?.path ?? ''}
+								useStreaming={shouldUseStreaming}
+								inputSchema={flow?.schema}
+							/>
+						{:else}
+							{@const hasSchema =
+								flow.schema && Object.keys(flow.schema.properties ?? {}).length > 0}
+							<!-- Normal Mode: Form Layout -->
+							<div class="flex flex-col align-left">
+								{#if hasSchema || inputSelected}
+									<div
+										class="flex flex-row justify-between min-h-12"
+										transition:slide={{ duration: 150 }}
+									>
+										<InputSelectedBadge
+											onReject={() => {
+												savedInputsV2?.resetSelected()
+											}}
+											{inputSelected}
+										/>
+
+										{#if hasSchema}
+											<Toggle
+												bind:checked={jsonView}
+												size="xs"
+												options={{
+													right: 'JSON',
+													rightTooltip: 'Fill args from JSON'
+												}}
+												lightMode
+												on:change={(e) => {
+													runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
+												}}
+											/>
+										{/if}
+									</div>
+								{/if}
+
+								{#if flow.schema?.prompt_for_ai !== undefined}
+									<AIFormAssistant
+										instructions={flow.schema?.prompt_for_ai as string}
+										onEditInstructions={() => {
+											goto(`/flows/edit/${flow?.path}`)
+										}}
+										runnableType="flow"
+									/>
+								{/if}
+
+								<RunForm
+									bind:scheduledForStr
+									bind:invisible_to_owner
+									bind:overrideTag
+									viewKeybinding
+									{loading}
+									autofocus
+									detailed={false}
+									bind:isValid
+									runnable={flow}
+									runAction={runFlow}
+									bind:args
+									bind:this={runForm}
+									{jsonView}
+								/>
+							</div>
+
+							<div class="pt-4 flex flex-col gap-1 w-full items-end">
+								<span class="text-2xs text-secondary">
+									Edited <TimeAgo date={flow.edited_at ?? ''} noSeconds /> by {flow.edited_by}
+								</span>
+							</div>
 						{/if}
 					</div>
-
-					{#if deploymentInProgress}
-						<HeaderBadge color="yellow">
-							<Loader2 size={12} class="inline animate-spin mr-1" />
-							Deployment in progress
-							{#if deploymentJobId}
-								<a
-									href="/run/{deploymentJobId}?workspace={$workspaceStore}"
-									class="underline"
-									target="_blank">view job</a
-								>
-							{/if}
-						</HeaderBadge>
-					{/if}
-					{#if flow.lock_error_logs && flow.lock_error_logs != ''}
-						<div class="bg-red-100 dark:bg-red-700 border-l-4 border-red-500 p-4" role="alert">
-							<p class="font-bold">Error deploying this flow</p>
-							<p> This flow has not been deployed successfully because of the following errors: </p>
-							<LogViewer content={flow.lock_error_logs} isLoading={false} tag={undefined} />
-						</div>
-					{/if}
-
-					{#if chatInputEnabled}
-						<!-- Chat Layout with Sidebar -->
-						<FlowChat
-							onRunFlow={runFlowForChat}
-							{deploymentInProgress}
-							path={flow?.path ?? ''}
-							useStreaming={shouldUseStreaming}
-							inputSchema={flow?.schema}
-						/>
-					{:else}
-						<!-- Normal Mode: Form Layout -->
-						<div class="flex flex-col align-left">
-							<div class="flex flex-row justify-between">
-								<InputSelectedBadge
-									onReject={() => {
-										savedInputsV2?.resetSelected()
-									}}
-									{inputSelected}
-								/>
-								<Toggle
-									bind:checked={jsonView}
-									size="xs"
-									options={{
-										right: 'JSON',
-										rightTooltip: 'Fill args from JSON'
-									}}
-									lightMode
-									on:change={(e) => {
-										runForm?.setCode(JSON.stringify(args ?? {}, null, '\t'))
-									}}
-								/>
-							</div>
-
-							{#if flow.schema?.prompt_for_ai !== undefined}
-								<AIFormAssistant
-									instructions={flow.schema?.prompt_for_ai as string}
-									onEditInstructions={() => {
-										goto(`/flows/edit/${flow?.path}`)
-									}}
-									runnableType="flow"
-								/>
-							{/if}
-
-							<RunForm
-								bind:scheduledForStr
-								bind:invisible_to_owner
-								bind:overrideTag
-								viewKeybinding
-								{loading}
-								autofocus
-								detailed={false}
-								bind:isValid
-								runnable={flow}
-								runAction={runFlow}
-								bind:args
-								bind:this={runForm}
-								{jsonView}
-							/>
-						</div>
-
-						<div class="py-10"></div>
-
-						{#if !emptyString(flow.summary)}
-							<div>
-								<span class="text-primary text-xs">{flow.path}</span>
-							</div>
-						{/if}
-						<span class="text-2xs text-secondary">
-							Edited <TimeAgo date={flow.edited_at ?? ''} /> by {flow.edited_by}
-						</span>
-					{/if}
 				</div>
 				{#if !chatInputEnabled}
-					<div class="mt-8">
+					<div class="grow min-h-0">
 						<FlowGraphViewer
 							triggerNode={true}
 							download
 							{flow}
-							overflowAuto
 							noSide={true}
+							minHeight={graphMinHeight}
 							on:select={(e) => {
 								if (e.detail) {
 									stepDetail = e.detail
@@ -652,6 +687,7 @@
 							on:triggerDetail={(e) => {
 								rightPaneSelected = 'triggers'
 							}}
+							noBorder={true}
 						/>
 					</div>
 				{/if}
@@ -699,6 +735,33 @@
 				noCapture={true}
 				isEditor={false}
 			/>
+		{/if}
+	{/snippet}
+
+	{#snippet flow_graph()}
+		{#if flow}
+			<div class="h-full overflow-auto" bind:clientHeight={flowGraphHeight}>
+				<FlowGraphViewer
+					triggerNode={true}
+					download
+					{flow}
+					noSide={false}
+					noBorder
+					minHeight={flowGraphHeight}
+					on:select={(e) => {
+						if (e.detail) {
+							stepDetail = e.detail
+							rightPaneSelected = 'flow_step'
+						} else {
+							stepDetail = undefined
+							rightPaneSelected = 'saved_inputs'
+						}
+					}}
+					on:triggerDetail={(e) => {
+						rightPaneSelected = 'triggers'
+					}}
+				/>
+			</div>
 		{/if}
 	{/snippet}
 </DetailPageLayout>

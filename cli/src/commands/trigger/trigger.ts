@@ -9,6 +9,9 @@ import {
   SqsTrigger,
   WebsocketTrigger,
   EmailTrigger,
+  NativeTrigger,
+  NativeTriggerData,
+  NativeServiceName,
 } from "../../../gen/types.gen.ts";
 import { colors, Command, log, SEP, Table } from "../../../deps.ts";
 import {
@@ -17,6 +20,7 @@ import {
   parseFromFile,
   removeType,
   TRIGGER_TYPES,
+  extractNativeTriggerInfo,
 } from "../../types.ts";
 import {
   fromBranchSpecificPath,
@@ -162,7 +166,7 @@ export async function pushTrigger<K extends TriggerType>(
         path,
       } as Trigger[K]);
     } catch (e) {
-      console.error(e.body);
+      console.error((e as any).body);
       throw e;
     }
   } else {
@@ -175,7 +179,111 @@ export async function pushTrigger<K extends TriggerType>(
         path,
       } as Trigger[K]);
     } catch (e) {
-      console.error(e.body);
+      console.error((e as any).body);
+      throw e;
+    }
+  }
+}
+
+type NativeTriggerFile = Omit<
+  NativeTrigger,
+  "external_id" | "workspace_id" | "error"
+>;
+
+export async function pushNativeTrigger(
+  workspace: string,
+  filePath: string,
+  _remoteTrigger: NativeTrigger | undefined,
+  localTrigger: NativeTriggerFile
+): Promise<void> {
+  const triggerInfo = extractNativeTriggerInfo(filePath);
+  if (!triggerInfo) {
+    throw new Error(
+      `Invalid native trigger file path: ${filePath}. Expected format: {script_path}.{flow|script}.{external_id}.{service}_native_trigger.json`
+    );
+  }
+
+  const { externalId, serviceName } = triggerInfo;
+  log.debug(
+    `Processing local native trigger: service=${serviceName}, external_id=${externalId}`
+  );
+
+  let remoteTrigger: NativeTrigger | undefined;
+  try {
+    const result = await wmill.getNativeTrigger({
+      workspace,
+      serviceName: serviceName as NativeServiceName,
+      externalId,
+    });
+    // getNativeTrigger returns NativeTriggerWithExternal, extract NativeTrigger fields
+    remoteTrigger = {
+      external_id: result.external_id,
+      workspace_id: result.workspace_id,
+      service_name: result.service_name,
+      script_path: result.script_path,
+      is_flow: result.is_flow,
+      service_config: result.service_config,
+      error: result.error,
+    };
+    log.debug(`Native trigger ${serviceName}/${externalId} exists on remote`);
+  } catch {
+    log.debug(
+      `Native trigger ${serviceName}/${externalId} does not exist on remote`
+    );
+  }
+
+  const triggerData: NativeTriggerData = {
+    script_path: localTrigger.script_path,
+    is_flow: localTrigger.is_flow,
+    service_config: localTrigger.service_config,
+  };
+
+  if (remoteTrigger) {
+    // Compare relevant fields
+    const localCompare = {
+      script_path: localTrigger.script_path,
+      is_flow: localTrigger.is_flow,
+      service_config: localTrigger.service_config,
+    };
+    const remoteCompare = {
+      script_path: remoteTrigger.script_path,
+      is_flow: remoteTrigger.is_flow,
+      service_config: remoteTrigger.service_config,
+    };
+
+    if (isSuperset(localCompare, remoteCompare)) {
+      log.debug(`Native trigger ${serviceName}/${externalId} is up to date`);
+      return;
+    }
+
+    log.debug(
+      `Native trigger ${serviceName}/${externalId} is not up-to-date, updating...`
+    );
+    try {
+      await wmill.updateNativeTrigger({
+        workspace,
+        serviceName: serviceName as NativeServiceName,
+        externalId,
+        requestBody: triggerData,
+      });
+    } catch (e) {
+      console.error((e as any).body);
+      throw e;
+    }
+  } else {
+    console.log(
+      colors.bold.yellow(
+        `Creating new native trigger: ${serviceName}/${externalId}`
+      )
+    );
+    try {
+      await wmill.createNativeTrigger({
+        workspace,
+        serviceName: serviceName as NativeServiceName,
+        requestBody: triggerData,
+      });
+    } catch (e) {
+      console.error((e as any).body);
       throw e;
     }
   }

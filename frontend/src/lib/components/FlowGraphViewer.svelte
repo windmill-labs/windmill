@@ -24,6 +24,8 @@
 	export let triggerNode = false
 	export let stepDetail: FlowModule | string | undefined = undefined
 	export let workspace: string | undefined = $workspaceStore
+	export let minHeight = 400
+	export let noBorder = false
 
 	const dispatch = createEventDispatcher()
 </script>
@@ -31,8 +33,9 @@
 <div class="grid grid-cols-3 w-full h-full">
 	{#if !noGraph}
 		<div
-			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full border max-h-full"
+			class="{noSide ? 'col-span-3' : 'sm:col-span-2 col-span-3'} w-full max-h-full"
 			class:overflow-auto={overflowAuto}
+			class:border={!noBorder}
 		>
 			<FlowGraphV2
 				{triggerNode}
@@ -40,7 +43,7 @@
 				cache={flow.value.cache_ttl !== undefined}
 				path={flow?.path}
 				{download}
-				minHeight={400}
+				{minHeight}
 				{workspace}
 				modules={flow?.value?.modules}
 				failureModule={flow?.value?.failure_module}

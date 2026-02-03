@@ -108,6 +108,115 @@ const logger = {
 	error: (...args: unknown[]) => console.error('[ERROR]', new Date().toISOString(), ...args)
 }
 
+/**
+ * Parse the main function parameters from TypeScript/JavaScript code.
+ * Returns an array of parameter names in order.
+ *
+ * Handles various function declaration styles:
+ * - export function main(a, b, c)
+ * - export async function main(a: string, b: number)
+ * - export const main = (a, b) => ...
+ * - export const main = async (a, b) => ...
+ */
+function parseMainFunctionParams(code: string): string[] {
+	// Match various main function declaration patterns
+	// Pattern 1: function main(...) or async function main(...)
+	const funcPattern = /(?:export\s+)?(?:async\s+)?function\s+main\s*\(([^)]*)\)/
+	// Pattern 2: const main = (...) => or const main = async (...) =>
+	const arrowPattern = /(?:export\s+)?const\s+main\s*=\s*(?:async\s*)?\(([^)]*)\)/
+
+	let paramsStr: string | null = null
+
+	const funcMatch = code.match(funcPattern)
+	if (funcMatch) {
+		paramsStr = funcMatch[1]
+	} else {
+		const arrowMatch = code.match(arrowPattern)
+		if (arrowMatch) {
+			paramsStr = arrowMatch[1]
+		}
+	}
+
+	if (!paramsStr || paramsStr.trim() === '') {
+		return []
+	}
+
+	// Parse parameter names, handling TypeScript type annotations
+	// Split by comma, but be careful of generic types like Array<string, number>
+	const params: string[] = []
+	let depth = 0
+	let current = ''
+
+	for (const char of paramsStr) {
+		if (char === '<' || char === '(' || char === '[' || char === '{') {
+			depth++
+			current += char
+		} else if (char === '>' || char === ')' || char === ']' || char === '}') {
+			depth--
+			current += char
+		} else if (char === ',' && depth === 0) {
+			const param = current.trim()
+			if (param) {
+				// Extract just the parameter name (before : or = or ?)
+				const nameMatch = param.match(/^(\w+)/)
+				if (nameMatch) {
+					params.push(nameMatch[1])
+				}
+			}
+			current = ''
+		} else {
+			current += char
+		}
+	}
+
+	// Don't forget the last parameter
+	const lastParam = current.trim()
+	if (lastParam) {
+		const nameMatch = lastParam.match(/^(\w+)/)
+		if (nameMatch) {
+			params.push(nameMatch[1])
+		}
+	}
+
+	return params
+}
+
+/**
+ * Generate the arguments string for calling main() with the correct parameter order.
+ * This handles the case where undefined values are stripped by JSON serialization.
+ *
+ * @param code - The source code containing the main function
+ * @param args - The args object with parameter values (may have missing keys for undefined)
+ * @returns A string like "undefined, \"hello\", \"world\"" for main(a, b, c) with a=undefined
+ */
+function generateMainCallArgs(code: string, args: Record<string, unknown>): string {
+	const paramNames = parseMainFunctionParams(code)
+
+	if (paramNames.length === 0) {
+		// Fallback to old behavior if we can't parse the signature
+		return Object.values(args)
+			.map((v) => JSON.stringify(v))
+			.join(', ')
+	}
+
+	// Generate args in the correct order based on parameter names
+	return paramNames
+		.map((name) => {
+			if (name in args) {
+				const value = args[name]
+				// Handle undefined explicitly (JSON.stringify returns undefined for undefined)
+				if (value === undefined) {
+					return 'undefined'
+				}
+				return JSON.stringify(value)
+			} else {
+				// Parameter not in args object - was likely undefined and stripped by JSON
+				return 'undefined'
+			}
+		})
+		.join(', ')
+}
+
 // JWT verification for debug requests
 // The debugger fetches the public key from the Windmill backend's JWKS endpoint
 const WINDMILL_BASE_URL = process.env.WINDMILL_BASE_URL || process.env.BASE_INTERNAL_URL // e.g., http://localhost:8000
@@ -619,7 +728,7 @@ export class DebugSession {
 	private nsjailConfig?: NsjailConfig
 
 	// Custom bun binary path (can be overridden)
-	private bunPath: string = 'bun'
+	private bunPath: string = '/usr/bin/bun'
 
 	// Windmill binary path for prepare-deps CLI (optional, for dependency installation)
 	private windmillPath?: string
@@ -630,7 +739,7 @@ export class DebugSession {
 	constructor(ws: WebSocket, options?: { nsjailConfig?: NsjailConfig; bunPath?: string; windmillPath?: string }) {
 		this.ws = ws
 		this.nsjailConfig = options?.nsjailConfig
-		this.bunPath = options?.bunPath || 'bun'
+		this.bunPath = options?.bunPath || '/usr/bin/bun'
 		this.windmillPath = options?.windmillPath
 	}
 
@@ -1314,7 +1423,7 @@ export class DebugSession {
 		const args = request.arguments || {}
 		let code = args.code as string | undefined
 		this.scriptPath = args.program as string | undefined
-		const cwd = (args.cwd as string) || process.cwd()
+		let cwd = (args.cwd as string) || process.cwd()
 		this.callMain = (args.callMain as boolean) || false
 		this.mainArgs = (args.args as Record<string, unknown>) || {}
 		this.envVars = (args.env as Record<string, string>) || {}
@@ -1371,11 +1480,9 @@ export class DebugSession {
 
 		// If callMain is true, append a call to main() with the provided args
 		if (this.callMain && code) {
-			// Generate positional arguments list (like Python's keyword args)
-			// For TypeScript, we pass arguments in order
-			const argsValues = Object.values(this.mainArgs)
-				.map((v) => JSON.stringify(v))
-				.join(', ')
+			// Generate arguments in the correct order by parsing the function signature.
+			// This handles the case where undefined values are stripped by JSON serialization.
+			const argsValues = generateMainCallArgs(code, this.mainArgs)
 			code =
 				code +
 				`\n\n// Auto-generated call to main entrypoint\n` +
@@ -1393,7 +1500,9 @@ export class DebugSession {
 				this.tempFile = join(this.tempDir, 'script.ts')
 				await writeFile(this.tempFile, code)
 				this.scriptPath = this.tempFile
-				logger.info(`Wrote code to ${this.tempFile}`)
+				// Use temp directory as cwd so bun can find the script and node_modules
+				cwd = this.tempDir
+				logger.info(`Wrote code to ${this.tempFile}, cwd=${cwd}`)
 				// Log lines around breakpoint for debugging
 				const lines = code.split('\n')
 				for (let i = 24; i < Math.min(30, lines.length); i++) {

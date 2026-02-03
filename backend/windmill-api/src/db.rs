@@ -30,7 +30,11 @@ async fn current_database(conn: &mut PgConnection) -> Result<String, MigrateErro
 }
 
 lazy_static::lazy_static! {
-    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20221207103910, include_str!(
+    pub static ref OVERRIDDEN_MIGRATIONS: std::collections::HashMap<i64, String> = vec![(20220123221903, include_str!(
+                        "../../migrations/20220123221903_first.up.sql"
+                    ).replace("create SCHEMA IF NOT exists extensions;", "")
+                     .replace("create extension if not exists \"uuid-ossp\"      with schema extensions;", "")),
+                    (20221207103910, include_str!(
                         "../../custom_migrations/create_workspace_without_md5.sql"
                     ).to_string()),
                     (20240216100535, include_str!(
@@ -57,6 +61,9 @@ lazy_static::lazy_static! {
                         "../../migrations/20251105100125_legacy_sql_result_flag.up.sql"
                     ).replace("✅", "")),
                     (20260107133344, "".to_string()),
+                    (20260126235947, include_str!(
+                        "../../custom_migrations/lowercase_emails_safe.sql"
+                    ).to_string()),
                     ].into_iter().collect();
 }
 
@@ -247,7 +254,14 @@ pub async fn migrate(
         }
     }
 
-    return crate::live_migrations::custom_migrations(&mut custom_migrator, db).await;
+    crate::live_migrations::custom_migrations(&mut custom_migrator, db).await?;
+    Ok(None)
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct OptJobAuthed {
+    pub job_id: Option<uuid::Uuid>,
+    pub authed: ApiAuthed,
 }
 
 #[derive(Clone, Debug, Default, Hash, Eq, PartialEq)]

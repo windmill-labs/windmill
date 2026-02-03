@@ -16,7 +16,9 @@ use sha2::Digest;
 use sqlx::types::Json;
 use tokio::time::timeout;
 use uuid::Uuid;
-use windmill_common::assets::{clear_asset_usage, insert_asset_usage, AssetUsageKind};
+use windmill_common::assets::{
+    clear_static_asset_usage, insert_static_asset_usage, AssetUsageKind,
+};
 use windmill_common::error::Error;
 use windmill_common::error::Result;
 use windmill_common::flows::{FlowModule, FlowModuleValue, FlowNodeId};
@@ -26,9 +28,8 @@ use windmill_common::scripts::ScriptHash;
 use windmill_common::utils::WarnAfterExt;
 #[cfg(feature = "python")]
 use windmill_common::worker::PythonAnnotations;
-use windmill_common::worker::{
-    to_raw_value, to_raw_value_owned, write_file, Connection, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-};
+use windmill_common::min_version::MIN_VERSION_SUPPORTS_DEBOUNCING_V2;
+use windmill_common::worker::{to_raw_value, to_raw_value_owned, write_file, Connection};
 use windmill_common::workspace_dependencies::{
     RawWorkspaceDependencies, WorkspaceDependencies, WorkspaceDependenciesPrefetched,
 };
@@ -304,6 +305,7 @@ pub async fn handle_dependency_job(
                 },
                 deployment_message.clone(),
                 false,
+                None,
             )
             .await
             {
@@ -786,7 +788,7 @@ pub async fn handle_flow_dependency_job(
         .await?;
     }
 
-    clear_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
+    clear_static_asset_usage(&mut *tx, &job.workspace_id, &job_path, AssetUsageKind::Flow).await?;
 
     let modified_ids;
     let errors;
@@ -954,9 +956,10 @@ pub async fn handle_flow_dependency_job(
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::Flow { path: job_path, parent_path, version },
+            DeployedObject::Flow { path: job_path, parent_path: parent_path.clone(), version },
             deployment_message,
             false,
+            parent_path.as_deref(),
         )
         .await
         {
@@ -1430,7 +1433,7 @@ async fn lock_modules<'c>(
         };
 
         for asset in assets.iter().flatten() {
-            insert_asset_usage(
+            insert_static_asset_usage(
                 &mut *tx,
                 &job.workspace_id,
                 asset,
@@ -1456,7 +1459,7 @@ async fn lock_modules<'c>(
         } else {
             if lock.as_ref().is_some_and(|x| !x.trim().is_empty()) {
                 if skip_creating_new_lock(&language, &content)
-                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                    && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                 {
                     tx = dependency_map
@@ -1979,7 +1982,7 @@ async fn lock_modules_app(
                                 .is_some_and(|x| !x.as_str().unwrap().trim().is_empty())
                             {
                                 if skip_creating_new_lock(&language, &content)
-                                    && (*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+                                    && (MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
                                         || *WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT)
                                 {
                                     dependency_map
@@ -2178,10 +2181,13 @@ pub async fn handle_app_dependency_job(
     .execute(db)
     .await?;
 
-    let record = sqlx::query!("SELECT app_id, value FROM app_version WHERE id = $1", id)
-        .fetch_optional(db)
-        .await?
-        .map(|record| (record.app_id, record.value));
+    let record = sqlx::query!(
+        "SELECT app_id, value, raw_app FROM app_version WHERE id = $1",
+        id
+    )
+    .fetch_optional(db)
+    .await?
+    .map(|record| (record.app_id, record.value, record.raw_app));
 
     let (_, parent_path) = get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
@@ -2195,7 +2201,7 @@ pub async fn handle_app_dependency_job(
     .await?;
 
     // TODO: Use transaction for entire segment?
-    if let Some((app_id, value)) = record {
+    if let Some((app_id, value, is_raw_app)) = record {
         let value = lock_modules_app(
             value,
             &job,
@@ -2275,14 +2281,21 @@ pub async fn handle_app_dependency_job(
         let (deployment_message, parent_path) =
             get_deployment_msg_and_parent_path_from_args(job.args.clone());
 
+        let deployed_object = if is_raw_app {
+            DeployedObject::RawApp { path: job_path, version: id, parent_path: parent_path.clone() }
+        } else {
+            DeployedObject::App { path: job_path, version: id, parent_path: parent_path.clone() }
+        };
+
         if let Err(e) = handle_deployment_metadata(
             &job.permissioned_as_email,
             &job.created_by,
             &db,
             &job.workspace_id,
-            DeployedObject::App { path: job_path, version: id, parent_path },
+            deployed_object,
             deployment_message,
             false,
+            parent_path.as_deref(),
         )
         .await
         {

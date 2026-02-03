@@ -6,6 +6,7 @@ import {
 	ScheduleService,
 	SqsTriggerService,
 	WebsocketTriggerService,
+	NativeTriggerService,
 	type GcpTrigger,
 	type KafkaTrigger,
 	type PostgresTrigger,
@@ -15,7 +16,9 @@ import {
 	HttpTriggerService,
 	GcpTriggerService,
 	type EmailTrigger,
-	EmailTriggerService
+	EmailTriggerService,
+	type NativeTrigger,
+	type NativeServiceName
 } from '$lib/gen'
 import { enterpriseLicense } from '$lib/stores'
 
@@ -73,6 +76,7 @@ export class Triggers {
 	}
 
 	setDraftConfig(triggerIndex: number, draftConfig: Record<string, any> | undefined) {
+		console.log('setDraftConfig', triggerIndex, draftConfig)
 		if (triggerIndex === undefined || triggerIndex < 0 || triggerIndex >= this.#triggers.length) {
 			return
 		}
@@ -460,6 +464,35 @@ export class Triggers {
 		}
 	}
 
+	async fetchNativeTriggers(
+		serviceName: NativeServiceName,
+		workspaceId: string | undefined,
+		path: string,
+		isFlow: boolean,
+		user: UserExt | undefined = undefined
+	): Promise<void> {
+		if (!workspaceId) return
+		try {
+			const triggers: NativeTrigger[] = await NativeTriggerService.listNativeTriggers({
+				workspace: workspaceId,
+				serviceName,
+				path,
+				isFlow
+			})
+			// Convert to the trigger format used by updateTriggers
+			const triggerData = triggers.map((t) => ({
+				path: t.external_id,
+				script_path: t.script_path,
+				is_flow: t.is_flow,
+				extra_perms: {},
+				service_config: t.service_config
+			}))
+			this.updateTriggers(triggerData, serviceName, user)
+		} catch (error) {
+			console.debug(`Failed to fetch ${serviceName} triggers:`, error)
+		}
+	}
+
 	async fetchTriggers(
 		triggersCountStore: Writable<TriggersCount | undefined>,
 		workspaceId: string | undefined,
@@ -476,13 +509,17 @@ export class Triggers {
 			this.fetchHttpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchWebsocketTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchPostgresTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
 			this.fetchMqttTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-			...(get(enterpriseLicense) ? [
-				this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-				this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
-				this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user)] : [])
+			this.fetchNativeTriggers('nextcloud', workspaceId, path, isFlow, user),
+			...(get(enterpriseLicense)
+				? [
+						this.fetchKafkaTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchSqsTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchGcpTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchEmailTriggers(triggersCountStore, workspaceId, path, isFlow, user),
+						this.fetchNatsTriggers(triggersCountStore, workspaceId, path, isFlow, user)
+					]
+				: [])
 		])
 	}
 }

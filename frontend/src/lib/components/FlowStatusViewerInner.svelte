@@ -48,7 +48,9 @@
 	} from './graph/renderers/nodes/AIToolNode.svelte'
 	import JobAssetsViewer from './assets/JobAssetsViewer.svelte'
 	import McpToolCallDetails from './McpToolCallDetails.svelte'
+	import JobOtelTraces from './JobOtelTraces.svelte'
 	import { SelectionManager } from './graph/selectionUtils.svelte'
+	import { useThrottle } from 'runed'
 
 	let {
 		flowState: flowStateStore,
@@ -102,7 +104,7 @@
 		refreshGlobal: (moduleId: string, clear: boolean, root: string) => Promise<void>
 		updateGlobalRefresh: (moduleId: string, updateFn: (clear, root) => Promise<void>) => void
 		job?: (Job & { result_stream?: string }) | undefined
-		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states'
+		rightColumnSelect?: 'timeline' | 'node_status' | 'node_definition' | 'user_states' | 'tracing'
 		localModuleStates?: Record<string, GraphModuleState>
 		localDurationStatuses?: Record<string, DurationStatus>
 		onResultStreamUpdate?: ({
@@ -503,8 +505,21 @@
 	}
 
 	let jobMissingStartedAt: Record<string, number | 'P'> = {}
-	let lastSelectedLoopSwitch: number | undefined
-	let selectedLoopSwitchTimeout: number | undefined = undefined
+
+	let setSelectedLoopSwitch = useThrottle(async (lastStarted: string, mod: FlowStatusModule) => {
+		let position = mod.flow_jobs?.indexOf(lastStarted)
+		if (!position) return
+		for (const flow_job of mod.flow_jobs ?? []) {
+			if (flow_job === lastStarted) {
+				break
+			} else if (flow_job !== lastStarted && suspendStatus.val[flow_job]) {
+				console.log('setSelectedLoopSwitch deleting suspend for', flow_job)
+				delete suspendStatus.val[flow_job]
+			}
+		}
+		console.log('setSelectedLoopSwitch', position, lastStarted, mod.id, suspendStatus)
+		setIteration(position, lastStarted, false, mod.id ?? '', true)
+	}, 2000)
 
 	function updateInnerModules() {
 		if (localModuleStates) {
@@ -641,29 +656,7 @@
 								})
 								if (anySet) {
 									updateDurationStatuses(key, nDurationStatuses)
-									selectedLoopSwitchTimeout && clearTimeout(selectedLoopSwitchTimeout)
-									function setSelectedLoopSwitch() {
-										if (lastStarted) {
-											let position = mod.flow_jobs?.indexOf(lastStarted)
-											if (position != undefined) {
-												lastSelectedLoopSwitch = new Date().getTime()
-												console.log('setSelectedLoopSwitch', position, lastStarted)
-												setIteration(position, lastStarted, false, mod.id ?? '', true)
-											}
-										}
-									}
-
-									if (
-										lastSelectedLoopSwitch &&
-										new Date().getTime() - lastSelectedLoopSwitch < 3000
-									) {
-										selectedLoopSwitchTimeout = setTimeout(() => {
-											setSelectedLoopSwitch()
-										}, 2000)
-									} else {
-										console.log('setSelectedLoopSwitch')
-										setSelectedLoopSwitch()
-									}
+									if (lastStarted) setSelectedLoopSwitch(lastStarted, mod)
 								}
 							})
 							.catch((e) => {
@@ -1109,6 +1102,8 @@
 
 	let wrapperHeight: number = $state(0)
 
+	let retryStatusHeight: number = $state(0)
+
 	function removeFailureNode(id: string, parent_module: any) {
 		if (id?.startsWith('failure-') && parent_module) {
 			;[...globalModuleStates, localModuleStates].forEach((stateMap) => {
@@ -1292,6 +1287,10 @@
 			tabsHeight.assetsHeight,
 			tabsHeight.graphHeight
 		)
+	)
+
+	let totalEventsWaiting = $derived(
+		Object.values(suspendStatus?.val ?? {}).reduce((a, b) => a + (b?.nb ?? 0), 0)
 	)
 </script>
 
@@ -1736,7 +1735,7 @@
 			>
 				<div class="grid grid-cols-3 border h-full" bind:clientHeight={wrapperHeight}>
 					<div class="col-span-2 bg-surface-secondary">
-						<div class="flex flex-col">
+						<div class="flex flex-col" bind:clientHeight={retryStatusHeight}>
 							{#each Object.values(retryStatus?.val ?? {}) as count}
 								{#if count}
 									<span class="text-sm">
@@ -1744,25 +1743,23 @@
 									</span>
 								{/if}
 							{/each}
-							{#each Object.values(suspendStatus?.val ?? {}) as count}
-								{#if count.nb}
-									<span class="text-sm">
-										Flow suspended, waiting for {count.nb} events
-									</span>
-								{/if}
-							{/each}
+							{#if totalEventsWaiting}
+								<span class="text-sm">
+									Flow suspended, waiting for {totalEventsWaiting} events
+								</span>
+							{/if}
 						</div>
 						<FlowGraphV2
 							{selectionManager}
 							triggerNode={true}
 							download={!hideDownloadInGraph}
-							minHeight={wrapperHeight}
+							minHeight={wrapperHeight - retryStatusHeight}
 							success={jobId != undefined && isSuccess(job?.['success'])}
 							flowModuleStates={localModuleStates}
 							bind:expandedSubflows
 							onSelect={(e) => {
 								console.log('onSelect', e)
-								if (rightColumnSelect != 'node_definition') {
+								if (rightColumnSelect != 'node_definition' && rightColumnSelect != 'tracing') {
 									rightColumnSelect = 'node_status'
 								}
 								if (typeof e == 'string') {
@@ -1817,6 +1814,7 @@
 							{#if Object.keys(job?.flow_status?.user_states ?? {}).length > 0}
 								<Tab value="user_states" label="User States" />
 							{/if}
+							<Tab value="tracing" label="Tracing" />
 						</Tabs>
 						{#if rightColumnSelect == 'timeline'}
 							<FlowTimeline
@@ -2015,6 +2013,15 @@
 							<div class="p-2">
 								<JobArgs argLabel="Key" args={job?.flow_status?.user_states ?? {}} />
 							</div>
+						{:else if rightColumnSelect == 'tracing'}
+							{@const node = selectedNode ? localModuleStates[selectedNode] : undefined}
+							{#if node?.job_id}
+								<JobOtelTraces jobId={node.job_id} />
+							{:else}
+								<div class="p-4 text-secondary"
+									>Select a node with a job to see HTTP request traces</div
+								>
+							{/if}
 						{/if}
 					</div>
 				</div>

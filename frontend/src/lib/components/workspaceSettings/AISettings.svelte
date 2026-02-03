@@ -3,12 +3,13 @@
 	import { workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
+	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
 	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
-	import ArgEnum from '../ArgEnum.svelte'
+	import Select from '../select/Select.svelte'
 	import Button from '../common/button/Button.svelte'
 	import MultiSelect from '../select/MultiSelect.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
@@ -16,7 +17,9 @@
 	import Tooltip from '../Tooltip.svelte'
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
-	import CustomAIPrompts from '../copilot/CustomAIPrompts.svelte'
+	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
+	import { Save, Settings } from 'lucide-svelte'
+	import { slide } from 'svelte/transition'
 
 	let {
 		aiProviders = $bindable(),
@@ -41,6 +44,21 @@
 		Object.fromEntries(
 			Object.keys(AI_PROVIDERS).map((provider) => [provider, AI_PROVIDERS[provider].defaultModels])
 		) as Record<AIProvider, string[]>
+	)
+
+	let modalOpen = $state(false)
+	let initialPrompts = $state($state.snapshot(customPrompts))
+	let hasPromptsChanges = $derived(
+		Array.from(new Set([...Object.keys(customPrompts), ...Object.keys(initialPrompts)])).some(
+			(key) => {
+				const currentValue = customPrompts[key] || ''
+				const initialValue = initialPrompts[key] || ''
+				return currentValue !== initialValue
+			}
+		)
+	)
+	let promptCount = $derived(
+		Object.values(customPrompts).filter((p) => p?.trim().length > 0).length
 	)
 
 	let selectedAiModels = $derived(Object.values(aiProviders).flatMap((p) => p.models))
@@ -80,6 +98,11 @@
 		})()
 	})
 
+	function resetPrompts() {
+		customPrompts = { ...initialPrompts }
+		sendUserToast('Reset to last saved state')
+	}
+
 	async function editCopilotConfig(): Promise<void> {
 		if (Object.keys(aiProviders ?? {}).length > 0) {
 			const code_completion_model =
@@ -115,7 +138,8 @@
 			})
 			setCopilotInfo({})
 		}
-		sendUserToast(`Copilot settings updated`)
+		sendUserToast(`AI settings updated`)
+		initialPrompts = { ...customPrompts } // Update initial prompts after successful save
 		onSave?.()
 	}
 
@@ -142,37 +166,37 @@
 			aiProviders[provider].models = availableAiModels[provider].slice(0, 1)
 		}
 	}
+
+	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
-<div class="flex flex-col gap-4 my-8">
+<div class="flex flex-col gap-4 mt-4">
 	<div class="flex flex-col gap-1">
-		<div class="text-emphasis text-sm font-semibold"> Windmill AI</div>
+		<div class="text-emphasis text-sm font-semibold flex flex-row gap-2 justify-between">
+			Windmill AI <Button
+				variant="accent"
+				unifiedSize="md"
+				wrapperClasses="self-start"
+				disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+					(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+					(Object.keys(aiProviders).length > 0 && !defaultModel)}
+				onClick={editCopilotConfig}
+				startIcon={{ icon: Save }}
+			>
+				Save AI settings
+			</Button></div
+		>
 		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
 			Windmill AI integrates with your favorite AI providers and models.
 		</Description>
 	</div>
 </div>
 
-<div class="flex flex-row-reverse gap-2 pb-4">
-	<Button
-		variant="accent"
-		size="xl"
-		wrapperClasses="self-start"
-		disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-			(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-			(Object.keys(aiProviders).length > 0 && !defaultModel)}
-		on:click={editCopilotConfig}
-	>
-		Save
-	</Button>
-</div>
-
-<div class="flex flex-col gap-8">
-	<div class="flex flex-col gap-2">
-		<p class="font-semibold text-xs text-emphasis">AI Providers</p>
-		<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-8 mt-4">
+	<Label label="AI Providers">
+		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
-				<div class="flex flex-col gap-2">
+				<div class="flex flex-col">
 					<div class="flex flex-row gap-2">
 						<Toggle
 							options={{
@@ -230,28 +254,33 @@
 					</div>
 
 					{#if aiProviders[provider]}
-						<div class="mb-4 flex flex-col gap-2">
-							<div class="flex flex-row gap-1">
-								<ResourcePicker
-									selectFirst
-									resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
-										? 'openai_client_credentials_oauth'
-										: provider}
-									initialValue={aiProviders[provider].resource_path}
-									bind:value={
-										() => aiProviders[provider].resource_path || undefined,
-										(v) => {
-											aiProviders[provider].resource_path = v ?? ''
-											onAiProviderChange(provider as AIProvider)
+						<div
+							class="mb-4 flex flex-col gap-6 border p-4 rounded-md mt-2"
+							transition:slide|local={{ duration: 150 }}
+						>
+							<Label label="Resource">
+								<div class="flex flex-row gap-1">
+									<ResourcePicker
+										selectFirst
+										resourceType={provider === 'openai' && usingOpenaiClientCredentialsOauth
+											? 'openai_client_credentials_oauth'
+											: provider}
+										initialValue={aiProviders[provider].resource_path}
+										bind:value={
+											() => aiProviders[provider].resource_path || undefined,
+											(v) => {
+												aiProviders[provider].resource_path = v ?? ''
+												onAiProviderChange(provider as AIProvider)
+											}
 										}
-									}
-								/>
-								<TestAiKey
-									aiProvider={provider as AIProvider}
-									resourcePath={aiProviders[provider].resource_path}
-									model={aiProviders[provider].models[0]}
-								/>
-							</div>
+									/>
+									<TestAiKey
+										aiProvider={provider as AIProvider}
+										resourcePath={aiProviders[provider].resource_path}
+										model={aiProviders[provider].models[0]}
+									/>
+								</div>
+							</Label>
 
 							<Label label="Enabled models">
 								<MultiSelect
@@ -264,79 +293,98 @@
 									onCreateItem={(item) =>
 										(aiProviders[provider].models = [...aiProviders[provider].models, item])}
 								/>
+								<p class="text-2xs text-hint">
+									If you don't see the model you want, you can type it manually in the selector.
+								</p>
 							</Label>
-							<p class="text-xs">
-								If you don't see the model you want, you can type it manually in the selector.
-							</p>
 						</div>
 					{/if}
 				</div>
 			{/each}
 		</div>
+	</Label>
+
+	<Label label="Default chat model">
+		{#key Object.keys(aiProviders).length}
+			<Select
+				items={safeSelectItems(selectedAiModels)}
+				bind:value={defaultModel}
+				disabled={false}
+				placeholder="Select a default model"
+				size="sm"
+			/>
+		{/key}
+	</Label>
+
+	<!-- Code completion group for animation purposes -->
+	<div>
+		<Label label="Code completion">
+			<Toggle
+				on:change={(e) => {
+					if (e.detail) {
+						codeCompletionModel = autocompleteModels[0] ?? ''
+					} else {
+						codeCompletionModel = undefined
+					}
+				}}
+				checked={codeCompletionModel != undefined}
+				disabled={autocompleteModels.length == 0}
+				options={{
+					right: 'Enable code completion',
+					rightTooltip: 'We currently only support Mistral Codestral models for code completion.'
+				}}
+			/>
+		</Label>
+
+		{#if codeCompletionModel != undefined}
+			<div transition:slide|local={{ duration: 150 }} class="mt-6">
+				<Label label="Code completion model">
+					<Select
+						items={safeSelectItems(autocompleteModels)}
+						bind:value={codeCompletionModel}
+						disabled={false}
+						placeholder="Select a code completion model"
+						size="sm"
+					/>
+				</Label>
+			</div>
+		{/if}
 	</div>
 
-	{#if Object.keys(aiProviders).length > 0}
-		{@const autocompleteModels = selectedAiModels.filter(
-			(m) => m.startsWith('codestral-') && !m.startsWith('codestral-embed')
-		)}
-		<div class="flex flex-col gap-2">
-			<p class="font-semibold">Settings</p>
-			<div class="flex flex-col gap-4">
-				<Label label="Default chat model">
-					{#key Object.keys(aiProviders).length}
-						<ArgEnum
-							enum_={selectedAiModels}
-							bind:value={defaultModel}
-							disabled={false}
-							autofocus={false}
-							defaultValue={undefined}
-							valid={true}
-							create={false}
-						/>
-					{/key}
-				</Label>
+	<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
 
-				<div class="flex flex-col gap-2">
-					<Toggle
-						on:change={(e) => {
-							if (e.detail) {
-								codeCompletionModel = autocompleteModels[0] ?? ''
-							} else {
-								codeCompletionModel = undefined
-							}
-						}}
-						checked={codeCompletionModel != undefined}
-						disabled={autocompleteModels.length == 0}
-						options={{
-							right: 'Code completion (Codestral only)',
-							rightTooltip:
-								'We currently only support Mistral Codestral models for code completion.'
-						}}
-					/>
+	<Label label="Custom system prompts">
+		<p class="text-xs text-secondary">
+			Customize AI behavior with workspace-level system prompts. These apply to all workspace
+			members.
+		</p>
 
-					{#if codeCompletionModel != undefined}
-						<Label label="Code completion model">
-							<ArgEnum
-								enum_={autocompleteModels}
-								bind:value={codeCompletionModel}
-								disabled={false}
-								autofocus={false}
-								defaultValue={undefined}
-								valid={true}
-								create={false}
-							/>
-						</Label>
-					{/if}
-				</div>
-			</div>
+		<div class="flex items-center gap-2 pt-1">
+			<Button
+				onclick={() => (modalOpen = true)}
+				variant="default"
+				unifiedSize="sm"
+				startIcon={{ icon: Settings }}
+				disabled={Object.keys(aiProviders ?? {}).length === 0}
+			>
+				Configure AI prompts
+			</Button>
+			{#if promptCount > 0}
+				<span class="text-xs text-secondary">({promptCount} configured)</span>
+			{/if}
+			{#if hasPromptsChanges}
+				<Badge color="yellow">Unsaved changes</Badge>
+			{/if}
 		</div>
-	{/if}
+	</Label>
 
-	{#if Object.keys(aiProviders).length > 0}
-		<ModelTokenLimits {aiProviders} bind:maxTokensPerModel />
-	{/if}
-
-	{#if Object.keys(aiProviders).length > 0}
-		<CustomAIPrompts bind:customPrompts title="Custom system prompts" />
-	{/if}
+	<div class="py-6"></div>
 </div>
+
+<AIPromptsModal
+	bind:open={modalOpen}
+	bind:customPrompts
+	onReset={resetPrompts}
+	hasChanges={hasPromptsChanges}
+	isWorkspaceSettings={true}
+/>

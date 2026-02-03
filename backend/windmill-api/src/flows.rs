@@ -32,11 +32,13 @@ use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
+use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
+use windmill_common::min_version::{
+    MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
+};
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::query_elems_from_hub;
-use windmill_common::worker::{
-    to_raw_value, CLOUD_HOSTED, MIN_VERSION_SUPPORTS_DEBOUNCING, MIN_VERSION_SUPPORTS_DEBOUNCING_V2,
-};
+use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -190,6 +192,9 @@ async fn list_flows(
     if !lq.include_draft_only.unwrap_or(false) || authed.is_operator {
         sqlb.and_where("o.draft_only IS NOT TRUE");
     }
+    if let Some(dw) = &lq.dedicated_worker {
+        sqlb.and_where_eq("dedicated_worker", dw);
+    }
 
     if lq.with_deployment_msg.unwrap_or(false) {
         sqlb.join("deployment_metadata dm")
@@ -288,10 +293,10 @@ async fn toggle_workspace_error_handler(
     let error_handler_maybe: Option<String> = sqlx::query_scalar!(
         r#"
             SELECT
-                error_handler 
-            FROM 
-                workspace_settings 
-            WHERE 
+                error_handler->>'path'
+            FROM
+                workspace_settings
+            WHERE
                 workspace_id = $1
         "#,
         w_id
@@ -420,6 +425,11 @@ async fn create_flow(
     Path(w_id): Path<String>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot create flows for security reasons".to_string(),
+        ));
+    }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
     validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
@@ -845,6 +855,11 @@ async fn update_flow(
     Path((w_id, flow_path)): Path<(String, StripPath)>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
+    if authed.is_operator {
+        return Err(Error::NotAuthorized(
+            "Operators cannot update flows for security reasons".to_string(),
+        ));
+    }
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
     validate_flow(&nf).await?;
@@ -1418,13 +1433,7 @@ async fn archive_flow_by_path(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query!(
-        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'flow' AND usage_path = $2",
-        &w_id,
-        path
-    )
-    .execute(&mut *tx)
-    .await?;
+    clear_static_asset_usage(&mut *tx, &w_id, path, AssetUsageKind::Flow).await?;
 
     audit_log(
         &mut *tx,
@@ -1462,6 +1471,7 @@ async fn archive_flow_by_path(
             }
         )),
         true,
+        None,
     )
     .await?;
 
@@ -1476,14 +1486,14 @@ async fn archive_flow_by_path(
 /// Validates that flow debouncing configuration is supported by all workers
 /// Returns an error if debouncing is configured but workers are behind required version
 async fn guard_flow_from_debounce_data(nf: &NewFlow) -> Result<()> {
-    if !*MIN_VERSION_SUPPORTS_DEBOUNCING.read().await
+    if !MIN_VERSION_SUPPORTS_DEBOUNCING.met().await
         && !nf.parse_flow_value()?.debouncing_settings.is_default()
     {
         tracing::warn!(
             "Flow debouncing configuration rejected: workers are behind minimum required version for debouncing feature"
         );
         Err(Error::WorkersAreBehind { feature: "Debouncing".into(), min_version: "1.566.0".into() })
-    } else if !*MIN_VERSION_SUPPORTS_DEBOUNCING_V2.read().await
+    } else if !MIN_VERSION_SUPPORTS_DEBOUNCING_V2.met().await
         && !nf
             .parse_flow_value()?
             .debouncing_settings
@@ -1577,6 +1587,7 @@ async fn delete_flow_by_path(
         },
         Some(format!("Flow '{}' deleted", path)),
         true,
+        None,
     )
     .await?;
 

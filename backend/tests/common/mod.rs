@@ -1,12 +1,11 @@
 #![allow(dead_code)]
 
-use std::{future::Future, str::FromStr, sync::Arc};
+use std::{future::Future, str::FromStr};
 
 use futures::Stream;
 use serde::Serialize;
 use serde_json::json;
 use sqlx::{postgres::PgListener, Pool, Postgres};
-use tokio::sync::RwLock;
 use uuid::Uuid;
 use windmill_api_client::types::NewScript;
 #[cfg(feature = "python")]
@@ -498,11 +497,11 @@ pub async fn initialize_tracing() {
 }
 
 pub async fn test_for_versions<F: Future<Output = ()>>(
-    version_flags: impl Iterator<Item = Arc<RwLock<bool>>>,
+    constraints: impl Iterator<Item = &'static windmill_common::min_version::VersionConstraint>,
     test: impl Fn() -> F,
 ) {
-    for version_flag in version_flags {
-        *version_flag.write().await = true;
+    for constraint in constraints {
+        *windmill_common::min_version::MIN_VERSION.write().await = constraint.version().clone();
         test().await;
     }
 }
@@ -765,23 +764,25 @@ pub async fn run_preview_relative_imports(
 #[cfg(all(feature = "private", feature = "agent_worker_server"))]
 pub async fn testing_http_connection(port: u16) -> Connection {
     let suffix = windmill_common::utils::create_default_worker_suffix("test-agent-worker");
+    let agent_token = format!(
+        "{}{}",
+        windmill_common::agent_workers::AGENT_JWT_PREFIX,
+        windmill_common::jwt::encode_with_internal_secret(
+            windmill_api::agent_workers_ee::AgentAuth {
+                worker_group: "testing-agent".to_owned(),
+                suffix: Some(suffix.clone()),
+                tags: vec!["flow".into(), "python3".into(), "dependency".into()],
+                exp: Some(usize::MAX),
+            }
+        )
+        .await
+        .expect("JWT token to be created")
+    );
+    let base_internal_url = format!("http://localhost:{port}");
     Connection::Http(windmill_common::agent_workers::build_agent_http_client(
         &suffix,
-        Some(format!(
-            "{}{}",
-            windmill_common::agent_workers::AGENT_JWT_PREFIX,
-            windmill_common::jwt::encode_with_internal_secret(
-                windmill_api::agent_workers_ee::AgentAuth {
-                    worker_group: "testing-agent".to_owned(),
-                    suffix: Some(suffix.clone()),
-                    tags: vec!["flow".into(), "python3".into(), "dependency".into()],
-                    exp: Some(usize::MAX),
-                }
-            )
-            .await
-            .expect("JWT token to be created")
-        )),
-        Some(format!("http://localhost:{port}")),
+        &agent_token,
+        &base_internal_url,
     ))
 }
 

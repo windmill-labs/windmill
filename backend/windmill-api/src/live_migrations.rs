@@ -7,19 +7,13 @@
  */
 
 use sqlx::Postgres;
-use std::time::Duration;
-use tokio::task::JoinHandle;
 use windmill_common::error::Error;
-use windmill_common::worker::MIN_VERSION_IS_AT_LEAST_1_461;
 
 use crate::db::{CustomMigrator, DB};
 use sqlx::migrate::Migrate;
 use sqlx::Executor;
 
-pub async fn custom_migrations(
-    migrator: &mut CustomMigrator,
-    db: &DB,
-) -> Result<Option<JoinHandle<()>>, Error> {
+pub async fn custom_migrations(migrator: &mut CustomMigrator, db: &DB) -> Result<(), Error> {
     if let Err(err) = fix_flow_versioning_migration(migrator, db).await {
         tracing::error!("Could not apply flow versioning fix migration: {err:#}");
     }
@@ -31,31 +25,7 @@ pub async fn custom_migrations(
         }
     });
 
-    let mut jh = None;
-    if !has_done_migration(db, "v2_finalize_job_completed").await {
-        let db2 = db.clone();
-        let v2jh = tokio::task::spawn(async move {
-            loop {
-                if !*MIN_VERSION_IS_AT_LEAST_1_461.read().await {
-                    tracing::info!("Waiting for all workers to be at least version 1.461 before applying v2 finalize migration, sleeping for 5s...");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue;
-                }
-                if let Err(err) = v2_finalize(&db2).await {
-                    tracing::error!(
-                        "{err:#}: Could not apply v2 finalize migration, retry in 30s.."
-                    );
-                    tokio::time::sleep(Duration::from_secs(30)).await;
-                    continue;
-                }
-                tracing::info!("v2 finalization step successfully applied.");
-                break;
-            }
-        });
-        jh = Some(v2jh)
-    }
-
-    Ok(jh)
+    Ok(())
 }
 
 async fn fix_flow_versioning_migration(
@@ -177,166 +147,6 @@ macro_rules! run_windmill_migration {
             }
         }
     };
-}
-
-async fn v2_finalize(db: &DB) -> Result<(), Error> {
-    run_windmill_migration!("v2_finalize_disable_sync_III", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
-            ALTER TABLE v2_job_queue DISABLE ROW LEVEL SECURITY;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_2", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
-            ALTER TABLE v2_job_completed DISABLE ROW LEVEL SECURITY;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_3", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job IN ACCESS EXCLUSIVE MODE;
-            DROP FUNCTION IF EXISTS v2_job_after_update CASCADE;
-        "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_4", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
-            DROP FUNCTION IF EXISTS v2_job_completed_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_completed_before_update CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_5", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
-            DROP FUNCTION IF EXISTS v2_job_queue_after_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_queue_before_update CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_6", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_runtime IN ACCESS EXCLUSIVE MODE;
-            DROP FUNCTION IF EXISTS v2_job_runtime_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_runtime_before_update CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_7", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_status IN ACCESS EXCLUSIVE MODE;
-            DROP FUNCTION IF EXISTS v2_job_status_before_insert CASCADE;
-            DROP FUNCTION IF EXISTS v2_job_status_before_update CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_disable_sync_III_8", db, |tx| {
-        tx.execute(
-            r#"
-            DROP VIEW IF EXISTS completed_job, completed_job_view, job, queue, queue_view CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    run_windmill_migration!("v2_finalize_job_queue", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_queue IN ACCESS EXCLUSIVE MODE;
-            ALTER TABLE v2_job_queue
-                DROP COLUMN IF EXISTS __parent_job CASCADE,
-                DROP COLUMN IF EXISTS __created_by CASCADE,
-                DROP COLUMN IF EXISTS __script_hash CASCADE,
-                DROP COLUMN IF EXISTS __script_path CASCADE,
-                DROP COLUMN IF EXISTS __args CASCADE,
-                DROP COLUMN IF EXISTS __logs CASCADE,
-                DROP COLUMN IF EXISTS __raw_code CASCADE,
-                DROP COLUMN IF EXISTS __canceled CASCADE,
-                DROP COLUMN IF EXISTS __last_ping CASCADE,
-                DROP COLUMN IF EXISTS __job_kind CASCADE,
-                DROP COLUMN IF EXISTS __env_id CASCADE,
-                DROP COLUMN IF EXISTS __schedule_path CASCADE,
-                DROP COLUMN IF EXISTS __permissioned_as CASCADE,
-                DROP COLUMN IF EXISTS __flow_status CASCADE,
-                DROP COLUMN IF EXISTS __raw_flow CASCADE,
-                DROP COLUMN IF EXISTS __is_flow_step CASCADE,
-                DROP COLUMN IF EXISTS __language CASCADE,
-                DROP COLUMN IF EXISTS __same_worker CASCADE,
-                DROP COLUMN IF EXISTS __raw_lock CASCADE,
-                DROP COLUMN IF EXISTS __pre_run_error CASCADE,
-                DROP COLUMN IF EXISTS __email CASCADE,
-                DROP COLUMN IF EXISTS __visible_to_owner CASCADE,
-                DROP COLUMN IF EXISTS __mem_peak CASCADE,
-                DROP COLUMN IF EXISTS __root_job CASCADE,
-                DROP COLUMN IF EXISTS __leaf_jobs CASCADE,
-                DROP COLUMN IF EXISTS __concurrent_limit CASCADE,
-                DROP COLUMN IF EXISTS __concurrency_time_window_s CASCADE,
-                DROP COLUMN IF EXISTS __timeout CASCADE,
-                DROP COLUMN IF EXISTS __flow_step_id CASCADE,
-                DROP COLUMN IF EXISTS __cache_ttl CASCADE;
-            "#,
-        )
-        .await?;
-    });
-    run_windmill_migration!("v2_finalize_job_completed", db, |tx| {
-        tx.execute(
-            r#"
-            LOCK TABLE v2_job_completed IN ACCESS EXCLUSIVE MODE;
-            ALTER TABLE v2_job_completed
-                DROP COLUMN IF EXISTS __parent_job CASCADE,
-                DROP COLUMN IF EXISTS __created_by CASCADE,
-                DROP COLUMN IF EXISTS __created_at CASCADE,
-                DROP COLUMN IF EXISTS __success CASCADE,
-                DROP COLUMN IF EXISTS __script_hash CASCADE,
-                DROP COLUMN IF EXISTS __script_path CASCADE,
-                DROP COLUMN IF EXISTS __args CASCADE,
-                DROP COLUMN IF EXISTS __logs CASCADE,
-                DROP COLUMN IF EXISTS __raw_code CASCADE,
-                DROP COLUMN IF EXISTS __canceled CASCADE,
-                DROP COLUMN IF EXISTS __job_kind CASCADE,
-                DROP COLUMN IF EXISTS __env_id CASCADE,
-                DROP COLUMN IF EXISTS __schedule_path CASCADE,
-                DROP COLUMN IF EXISTS __permissioned_as CASCADE,
-                DROP COLUMN IF EXISTS __raw_flow CASCADE,
-                DROP COLUMN IF EXISTS __is_flow_step CASCADE,
-                DROP COLUMN IF EXISTS __language CASCADE,
-                DROP COLUMN IF EXISTS __is_skipped CASCADE,
-                DROP COLUMN IF EXISTS __raw_lock CASCADE,
-                DROP COLUMN IF EXISTS __email CASCADE,
-                DROP COLUMN IF EXISTS __visible_to_owner CASCADE,
-                DROP COLUMN IF EXISTS __tag CASCADE,
-                DROP COLUMN IF EXISTS __priority CASCADE;
-            "#,
-        )
-        .await?;
-    });
-
-    Ok(())
 }
 
 async fn fix_job_completed_index(db: &DB) -> Result<(), Error> {

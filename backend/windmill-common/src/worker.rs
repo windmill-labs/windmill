@@ -1,3 +1,4 @@
+#[cfg(unix)]
 use anyhow::anyhow;
 use axum::http::HeaderMap;
 use bytes::Bytes;
@@ -5,7 +6,6 @@ use const_format::concatcp;
 use itertools::Itertools;
 use regex::Regex;
 use reqwest_middleware::ClientWithMiddleware;
-use semver::Version;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use sqlx::{types::Json, Pool, Postgres};
@@ -34,8 +34,8 @@ use crate::{
     global_settings::CUSTOM_TAGS_SETTING,
     indexer::TantivyIndexerSettings,
     server::Smtp,
-    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array, GIT_SEM_VERSION},
-    KillpillSender, BASE_INTERNAL_URL, DB,
+    utils::{merge_nested_raw_values_to_array, merge_raw_values_to_array},
+    KillpillSender, DB,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -219,6 +219,7 @@ lazy_static::lazy_static! {
         worker_tags: Default::default(),
         priority_tags_sorted: Default::default(),
         dedicated_worker: Default::default(),
+        dedicated_workers: Default::default(),
         cache_clear: Default::default(),
         init_bash: Default::default(),
         periodic_script_bash: Default::default(),
@@ -264,24 +265,6 @@ lazy_static::lazy_static! {
     .and_then(|x| x.parse::<bool>().ok())
     .unwrap_or(false);
 
-    pub static ref MIN_VERSION: Arc<RwLock<Version>> = Arc::new(RwLock::new(Version::new(0, 0, 0)));
-    pub static ref MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING_V2: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    /// Global flag indicating if all workers support workspace dependencies feature (>= 1.583.0)
-    /// This flag is updated during worker initialization by checking the minimum version across all workers
-    /// When false, creation of workspace dependencies is forbidden and extraction of external workspace dependencies will error
-    pub static ref MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    /// Global flag indicating if all workers support the debouncing feature (>= 1.566.0)
-    /// Debouncing consolidates multiple dependency job requests within a time window to avoid redundant work
-    /// This flag is updated during worker initialization by checking the minimum version across all workers
-    pub static ref MIN_VERSION_SUPPORTS_DEBOUNCING: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_461: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_427: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_432: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_440: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-    pub static ref MIN_VERSION_IS_AT_LEAST_1_595: Arc<RwLock<bool>> = Arc::new(RwLock::new(false));
-
     // Features flags:
     pub static ref DISABLE_FLOW_SCRIPT: bool = std::env::var("DISABLE_FLOW_SCRIPT").ok().is_some_and(|x| x == "1" || x == "true");
 
@@ -291,11 +274,10 @@ lazy_static::lazy_static! {
 pub const ROOT_CACHE_NOMOUNT_DIR: &str = concatcp!(TMP_DIR, "/cache_nomount/");
 
 pub static MIN_VERSION_IS_LATEST: AtomicBool = AtomicBool::new(false);
-
 #[derive(Clone)]
 pub struct HttpClient {
     pub client: ClientWithMiddleware,
-    pub base_internal_url: Option<String>,
+    pub base_internal_url: String,
 }
 
 impl Deref for HttpClient {
@@ -313,10 +295,7 @@ impl HttpClient {
         headers: Option<HeaderMap>,
         body: &T,
     ) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
+        let base_url = self.base_internal_url.clone();
 
         let response_builder = self.client.post(format!("{}{}", base_url, url)).json(body);
 
@@ -342,11 +321,7 @@ impl HttpClient {
     }
 
     pub async fn get<R: DeserializeOwned>(&self, url: &str) -> anyhow::Result<R> {
-        let base_url = self
-            .base_internal_url
-            .clone()
-            .unwrap_or(BASE_INTERNAL_URL.clone().to_owned());
-
+        let base_url = self.base_internal_url.clone();
         let response = self
             .client
             .get(format!("{}{}", base_url, url))
@@ -505,6 +480,7 @@ pub const TMP_DIR: &str = "/tmp/windmill";
 pub const TMP_LOGS_DIR: &str = concatcp!(TMP_DIR, "/logs");
 
 pub const HUB_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub");
+pub const HUB_RT_CACHE_DIR: &str = concatcp!(ROOT_CACHE_DIR, "hub_rt");
 
 pub const ROOT_CACHE_DIR: &str = concatcp!(TMP_DIR, "/cache/");
 
@@ -656,6 +632,7 @@ pub async fn reload_custom_tags_setting(db: &DB) -> error::Result<()> {
     Ok(())
 }
 
+#[cfg(not(windows))]
 fn parse_file<T: FromStr>(path: &str) -> Option<T> {
     std::process::Command::new("cat")
         .args([path])
@@ -1242,83 +1219,6 @@ pub fn get_windmill_memory_usage() -> Option<i64> {
     }
 }
 
-pub async fn get_min_version(conn: &Connection) -> error::Result<Version> {
-    use crate::utils::GIT_VERSION;
-
-    let fetched = match conn {
-        Connection::Sql(pool) => {
-            // fetch all pings with a different version than self from the last 5 minutes.
-            let pings = sqlx::query_scalar!(
-                "SELECT wm_version FROM worker_ping WHERE wm_version != $1 AND ping_at > now() - interval '5 minutes'",
-                GIT_VERSION
-            ).fetch_all(pool).await?;
-
-            pings
-                .iter()
-                .filter(|x| !x.is_empty())
-                .filter_map(|x| {
-                    semver::Version::parse(if x.starts_with('v') { &x[1..] } else { x }).ok()
-                })
-                .min()
-        }
-        Connection::Http(client) => {
-            // Fetch min version from server
-            Some(
-                client
-                    .get::<String>("/api/agent_workers/get_min_version")
-                    .await
-                    .map(|v| Version::parse(&v))??,
-            )
-        }
-    };
-
-    Ok(fetched.unwrap_or_else(|| GIT_SEM_VERSION.clone()))
-}
-
-pub async fn update_min_version(conn: &Connection) -> bool {
-    tracing::debug!("Updating min version");
-    use crate::utils::GIT_SEM_VERSION;
-
-    let cur_version = GIT_SEM_VERSION.clone();
-
-    let min_version = match get_min_version(conn).await {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!(
-                "Failed to fetch min version: {:#?}, using current version",
-                e
-            );
-            cur_version.clone()
-        }
-    };
-
-    if min_version != cur_version {
-        tracing::info!("Minimal worker version: {min_version}");
-    }
-
-    *MIN_VERSION_SUPPORTS_SYNC_JOBS_DEBOUNCING.write().await =
-        min_version >= Version::new(1, 602, 0);
-    *MIN_VERSION_SUPPORTS_DEBOUNCING_V2.write().await = min_version >= Version::new(1, 597, 0);
-    *MIN_VERSION_SUPPORTS_RUNNABLE_SETTINGS_V0.write().await =
-        min_version >= *crate::runnable_settings::MIN_VERSION_RUNNABLE_SETTINGS_V0;
-
-    // Workspace dependencies feature requires minimum version across all workers
-    *MIN_VERSION_SUPPORTS_V0_WORKSPACE_DEPENDENCIES.write().await = min_version
-        >= Version::parse(crate::workspace_dependencies::MIN_VERSION_WORKSPACE_DEPENDENCIES)
-            .unwrap();
-    // Debouncing feature requires minimum version 1.566.0 across all workers
-    // This ensures all workers can handle debounce keys and stale data accumulation
-    *MIN_VERSION_SUPPORTS_DEBOUNCING.write().await = min_version >= Version::new(1, 566, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_461.write().await = min_version >= Version::new(1, 461, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_427.write().await = min_version >= Version::new(1, 427, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_432.write().await = min_version >= Version::new(1, 432, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_440.write().await = min_version >= Version::new(1, 440, 0);
-    *MIN_VERSION_IS_AT_LEAST_1_595.write().await = min_version >= Version::new(1, 595, 0);
-
-    *MIN_VERSION.write().await = min_version.clone();
-    min_version >= cur_version
-}
-
 #[derive(Serialize, Deserialize)]
 pub enum PingType {
     Initial,
@@ -1334,6 +1234,7 @@ pub struct Ping {
     pub ip: Option<String>,
     pub tags: Option<Vec<String>>,
     pub dw: Option<String>,
+    pub dws: Option<Vec<String>>,
     pub version: Option<String>,
     pub vcpus: Option<i64>,
     pub memory: Option<i64>,
@@ -1389,6 +1290,7 @@ pub async fn update_ping_http(
                 &insert_ping.ip.unwrap(),
                 insert_ping.tags.unwrap_or_default().as_slice(),
                 insert_ping.dw,
+                insert_ping.dws.as_deref(),
                 &insert_ping.version.unwrap(),
                 insert_ping.vcpus,
                 insert_ping.memory,
@@ -1519,6 +1421,7 @@ pub async fn insert_ping_query(
     ip: &str,
     tags: &[String],
     dw: Option<String>,
+    dws: Option<&[String]>,
     version: &str,
     vcpus: Option<i64>,
     memory: Option<i64>,
@@ -1526,14 +1429,15 @@ pub async fn insert_ping_query(
     db: &DB,
 ) -> anyhow::Result<()> {
     sqlx::query!(
-        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (worker)
-        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group",
+        "INSERT INTO worker_ping (worker_instance, worker, ip, custom_tags, worker_group, dedicated_worker, dedicated_workers, wm_version, vcpus, memory, job_isolation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) ON CONFLICT (worker)
+        DO UPDATE set ip = EXCLUDED.ip, custom_tags = EXCLUDED.custom_tags, worker_group = EXCLUDED.worker_group, dedicated_workers = EXCLUDED.dedicated_workers",
         worker_instance,
         worker_name,
         ip,
         tags,
         worker_group,
         dw,
+        dws,
         version,
         vcpus,
         memory,
@@ -1705,6 +1609,30 @@ pub async fn load_worker_config(
             }
         })
         .transpose()?;
+
+    // Parse dedicated_workers (multiple dedicated workers)
+    let dedicated_workers = config
+        .dedicated_workers
+        .map(|workers| {
+            workers
+                .into_iter()
+                .map(|x| {
+                    let splitted = x.split(':').to_owned().collect_vec();
+                    if splitted.len() != 2 {
+                        return Err(anyhow::anyhow!(
+                            "Invalid dedicated_workers format. Got {x}, expects <workspace_id>:<path>"
+                        ));
+                    }
+                    let workspace = splitted[0];
+                    let script_path = splitted[1];
+                    Ok(WorkspacedPath {
+                        workspace_id: workspace.to_string(),
+                        path: script_path.to_string(),
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?;
     if *WORKER_GROUP == "default" && dedicated_worker.is_none() {
         let mut all_tags = config
             .worker_tags
@@ -1738,7 +1666,18 @@ pub async fn load_worker_config(
     let worker_tags = config
         .worker_tags
         .or_else(|| {
-            if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
+            // Check for multiple dedicated workers first
+            if let Some(ref dws) = dedicated_workers.as_ref() {
+                let mut dedi_tags: Vec<String> = dws
+                    .iter()
+                    .map(|dw| format!("{}:{}", dw.workspace_id, dw.path))
+                    .collect();
+                if std::env::var("ADD_FLOW_TAG").is_ok() {
+                    dedi_tags.push("flow".to_string());
+                }
+                Some(dedi_tags)
+            } else if let Some(ref dedicated_worker) = dedicated_worker.as_ref() {
+                // Fallback to single dedicated worker for backward compatibility
                 let mut dedi_tags = vec![format!(
                     "{}:{}",
                     dedicated_worker.workspace_id, dedicated_worker.path
@@ -1834,6 +1773,7 @@ pub async fn load_worker_config(
         worker_tags,
         priority_tags_sorted,
         dedicated_worker,
+        dedicated_workers,
         init_bash: config
             .init_bash
             .or_else(|| load_init_bash_from_env())
@@ -1927,6 +1867,7 @@ pub struct WorkerConfigOpt {
     pub worker_tags: Option<Vec<String>>,
     pub priority_tags: Option<HashMap<String, u8>>,
     pub dedicated_worker: Option<String>,
+    pub dedicated_workers: Option<Vec<String>>,
     pub init_bash: Option<String>,
     pub periodic_script_bash: Option<String>,
     pub periodic_script_interval_seconds: Option<u64>,
@@ -1943,6 +1884,7 @@ impl Default for WorkerConfigOpt {
             worker_tags: Default::default(),
             priority_tags: Default::default(),
             dedicated_worker: Default::default(),
+            dedicated_workers: Default::default(),
             init_bash: Default::default(),
             periodic_script_bash: Default::default(),
             periodic_script_interval_seconds: Default::default(),
@@ -1960,6 +1902,7 @@ pub struct WorkerConfig {
     pub worker_tags: Vec<String>,
     pub priority_tags_sorted: Vec<PriorityTags>,
     pub dedicated_worker: Option<WorkspacedPath>,
+    pub dedicated_workers: Option<Vec<WorkspacedPath>>,
     pub init_bash: Option<String>,
     pub periodic_script_bash: Option<String>,
     pub periodic_script_interval_seconds: Option<u64>,
@@ -1971,8 +1914,8 @@ pub struct WorkerConfig {
 
 impl std::fmt::Debug for WorkerConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
-        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
+        write!(f, "WorkerConfig {{ worker_tags: {:?}, priority_tags_sorted: {:?}, dedicated_worker: {:?}, dedicated_workers: {:?}, init_bash: {:?}, periodic_script_bash: {:?}, periodic_script_interval_seconds: {:?}, cache_clear: {:?}, additional_python_paths: {:?}, pip_local_dependencies: {:?}, env_vars: {:?} }}",
+        self.worker_tags, self.priority_tags_sorted, self.dedicated_worker, self.dedicated_workers, self.init_bash, self.periodic_script_bash, self.periodic_script_interval_seconds, self.cache_clear, self.additional_python_paths, self.pip_local_dependencies, self.env_vars.iter().map(|(k, v)| format!("{}: {}{} ({} chars)", k, &v[..3.min(v.len())], "***", v.len())).collect::<Vec<String>>().join(", "))
     }
 }
 

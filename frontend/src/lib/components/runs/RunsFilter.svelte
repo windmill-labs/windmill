@@ -1,3 +1,37 @@
+<script module lang="ts">
+	export const runsFiltersSchema = z.object({
+		path: z.string().nullable().default(null),
+		worker: z.string().nullable().default(null),
+		user: z.string().nullable().default(null),
+		folder: z.string().nullable().default(null),
+		label: z.string().nullable().default(null),
+		concurrency_key: z.string().nullable().default(null),
+		tag: z.string().nullable().default(null),
+		allow_wildcards: z.boolean().default(false),
+		show_future_jobs: z.boolean().default(true),
+		success: z
+			.enum(['running', 'suspended', 'waiting', 'success', 'failure'])
+			.nullable()
+			.default(null),
+		show_skipped: z.boolean().default(false),
+		show_schedules: z.boolean().default(true),
+		min_ts: z.string().nullable().default(null),
+		max_ts: z.string().nullable().default(null),
+		schedule_path: z.string().nullable().default(null),
+		job_kinds: z.string().default('runs'),
+		all_workspaces: z.boolean().default(false),
+		arg: z.string().default(''),
+		result: z.string().default(''),
+		job_trigger_kind: z
+			.string()
+			.transform((s) => s as JobTriggerKind)
+			.nullable()
+			.default(null),
+		per_page: z.number().default(1000)
+	})
+	export type RunsFilters = z.infer<typeof runsFiltersSchema>
+</script>
+
 <script lang="ts">
 	import { Button } from '../common'
 	import ToggleButton from '../common/toggleButton-v2/ToggleButton.svelte'
@@ -8,7 +42,7 @@
 	import Label from '../Label.svelte'
 	import Section from '../Section.svelte'
 	import { enterpriseLicense, workspaceStore } from '$lib/stores'
-	import { createEventDispatcher, untrack } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import ToggleButtonMore from '../common/toggleButton-v2/ToggleButtonMore.svelte'
 	import Popover from '$lib/components/meltComponents/Popover.svelte'
 	import Select from '../select/Select.svelte'
@@ -19,6 +53,8 @@
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
 	import type { JobTriggerKind } from '$lib/gen'
+	import { Debounced, watch } from 'runed'
+	import z from 'zod'
 
 	interface Props {
 		// Filters
@@ -27,18 +63,18 @@
 		concurrencyKey?: string | null
 		worker?: string | null
 		tag?: string | null
-		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | undefined
+		success?: 'running' | 'waiting' | 'suspended' | 'queued' | 'success' | 'failure' | null
 		showSkipped?: boolean | undefined
 		argFilter: string
 		argError: string
 		resultFilter: string
-		jobTriggerKind: JobTriggerKind | undefined
+		jobTriggerKind: JobTriggerKind | null
 		resultError: string
 		jobKindsCat: string
 		user?: string | null
 		folder?: string | null
 		mobile?: boolean
-		schedulePath: string | undefined
+		schedulePath: string | null
 		allowWildcards?: boolean
 		// Autocomplete data
 		paths?: string[]
@@ -59,73 +95,80 @@
 	}
 
 	let {
-		path = $bindable(null),
-		label = $bindable(null),
-		concurrencyKey = $bindable(null),
-		worker = $bindable(null),
-		tag = $bindable(null),
-		success = $bindable(undefined),
-		showSkipped = $bindable(undefined),
+		path = $bindable(),
+		label = $bindable(),
+		concurrencyKey = $bindable(),
+		worker = $bindable(),
+		tag = $bindable(),
+		success = $bindable(),
+		showSkipped = $bindable(),
 		argFilter = $bindable(),
 		argError = $bindable(),
 		resultFilter = $bindable(),
 		jobTriggerKind = $bindable(),
 		resultError = $bindable(),
 		jobKindsCat = $bindable(),
-		user = $bindable(null),
-		folder = $bindable(null),
+		user = $bindable(),
+		folder = $bindable(),
 		mobile = false,
 		schedulePath = $bindable(),
-		allowWildcards = $bindable(false),
+		allowWildcards = $bindable(),
 		paths = [],
 		usernames = [],
 		folders = [],
-		allWorkspaces = $bindable(false),
-		filterBy = $bindable('path'),
+		allWorkspaces = $bindable(),
+		filterBy = $bindable(),
 		small = false,
 		calendarSmall = false
 	}: Props = $props()
 
-	let copyArgFilter = $state(argFilter)
-	let copyResultFilter = $state(resultFilter)
-
 	const dispatch = createEventDispatcher()
 
 	function autosetFilter() {
-		if (path !== null && path !== '' && filterBy !== 'path') {
+		if (path && filterBy !== 'path') {
 			filterBy = 'path'
-		} else if (user !== null && user !== '' && filterBy !== 'user') {
+		} else if (user && filterBy !== 'user') {
 			filterBy = 'user'
-		} else if (folder !== null && folder !== '' && filterBy !== 'folder') {
+		} else if (folder && filterBy !== 'folder') {
 			filterBy = 'folder'
-		} else if (label !== null && label !== '' && filterBy !== 'label') {
+		} else if (label && filterBy !== 'label') {
 			filterBy = 'label'
-		} else if (concurrencyKey !== null && concurrencyKey !== '' && filterBy !== 'concurrencyKey') {
+		} else if (concurrencyKey && filterBy !== 'concurrencyKey') {
 			filterBy = 'concurrencyKey'
-		} else if (tag !== null && tag !== '' && filterBy !== 'tag') {
+		} else if (tag && filterBy !== 'tag') {
 			filterBy = 'tag'
-		} else if (schedulePath !== undefined && schedulePath !== '' && filterBy !== 'schedulePath') {
+		} else if (schedulePath && filterBy !== 'schedulePath') {
 			filterBy = 'schedulePath'
-		} else if (worker !== null && worker !== '' && filterBy !== 'worker') {
+		} else if (worker && filterBy !== 'worker') {
 			filterBy = 'worker'
 		}
 	}
 
-	let labelTimeout: number | undefined = $state(undefined)
-	let concurrencyKeyTimeout: number | undefined = $state(undefined)
-	let tagTimeout: number | undefined = $state(undefined)
-	let workerTimeout: number | undefined = $state(undefined)
+	let labelTimeout: ReturnType<typeof setInterval> | undefined = $state()
+	let concurrencyKeyTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
+	let tagTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
+	let workerTimeout: ReturnType<typeof setInterval> | undefined = $state(undefined)
 
 	let allWorkspacesValue = $state(allWorkspaces ? 'all' : 'admins')
 	let displayedLabel = $derived(label)
 	let displayedConcurrencyKey = $derived(concurrencyKey)
 	let displayedTag = $derived(tag)
-	let displayedSchedule = $derived(schedulePath)
+	let displayedSchedule = $derived(schedulePath ?? undefined)
 	let displayedWorker = $derived(worker)
-	$effect(() => {
-		;(path || user || folder || label || worker || concurrencyKey || tag || schedulePath) &&
-			untrack(() => autosetFilter())
+
+	watch([() => [path, user, folder, label, worker, concurrencyKey, tag, schedulePath]], () => {
+		autosetFilter()
 	})
+
+	let [copyArgFilter, copyResultFilter] = $state([argFilter, resultFilter])
+	let debouncedArgAndResultFilters = new Debounced(() => [copyArgFilter, copyResultFilter], 500)
+	watch(
+		() => debouncedArgAndResultFilters.current,
+		() => {
+			if (!argError) argFilter = copyArgFilter || ''
+			if (!resultError) resultFilter = copyResultFilter || ''
+		}
+	)
 
 	function resetFilter() {
 		path = null
@@ -134,7 +177,7 @@
 		label = null
 		concurrencyKey = null
 		tag = null
-		schedulePath = undefined
+		schedulePath = null
 		worker = null
 	}
 </script>
@@ -407,7 +450,7 @@
 							<button
 								class="absolute top-2 right-2 z-50"
 								onclick={() => {
-									schedulePath = undefined
+									schedulePath = null
 									dispatch('reset')
 								}}
 							>
@@ -426,7 +469,7 @@
 									}
 
 									tagTimeout = setTimeout(() => {
-										schedulePath = displayedSchedule
+										schedulePath = displayedSchedule ?? null
 									}, 1000)
 								},
 								id: 'schedulePath'
@@ -580,7 +623,7 @@
 		<ToggleButtonGroup
 			selected={success ?? 'all'}
 			on:selected={({ detail }) => {
-				success = detail === 'all' ? undefined : detail
+				success = detail === 'all' ? null : detail
 				dispatch('successChange', success)
 			}}
 			id="status"
@@ -687,7 +730,7 @@
 										label = null
 										concurrencyKey = null
 										tag = null
-										schedulePath = undefined
+										schedulePath = null
 									}
 								}}
 							>
@@ -924,7 +967,7 @@
 						<Label label="Status">
 							<ToggleButtonGroup
 								selected={success ?? 'all'}
-								on:selected={({ detail }) => (success = detail === 'all' ? undefined : detail)}
+								on:selected={({ detail }) => (success = detail === 'all' ? null : detail)}
 							>
 								{#snippet children({ item })}
 									<ToggleButton value={'all'} label="All" {item} />
@@ -969,49 +1012,23 @@
 								label: triggerDisplayNamesMap[value],
 								value
 							}))}
-							bind:value={jobTriggerKind}
+							bind:value={() => jobTriggerKind ?? undefined, (v) => (jobTriggerKind = v ?? null)}
 							clearable
 						/>
 					</Label>
 
-					<div class="flex flex-col gap-6">
-						<Label label="Filter by args">
-							<span class="text-2xs text-secondary">
-								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-							</span>
-							<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
-						</Label>
-						<Label label="Filter by result">
-							<span class="text-2xs text-secondary">
-								{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
-							</span>
-							<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
-						</Label>
-					</div>
-
-					<div class="flex flex-row gap-2 justify-between">
-						<Button
-							unifiedSize="md"
-							variant="default"
-							on:click={() => {
-								argFilter = ''
-								resultFilter = ''
-							}}
-						>
-							Clear
-						</Button>
-
-						<Button
-							unifiedSize="md"
-							variant="accent"
-							on:click={() => {
-								argFilter = copyArgFilter
-								resultFilter = copyResultFilter
-							}}
-						>
-							Set args/result filter
-						</Button>
-					</div>
+					<Label label="Filter by args">
+						<span class="text-2xs text-secondary">
+							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+						</span>
+						<JsonEditor bind:error={argError} bind:code={copyArgFilter} />
+					</Label>
+					<Label label="Filter by result">
+						<span class="text-2xs text-secondary">
+							{`Filter by a json being a subset of the args/result. Try '\{"foo": "bar"\}'`}
+						</span>
+						<JsonEditor bind:error={resultError} bind:code={copyResultFilter} />
+					</Label>
 				</div>
 			</Section>
 		{/snippet}

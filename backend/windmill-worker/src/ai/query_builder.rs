@@ -9,7 +9,7 @@ use crate::{
         providers::{
             anthropic::AnthropicQueryBuilder,
             google_ai::GoogleAIQueryBuilder,
-            openai::{OpenAIQueryBuilder, OpenAIToolCall},
+            openai::{OpenAIQueryBuilder},
             openrouter::OpenRouterQueryBuilder,
             other::OtherQueryBuilder,
         },
@@ -17,6 +17,8 @@ use crate::{
     },
     job_logger::append_result_stream,
 };
+
+use windmill_common::ai_types::OpenAIToolCall;
 
 /// Arguments for building an AI request
 pub struct BuildRequestArgs<'a> {
@@ -33,6 +35,8 @@ pub struct BuildRequestArgs<'a> {
     pub has_websearch: bool,
 }
 
+use crate::ai::types::TokenUsage;
+
 /// Response from AI provider
 pub enum ParsedResponse {
     Text {
@@ -41,6 +45,7 @@ pub enum ParsedResponse {
         events_str: Option<String>,
         annotations: Vec<UrlCitation>,
         used_websearch: bool,
+        usage: Option<TokenUsage>,
     },
     Image {
         base64_data: String,
@@ -60,6 +65,23 @@ pub trait QueryBuilder: Send + Sync {
         client: &AuthedClient,
         workspace_id: &str,
     ) -> Result<String, Error>;
+
+    /// Build the request body without usage tracking (for retry on incompatible providers)
+    /// Default implementation just calls build_request (most providers don't need this)
+    async fn build_request_without_usage(
+        &self,
+        args: &BuildRequestArgs<'_>,
+        client: &AuthedClient,
+        workspace_id: &str,
+    ) -> Result<String, Error> {
+        self.build_request(args, client, workspace_id).await
+    }
+
+    /// Whether this provider supports retry without usage tracking
+    /// Only OtherQueryBuilder (OpenAI-compatible providers) needs this
+    fn supports_retry_without_usage(&self) -> bool {
+        false
+    }
 
     /// Parse the image response from the provider
     async fn parse_image_response(
@@ -95,8 +117,11 @@ pub fn create_query_builder(provider: &ProviderWithResource) -> Box<dyn QueryBui
         AIProvider::GoogleAI => Box::new(GoogleAIQueryBuilder::new()),
         // OpenAI use the Responses API
         AIProvider::OpenAI => Box::new(OpenAIQueryBuilder::new(provider.kind.clone())),
-        // Anthropic uses its own API format
-        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(provider.kind.clone())),
+        // Anthropic uses its own API format (with platform-specific handling for Vertex AI)
+        AIProvider::Anthropic => Box::new(AnthropicQueryBuilder::new(
+            provider.kind.clone(),
+            provider.get_platform().clone(),
+        )),
         AIProvider::OpenRouter => Box::new(OpenRouterQueryBuilder::new()),
         // All other providers use the completion endpoint
         _ => Box::new(OtherQueryBuilder::new(provider.kind.clone())),

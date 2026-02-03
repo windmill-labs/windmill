@@ -17,16 +17,17 @@ use crate::{
         build_command_with_isolation, create_args_and_out_file, get_reserved_variables,
         parse_npm_config, read_file, read_file_content, read_result, start_child_process,
         write_file_binary, MaybeLock, OccupancyMetrics, StreamNotifier,
+        DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
     BUNFIG_INSTALL_SCOPES, BUN_BUNDLE_CACHE_DIR, BUN_CACHE_DIR, BUN_NO_CACHE, BUN_PATH,
     DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NODE_BIN_PATH, NODE_PATH, NPM_CONFIG_REGISTRY,
-    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TZ_ENV,
+    NPM_PATH, NSJAIL_PATH, PATH_ENV, PROXY_ENVS, TRACING_PROXY_CA_CERT_PATH, TZ_ENV, get_proxy_envs_for_lang,
 };
 use windmill_common::{
     client::AuthedClient,
     s3_helpers::BundleFormat,
-    scripts::{id_to_codebase_info, CodebaseInfo},
+    scripts::{id_to_codebase_info, CodebaseInfo, ScriptLang},
     utils::WarnAfterExt,
     workspace_dependencies::WorkspaceDependenciesPrefetched,
 };
@@ -41,7 +42,6 @@ use tokio::io::AsyncReadExt;
 use windmill_common::{
     error::{self, Result},
     get_latest_hash_for_path,
-    scripts::ScriptLang,
     worker::{exists_in_cache, save_cache, write_file, Connection, DISABLE_BUNDLING},
     DB,
 };
@@ -635,10 +635,9 @@ async fn pull_codebase(w_id: &str, id: &str, job_dir: &str) -> Result<PulledCode
             && object_store.is_none()
         {
             let bun_cache_path = format!(
-                "{}/{}.{}",
+                "{}/{}",
                 *windmill_common::worker::ROOT_STANDALONE_BUNDLE_DIR,
-                path,
-                if is_tar { "tar" } else { "js" }
+                path
             );
             if std::fs::metadata(&bun_cache_path).is_ok() {
                 tracing::info!("loading {bun_cache_path} from standalone bundle cache");
@@ -1375,7 +1374,9 @@ try {{
                             "/tmp/bun/shared"
                         },
                     ),
-                ),
+                )
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
 
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
@@ -1416,6 +1417,7 @@ try {{
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
             .envs(common_bun_proc_envs)
             .env("PATH", PATH_ENV.as_str())
             .args(args)
@@ -1433,6 +1435,7 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())
@@ -1463,6 +1466,7 @@ try {{
                 .env_clear()
                 .envs(envs)
                 .envs(reserved_variables)
+                .envs(get_proxy_envs_for_lang(&ScriptLang::Bun).await?)
                 .envs(common_bun_proc_envs)
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())

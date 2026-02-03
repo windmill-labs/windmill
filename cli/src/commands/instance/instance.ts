@@ -1,26 +1,29 @@
 import {
-  Select,
-  path,
-  Confirm,
-  yamlStringify,
-  yamlParseFile,
   Command,
+  Confirm,
+  path,
+  Select,
   setClient,
   Table,
+  yamlParseFile,
+  yamlStringify,
 } from "../../../deps.ts";
 import * as wmill from "../../../gen/services.gen.ts";
 
-import { Input, colors, log } from "../../../deps.ts";
+import { colors, Input, log } from "../../../deps.ts";
 import { loginInteractive } from "../../core/login.ts";
-import { getActiveInstanceFilePath, getInstancesConfigFilePath } from "../../../windmill-utils-internal/src/config/config.ts";
-import { push, pull } from "../sync/sync.ts";
+import {
+  getActiveInstanceFilePath,
+  getInstancesConfigFilePath,
+} from "../../../windmill-utils-internal/src/config/config.ts";
+import { pull, push } from "../sync/sync.ts";
 import { showDiff } from "../../types.ts";
 
 import {
-  pushInstanceUsers,
-  pullInstanceUsers,
   pullInstanceGroups,
+  pullInstanceUsers,
   pushInstanceGroups,
+  pushInstanceUsers,
 } from "../user/user.ts";
 import {
   add as workspaceSetup,
@@ -29,10 +32,10 @@ import {
   setActiveWorkspace,
 } from "../workspace/workspace.ts";
 import {
-  pushInstanceSettings,
-  pullInstanceSettings,
   pullInstanceConfigs,
+  pullInstanceSettings,
   pushInstanceConfigs,
+  pushInstanceSettings,
   type SimplifiedSettings,
 } from "../../core/settings.ts";
 import { deepEqual } from "../../utils/utils.ts";
@@ -67,7 +70,7 @@ export async function addInstance(
   opts: {},
   instanceName: string | undefined,
   remote: string | undefined,
-  token: string | undefined
+  token: string | undefined,
 ) {
   if (!remote) {
     remote = await Input.prompt({
@@ -99,8 +102,8 @@ export async function addInstance(
   });
   log.info(
     colors.green.underline(
-      `Added instance ${instanceName} with remote ${remote}!`
-    )
+      `Added instance ${instanceName} with remote ${remote}!`,
+    ),
   );
 
   await switchI({}, instanceName);
@@ -134,7 +137,7 @@ async function removeInstance(name: string) {
     orgWorkspaces
       .filter((x) => x.name !== name)
       .map((x) => JSON.stringify(x))
-      .join("\n") + "\n"
+      .join("\n") + "\n",
   );
 }
 
@@ -145,7 +148,7 @@ export function compareInstanceObjects<T extends string>(
   fromObjects: CompareObject<T>[],
   toObjects: CompareObject<T>[],
   idProp: T,
-  objectName: string
+  objectName: string,
 ) {
   let changes = 0;
   for (const toObject of toObjects) {
@@ -189,7 +192,7 @@ export type InstanceSyncOptions = {
 
 export async function pickInstance(
   opts: InstanceSyncOptions,
-  allowNew: boolean
+  allowNew: boolean,
 ) {
   const instances = await allInstances();
   if (opts.baseUrl && opts.token && opts.instance) {
@@ -197,7 +200,7 @@ export async function pickInstance(
 
     setClient(
       opts.token,
-      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl,
     );
 
     return {
@@ -212,7 +215,7 @@ export async function pickInstance(
 
     setClient(
       opts.token,
-      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl
+      opts.baseUrl.endsWith("/") ? opts.baseUrl.slice(0, -1) : opts.baseUrl,
     );
 
     return {
@@ -227,7 +230,7 @@ export async function pickInstance(
   }
   const instanceName = await getActiveInstance(opts);
   let instance: Instance | undefined = instances.find(
-    (i) => i.name === instanceName
+    (i) => i.name === instanceName,
   );
   if (!instance) {
     if (instances.length < 1) {
@@ -256,7 +259,7 @@ export async function pickInstance(
 
   setClient(
     instance.token,
-    instance.remote.slice(0, instance.remote.length - 1)
+    instance.remote.slice(0, instance.remote.length - 1),
   );
 
   return instance;
@@ -296,7 +299,8 @@ async function instancePull(opts: InstanceSyncOptions) {
     }
     if (opts.yes !== true) {
       confirm = await Confirm.prompt({
-        message: `Do you want to pull these ${totalChanges} instance-level changes?`,
+        message:
+          `Do you want to pull these ${totalChanges} instance-level changes?`,
         default: true,
       });
     }
@@ -331,7 +335,7 @@ async function instancePull(opts: InstanceSyncOptions) {
     const localWorkspaces = await getLocalWorkspaces(
       rootDir,
       instance.prefix,
-      opts.folderPerInstance
+      opts.folderPerInstance,
     );
 
     const previousActiveWorkspace = await getActiveWorkspace(undefined);
@@ -358,7 +362,7 @@ async function instancePull(opts: InstanceSyncOptions) {
         {
           token: undefined,
           workspace: undefined,
-        }
+        },
       );
 
       await pull({
@@ -378,12 +382,11 @@ async function instancePull(opts: InstanceSyncOptions) {
     }
 
     const localWorkspacesToDelete = localWorkspaces.filter(
-      (w) => !remoteWorkspaces.find((r) => r.id === w.id)
+      (w) => !remoteWorkspaces.find((r) => r.id === w.id),
     );
 
     if (localWorkspacesToDelete.length > 0) {
-      const confirmDelete =
-        opts.yes ||
+      const confirmDelete = opts.yes ||
         (await Confirm.prompt({
           message:
             "Do you want to delete the local copy of workspaces that don't exist anymore on the instance?\n" +
@@ -438,7 +441,8 @@ async function instancePush(opts: InstanceSyncOptions) {
     let confirm = true;
     if (opts.yes !== true) {
       confirm = await Confirm.prompt({
-        message: `Do you want to apply these ${totalChanges} instance-level changes?`,
+        message:
+          `Do you want to apply these ${totalChanges} instance-level changes?`,
         default: true,
       });
     }
@@ -491,11 +495,13 @@ async function instancePush(opts: InstanceSyncOptions) {
     const localWorkspaces = await getLocalWorkspaces(
       rootDir,
       localPrefix,
-      opts.folderPerInstance
+      opts.folderPerInstance,
     );
 
     log.info(
-      `\nPushing all workspaces: ${localWorkspaces.map((x) => x.id).join(", ")}`
+      `\nPushing all workspaces: ${
+        localWorkspaces.map((x) => x.id).join(", ")
+      }`,
     );
     for (const localWorkspace of localWorkspaces) {
       log.info("\nPushing workspace " + localWorkspace.id);
@@ -503,13 +509,13 @@ async function instancePush(opts: InstanceSyncOptions) {
         await Deno.chdir(path.join(rootDir, localWorkspace.dir));
       } catch (_) {
         throw new Error(
-          "Workspace folder not found, are you in the right directory?"
+          "Workspace folder not found, are you in the right directory?",
         );
       }
 
       try {
         const workspaceSettings = (await yamlParseFile(
-          "settings.yaml"
+          path.join(Deno.cwd(), "settings.yaml"),
         )) as SimplifiedSettings;
         await workspaceSetup(
           {
@@ -523,11 +529,11 @@ async function instancePush(opts: InstanceSyncOptions) {
           },
           localWorkspace.dir,
           localWorkspace.id,
-          instance.remote
+          instance.remote,
         );
-      } catch (_) {
+      } catch (e: any) {
         log.error(
-          "Settings file not found in workspace local folder, skipping"
+          `Settings file not found in workspace ${localWorkspace.id} or error setting up workspace ${e.message}, skipping`,
         );
         continue;
       }
@@ -548,11 +554,10 @@ async function instancePush(opts: InstanceSyncOptions) {
     }
 
     const workspacesToDelete = remoteWorkspaces.filter(
-      (w) => !localWorkspaces.find((l) => l.id === w.id)
+      (w) => !localWorkspaces.find((l) => l.id === w.id),
     );
     if (workspacesToDelete.length > 0) {
-      const confirmDelete =
-        opts.yes ||
+      const confirmDelete = opts.yes ||
         (await Confirm.prompt({
           message:
             "Do you want to delete the following remote workspaces that don't exist locally?\n" +
@@ -577,7 +582,7 @@ async function instancePush(opts: InstanceSyncOptions) {
 async function getLocalWorkspaces(
   rootDir: string,
   localPrefix: string,
-  folderPerInstance?: boolean
+  folderPerInstance?: boolean,
 ) {
   const localWorkspaces: { dir: string; id: string }[] = [];
 
@@ -606,7 +611,7 @@ async function getLocalWorkspaces(
     }
   }
   log.info(
-    "Local workspaces found: " + localWorkspaces.map((x) => x.id).join(", ")
+    "Local workspaces found: " + localWorkspaces.map((x) => x.id).join(", "),
   );
   return localWorkspaces;
 }
@@ -615,7 +620,9 @@ async function switchI(opts: {}, instanceName: string) {
   const all = await allInstances();
   if (all.findIndex((x) => x.name === instanceName) === -1) {
     log.info(
-      colors.red.bold(`! This instance ${instanceName} does not exist locally.`)
+      colors.red.bold(
+        `! This instance ${instanceName} does not exist locally.`,
+      ),
     );
     log.info("available instances:");
     for (const w of all) {
@@ -626,7 +633,7 @@ async function switchI(opts: {}, instanceName: string) {
 
   await Deno.writeTextFile(
     await getActiveInstanceFilePath(),
-    instanceName
+    instanceName,
   );
 
   log.info(colors.green.underline(`Switched to instance ${instanceName}`));
@@ -654,18 +661,18 @@ async function whoami(opts: {}) {
   } catch (error) {
     log.error(
       //@ts-ignore
-      colors.red(`Failed to retrieve whoami information: ${error.message}`)
+      colors.red(`Failed to retrieve whoami information: ${error.message}`),
     );
   }
 }
 
 const command = new Command()
   .description(
-    "sync local with a remote instance or the opposite (push or pull)"
+    "sync local with a remote instance or the opposite (push or pull)",
   )
   .action(async () => {
     log.info(
-      "4 actions available, add, remove, switch, pull and push. Use -h to display help."
+      "4 actions available, add, remove, switch, pull and push. Use -h to display help.",
     );
     const activeInstance = await getActiveInstance({});
 
@@ -678,7 +685,7 @@ const command = new Command()
           x.name === activeInstance ? colors.underline(x.name) : x.name,
           x.remote,
           x.token.substring(0, 7) + "***",
-        ])
+        ]),
       )
       .render();
     if (activeInstance) {
@@ -717,7 +724,7 @@ const command = new Command()
   .action(switchI as any)
   .command("pull")
   .description(
-    "Pull instance settings, users, configs, instance groups and overwrite local"
+    "Pull instance settings, users, configs, instance groups and overwrite local",
   )
   .option("--yes", "Pull without needing confirmation")
   .option("--dry-run", "Perform a dry run without making changes")
@@ -729,20 +736,20 @@ const command = new Command()
   .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
-    "Name of the instance to pull from, override the active instance"
+    "Name of the instance to pull from, override the active instance",
   )
   .option(
     "--prefix <prefix:string>",
-    "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces"
+    "Prefix of the local workspaces to pull, used to create the folders when using --include-workspaces",
   )
   .option(
     "--prefix-settings",
-    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance",
   )
   .action(instancePull as any)
   .command("push")
   .description(
-    "Push instance settings, users, configs, group and overwrite remote"
+    "Push instance settings, users, configs, group and overwrite remote",
   )
   .option("--yes", "Push without needing confirmation")
   .option("--dry-run", "Perform a dry run without making changes")
@@ -754,15 +761,15 @@ const command = new Command()
   .option("--folder-per-instance", "Create a folder per instance")
   .option(
     "--instance <instance:string>",
-    "Name of the instance to push to, override the active instance"
+    "Name of the instance to push to, override the active instance",
   )
   .option(
     "--prefix <prefix:string>",
-    "Prefix of the local workspaces folders to push"
+    "Prefix of the local workspaces folders to push",
   )
   .option(
     "--prefix-settings",
-    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance"
+    "Store instance yamls inside prefixed folders when using --prefix and --folder-per-instance",
   )
   .action(instancePush as any)
   .command("whoami")

@@ -8,7 +8,10 @@
  * (.flow, .app, .raw_app) or dunder-prefixed names (__flow, __app, __raw_app).
  */
 
-import { log, SEP } from "../../deps.ts";
+import { log, SEP, yamlParseFile } from "../../deps.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import process from "node:process";
 
 // Resource types that use folder-based storage
 export type FolderResourceType = "flow" | "app" | "raw_app";
@@ -34,6 +37,7 @@ export type FolderSuffixes =
 
 // Global state for nonDottedPaths configuration
 let _nonDottedPaths = false;
+let _nonDottedPathsLogged = false;
 
 /**
  * Set whether to use non-dotted paths (__flow, __app, __raw_app)
@@ -41,8 +45,9 @@ let _nonDottedPaths = false;
  * This should be called once at startup based on wmill.yaml configuration.
  */
 export function setNonDottedPaths(value: boolean): void {
-  if (value) {
+  if (value && !_nonDottedPathsLogged) {
     log.info("Using non-dotted paths (__flow, __app, __raw_app)");
+    _nonDottedPathsLogged = true;
   }
   _nonDottedPaths = value;
 }
@@ -52,6 +57,49 @@ export function setNonDottedPaths(value: boolean): void {
  */
 export function getNonDottedPaths(): boolean {
   return _nonDottedPaths;
+}
+
+/**
+ * Search for wmill.yaml by traversing upward from the current directory
+ * and initialize the nonDottedPaths setting.
+ * Unlike findWmillYaml() in conf.ts, this does not stop at the git root -
+ * it continues searching until the filesystem root.
+ * This is needed for commands like `app dev` and `app new` which may run
+ * from inside folders that are deeply nested within a larger git repository.
+ */
+export async function loadNonDottedPathsSetting(): Promise<void> {
+  let currentDir = process.cwd();
+
+  while (true) {
+    const wmillYamlPath = path.join(currentDir, "wmill.yaml");
+
+    if (fs.existsSync(wmillYamlPath)) {
+      try {
+        const config = (await yamlParseFile(wmillYamlPath)) as {
+          nonDottedPaths?: boolean;
+        };
+        setNonDottedPaths(config?.nonDottedPaths ?? false);
+        log.debug(
+          `Found wmill.yaml at ${wmillYamlPath}, nonDottedPaths=${
+            config?.nonDottedPaths ?? false
+          }`
+        );
+      } catch (e) {
+        log.debug(`Failed to parse wmill.yaml at ${wmillYamlPath}: ${e}`);
+      }
+      return;
+    }
+
+    // Check if we've reached the filesystem root
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      // Reached filesystem root without finding wmill.yaml
+      log.debug("No wmill.yaml found, using default dotted paths");
+      return;
+    }
+
+    currentDir = parentDir;
+  }
 }
 
 /**

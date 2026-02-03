@@ -28,7 +28,7 @@ import * as wmill from "../../../gen/services.gen.ts";
 import { resolveWorkspace } from "../../core/context.ts";
 import { requireLogin } from "../../core/auth.ts";
 import { GLOBAL_CONFIG_OPT } from "../../core/conf.ts";
-import { replaceInlineScripts } from "./app.ts";
+import { replaceInlineScripts, repopulateFields } from "./app.ts";
 import { Runnable } from "./metadata.ts";
 import {
   APP_BACKEND_FOLDER,
@@ -36,7 +36,11 @@ import {
 } from "./app_metadata.ts";
 import { loadRunnablesFromBackend } from "./raw_apps.ts";
 import { regenerateAgentDocs } from "./generate_agents.ts";
-import { hasFolderSuffix, getFolderSuffix } from "../../utils/resource_folders.ts";
+import {
+  getFolderSuffix,
+  hasFolderSuffix,
+  loadNonDottedPathsSetting,
+} from "../../utils/resource_folders.ts";
 
 const DEFAULT_PORT = 4000;
 const DEFAULT_HOST = "localhost";
@@ -302,40 +306,69 @@ interface DevOptions extends GlobalOptions {
   open?: boolean;
 }
 
-async function dev(opts: DevOptions) {
+async function dev(opts: DevOptions, appFolder?: string) {
   GLOBAL_CONFIG_OPT.noCdToRoot = true;
 
-  // Validate that we're in a .raw_app folder
-  const cwd = process.cwd();
-  const currentDirName = path.basename(cwd);
+  // Search for wmill.yaml by traversing upward (without git root constraint)
+  // to initialize nonDottedPaths setting before using folder suffix functions
+  await loadNonDottedPathsSetting();
 
-  if (!hasFolderSuffix(currentDirName, "raw_app")) {
+  // Resolve target directory from argument or use current directory
+  const originalCwd = process.cwd();
+  let targetDir = originalCwd;
+
+  if (appFolder) {
+    targetDir = path.isAbsolute(appFolder)
+      ? appFolder
+      : path.join(originalCwd, appFolder);
+
+    if (!fs.existsSync(targetDir)) {
+      log.error(colors.red(`Error: Directory not found: ${targetDir}`));
+      Deno.exit(1);
+    }
+  }
+
+  // Validate that target is a .raw_app folder
+  const targetDirName = path.basename(targetDir);
+
+  if (!hasFolderSuffix(targetDirName, "raw_app")) {
     log.error(
       colors.red(
-        `Error: The dev command must be run inside a ${getFolderSuffix("raw_app")} folder.\n` +
-          `Current directory: ${currentDirName}\n` +
-          `Please navigate to a folder ending with '${getFolderSuffix("raw_app")}' before running this command.`,
+        `Error: The dev command must be run inside a ${
+          getFolderSuffix("raw_app")
+        } folder.\n` +
+          `Target directory: ${targetDirName}\n` +
+          `Please navigate to a folder ending with '${
+            getFolderSuffix("raw_app")
+          }' or specify one as argument.`,
       ),
     );
     Deno.exit(1);
   }
 
-  // Check for raw_app.yaml
-  const rawAppPath = path.join(cwd, "raw_app.yaml");
+  // Check for raw_app.yaml in target directory
+  const rawAppPath = path.join(targetDir, "raw_app.yaml");
   if (!fs.existsSync(rawAppPath)) {
     log.error(
       colors.red(
-        `Error: raw_app.yaml not found in current directory.\n` +
-          `The dev command must be run in a ${getFolderSuffix("raw_app")} folder containing a raw_app.yaml file.`,
+        `Error: raw_app.yaml not found in ${targetDir}.\n` +
+          `The dev command requires a ${
+            getFolderSuffix("raw_app")
+          } folder containing a raw_app.yaml file.`,
       ),
     );
     Deno.exit(1);
   }
 
-  // Resolve workspace and authenticate
+  // Resolve workspace and authenticate (from original cwd to find wmill.yaml)
   const workspace = await resolveWorkspace(opts);
   await requireLogin(opts);
   const workspaceId = workspace.workspaceId;
+
+  // Change to target directory for the rest of the command
+  if (appFolder) {
+    process.chdir(targetDir);
+  }
 
   // Load app path from raw_app.yaml
   const rawApp = (await yamlParseFile(rawAppPath)) as any;
@@ -421,13 +454,22 @@ async function dev(opts: DevOptions) {
       build.onLoad(
         { filter: /.*/, namespace: "wmill-virtual" },
         (args: any) => {
+          const contents = wmillTs(port);
           log.info(
             colors.yellow(
               `[wmill-virtual] Loading virtual module: ${args.path}`,
             ),
           );
+          log.info(
+            colors.gray(
+              `[wmill-virtual] Exports: ${
+                contents.match(/export (const|function) \w+/g)?.join(", ") ??
+                  "none"
+              }`,
+            ),
+          );
           return {
-            contents: wmillTs(port),
+            contents,
             loader: "ts",
           };
         },
@@ -480,7 +522,7 @@ async function dev(opts: DevOptions) {
     runnablesWatcher = Deno.watchFs(runnablesPath);
 
     // Per-file debounce timeouts for schema inference (longer debounce for typing)
-    const schemaInferenceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const schemaInferenceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SCHEMA_DEBOUNCE_MS = 500; // Wait 500ms after last change before inferring schema
 
     // Handle runnables file changes in the background
@@ -956,6 +998,32 @@ async function dev(opts: DevOptions) {
             break;
           }
 
+          case "streamJob": {
+            // Stream job results using SSE
+            log.info(colors.blue(`[streamJob] Streaming job: ${jobId}`));
+            try {
+              await streamJobWithSSE(
+                workspaceId,
+                jobId,
+                reqId,
+                ws,
+                workspace.remote,
+                workspace.token,
+              );
+            } catch (error: any) {
+              log.error(colors.red(`[streamJob] Error: ${error.message}`));
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: error.message, stack: error.stack },
+                }),
+              );
+            }
+            break;
+          }
+
           case "applySqlMigration": {
             // Execute SQL migration against a datatable
             const { sql, datatable, fileName } = message;
@@ -1130,7 +1198,7 @@ async function dev(opts: DevOptions) {
     sqlWatcher = Deno.watchFs(sqlToApplyPath);
 
     // Debounce timeout for SQL file changes
-    const sqlDebounceTimeouts: Record<string, NodeJS.Timeout> = {};
+    const sqlDebounceTimeouts: Record<string, ReturnType<typeof setTimeout>> = {};
     const SQL_DEBOUNCE_MS = 300;
 
     // Handle SQL file changes in the background
@@ -1240,6 +1308,7 @@ const command = new Command()
   .description(
     "Start a development server for building apps with live reload and hot module replacement",
   )
+  .arguments("[app_folder:string]")
   .option(
     "--port <port:number>",
     "Port to run the dev server on (will find next available port if occupied)",
@@ -1303,6 +1372,30 @@ async function genRunnablesTs(schemaOverrides: Record<string, any> = {}) {
   }
 }
 
+/**
+ * Convert runnables from file format to API format.
+ * File format uses type: "script"|"hubscript"|"flow" for path-based runnables.
+ * API format uses type: "path" with runType: "script"|"hubscript"|"flow".
+ */
+function convertRunnablesToApiFormat(runnables: Record<string, any>): void {
+  for (const [runnableId, runnable] of Object.entries(runnables)) {
+    if (
+      runnable?.type === "script" ||
+      runnable?.type === "hubscript" ||
+      runnable?.type === "flow"
+    ) {
+      // Convert from file format to API format
+      // { type: "script" } -> { type: "path", runType: "script" }
+      const originalType = runnable.type;
+      runnable.runType = originalType;
+      runnable.type = "path";
+      log.debug(
+        `Converted runnable '${runnableId}' from type='${originalType}' to type='path', runType='${originalType}'`,
+      );
+    }
+  }
+}
+
 async function loadRunnables(): Promise<Record<string, Runnable>> {
   try {
     const localPath = process.cwd();
@@ -1319,7 +1412,12 @@ async function loadRunnables(): Promise<Record<string, Runnable>> {
       runnables = rawApp?.runnables ?? {};
     }
 
+    // Always convert path-based runnables from file format to API format
+    // This handles both backend folder runnables and raw_app.yaml runnables
+    convertRunnablesToApiFormat(runnables);
+
     replaceInlineScripts(runnables, backendPath + SEP, true);
+    repopulateFields(runnables);
 
     return runnables;
   } catch (error: any) {
@@ -1343,11 +1441,14 @@ async function executeRunnable(
     force_viewer_allow_user_resources: [],
   };
 
-  // Handle static fields
+  // Handle fields (static, ctx, user)
   if (runnable.fields) {
     for (const [key, field] of Object.entries(runnable.fields)) {
       if (field?.type === "static") {
         requestBody.force_viewer_static_fields[key] = field.value;
+      } else if (field?.type === "ctx" && field?.ctx) {
+        // Convert ctx fields to $ctx:property format for backend resolution
+        requestBody.args[key] = `$ctx:${field.ctx}`;
       }
       if (field?.type === "user" && field?.allowUserResources) {
         requestBody.force_viewer_allow_user_resources.push(key);
@@ -1370,12 +1471,31 @@ async function executeRunnable(
       lock: inlineScript.id === undefined ? inlineScript.lock : undefined,
       cache_ttl: inlineScript.cache_ttl,
     };
-  } else if (runnable.type === "path" && runnable.runType && runnable.path) {
-    // Path-based runnables have type: "path" and runType: "script"|"hubscript"|"flow"
+  } else if (
+    (runnable.type === "path" || runnable.type === "runnableByPath") &&
+    runnable.runType &&
+    runnable.path
+  ) {
+    // Path-based runnables have type: "path" (or legacy "runnableByPath") and runType: "script"|"hubscript"|"flow"
     const prefix = runnable.runType;
     requestBody.path = prefix !== "hubscript"
       ? `${prefix}/${runnable.path}`
       : `script/${runnable.path}`;
+  } else {
+    // Neither inline script nor valid path-based runnable
+    const debugInfo =
+      `type=${(runnable as any).type}, runType=${(runnable as any).runType}, ` +
+      `path=${(runnable as any).path}, hasInlineScript=${!!(runnable as any)
+        .inlineScript}`;
+    log.error(
+      colors.red(
+        `[executeRunnable] Invalid runnable configuration for '${runnableId}': ${debugInfo}`,
+      ),
+    );
+    throw new Error(
+      `Invalid runnable '${runnableId}': ${debugInfo}. ` +
+        `Must have either inlineScript (for inline type) or type="path" with runType and path fields`,
+    );
   }
 
   const uuid = await wmill.executeComponent({
@@ -1444,4 +1564,122 @@ async function getJobStatus(workspace: string, jobId: string): Promise<any> {
     workspace,
     id: jobId,
   });
+}
+
+async function streamJobWithSSE(
+  workspace: string,
+  jobId: string,
+  reqId: string,
+  ws: WebSocket,
+  baseUrl: string,
+  token: string,
+): Promise<void> {
+  const sseUrl =
+    `${baseUrl}api/w/${workspace}/jobs_u/getupdate_sse/${jobId}?fast=true`;
+
+  const response = await fetch(sseUrl, {
+    headers: {
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `SSE request failed: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("No response body for SSE stream");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6);
+          try {
+            const update = JSON.parse(data);
+            const type = update.type;
+
+            if (type === "ping" || type === "timeout") {
+              if (type === "timeout") {
+                reader.cancel();
+                return;
+              }
+              continue;
+            }
+
+            if (type === "error") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: update.error || "SSE error" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            if (type === "not_found") {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: true,
+                  result: { message: "Job not found" },
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+
+            // Send stream update if there's new stream data
+            if (update.new_result_stream !== undefined) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobUpdate",
+                  reqId,
+                  new_result_stream: update.new_result_stream,
+                  stream_offset: update.stream_offset,
+                }),
+              );
+            }
+
+            // Check if job is completed
+            if (update.completed) {
+              ws.send(
+                JSON.stringify({
+                  type: "streamJobRes",
+                  reqId,
+                  error: false,
+                  result: update.only_result,
+                }),
+              );
+              reader.cancel();
+              return;
+            }
+          } catch (parseErr) {
+            log.warn(`Failed to parse SSE data: ${parseErr}`);
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }

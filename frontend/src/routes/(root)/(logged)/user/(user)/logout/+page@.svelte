@@ -2,7 +2,6 @@
 	import { goto } from '$lib/navigation'
 	import { page } from '$app/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
-	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { clearUser } from '$lib/logout'
 	import { onMount } from 'svelte'
 
@@ -26,10 +25,4 @@
 	})
 </script>
 
-<CenteredModal title="Logging out">
-	<div class="w-full">
-		<div class="block m-auto w-20">
-			<WindmillIcon height="80px" width="80px" spin="fast" />
-		</div>
-	</div>
-</CenteredModal>
+<CenteredModal title="Logging out" loading={true}></CenteredModal>

@@ -108,7 +108,10 @@
 	summary={flow.summary}
 	{starred}
 	{errorHandlerMuted}
-	on:change
+	onStarred={(newStarred) => {
+		starred = newStarred
+		dispatch('change')
+	}}
 	canFavorite={!flow.draft_only}
 	{depth}
 >

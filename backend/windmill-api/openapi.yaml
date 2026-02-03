@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.605.0
+  version: 1.623.1
   title: Windmill API
 
   contact:
@@ -1411,6 +1411,107 @@ paths:
                 items:
                   $ref: "#/components/schemas/GlobalSetting"
 
+  /min_keep_alive_version:
+    get:
+      summary: get minimum worker versions required to stay alive
+      operationId: getMinKeepAliveVersion
+      tags:
+        - setting
+      responses:
+        "200":
+          description: minimum keep-alive versions for workers and agents
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - worker
+                  - agent
+                properties:
+                  worker:
+                    type: string
+                    description: minimum version for normal workers
+                  agent:
+                    type: string
+                    description: minimum version for agent workers
+
+  /.well-known/jwks.json:
+    get:
+      summary: get JWKS for Vault JWT authentication
+      operationId: getJwks
+      tags:
+        - setting
+      responses:
+        "200":
+          description: JSON Web Key Set
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JwksResponse"
+
+  /settings/test_secret_backend:
+    post:
+      summary: test secret backend connection (HashiCorp Vault)
+      operationId: testSecretBackend
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings to test
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: connection successful
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /settings/migrate_secrets_to_vault:
+    post:
+      summary: migrate secrets from database to HashiCorp Vault
+      operationId: migrateSecretsToVault
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration target
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
+  /settings/migrate_secrets_to_database:
+    post:
+      summary: migrate secrets from HashiCorp Vault to database
+      operationId: migrateSecretsToDatabase
+      tags:
+        - setting
+      requestBody:
+        description: Vault settings for migration source
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VaultSettings"
+      responses:
+        "200":
+          description: migration report
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SecretMigrationReport"
+
   /users/email:
     get:
       summary: get current user email (if logged in)
@@ -2246,20 +2347,8 @@ paths:
                     type: string
                   teams_team_guid:
                     type: string
-                  auto_invite_domain:
-                    type: string
-                  auto_invite_operator:
-                    type: boolean
-                  auto_add:
-                    type: boolean
-                  auto_add_instance_groups:
-                    type: array
-                    items:
-                      type: string
-                  auto_add_instance_groups_roles:
-                    type: object
-                    additionalProperties:
-                      type: string
+                  auto_invite:
+                    $ref: "#/components/schemas/AutoInviteConfig"
                   plan:
                     type: string
                   customer_id:
@@ -2271,11 +2360,9 @@ paths:
                   ai_config:
                     $ref: "#/components/schemas/AIConfig"
                   error_handler:
-                    type: string
-                  error_handler_extra_args:
-                    $ref: "#/components/schemas/ScriptArgs"
-                  error_handler_muted_on_cancel:
-                    type: boolean
+                    $ref: "#/components/schemas/ErrorHandlerConfig"
+                  success_handler:
+                    $ref: "#/components/schemas/SuccessHandlerConfig"
                   large_file_storage:
                     $ref: "#/components/schemas/LargeFileStorage"
                   ducklake:
@@ -2296,8 +2383,6 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
-                required:
-                  - error_handler_muted_on_cancel
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -2976,14 +3061,30 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                error_handler:
-                  type: string
-                error_handler_extra_args:
-                  $ref: "#/components/schemas/ScriptArgs"
-                error_handler_muted_on_cancel:
-                  type: boolean
+              $ref: "#/components/schemas/EditErrorHandler"
+      responses:
+        "200":
+          description: status
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/workspaces/edit_success_handler:
+    post:
+      summary: edit success handler
+      operationId: editSuccessHandler
+      tags:
+        - workspace
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: WorkspaceSuccessHandler
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EditSuccessHandler"
       responses:
         "200":
           description: status
@@ -3397,23 +3498,6 @@ paths:
                   default_app_path:
                     type: string
 
-  /w/{workspace}/workspaces/get_large_file_storage_config:
-    get:
-      summary: get large file storage config
-      operationId: getLargeFileStorageConfig
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-
-      responses:
-        "200":
-          description: status
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/LargeFileStorage"
-
   /w/{workspace}/workspaces/usage:
     get:
       summary: get usage
@@ -3464,6 +3548,8 @@ paths:
                     type: boolean
                   email_used:
                     type: boolean
+                  nextcloud_used:
+                    type: boolean
                 required:
                   - http_routes_used
                   - websocket_used
@@ -3474,6 +3560,7 @@ paths:
                   - gcp_used
                   - sqs_used
                   - email_used
+                  - nextcloud_used
   /w/{workspace}/users/list:
     get:
       summary: list users
@@ -4345,6 +4432,9 @@ paths:
                 cc_token_url:
                   type: string
                   description: "OAuth token URL override for resource-level authentication (client_credentials flow only)"
+                mcp_server_url:
+                  type: string
+                  description: "MCP server URL for MCP OAuth token refresh"
               required:
                 - refresh_token
                 - expires_in
@@ -5095,6 +5185,141 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/npm_proxy/metadata/{package}:
+    get:
+      summary: get npm package metadata from private registry
+      operationId: getNpmPackageMetadata
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package metadata
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tags:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  versions:
+                    type: array
+                    items:
+                      type: string
+
+  /w/{workspace}/npm_proxy/resolve/{package}:
+    get:
+      summary: resolve npm package version from private registry
+      operationId: resolveNpmPackageVersion
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: tag
+          description: version tag or reference
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: resolved version
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                    nullable: true
+
+  /w/{workspace}/npm_proxy/filetree/{package}/{version}:
+    get:
+      summary: get npm package file tree from private registry
+      operationId: getNpmPackageFiletree
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: package file tree
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  default:
+                    type: string
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+
+  /w/{workspace}/npm_proxy/file/{package}/{version}/{filepath}:
+    get:
+      summary: get specific file from npm package in private registry
+      operationId: getNpmPackageFile
+      tags:
+        - npm_proxy
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: package
+          description: npm package name
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version
+          description: package version
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: filepath
+          description: file path within package
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: file content
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /w/{workspace}/embeddings/query_resource_types:
     get:
       summary: query resource types by similarity
@@ -5647,6 +5872,14 @@ paths:
             If true, the description field will be omitted from the response.
           schema:
             type: boolean
+        - name: dedicated_worker
+          in: query
+          description: |
+            (default regardless)
+            If true, show only scripts with dedicated_worker enabled.
+            If false, show only scripts with dedicated_worker disabled.
+          schema:
+            type: boolean
 
       responses:
         "200":
@@ -5794,11 +6027,6 @@ paths:
       tags:
         - worker
       parameters:
-        - name: workspace
-          in: query
-          schema:
-            type: string
-          required: false
         - name: show_workspace_restriction
           in: query
           schema:
@@ -5807,6 +6035,24 @@ paths:
       responses:
         "200":
           description: list of custom tags
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /w/{workspace}/workers/custom_tags:
+    get:
+      summary: get custom tags available for this workspace
+      operationId: getCustomTagsForWorkspace
+      tags:
+        - worker
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of custom tags for workspace
           content:
             application/json:
               schema:
@@ -7061,6 +7307,14 @@ paths:
             If true, the description field will be omitted from the response.
           schema:
             type: boolean
+        - name: dedicated_worker
+          in: query
+          description: |
+            (default regardless)
+            If true, show only flows with dedicated_worker enabled.
+            If false, show only flows with dedicated_worker disabled.
+          schema:
+            type: boolean
       responses:
         "200":
           description: All flow
@@ -7586,16 +7840,19 @@ paths:
               schema:
                 type: boolean
 
-  /w/{workspace}/apps/get_data/{version}/{path}:
+  /w/{workspace}/apps/get_data/v/{secretWithExtension}:
     get:
-      summary: get app by path
+      summary: get raw app data by
       operationId: getRawAppData
       tags:
-        - raw_app
+        - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - $ref: "#/components/parameters/VersionId"
-        - $ref: "#/components/parameters/ScriptPath"
+        - name: secretWithExtension
+          in: path
+          required: true
+          schema:
+            type: string
       responses:
         "200":
           description: app details
@@ -9205,6 +9462,25 @@ paths:
                 items:
                   type: string
 
+  /w/{workspace}/jobs/get_otel_traces/{id}:
+    get:
+      summary: get OpenTelemetry traces for a job
+      operationId: getJobOtelTraces
+      tags:
+        - job
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: list of OTEL Span objects (compatible with OpenTelemetry Span proto)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
   /w/{workspace}/trigger/{trigger_kind}/resume_suspended_trigger_jobs/{trigger_path}:
     post:
       summary: resume all suspended jobs for a specific trigger
@@ -10148,6 +10424,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: flow_level
+          in: query
+          description: If true, generate resume URLs for the parent flow instead of the specific step. This allows pre-approvals that can be consumed by any later suspend step in the same flow.
+          schema:
+            type: boolean
       responses:
         "200":
           description: url endpoints
@@ -11803,6 +12084,434 @@ paths:
       responses:
         "200":
           description: successfuly connected to sqs
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/list:
+    get:
+      summary: list available native trigger services
+      operationId: listNativeTriggerServices
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: native trigger services list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkspaceIntegrations"
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/exists:
+    get:
+      summary: check if integrations for a particular service exists
+      operationId: checkIfNativeTriggersServiceExists
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: integration exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/create:
+    post:
+      summary: create native trigger service
+      operationId: createNativeTriggerService
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: new native trigger service
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkspaceOAuthConfig"
+      responses:
+        "201":
+          description: native trigger service created
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/generate_connect_url:
+    post:
+      summary: generate connect url for native trigger service
+      operationId: generateNativeTriggerServiceConnectUrl
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: redirect_uri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectUri"
+      responses:
+        "200":
+          description: native trigger service connect url
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/delete:
+    delete:
+      summary: delete native trigger service
+      operationId: deleteNativeTriggerService
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: native trigger service deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/integrations/{service_name}/callback/{code}/{state}:
+    post:
+      summary: native trigger service oauth callback
+      operationId: nativeTriggerServiceCallback
+      tags:
+        - workspace_integration
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        description: redirect_uri
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectUri"
+      responses:
+        "200":
+          description: native trigger service oauth completed
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/create:
+    post:
+      summary: create native trigger
+      description: |
+        Creates a new native trigger for the specified service.
+        Requires write access to the script or flow that the trigger will be associated with.
+      operationId: createNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      requestBody:
+        description: new native trigger configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeTriggerData"
+      responses:
+        "201":
+          description: native trigger created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateTriggerResponse"
+
+  /w/{workspace}/native_triggers/{service_name}/update/{external_id}:
+    post:
+      summary: update native trigger
+      description: |
+        Updates an existing native trigger.
+        Requires write access to the script or flow that the trigger is associated with.
+      operationId: updateNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      requestBody:
+        description: updated native trigger configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NativeTriggerData"
+      responses:
+        "200":
+          description: native trigger updated
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/get/{external_id}:
+    get:
+      summary: get native trigger
+      description: |
+        Retrieves a native trigger by its external ID.
+        Requires write access to the script or flow that the trigger is associated with.
+      operationId: getNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      responses:
+        "200":
+          description: native trigger with external configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NativeTriggerWithExternal"
+
+  /w/{workspace}/native_triggers/{service_name}/delete/{external_id}:
+    delete:
+      summary: delete native trigger
+      description: |
+        Deletes a native trigger by its external ID.
+        Requires write access to the script or flow that the trigger is associated with.
+      operationId: deleteNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      responses:
+        "200":
+          description: native trigger deleted
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /w/{workspace}/native_triggers/{service_name}/list:
+    get:
+      summary: list native triggers
+      description: Lists all native triggers for the specified service in the workspace.
+      operationId: listNativeTriggers
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+        - name: path
+          description: filter by script path
+          in: query
+          schema:
+            type: string
+        - name: is_flow
+          description: filter by is_flow
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: native triggers list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NativeTrigger"
+
+  /w/{workspace}/native_triggers/{service_name}/exists/{external_id}:
+    get:
+      summary: check if native trigger exists
+      description: Checks if a native trigger with the given external ID exists.
+      operationId: existsNativeTrigger
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: external_id
+          in: path
+          required: true
+          description: The external ID of the trigger from the external service
+          schema:
+            type: string
+      responses:
+        "200":
+          description: whether the native trigger exists
+          content:
+            application/json:
+              schema:
+                type: boolean
+
+  /w/{workspace}/native_triggers/{service_name}/sync:
+    post:
+      summary: sync native triggers with external service
+      operationId: syncNativeTriggers
+      tags:
+        - native_trigger
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+      responses:
+        "200":
+          description: sync completed successfully
+
+  /w/{workspace}/native_triggers/nextcloud/events:
+    get:
+      summary: list available NextCloud events
+      operationId: listNextCloudEvents
+      tags:
+        - native_trigger
+      parameters:
+        - name: workspace
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: list of available NextCloud events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/NextCloudEventType"
+
+  /native_triggers/{service_name}/w/{workspace_id}/webhook/{internal_id}:
+    post:
+      summary: receive webhook from external native trigger service
+      operationId: nativeTriggerWebhook
+      tags:
+        - native_trigger
+      parameters:
+        - name: service_name
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/NativeServiceName"
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: internal_id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: The internal database ID of the trigger
+      requestBody:
+        description: webhook payload from external service
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: webhook received successfully
           content:
             text/plain:
               schema:
@@ -15859,44 +16568,110 @@ paths:
 
   /w/{workspace}/assets/list:
     get:
-      summary: List all assets in the workspace
+      summary: List all assets in the workspace with cursor pagination
       operationId: listAssets
       tags:
         - asset
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: per_page
+          in: query
+          description: Number of items per page (max 1000, default 50)
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 1000
+        - name: cursor_created_at
+          in: query
+          description: Cursor timestamp for pagination (created_at of last item from previous page)
+          schema:
+            type: string
+            format: date-time
+        - name: cursor_id
+          in: query
+          description: Cursor ID for pagination (id of last item from previous page)
+          schema:
+            type: integer
+            format: int64
+        - name: asset_path
+          in: query
+          description: Filter by asset path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: usage_path
+          in: query
+          description: Filter by usage path (case-insensitive partial match)
+          schema:
+            type: string
+        - name: asset_kinds
+          in: query
+          description: Filter by asset kinds (multiple values allowed)
+          schema:
+            type: string
       responses:
         "200":
-          description: all assets in the workspace
+          description: paginated assets in the workspace
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  type: object
-                  required: [path, kind, usages]
-                  properties:
-                    path:
-                      type: string
-                    kind:
-                      $ref: "#/components/schemas/AssetKind"
-                    usages:
-                      type: array
-                      items:
-                        type: object
-                        required: [path, kind]
-                        properties:
-                          path:
-                            type: string
-                          kind:
-                            $ref: "#/components/schemas/AssetUsageKind"
-                          access_type:
-                            $ref: "#/components/schemas/AssetUsageAccessType"
-                    metadata:
+                type: object
+                required: [assets]
+                properties:
+                  assets:
+                    type: array
+                    items:
                       type: object
+                      required: [path, kind, usages]
                       properties:
-                        resource_type:
+                        path:
                           type: string
+                        kind:
+                          $ref: "#/components/schemas/AssetKind"
+                        usages:
+                          type: array
+                          items:
+                            type: object
+                            required: [path, kind]
+                            properties:
+                              path:
+                                type: string
+                              kind:
+                                $ref: "#/components/schemas/AssetUsageKind"
+                              access_type:
+                                $ref: "#/components/schemas/AssetUsageAccessType"
+                              created_at:
+                                type: string
+                                format: date-time
+                                description: When the asset was detected
+                              metadata:
+                                type: object
+                                properties:
+                                  runnable_path:
+                                    type: string
+                                    description: The path of the script/flow that was run (only present when kind is 'job')
+                                  job_kind:
+                                    type: string
+                                    description: The kind of job (script, flow, preview, etc.) (only present when kind is 'job')
+                        metadata:
+                          type: object
+                          properties:
+                            resource_type:
+                              type: string
+                              description: The type of the resource (only present when kind is 'resource')
+                  next_cursor:
+                    type: object
+                    description: Cursor for the next page (null if no more pages)
+                    nullable: true
+                    properties:
+                      created_at:
+                        type: string
+                        format: date-time
+                        description: Timestamp to use for next page
+                      id:
+                        type: integer
+                        format: int64
+                        description: ID to use for next page
 
   /w/{workspace}/assets/list_by_usages:
     post:
@@ -15962,6 +16737,98 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/EndpointTool"
+
+  /mcp/oauth/discover:
+    post:
+      summary: discover MCP server OAuth metadata
+      operationId: discoverMcpOAuth
+      tags:
+        - mcp_oauth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mcp_server_url
+              properties:
+                mcp_server_url:
+                  type: string
+                  description: URL of the MCP server to discover OAuth metadata from
+      responses:
+        "200":
+          description: OAuth metadata from MCP server
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scopes_supported:
+                    type: array
+                    items:
+                      type: string
+                  authorization_endpoint:
+                    type: string
+                  token_endpoint:
+                    type: string
+                  registration_endpoint:
+                    type: string
+                  supports_dynamic_registration:
+                    type: boolean
+
+  /mcp/oauth/start:
+    get:
+      summary: start MCP OAuth popup flow
+      description: Opens in a popup, discovers OAuth metadata, registers client, and redirects to OAuth provider
+      operationId: startMcpOAuthPopup
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: mcp_server_url
+          in: query
+          required: true
+          schema:
+            type: string
+          description: URL of the MCP server to connect to
+        - name: scopes
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Comma-separated list of OAuth scopes to request
+      responses:
+        "302":
+          description: Redirect to OAuth provider authorization URL
+
+  /mcp/oauth/callback:
+    get:
+      security: []
+      summary: MCP OAuth callback
+      description: Handles OAuth callback, exchanges code for tokens, returns HTML that posts message to opener
+      operationId: mcpOAuthCallback
+      tags:
+        - mcp_oauth
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth authorization code
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: CSRF state token
+      responses:
+        "200":
+          description: HTML page with JavaScript that posts tokens to opener window and closes
+          content:
+            text/html:
+              schema:
+                type: string
 
 components:
   securitySchemes:
@@ -16450,6 +17317,196 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowNote"
     # -- INLINE END --
     # Do not change line above
+
+    AutoInviteConfig:
+      type: object
+      description: Configuration for auto-inviting users to the workspace
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        domain:
+          type: string
+        operator:
+          type: boolean
+          default: false
+          description: If true, auto-invited users are added as operators. If false, they are added as developers.
+        mode:
+          type: string
+          enum: ["invite", "add"]
+          default: "invite"
+        instance_groups:
+          type: array
+          items:
+            type: string
+        instance_groups_roles:
+          type: object
+          additionalProperties:
+            type: string
+
+    ErrorHandlerConfig:
+      type: object
+      description: Configuration for the workspace error handler
+      properties:
+        path:
+          type: string
+          description: Path to the error handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_cancel:
+          type: boolean
+          default: false
+        muted_on_user_path:
+          type: boolean
+          default: false
+
+    SuccessHandlerConfig:
+      type: object
+      description: Configuration for the workspace success handler
+      properties:
+        path:
+          type: string
+          description: Path to the success handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    EditErrorHandler:
+      description: Request body for editing the workspace error handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditErrorHandlerNew"
+        - $ref: "#/components/schemas/EditErrorHandlerLegacy"
+
+    EditErrorHandlerNew:
+      type: object
+      description: New grouped format for editing error handler
+      properties:
+        path:
+          type: string
+          description: Path to the error handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        muted_on_cancel:
+          type: boolean
+          default: false
+        muted_on_user_path:
+          type: boolean
+          default: false
+
+    EditErrorHandlerLegacy:
+      type: object
+      description: Legacy flat format for editing error handler (deprecated, use new format)
+      properties:
+        error_handler:
+          type: string
+          description: Path to the error handler script or flow
+        error_handler_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+        error_handler_muted_on_cancel:
+          type: boolean
+          default: false
+
+    EditSuccessHandler:
+      description: Request body for editing the workspace success handler. Accepts both new grouped format and legacy flat format for backward compatibility.
+      oneOf:
+        - $ref: "#/components/schemas/EditSuccessHandlerNew"
+        - $ref: "#/components/schemas/EditSuccessHandlerLegacy"
+
+    EditSuccessHandlerNew:
+      type: object
+      description: New grouped format for editing success handler
+      properties:
+        path:
+          type: string
+          description: Path to the success handler script or flow
+        extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    EditSuccessHandlerLegacy:
+      type: object
+      description: Legacy flat format for editing success handler (deprecated, use new format)
+      properties:
+        success_handler:
+          type: string
+          description: Path to the success handler script or flow
+        success_handler_extra_args:
+          $ref: "#/components/schemas/ScriptArgs"
+
+    VaultSettings:
+      type: object
+      required:
+        - address
+        - mount_path
+      properties:
+        address:
+          type: string
+          description: HashiCorp Vault server address (e.g., https://vault.company.com:8200)
+        mount_path:
+          type: string
+          description: KV v2 secrets engine mount path (e.g., windmill)
+        jwt_role:
+          type: string
+          description: Vault JWT auth role name for Windmill (optional, if not provided token auth is used)
+        namespace:
+          type: string
+          description: Vault Enterprise namespace (optional)
+        token:
+          type: string
+          description: Static Vault token for testing/development (optional, if provided this is used instead of JWT authentication)
+
+    SecretMigrationFailure:
+      type: object
+      required:
+        - workspace_id
+        - path
+        - error
+      properties:
+        workspace_id:
+          type: string
+          description: Workspace ID where the secret is located
+        path:
+          type: string
+          description: Path of the secret that failed to migrate
+        error:
+          type: string
+          description: Error message
+
+    SecretMigrationReport:
+      type: object
+      required:
+        - total_secrets
+        - migrated_count
+        - failed_count
+        - failures
+      properties:
+        total_secrets:
+          type: integer
+          format: int64
+          description: Total number of secrets found
+        migrated_count:
+          type: integer
+          format: int64
+          description: Number of secrets successfully migrated
+        failed_count:
+          type: integer
+          format: int64
+          description: Number of secrets that failed to migrate
+        failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecretMigrationFailure"
+          description: Details of any failures encountered during migration
+
+    JwksResponse:
+      type: object
+      required:
+        - keys
+      properties:
+        keys:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+          description: Array of JSON Web Keys for JWT verification
 
     FlowConversation:
       type: object
@@ -18977,6 +20034,8 @@ components:
           type: number
         sqs_count:
           type: number
+        nextcloud_count:
+          type: number
 
     WebsocketTrigger:
       allOf:
@@ -20640,6 +21699,10 @@ components:
             type: boolean
         custom_path:
           type: string
+        raw_app:
+          type: boolean
+        bundle_secret:
+          type: string
       required:
         - id
         - workspace_id
@@ -20652,6 +21715,7 @@ components:
         - policy
         - execution_mode
         - extra_perms
+        - raw_app
 
     AppWithLastVersionWDraft:
       allOf:
@@ -21398,7 +22462,8 @@ components:
       properties:
         kind:
           type: string
-          enum: ["script", "flow", "app", "resource", "variable"]
+          enum:
+            ["script", "flow", "app", "resource", "variable", "resource_type"]
           description: Type of the item
         path:
           type: string
@@ -21430,6 +22495,8 @@ components:
         - apps_changed
         - resources_changed
         - variables_changed
+        - resource_types_changed
+        - folders_changed
         - conflicts
       properties:
         total_diffs:
@@ -21456,6 +22523,12 @@ components:
         variables_changed:
           type: integer
           description: Number of variables with differences
+        resource_types_changed:
+          type: integer
+          description: Number of resource types with differences
+        folders_changed:
+          type: integer
+          description: Number of folders with differences
         conflicts:
           type: integer
           description: Number of items that are both ahead and behind (conflicts)
@@ -21598,6 +22671,7 @@ components:
       enum:
         - script
         - flow
+        - job
     AssetUsageAccessType:
       type: string
       enum:
@@ -21659,3 +22733,210 @@ components:
       description: Users that can bypass this ruleset
       items:
         type: string
+    NativeServiceName:
+      type: string
+      enum:
+        - nextcloud
+
+    NativeTrigger:
+      type: object
+      description: A native trigger stored in Windmill
+      properties:
+        external_id:
+          type: string
+          description: The unique identifier from the external service
+        workspace_id:
+          type: string
+          description: The workspace this trigger belongs to
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        script_path:
+          type: string
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
+        service_config:
+          type: object
+          description: Configuration for the trigger including event_type and service_config
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the trigger is in an error state
+      required:
+        - external_id
+        - workspace_id
+        - service_name
+        - script_path
+        - is_flow
+        - service_config
+
+    NativeTriggerWithExternal:
+      type: object
+      description: Full trigger response containing both Windmill data and external service data
+      properties:
+        external_id:
+          type: string
+          description: The unique identifier from the external service
+        workspace_id:
+          type: string
+          description: The workspace this trigger belongs to
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        script_path:
+          type: string
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
+        service_config:
+          type: object
+          description: Configuration for the trigger including event_type and service_config
+          additionalProperties: true
+        error:
+          type: string
+          nullable: true
+          description: Error message if the trigger is in an error state
+        external_data:
+          type: object
+          description: Configuration data from the external service
+          additionalProperties: true
+      required:
+        - external_id
+        - workspace_id
+        - service_name
+        - script_path
+        - is_flow
+        - service_config
+        - external_data
+
+    WorkspaceIntegrations:
+      type: object
+      properties:
+        service_name:
+          $ref: "#/components/schemas/NativeServiceName"
+        oauth_data:
+          nullable: true
+          $ref: "#/components/schemas/WorkspaceOAuthConfig"
+      required:
+        - service_name
+
+    WorkspaceOAuthConfig:
+      type: object
+      properties:
+        client_id:
+          type: string
+          description: The OAuth client ID for the workspace
+        client_secret:
+          type: string
+          description: The OAuth client secret for the workspace
+        base_url:
+          type: string
+          format: uri
+          description: The base URL of the workspace
+        redirect_uri:
+          type: string
+          format: uri
+          description: The OAuth redirect URI
+      required:
+        - client_id
+        - client_secret
+        - base_url
+        - redirect_uri
+
+    WebhookEvent:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [webhook]
+        request_type:
+          $ref: "#/components/schemas/WebhookRequestType"
+      required:
+        - type
+        - request_type
+
+    WebhookRequestType:
+      type: string
+      description: The type of webhook request (define possible values here)
+      enum:
+        - async
+        - sync
+
+    RedirectUri:
+      type: object
+      properties:
+        redirect_uri:
+          type: string
+      required:
+        - redirect_uri
+
+    NativeTriggerData:
+      type: object
+      description: Data for creating or updating a native trigger
+      properties:
+        script_path:
+          type: string
+          description: The path to the script or flow that will be triggered
+        is_flow:
+          type: boolean
+          description: Whether the trigger targets a flow (true) or a script (false)
+        service_config:
+          type: object
+          description: Service-specific configuration (e.g., event types, filters)
+          additionalProperties: true
+      required:
+        - script_path
+        - is_flow
+        - service_config
+
+    CreateTriggerResponse:
+      type: object
+      description: Response returned when a native trigger is created
+      properties:
+        external_id:
+          type: string
+          description: The external ID of the created trigger from the external service
+      required:
+        - external_id
+
+    SyncResult:
+      type: object
+      properties:
+        already_in_sync:
+          type: boolean
+        added_count:
+          type: integer
+        added_triggers:
+          type: array
+          items:
+            type: string
+        total_external:
+          type: integer
+        total_windmill:
+          type: integer
+      required:
+        - already_in_sync
+        - added_count
+        - added_triggers
+        - total_external
+        - total_windmill
+
+    NextCloudEventType:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        path:
+          type: string
+      required:
+        - id
+        - name
+        - path

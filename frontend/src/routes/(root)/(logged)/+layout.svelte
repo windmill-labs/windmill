@@ -120,10 +120,7 @@
 		// This ensures the cross-origin isolation headers are fetched from the server
 		// which are required for SharedArrayBuffer and TypeScript workers to work correctly
 		const toPath = navigation.to?.url.pathname
-		if (
-			toPath &&
-			(toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))
-		) {
+		if (toPath && (toPath.startsWith('/apps_raw/add') || toPath.startsWith('/apps_raw/edit'))) {
 			const currentPath = navigation.from?.url.pathname
 			// Reload if we're not on an apps_raw path, or if we're on /apps/get_raw/ (viewing a raw app)
 			// The /apps/get_raw/ path doesn't have cross-origin isolation headers, so we need to reload
@@ -223,7 +220,8 @@
 			sqs_used,
 			mqtt_used,
 			gcp_used,
-			email_used
+			email_used,
+			nextcloud_used
 		} = await WorkspaceService.getUsedTriggers({
 			workspace: $workspaceStore ?? ''
 		})
@@ -253,6 +251,9 @@
 		}
 		if (email_used) {
 			usedKinds.push('email')
+		}
+		if (nextcloud_used) {
+			usedKinds.push('nextcloud')
 		}
 		$usedTriggerKinds = usedKinds
 	}
@@ -414,13 +415,7 @@
 
 <UserSettings bind:this={userSettings} showMcpMode={true} />
 {#if $page.status == 404}
-	<CenteredModal title="Page not found, redirecting you to login">
-		<div class="w-full">
-			<div class="block m-auto w-20">
-				<WindmillIcon height="80px" width="80px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+	<CenteredModal title="Page not found, redirecting you to login" loading={true}></CenteredModal>
 {:else if $userStore}
 	<GlobalSearchModal bind:this={globalSearchModal} />
 	{#if $superadmin}
@@ -738,11 +733,5 @@
 		</div>
 	</div>
 {:else}
-	<CenteredModal title="Loading user...">
-		<div class="w-full">
-			<div class="block m-auto w-16">
-				<WindmillIcon height="60px" width="60px" spin="fast" />
-			</div>
-		</div>
-	</CenteredModal>
+	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
 {/if}

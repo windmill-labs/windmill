@@ -16,6 +16,7 @@
 		save_inputs?: import('svelte').Snippet
 		flow_step?: import('svelte').Snippet
 		triggers?: import('svelte').Snippet
+		flow_graph?: import('svelte').Snippet
 	}
 
 	let {
@@ -29,7 +30,8 @@
 		scriptRender: script,
 		save_inputs,
 		flow_step,
-		triggers
+		triggers,
+		flow_graph
 	}: Props = $props()
 
 	let mobileTab: 'form' | 'detail' = $state('form')
@@ -40,6 +42,7 @@
 	const save_inputs_render = $derived(save_inputs)
 	const flow_step_render = $derived(flow_step)
 	const triggers_render = $derived(triggers)
+	const flow_graph_render = $derived(flow_graph)
 
 	const useDesktopLayout = $derived(clientWidth >= 768 && !forceSmallScreen)
 </script>
@@ -81,6 +84,9 @@
 					{#if !isChatMode}
 						<Tab value="saved_inputs" label="Inputs" />
 					{/if}
+					{#if isChatMode && flow_json}
+						<Tab value="flow" label="Flow graph" />
+					{/if}
 					{#if !isOperator}
 						<Tab value="triggers" label="Triggers" />
 					{/if}
@@ -102,6 +108,11 @@
 							<TabContent value="triggers" class="flex flex-col flex-1 h-full mt-[-2px]">
 								{@render triggers?.()}
 							</TabContent>
+							{#if isChatMode && flow_json}
+								<TabContent value="flow" class="flex flex-col flex-1 h-full">
+									{@render flow_graph_render?.()}
+								</TabContent>
+							{/if}
 							{#if flow_json}
 								<TabContent value="raw" class="flex flex-col flex-1 h-full overflow-auto p-2">
 									<FlowViewerInner flow={flow_json} />

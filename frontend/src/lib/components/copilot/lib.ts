@@ -346,7 +346,6 @@ function prepareMessages(aiProvider: AIProvider, messages: ChatCompletionMessage
 
 const DEFAULT_COMPLETION_CONFIG: ChatCompletionCreateParams = {
 	model: '',
-	seed: 42,
 	messages: []
 }
 
@@ -358,14 +357,8 @@ export const PROVIDER_COMPLETION_CONFIG_MAP: Record<AIProvider, ChatCompletionCr
 	togetherai: DEFAULT_COMPLETION_CONFIG,
 	deepseek: DEFAULT_COMPLETION_CONFIG,
 	customai: DEFAULT_COMPLETION_CONFIG,
-	googleai: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined // not supported by gemini
-	} as ChatCompletionCreateParams,
-	mistral: {
-		...DEFAULT_COMPLETION_CONFIG,
-		seed: undefined
-	},
+	googleai: DEFAULT_COMPLETION_CONFIG,
+	mistral: DEFAULT_COMPLETION_CONFIG,
 	anthropic: DEFAULT_COMPLETION_CONFIG,
 	aws_bedrock: DEFAULT_COMPLETION_CONFIG
 } as const

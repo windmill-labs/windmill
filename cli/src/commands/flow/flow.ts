@@ -193,6 +193,78 @@ async function run(
   log.info(JSON.stringify(jobInfo.result ?? {}, null, 2));
 }
 
+async function preview(
+  opts: GlobalOptions & {
+    data?: string;
+    silent: boolean;
+  },
+  flowPath: string
+) {
+  const workspace = await resolveWorkspace(opts);
+  await requireLogin(opts);
+
+  // Normalize path - ensure it's a directory path to a .flow folder
+  if (!flowPath.endsWith(".flow") && !flowPath.endsWith(".flow" + SEP)) {
+    // Check if it's a flow.yaml file
+    if (flowPath.endsWith("flow.yaml") || flowPath.endsWith("flow.json")) {
+      flowPath = flowPath.substring(0, flowPath.lastIndexOf(SEP));
+    } else {
+      throw new Error(
+        "Flow path must be a .flow directory or a flow.yaml file"
+      );
+    }
+  }
+
+  if (!flowPath.endsWith(SEP)) {
+    flowPath += SEP;
+  }
+
+  // Read and parse the flow definition
+  const localFlow = (await yamlParseFile(flowPath + "flow.yaml")) as FlowFile;
+
+  // Replace inline scripts with their actual content
+  await replaceInlineScripts(
+    localFlow.value.modules,
+    async (path: string) => await Deno.readTextFile(flowPath + path),
+    log,
+    flowPath,
+    SEP
+  );
+
+  const input = opts.data ? await resolve(opts.data) : {};
+
+  if (!opts.silent) {
+    log.info(colors.yellow(`Running flow preview for ${flowPath}...`));
+  }
+
+  log.debug(`Flow value: ${JSON.stringify(localFlow.value, null, 2)}`);
+
+  // Run the flow preview
+  let result;
+  try {
+    result = await wmill.runFlowPreviewAndWaitResult({
+      workspace: workspace.workspaceId,
+      requestBody: {
+        value: localFlow.value,
+        path: flowPath.substring(0, flowPath.indexOf(".flow")).replaceAll(SEP, "/"),
+        args: input,
+      },
+    });
+  } catch (e: any) {
+    if (e.body) {
+      log.error(`Flow preview failed: ${JSON.stringify(e.body)}`);
+    }
+    throw e;
+  }
+
+  if (opts.silent) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    log.info(colors.bold.underline.green("Flow preview completed"));
+    log.info(JSON.stringify(result, null, 2));
+  }
+}
+
 async function generateLocks(
   opts: GlobalOptions & {
     yes?: boolean;
@@ -315,6 +387,20 @@ const command = new Command()
     "Do not ouput anything other then the final output. Useful for scripting."
   )
   .action(run as any)
+  .command(
+    "preview",
+    "preview a local flow without deploying it. Runs the flow definition from local files."
+  )
+  .arguments("<flow_path:string>")
+  .option(
+    "-d --data <data:string>",
+    "Inputs specified as a JSON string or a file using @<filename> or stdin using @-."
+  )
+  .option(
+    "-s --silent",
+    "Do not output anything other then the final output. Useful for scripting."
+  )
+  .action(preview as any)
   .command(
     "generate-locks",
     "re-generate the lock files of all inline scripts of all updated flows"

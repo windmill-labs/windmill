@@ -156,6 +156,10 @@
 			} else if (kind === 'app') {
 				const app = await AppService.getAppByPath({ workspace, path })
 				return app.summary
+			} else if (kind === 'folder') {
+				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
+				return folder.summary
+
 			}
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
@@ -165,7 +169,7 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app'].includes(diff.kind))
+		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app', 'folder'].includes(diff.kind))
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -365,33 +369,33 @@
 				workspace: workspace,
 				name: path
 			})
-		// } else if (kind === 'trigger') {
-		// 	const triggersKind: TriggerKind[] = [
-		// 		'kafka',
-		// 		'mqtt',
-		// 		'nats',
-		// 		'postgres',
-		// 		'routes',
-		// 		'schedules',
-		// 		'sqs',
-		// 		'websockets',
-		// 		'gcp'
-		// 	]
-		// 	if (
-		// 		additionalInformation?.triggers &&
-		// 		triggersKind.includes(additionalInformation.triggers.kind)
-		// 	) {
-		// 		exists = await existsTrigger(
-		// 			{ workspace: workspace, path },
-		// 			additionalInformation.triggers.kind
-		// 		)
-		// 	} else {
-		// 		throw new Error(
-		// 			`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
-		// 				additionalInformation?.triggers?.kind
-		// 			}`
-		// 		)
-		// 	}
+			// } else if (kind === 'trigger') {
+			// 	const triggersKind: TriggerKind[] = [
+			// 		'kafka',
+			// 		'mqtt',
+			// 		'nats',
+			// 		'postgres',
+			// 		'routes',
+			// 		'schedules',
+			// 		'sqs',
+			// 		'websockets',
+			// 		'gcp'
+			// 	]
+			// 	if (
+			// 		additionalInformation?.triggers &&
+			// 		triggersKind.includes(additionalInformation.triggers.kind)
+			// 	) {
+			// 		exists = await existsTrigger(
+			// 			{ workspace: workspace, path },
+			// 			additionalInformation.triggers.kind
+			// 		)
+			// 	} else {
+			// 		throw new Error(
+			// 			`Unexpected triggers kind, expected one of: '${triggersKind.join(', ')}' got: ${
+			// 				additionalInformation?.triggers?.kind
+			// 			}`
+			// 		)
+			// 	}
 		} else {
 			throw new Error(`Unknown kind ${kind}`)
 		}
@@ -474,20 +478,67 @@
 					path: path
 				})
 				if (alreadyExists) {
-					await AppService.updateApp({
-						workspace: workspaceToDeployTo,
-						path: path,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: workspaceFrom,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: workspaceFrom
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: workspaceFrom
+						})
+						await AppService.updateAppRaw({
+							workspace: workspaceToDeployTo,
+							path: path,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.updateApp({
+							workspace: workspaceToDeployTo,
+							path: path,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				} else {
-					await AppService.createApp({
-						workspace: workspaceToDeployTo,
-						requestBody: {
-							...app
-						}
-					})
+					if (app.raw_app) {
+						const secret = await AppService.getPublicSecretOfLatestVersionOfApp({
+							workspace: workspaceFrom,
+							path: app.path
+						})
+						const js = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.js`,
+							workspace: workspaceFrom
+						})
+						const css = await AppService.getRawAppData({
+							secretWithExtension: `${secret}.css`,
+							workspace: workspaceFrom
+						})
+						await AppService.createAppRaw({
+							workspace: workspaceToDeployTo,
+							formData: {
+								app,
+								css,
+								js
+							}
+						})
+					} else {
+						await AppService.createApp({
+							workspace: workspaceToDeployTo,
+							requestBody: {
+								...app
+							}
+						})
+					}
 				}
 			} else if (kind == 'variable') {
 				const variable = await VariableService.getVariable({
@@ -855,7 +906,8 @@
 					This fork is ahead of its parent
 				{/if}
 				and some of the changes are not visible by you. Only a user with access to the whole context
-				may deploy or update this fork. You can share the link to this page to someone with proper permissions to get it deployed.
+				may deploy or update this fork. You can share the link to this page to someone with proper permissions
+				to get it deployed.
 			</Alert>
 		{/if}
 
@@ -901,7 +953,11 @@
 							disabled={!isSelectable}
 							selected={isSelected && !(deploymentStatus[key]?.status == 'deployed')}
 							onSelect={() => toggleItem(diff)}
-							path={diff.kind != 'resource' && diff.kind != 'variable' ? diff.path : ''}
+							path={diff.kind != 'resource' &&
+							diff.kind != 'variable' &&
+							diff.kind != 'resource_type'
+								? diff.path
+								: ''}
 							marked={undefined}
 							kind={diff.kind}
 							canFavorite={false}

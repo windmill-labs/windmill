@@ -55,6 +55,7 @@ pub enum JobTriggerKind {
     Postgres,
     Schedule,
     Gcp,
+    Nextcloud,
 }
 
 impl std::fmt::Display for JobTriggerKind {
@@ -71,6 +72,7 @@ impl std::fmt::Display for JobTriggerKind {
             JobTriggerKind::Postgres => "postgres",
             JobTriggerKind::Schedule => "schedule",
             JobTriggerKind::Gcp => "gcp",
+            JobTriggerKind::Nextcloud => "nextcloud",
         };
         write!(f, "{}", kind)
     }
@@ -823,6 +825,9 @@ pub async fn get_logs_from_store(
 
 lazy_static::lazy_static! {
     pub static ref TAGS_ARE_SENSITIVE: bool = std::env::var("TAGS_ARE_SENSITIVE").map(
+        |v| v.parse().unwrap()
+    ).unwrap_or(false);
+    pub static ref HIDE_WORKERS_FOR_NON_ADMINS: bool = std::env::var("HIDE_WORKERS_FOR_NON_ADMINS").map(
         |v| v.parse().unwrap()
     ).unwrap_or(false);
 }

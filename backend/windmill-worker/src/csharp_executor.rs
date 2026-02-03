@@ -28,17 +28,19 @@ use windmill_queue::CanceledBy;
 use crate::{
     common::{
         build_command_with_isolation, check_executor_binary_exists, create_args_and_out_file,
-        get_reserved_variables, read_result, start_child_process,
+        get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
-    handle_child::handle_child,
+    handle_child::handle_child, get_proxy_envs_for_lang,
     CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
-    NUGET_CONFIG, PATH_ENV, TZ_ENV,
+    NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
+#[cfg(feature = "csharp")]
+use windmill_common::scripts::ScriptLang;
 
 use crate::common::OccupancyMetrics;
 use windmill_common::client::AuthedClient;
 
-#[cfg(windows)]
+#[cfg(all(windows, feature = "csharp"))]
 use crate::SYSTEM_ROOT;
 
 #[cfg(feature = "csharp")]
@@ -562,7 +564,9 @@ pub async fn handle_csharp_job(
                 .replace("{CACHE_DIR}", CSHARP_CACHE_DIR)
                 .replace("{CACHE_HASH}", &hash)
                 .replace("{CLONE_NEWUSER}", &(!*DISABLE_NUSER).to_string())
-                .replace("{SHARED_MOUNT}", shared_mount),
+                .replace("{SHARED_MOUNT}", shared_mount)
+                .replace("{TRACING_PROXY_CA_CERT_PATH}", TRACING_PROXY_CA_CERT_PATH)
+                .replace("#{DEV}", DEV_CONF_NSJAIL),
         )?;
         let mut nsjail_cmd = Command::new(NSJAIL_PATH.as_str());
         nsjail_cmd
@@ -570,6 +574,7 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("BASE_INTERNAL_URL", base_internal_url)
@@ -600,6 +605,7 @@ pub async fn handle_csharp_job(
             .env_clear()
             .envs(envs)
             .envs(reserved_variables)
+            .envs(get_proxy_envs_for_lang(&ScriptLang::CSharp).await?)
             .env("PATH", PATH_ENV.as_str())
             .env("TZ", TZ_ENV.as_str())
             .env("DOTNET_CLI_TELEMETRY_OPTOUT", "true")

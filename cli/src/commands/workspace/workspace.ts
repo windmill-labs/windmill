@@ -397,6 +397,27 @@ async function whoami(_opts: GlobalOptions) {
   log.info("Active: " + colors.green.bold(activeName || "none"));
 }
 
+async function listRemote(_opts: GlobalOptions) {
+  await requireLogin(_opts);
+  const userWorkspaces = await wmill.listUserWorkspaces();
+
+  new Table()
+    .header(["id", "name", "username", "disabled"])
+    .padding(2)
+    .border(true)
+    .body(
+      userWorkspaces.workspaces.map((x) => [
+        x.id,
+        x.name,
+        x.username,
+        x.disabled ? colors.red("true") : "false",
+      ])
+    )
+    .render();
+
+  log.info(`Logged in as: ${colors.green.bold(userWorkspaces.email)}`);
+}
+
 export async function getActiveWorkspaceOrFallback(opts: GlobalOptions) {
   let activeWorkspace = await getActiveWorkspace(opts);
   if (!activeWorkspace && opts.baseUrl && opts.workspace) {
@@ -482,7 +503,7 @@ async function bind(
   try {
     await Deno.writeTextFile("wmill.yaml", yamlStringify(config));
   } catch (error) {
-    log.error(colors.red(`Failed to save configuration: ${error.message}`));
+    log.error(colors.red(`Failed to save configuration: ${(error as Error).message}`));
     return;
   }
 }
@@ -519,6 +540,9 @@ const command = new Command()
   .command("whoami")
   .description("Show the currently active user")
   .action(whoami as any)
+  .command("list")
+  .description("List workspaces on the remote server that you have access to")
+  .action(listRemote as any)
   .command("bind")
   .description("Bind the current Git branch to the active workspace")
   .option("--branch <branch:string>", "Specify branch (defaults to current)")

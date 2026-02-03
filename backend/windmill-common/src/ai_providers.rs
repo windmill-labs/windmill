@@ -4,13 +4,28 @@
 
 use crate::db::DB;
 use crate::error::{Error, Result};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// Deserializes an Option<String> where empty strings become None.
+/// Use with `#[serde(default, deserialize_with = "empty_string_as_none")]`
+pub fn empty_string_as_none<'de, D>(deserializer: D) -> std::result::Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let opt = Option::<String>::deserialize(deserializer)?;
+    Ok(opt.filter(|s| !s.is_empty()))
+}
 
 lazy_static::lazy_static! {
     static ref OPENAI_AZURE_BASE_PATH: Option<String> = std::env::var("OPENAI_AZURE_BASE_PATH").ok();
 }
 
 pub const OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+pub const GOOGLE_AI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+
+/// Empty string signals BedrockClient::from_env() to use the region from AWS environment/config
+/// (e.g., AWS_REGION or AWS_DEFAULT_REGION env vars, or ~/.aws/config)
+pub const USE_ENV_REGION: &str = "";
 
 #[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Hash, Clone)]
 #[serde(rename_all = "lowercase")]
@@ -35,9 +50,12 @@ impl AIProvider {
     pub async fn get_base_url(
         &self,
         resource_base_url: Option<String>,
-        region: Option<String>,
         db: &DB,
     ) -> Result<String> {
+        if let Some(base_url) = resource_base_url {
+            return Ok(base_url);
+        }
+
         match self {
             AIProvider::OpenAI => {
                 // Check for Azure base path override
@@ -62,28 +80,21 @@ impl AIProvider {
                 Ok(azure_base_path.unwrap_or("https://api.openai.com/v1".to_string()))
             }
             AIProvider::DeepSeek => Ok("https://api.deepseek.com/v1".to_string()),
-            AIProvider::GoogleAI => {
-                Ok("https://generativelanguage.googleapis.com/v1beta/openai".to_string())
-            }
+            AIProvider::GoogleAI => Ok(GOOGLE_AI_BASE_URL.to_string()),
             AIProvider::Groq => Ok("https://api.groq.com/openai/v1".to_string()),
             AIProvider::OpenRouter => Ok("https://openrouter.ai/api/v1".to_string()),
             AIProvider::TogetherAI => Ok("https://api.together.xyz/v1".to_string()),
             AIProvider::Anthropic => Ok("https://api.anthropic.com/v1".to_string()),
             AIProvider::Mistral => Ok("https://api.mistral.ai/v1".to_string()),
-            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => {
-                if let Some(base_url) = resource_base_url {
-                    Ok(base_url)
-                } else {
-                    Err(Error::BadRequest(format!(
-                        "{:?} provider requires a base URL in the resource",
-                        p
-                    )))
-                }
-            }
-            AIProvider::AWSBedrock => Ok(format!(
-                "https://bedrock-runtime.{}.amazonaws.com",
-                region.unwrap_or_else(|| "us-east-1".to_string())
+            p @ (AIProvider::CustomAI | AIProvider::AzureOpenAI) => Err(Error::BadRequest(
+                format!("{:?} provider requires a base URL in the resource", p),
             )),
+            AIProvider::AWSBedrock => {
+                // AWS Bedrock uses the SDK directly, not HTTP base URL
+                Err(Error::internal_err(
+                    "AWS Bedrock uses SDK directly, not HTTP base URL".to_string(),
+                ))
+            }
         }
     }
 

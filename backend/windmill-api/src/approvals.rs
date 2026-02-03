@@ -129,7 +129,7 @@ pub async fn handle_resume_action(
         captures.name("approver").map(|m| m.as_str().to_string()),
     );
 
-    let approver = QueryApprover { approver };
+    let approver = QueryApprover { approver, flow_level: None };
 
     // Convert job_id and resume_id to appropriate types
     let job_uuid = Uuid::from_str(job_id)
@@ -191,7 +191,7 @@ pub async fn get_approval_form_details(
     let res = get_resume_urls_internal(
         axum::Extension(db.clone()),
         Path((w_id.to_string(), job_id, resume_id)),
-        Query(QueryApprover { approver: approver.map(|a| a.to_string()) }),
+        Query(QueryApprover { approver: approver.map(|a| a.to_string()), flow_level: None }),
     )
     .await?;
 
