@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO folder (workspace_id, name, display_name, owners, summary, created_by)\n         VALUES ('test-workspace', 'shared', 'Shared Folder', ARRAY['test@windmill.dev']::varchar[], 'Test folder', 'test@windmill.dev')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ba3149ec0aa62dba41c459a1bf5be86aebccee68172abefe82f4bb76fc7a80ee"
+}

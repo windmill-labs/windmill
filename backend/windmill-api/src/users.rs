@@ -250,6 +250,7 @@ pub async fn fetch_api_authed_from_permissioned_as(
                 ExpiringAuthCache {
                     authed: api_authed.clone(),
                     expiry: chrono::Utc::now() + chrono::Duration::try_seconds(120).unwrap(),
+                    job_id: None,
                 },
             );
 
@@ -1239,6 +1240,7 @@ async fn accept_invite(
             windmill_git_sync::DeployedObject::User { email: authed.email.clone() },
             Some(format!("User '{}' accepted invite", &authed.email)),
             true,
+            None,
         )
         .await?;
         webhook.send_instance_event(InstanceEvent::UserJoinedWorkspace {
@@ -1443,6 +1445,7 @@ async fn update_workspace_user(
         windmill_git_sync::DeployedObject::User { email: user_email.clone() },
         Some(format!("Updated user '{}'", &user_email)),
         true,
+        None,
     )
     .await?;
 
@@ -1585,6 +1588,7 @@ async fn convert_user_to_group(
             &user_info.email, primary_group_name, role
         )),
         true,
+        None,
     )
     .await?;
 
@@ -1896,6 +1900,7 @@ async fn delete_workspace_user(
             &email_to_delete
         )),
         true,
+        None,
     )
     .await?;
 

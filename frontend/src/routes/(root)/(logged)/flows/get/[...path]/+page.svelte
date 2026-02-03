@@ -517,8 +517,8 @@
 					path={flow.path}
 					{starred}
 					workspace_id={$workspaceStore}
-					on:starred={() => {
-						starred = !starred
+					onStarred={(newStarred) => {
+						starred = newStarred
 					}}
 				/>
 			{/if}

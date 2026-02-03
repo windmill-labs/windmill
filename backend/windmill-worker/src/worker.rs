@@ -17,6 +17,8 @@ use tokio::time::timeout;
 use windmill_common::client::AuthedClient;
 use windmill_common::jobs::WorkerInternalServerInlineUtils;
 use windmill_common::jobs::WORKER_INTERNAL_SERVER_INLINE_UTILS;
+use windmill_common::runtime_assets::init_runtime_asset_loop;
+use windmill_common::runtime_assets::register_runtime_asset;
 use windmill_common::scripts::hash_to_codebase_id;
 use windmill_common::scripts::is_special_codebase_hash;
 use windmill_common::utils::report_critical_error;
@@ -1088,7 +1090,7 @@ pub async fn handle_all_job_kind_error(
     }
 }
 
-pub fn start_interactive_worker_shell(
+fn start_interactive_worker_shell(
     conn: Connection,
     hostname: String,
     worker_name: String,
@@ -1529,7 +1531,10 @@ pub async fn run_worker(
     let mut occupancy_metrics = OccupancyMetrics::new(start_time);
     let mut jobs_executed = 0;
 
-    let is_dedicated_worker: bool = WORKER_CONFIG.read().await.dedicated_worker.is_some();
+    let is_dedicated_worker: bool = {
+        let config = WORKER_CONFIG.read().await;
+        config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty())
+    };
 
     #[cfg(feature = "benchmark")]
     let benchmark_jobs: i32 = std::env::var("BENCHMARK_JOBS")
@@ -1631,9 +1636,9 @@ pub async fn run_worker(
     // Option<JoinHandle<()>>,
 
     #[cfg(all(feature = "private", feature = "enterprise"))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
     ) = match conn {
         Connection::Sql(pool) => {
@@ -1648,23 +1653,26 @@ pub async fn run_worker(
             )
             .await
         }
-        Connection::Http(_) => (HashMap::new(), false, vec![]),
+        Connection::Http(_) => (HashMap::new(), HashSet::new(), vec![]),
     };
 
     #[cfg(any(not(feature = "private"), not(feature = "enterprise")))]
-    let (dedicated_workers, is_flow_worker, dedicated_handles): (
+    let (dedicated_workers, dedicated_flow_paths, dedicated_handles): (
         HashMap<String, Sender<DedicatedWorkerJob>>,
-        bool,
+        HashSet<String>,
         Vec<JoinHandle<()>>,
-    ) = (HashMap::new(), false, vec![]);
+    ) = (HashMap::new(), HashSet::new(), vec![]);
 
     if i_worker == 1 {
+        // Initialize runtime asset inserter for batched database inserts
+        if let Connection::Sql(db) = conn {
+            init_runtime_asset_loop(db.clone(), killpill_rx.resubscribe());
+        }
         if let Err(e) = queue_init_bash_maybe(conn, same_worker_tx.clone(), &worker_name).await {
             killpill_tx.send();
             tracing::error!(worker = %worker_name, hostname = %hostname, "Error queuing init bash script for worker {worker_name}: {e:#}");
             return;
         }
-
         spawn_periodic_script_task(
             worker_name.clone(),
             conn.clone(),
@@ -2030,30 +2038,32 @@ pub async fn run_worker(
                     JobKind::Script | JobKind::Preview | JobKind::FlowScript
                 ) {
                     if !dedicated_workers.is_empty() {
-                        let key_o = if is_flow_worker {
-                            job.flow_step_id.as_ref().map(|x| x.to_string())
+                        // Try flow path + step_id combinations for flow jobs, otherwise use runnable_path
+                        let dedicated_worker_tx = if let Some(step_id) = job.flow_step_id.as_ref() {
+                            dedicated_flow_paths.iter().find_map(|flow_path| {
+                                let key = format!("{}:{}", flow_path, step_id);
+                                dedicated_workers.get(&key)
+                            })
                         } else {
-                            job.runnable_path.as_ref().map(|x| x.to_string())
+                            job.runnable_path.as_ref().and_then(|path| dedicated_workers.get(path))
                         };
-                        if let Some(key) = key_o {
-                            if let Some(dedicated_worker_tx) = dedicated_workers.get(&key) {
-                                let dedicated_job = DedicatedWorkerJob {
-                                    job: Arc::new(job.job()),
-                                    flow_runners: None,
-                                    done_tx: None,
-                                };
-                                if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
-                                    tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
-                                }
-
-                                #[cfg(feature = "benchmark")]
-                                {
-                                    add_time!(bench, "sent to dedicated worker");
-                                    infos.add_iter(bench, true);
-                                }
-
-                                continue;
+                        if let Some(dedicated_worker_tx) = dedicated_worker_tx {
+                            let dedicated_job = DedicatedWorkerJob {
+                                job: Arc::new(job.job()),
+                                flow_runners: None,
+                                done_tx: None,
+                            };
+                            if let Err(e) = dedicated_worker_tx.send(dedicated_job).await {
+                                tracing::info!("failed to send jobs to dedicated workers. Likely dedicated worker has been shut down. This is normal: {e:?}");
                             }
+
+                            #[cfg(feature = "benchmark")]
+                            {
+                                add_time!(bench, "sent to dedicated worker");
+                                infos.add_iter(bench, true);
+                            }
+
+                            continue;
                         }
                     }
 
@@ -2734,6 +2744,40 @@ pub struct PreviousResult<'a> {
     pub previous_result: Option<&'a RawValue>,
 }
 
+/// Detects and stores runtime assets from job arguments.
+/// This function is called when a job starts executing to track which assets
+/// are passed as inputs to the job at runtime.
+async fn detect_and_store_runtime_assets_from_job_args(
+    workspace_id: &str,
+    job_id: &Uuid,
+    Json(args_map): &Json<HashMap<String, Box<RawValue>>>,
+    job_kind: &JobKind,
+) {
+    match job_kind {
+        JobKind::Script_Hub | JobKind::Script | JobKind::Flow => {}
+        _ => return,
+    }
+
+    let runtime_assets =
+        windmill_common::runtime_assets::extract_runtime_assets_from_args(args_map);
+    if runtime_assets.is_empty() {
+        return;
+    }
+
+    // Store each detected runtime asset
+    for asset in runtime_assets {
+        let asset = windmill_common::runtime_assets::InsertRuntimeAssetParams {
+            workspace_id: workspace_id.to_string(),
+            job_id: *job_id,
+            asset_path: asset.path,
+            asset_kind: asset.kind,
+            access_type: None,
+            created_at: None,
+        };
+        register_runtime_asset(asset);
+    }
+}
+
 pub async fn handle_queued_job(
     job: Arc<MiniPulledJob>,
     raw_code: Option<String>,
@@ -2994,6 +3038,17 @@ pub async fn handle_queued_job(
         );
         append_logs(&job.id, &job.workspace_id, logs, conn).await;
 
+        // Extract and store runtime assets from job arguments
+        if let (Connection::Sql(_), Some(args_json)) = (conn, &job.args) {
+            detect_and_store_runtime_assets_from_job_args(
+                &job.workspace_id,
+                &job.id,
+                args_json,
+                &job.kind,
+            )
+            .await;
+        }
+
         let mut column_order: Option<Vec<String>> = None;
         let mut new_args: Option<HashMap<String, Box<RawValue>>> = None;
         let mut has_stream = false;
@@ -3121,8 +3176,10 @@ pub async fn handle_queued_job(
 
                 // Set job context for OTEL tracing before entering handle_code_execution_job's span
                 #[cfg(all(feature = "private", feature = "enterprise"))]
-                if matches!(job.script_lang, Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative))  
-                    && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
+                if matches!(
+                    job.script_lang,
+                    Some(ScriptLang::Nativets) | Some(ScriptLang::Bunnative)
+                ) && is_otel_tracing_proxy_enabled_for_lang(&ScriptLang::Nativets).await
                 {
                     crate::otel_tracing_proxy_ee::set_current_job_context(job.id).await;
                 }

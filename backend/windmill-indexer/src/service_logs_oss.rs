@@ -22,7 +22,7 @@ pub struct ServiceLogIndexWriter;
 pub async fn init_index(
     _db: &Pool<Postgres>,
     mut _killpill_tx: KillpillSender,
-) -> Result<(ServiceLogIndexReader, ServiceLogIndexWriter), Error> {
+) -> Result<Option<(ServiceLogIndexReader, ServiceLogIndexWriter)>, Error> {
     Err(anyhow!("Cannot initialize index: not in EE").into())
 }
 

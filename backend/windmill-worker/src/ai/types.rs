@@ -14,7 +14,11 @@ pub struct McpToolSource {
     pub resource_path: String,
 }
 use windmill_common::{
-    ai_providers::AIProvider, db::DB, error::Error, flow_status::AgentAction, flows::FlowModule,
+    ai_providers::{empty_string_as_none, AIProvider},
+    db::DB,
+    error::Error,
+    flow_status::AgentAction,
+    flows::FlowModule,
     s3_helpers::S3Object,
 };
 use windmill_parser::Typ;
@@ -162,17 +166,18 @@ pub enum AnthropicPlatform {
 
 #[derive(Deserialize, Debug)]
 pub struct ProviderResource {
-    #[serde(alias = "apiKey")]
+    #[serde(alias = "apiKey", default, deserialize_with = "empty_string_as_none")]
     pub api_key: Option<String>,
-    #[serde(alias = "baseUrl")]
+    #[serde(alias = "baseUrl", default, deserialize_with = "empty_string_as_none")]
     pub base_url: Option<String>,
     #[allow(dead_code)]
+    #[serde(default, deserialize_with = "empty_string_as_none")]
     pub region: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsAccessKeyId")]
+    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
-    #[serde(alias = "awsSecretAccessKey")]
+    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     pub aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -199,7 +204,6 @@ impl ProviderWithResource {
         self.kind
             .get_base_url(
                 self.resource.base_url.clone(),
-                self.resource.region.clone(),
                 db,
             )
             .await
@@ -225,12 +229,85 @@ impl ProviderWithResource {
     }
 }
 
+/// Token usage information from the AI provider
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct TokenUsage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_read_input_tokens: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_write_input_tokens: Option<i32>,
+}
+
+impl TokenUsage {
+    /// Create a new TokenUsage with basic token counts
+    pub fn new(input: Option<i32>, output: Option<i32>, total: Option<i32>) -> Self {
+        Self {
+            input_tokens: input,
+            output_tokens: output,
+            total_tokens: total,
+            cache_read_input_tokens: None,
+            cache_write_input_tokens: None,
+        }
+    }
+
+    /// Create a new TokenUsage with input/output tokens and compute total
+    pub fn from_input_output(input: Option<i32>, output: Option<i32>) -> Self {
+        let total = match (input, output) {
+            (Some(i), Some(o)) => Some(i.saturating_add(o)),
+            _ => None,
+        };
+        Self::new(input, output, total)
+    }
+
+    /// Add cache token information
+    pub fn with_cache(mut self, read: Option<i32>, write: Option<i32>) -> Self {
+        self.cache_read_input_tokens = read;
+        self.cache_write_input_tokens = write;
+        self
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.input_tokens.is_none()
+            && self.output_tokens.is_none()
+            && self.total_tokens.is_none()
+            && self.cache_read_input_tokens.is_none()
+            && self.cache_write_input_tokens.is_none()
+    }
+
+    /// Accumulate another TokenUsage into this one (all fields including cache tokens)
+    /// Uses saturating addition to prevent overflow in long-running agents
+    pub fn accumulate(&mut self, other: &TokenUsage) {
+        fn add_option(a: Option<i32>, b: Option<i32>) -> Option<i32> {
+            match (a, b) {
+                (Some(x), Some(y)) => Some(x.saturating_add(y)),
+                (Some(x), None) | (None, Some(x)) => Some(x),
+                (None, None) => None,
+            }
+        }
+        self.input_tokens = add_option(self.input_tokens, other.input_tokens);
+        self.output_tokens = add_option(self.output_tokens, other.output_tokens);
+        self.total_tokens = add_option(self.total_tokens, other.total_tokens);
+        self.cache_read_input_tokens =
+            add_option(self.cache_read_input_tokens, other.cache_read_input_tokens);
+        self.cache_write_input_tokens =
+            add_option(self.cache_write_input_tokens, other.cache_write_input_tokens);
+    }
+}
+
 #[derive(Serialize)]
 pub struct AIAgentResult<'a> {
     pub output: Box<RawValue>,
     pub messages: Vec<Message<'a>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wm_stream: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TokenUsage>,
 }
 
 /// Events for streaming AI responses
@@ -682,6 +759,54 @@ impl OpenAPISchema {
         // Merge pattern - take other's if self has none (can't really combine patterns)
         if self.pattern.is_none() && other.pattern.is_some() {
             self.pattern = other.pattern.clone();
+        }
+    }
+
+    /// Sanitizes this schema for Google AI's API by removing unsupported fields.
+    /// Google's Gemini API does not accept JSON Schema metadata fields like $schema.
+    pub fn sanitize_for_google(&mut self) {
+        // Remove $schema field - not supported by Google AI
+        self.schema_url = None;
+
+        // Recursively sanitize nested schemas
+        if let Some(ref mut items) = self.items {
+            items.sanitize_for_google();
+        }
+
+        if let Some(ref mut properties) = self.properties {
+            for prop in properties.values_mut() {
+                prop.sanitize_for_google();
+            }
+        }
+
+        if let Some(ref mut one_of) = self.one_of {
+            for schema in one_of.iter_mut() {
+                schema.sanitize_for_google();
+            }
+        }
+
+        if let Some(ref mut any_of) = self.any_of {
+            for schema in any_of.iter_mut() {
+                schema.sanitize_for_google();
+            }
+        }
+
+        if let Some(ref mut all_of) = self.all_of {
+            for schema in all_of.iter_mut() {
+                schema.sanitize_for_google();
+            }
+        }
+
+        if let Some(ref mut defs) = self.defs {
+            for schema in defs.values_mut() {
+                schema.sanitize_for_google();
+            }
+        }
+
+        if let Some(ref mut definitions) = self.definitions {
+            for schema in definitions.values_mut() {
+                schema.sanitize_for_google();
+            }
         }
     }
 }
@@ -1178,5 +1303,138 @@ mod tests {
         // $defs should be merged
         let defs = schema.defs.as_ref().expect("defs should exist");
         assert!(defs.contains_key("MyType"), "Should have 'MyType' def");
+    }
+
+    // ========== Google AI sanitization tests ==========
+
+    #[test]
+    fn test_sanitize_for_google_removes_schema_url() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.schema_url.is_none(), "$schema should be removed");
+        // Type should be preserved
+        assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));
+    }
+
+    #[test]
+    fn test_sanitize_for_google_recursive_properties() {
+        let nested = OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            properties: Some(
+                vec![("field".to_string(), Box::new(nested))]
+                    .into_iter()
+                    .collect(),
+            ),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.schema_url.is_none(), "Root $schema should be removed");
+        let field = schema.properties.as_ref().unwrap().get("field").unwrap();
+        assert!(field.schema_url.is_none(), "Nested $schema should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_recursive_items() {
+        let item_schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("array".to_string())),
+            items: Some(Box::new(item_schema)),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        let items = schema.items.as_ref().unwrap();
+        assert!(items.schema_url.is_none(), "Array items $schema should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_recursive_one_of() {
+        let variant = OpenAPISchema {
+            r#type: Some(SchemaType::Single("string".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+
+        let mut schema = OpenAPISchema {
+            one_of: Some(vec![Box::new(variant)]),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        let variant = &schema.one_of.as_ref().unwrap()[0];
+        assert!(variant.schema_url.is_none(), "oneOf variant $schema should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_recursive_defs() {
+        let def_schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+        let mut defs = HashMap::new();
+        defs.insert("MyType".to_string(), Box::new(def_schema));
+
+        let mut schema = OpenAPISchema {
+            defs: Some(defs),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        assert!(schema.schema_url.is_none(), "Root $schema should be removed");
+        let my_type = schema.defs.as_ref().unwrap().get("MyType").unwrap();
+        assert!(my_type.schema_url.is_none(), "$defs schema $schema should be removed");
+    }
+
+    #[test]
+    fn test_sanitize_for_google_preserves_other_fields() {
+        let mut schema = OpenAPISchema {
+            r#type: Some(SchemaType::Single("object".to_string())),
+            schema_url: Some("http://json-schema.org/draft-07/schema#".to_string()),
+            title: Some("Test Schema".to_string()),
+            description: Some("A test schema".to_string()),
+            properties: Some(
+                vec![("name".to_string(), Box::new(string_schema()))]
+                    .into_iter()
+                    .collect(),
+            ),
+            required: Some(vec!["name".to_string()]),
+            ..Default::default()
+        };
+
+        schema.sanitize_for_google();
+
+        // $schema should be removed
+        assert!(schema.schema_url.is_none());
+        // Other fields should be preserved
+        assert_eq!(schema.title, Some("Test Schema".to_string()));
+        assert_eq!(schema.description, Some("A test schema".to_string()));
+        assert!(schema.properties.is_some());
+        assert!(schema.required.is_some());
+        assert!(matches!(&schema.r#type, Some(SchemaType::Single(t)) if t == "object"));
     }
 }
