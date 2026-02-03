@@ -90,6 +90,7 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 test_job_debouncing = []
+private_registry_test = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]

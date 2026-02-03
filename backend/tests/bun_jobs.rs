@@ -1120,6 +1120,75 @@ export function main(msg: string): never {
     }
 }
 
+// ============================================================================
+// Private Registry Tests
+// ============================================================================
+
+/// Test that bun can install packages from a private npm registry.
+/// Requires:
+/// - `private_registry_test` feature enabled
+/// - `TEST_NPM_REGISTRY` environment variable set to registry URL
+#[cfg(feature = "private_registry_test")]
+#[sqlx::test(fixtures("base"))]
+async fn test_bun_job_private_npm_registry(db: Pool<Postgres>) -> anyhow::Result<()> {
+    use windmill_worker::NPM_CONFIG_REGISTRY;
+
+    let registry_url = std::env::var("TEST_NPM_REGISTRY")
+        .expect("TEST_NPM_REGISTRY must be set when running private_registry_test");
+
+    initialize_tracing().await;
+    let server = ApiServer::start(db.clone()).await?;
+    let port = server.addr.port();
+
+    // Set the private registry configuration
+    {
+        let mut registry = NPM_CONFIG_REGISTRY.write().await;
+        *registry = Some(registry_url.clone());
+    }
+
+    let content = r#"
+import { greet } from "@windmill-test/private-pkg";
+
+export function main(name: string) {
+    return greet(name);
+}
+"#
+    .to_owned();
+
+    let job = JobPayload::Code(RawCode {
+        hash: None,
+        content,
+        path: None,
+        language: ScriptLang::Bun,
+        lock: None,
+        concurrency_settings:
+            windmill_common::runnable_settings::ConcurrencySettings::default().into(),
+        debouncing_settings: windmill_common::runnable_settings::DebouncingSettings::default(),
+        cache_ttl: None,
+        cache_ignore_s3_path: None,
+        dedicated_worker: None,
+    });
+
+    let result = RunJob::from(job)
+        .arg("name", serde_json::json!("World"))
+        .run_until_complete(&db, false, port)
+        .await
+        .json_result()
+        .unwrap();
+
+    // Clean up
+    {
+        let mut registry = NPM_CONFIG_REGISTRY.write().await;
+        *registry = None;
+    }
+
+    assert_eq!(
+        result,
+        serde_json::json!("Hello from private package, World!")
+    );
+    Ok(())
+}
+
 /// Tests for RELATIVE_BUN_BUILDER (loader_builder.bun.js)
 /// These tests verify Bun's behavior for import scanning and package.json generation.
 /// Purpose: Catch regressions when upgrading Bun versions.

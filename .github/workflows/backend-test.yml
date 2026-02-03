@@ -31,6 +31,10 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
+      verdaccio:
+        image: verdaccio/verdaccio:5
+        ports:
+          - 4873:4873
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -70,6 +74,24 @@ jobs:
       - name: Substitute EE code (EE logic is behind feature flag)
         run: |
           ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
+      - name: Setup private npm registry with test package
+        run: |
+          # Create a simple test package
+          mkdir -p /tmp/windmill-test-private-pkg
+          cat > /tmp/windmill-test-private-pkg/package.json << 'EOF'
+          {
+            "name": "@windmill-test/private-pkg",
+            "version": "1.0.0",
+            "main": "index.js"
+          }
+          EOF
+          cat > /tmp/windmill-test-private-pkg/index.js << 'EOF'
+          module.exports.greet = (name) => `Hello from private package, ${name}!`;
+          EOF
+
+          # Publish to Verdaccio (no auth needed for local publish by default)
+          cd /tmp/windmill-test-private-pkg
+          npm publish --registry http://localhost:4873
       - name: Cache DuckDB FFI module build
         uses: actions/cache@v3
         with:
@@ -87,9 +109,10 @@ jobs:
           RUST_LOG_STYLE: never
           CARGO_NET_GIT_FETCH_WITH_CLI: true
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
-          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1          
+          WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
+          TEST_NPM_REGISTRY: http://localhost:4873
         run: |
           deno --version && bun -v && node --version && go version && python3 --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
-          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private --all -- --nocapture
+          DENO_PATH=$(which deno) BUN_PATH=$(which bun) NODE_BIN_PATH=$(which node) GO_PATH=$(which go) UV_PATH=$(which uv) cargo test --features enterprise,deno_core,duckdb,license,python,rust,scoped_cache,parquet,private,private_registry_test --all -- --nocapture
