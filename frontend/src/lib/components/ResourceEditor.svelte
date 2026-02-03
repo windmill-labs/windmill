@@ -234,7 +234,7 @@
 				{#if can_write}
 					<Button
 						variant="subtle"
-						unifiedSize="sm"
+						unifiedSize="xs"
 						btnClasses={editDescription ? 'bg-surface-hover' : ''}
 						startIcon={{ icon: Pen }}
 						on:click={() => (editDescription = !editDescription)}
@@ -242,8 +242,8 @@
 				{/if}
 			</h4>
 			{#if can_write && editDescription}
-				<div>
-					<div class="flex flex-row-reverse text-2xs text-primary -mt-1">GH Markdown</div>
+				<div class="relative">
+					<div class="text-2xs text-primary absolute -top-4 right-0">GH Markdown</div>
 					<textarea
 						class="text-xs text-primary font-normal"
 						disabled={!can_write}
@@ -256,7 +256,7 @@
 				<div class="text-xs text-secondary font-normal">No description provided</div>
 			{:else}
 				<div class="text-xs text-primary font-normal">
-					<GfmMarkdown md={description} />
+					<GfmMarkdown md={description} noPadding />
 				</div>
 			{/if}
 		</div>
