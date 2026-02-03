@@ -929,3 +929,336 @@ async fn test_cleanup_with_no_old_events() {
         .await
         .ok();
 }
+
+// ============================================================================
+// Multi-Server Polling Tests
+// ============================================================================
+// These tests simulate two independent server instances with separate DB
+// connections and polling state, proving that events triggered by one server
+// are picked up by all servers through the shared notify_event table.
+
+/// Creates a separate DB connection pool, simulating an independent server.
+async fn create_server_pool() -> Pool<Postgres> {
+    let database_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://postgres:changeme@localhost:5432/windmill".to_string());
+    sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .connect(&database_url)
+        .await
+        .expect("Failed to connect to database")
+}
+
+#[tokio::test]
+async fn test_two_servers_both_receive_trigger_event() {
+    // Simulate two servers with independent DB connections and polling state
+    let server_a = create_server_pool().await;
+    let server_b = create_server_pool().await;
+
+    // Each server initializes its own last_event_id (like server startup)
+    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
+    let last_id_b = get_latest_event_id(&server_b).await.unwrap();
+
+    // Server A triggers a database change (global setting update fires trigger)
+    let setting_name = format!("test_multi_server_{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, '\"test_value\"'::jsonb)
+         ON CONFLICT (name) DO UPDATE SET value = '\"test_value\"'::jsonb",
+    )
+    .bind(&setting_name)
+    .execute(&server_a)
+    .await
+    .expect("Failed to insert global setting on server A");
+
+    // Both servers poll independently
+    let events_a = poll_notify_events(&server_a, last_id_a)
+        .await
+        .expect("Server A should poll events");
+    let events_b = poll_notify_events(&server_b, last_id_b)
+        .await
+        .expect("Server B should poll events");
+
+    // Both servers should see the same event
+    let matching_a: Vec<_> = events_a
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
+        .collect();
+    let matching_b: Vec<_> = events_b
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
+        .collect();
+
+    assert!(
+        !matching_a.is_empty(),
+        "Server A should see the global_setting_change event"
+    );
+    assert!(
+        !matching_b.is_empty(),
+        "Server B should see the global_setting_change event"
+    );
+    assert_eq!(
+        matching_a[0].id, matching_b[0].id,
+        "Both servers should see the exact same event (same id)"
+    );
+
+    // Cleanup
+    sqlx::query("DELETE FROM global_settings WHERE name = $1")
+        .bind(&setting_name)
+        .execute(&server_a)
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn test_two_servers_cross_trigger_visibility() {
+    // Two servers, each triggers a different change, both see both events
+    let server_a = create_server_pool().await;
+    let server_b = create_server_pool().await;
+
+    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
+    let last_id_b = get_latest_event_id(&server_b).await.unwrap();
+
+    // Server A triggers a global setting change
+    let setting_name = format!("test_cross_{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, '\"from_a\"'::jsonb)
+         ON CONFLICT (name) DO UPDATE SET value = '\"from_a\"'::jsonb",
+    )
+    .bind(&setting_name)
+    .execute(&server_a)
+    .await
+    .expect("Server A failed to insert global setting");
+
+    // Server B triggers a workspace_settings webhook change
+    sqlx::query(
+        "INSERT INTO workspace_settings (workspace_id) VALUES ('test-workspace')
+         ON CONFLICT (workspace_id) DO NOTHING",
+    )
+    .execute(&server_b)
+    .await
+    .ok();
+    let webhook_url = format!("https://cross-test-{}.example.com", uuid::Uuid::new_v4());
+    sqlx::query("UPDATE workspace_settings SET webhook = $1 WHERE workspace_id = 'test-workspace'")
+        .bind(&webhook_url)
+        .execute(&server_b)
+        .await
+        .expect("Server B failed to update webhook");
+
+    // Both servers poll
+    let events_a = poll_notify_events(&server_a, last_id_a)
+        .await
+        .expect("Server A poll failed");
+    let events_b = poll_notify_events(&server_b, last_id_b)
+        .await
+        .expect("Server B poll failed");
+
+    // Server A should see BOTH events (its own setting change + server B's webhook change)
+    let a_sees_setting: Vec<_> = events_a
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
+        .collect();
+    let a_sees_webhook: Vec<_> = events_a
+        .iter()
+        .filter(|e| e.channel == "notify_webhook_change" && e.payload == "test-workspace")
+        .collect();
+
+    // Server B should also see BOTH events
+    let b_sees_setting: Vec<_> = events_b
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting_name)
+        .collect();
+    let b_sees_webhook: Vec<_> = events_b
+        .iter()
+        .filter(|e| e.channel == "notify_webhook_change" && e.payload == "test-workspace")
+        .collect();
+
+    assert!(
+        !a_sees_setting.is_empty(),
+        "Server A should see its own global_setting_change"
+    );
+    assert!(
+        !a_sees_webhook.is_empty(),
+        "Server A should see Server B's webhook_change"
+    );
+    assert!(
+        !b_sees_setting.is_empty(),
+        "Server B should see Server A's global_setting_change"
+    );
+    assert!(
+        !b_sees_webhook.is_empty(),
+        "Server B should see its own webhook_change"
+    );
+
+    // Cleanup
+    sqlx::query("DELETE FROM global_settings WHERE name = $1")
+        .bind(&setting_name)
+        .execute(&server_a)
+        .await
+        .ok();
+    sqlx::query("UPDATE workspace_settings SET webhook = NULL WHERE workspace_id = 'test-workspace'")
+        .execute(&server_b)
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn test_server_catches_up_after_being_offline() {
+    // Simulates a server that was offline while events accumulated,
+    // then comes back and catches up on all missed events.
+    let server_a = create_server_pool().await;
+
+    // Server A is "online" and records its position
+    let last_id_a = get_latest_event_id(&server_a).await.unwrap();
+
+    // While server A is "offline" (not polling), multiple events happen
+    let setting1 = format!("test_catchup_1_{}", uuid::Uuid::new_v4());
+    let setting2 = format!("test_catchup_2_{}", uuid::Uuid::new_v4());
+    let setting3 = format!("test_catchup_3_{}", uuid::Uuid::new_v4());
+
+    for name in [&setting1, &setting2, &setting3] {
+        sqlx::query(
+            "INSERT INTO global_settings (name, value) VALUES ($1, '\"catchup\"'::jsonb)
+             ON CONFLICT (name) DO UPDATE SET value = '\"catchup\"'::jsonb",
+        )
+        .bind(name)
+        .execute(&server_a)
+        .await
+        .expect("Failed to insert setting");
+    }
+
+    // Server A comes back online and polls from where it left off
+    let events = poll_notify_events(&server_a, last_id_a)
+        .await
+        .expect("Server A catchup poll failed");
+
+    let catchup_events: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e.channel == "notify_global_setting_change"
+                && (e.payload == setting1 || e.payload == setting2 || e.payload == setting3)
+        })
+        .collect();
+
+    assert_eq!(
+        catchup_events.len(),
+        3,
+        "Server should catch up on all 3 missed events, got: {:?}",
+        catchup_events
+    );
+
+    // Verify ordering is preserved (monotonic IDs)
+    for window in catchup_events.windows(2) {
+        assert!(
+            window[0].id < window[1].id,
+            "Events should be in monotonic ID order"
+        );
+    }
+
+    // Cleanup
+    for name in [&setting1, &setting2, &setting3] {
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(name)
+            .execute(&server_a)
+            .await
+            .ok();
+    }
+}
+
+#[tokio::test]
+async fn test_two_servers_incremental_polling() {
+    // Simulates the actual polling loop behavior: each server advances its
+    // last_event_id as it processes events, then only sees new events.
+    let server_a = create_server_pool().await;
+    let server_b = create_server_pool().await;
+
+    let mut last_id_a = get_latest_event_id(&server_a).await.unwrap();
+    let mut last_id_b = get_latest_event_id(&server_b).await.unwrap();
+
+    // Round 1: Server A triggers an event
+    let setting1 = format!("test_incr_1_{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, '\"v1\"'::jsonb)
+         ON CONFLICT (name) DO UPDATE SET value = '\"v1\"'::jsonb",
+    )
+    .bind(&setting1)
+    .execute(&server_a)
+    .await
+    .unwrap();
+
+    // Both servers poll round 1
+    let events_a1 = poll_notify_events(&server_a, last_id_a).await.unwrap();
+    let events_b1 = poll_notify_events(&server_b, last_id_b).await.unwrap();
+
+    let a1_match: Vec<_> = events_a1
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
+        .collect();
+    let b1_match: Vec<_> = events_b1
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
+        .collect();
+
+    assert_eq!(a1_match.len(), 1, "Server A round 1: should see event");
+    assert_eq!(b1_match.len(), 1, "Server B round 1: should see event");
+
+    // Both servers advance their cursors (like the real polling loop)
+    for event in &events_a1 {
+        last_id_a = last_id_a.max(event.id);
+    }
+    for event in &events_b1 {
+        last_id_b = last_id_b.max(event.id);
+    }
+
+    // Round 2: Server B triggers a different event
+    let setting2 = format!("test_incr_2_{}", uuid::Uuid::new_v4());
+    sqlx::query(
+        "INSERT INTO global_settings (name, value) VALUES ($1, '\"v2\"'::jsonb)
+         ON CONFLICT (name) DO UPDATE SET value = '\"v2\"'::jsonb",
+    )
+    .bind(&setting2)
+    .execute(&server_b)
+    .await
+    .unwrap();
+
+    // Both servers poll round 2
+    let events_a2 = poll_notify_events(&server_a, last_id_a).await.unwrap();
+    let events_b2 = poll_notify_events(&server_b, last_id_b).await.unwrap();
+
+    // Neither server should see event 1 again (already processed)
+    let a2_old: Vec<_> = events_a2
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
+        .collect();
+    let b2_old: Vec<_> = events_b2
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting1)
+        .collect();
+    assert!(
+        a2_old.is_empty(),
+        "Server A round 2: should NOT see event 1 again"
+    );
+    assert!(
+        b2_old.is_empty(),
+        "Server B round 2: should NOT see event 1 again"
+    );
+
+    // Both should see event 2
+    let a2_new: Vec<_> = events_a2
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting2)
+        .collect();
+    let b2_new: Vec<_> = events_b2
+        .iter()
+        .filter(|e| e.channel == "notify_global_setting_change" && e.payload == setting2)
+        .collect();
+    assert_eq!(a2_new.len(), 1, "Server A round 2: should see event 2");
+    assert_eq!(b2_new.len(), 1, "Server B round 2: should see event 2");
+
+    // Cleanup
+    for name in [&setting1, &setting2] {
+        sqlx::query("DELETE FROM global_settings WHERE name = $1")
+            .bind(name)
+            .execute(&server_a)
+            .await
+            .ok();
+    }
+}
