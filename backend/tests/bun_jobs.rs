@@ -1124,10 +1124,12 @@ export function main(msg: string): never {
 // Private Registry Tests
 // ============================================================================
 
-/// Test that bun can install packages from a private npm registry.
+/// Test that bun can install packages from a private npm registry with authentication.
+/// The registry requires auth tokens for accessing @windmill-test/* packages.
 /// Requires:
 /// - `private_registry_test` feature enabled
-/// - `TEST_NPM_REGISTRY` environment variable set to registry URL
+/// - `TEST_NPM_REGISTRY` environment variable set to registry URL with auth token
+///   Format: `http://registry-url/:_authToken=TOKEN`
 #[cfg(feature = "private_registry_test")]
 #[sqlx::test(fixtures("base"))]
 async fn test_bun_job_private_npm_registry(db: Pool<Postgres>) -> anyhow::Result<()> {

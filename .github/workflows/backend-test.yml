@@ -31,10 +31,6 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 10s --health-timeout 5s
           --health-retries 5
-      verdaccio:
-        image: verdaccio/verdaccio:5
-        ports:
-          - 4873:4873
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -75,23 +71,118 @@ jobs:
         run: |
           ./substitute_ee_code.sh --copy --dir ./windmill-ee-private
       - name: Setup private npm registry with test package
+        working-directory: /tmp
         run: |
+          set -e
+
+          # Install Verdaccio and bcryptjs
+          npm install -g verdaccio bcryptjs
+
+          # Create Verdaccio config that requires authentication for @windmill-test packages
+          mkdir -p /tmp/verdaccio/storage
+          cat > /tmp/verdaccio/config.yaml << 'VERDACCIO_CONFIG'
+          storage: /tmp/verdaccio/storage
+          auth:
+            htpasswd:
+              file: /tmp/verdaccio/htpasswd
+              max_users: 100
+          uplinks:
+            npmjs:
+              url: https://registry.npmjs.org/
+          packages:
+            '@windmill-test/*':
+              access: $authenticated
+              publish: $authenticated
+            '@*/*':
+              access: $all
+              publish: $authenticated
+              proxy: npmjs
+            '**':
+              access: $all
+              publish: $authenticated
+              proxy: npmjs
+          server:
+            keepAliveTimeout: 60
+          middlewares:
+            audit:
+              enabled: true
+          log: { type: stdout, format: pretty, level: warn }
+          VERDACCIO_CONFIG
+
+          # Create htpasswd file with testuser (password: testpass123)
+          # Verdaccio uses bcrypt by default for htpasswd
+          node -e "
+            const bcrypt = require('bcryptjs');
+            const hash = bcrypt.hashSync('testpass123', 10);
+            console.log('testuser:' + hash);
+          " > /tmp/verdaccio/htpasswd
+
+          echo "Created htpasswd file:"
+          cat /tmp/verdaccio/htpasswd
+
+          # Start Verdaccio in background
+          verdaccio --config /tmp/verdaccio/config.yaml &
+          VERDACCIO_PID=$!
+
+          # Wait for Verdaccio to be ready
+          echo "Waiting for Verdaccio to start..."
+          for i in {1..30}; do
+            if curl -s http://localhost:4873/-/ping > /dev/null 2>&1; then
+              echo "Verdaccio is ready"
+              break
+            fi
+            sleep 1
+          done
+
+          # Login to get a token
+          echo "Getting auth token..."
+          RESPONSE=$(curl -s -X PUT \
+            -H "Content-Type: application/json" \
+            -d '{"name":"testuser","password":"testpass123"}' \
+            http://localhost:4873/-/user/org.couchdb.user:testuser)
+
+          echo "Auth response: $RESPONSE"
+          NPM_TOKEN=$(echo "$RESPONSE" | jq -r '.token')
+
+          if [ -z "$NPM_TOKEN" ] || [ "$NPM_TOKEN" = "null" ]; then
+            echo "Failed to get NPM token from response"
+            exit 1
+          fi
+
+          echo "NPM_TOKEN=${NPM_TOKEN}" >> $GITHUB_ENV
+          echo "Got NPM token successfully: ${NPM_TOKEN:0:10}..."
+
+          # Configure npm globally with the auth token
+          echo "//localhost:4873/:_authToken=${NPM_TOKEN}" > ~/.npmrc
+          echo "Configured ~/.npmrc with auth token"
+
           # Create a simple test package
           mkdir -p /tmp/windmill-test-private-pkg
-          cat > /tmp/windmill-test-private-pkg/package.json << 'EOF'
+          cat > /tmp/windmill-test-private-pkg/package.json << 'PKG_JSON'
           {
             "name": "@windmill-test/private-pkg",
             "version": "1.0.0",
             "main": "index.js"
           }
-          EOF
-          cat > /tmp/windmill-test-private-pkg/index.js << 'EOF'
+          PKG_JSON
+          cat > /tmp/windmill-test-private-pkg/index.js << 'PKG_JS'
           module.exports.greet = (name) => `Hello from private package, ${name}!`;
-          EOF
+          PKG_JS
 
-          # Publish to Verdaccio (no auth needed for local publish by default)
+          # Publish to Verdaccio with auth
           cd /tmp/windmill-test-private-pkg
+          echo "Publishing package..."
           npm publish --registry http://localhost:4873
+          echo "Package published successfully"
+
+          # Verify the package requires auth by trying anonymous access (should fail)
+          rm -f ~/.npmrc
+          echo "Testing anonymous access (should fail)..."
+          if npm view @windmill-test/private-pkg --registry http://localhost:4873 2>/dev/null; then
+            echo "ERROR: Package should require authentication but anonymous access worked"
+            exit 1
+          fi
+          echo "Verified: Package requires authentication for @windmill-test/private-pkg"
       - name: Cache DuckDB FFI module build
         uses: actions/cache@v3
         with:
@@ -111,7 +202,7 @@ jobs:
           WMDEBUG_FORCE_V0_WORKSPACE_DEPENDENCIES: 1
           WMDEBUG_FORCE_RUNNABLE_SETTINGS_V0: 1
           WMDEBUG_FORCE_NO_LEGACY_DEBOUNCING_COMPAT: 1
-          TEST_NPM_REGISTRY: http://localhost:4873
+          TEST_NPM_REGISTRY: "http://localhost:4873/:_authToken=${{ env.NPM_TOKEN }}"
         run: |
           deno --version && bun -v && node --version && go version && python3 --version
           cd windmill-duckdb-ffi-internal && ./build_dev.sh && cd ..
