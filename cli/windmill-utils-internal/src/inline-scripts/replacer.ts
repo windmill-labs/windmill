@@ -104,15 +104,11 @@ export async function replaceInlineScripts(
         }));
         await replaceInlineScripts(module.value.default, fileReader, logger, localPath, separator, removeLocks);
       } else if (module.value.type === "aiagent") {
-        await Promise.all((module.value.tools ?? []).map(async (tool: any) => {
+        await Promise.all((module.value.tools ?? []).map(async (tool) => {
           const toolValue = tool.value;
-          if (!toolValue || toolValue.tool_type === 'mcp' || toolValue.tool_type === 'websearch') {
+          if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline")) {
             return;
           }
-          if (toolValue.type !== "rawscript" || !toolValue.content || !toolValue.content.startsWith("!inline")) {
-            return;
-          }
-
           const path = toolValue.content.split(" ")[1];
           const pathSuffix = path.split(".").slice(1).join(".");
           const newPath = tool.id + "." + pathSuffix;
