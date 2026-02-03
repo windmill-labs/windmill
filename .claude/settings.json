@@ -23,7 +23,11 @@
       "Bash(git log:*)",
       "Bash(git branch:*)",
       "Bash(git show:*)",
-      "Bash(git blame:*)"
+      "Bash(git blame:*)",
+      "Bash(cargo check:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(npm run generate-backend-client:*)",
+      "Bash(npm run check:*)"
     ],
     "deny": [
       "Read(.env)",
@@ -88,6 +92,34 @@
             "type": "command",
             "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/restore-symlinks.sh",
             "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-frontend.sh",
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-backend.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/notify-user.sh",
+            "timeout": 10
           }
         ]
       }
