@@ -390,9 +390,7 @@
 	let consolePaneSize = $state(25)
 
 	// Get the DAP server URL based on language
-	const dapServerUrl = $derived(
-		getDebugServerUrl((rawScriptLang || 'python3') as DebugLanguage)
-	)
+	const dapServerUrl = $derived(getDebugServerUrl((rawScriptLang || 'python3') as DebugLanguage))
 	const debugFilePath = $derived(`/tmp/script${getDebugFileExtension(rawScriptLang ?? '')}`)
 	const isDebuggableScript = $derived(isDebuggable(rawScriptLang ?? ''))
 	const showDebugPanel = $derived(
@@ -515,7 +513,11 @@
 
 			let signedPayload
 			try {
-				signedPayload = await signDebugRequest($workspaceStore ?? '', code ?? '', rawScriptLang ?? 'python3')
+				signedPayload = await signDebugRequest(
+					$workspaceStore ?? '',
+					code ?? '',
+					rawScriptLang ?? 'python3'
+				)
 				debugSessionJobId = signedPayload.job_id
 			} catch (signError) {
 				sendUserToast(getDebugErrorMessage(signError), true)
@@ -523,7 +525,9 @@
 			}
 
 			// Get static args from input transforms
-			const args = Object.entries(flowModule.value.input_transforms).reduce<Record<string, unknown>>((acc, [key, obj]) => {
+			const args = Object.entries(flowModule.value.input_transforms).reduce<
+				Record<string, unknown>
+			>((acc, [key, obj]) => {
 				if (obj.type === 'static') {
 					acc[key] = obj.value
 				}
@@ -627,9 +631,12 @@
 		if (lastDebugLang !== undefined && lastDebugLang !== currentLang && debugMode) {
 			untrack(() => {
 				if (dapClient) {
-					dapClient.terminate().catch(() => {}).finally(() => {
-						dapClient?.disconnect()
-					})
+					dapClient
+						.terminate()
+						.catch(() => {})
+						.finally(() => {
+							dapClient?.disconnect()
+						})
 				}
 				resetDAPClient()
 				dapClient = null
@@ -1028,7 +1035,7 @@
 														></div>
 													{/if}
 													<InputTransformSchemaForm
-														class="px-2 xl:px-4"
+														class="px-2 xl:px-4 pb-8"
 														bind:this={inputTransformSchemaForm}
 														pickableProperties={stepPropPicker.pickableProperties}
 														schema={flowStateStore.val[selectedId]?.schema ?? {}}
@@ -1403,7 +1410,9 @@
 																	/>
 																</div>
 															{:else}
-																<div class="h-full flex items-center justify-center text-sm text-tertiary">
+																<div
+																	class="h-full flex items-center justify-center text-sm text-tertiary"
+																>
 																	{#if $debugState.running && !$debugState.stopped}
 																		Running...
 																	{:else if $debugState.stopped}
@@ -1470,12 +1479,17 @@
 <Modal title="Debug Feature (Beta)" bind:open={showDebugBetaWarning}>
 	<div class="flex items-start gap-3">
 		<div class="flex-shrink-0">
-			<div class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50">
+			<div
+				class="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-800/50"
+			>
 				<AlertTriangle class="h-5 w-5 text-yellow-600 dark:text-yellow-400" />
 			</div>
 		</div>
 		<div class="text-secondary text-sm">
-			<p>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected behavior or limitations.</p>
+			<p
+				>The Debug feature is currently in <strong>beta</strong>. You may encounter unexpected
+				behavior or limitations.</p
+			>
 			<p class="mt-2">By continuing, you acknowledge that this feature is experimental.</p>
 		</div>
 	</div>

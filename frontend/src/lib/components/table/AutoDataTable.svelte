@@ -174,7 +174,7 @@
 <div class={className} bind:clientWidth={wrapperWidth}>
 	<div class="flex flex-col gap-2 py-1 my-1" style={`max-width: ${wrapperWidth}px;`}>
 		<div class="flex flex-row justify-between items-center gap-2">
-			<div class="flex flex-row gap-2 items-center whitespace-nowrap w-full">
+			<div class="flex flex-row gap-2 items-center whitespace-nowrap grow min-w-0">
 				<input bind:value={search} placeholder="Search..." class="h-8 !text-xs" />
 				{#if selection.length > 0}
 					<span class="text-xs text-gray-500 dark:text-gray-200">
@@ -182,7 +182,7 @@
 					</span>
 				{/if}
 			</div>
-			<div class="flex flex-row items-center gap-2">
+			<div class="flex flex-row items-center gap-2 shrink-0">
 				<DownloadCsv
 					getContent={() => {
 						return convertJsonToCsv(

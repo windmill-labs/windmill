@@ -583,7 +583,7 @@
 			{#if selectedIds[0] === '-'}
 				<div class="p-4">There is no information available for this job</div>
 			{:else}
-				<JobRunsPreview blankLink id={selectedIds[0]} workspace={selectedWorkspace} />
+				<JobRunsPreview id={selectedIds[0]} workspace={selectedWorkspace} />
 			{/if}
 		{/if}
 	</DrawerContent>
@@ -996,10 +996,10 @@
 							<div class="p-4">There is no information available for this job</div>
 						{:else}
 							<JobRunsPreview
-								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								on:filterByWorker={filterByWorker}
 								id={selectedIds[0]}
 								workspace={selectedWorkspace}
+								on:filterByConcurrencyKey={filterByConcurrencyKey}
+								on:filterByWorker={filterByWorker}
 							/>
 						{/if}
 					{:else if selectedIds.length > 1}

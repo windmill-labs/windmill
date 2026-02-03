@@ -15,6 +15,8 @@
 	import SchemaFormWithArgPicker from './SchemaFormWithArgPicker.svelte'
 	import FlowStatusViewer from '../components/FlowStatusViewer.svelte'
 	import FlowProgressBar from './flows/FlowProgressBar.svelte'
+	import FlowExecutionStatus from './runs/FlowExecutionStatus.svelte'
+	import JobDetailHeader from './runs/JobDetailHeader.svelte'
 	import { AlertTriangle, CornerDownLeft, Loader2, Play, RefreshCw, X } from 'lucide-svelte'
 	import { emptyString, sendUserToast, type StateStore } from '$lib/utils'
 	import { dfs } from './flows/dfs'
@@ -51,6 +53,7 @@
 		customUi?: {
 			tagLabel?: string | undefined
 		}
+		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 	}
 
 	let {
@@ -71,7 +74,8 @@
 		onRunPreview,
 		render = false,
 		onJobDone,
-		upToId = undefined
+		upToId = undefined,
+		suspendStatus
 	}: Props = $props()
 
 	let restartBranchNames: [number, string][] = []
@@ -80,7 +84,6 @@
 	let jsonEditor: JsonInputs | undefined = $state(undefined)
 	let schemaHeight = $state(0)
 	let isValid: boolean = $state(true)
-	let suspendStatus: StateStore<Record<string, { job: Job; nb: number }>> = $state({ val: {} })
 	let isOwner: boolean = $state(false)
 
 	export async function test(conversationId?: string): Promise<string | undefined> {
@@ -290,9 +293,9 @@
 
 <svelte:window onkeydown={onKeyDown} />
 
-<div class="flex flex-col space-y-2 h-screen bg-surface px-4 py-2 w-full" id="flow-preview-content">
+<div class="flex flex-col space-y-2 h-screen bg-surface py-2 w-full" id="flow-preview-content">
 	{#if render}
-		<div class="flex flex-row w-full items-center gap-x-2">
+		<div class="flex flex-row w-full items-center gap-x-2 px-4">
 			<div class="w-8">
 				<Button
 					on:click={() => dispatch('close')}
@@ -360,33 +363,23 @@
 				</div>
 			{/if}
 		</div>
-
-		<div class="w-full flex flex-col gap-y-1">
-			{#if flowHasChanged()}
-				<div class="pt-1">
-					<div
-						class="bg-orange-200 text-orange-600 border border-orange-600 p-2 flex items-center gap-2 rounded"
-					>
-						<AlertTriangle size={14} /> Flow changed since last preview
-						<div class="flex"></div>
-					</div>
-				</div>
-			{/if}
-			<FlowProgressBar {job} bind:this={flowProgressBar} />
-		</div>
 	{/if}
 	<div
 		bind:this={scrollableDiv}
-		class="overflow-y-auto grow flex flex-col pt-4"
+		class="overflow-y-auto grow flex flex-col pt-4 px-4"
 		onscroll={(e) => handleScroll()}
 	>
 		{#if render}
 			{#if flowStore.val.value?.chat_input_enabled}
-				<div class="flex flex-row justify-center w-full">
+				<div class="flex flex-row justify-center w-full mb-6">
 					<FlowChat
 						useStreaming={shouldUseStreaming}
 						onRunFlow={async (userMessage, conversationId, additionalInputs) => {
-							await runPreview({ user_message: userMessage, ...(additionalInputs ?? {}) }, undefined, conversationId)
+							await runPreview(
+								{ user_message: userMessage, ...(additionalInputs ?? {}) },
+								undefined,
+								conversationId
+							)
 							return jobId ?? ''
 						}}
 						hideSidebar={true}
@@ -395,7 +388,7 @@
 					/>
 				</div>
 			{:else}
-				<div class="border-b">
+				<div>
 					<SchemaFormWithArgPicker
 						bind:this={schemaFormWithArgPicker}
 						runnableId={$initialPathStore}
@@ -471,32 +464,58 @@
 				</div>
 			{/if}
 		{/if}
-		<div class="pt-4 flex flex-col grow relative">
-			<div
-				class="absolute top-[22px] right-2 border p-1.5 hover:bg-surface-hover rounded-md center-center"
-			>
-				{#if render}
-					<FlowHistoryJobPicker
-						selectInitial={jobId == undefined}
-						on:select={(e) => {
-							if (!currentJobId) {
-								currentJobId = jobId
-							}
-							const detail = e.detail
-							jobId = detail.jobId
-							if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
-								stepHistoryLoader?.setFlowJobInitial(detail.initial)
-							}
-						}}
-						on:unselect={() => {
-							jobId = currentJobId
-							currentJobId = undefined
-						}}
-						path={$initialPathStore == '' ? $pathStore : $initialPathStore}
-						bind:loading={loadingHistory}
-					/>
+		<div class="pt-4 flex flex-col border-t relative">
+			{#if flowHasChanged()}
+				<div class="pb-2">
+					<div
+						class="text-xs bg-orange-100 text-orange-700 border border-orange-700/30 p-2 flex items-center gap-2 rounded"
+					>
+						<AlertTriangle size={12} /> Flow changed since last preview
+						<div class="flex"></div>
+					</div>
+				</div>
+			{/if}
+
+			<div class="w-full flex pb-2 items-start justify-between gap-4">
+				{#if job}
+					<JobDetailHeader {job} compact={true} />
+				{:else}
+					<div></div> <!-- empty div to keep the same layout -->
 				{/if}
+				<FlowHistoryJobPicker
+					selectInitial={jobId == undefined}
+					on:select={(e) => {
+						if (!currentJobId) {
+							currentJobId = jobId
+						}
+						const detail = e.detail
+						jobId = detail.jobId
+						if (detail.initial && stepHistoryLoader?.flowJobInitial === undefined) {
+							stepHistoryLoader?.setFlowJobInitial(detail.initial)
+						}
+					}}
+					on:unselect={() => {
+						jobId = currentJobId
+						currentJobId = undefined
+					}}
+					path={$initialPathStore == '' ? $pathStore : $initialPathStore}
+					bind:loading={loadingHistory}
+				/>
 			</div>
+
+			<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
+
+			{#if job}
+				<div class="w-full my-6">
+					<FlowExecutionStatus
+						{job}
+						workspaceId={$workspaceStore}
+						{isOwner}
+						innerModules={job?.flow_status?.modules}
+						{suspendStatus}
+					/>
+				</div>
+			{/if}
 			<!-- svelte-ignore a11y_click_events_have_key_events -->
 			{#if jobId}
 				{#if stepHistoryLoader?.flowJobInitial}
@@ -518,7 +537,7 @@
 					bind:job
 					bind:localModuleStates
 					bind:localDurationStatuses
-					bind:suspendStatus
+					{suspendStatus}
 					hideDownloadInGraph={customUi?.downloadLogs === false}
 					wideResults
 					bind:flowState={flowStateStore.val}
@@ -533,13 +552,12 @@
 					bind:isOwner
 					{render}
 					{customUi}
+					showLogsWithResult
 				/>
 			{:else if loadingHistory}
 				<div class="italic text-primary h-full grow mx-auto flex flex-row items-center gap-2">
 					<Loader2 class="animate-spin" /> <span> Loading history... </span>
 				</div>
-			{:else}
-				<div class="italic text-primary h-full grow"> Flow status will be displayed here </div>
 			{/if}
 		</div>
 	</div>
