@@ -2,6 +2,8 @@
 	import { Tween } from 'svelte/motion'
 	import { linear } from 'svelte/easing'
 	import { twMerge } from 'tailwind-merge'
+	import { Loader2 } from 'lucide-svelte'
+	import { fade } from 'svelte/transition'
 
 	// Remove padding/margin, border radius and titles
 
@@ -22,6 +24,12 @@
 		length: number
 		class?: string
 		textPosition?: 'top' | 'bottom'
+		// Optional step ID to display when available
+		stepId?: string
+		// Whether to show the step ID
+		showStepId?: boolean
+		// Special waiting state display
+		isWaitingForEvents?: boolean
 	}
 
 	let {
@@ -36,7 +44,10 @@
 		slim = false,
 		length,
 		class: className = '',
-		textPosition = 'top'
+		textPosition = 'top',
+		stepId,
+		showStepId = false,
+		isWaitingForEvents = false
 	}: Props = $props()
 	let duration = 200
 
@@ -64,6 +75,10 @@
 	}
 
 	let finished = $derived(index == length)
+
+	const status: 'error' | 'done' | 'running' = $derived(
+		error != undefined ? 'error' : finished ? 'done' : 'running'
+	)
 </script>
 
 <div class={twMerge('flex flex-col gap-1', className)}>
@@ -82,7 +97,7 @@
 	<div
 		class={twMerge(
 			'flex w-full bg-gray-200 overflow-hidden',
-			compact ? 'rounded-none h-3' : slim ? 'rounded-full h-2' : 'rounded-full h-4'
+			compact ? 'rounded-none h-3' : slim ? 'rounded-full h-2.5' : 'rounded-full h-4'
 		)}
 	>
 		{#each new Array(length) as _, partIndex (partIndex)}
@@ -91,13 +106,17 @@
 					<div
 						class="absolute left-0 bottom-0 h-full bg-blue-400/50 animate-pulse"
 						style="width: 100%"
+						transition:fade={{ duration: 200 }}
 					></div>
 				{/if}
 				{#if partIndex < index - 1}
-					<div class="absolute left-0 bottom-0 h-full w-full bg-blue-400"></div>
+					<div
+						class="absolute left-0 bottom-0 h-full w-full bg-blue-400 transition-colors duration-300 ease-in-out"
+					></div>
 				{:else if partIndex == index - 1 || (partIndex == index && subIndex !== undefined) || error == partIndex}
 					<div
-						class="absolute left-0 bottom-0 h-full {error == partIndex
+						class="absolute left-0 bottom-0 h-full transition-all duration-300 ease-in-out {error ==
+						partIndex
 							? 'bg-red-400'
 							: 'bg-blue-400'}"
 						style="width: {getPercent(partIndex, percent.current)}%"
@@ -115,22 +134,38 @@
 {#snippet text(position: 'top' | 'bottom')}
 	{#if !compact}
 		<div
-			class="flex justify-between items-end font-medium {error != undefined
+			class="flex justify-between items-end font-medium transition-colors duration-300 ease-in-out {error !=
+			undefined
 				? 'text-red-700 dark:text-red-200'
 				: 'text-blue-700 dark:text-blue-200'}"
 		>
-			<span class={slim ? 'text-xs' : 'text-sm'}>
-				{error != undefined
-					? 'Error occurred'
-					: finished
-						? 'Done'
-						: hideStepTitle
-							? `Running`
-							: subIndexIsPercent
-								? `Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`
-								: `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
-			</span>
-			<span class={slim ? 'text-xs' : 'text-sm'}>
+			<div class={twMerge(slim ? 'text-xs' : 'text-sm', 'flex items-center gap-1')}>
+				{#if status == 'running'}
+					<Loader2 class="animate-spin" size={14} />
+				{/if}
+				{#key status + isWaitingForEvents + stepId}
+					<span in:fade={{ duration: 150 }}>
+						{#if status == 'error'}
+							Error occurred
+						{:else if status == 'done'}
+							Done
+						{:else if isWaitingForEvents}
+							Waiting to be resumed
+						{:else if showStepId}
+							{stepId ? `Running step ${stepId}` : ``}
+						{:else if hideStepTitle}
+							Running
+						{:else if subIndexIsPercent}
+							{`Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`}
+						{:else}
+							{`Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
+						{/if}
+					</span>
+				{/key}
+			</div>
+			<span
+				class={twMerge(slim ? 'text-xs' : 'text-sm', 'transition-all duration-200 ease-in-out')}
+			>
 				{percent.current.toFixed(0)}%
 			</span>
 		</div>

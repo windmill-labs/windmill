@@ -696,6 +696,7 @@
 					class="w-full"
 					textPosition="bottom"
 					slim
+					showStepId
 				/>
 				{#if suspendStatus}
 					<FlowExecutionStatus

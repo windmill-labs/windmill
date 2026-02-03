@@ -124,17 +124,15 @@
 	})
 </script>
 
-<div class="w-full h-full mt-2 text-xs text-primary">
-	{#if !light}
-		<p>Waiting to be resumed</p>
-	{/if}
+<div class="w-full h-full text-xs text-primary">
 	{#if description != undefined}
 		<DisplayResult {workspaceId} noControls result={description} language={job?.language} />
+		<div class="mt-2"></div>
 	{/if}
 	<div>
 		{#if isOwner || resumeUrl}
-			<div class={twMerge('flex gap-2 mt-2', light ? 'flex-col' : 'flex-row ')}>
-				{#if cancelUrl && !hide_cancel}
+			<div class={twMerge('flex gap-2', light ? 'flex-col' : 'flex-row ')}>
+				{#if !hide_cancel}
 					<div>
 						<Button
 							title="Cancel the step"
@@ -142,7 +140,9 @@
 							iconOnly
 							startIcon={{ icon: X }}
 							variant="default"
+							disabled={!cancelUrl}
 							destructive
+							unifiedSize="md"
 							on:click={() => continu(false)}
 						/>
 					</div>

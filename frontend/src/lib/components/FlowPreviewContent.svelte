@@ -503,7 +503,7 @@
 				/>
 			</div>
 
-			<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" />
+			<FlowProgressBar {job} bind:this={flowProgressBar} slim textPosition="bottom" showStepId />
 
 			{#if job}
 				<div class="w-full my-6">

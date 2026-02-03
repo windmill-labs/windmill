@@ -1,11 +1,8 @@
 <script lang="ts">
-	import { Loader2 } from 'lucide-svelte'
 	import FlowStatusWaitingForEvents from '../FlowStatusWaitingForEvents.svelte'
 	import type { FlowStatusModule, Job } from '$lib/gen'
-	import { emptyString, type StateStore } from '$lib/utils'
-	import Badge from '../common/badge/Badge.svelte'
+	import { type StateStore } from '$lib/utils'
 	import { fade, slide } from 'svelte/transition'
-	import { untrack } from 'svelte'
 
 	interface Props {
 		job: Job
@@ -15,62 +12,23 @@
 		suspendStatus: StateStore<Record<string, { job: Job; nb: number }>>
 	}
 
-	let { job, workspaceId, isOwner, innerModules, suspendStatus }: Props = $props()
+	let { job, workspaceId, isOwner, suspendStatus }: Props = $props()
 
 	const isWaitingForEvents = $derived(
 		job?.flow_status?.modules?.[job?.flow_status?.step]?.type === 'WaitingForEvents'
 	)
 	const isSuspended = $derived(suspendStatus.val && Object.keys(suspendStatus.val).length > 0)
-	const hasInnerModulesInProgress = $derived(
-		job?.flow_status?.modules?.some((mod) => mod.type === 'InProgress')
-	)
 
-	let shouldShowAnyStatus = $state(false)
-	let debounceTimer: ReturnType<typeof setTimeout> | undefined = $state()
-
-	const anyStatusActive = $derived(isWaitingForEvents || isSuspended || hasInnerModulesInProgress)
-
-	$effect(() => {
-		if (anyStatusActive) {
-			// If any status becomes active, show immediately
-			untrack(() => {
-				shouldShowAnyStatus = true
-				if (debounceTimer) {
-					clearTimeout(debounceTimer)
-					debounceTimer = undefined
-				}
-			})
-		} else {
-			// If no status is active, wait 200ms before hiding
-			untrack(() => {
-				if (debounceTimer) {
-					clearTimeout(debounceTimer)
-				}
-				debounceTimer = setTimeout(() => {
-					shouldShowAnyStatus = false
-					debounceTimer = undefined
-				}, 200)
-			})
-		}
-
-		// Cleanup function
-		return () => {
-			if (debounceTimer) {
-				clearTimeout(debounceTimer)
-				debounceTimer = undefined
-			}
-		}
-	})
+	const anyStatusActive = $derived(isWaitingForEvents || isSuspended)
 </script>
 
-{#if job && shouldShowAnyStatus}
+{#if job && anyStatusActive}
 	<div
-		class="rounded-md border shadow-md p-4 bg-surface-tertiary transition-all duration-150 flex flex-col justify-center"
+		class="rounded-md border shadow-md p-4 bg-surface-tertiary flex flex-col justify-center"
+		transition:slide={{ duration: 150 }}
 	>
 		{#if isWaitingForEvents}
-			<div in:slide={{ duration: 150 }}>
-				<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
-			</div>
+			<FlowStatusWaitingForEvents {workspaceId} {job} {isOwner} />
 		{:else if isSuspended}
 			<div class="flex gap-2 flex-col" in:fade={{ duration: 150 }}>
 				{#each Object.values(suspendStatus.val) as suspendCount (suspendCount.job.id)}
@@ -80,38 +38,6 @@
 						</div>
 						<FlowStatusWaitingForEvents job={suspendCount.job} {workspaceId} {isOwner} />
 					</div>
-				{/each}
-			</div>
-		{:else if hasInnerModulesInProgress}
-			<div class="flex flex-col gap-1" in:fade={{ duration: 150 }}>
-				{#each innerModules as mod, i (mod.id)}
-					{#if mod.type == 'InProgress'}
-						{@const rawMod = job.raw_flow?.modules[i]}
-
-						<div>
-							<span class="inline-flex gap-2 items-center">
-								<Badge
-									color="indigo"
-									wrapperClass="max-w-full"
-									baseClass="max-w-full truncate !px-1"
-									title={mod.id}
-								>
-									<span class="max-w-full text-2xs truncate">{mod.id}</span></Badge
-								>
-								<span class="font-normal text-primary text-xs">
-									{#if !emptyString(rawMod?.summary)}
-										{rawMod?.summary ?? ''}
-									{:else if rawMod?.value.type == 'script'}
-										{rawMod.value.path ?? ''}
-									{:else if rawMod?.value.type}
-										{rawMod?.value.type}
-									{/if}
-								</span>
-
-								<Loader2 class="animate-spin mt-0.5" /></span
-							></div
-						>
-					{/if}
 				{/each}
 			</div>
 		{/if}
