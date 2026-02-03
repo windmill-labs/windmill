@@ -30,6 +30,7 @@
 	let subIndexIsPercent: boolean = $state(false)
 	let currentStepId: string | undefined = $state(undefined)
 	let isWaitingForEvents = $state(false)
+	let isCanceled = $state(false)
 
 	let progressBar = $state<ProgressBar | undefined>(undefined)
 
@@ -104,6 +105,7 @@
 		nextInProgress = newNextInProgress
 		currentStepId = newCurrentStepId
 		isWaitingForEvents = newIsWaitingForEvents
+		isCanceled = job?.canceled || false
 	}
 
 	export function reset() {
@@ -115,6 +117,7 @@
 		index = 0
 		currentStepId = undefined
 		isWaitingForEvents = false
+		isCanceled = false
 	}
 	$effect(() => {
 		job && updateJobProgress(job)
@@ -136,4 +139,5 @@
 	stepId={currentStepId}
 	{showStepId}
 	{isWaitingForEvents}
+	{isCanceled}
 />

@@ -30,6 +30,8 @@
 		showStepId?: boolean
 		// Special waiting state display
 		isWaitingForEvents?: boolean
+		// Whether the job was canceled
+		isCanceled?: boolean
 	}
 
 	let {
@@ -47,7 +49,8 @@
 		textPosition = 'top',
 		stepId,
 		showStepId = false,
-		isWaitingForEvents = false
+		isWaitingForEvents = false,
+		isCanceled = false
 	}: Props = $props()
 	let duration = 200
 
@@ -104,7 +107,10 @@
 			<div class="h-full relative border-white {partIndex === 0 ? '' : 'border-l'} w-full">
 				{#if partIndex == index && nextInProgress}
 					<div
-						class="absolute left-0 bottom-0 h-full bg-blue-400/50 animate-pulse"
+						class={twMerge(
+							'absolute left-0 bottom-0 h-full bg-blue-400/50',
+							isCanceled ? '' : ' animate-pulse'
+						)}
 						style="width: 100%"
 						transition:fade={{ duration: 200 }}
 					></div>
@@ -135,30 +141,34 @@
 	{#if !compact}
 		<div
 			class="flex justify-between items-end font-medium transition-colors duration-300 ease-in-out {error !=
-			undefined
+				undefined || isCanceled
 				? 'text-red-700 dark:text-red-200'
 				: 'text-blue-700 dark:text-blue-200'}"
 		>
 			<div class={twMerge(slim ? 'text-xs' : 'text-sm', 'flex items-center gap-1')}>
-				{#if status == 'running'}
+				{#if status == 'running' && !isCanceled}
 					<Loader2 class="animate-spin" size={14} />
 				{/if}
-				{#key status + isWaitingForEvents + stepId}
+				{#key status + isWaitingForEvents + stepId + isCanceled}
 					<span in:fade={{ duration: 150 }}>
 						{#if status == 'error'}
 							Error occurred
+						{:else if status == 'done' && isCanceled}
+							Canceled
 						{:else if status == 'done'}
 							Done
 						{:else if isWaitingForEvents}
 							Waiting to be resumed
 						{:else if showStepId}
-							{stepId ? `Running step ${stepId}` : ``}
+							{stepId
+								? `${isCanceled ? 'Canceled at' : 'Running'} step ${stepId}`
+								: `${isCanceled ? 'Canceled' : ''}`}
 						{:else if hideStepTitle}
-							Running
+							{isCanceled ? 'Canceled' : 'Running'}
 						{:else if subIndexIsPercent}
-							{`Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`}
+							{`${isCanceled ? 'Canceled at' : ''} Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`}
 						{:else}
-							{`Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
+							{`${isCanceled ? 'Canceled at' : ''} Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
 						{/if}
 					</span>
 				{/key}
