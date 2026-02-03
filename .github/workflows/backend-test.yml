@@ -109,16 +109,8 @@ jobs:
           log: { type: stdout, format: pretty, level: warn }
           VERDACCIO_CONFIG
 
-          # Create htpasswd file with testuser (password: testpass123)
-          # Install bcryptjs locally to generate the hash
-          mkdir -p /tmp/bcrypt-helper && cd /tmp/bcrypt-helper
-          npm init -y > /dev/null
-          npm install bcryptjs > /dev/null
-          node -e "console.log('testuser:' + require('bcryptjs').hashSync('testpass123', 10));" > /tmp/verdaccio/htpasswd
-          cd /tmp
-
-          echo "Created htpasswd file:"
-          cat /tmp/verdaccio/htpasswd
+          # Create empty htpasswd file (users will be created via API)
+          touch /tmp/verdaccio/htpasswd
 
           # Start Verdaccio in background
           verdaccio --config /tmp/verdaccio/config.yaml &
