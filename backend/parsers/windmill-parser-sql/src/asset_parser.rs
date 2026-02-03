@@ -24,9 +24,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
 
     for (_, (kind, path)) in collector.var_identifiers {
         if !asset_was_used(&collector.assets, (kind, &path)) {
-            collector
-                .assets
-                .push(ParseAssetsResult { kind, access_type: None, path: path });
+            collector.assets.push(ParseAssetsResult {
+                kind,
+                access_type: None,
+                path: path,
+                columns: None,
+            });
         }
     }
 
@@ -56,8 +59,12 @@ impl AssetCollector {
 
     // Detect when we do 'a.b' and 'a' is associated with an asset in var_identifiers
     // Or when we access 'b' and we did USE a;
-    fn get_associated_asset_from_obj_name(&self, name: &ObjectName) -> Option<ParseAssetsResult> {
-        let access_type = self.current_access_type_stack.last().copied();
+    fn get_associated_asset_from_obj_name(
+        &self,
+        name: &ObjectName,
+        access_type: Option<AssetUsageAccessType>,
+    ) -> Option<ParseAssetsResult> {
+        let access_type = access_type.or_else(|| self.current_access_type_stack.last().copied());
         if let Some((kind, path)) = &self.currently_used_asset {
             // We don't want to infer that any simple identifier refers to an asset if
             // we are not in a known R/W context
@@ -81,7 +88,7 @@ impl AssetCollector {
                     .collect::<Option<Vec<String>>>()?
                     .join(".");
                 let path = format!("{}/{}", path, specific_table);
-                return Some(ParseAssetsResult { kind: *kind, access_type, path });
+                return Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None });
             }
         }
 
@@ -101,7 +108,7 @@ impl AssetCollector {
         } else {
             path.clone()
         };
-        Some(ParseAssetsResult { kind: *kind, access_type, path })
+        Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None })
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -112,6 +119,7 @@ impl AssetCollector {
                     kind,
                     path: path.to_string(),
                     access_type: self.current_access_type_stack.last().copied(),
+                    columns: None,
                 });
             }
         }
@@ -126,13 +134,6 @@ impl AssetCollector {
         if let Some(str_lit) = get_str_lit_from_obj_name(name) {
             self.handle_string_literal(str_lit);
         }
-
-        // Writes to tables should be handled directly when visiting the statement
-        if self.current_access_type_stack.last() == Some(&R) {
-            if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
-                self.assets.push(asset);
-            }
-        }
     }
 
     fn handle_obj_name_post(&mut self, name: &ObjectName) {
@@ -146,15 +147,22 @@ impl AssetCollector {
         }
     }
 
-    fn handle_table_with_joins(&mut self, table_with_joins: &sqlparser::ast::TableWithJoins) {
-        if let TableFactor::Table { name, .. } = &table_with_joins.relation {
-            if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+    fn handle_table_with_joins(
+        &mut self,
+        table_with_joins: &sqlparser::ast::TableWithJoins,
+        access_type: Option<AssetUsageAccessType>,
+    ) {
+        if let TableFactor::Table { name, args, .. } = &table_with_joins.relation {
+            if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
+                return;
+            }
+            if let Some(asset) = self.get_associated_asset_from_obj_name(name, access_type) {
                 self.assets.push(asset);
             }
         }
         for join in &table_with_joins.joins {
             if let TableFactor::Table { name, .. } = &join.relation {
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, access_type) {
                     self.assets.push(asset);
                 }
             }
@@ -218,23 +226,26 @@ impl Visitor for AssetCollector {
         statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
         match statement {
-            sqlparser::ast::Statement::Query(_) => {
-                // don't forget pop() in post_visit_statement
-                self.current_access_type_stack.push(R);
+            sqlparser::ast::Statement::Query(q) => {
+                if let Some(select) = q.body.as_select() {
+                    for t in &select.from {
+                        self.handle_table_with_joins(t, Some(R));
+                    }
+                }
             }
 
             sqlparser::ast::Statement::Insert(insert) => {
                 let access_type = if insert.returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
                 match insert.table {
                     TableObject::TableName(ref name) => {
-                        if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                        if let Some(asset) =
+                            self.get_associated_asset_from_obj_name(name, Some(access_type))
+                        {
                             self.assets.push(asset);
                         }
                     }
                     _ => {}
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::Update { returning, table, from, .. } => {
@@ -243,26 +254,21 @@ impl Visitor for AssetCollector {
                         sqlparser::ast::UpdateTableFromKind::AfterSet(tables) => tables,
                         sqlparser::ast::UpdateTableFromKind::BeforeSet(tables) => tables,
                     };
-                    self.current_access_type_stack.push(R);
                     for table_with_joins in from_tables {
-                        self.handle_table_with_joins(table_with_joins);
+                        self.handle_table_with_joins(table_with_joins, Some(R));
                     }
-                    self.current_access_type_stack.pop();
                 }
 
                 let access_type = if returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
-
-                self.handle_table_with_joins(table);
-
-                self.current_access_type_stack.pop();
+                self.handle_table_with_joins(table, Some(access_type));
             }
 
             sqlparser::ast::Statement::Delete(delete) => {
                 let access_type = if delete.returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
                 for name in &delete.tables {
-                    if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                    if let Some(asset) =
+                        self.get_associated_asset_from_obj_name(name, Some(access_type))
+                    {
                         self.assets.push(asset);
                     }
                 }
@@ -271,25 +277,22 @@ impl Visitor for AssetCollector {
                     sqlparser::ast::FromTable::WithoutKeyword(tables) => tables,
                 };
                 for table_with_joins in tables {
-                    self.handle_table_with_joins(table_with_joins);
+                    self.handle_table_with_joins(table_with_joins, Some(access_type));
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
-                self.current_access_type_stack.push(W);
-                if let Some(asset) = self.get_associated_asset_from_obj_name(&create_table.name) {
+                if let Some(asset) =
+                    self.get_associated_asset_from_obj_name(&create_table.name, Some(W))
+                {
                     self.assets.push(asset);
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::CreateView { name, .. } => {
-                self.current_access_type_stack.push(W);
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
                     self.assets.push(asset);
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
@@ -339,14 +342,8 @@ impl Visitor for AssetCollector {
 
     fn post_visit_statement(
         &mut self,
-        statement: &sqlparser::ast::Statement,
+        _statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
-        match statement {
-            sqlparser::ast::Statement::Query(_) => {
-                self.current_access_type_stack.pop();
-            }
-            _ => {}
-        }
         std::ops::ControlFlow::Continue(())
     }
 
@@ -409,17 +406,20 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/a.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/c.parquet".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "snd/b.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None
                 },
             ])
         );
@@ -438,7 +438,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None
             },])
         );
     }
@@ -455,7 +456,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl/table1".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None
             },])
         );
     }
@@ -473,7 +475,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "my_dt/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -504,7 +507,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -521,7 +525,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -543,7 +548,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/friends".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None
             },])
         );
     }
@@ -561,7 +567,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None
             },])
         );
     }
@@ -579,7 +586,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -597,7 +605,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -615,7 +624,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Resource,
                 path: "u/user/pg_resource/table1".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None
             },])
         );
     }
@@ -632,7 +642,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -650,7 +661,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None
             },])
         );
     }
@@ -669,7 +681,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None
             },])
         );
     }
