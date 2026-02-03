@@ -42,9 +42,6 @@
 	import { inputBorderClass } from './text_input/TextInput.svelte'
 	import FakeMonacoPlaceHolder from './FakeMonacoPlaceHolder.svelte'
 
-	// We add 'ai' for ai agent tools. 'ai' means the field will be filled by the AI agent dynamically.
-	type PropertyType = InputTransform['type'] | 'ai'
-
 	interface Props {
 		schema: Schema | { properties?: Record<string, any>; required?: string[] }
 		arg: InputTransform | any
@@ -162,7 +159,7 @@
 		})
 	}
 
-	function getPropertyType(arg: InputTransform | any): PropertyType {
+	function getPropertyType(arg: InputTransform | any): InputTransform['type'] {
 		// For agent tools, if static with undefined/empty value, treat as 'ai', meaning the field will be filled by the AI agent dynamically.
 		if (
 			isAgentTool &&
@@ -174,7 +171,7 @@
 			return 'ai'
 		}
 
-		let type: PropertyType = arg?.type ?? 'static'
+		let type: InputTransform['type'] = arg?.type ?? 'static'
 
 		if (
 			type == 'javascript' &&
@@ -408,7 +405,7 @@
 
 	function updateStaticInput(
 		inputCat: InputCat,
-		propertyType: PropertyType,
+		propertyType: InputTransform['type'],
 		arg: InputTransform | any
 	) {
 		if (!isStaticTemplate(inputCat)) {
@@ -821,7 +818,11 @@
 								otherArgs={Object.fromEntries(
 									Object.entries(otherArgs).map(([key, transform]) => [
 										key,
-										transform?.type === 'static' ? transform.value : transform?.expr
+										transform?.type === 'static'
+											? transform.value
+											: transform?.type === 'javascript'
+												? transform.expr
+												: undefined
 									])
 								)}
 							>
@@ -830,12 +831,14 @@
 										<S3ArrayHelperButton
 											{connecting}
 											onClick={() =>
-												switchToJsAndConnect((path) => appendPathToArrayExpr(arg.expr, path))}
+												switchToJsAndConnect((path) =>
+													appendPathToArrayExpr(arg?.type === 'javascript' ? arg.expr : '', path)
+												)}
 										/>
 									{/if}
 								{/snippet}
 							</ArgInput>
-						{:else if arg.expr != undefined}
+						{:else if arg?.type === 'javascript' && arg.expr != undefined}
 							<div
 								class={`bg-surface-input rounded-md flex flex-col pl-2 overflow-auto ${inputBorderClass({ forceFocus: focused })}`}
 							>

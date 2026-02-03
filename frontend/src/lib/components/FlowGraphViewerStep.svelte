@@ -245,7 +245,7 @@
 				<p class="font-medium text-secondary pb-2"> Iterator expression: </p>
 				{#if stepDetail.value.iterator.type == 'static'}
 					<ObjectViewer json={stepDetail.value.iterator.value} />
-				{:else}
+				{:else if stepDetail.value.iterator.type == 'javascript'}
 					<span class="text-xs">
 						<Highlight language={typescript} code={cleanExpr(stepDetail.value.iterator.expr)} />
 					</span>

@@ -1,5 +1,5 @@
 import { newPathAssigner, PathAssigner } from "../path-utils/path-assigner.ts";
-import { FlowModule } from "../gen/types.gen.ts";
+import { FlowModule, RawScript } from "../gen/types.gen.ts";
 
 /**
  * Represents an inline script extracted from a flow module
@@ -9,6 +9,28 @@ interface InlineScript {
   path: string;
   /** The actual script content */
   content: string;
+}
+
+function extractRawscriptInline(
+  id: string,
+  summary: string | undefined,
+  rawscript: RawScript,
+  mapping: Record<string, string>,
+  separator: string,
+  assigner: PathAssigner
+): InlineScript[] {
+  const [basePath, ext] = assigner.assignPath(summary ?? id, rawscript.language);
+  const path = mapping[id] ?? basePath + ext;
+  const content = rawscript.content;
+  const r = [{ path: path, content: content }];
+  rawscript.content = "!inline " + path.replaceAll(separator, "/");
+  const lock = rawscript.lock;
+  if (lock && lock != "") {
+    const lockPath = basePath + "lock";
+    rawscript.lock = "!inline " + lockPath.replaceAll(separator, "/");
+    r.push({ path: lockPath, content: lock });
+  }
+  return r;
 }
 
 /**
@@ -44,18 +66,14 @@ export function extractInlineScripts(
 
   return modules.flatMap((m) => {
     if (m.value.type == "rawscript") {
-      const [basePath, ext] = assigner.assignPath(m.summary, m.value.language);
-      const path = mapping[m.id] ?? basePath + ext;
-      const content = m.value.content;
-      const r = [{ path: path, content: content }];
-      m.value.content = "!inline " + path.replaceAll(separator, "/");
-      const lock = m.value.lock;
-      if (lock && lock != "") {
-        const lockPath = basePath + "lock";
-        m.value.lock = "!inline " + lockPath.replaceAll(separator, "/");
-        r.push({ path: lockPath, content: lock });
-      }
-      return r;
+      return extractRawscriptInline(
+        m.id,
+        m.summary,
+        m.value,
+        mapping,
+        separator,
+        assigner
+      );
     } else if (m.value.type == "forloopflow") {
       return extractInlineScripts(
         m.value.modules,
@@ -95,6 +113,23 @@ export function extractInlineScripts(
           assigner
         ),
       ];
+    } else if (m.value.type == "aiagent") {
+      return (m.value.tools ?? []).flatMap((tool) => {
+        const toolValue = tool.value;
+        // Only process flowmodule tools with rawscript type
+        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript') {
+          return [];
+        }
+
+        return extractRawscriptInline(
+          tool.id,
+          tool.summary,
+          toolValue,
+          mapping,
+          separator,
+          assigner
+        );
+      });
     } else {
       return [];
     }
@@ -140,6 +175,14 @@ export function extractCurrentMapping(
         extractCurrentMapping(b.modules, mapping)
       );
       extractCurrentMapping(m.value.default, mapping);
+    } else if (m.value.type === "aiagent") {
+      (m.value.tools ?? []).forEach((tool) => {
+        const toolValue = tool.value;
+        if (!toolValue || toolValue.tool_type !== 'flowmodule' || toolValue.type !== 'rawscript' || !toolValue.content || !toolValue.content.startsWith("!inline")) {
+          return;
+        }
+        mapping[tool.id] = toolValue.content.trim().split(" ")[1];
+      });
     }
   });
 

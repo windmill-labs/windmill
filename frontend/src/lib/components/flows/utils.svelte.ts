@@ -49,7 +49,7 @@ export function evalValue(
 
 	if (t.type == 'static') {
 		v = t.value
-	} else {
+	} else if (t.type == 'javascript') {
 		try {
 			let context = {
 				flow_input: pickableProperties?.flow_input,
@@ -62,6 +62,8 @@ export function evalValue(
 			}
 			v = undefined
 		}
+	} else {
+		v = undefined
 	}
 	if (v === NEVER_TESTED_THIS_FAR) {
 		v = undefined
