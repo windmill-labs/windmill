@@ -32,7 +32,7 @@
 	let { groups, selectedId, onNavigate, class: className = '' }: Props = $props()
 </script>
 
-<div class={twMerge('flex flex-col gap-6', className)}>
+<div class={twMerge('flex flex-col gap-8', className)}>
 	{#each groups as group}
 		<div class="flex flex-col gap-1">
 			{#if group.title}

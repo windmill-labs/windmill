@@ -52,11 +52,14 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<p class="font-medium text-xs text-emphasis">Workspace color</p>
+	<p class="font-semibold text-xs text-emphasis">Workspace color</p>
+	<p class="text-xs text-secondary font-normal">
+		Color to identify the current workspace in the list of workspaces
+	</p>
 	<div class="flex flex-row gap-0.5 items-center">
 		{#if $workspaceColor}
 			<div
-				class="w-5 h-5 rounded-full border border-gray-300 dark:border-gray-600"
+				class="w-10 h-6 rounded-md border border-gray-300 dark:border-gray-600"
 				style="background-color: {$workspaceColor}"
 			></div>
 		{:else}
@@ -66,18 +69,14 @@
 			on:click={() => {
 				open = true
 			}}
-			size="xs"
-			spacingSize="xs2"
-			color="light"
+			unifiedSize="sm"
+			variant="subtle"
 			iconOnly
 			startIcon={{
 				icon: Pen
 			}}
 		/>
 	</div>
-	<p class="text-2xs text-secondary font-normal">
-		Color to identify the current workspace in the list of workspaces
-	</p>
 </div>
 
 <Modal bind:open title="Change workspace color">

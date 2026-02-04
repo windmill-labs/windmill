@@ -669,13 +669,26 @@
 	// Navigation groups for sidebar
 	const navigationGroups = $derived([
 		{
-			title: 'User Management',
+			title: 'Workspace',
 			items: [
+				{
+					id: 'general',
+					label: 'General',
+					aiId: 'workspace-settings-general',
+					aiDescription: 'General workspace settings'
+				},
 				{
 					id: 'users',
 					label: 'Users',
 					aiId: 'workspace-settings-users',
 					aiDescription: 'Users workspace settings'
+				},
+				{
+					id: 'premium',
+					label: 'Premium Plans',
+					aiId: 'workspace-settings-premium',
+					aiDescription: 'Premium plans workspace settings',
+					showIf: isCloudHosted()
 				}
 			]
 		},
@@ -747,7 +760,7 @@
 			]
 		},
 		{
-			title: 'Configuration',
+			title: 'Advanced',
 			items: [
 				{
 					id: 'default_app',
@@ -757,35 +770,22 @@
 					isEE: true
 				},
 				{
-					id: 'encryption',
-					label: 'Encryption',
-					aiId: 'workspace-settings-encryption',
-					aiDescription: 'Encryption workspace settings'
-				},
-				{
-					id: 'general',
-					label: 'General',
-					aiId: 'workspace-settings-general',
-					aiDescription: 'General workspace settings'
-				},
-				{
 					id: 'dependencies',
 					label: 'Dependencies',
 					aiId: 'workspace-settings-dependencies',
 					aiDescription: 'Workspace dependencies settings'
 				},
 				{
+					id: 'encryption',
+					label: 'Encryption',
+					aiId: 'workspace-settings-encryption',
+					aiDescription: 'Encryption workspace settings'
+				},
+				{
 					id: 'native_triggers',
 					label: 'Native Triggers (Beta)',
 					aiId: 'workspace-settings-integrations',
 					aiDescription: 'Workspace integrations for native triggers'
-				},
-				{
-					id: 'premium',
-					label: 'Premium Plans',
-					aiId: 'workspace-settings-premium',
-					aiDescription: 'Premium plans workspace settings',
-					showIf: isCloudHosted()
 				}
 			]
 		}
@@ -804,7 +804,7 @@
 
 		<div class="flex gap-6">
 			<!-- Sidebar Navigation -->
-			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-secondary/30 h-fit">
+			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-secondary/50 h-fit">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
