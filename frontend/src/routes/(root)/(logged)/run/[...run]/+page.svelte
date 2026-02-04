@@ -444,7 +444,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
+					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
@@ -470,36 +470,39 @@
 	/>
 	<ActionRow class="max-w-7xl px-4 mx-auto w-full">
 		{#snippet left()}
-			{@const isScript = job?.job_kind === 'script'}
-			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
-			<div class="flex gap-2 items-center">
-				{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
-					<Dropdown
-						items={[
-							{
-								displayName: 'Delete result, logs and args (admin only)',
-								action: () => {
-									job?.id && deleteCompletedJob(job.id)
-								},
-								type: 'delete'
-							}
-						]}
-					>
-						{#snippet buttonReplacement()}
-							<Button nonCaptureEvent variant="default" size="sm" startIcon={{ icon: Trash }} />
-						{/snippet}
-					</Dropdown>
-					{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
-						<Button href={runsHref} variant="default" size="sm" startIcon={{ icon: List }}>
-							View runs
-						</Button>
-					{/if}
-				{/if}
-			</div>
+			<h1 class="text-sm font-semibold text-primary">run/{page.params.run}</h1>
 		{/snippet}
 		{#snippet right()}
-			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const isScript = job?.job_kind === 'script'}
+			{@const runsHref = `/runs/${job?.script_path}${!isScript ? '?jobKind=flow' : ''}`}
+			{#if job && 'deleted' in job && !job?.deleted && ($superadmin || ($userStore?.is_admin ?? false))}
+				<Dropdown
+					items={[
+						{
+							displayName: 'Delete result, logs and args (admin only)',
+							action: () => {
+								job?.id && deleteCompletedJob(job.id)
+							},
+							type: 'delete'
+						}
+					]}
+				>
+					{#snippet buttonReplacement()}
+						<Button
+							nonCaptureEvent
+							variant="default"
+							unifiedSize="md"
+							startIcon={{ icon: Trash }}
+						/>
+					{/snippet}
+				</Dropdown>
+				{#if job?.job_kind === 'script' || job?.job_kind === 'flow'}
+					<Button href={runsHref} variant="default" unifiedSize="md" startIcon={{ icon: List }}>
+						View runs
+					</Button>
+				{/if}
+			{/if}
+			{@const stem = job?.job_kind === 'script_hub' ? '/scripts' : `/${job?.job_kind}s`}
 			{@const viewHref = `${stem}/get/${isScript ? job?.script_hash : job?.script_path}`}
 			{#if (job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)) && job?.['running'] && job?.parent_job == undefined}
 				<div class="inline">
