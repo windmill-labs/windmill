@@ -30,12 +30,6 @@ mount {
 }
 
 mount {
-    src: "/bin"
-    dst: "/bin"
-	is_bind: true
-}
-
-mount {
     src: "/opt/microsoft"
     dst: "/opt/microsoft"
 	is_bind: true
