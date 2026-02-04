@@ -17168,6 +17168,8 @@ components:
       $ref: "../../openflow.openapi.yaml#/components/schemas/StaticTransform"
     JavascriptTransform:
       $ref: "../../openflow.openapi.yaml#/components/schemas/JavascriptTransform"
+    AiTransform:
+      $ref: "../../openflow.openapi.yaml#/components/schemas/AiTransform"
     FlowModuleValue:
       $ref: "../../openflow.openapi.yaml#/components/schemas/FlowModuleValue"
     RawScript:
