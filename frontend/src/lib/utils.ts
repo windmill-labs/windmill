@@ -1999,7 +1999,7 @@ export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
 					resourcePath: `datatable://${p2 || 'main'}`,
 					resourceType: 'postgresql',
 					specificTable: p4 ?? p3,
-					specificSchema: p3
+					specificSchema: p4 ? p3 : undefined
 				}
 			: null
 }

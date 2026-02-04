@@ -62,7 +62,10 @@
 		const [scheme, t0] = path.split('://')
 		const [assetName, tableKey] = t0.split('/')
 		const [t1, t2] = tableKey.split('.')
-		const [table, schema] = [t2 ?? t1, t1 === 'main' || t1 === 'public' ? undefined : t1]
+		const [table, schema] = [
+			t2 ?? t1,
+			t1 === 'main' || t1 === 'public' ? undefined : t2 ? t1 : undefined
+		]
 		return { table, schema, assetName: assetName || 'main', path, scheme }
 	}
 </script>
