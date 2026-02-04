@@ -314,6 +314,8 @@ impl AssetsFinder {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -402,7 +404,10 @@ mod tests {
                     kind: AssetKind::DataTable,
                     path: "dt/friends".to_string(),
                     access_type: Some(RW),
-                    columns: Some(BTreeMap::from([("x".to_string(), AssetUsageAccessType::W)])),
+                    columns: Some(BTreeMap::from([(
+                        "name".to_string(),
+                        AssetUsageAccessType::W
+                    )])),
                 },
             ])
         );
