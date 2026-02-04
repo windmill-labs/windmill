@@ -154,6 +154,10 @@
 	export function unsavedChanges(): { savedValue: any; modifiedValue: any } {
 		return { savedValue: dataTableSettings, modifiedValue: tempSettings }
 	}
+
+	let hasUnsavedChanges = $derived.by(() => {
+		return !deepEqual(dataTableSettings, tempSettings)
+	})
 </script>
 
 <SettingsPageHeader
@@ -287,6 +291,7 @@
 	wrapperClasses="mt-4 mb-16 max-w-fit"
 	on:click={onSave}
 	variant="accent"
+	disabled={!hasUnsavedChanges}
 	startIcon={{ icon: Save }}>Save data table settings</Button
 >
 

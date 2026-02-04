@@ -95,6 +95,10 @@
 		const defaultPerms = defaultS3AdvancedPermissions(!!$enterpriseLicense)
 		return !deepEqual(storage.advancedPermissions, defaultPerms)
 	}
+
+	let hasUnsavedChanges = $derived.by(() => {
+		return !deepEqual(s3ResourceSettings, s3ResourceSavedSettings)
+	})
 </script>
 
 <Portal name="workspace-settings">
@@ -292,6 +296,7 @@
 		<Button
 			variant="accent"
 			size="xl"
+			disabled={!hasUnsavedChanges}
 			on:click={() => {
 				editWindmillLFSSettings()
 				console.log('Saving S3 settings', s3ResourceSettings)
