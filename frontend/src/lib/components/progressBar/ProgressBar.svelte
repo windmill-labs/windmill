@@ -32,6 +32,8 @@
 		isWaitingForEvents?: boolean
 		// Whether the job was canceled
 		isCanceled?: boolean
+		// Whether the job is scheduled for later
+		isScheduled?: boolean
 	}
 
 	let {
@@ -50,7 +52,8 @@
 		stepId,
 		showStepId = false,
 		isWaitingForEvents = false,
-		isCanceled = false
+		isCanceled = false,
+		isScheduled = false
 	}: Props = $props()
 	let duration = 200
 
@@ -146,10 +149,10 @@
 				: 'text-blue-700 dark:text-blue-200'}"
 		>
 			<div class={twMerge(slim ? 'text-xs' : 'text-sm', 'flex items-center gap-1')}>
-				{#if status == 'running' && !isCanceled}
+				{#if status == 'running' && !isCanceled && !isScheduled}
 					<Loader2 class="animate-spin" size={14} />
 				{/if}
-				{#key status + isWaitingForEvents + stepId + isCanceled}
+				{#key status + isWaitingForEvents + stepId + isCanceled + isScheduled}
 					<span in:fade={{ duration: 150 }}>
 						{#if status == 'error'}
 							Error occurred
@@ -159,6 +162,8 @@
 							Done
 						{:else if isWaitingForEvents}
 							Waiting to be resumed
+						{:else if isScheduled}
+							(not started)
 						{:else if showStepId}
 							{stepId
 								? `${isCanceled ? 'Canceled at' : 'Running'} step ${stepId}`
@@ -166,9 +171,9 @@
 						{:else if hideStepTitle}
 							{isCanceled ? 'Canceled' : 'Running'}
 						{:else if subIndexIsPercent}
-							{`${isCanceled ? 'Canceled at' : ''} Step ${index + 1} (${subIndex !== undefined ? `${subIndex}%)` : ''}`}
+							{(isCanceled ? 'Canceled at ' : '') + `Step ${index + 1} (${subIndex !== undefined ? subIndex + '%' : ''})`}
 						{:else}
-							{`${isCanceled ? 'Canceled at' : ''} Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
+							{(isCanceled ? 'Canceled at ' : '') + `Step ${index + 1}${subIndex !== undefined ? `.${subIndex + 1}` : ''}`}
 						{/if}
 					</span>
 				{/key}

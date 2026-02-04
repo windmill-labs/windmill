@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { type Job } from '$lib/gen'
 	import ProgressBar from '../progressBar/ProgressBar.svelte'
+	import { forLater } from '$lib/forLater'
 
 	interface Props {
 		job?: Job | undefined
@@ -31,10 +32,16 @@
 	let currentStepId: string | undefined = $state(undefined)
 	let isWaitingForEvents = $state(false)
 	let isCanceled = $state(false)
+	let isScheduled = $state(false)
 
 	let progressBar = $state<ProgressBar | undefined>(undefined)
 
 	function updateJobProgress(job: Job) {
+		// Check if job is scheduled for later
+		const isJobScheduled = Boolean('running' in job && 'scheduled_for' in job &&
+			job.scheduled_for && forLater(job.scheduled_for))
+		isScheduled = isJobScheduled
+
 		const modules = job?.flow_status?.modules
 		if (!modules?.length) {
 			return
@@ -118,6 +125,7 @@
 		currentStepId = undefined
 		isWaitingForEvents = false
 		isCanceled = false
+		isScheduled = false
 	}
 	$effect(() => {
 		job && updateJobProgress(job)
@@ -140,4 +148,5 @@
 	{showStepId}
 	{isWaitingForEvents}
 	{isCanceled}
+	{isScheduled}
 />
