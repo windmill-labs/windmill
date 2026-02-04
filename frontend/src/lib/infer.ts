@@ -1,4 +1,10 @@
-import { ScriptService, type MainArgSignature, FlowService, type Script } from '$lib/gen'
+import {
+	ScriptService,
+	type MainArgSignature,
+	FlowService,
+	type Script,
+	type AssetUsageAccessType
+} from '$lib/gen'
 import { get, writable } from 'svelte/store'
 import type { Schema, SupportedLanguage } from './common.js'
 import { emptySchema, sortObject } from './utils.js'
@@ -90,8 +96,18 @@ async function initWasmRuby() {
 }
 
 type InferAssetsResult =
-	| { status: 'ok'; assets: AssetWithAccessType[]; sql_queries?: InferAssetsSqlQueryDetails[] }
-	| { status: 'error'; error: string; assets?: undefined; sql_queries?: undefined }
+	| {
+			status: 'ok'
+			assets: AssetWithAccessType[]
+			sql_queries?: InferAssetsSqlQueryDetails[]
+			columns?: Record<string, AssetUsageAccessType>
+	  }
+	| {
+			status: 'error'
+			error: string
+			assets?: undefined
+			sql_queries?: undefined
+	  }
 
 export type InferAssetsSqlQueryDetails = {
 	query_string: string // SQL query with $1 placeholders for interpolations

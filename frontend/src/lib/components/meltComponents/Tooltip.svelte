@@ -16,6 +16,7 @@
 	export let openDelay: number = 300
 	export let closeDelay: number = 0
 	export let portal: string | undefined | null = 'body'
+	export let customBgClass: string | undefined = undefined
 
 	const {
 		elements: { trigger, content },
@@ -47,7 +48,7 @@
 
 {#if $open && !disablePopup}
 	<div use:melt={$content} transition:fade={{ duration: 100 }} style="z-index: {zIndexes.tooltip}">
-		<TooltipInner {documentationLink} {markdownTooltip}>
+		<TooltipInner {documentationLink} {markdownTooltip} {customBgClass}>
 			<slot name="text" />
 		</TooltipInner>
 	</div>

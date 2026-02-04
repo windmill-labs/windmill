@@ -1,5 +1,6 @@
 import type { Job } from '$lib/gen'
 import { triggerIconMap } from '$lib/components/triggers/utils'
+import { formatMemory } from '$lib/utils'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -22,6 +23,7 @@ export type JobField =
 	| 'created_at'
 	| 'started_at'
 	| 'created_by'
+	| 'permissioned_as'
 	| 'memory_peak'
 	| 'run_id'
 	| 'trigger_info'
@@ -179,10 +181,20 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 		getValue: (job) => job.created_by || 'unknown'
 	},
 
+	permissioned_as: {
+		field: 'permissioned_as',
+		label: 'Permissioned as',
+		getValue: (job) => job.permissioned_as || null
+	},
+
 	memory_peak: {
 		field: 'memory_peak',
 		label: 'Mem peak',
-		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null)
+		getValue: (job) => {
+			if (!job.mem_peak) return null
+			const formatted = formatMemory(job.mem_peak, true)
+			return `${formatted.display}|${formatted.tooltip}`
+		}
 	},
 
 	run_id: {
@@ -305,6 +317,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	script: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -326,6 +339,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 		created_at: true,
 		started_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		script_path: true,
@@ -345,6 +359,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	dependencies: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -365,6 +380,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	flow_node: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -385,6 +401,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	ai_agent: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -405,6 +422,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	system: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -425,6 +443,7 @@ export const categoryFieldPresence: FieldPresenceConfig = {
 	trigger_job: {
 		created_at: true,
 		created_by: true,
+		permissioned_as: false, // Will be conditionally shown
 		worker: true,
 		run_id: true,
 		started_at: true,
@@ -451,11 +470,16 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 	const category = getJobCategory(job)
 	const fieldsPresence = categoryFieldPresence[category]
 
-	// Define the field ordering: created_by, started_at, worker, then others
+	// Conditionally show permissioned_as field when different from created_by
+	const shouldShowPermissionedAs =
+		job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as !== job.created_by
+
+	// Define the field ordering: created_by, permissioned_as, started_at, worker, then others
 	const fieldOrder: JobField[] = [
 		'created_at',
 		'started_at',
 		'created_by',
+		'permissioned_as',
 		'worker',
 		'run_id',
 		'memory_peak',
@@ -474,7 +498,12 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 
 	// Return fields in the specified order if they are present for this category
 	return fieldOrder
-		.filter((fieldName) => fieldsPresence[fieldName])
+		.filter((fieldName) => {
+			if (fieldName === 'permissioned_as') {
+				return shouldShowPermissionedAs
+			}
+			return fieldsPresence[fieldName]
+		})
 		.map((fieldName) => fieldConfigs[fieldName])
 		.filter((config) => config) // Safety check
 }
