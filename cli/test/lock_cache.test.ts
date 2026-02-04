@@ -523,6 +523,28 @@ Deno.test("new logic: no annotation + same deps → 1 remote call", async () => 
   assertEquals(results[0], results[1]);
 });
 
+// -- Mix of annotated and non-annotated scripts -----------------------------
+
+Deno.test("new logic: mix of annotated and non-annotated → separate cache groups", async () => {
+  const { remoteFn, callCount } = makeRemoteFn();
+  const cache = new Map<string, string>();
+  const deps = { "dependencies/requirements.in": "requests==2.31.0" };
+
+  const scripts: ScriptInput[] = [
+    { scriptContent: "# requirements: default\nprint(1)", language: "python3", remotePath: "a", rawWorkspaceDependencies: deps },
+    { scriptContent: "print(2)", language: "python3", remotePath: "b", rawWorkspaceDependencies: deps },
+    { scriptContent: "# requirements: default\nprint(3)", language: "python3", remotePath: "c", rawWorkspaceDependencies: deps },
+    { scriptContent: "print(4)", language: "python3", remotePath: "d", rawWorkspaceDependencies: deps },
+  ];
+
+  const results: string[] = [];
+  for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
+  assertEquals(callCount(), 2); // one for annotated group, one for no-annotation group
+  assertEquals(results[0], results[2]); // both annotated "default"
+  assertEquals(results[1], results[3]); // both no annotation
+  assertNotEquals(results[0], results[1]); // annotated ≠ non-annotated
+});
+
 // -- Cache returns correct lock value ---------------------------------------
 
 Deno.test("new logic: cached value matches original remote response", async () => {
