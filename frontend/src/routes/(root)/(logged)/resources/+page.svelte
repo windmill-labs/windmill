@@ -30,7 +30,6 @@
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -67,6 +66,7 @@
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -118,8 +118,7 @@
 	let filter = $state('')
 	let ownerFilter: string | undefined = $state(undefined)
 
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showCreateButtons = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
+	let showCreateButtons = $state(false)
 
 	let typeFilter: string | undefined = $state(undefined)
 
@@ -741,6 +740,7 @@
 				</div>
 			{/if}
 		</PageHeader>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
 		<div class="flex justify-between">
 			<Tabs
 				class="w-full"
@@ -1003,7 +1003,7 @@
 													{
 														displayName: 'Edit',
 														icon: Pen,
-														disabled: !canWrite,
+														disabled: !canWrite || !showCreateButtons,
 														action: () => {
 															resourceEditor?.initEdit?.(path)
 														}
@@ -1021,7 +1021,7 @@
 														: []),
 													{
 														displayName: 'Delete',
-														disabled: !canWrite,
+														disabled: !canWrite || !showCreateButtons,
 														icon: Trash,
 														type: 'delete',
 														action: (event) => {
@@ -1126,6 +1126,7 @@
 													<Button
 														size="xs"
 														variant="default"
+														disabled={!showCreateButtons}
 														btnClasses="border-0"
 														startIcon={{ icon: Trash }}
 														on:click={() => handleDeleteResourceType(name)}
@@ -1136,6 +1137,7 @@
 													<Button
 														size="xs"
 														color="light"
+														disabled={!showCreateButtons}
 														startIcon={{ icon: Pen }}
 														on:click={() => startEditResourceType(name)}
 													>

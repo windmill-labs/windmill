@@ -6,6 +6,7 @@
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 	import Dropdown from '$lib/components/DropdownV2.svelte'
 	import ListFilters from '$lib/components/home/ListFilters.svelte'
+	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import Popover from '$lib/components/Popover.svelte'
 	import SearchItems from '$lib/components/SearchItems.svelte'
@@ -22,7 +23,6 @@
 	import type { ContextualVariable, ListableVariable, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, VariableService, WorkspaceService } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { sendUserToast } from '$lib/toast'
 	import { canWrite, isOwner, truncate } from '$lib/utils'
 	import { isDeployable, ALL_DEPLOYABLE } from '$lib/utils_deployable'
@@ -47,8 +47,7 @@
 	let variables = $state(undefined) as ListableVariableW[] | undefined
 	let filteredItems = $state(undefined) as (ListableVariableW & { marked?: string })[] | undefined
 
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showCreateButtons = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
+	let showCreateButtons = $state(false)
 	let contextualVariables: ContextualVariable[] = $state([])
 	let shareModal: ShareModal | undefined = $state()
 	let variableEditor: VariableEditor | undefined = $state()
@@ -211,6 +210,7 @@
 				</div>
 			{/if}
 		</PageHeader>
+		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
 
 		<VariableEditor bind:this={variableEditor} on:create={loadVariables} />
 		<ContextualVariableEditor
@@ -410,7 +410,7 @@
 														displayName: 'Edit',
 														icon: Pen,
 														action: () => variableEditor?.editVariable(path),
-														disabled: !canWrite
+														disabled: !canWrite || !showCreateButtons
 													},
 													{
 														displayName: 'Delete',
@@ -425,7 +425,7 @@
 																}
 															}
 														},
-														disabled: !owner
+														disabled: !owner || !showCreateButtons
 													},
 													...(isDeployable(
 														is_secret ? 'secret' : 'variable',

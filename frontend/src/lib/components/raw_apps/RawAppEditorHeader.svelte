@@ -5,7 +5,6 @@
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlocka } from '$lib/workspaceProtectionRules.svelte'
 	import {
 		Bug,
 		DiffIcon,
@@ -137,14 +136,6 @@
 		save: false,
 		saveDraft: false
 	})
-
-	// Protection rules check
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let deployBlocked = $derived(isDirectDeployBlocked())
-	let canBypass = $derived(canBypassDirectDeployBlock($userStore))
-	let showDeployButton = $derived(rulesLoaded && (!deployBlocked || canBypass))
-	let deployButtonText = $derived(deployBlocked && canBypass ? 'Deploy (bypassing protection rule)' : 'Deploy')
-	let deployButtonVariant = $derived(deployBlocked && canBypass ? 'warning' : 'accent')
 
 	let pathError: string = $state('')
 	let appExport = $state() as AppExportButton | undefined
@@ -696,23 +687,21 @@
 						Diff
 					</div>
 				</Button>
-				{#if showDeployButton}
-					<Button
-						variant={deployButtonVariant}
-						unifiedSize="md"
-						startIcon={{ icon: Save }}
-						disabled={pathError != '' || customPathError != '' || app == undefined}
-						on:click={() => {
-							if (appPath == '') {
-								createApp(newEditedPath)
-							} else {
-								handleUpdateApp(newEditedPath)
-							}
-						}}
-					>
-						{deployButtonText}
-					</Button>
-				{/if}
+				<Button
+					variant="accent"
+					unifiedSize="md"
+					startIcon={{ icon: Save }}
+					disabled={pathError != '' || customPathError != '' || app == undefined}
+					on:click={() => {
+						if (appPath == '') {
+							createApp(newEditedPath)
+						} else {
+							handleUpdateApp(newEditedPath)
+						}
+					}}
+				>
+					Deploy
+				</Button>
 			</div>
 		{/snippet}
 
@@ -858,26 +847,24 @@
 		>
 			Draft
 		</Button>
-		{#if showDeployButton}
-			<Button
-				loading={loading.save}
-				startIcon={{ icon: Save }}
-				on:click={save}
-				unifiedSize="md"
-				variant={deployButtonVariant}
-				dropdownItems={appPath != ''
-					? () => [
-							{
-								label: 'Fork',
-								onClick: () => {
-									window.open(`/apps/add?template=${appPath}`)
-								}
+		<Button
+			loading={loading.save}
+			startIcon={{ icon: Save }}
+			on:click={save}
+			unifiedSize="md"
+			variant="accent"
+			dropdownItems={appPath != ''
+				? () => [
+						{
+							label: 'Fork',
+							onClick: () => {
+								window.open(`/apps/add?template=${appPath}`)
 							}
-						]
-					: undefined}
-			>
-				{deployButtonText}
-			</Button>
-		{/if}
+						}
+					]
+				: undefined}
+		>
+			Deploy
+		</Button>
 	</div>
 </div>
