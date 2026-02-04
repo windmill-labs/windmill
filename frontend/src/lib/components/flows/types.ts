@@ -11,7 +11,6 @@ import type { StateStore } from '$lib/utils'
 import type { StepsInputArgs } from './stepsInputArgs.svelte'
 import type { Asset, AssetWithAccessType } from '../assets/lib'
 import type S3FilePicker from '../S3FilePicker.svelte'
-import type DbManagerDrawer from '../DBManagerDrawer.svelte'
 import type ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 import type { ModulesTestStates } from '../modulesTest.svelte'
 import type { ButtonProp } from '$lib/components/DiffEditor.svelte'
@@ -99,7 +98,6 @@ export type FlowEditorContext = {
 export type FlowGraphAssetContext = StateStore<{
 	selectedAsset: Asset | undefined
 	s3FilePicker: S3FilePicker | undefined
-	dbManagerDrawer: DbManagerDrawer | undefined
 	resourceEditorDrawer: ResourceEditorDrawer | undefined
 	// Maps resource paths to their metadata. undefined is for error
 	resourceMetadataCache: Record<string, { resource_type?: string } | undefined>
