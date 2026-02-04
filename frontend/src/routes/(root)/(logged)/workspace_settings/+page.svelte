@@ -801,7 +801,7 @@
 
 		<div class="flex gap-6">
 			<!-- Sidebar Navigation -->
-			<div class="w-64 shrink-0">
+			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-secondary/30 h-fit">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
