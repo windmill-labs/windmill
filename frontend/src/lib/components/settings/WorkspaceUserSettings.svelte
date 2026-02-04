@@ -6,6 +6,7 @@
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import WorkspaceOperatorSettings from '$lib/components/settings/WorkspaceOperatorSettings.svelte'
 	import InviteUser from '$lib/components/InviteUser.svelte'
+	import SettingsPageHeader from '$lib/components/settings/SettingsPageHeader.svelte'
 
 	import DataTable from '$lib/components/table/DataTable.svelte'
 	import Head from '$lib/components/table/Head.svelte'
@@ -92,14 +93,16 @@
 
 	async function loadSettings(): Promise<void> {
 		const settings = await WorkspaceService.getSettings({ workspace: $workspaceStore! })
-		const autoInvite = settings.auto_invite as {
-			enabled?: boolean
-			domain?: string
-			operator?: boolean
-			mode?: string
-			instance_groups?: string[]
-			instance_groups_roles?: Record<string, string>
-		} | undefined
+		const autoInvite = settings.auto_invite as
+			| {
+					enabled?: boolean
+					domain?: string
+					operator?: boolean
+					mode?: string
+					instance_groups?: string[]
+					instance_groups_roles?: Record<string, string>
+			  }
+			| undefined
 		auto_invite_domain = autoInvite?.enabled ? (autoInvite?.domain ?? '*') : undefined
 		operatorOnly = autoInvite?.operator ?? false
 		autoAdd = autoInvite?.mode === 'add'
@@ -399,19 +402,12 @@
 	bind:filteredItems={filteredUsers}
 	f={(x) => x.email + ' ' + x.name + ' ' + x.company}
 />
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-primary text-xs">
-			Add members to your workspace and manage their roles. You can also auto-add users to join your
-			workspace.
-			<a
-				href="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
-				target="_blank"
-				class="text-blue-500">Learn more</a
-			>.
-		</div>
-	</div>
-</div>
+
+<SettingsPageHeader
+	title="Members"
+	description="Add members to your workspace and manage their roles. You can also auto-add users to join your workspace."
+	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
+/>
 
 <Section
 	label="Members {(filteredUsers?.length ?? users?.length) != undefined

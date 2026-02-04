@@ -5,8 +5,8 @@
 	import { AI_PROVIDERS, fetchAvailableModels } from '../copilot/lib'
 	import { supportsAutocomplete } from '../copilot/utils'
 	import TestAiKey from '../copilot/TestAIKey.svelte'
-	import Description from '../Description.svelte'
 	import Label from '../Label.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Select from '../select/Select.svelte'
@@ -170,29 +170,28 @@
 	const autocompleteModels = $derived(selectedAiModels.filter(supportsAutocomplete))
 </script>
 
-<div class="flex flex-col gap-4 mt-4">
-	<div class="flex flex-col gap-1">
-		<div class="text-emphasis text-sm font-semibold flex flex-row gap-2 justify-between">
-			Windmill AI <Button
-				variant="accent"
-				unifiedSize="md"
-				wrapperClasses="self-start"
-				disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-					(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-					(Object.keys(aiProviders).length > 0 && !defaultModel)}
-				onClick={editCopilotConfig}
-				startIcon={{ icon: Save }}
-			>
-				Save AI settings
-			</Button></div
+<SettingsPageHeader
+	title="Windmill AI"
+	description="Windmill AI integrates with your favorite AI providers and models."
+	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
+>
+	{#snippet actions()}
+		<Button
+			variant="accent"
+			unifiedSize="md"
+			wrapperClasses="self-start"
+			disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+				(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+				(Object.keys(aiProviders).length > 0 && !defaultModel)}
+			onClick={editCopilotConfig}
+			startIcon={{ icon: Save }}
 		>
-		<Description link="https://www.windmill.dev/docs/core_concepts/ai_generation">
-			Windmill AI integrates with your favorite AI providers and models.
-		</Description>
-	</div>
-</div>
+			Save AI settings
+		</Button>
+	{/snippet}
+</SettingsPageHeader>
 
-<div class="flex flex-col gap-8 mt-4">
+<div class="flex flex-col gap-6 mt-4">
 	<Label label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}

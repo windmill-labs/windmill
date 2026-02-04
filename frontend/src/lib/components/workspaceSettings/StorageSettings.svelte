@@ -4,7 +4,7 @@
 	import { ChevronDown, Plus, Shield } from 'lucide-svelte'
 	import Alert from '../common/alert/Alert.svelte'
 	import Button from '../common/button/Button.svelte'
-	import Description from '../Description.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
 	import Toggle from '../Toggle.svelte'
 	import Tooltip from '../Tooltip.svelte'
@@ -101,20 +101,11 @@
 	<S3FilePicker bind:this={s3FileViewer} readOnlyMode={false} fromWorkspaceSettings={true} />
 </Portal>
 
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis"
-			>Workspace Object Storage (S3/Azure Blob/GCS)</div
-		>
-		<Description
-			link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
-		>
-			Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage
-			to enable users to read and write from object storage without having to have access to the
-			credentials.
-		</Description>
-	</div>
-</div>
+<SettingsPageHeader
+	title="Workspace Object Storage (S3/Azure Blob/GCS)"
+	description="Connect your Windmill workspace to your S3 bucket, Azure Blob storage, or Google Cloud Storage to enable users to read and write from object storage without having to have access to the credentials."
+	link="https://www.windmill.dev/docs/core_concepts/object_storage_in_windmill#workspace-object-storage"
+/>
 {#if !$enterpriseLicense}
 	<Alert type="info" title="S3 storage is limited to 20 files in Windmill CE">
 		Windmill S3 bucket browser will not work for buckets containing more than 20 files and uploads

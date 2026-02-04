@@ -49,8 +49,8 @@
 
 	import CloseButton from '../common/CloseButton.svelte'
 
-	import Description from '../Description.svelte'
 	import ResourcePicker from '../ResourcePicker.svelte'
+	import SettingsPageHeader from '../settings/SettingsPageHeader.svelte'
 	import Select from '../select/Select.svelte'
 	import Cell from '../table/Cell.svelte'
 	import DataTable from '../table/DataTable.svelte'
@@ -156,15 +156,11 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4 my-8">
-	<div class="flex flex-col gap-1">
-		<div class="text-sm font-semibold text-emphasis">Data tables</div>
-		<Description link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables">
-			Store relational data out of the box. Interact with a fully managed PostgreSQL database
-			directly from the Windmill SDK.
-		</Description>
-	</div>
-</div>
+<SettingsPageHeader
+	title="Data tables"
+	description="Store relational data out of the box. Interact with a fully managed PostgreSQL database directly from the Windmill SDK."
+	link="https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables"
+/>
 
 <DataTable>
 	<Head>
