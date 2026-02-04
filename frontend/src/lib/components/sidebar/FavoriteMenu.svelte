@@ -60,7 +60,7 @@
 </script>
 
 <script lang="ts">
-	import { CodeXml, LayoutDashboard, Pyramid, Star } from 'lucide-svelte'
+	import { CodeXml, LayoutDashboard, Pyramid, Star, Trash2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -69,6 +69,7 @@
 	import { get } from 'svelte/store'
 	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { parseDbInputFromAssetSyntax } from '$lib/utils'
+	import DropdownV2 from '$lib/components/DropdownV2.svelte'
 
 	interface Props {
 		lightMode?: boolean
@@ -108,32 +109,49 @@
 			{:else}
 				<div class="py-1 w-full max-w-full">
 					{#each favoriteLinks ?? [] as favorite}
-						<MenuItem
-							href={favorite.href}
-							onClick={() => {
-								if (favorite.kind === 'asset') {
-									const dbInput = parseDbInputFromAssetSyntax(favorite.path)
-									if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
-								}
-							}}
-							{item}
-							class="w-full inline-flex flex-row px-4 py-2 data-[highlighted]:bg-surface-hover"
-						>
-							<span class="center-center">
-								{#if favorite.kind == 'script'}
-									<CodeXml size={16} />
-								{:else if favorite.kind == 'flow'}
-									<BarsStaggered size={16} />
-								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
-									<LayoutDashboard size={16} />
-								{:else if favorite.kind == 'asset'}
-									<Pyramid size={16} />
-								{/if}
-							</span>
-							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
-								{favorite.label}
-							</span>
-						</MenuItem>
+						<div class="relative group">
+							<MenuItem
+								href={favorite.href}
+								onClick={() => {
+									if (favorite.kind === 'asset') {
+										const dbInput = parseDbInputFromAssetSyntax(favorite.path)
+										if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+									}
+								}}
+								{item}
+								class="w-full inline-flex flex-row px-4 py-2 pr-8 data-[highlighted]:bg-surface-hover"
+							>
+								<span class="center-center">
+									{#if favorite.kind == 'script'}
+										<CodeXml size={16} />
+									{:else if favorite.kind == 'flow'}
+										<BarsStaggered size={16} />
+									{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
+										<LayoutDashboard size={16} />
+									{:else if favorite.kind == 'asset'}
+										<Pyramid size={16} />
+									{/if}
+								</span>
+								<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
+									{favorite.label}
+								</span>
+							</MenuItem>
+							<div
+								class="absolute right-0 top-0 h-full flex items-center pr-1 opacity-0 group-hover:opacity-100 transition-opacity"
+							>
+								<DropdownV2
+									items={[
+										{
+											displayName: 'Delete',
+											icon: Trash2,
+											action: () => favoriteManager.unstar(favorite.path, favorite.kind)
+										}
+									]}
+									size="xs"
+									fixedHeight={false}
+								/>
+							</div>
+						</div>
 					{/each}
 				</div>
 			{/if}
