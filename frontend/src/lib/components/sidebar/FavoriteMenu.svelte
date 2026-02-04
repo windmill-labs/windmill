@@ -12,17 +12,26 @@
 			raw_app: `/apps_raw/get/${path}`
 		}[kind]
 	}
+	export function getFavoriteLabel(path: string, kind: FavoriteKind): string {
+		const publicDatatableRegex = /datatable:\/\/.*\/public\.[^/.]+/
+		const publicDucklakeRegex = /ducklake:\/\/.*\/main\.[^/.]+/
+		if (kind === 'asset' && path.match(publicDatatableRegex)) return path.replace('/public.', '/')
+		if (kind === 'asset' && path.match(publicDucklakeRegex)) return path.replace('/main.', '/')
+
+		return path
+	}
 
 	class FavoriteManager {
 		current: {
 			label: string
+			path: string
 			href: string
 			kind: FavoriteKind
 		}[] = $state([])
 
 		async unstar(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			this.current = this.current.filter(
-				(fav) => !(fav.label === path && fav.kind === favorite_kind)
+				(fav) => !(fav.path === path && fav.kind === favorite_kind)
 			)
 
 			await FavoriteService.unstar({
@@ -33,7 +42,8 @@
 
 		async star(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			const href = getFavoriteHref(path, favorite_kind)
-			this.current = [...this.current, { href, kind: favorite_kind, label: path }]
+			const label = getFavoriteLabel(path, favorite_kind)
+			this.current = [...this.current, { href, kind: favorite_kind, label, path }]
 			await FavoriteService.star({
 				workspace: workspaceId ?? get(workspaceStore)!,
 				requestBody: { path, favorite_kind }
@@ -41,7 +51,7 @@
 		}
 
 		isStarred(path: string, favorite_kind: string) {
-			return this.current.some((fav) => fav.label === path && fav.kind === favorite_kind)
+			return this.current.some((fav) => fav.path === path && fav.kind === favorite_kind)
 		}
 	}
 
@@ -99,7 +109,7 @@
 				</div>
 			{:else}
 				<div class="py-1 w-full max-w-full">
-					{#each favoriteLinks ?? [] as favorite (favorite.href)}
+					{#each favoriteLinks ?? [] as favorite}
 						<MenuItem
 							href={favorite.href}
 							{item}

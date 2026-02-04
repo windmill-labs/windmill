@@ -30,7 +30,8 @@
 	import { page } from '$app/stores'
 	import FavoriteMenu, {
 		favoriteManager,
-		getFavoriteHref
+		getFavoriteHref,
+		getFavoriteLabel
 	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
@@ -159,9 +160,10 @@
 	async function loadFavorites() {
 		const favorites = await FavoriteService.listFavorites({ workspace: $workspaceStore ?? '' })
 		favoriteManager.current = favorites.map((f) => ({
-			label: f.path ?? '',
+			label: getFavoriteLabel(f.path ?? 'Unknown', f.favorite_kind ?? 'script'),
 			href: getFavoriteHref(f.path ?? '', f.favorite_kind ?? 'script'),
-			kind: f.favorite_kind ?? 'script'
+			kind: f.favorite_kind ?? 'script',
+			path: f.path ?? ''
 		}))
 	}
 
