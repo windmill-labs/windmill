@@ -28,7 +28,8 @@
 		customPrompts = $bindable(),
 		maxTokensPerModel = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable(),
-		onSave
+		onSave,
+		hasUnsavedChanges = false
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
 		codeCompletionModel: string | undefined
@@ -37,6 +38,7 @@
 		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
 		onSave?: () => void
+		hasUnsavedChanges?: boolean
 	} = $props()
 
 	let fetchedAiModels = $state(false)
@@ -182,7 +184,8 @@
 			wrapperClasses="self-start"
 			disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
 				(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-				(Object.keys(aiProviders).length > 0 && !defaultModel)}
+				(Object.keys(aiProviders).length > 0 && !defaultModel) ||
+				!hasUnsavedChanges}
 			onClick={editCopilotConfig}
 			startIcon={{ icon: Save }}
 		>

@@ -3,7 +3,7 @@
 	import { page } from '$app/stores'
 	import { isCloudHosted } from '$lib/cloud'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import { Alert, Button, Section, Skeleton, Tab, Tabs } from '$lib/components/common'
+	import { Alert, Button, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 
@@ -273,6 +273,29 @@
 		const initialValue = initialCriticalAlertUIMuted ?? false
 
 		return currentValue !== initialValue
+	})
+
+	// Derived state for checking unsaved changes in AI settings
+	let hasAiSettingsChanges = $derived.by(() => {
+		if (tab !== 'ai') return false
+
+		const changes = getAiSettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...changes.savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...changes.modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
 	})
 
 	// Validation effects
@@ -1742,43 +1765,37 @@ export async function main(
 						link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
 					/>
 					<div class="flex flex-col gap-6 py-4">
-						<Section
-							label="Critical Alerts Settings"
-							description="Configure how critical alerts are handled in this workspace."
-							class="flex flex-col gap-6"
-						>
-							{#if !$enterpriseLicense}
-								<Alert type="warning" title="Workspace critical alerts is an EE feature">
-									Workspace critical alerts is a Windmill Enterprise Edition feature that sends
-									notifications to workspace admins when critical events occur.
-								</Alert>
-							{/if}
-							<Toggle
+						{#if !$enterpriseLicense}
+							<Alert type="warning" title="Workspace critical alerts is an EE feature">
+								Workspace critical alerts is a Windmill Enterprise Edition feature that sends
+								notifications to workspace admins when critical events occur.
+							</Alert>
+						{/if}
+						<Toggle
+							disabled={!$enterpriseLicense}
+							bind:checked={criticalAlertUIMuted}
+							options={{ right: 'Mute critical alerts UI for this workspace' }}
+						/>
+
+						<div class="flex gap-2">
+							<Button
 								disabled={!$enterpriseLicense}
-								bind:checked={criticalAlertUIMuted}
-								options={{ right: 'Mute critical alerts UI for this workspace' }}
-							/>
+								on:click={() => isCriticalAlertsUIOpen.set(true)}
+								btnClasses="w-fit"
+							>
+								Show critical alerts
+							</Button>
 
-							<div class="flex gap-2">
-								<Button
-									disabled={!$enterpriseLicense}
-									on:click={() => isCriticalAlertsUIOpen.set(true)}
-									btnClasses="w-fit"
-								>
-									Show critical alerts
-								</Button>
-
-								<Button
-									disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
-									on:click={editCriticalAlertMuteSetting}
-									variant="accent"
-									startIcon={{ icon: Save }}
-									btnClasses="w-fit"
-								>
-									Save mute setting
-								</Button>
-							</div>
-						</Section>
+							<Button
+								disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
+								on:click={editCriticalAlertMuteSetting}
+								variant="accent"
+								startIcon={{ icon: Save }}
+								btnClasses="w-fit"
+							>
+								Save mute setting
+							</Button>
+						</div>
 					</div>
 				{:else if tab == 'ai'}
 					<AISettings
@@ -1788,6 +1805,7 @@ export async function main(
 						bind:customPrompts
 						bind:maxTokensPerModel
 						bind:usingOpenaiClientCredentialsOauth
+						hasUnsavedChanges={hasAiSettingsChanges}
 						onSave={() => {
 							// Update initial state after successful save
 							initialAiProviders = clone(aiProviders)
