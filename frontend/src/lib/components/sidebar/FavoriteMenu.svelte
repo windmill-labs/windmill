@@ -9,7 +9,8 @@
 			script: `/scripts/get/${path}`,
 			flow: `/flows/get/${path}`,
 			app: `/apps/get/${path}`,
-			raw_app: `/apps_raw/get/${path}`
+			raw_app: `/apps_raw/get/${path}`,
+			asset: `#dbmanager:${path}`
 		}[kind]
 	}
 	export function getFavoriteLabel(path: string, kind: FavoriteKind): string {
@@ -59,32 +60,30 @@
 </script>
 
 <script lang="ts">
-	import { CodeXml, LayoutDashboard, Star } from 'lucide-svelte'
+	import { CodeXml, LayoutDashboard, Pyramid, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
 	import { FavoriteService, type StarData } from '$lib/gen'
 	import { get } from 'svelte/store'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
+	import { type DbInput } from '../dbTypes'
+	import { parseDbInputFromAssetSyntax } from '$lib/utils'
 
 	interface Props {
 		lightMode?: boolean
 		isCollapsed?: boolean
-		favoriteLinks?: any
+		favoriteLinks?: {
+			label: string
+			href: string
+			path: string
+			kind: FavoriteKind
+		}[]
 		createMenu: MenubarBuilders['createMenu']
 	}
 
-	let {
-		lightMode = false,
-		isCollapsed = false,
-		favoriteLinks = [] as {
-			label: string
-			href: string
-			kind: 'script' | 'flow' | 'app' | 'raw_app'
-		}[],
-		createMenu
-	}: Props = $props()
+	let { lightMode = false, isCollapsed = false, favoriteLinks = [], createMenu }: Props = $props()
 </script>
 
 <Menu {createMenu} usePointerDownOutside>
@@ -112,6 +111,12 @@
 					{#each favoriteLinks ?? [] as favorite}
 						<MenuItem
 							href={favorite.href}
+							onClick={() => {
+								if (favorite.kind === 'asset') {
+									const dbInput = parseDbInputFromAssetSyntax(favorite.path)
+									if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+								}
+							}}
 							{item}
 							class="w-full inline-flex flex-row px-4 py-2 data-[highlighted]:bg-surface-hover"
 						>
@@ -122,6 +127,8 @@
 									<BarsStaggered size={16} />
 								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 									<LayoutDashboard size={16} />
+								{:else if favorite.kind == 'asset'}
+									<Pyramid size={16} />
 								{/if}
 							</span>
 							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">

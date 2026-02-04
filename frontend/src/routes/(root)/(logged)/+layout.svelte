@@ -5,8 +5,8 @@
 	import {
 		capitalize,
 		classNames,
-		deserializeDbInput,
 		getModifierKey,
+		parseDbInputFromAssetSyntax,
 		sendUserToast
 	} from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
@@ -56,6 +56,7 @@
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
 	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import { watchOnce } from 'runed'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -376,20 +377,18 @@
 		}
 	})
 
-	$effect(() => {
-		if (!globalDbManagerDrawer.val) return
-		const onHashChange = () => {
+	watchOnce(
+		() => globalDbManagerDrawer.val,
+		() => {
+			if (!globalDbManagerDrawer.val) return
 			const hash = window.location.hash
 			if (hash.startsWith('#dbmanager:')) {
-				const [_, dbManagerPath] = hash.split('#dbmanager:')
-				const dbInput = dbManagerPath && deserializeDbInput(dbManagerPath)
+				const [_, path] = hash.split('#dbmanager:')
+				const dbInput = parseDbInputFromAssetSyntax(path)
 				if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
 			}
 		}
-		untrack(() => onHashChange())
-		window.addEventListener('hashchange', onHashChange)
-		return () => window.removeEventListener('hashchange', onHashChange)
-	})
+	)
 </script>
 
 <svelte:window bind:innerWidth />

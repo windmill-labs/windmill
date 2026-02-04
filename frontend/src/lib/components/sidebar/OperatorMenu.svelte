@@ -12,7 +12,8 @@
 		Building,
 		Calendar,
 		ServerCog,
-		GraduationCap
+		GraduationCap,
+		Pyramid
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
@@ -35,21 +36,19 @@
 	import MenuButton, { sidebarClasses } from './MenuButton.svelte'
 	import MenuLink from './MenuLink.svelte'
 	import ResizeTransitionWrapper from '../common/ResizeTransitionWrapper.svelte'
+	import type { FavoriteKind } from './FavoriteMenu.svelte'
 	let darkMode: boolean = $state(false)
 
 	interface Props {
 		isCollapsed?: boolean
-		favoriteLinks?: any
-	}
-
-	let {
-		isCollapsed = false,
-		favoriteLinks = [] as {
+		favoriteLinks?: {
 			label: string
 			href: string
-			kind: 'script' | 'flow' | 'app' | 'raw_app'
+			kind: FavoriteKind
 		}[]
-	}: Props = $props()
+	}
+
+	let { isCollapsed = false, favoriteLinks = [] }: Props = $props()
 
 	let mainMenuLinks = $derived(
 		[
@@ -206,6 +205,8 @@
 									<BarsStaggered size={16} />
 								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 									<LayoutDashboard size={16} />
+								{:else if favorite.kind == 'asset'}
+									<Pyramid size={16} />
 								{/if}
 							</span>
 							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">

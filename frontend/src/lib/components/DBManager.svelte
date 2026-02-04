@@ -457,6 +457,8 @@
 								kind="asset"
 								path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${selected.schemaKey}.${tableKey}`}
 							/>
+						{:else}
+							<Table2 class="text-primary shrink-0" size={14} />
 						{/if}
 
 						<p

@@ -9,7 +9,6 @@
 	import type { DbInput } from './dbTypes'
 	import DBManagerContent from './DBManagerContent.svelte'
 	import { resource } from 'runed'
-	import { serializeDbInput } from '$lib/utils'
 
 	interface Props {
 		/** Z-index offset for the drawer, useful when opening from within modals */
@@ -70,20 +69,13 @@
 		} else {
 			selectedDatatable = undefined
 		}
-		const serializedInput = serializeDbInput(input)
-		history.replaceState(
-			null,
-			'',
-			`${window.location.pathname}${window.location.search}#dbmanager:${serializedInput}`
-		)
 	}
 	export function closeDrawer() {
 		input = undefined
 		selectedDatatable = undefined
 		dbManagerContent?.clearReplResult()
-		if (window.location.hash.startsWith('#dbmanager:')) {
-			history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
-		}
+		if (window.location.hash.startsWith('#dbmanager:'))
+			history.replaceState('', document.title, window.location.href.replace(/#dbmanager:.*$/, ''))
 	}
 
 	let windowWidth = $state(window.innerWidth)

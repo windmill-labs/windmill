@@ -1987,53 +1987,19 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 	return result
 }
 
-export function serializeDbInput(input: DbInput): string {
-	if (input.type === 'database') {
-		const params = new URLSearchParams()
-		if (input.specificSchema) {
-			params.set('schema', input.specificSchema)
-		}
-		if (input.specificTable) {
-			params.set('table', input.specificTable)
-		}
-
-		const queryString = params.toString()
-		let uri = `database://${input.resourcePath}${queryString ? '?' + queryString : ''}`
-		if (input.resourcePath.startsWith('datatable://')) uri = uri.substring('database://'.length)
-		else params.set('resourceType', input.resourceType)
-		return uri
-	} else {
-		const params = new URLSearchParams()
-		if (input.specificTable) {
-			params.set('table', input.specificTable)
-		}
-		const queryString = params.toString()
-		return `ducklake://${input.ducklake}${queryString ? '?' + queryString : ''}`
-	}
-}
-
-export function deserializeDbInput(serialized: string): DbInput | undefined {
-	if (serialized.startsWith('datatable://')) serialized = `database://${serialized}`
-
-	const url = new URL(serialized)
-	const params = url.searchParams
-	const path = url.hostname + url.pathname.replace(/\/$/, '')
-
-	if (url.protocol === 'database:') {
-		return {
-			type: 'database',
-			resourceType: (params.get('resourceType') as DbType) || 'postgresql',
-			resourcePath: path,
-			specificSchema: params.get('schema') ?? undefined,
-			specificTable: params.get('table') ?? undefined
-		}
-	} else if (url.protocol === 'ducklake:') {
-		return {
-			type: 'ducklake',
-			ducklake: path,
-			specificTable: params.get('table') ?? undefined
-		}
-	}
-
-	throw new Error(`Unknown protocol: ${url.protocol}`)
+export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
+	const [p1, _p2] = path.split('://')
+	const [p2, _p3] = _p2.split('/')
+	const [p3, p4] = _p3.split('.')
+	return p1 === 'ducklake'
+		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		: p1 === 'datatable'
+			? {
+					type: 'database',
+					resourcePath: `datatable://${p2 || 'main'}`,
+					resourceType: 'postgresql',
+					specificTable: p4 ?? p3,
+					specificSchema: p3
+				}
+			: null
 }
