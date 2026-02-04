@@ -218,11 +218,11 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<u64>().ok())
         .unwrap_or(3600 * 12);
 
-    // Period in seconds between polling for notify events (30s by default)
+    // Period in seconds between polling for notify events (10s by default)
     static ref LISTEN_NEW_EVENTS_INTERVAL_SEC: u64 = std::env::var("LISTEN_NEW_EVENTS_INTERVAL_SEC")
         .ok()
         .and_then(|x| x.parse::<u64>().ok())
-        .unwrap_or(30);
+        .unwrap_or(10);
 }
 
 pub fn main() -> anyhow::Result<()> {
