@@ -291,12 +291,16 @@ class EphemeralBackendManager {
             }
 
             const tunnelUrl = await new Promise<string>((res, err) => {
+              const adminRandomPwd = Math.random()
+                .toString(36)
+                .substring(2, 15);
               const ephemeralBackend = new EphemeralBackend({
                 dbPort: self.findFreeDbPorts(),
                 serverPort: self.findFreeServerPorts(),
                 skipBuild: !!process.env.SKIP_BACKEND_BUILD,
                 commitHash: commitHash,
                 worktreePool: self.resources.worktreePool!,
+                adminPwd: adminRandomPwd,
                 onCloudflaredUrl: (url) => (res(url), clearTimeout(timeout)),
                 onCleanup: () => {
                   const backendInfo =
@@ -348,6 +352,7 @@ class EphemeralBackendManager {
                               .get(commitHash)
                               ?.createdAt.getTime() ?? 0) + BACKEND_TIMEOUT_MS,
                           commitHash,
+                          adminPassword: adminRandomPwd,
                           tunnelUrl: `https://${tunnelUrl}`,
                         }),
                       }).catch((e) => {

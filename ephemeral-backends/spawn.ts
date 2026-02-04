@@ -14,6 +14,7 @@ export interface Config {
   skipBuild: boolean;
   commitHash: string;
   worktreePool: WorktreePool;
+  adminPwd: string;
   onCloudflaredUrl?: (url: string) => void;
   onCleanup?: () => void;
 }
@@ -383,26 +384,40 @@ export class EphemeralBackend {
     const sandboxGid = await this.getSandboxGid();
 
     // Use bwrap for sandboxing the windmill process
-    this.resources.backendProcess = spawn("bwrap", [
-      "--ro-bind", "/", "/",
-      "--bind", "/home/sandbox", "/home/sandbox",
-      "--bind", "/tmp", "/tmp",
-      "--dev", "/dev",
-      "--proc", "/proc",
-      "--unshare-user",
-      "--uid", sandboxUid,
-      "--gid", sandboxGid,
-      `${releaseDir}/windmill`
-    ], {
-      env,
-    });
-
-    // Capture and log backend stdout
-    this.resources.backendProcess.stdout.on("data", (data: Buffer) => {
-      const output = data.toString().trim();
-      if (output) {
-        this.resources.logger?.log(`[backend] ${output}`);
+    this.resources.backendProcess = spawn(
+      "bwrap",
+      [
+        ...["--ro-bind", "/", "/"],
+        ...["--bind", "/home/sandbox", "/home/sandbox"],
+        ...["--bind", "/tmp", "/tmp"],
+        ...["--dev", "/dev"],
+        ...["--proc", "/proc"],
+        "--unshare-user",
+        ...["--uid", sandboxUid],
+        ...["--gid", sandboxGid],
+        `${releaseDir}/windmill`,
+      ],
+      {
+        env,
       }
+    );
+
+    // Wait for backend to be ready by watching for "Windmill Enterprise Edition" in output
+    const backendReady = new Promise<void>((resolve, reject) => {
+      // Capture and log backend stdout, watching for ready signal
+      this.resources.backendProcess.stdout.on("data", (data: any) => {
+        const output = data.toString().trim();
+        const timeout = setTimeout(() => {
+          reject(new Error("Backend failed to start in time"));
+        }, 30000); // 30 seconds timeout
+        if (output) {
+          this.resources.logger?.log(`[backend] ${output}`);
+          if (output.includes("Windmill Enterprise Edition")) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        }
+      });
     });
 
     // Capture and log backend stderr
@@ -417,9 +432,15 @@ export class EphemeralBackend {
       this.resources.logger?.log(`Backend process exited with code ${code}`);
     });
 
-    // Give the backend a moment to start
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-    this.resources.logger?.log("✓ Backend started");
+    // Wait for backend to be ready
+    await backendReady;
+    this.resources.logger?.log("✓ Backend is running");
+
+    // Wait 2 additional seconds to be sure
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+
+    // Setup admin password
+    await this.setupAdminPassword();
   }
 
   private async startCloudflared(): Promise<void> {
@@ -488,7 +509,9 @@ export class EphemeralBackend {
       return stdout.trim();
     } catch (error) {
       this.resources.logger?.error(
-        `Failed to get sandbox UID: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to get sandbox UID: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
       throw new Error("Failed to get sandbox user UID");
     }
@@ -500,9 +523,76 @@ export class EphemeralBackend {
       return stdout.trim();
     } catch (error) {
       this.resources.logger?.error(
-        `Failed to get sandbox GID: ${error instanceof Error ? error.message : String(error)}`
+        `Failed to get sandbox GID: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
       throw new Error("Failed to get sandbox user GID");
+    }
+  }
+
+  private async setupAdminPassword(): Promise<void> {
+    this.resources.logger?.log("\n🔑 Setting up admin password...");
+
+    const baseUrl = `http://localhost:${this.config.serverPort}`;
+
+    try {
+      // Login with default credentials
+      this.resources.logger?.log("  Logging in with default credentials...");
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: "admin@windmill.dev",
+          password: "changeme",
+        }),
+      });
+
+      if (!loginResponse.ok) {
+        throw new Error(
+          `Login failed with status ${
+            loginResponse.status
+          }: ${await loginResponse.text()}`
+        );
+      }
+
+      const token = await loginResponse.text();
+      this.resources.logger?.log("  ✓ Logged in successfully");
+
+      // Set new admin password
+      this.resources.logger?.log("  Setting new admin password...");
+      const setPasswordResponse = await fetch(
+        `${baseUrl}/api/users/setpassword`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            password: this.config.adminPwd,
+          }),
+        }
+      );
+
+      if (!setPasswordResponse.ok) {
+        throw new Error(
+          `Set password failed with status ${
+            setPasswordResponse.status
+          }: ${await setPasswordResponse.text()}`
+        );
+      }
+
+      this.resources.logger?.log("✓ Admin password configured successfully");
+    } catch (error) {
+      this.resources.logger?.error(
+        `Failed to setup admin password: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      throw error;
     }
   }
 
