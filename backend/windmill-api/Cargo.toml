@@ -169,6 +169,7 @@ tar.workspace = true
 flate2.workspace = true
 backon = {workspace = true, optional = true}
 strum = { workspace = true, optional = true }
+dashmap.workspace = true
 
 [build-dependencies]
 deno_core = { workspace = true, optional = true }

@@ -152,6 +152,11 @@
         "ordinal": 29,
         "name": "success_handler",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 30,
+        "name": "public_app_execution_limit_per_minute",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -182,6 +187,7 @@
       true,
       true,
       false,
+      true,
       true,
       true,
       true,

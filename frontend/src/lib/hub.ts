@@ -83,6 +83,14 @@ export function appToHubUrl(staticApp: any, hubBaseUrl: string): URL {
 	return url
 }
 
+export function rawAppToHubUrl(hubBaseUrl: string, summary?: string): URL {
+	const url = new URL(hubBaseUrl + '/raw_apps/add')
+	if (summary) {
+		url.searchParams.append('summary', summary)
+	}
+	return url
+}
+
 type HubPaths = {
 	gitSync: string
 	gitSyncTest: string

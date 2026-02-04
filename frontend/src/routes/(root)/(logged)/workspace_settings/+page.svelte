@@ -102,6 +102,8 @@
 	let successHandlerScriptPath: string | undefined = $state(undefined)
 	let criticalAlertUIMuted: boolean | undefined = $state(undefined)
 	let initialCriticalAlertUIMuted: boolean | undefined = $state(undefined)
+	let publicAppRateLimitPerMinute: number | undefined = $state(undefined)
+	let initialPublicAppRateLimitPerMinute: number | undefined = $state(undefined)
 
 	let aiProviders: Exclude<AIConfig['providers'], undefined> = $state({})
 	let codeCompletionModel: string | undefined = $state(undefined)
@@ -347,6 +349,8 @@
 		errorHandlerMutedOnUserPath = errorHandler?.muted_on_user_path
 		criticalAlertUIMuted = settings.mute_critical_alerts
 		initialCriticalAlertUIMuted = settings.mute_critical_alerts
+		publicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
+		initialPublicAppRateLimitPerMinute = settings.public_app_execution_limit_per_minute ?? undefined
 		if (emptyString($enterpriseLicense)) {
 			errorHandlerSelected = 'custom'
 		} else {
@@ -561,6 +565,21 @@
 		}, 3000)
 	}
 
+	async function editPublicAppRateLimit() {
+		await SettingService.setPublicAppRateLimit({
+			workspace: $workspaceStore!,
+			requestBody: {
+				public_app_execution_limit_per_minute: publicAppRateLimitPerMinute
+			}
+		})
+		initialPublicAppRateLimitPerMinute = publicAppRateLimitPerMinute
+		sendUserToast(
+			publicAppRateLimitPerMinute
+				? `Public app rate limit set to ${publicAppRateLimitPerMinute} per minute per server`
+				: `Public app rate limit disabled`
+		)
+	}
+
 	// Function to check if there are unsaved changes in AI settings
 	function getAiSettingsInitialAndModifiedValues() {
 		// Only check for unsaved changes when on the AI tab
@@ -764,9 +783,9 @@
 				<Tab
 					small
 					value="default_app"
-					aiId="workspace-settings-default-app"
-					aiDescription="Default app workspace settings"
-					label="Default App"
+					aiId="workspace-settings-apps"
+					aiDescription="Apps workspace settings"
+					label="Apps"
 				/>
 
 				<Tab
@@ -1405,6 +1424,33 @@ export async function main(
 					/>
 				{/key}
 			</div>
+
+			<hr class="border-t my-8" />
+			<Section
+				label="Public App Rate Limiting"
+				description="Limit the number of public (anonymous) app executions per minute per server. Set to 0 or leave empty to disable. This is a per-server limit, not a global limit."
+				class="flex flex-col gap-6"
+			>
+				<div class="flex flex-row items-center gap-4">
+					<TextInput
+						inputProps={{ type: 'number', placeholder: '0 (disabled)' }}
+						bind:value={publicAppRateLimitPerMinute}
+						class="w-48"
+					/>
+					<span class="text-secondary text-sm">executions per minute per server</span>
+				</div>
+
+				<Button
+					disabled={publicAppRateLimitPerMinute === initialPublicAppRateLimitPerMinute}
+					size="sm"
+					on:click={editPublicAppRateLimit}
+					variant="default"
+					startIcon={{ icon: Save }}
+					btnClasses="w-fit"
+				>
+					Save rate limit
+				</Button>
+			</Section>
 		{:else if tab == 'native_triggers'}
 			{#if $workspaceStore}
 				{#await import('$lib/components/workspaceSettings/WorkspaceIntegrations.svelte') then { default: WorkspaceIntegrations }}

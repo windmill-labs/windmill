@@ -167,6 +167,7 @@ mod teams_approvals_oss;
 #[cfg(feature = "native_trigger")]
 pub mod native_triggers;
 mod public_app_layer;
+mod public_app_rate_limit;
 mod static_assets;
 #[cfg(all(feature = "stripe", feature = "enterprise", feature = "private"))]
 pub mod stripe_ee;
