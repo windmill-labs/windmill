@@ -963,7 +963,7 @@ async fn route_job(
 
             let s3_object = s3_object.map_err(|err| {
                 tracing::warn!("Error retrieving file from S3: {:?}", err);
-                Error::internal_err(format!("Error retrieving file: {}", err.to_string()))
+                Error::internal_err(format!("Error retrieving file: {:?}", err))
             })?;
 
             let mut response_headers = http::HeaderMap::new();
