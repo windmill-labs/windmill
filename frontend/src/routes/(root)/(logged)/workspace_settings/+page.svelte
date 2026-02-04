@@ -1663,7 +1663,7 @@
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					/>
 
-					<div class="flex flex-col gap-1">
+					<div class="flex flex-col gap-1 pb-8">
 						<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
 						<div class="text-secondary text-xs">
 							This URL will be POSTed to with a JSON body depending on the type of event. The type
