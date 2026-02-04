@@ -231,10 +231,10 @@
 					newPath = event.detail
 				}}
 				on:restore={onRestore}
-				initFiles={files}
-				initRunnables={runnables}
-				initData={data}
-				{summary}
+				bind:files
+				bind:runnables
+				bind:data
+				bind:summary
 				{newPath}
 				path={page.params.path ?? ''}
 				{policy}

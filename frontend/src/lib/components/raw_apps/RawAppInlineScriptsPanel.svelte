@@ -7,7 +7,6 @@
 		runnables: Record<string, Runnable>
 		selectedRunnable: string | undefined
 		appPath: string
-		initRunnablesContent: Record<string, string>
 		/** Called when code is selected in the editor */
 		onSelectionChange?: (
 			selection: {

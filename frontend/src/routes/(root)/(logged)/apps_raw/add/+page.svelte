@@ -588,12 +588,12 @@
 		on:savedNewAppPath={(event) => {
 			goto(`/apps_raw/edit/${event.detail}`)
 		}}
-		initFiles={files}
-		initRunnables={runnables}
-		initData={data}
+		bind:files
+		bind:runnables
+		bind:data
 		{policy}
 		path={''}
-		{summary}
+		bind:summary
 		newApp
 	/>
 {/key}
