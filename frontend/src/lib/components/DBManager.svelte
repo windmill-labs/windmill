@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import { ChevronDownIcon, EditIcon, Loader2, Plus, Table2, Trash2Icon } from 'lucide-svelte'
+	import {
+		ChevronDownIcon,
+		EditIcon,
+		Loader2,
+		Plus,
+		StarIcon,
+		Table2,
+		Trash2Icon
+	} from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -442,12 +450,20 @@
 			{:else}
 				<!-- Normal mode: show tables for selected schema -->
 				{#each filteredTableKeys as tableKey}
+					<!-- PLACEHOLDER -->
+					{@const isFavorite = false}
 					<button
 						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
-							(selected.tableKey === tableKey ? 'bg-gray-500/25' : 'hover:bg-gray-500/10')}
+							(selected.tableKey === tableKey ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
 						onclick={() => (selected.tableKey = tableKey)}
 					>
-						<Table2 class="text-primary shrink-0" size={16} />
+						<StarIcon
+							size="16"
+							class="{isFavorite ? 'fill-yellow-500 text-yellow-500' : 'text-hint'} shrink-0"
+							onclick={(e) => {
+								// TODO
+							}}
+						/>
 						<p
 							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
 							>{tableKey}</p
