@@ -33,7 +33,27 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState } from '$lib/utils'
-	import { RotateCw, Save, Slack } from 'lucide-svelte'
+	import {
+		RotateCw,
+		Save,
+		Slack,
+		Users,
+		GitBranch,
+		Rocket,
+		MessageSquare,
+		Crown,
+		Webhook,
+		AlertTriangle,
+		Bot,
+		Database,
+		HardDrive,
+		Smartphone,
+		Key,
+		Settings,
+		Package,
+		Zap
+	} from 'lucide-svelte'
+	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
 	import Toggle from '$lib/components/Toggle.svelte'
@@ -660,6 +680,143 @@
 			discardStorageSettingsChanges()
 		}
 	}
+
+	// Navigation groups for sidebar
+	const navigationGroups = $derived([
+		{
+			title: 'User Management',
+			items: [
+				{
+					id: 'users',
+					label: 'Users',
+					icon: Users,
+					aiId: 'workspace-settings-users',
+					aiDescription: 'Users workspace settings'
+				}
+			]
+		},
+		{
+			title: 'Integration & Deployment',
+			items: [
+				{
+					id: 'git_sync',
+					label: 'Git Sync',
+					icon: GitBranch,
+					aiId: 'workspace-settings-git-sync',
+					aiDescription: 'Git sync workspace settings'
+				},
+				{
+					id: 'deploy_to',
+					label: 'Deployment UI',
+					icon: Rocket,
+					aiId: 'workspace-settings-deploy-to',
+					aiDescription: 'Deployment UI workspace settings'
+				},
+				{
+					id: 'slack',
+					label: 'Slack / Teams',
+					icon: MessageSquare,
+					aiId: 'workspace-settings-slack',
+					aiDescription: 'Slack / Teams workspace settings',
+					showIf: WORKSPACE_SHOW_SLACK_CMD
+				},
+				{
+					id: 'webhook',
+					label: 'Webhook',
+					icon: Webhook,
+					aiId: 'workspace-settings-webhook',
+					aiDescription: 'Webhook workspace settings',
+					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC
+				}
+			]
+		},
+		{
+			title: 'Error Handling & AI',
+			items: [
+				{
+					id: 'error_handler',
+					label: 'Error Handler',
+					icon: AlertTriangle,
+					aiId: 'workspace-settings-error-handler',
+					aiDescription: 'Error handler workspace settings'
+				},
+				{
+					id: 'ai',
+					label: 'Windmill AI',
+					icon: Bot,
+					aiId: 'workspace-settings-ai',
+					aiDescription: 'Windmill AI workspace settings'
+				}
+			]
+		},
+		{
+			title: 'Data & Storage',
+			items: [
+				{
+					id: 'windmill_data_tables',
+					label: 'Data Tables',
+					icon: Database,
+					aiId: 'workspace-settings-windmill-data-tables',
+					aiDescription: 'Data tables workspace settings'
+				},
+				{
+					id: 'windmill_lfs',
+					label: 'Object Storage (S3)',
+					icon: HardDrive,
+					aiId: 'workspace-settings-windmill-lfs',
+					aiDescription: 'Object Storage (S3) workspace settings'
+				}
+			]
+		},
+		{
+			title: 'Configuration',
+			items: [
+				{
+					id: 'default_app',
+					label: 'Default App',
+					icon: Smartphone,
+					aiId: 'workspace-settings-default-app',
+					aiDescription: 'Default app workspace settings'
+				},
+				{
+					id: 'encryption',
+					label: 'Encryption',
+					icon: Key,
+					aiId: 'workspace-settings-encryption',
+					aiDescription: 'Encryption workspace settings'
+				},
+				{
+					id: 'general',
+					label: 'General',
+					icon: Settings,
+					aiId: 'workspace-settings-general',
+					aiDescription: 'General workspace settings'
+				},
+				{
+					id: 'dependencies',
+					label: 'Dependencies',
+					icon: Package,
+					aiId: 'workspace-settings-dependencies',
+					aiDescription: 'Workspace dependencies settings'
+				},
+				{
+					id: 'native_triggers',
+					label: 'Native Triggers (Beta)',
+					icon: Zap,
+					aiId: 'workspace-settings-integrations',
+					aiDescription: 'Workspace integrations for native triggers'
+				},
+				{
+					id: 'premium',
+					label: 'Premium Plans',
+					icon: Crown,
+					aiId: 'workspace-settings-premium',
+					aiDescription: 'Premium plans workspace settings',
+					showIf: isCloudHosted()
+				}
+			]
+		}
+	])
 </script>
 
 <CenteredPage>
@@ -672,140 +829,28 @@
 			{/if}</PageHeader
 		>
 
-		<div class="overflow-x-auto scrollbar-hidden">
-			<Tabs
-				bind:selected={tab}
-				deferSelectedUpdate={true}
-				on:selected={(e) => {
-					// setQueryWithoutLoad($page.url, [{ key: 'tab', value: tab }], 0)
-					const params = new URLSearchParams($page.url.searchParams)
-					const newTab = e.detail
-					params.set('tab', newTab)
-					goto(`?${params.toString()}`)
-				}}
-			>
-				<Tab
-					small
-					value="users"
-					aiId="workspace-settings-users"
-					aiDescription="Users workspace settings"
-					label="Users"
+		<div class="flex gap-6">
+			<!-- Sidebar Navigation -->
+			<div class="w-64 shrink-0">
+				<SidebarNavigation
+					groups={navigationGroups}
+					selectedId={tab}
+					onNavigate={(id) => {
+						const params = new URLSearchParams($page.url.searchParams)
+						params.set('tab', id)
+						goto(`?${params.toString()}`)
+					}}
 				/>
-				<Tab
-					small
-					value="git_sync"
-					aiId="workspace-settings-git-sync"
-					aiDescription="Git sync workspace settings"
-					label="Git Sync"
-				/>
-				<Tab
-					small
-					value="deploy_to"
-					aiId="workspace-settings-deploy-to"
-					aiDescription="Deployment UI workspace settings"
-					label="Deployment UI"
-				/>
+			</div>
 
-				{#if WORKSPACE_SHOW_SLACK_CMD}
-					<Tab
-						small
-						value="slack"
-						aiId="workspace-settings-slack"
-						aiDescription="Slack / Teams workspace settings"
-						label="Slack / Teams"
-					/>
-				{/if}
-				{#if isCloudHosted()}
-					<Tab
-						small
-						value="premium"
-						aiId="workspace-settings-premium"
-						aiDescription="Premium plans workspace settings"
-						label="Premium Plans"
-					/>
-				{/if}
-				{#if WORKSPACE_SHOW_WEBHOOK_CLI_SYNC}
-					<Tab
-						small
-						value="webhook"
-						aiId="workspace-settings-webhook"
-						aiDescription="Webhook workspace settings"
-						label="Webhook"
-					/>
-				{/if}
-				<Tab
-					small
-					value="error_handler"
-					aiId="workspace-settings-error-handler"
-					aiDescription="Error handler workspace settings"
-					label="Error Handler"
-				/>
-				<Tab
-					small
-					value="ai"
-					aiId="workspace-settings-ai"
-					aiDescription="Windmill AI workspace settings"
-					label="Windmill AI"
-				/>
-				<Tab
-					small
-					value="windmill_data_tables"
-					aiId="workspace-settings-windmill-data-tables"
-					aiDescription="Data tables workspace settings"
-					label="Data Tables"
-				/>
-				<Tab
-					small
-					value="windmill_lfs"
-					aiId="workspace-settings-windmill-lfs"
-					aiDescription="Object Storage (S3) workspace settings"
-					label="Object Storage (S3)"
-				/>
-				<Tab
-					small
-					value="default_app"
-					aiId="workspace-settings-default-app"
-					aiDescription="Default app workspace settings"
-					label="Default App"
-				/>
-
-				<Tab
-					small
-					value="encryption"
-					aiId="workspace-settings-encryption"
-					aiDescription="Encryption workspace settings"
-					label="Encryption"
-				/>
-
-				<Tab
-					small
-					value="general"
-					aiId="workspace-settings-general"
-					aiDescription="General workspace settings"
-					label="General"
-				/>
-				<Tab
-					small
-					value="dependencies"
-					aiId="workspace-settings-dependencies"
-					aiDescription="Workspace dependencies settings"
-					label="Dependencies"
-				/>
-				<Tab
-					small
-					value="native_triggers"
-					aiId="workspace-settings-integrations"
-					aiDescription="Workspace integrations for native triggers"
-					label="Native Triggers (Beta)"
-				/>
-			</Tabs>
-		</div>
+			<!-- Main Content -->
+			<div class="flex-1 min-w-0">
 		{#if !loadedSettings}
 			<Skeleton layout={[1, [40]]} />
 		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
 		{:else if tab == 'deploy_to'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">
 						Link this Workspace to another Staging / Prod Workspace
@@ -828,7 +873,6 @@
 		{:else if tab == 'premium'}
 			<PremiumInfo {customer_id} {plan} />
 		{:else if tab == 'slack'}
-			<div class="mt-4"></div>
 			<Section
 				label="Workspace connections to Slack and Teams"
 				description="With workspace connections, you can trigger scripts or flows with a '/windmill' command with your Slack or Teams bot or set the workspace error handler to send notifications to your Slack or Teams channel. <a href='https://www.windmill.dev/docs/core_concepts/error_handling#workspace-error-handler'>Learn more</a>."
@@ -1016,7 +1060,7 @@
 				{/if}
 			</Section>
 		{:else if tab == 'general'}
-			<div class="flex flex-col gap-4 my-6">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">General</div>
 					<Description link="https://www.windmill.dev/docs/core_concepts/workspace_settings">
@@ -1089,7 +1133,7 @@
 				{/if}
 			</div>
 		{:else if tab == 'webhook'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-xs font-semibold text-emphasis"> Workspace Webhook</div>
 					<Description
@@ -1100,7 +1144,7 @@
 					</Description>
 				</div>
 			</div>
-			<div class="flex flex-col gap-4 my-4">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
 					<div class="text-primary text-xs">
@@ -1372,7 +1416,7 @@ export async function main(
 		{:else if tab == 'dependencies'}
 			<WorkspaceDependenciesSettings />
 		{:else if tab == 'default_app'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">Workspace Default App</div>
 					<Description>
@@ -1416,7 +1460,7 @@ export async function main(
 				</div>
 			{/if}
 		{:else if tab == 'encryption'}
-			<div class="flex flex-col gap-4 my-8">
+			<div class="flex flex-col gap-4">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">Workspace Secret Encryption</div>
 					<Description>
@@ -1471,6 +1515,8 @@ export async function main(
 				</div>
 			{/if}
 		{/if}
+			</div>
+		</div>
 	{:else}
 		<div class="bg-red-100 border-l-4 border-red-600 text-orange-700 p-4 m-4" role="alert">
 			<p class="font-bold">Not an admin</p>
