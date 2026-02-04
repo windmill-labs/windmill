@@ -211,6 +211,87 @@ export async function updateScriptSchema(
   }
 }
 
+export async function computeLockCacheKey(
+  scriptContent: string,
+  language: ScriptLanguage,
+  rawWorkspaceDependencies: Record<string, string>,
+): Promise<string> {
+  const sortedDepsKeys = Object.keys(rawWorkspaceDependencies).sort();
+  const depsStr = sortedDepsKeys.map((k) => `${k}=${rawWorkspaceDependencies[k]}`).join(";");
+  return await generateHash(`${language}|${scriptContent}|${depsStr}`);
+}
+
+const lockCache = new Map<string, string>();
+
+export function clearLockCache(): void {
+  lockCache.clear();
+}
+
+async function fetchScriptLock(
+  workspace: Workspace,
+  scriptContent: string,
+  language: ScriptLanguage,
+  remotePath: string,
+  rawWorkspaceDependencies: Record<string, string>,
+): Promise<string> {
+  const cacheKey = await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies);
+  if (lockCache.has(cacheKey)) {
+    log.info(`Using cached lockfile for ${remotePath}`);
+    return lockCache.get(cacheKey)!;
+  }
+
+  const extraHeaders = getHeaders();
+  const rawResponse = await fetch(
+    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
+    {
+      method: "POST",
+      headers: {
+        Cookie: `token=${workspace.token}`,
+        "Content-Type": "application/json",
+        ...extraHeaders,
+      },
+      body: JSON.stringify({
+        raw_scripts: [
+          {
+            raw_code: scriptContent,
+            language: language,
+            script_path: remotePath,
+          },
+        ],
+        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0
+          ? rawWorkspaceDependencies : null,
+        entrypoint: remotePath,
+      }),
+    }
+  );
+
+  let responseText = "reading response failed";
+  try {
+    responseText = await rawResponse.text();
+    const response = JSON.parse(responseText);
+    const lock = response.lock;
+    if (lock === undefined) {
+      if (response?.["error"]?.["message"]) {
+        throw new LockfileGenerationError(
+          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
+        );
+      }
+      throw new LockfileGenerationError(
+        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
+      );
+    }
+    lockCache.set(cacheKey, lock);
+    return lock;
+  } catch (e) {
+    if (e instanceof LockfileGenerationError) {
+      throw e;
+    }
+    throw new LockfileGenerationError(
+      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
+    );
+  }
+}
+
 async function updateScriptLock(
   workspace: Workspace,
   scriptContent: string,
@@ -235,70 +316,28 @@ async function updateScriptLock(
     const dependencyPaths = Object.keys(rawWorkspaceDependencies).join(', ');
     log.info(`Generating script lock for ${remotePath} with raw workspace dependencies: ${dependencyPaths}`);
   }
-  
-  // generate the script lock running a dependency job in Windmill and update it inplace
-  // TODO: update this once the client is released
-  const extraHeaders = getHeaders();
-  const rawResponse = await fetch(
-    `${workspace.remote}api/w/${workspace.workspaceId}/jobs/run/dependencies`,
-    {
-      method: "POST",
-      headers: {
-        Cookie: `token=${workspace.token}`,
-        "Content-Type": "application/json",
-        ...extraHeaders,
-      },
-      body: JSON.stringify({
-        raw_scripts: [
-          {
-            raw_code: scriptContent,
-            language: language,
-            script_path: remotePath,
-          },
-        ],
-        raw_workspace_dependencies: Object.keys(rawWorkspaceDependencies).length > 0 
-          ? rawWorkspaceDependencies : null,
-        entrypoint: remotePath,
-      }),
-    }
+
+  const lock = await fetchScriptLock(
+    workspace,
+    scriptContent,
+    language,
+    remotePath,
+    rawWorkspaceDependencies,
   );
 
-  let responseText = "reading response failed";
-  try {
-    responseText = await rawResponse.text();
-    const response = JSON.parse(responseText);
-    const lock = response.lock;
-    if (lock === undefined) {
-      if (response?.["error"]?.["message"]) {
-        throw new LockfileGenerationError(
-          `Failed to generate lockfile: ${response?.["error"]?.["message"]}`
-        );
+  const lockPath = remotePath + ".script.lock";
+  if (lock != "") {
+    await Deno.writeTextFile(lockPath, lock);
+    metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
+  } else {
+    try {
+      if (await Deno.stat(lockPath)) {
+        await Deno.remove(lockPath);
       }
-      throw new LockfileGenerationError(
-        `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
-      );
+    } catch (e) {
+      log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
     }
-    const lockPath = remotePath + ".script.lock";
-    if (lock != "") {
-      await Deno.writeTextFile(lockPath, lock);
-      metadataContent.lock = "!inline " + lockPath.replaceAll(SEP, "/");
-    } else {
-      try {
-        if (await Deno.stat(lockPath)) {
-          await Deno.remove(lockPath);
-        }
-      } catch (e) {
-        log.info(colors.yellow(`Error removing lock file ${lockPath}: ${e}`));
-      }
-      metadataContent.lock = "";
-    }
-  } catch (e) {
-    if (e instanceof LockfileGenerationError) {
-      throw e;
-    }
-    throw new LockfileGenerationError(
-      `Failed to generate lockfile:${rawResponse.statusText}, ${responseText}, ${e}`
-    );
+    metadataContent.lock = "";
   }
 }
 
