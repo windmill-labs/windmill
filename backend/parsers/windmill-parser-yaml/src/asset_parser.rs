@@ -12,6 +12,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
                 kind: AssetKind::Resource,
                 path: delegate_to_git_repo_details.resource,
                 access_type: Some(AssetUsageAccessType::R),
+                columns: None,
             })
         }
 
@@ -21,6 +22,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
                     kind: AssetKind::Resource,
                     path: pinned_res,
                     access_type: Some(AssetUsageAccessType::R),
+                    columns: None,
                 })
             }
         }
@@ -31,6 +33,7 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
                     kind: AssetKind::Resource,
                     path: resource,
                     access_type: Some(AssetUsageAccessType::R),
+                    columns: None,
                 })
             }
         }

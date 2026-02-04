@@ -23,6 +23,7 @@ export async function saveKafkaTriggerFromCfg(
 		kafka_resource_path: cfg.kafka_resource_path,
 		group_id: cfg.group_id,
 		topics: cfg.topics,
+		filters: cfg.filters ?? [],
 		...errorHandlerAndRetries
 	}
 	try {
