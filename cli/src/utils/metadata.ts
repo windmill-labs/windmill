@@ -211,13 +211,102 @@ export async function updateScriptSchema(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Annotation parser — mirrors backend's WorkspaceDependenciesAnnotatedRefs::parse
+// (windmill-common/src/workspace_dependencies.rs) so the cache key captures
+// exactly the parts of scriptContent that affect lockfile generation.
+// ---------------------------------------------------------------------------
+
+type AnnotationMode = "manual" | "extra";
+
+interface WorkspaceDepsAnnotation {
+  mode: AnnotationMode;
+  external: string[];
+  inline: string | null;
+}
+
+const LANG_ANNOTATION_CONFIG: Partial<
+  Record<ScriptLanguage, { comment: string; keyword: string; validityRe?: RegExp }>
+> = {
+  python3: { comment: "#", keyword: "requirements", validityRe: /^#\s?(\S+)\s*$/ },
+  bun: { comment: "//", keyword: "package_json" },
+  nativets: { comment: "//", keyword: "package_json" },
+  go: { comment: "//", keyword: "go_mod" },
+  php: { comment: "//", keyword: "composer_json" },
+};
+
+export function extractWorkspaceDepsAnnotation(
+  scriptContent: string,
+  language: ScriptLanguage,
+): WorkspaceDepsAnnotation | null {
+  const config = LANG_ANNOTATION_CONFIG[language];
+  if (!config) return null;
+
+  const { comment, keyword, validityRe } = config;
+  const extraMarker = `extra_${keyword}:`;
+  const manualMarker = `${keyword}:`;
+
+  const lines = scriptContent.split("\n");
+
+  // Find first annotation line (mirrors Rust find_position)
+  let pos = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (l.startsWith(comment) && (l.includes(extraMarker) || l.includes(manualMarker))) {
+      pos = i;
+      break;
+    }
+  }
+  if (pos === -1) return null;
+
+  const annotationLine = lines[pos];
+  const mode: AnnotationMode = annotationLine.includes(extraMarker) ? "extra" : "manual";
+
+  // Parse external references from the annotation line
+  const marker = mode === "extra" ? extraMarker : manualMarker;
+  const unparsed = annotationLine.replaceAll(marker, "").replaceAll(comment, "");
+  const external = unparsed
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
+  // Parse inline deps from subsequent lines
+  const inlineParts: string[] = [];
+  for (let i = pos + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (validityRe) {
+      const match = validityRe.exec(l);
+      if (match && match[1]) {
+        inlineParts.push(match[1]);
+      } else {
+        break;
+      }
+    } else {
+      if (!l.startsWith(comment)) {
+        break;
+      }
+      inlineParts.push(l.substring(comment.length));
+    }
+  }
+
+  const inlineStr = inlineParts.join("\n");
+  const inline = inlineStr.trim().length > 0 ? inlineStr : null;
+
+  return { mode, external, inline };
+}
+
 export async function computeLockCacheKey(
+  scriptContent: string,
   language: ScriptLanguage,
   rawWorkspaceDependencies: Record<string, string>,
 ): Promise<string> {
+  const annotation = extractWorkspaceDepsAnnotation(scriptContent, language);
+  const annotationStr = annotation
+    ? `${annotation.mode}|${annotation.external.join(",")}|${annotation.inline ?? ""}`
+    : "none";
   const sortedDepsKeys = Object.keys(rawWorkspaceDependencies).sort();
   const depsStr = sortedDepsKeys.map((k) => `${k}=${rawWorkspaceDependencies[k]}`).join(";");
-  return await generateHash(`${language}|${depsStr}`);
+  return await generateHash(`${language}|${annotationStr}|${depsStr}`);
 }
 
 const lockCache = new Map<string, string>();
@@ -235,7 +324,7 @@ async function fetchScriptLock(
 ): Promise<string> {
   const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
   const cacheKey = hasRawDeps
-    ? await computeLockCacheKey(language, rawWorkspaceDependencies)
+    ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies)
     : undefined;
   if (cacheKey && lockCache.has(cacheKey)) {
     log.info(`Using cached lockfile for ${remotePath}`);
