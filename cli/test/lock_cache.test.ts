@@ -18,9 +18,10 @@ import { encodeHex } from "https://deno.land/std@0.224.0/encoding/hex.ts";
 // ---------------------------------------------------------------------------
 // Mirrors computeLockCacheKey from src/utils/metadata.ts so we can test the
 // algorithm without pulling in the full (unresolvable-in-tests) module graph.
+// The key is (language, rawWorkspaceDependencies) — scriptContent is NOT part
+// of the key because all scripts sharing the same raw deps get the same lock.
 // ---------------------------------------------------------------------------
 async function computeLockCacheKey(
-  scriptContent: string,
   language: string,
   rawWorkspaceDependencies: Record<string, string>,
 ): Promise<string> {
@@ -28,7 +29,7 @@ async function computeLockCacheKey(
   const depsStr = sortedDepsKeys
     .map((k) => `${k}=${rawWorkspaceDependencies[k]}`)
     .join(";");
-  const content = `${language}|${scriptContent}|${depsStr}`;
+  const content = `${language}|${depsStr}`;
   const buf = new TextEncoder().encode(content);
   return encodeHex(await crypto.subtle.digest("SHA-256", buf));
 }
@@ -62,7 +63,6 @@ async function fetchScriptLockNew(
   const hasRawDeps = Object.keys(input.rawWorkspaceDependencies).length > 0;
   const cacheKey = hasRawDeps
     ? await computeLockCacheKey(
-        input.scriptContent,
         input.language,
         input.rawWorkspaceDependencies,
       )
@@ -82,10 +82,10 @@ async function fetchScriptLockNew(
 // =============================================================================
 
 Deno.test("same inputs produce same key", async () => {
-  const a = await computeLockCacheKey("print('hello')", "python3", {
+  const a = await computeLockCacheKey("python3", {
     "dependencies/requirements.in": "requests==2.31.0",
   });
-  const b = await computeLockCacheKey("print('hello')", "python3", {
+  const b = await computeLockCacheKey("python3", {
     "dependencies/requirements.in": "requests==2.31.0",
   });
   assertEquals(a, b);
@@ -93,17 +93,17 @@ Deno.test("same inputs produce same key", async () => {
 
 Deno.test("empty deps produce same key", async () => {
   assertEquals(
-    await computeLockCacheKey("x", "python3", {}),
-    await computeLockCacheKey("x", "python3", {}),
+    await computeLockCacheKey("python3", {}),
+    await computeLockCacheKey("python3", {}),
   );
 });
 
 Deno.test("dep key order does not matter", async () => {
-  const a = await computeLockCacheKey("x", "python3", {
+  const a = await computeLockCacheKey("python3", {
     "dependencies/requirements.in": "requests",
     "dependencies/base/requirements.in": "flask",
   });
-  const b = await computeLockCacheKey("x", "python3", {
+  const b = await computeLockCacheKey("python3", {
     "dependencies/base/requirements.in": "flask",
     "dependencies/requirements.in": "requests",
   });
@@ -112,29 +112,29 @@ Deno.test("dep key order does not matter", async () => {
 
 Deno.test("different dep content → different key", async () => {
   assertNotEquals(
-    await computeLockCacheKey("x", "python3", { d: "a" }),
-    await computeLockCacheKey("x", "python3", { d: "b" }),
+    await computeLockCacheKey("python3", { d: "a" }),
+    await computeLockCacheKey("python3", { d: "b" }),
   );
 });
 
-Deno.test("different script content → different key", async () => {
-  assertNotEquals(
-    await computeLockCacheKey("a", "python3", { d: "v" }),
-    await computeLockCacheKey("b", "python3", { d: "v" }),
+Deno.test("different script content, same language+deps → same key", async () => {
+  assertEquals(
+    await computeLockCacheKey("python3", { d: "v" }),
+    await computeLockCacheKey("python3", { d: "v" }),
   );
 });
 
 Deno.test("different language → different key", async () => {
   assertNotEquals(
-    await computeLockCacheKey("x", "bun", { d: "v" }),
-    await computeLockCacheKey("x", "deno", { d: "v" }),
+    await computeLockCacheKey("bun", { d: "v" }),
+    await computeLockCacheKey("deno", { d: "v" }),
   );
 });
 
 Deno.test("extra dep entry → different key", async () => {
   assertNotEquals(
-    await computeLockCacheKey("x", "python3", { a: "1" }),
-    await computeLockCacheKey("x", "python3", { a: "1", b: "2" }),
+    await computeLockCacheKey("python3", { a: "1" }),
+    await computeLockCacheKey("python3", { a: "1", b: "2" }),
   );
 });
 
@@ -213,7 +213,7 @@ Deno.test("old logic: two different scripts same deps → 2 remote calls", async
   assertEquals(callCount(), 2);
 });
 
-Deno.test("new logic: two different scripts same deps → 2 remote calls", async () => {
+Deno.test("new logic: two different scripts same deps → 1 remote call (cache shared)", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -223,8 +223,11 @@ Deno.test("new logic: two different scripts same deps → 2 remote calls", async
     { scriptContent: "print(2)", language: "python3", remotePath: "u/a/s2", rawWorkspaceDependencies: deps },
   ];
 
-  for (const s of scripts) await fetchScriptLockNew(s, remoteFn, cache);
-  assertEquals(callCount(), 2);
+  const results: string[] = [];
+  for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
+  assertEquals(callCount(), 1);
+  // Both get the same cached lock since language+deps are the same
+  assertEquals(results[0], results[1]);
 });
 
 // -- Two scripts, same content but different deps ---------------------------
@@ -257,13 +260,13 @@ Deno.test("new logic: same content different deps → 2 remote calls (no false c
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
   assertEquals(callCount(), 2);
-  // Results differ because the remote fn was called with different inputs
+  // Results differ because deps are different
   assertNotEquals(results[0], results[1]);
 });
 
-// -- Many scripts, mix of duplicates ----------------------------------------
+// -- Many scripts, mix of content but same language + deps ------------------
 
-Deno.test("old logic: 5 scripts (3 unique) → 5 remote calls", async () => {
+Deno.test("old logic: 5 scripts same deps → 5 remote calls", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
 
@@ -279,7 +282,7 @@ Deno.test("old logic: 5 scripts (3 unique) → 5 remote calls", async () => {
   assertEquals(callCount(), 5);
 });
 
-Deno.test("new logic: 5 scripts (3 unique) → 3 remote calls", async () => {
+Deno.test("new logic: 5 scripts same deps → 1 remote call (all share cache)", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
   const deps = { "dependencies/requirements.in": "requests==2.31.0" };
@@ -294,10 +297,34 @@ Deno.test("new logic: 5 scripts (3 unique) → 3 remote calls", async () => {
 
   const results: string[] = [];
   for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
-  assertEquals(callCount(), 3);
-  // Duplicates got the same lock as their first occurrence
-  assertEquals(results[0], results[2]); // print(1)
-  assertEquals(results[1], results[3]); // print(2)
+  assertEquals(callCount(), 1);
+  // All scripts get the same cached lock
+  for (let i = 1; i < results.length; i++) {
+    assertEquals(results[0], results[i]);
+  }
+});
+
+// -- Many scripts, different deps -------------------------------------------
+
+Deno.test("new logic: 4 scripts with 2 dep groups → 2 remote calls", async () => {
+  const { remoteFn, callCount } = makeRemoteFn();
+  const cache = new Map<string, string>();
+  const depsA = { "dependencies/requirements.in": "requests==2.31.0" };
+  const depsB = { "dependencies/requirements.in": "flask==3.0.0" };
+
+  const scripts: ScriptInput[] = [
+    { scriptContent: "print(1)", language: "python3", remotePath: "a", rawWorkspaceDependencies: depsA },
+    { scriptContent: "print(2)", language: "python3", remotePath: "b", rawWorkspaceDependencies: depsB },
+    { scriptContent: "print(3)", language: "python3", remotePath: "c", rawWorkspaceDependencies: depsA },
+    { scriptContent: "print(4)", language: "python3", remotePath: "d", rawWorkspaceDependencies: depsB },
+  ];
+
+  const results: string[] = [];
+  for (const s of scripts) results.push(await fetchScriptLockNew(s, remoteFn, cache));
+  assertEquals(callCount(), 2);
+  assertEquals(results[0], results[2]); // same depsA
+  assertEquals(results[1], results[3]); // same depsB
+  assertNotEquals(results[0], results[1]); // depsA ≠ depsB
 });
 
 // -- Scripts with no workspace deps (empty) ---------------------------------
@@ -325,7 +352,6 @@ Deno.test("new logic: cached value matches original remote response", async () =
   let callIdx = 0;
   const remoteFn = async (_input: ScriptInput) => {
     callIdx++;
-    // Only the first call should actually happen; return a deterministic lock
     return "resolved-lock-content-abc123";
   };
 
@@ -334,7 +360,7 @@ Deno.test("new logic: cached value matches original remote response", async () =
     remoteFn, cache,
   );
   const r2 = await fetchScriptLockNew(
-    { scriptContent: "print(1)", language: "python3", remotePath: "b", rawWorkspaceDependencies: deps },
+    { scriptContent: "print(2)", language: "python3", remotePath: "b", rawWorkspaceDependencies: deps },
     remoteFn, cache,
   );
 

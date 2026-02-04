@@ -212,13 +212,12 @@ export async function updateScriptSchema(
 }
 
 export async function computeLockCacheKey(
-  scriptContent: string,
   language: ScriptLanguage,
   rawWorkspaceDependencies: Record<string, string>,
 ): Promise<string> {
   const sortedDepsKeys = Object.keys(rawWorkspaceDependencies).sort();
   const depsStr = sortedDepsKeys.map((k) => `${k}=${rawWorkspaceDependencies[k]}`).join(";");
-  return await generateHash(`${language}|${scriptContent}|${depsStr}`);
+  return await generateHash(`${language}|${depsStr}`);
 }
 
 const lockCache = new Map<string, string>();
@@ -236,7 +235,7 @@ async function fetchScriptLock(
 ): Promise<string> {
   const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
   const cacheKey = hasRawDeps
-    ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies)
+    ? await computeLockCacheKey(language, rawWorkspaceDependencies)
     : undefined;
   if (cacheKey && lockCache.has(cacheKey)) {
     log.info(`Using cached lockfile for ${remotePath}`);
