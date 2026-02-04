@@ -15647,6 +15647,7 @@ dependencies = [
  "sqlx",
  "strum 0.27.2",
  "systemstat",
+ "tempfile",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",

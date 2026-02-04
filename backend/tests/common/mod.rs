@@ -803,3 +803,47 @@ pub async fn rebuild_dmap(client: &windmill_api_client::Client) -> bool {
         .status()
         .is_success()
 }
+
+// ============================================================================
+// Dedicated Worker Protocol Helpers
+// ============================================================================
+
+/// Result from parsing a dedicated worker stdout line
+#[derive(Debug, Clone, PartialEq)]
+pub enum DedicatedWorkerResult {
+    /// Worker printed "start" indicating it's ready
+    Start,
+    /// Worker returned a successful result
+    Success(serde_json::Value),
+    /// Worker returned an error result
+    Error(serde_json::Value),
+    /// Line is not a protocol message (e.g., logs)
+    Other(String),
+}
+
+/// Parse a line from dedicated worker stdout according to the protocol:
+/// - "start" -> Ready signal
+/// - "wm_res[success]:JSON" -> Success with result
+/// - "wm_res[error]:JSON" -> Error with details
+/// - anything else -> Other (logs)
+pub fn parse_dedicated_worker_line(line: &str) -> DedicatedWorkerResult {
+    if line == "start" {
+        return DedicatedWorkerResult::Start;
+    }
+
+    if let Some(json_str) = line.strip_prefix("wm_res[success]:") {
+        match serde_json::from_str(json_str) {
+            Ok(value) => return DedicatedWorkerResult::Success(value),
+            Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
+        }
+    }
+
+    if let Some(json_str) = line.strip_prefix("wm_res[error]:") {
+        match serde_json::from_str(json_str) {
+            Ok(value) => return DedicatedWorkerResult::Error(value),
+            Err(_) => return DedicatedWorkerResult::Other(line.to_string()),
+        }
+    }
+
+    DedicatedWorkerResult::Other(line.to_string())
+}
