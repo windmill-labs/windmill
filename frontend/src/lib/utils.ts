@@ -1783,7 +1783,7 @@ import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
 import { Bot, Code, Package } from 'lucide-svelte'
-import type { DbInput, DbType } from './components/dbTypes'
+import type { DbInput } from './components/dbTypes'
 export function getCssColor(
 	color: CssColor,
 	{
