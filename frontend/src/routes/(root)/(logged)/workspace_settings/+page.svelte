@@ -33,8 +33,15 @@
 		isCriticalAlertsUIOpen
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
-	import { clone, emptyString, encodeState } from '$lib/utils'
-	import { RotateCw, Save, Slack } from 'lucide-svelte'
+	import {
+		clone,
+		emptyString,
+		encodeState,
+		cleanValueProperties,
+		orderedJsonStringify,
+		replaceFalseWithUndefined
+	} from '$lib/utils'
+	import { RotateCw, Save, Slack, X } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -62,6 +69,7 @@
 	import UnsavedConfirmationModal from '$lib/components/common/confirmationModal/UnsavedConfirmationModal.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
 	import CollapseLink from '$lib/components/CollapseLink.svelte'
+	import { validateWebhookUrl, validateEncryptionKey } from '$lib/validators/workspaceSettings'
 	import DataTableSettings, {
 		convertDataTableSettingsFromBackend,
 		type DataTableSettingsType
@@ -117,6 +125,49 @@
 	let initialCustomPrompts: Record<string, string> = $state({})
 	let initialMaxTokensPerModel: Record<string, number> = $state({})
 
+	// Track initial deploy settings for unsaved changes detection
+	let initialWorkspaceToDeployTo: string | undefined = $state(undefined)
+	let initialDeployUiSettings: {
+		include_path: string[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
+			triggers: boolean
+		}
+	} = $state({
+		include_path: [],
+		include_type: {
+			scripts: true,
+			flows: true,
+			apps: true,
+			resources: true,
+			variables: true,
+			secrets: true,
+			triggers: true
+		}
+	})
+
+	// Track initial webhook for unsaved changes detection
+	let initialWebhook: string | undefined = $state(undefined)
+
+	// Track initial encryption key for unsaved changes detection
+	let initialEditedWorkspaceEncryptionKey: string | undefined = $state(undefined)
+
+	// Track initial error handler settings for unsaved changes detection
+	let initialErrorHandlerSelected: ErrorHandler = $state('slack')
+	let initialErrorHandlerScriptPath: string | undefined = $state(undefined)
+	let initialErrorHandlerItemKind: 'flow' | 'script' = $state('script')
+	let initialErrorHandlerExtraArgs: Record<string, any> = $state({})
+	let initialErrorHandlerMutedOnCancel: boolean | undefined = $state(undefined)
+	let initialErrorHandlerMutedOnUserPath: boolean | undefined = $state(undefined)
+
+	// Track initial success handler for unsaved changes detection
+	let initialSuccessHandlerScriptPath: string | undefined = $state(undefined)
+
 	let s3ResourceSettings: S3ResourceSettings = $state({
 		resourceType: 's3',
 		resourcePath: undefined,
@@ -140,7 +191,104 @@
 	let workspaceEncryptionKey: string | undefined = $state(undefined)
 	let editedWorkspaceEncryptionKey: string | undefined = $state(undefined)
 	let workspaceReencryptionInProgress: boolean = $state(false)
-	let encryptionKeyRegex = /^[a-zA-Z0-9]{64}$/
+
+	// Validation state
+	let webhookValidationError: string | undefined = $state(undefined)
+	let encryptionKeyValidationError: string | undefined = $state(undefined)
+
+	// Derived state for checking unsaved changes in error handler
+	let hasErrorHandlerChanges = $derived.by(() => {
+		if (tab !== 'error_handler') return false
+
+		// Check only error handler related fields
+		const savedValue = {
+			errorHandlerSelected: initialErrorHandlerSelected,
+			errorHandlerScriptPath: initialErrorHandlerScriptPath,
+			errorHandlerItemKind: initialErrorHandlerItemKind,
+			errorHandlerExtraArgs: initialErrorHandlerExtraArgs,
+			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
+			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
+		}
+
+		const modifiedValue = {
+			errorHandlerSelected: errorHandlerSelected,
+			errorHandlerScriptPath: errorHandlerScriptPath,
+			errorHandlerItemKind: errorHandlerItemKind,
+			errorHandlerExtraArgs: errorHandlerExtraArgs,
+			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
+			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
+		}
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
+	})
+
+	// Derived state for checking unsaved changes in success handler
+	let hasSuccessHandlerChanges = $derived.by(() => {
+		if (tab !== 'error_handler') return false
+
+		// Check only success handler related fields
+		const savedValue = {
+			successHandlerScriptPath: initialSuccessHandlerScriptPath
+		}
+
+		const modifiedValue = {
+			successHandlerScriptPath: successHandlerScriptPath
+		}
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
+	})
+
+	// Derived state for checking unsaved changes in critical alert mute setting
+	let hasCriticalAlertMuteChanges = $derived.by(() => {
+		if (tab !== 'error_handler') return false
+
+		// Normalize undefined to false for comparison
+		const currentValue = criticalAlertUIMuted ?? false
+		const initialValue = initialCriticalAlertUIMuted ?? false
+
+		return currentValue !== initialValue
+	})
+
+	// Validation effects
+	$effect(() => {
+		if (webhook !== undefined) {
+			const validation = validateWebhookUrl(webhook)
+			webhookValidationError = validation.error
+		}
+	})
+
+	$effect(() => {
+		if (editedWorkspaceEncryptionKey !== undefined) {
+			const validation = validateEncryptionKey(editedWorkspaceEncryptionKey)
+			encryptionKeyValidationError = validation.error
+		}
+	})
 	// All state derived from URL - no local state needed
 	let tab = $derived.by(() => {
 		const selectedTab = $page.url.searchParams.get('tab') as
@@ -231,19 +379,34 @@
 	}
 
 	async function editWebhook(): Promise<void> {
-		// in JS, an empty string is also falsy
-		if (webhook) {
-			await WorkspaceService.editWebhook({
-				workspace: $workspaceStore!,
-				requestBody: { webhook }
-			})
-			sendUserToast(`webhook set to ${webhook}`)
-		} else {
-			await WorkspaceService.editWebhook({
-				workspace: $workspaceStore!,
-				requestBody: { webhook: undefined }
-			})
-			sendUserToast(`webhook removed`)
+		// Validate webhook URL if provided
+		if (webhook && webhook.trim() !== '') {
+			const validation = validateWebhookUrl(webhook)
+			if (!validation.isValid) {
+				sendUserToast(`Invalid webhook URL: ${validation.error}`, true)
+				return
+			}
+		}
+
+		try {
+			if (webhook && webhook.trim() !== '') {
+				await WorkspaceService.editWebhook({
+					workspace: $workspaceStore!,
+					requestBody: { webhook }
+				})
+				sendUserToast(`webhook set to ${webhook}`)
+				initialWebhook = webhook
+			} else {
+				await WorkspaceService.editWebhook({
+					workspace: $workspaceStore!,
+					requestBody: { webhook: undefined }
+				})
+				sendUserToast(`webhook removed`)
+				initialWebhook = ''
+				webhook = ''
+			}
+		} catch (error) {
+			sendUserToast(`Failed to save webhook: ${error}`, true)
 		}
 	}
 
@@ -273,6 +436,7 @@
 		})
 		workspaceEncryptionKey = resp.key
 		editedWorkspaceEncryptionKey = resp.key
+		initialEditedWorkspaceEncryptionKey = resp.key
 	}
 
 	async function setWorkspaceEncryptionKey(): Promise<void> {
@@ -282,23 +446,36 @@
 		) {
 			return
 		}
-		const timeStart = new Date().getTime()
-		workspaceReencryptionInProgress = true
-		await WorkspaceService.setWorkspaceEncryptionKey({
-			workspace: $workspaceStore!,
-			requestBody: {
-				new_key: editedWorkspaceEncryptionKey ?? '' // cannot be undefined at this point
-			}
-		})
-		await loadWorkspaceEncryptionKey()
-		const timeEnd = new Date().getTime()
-		sendUserToast('All workspace secrets have been re-encrypted with the new key')
-		setTimeout(
-			() => {
-				workspaceReencryptionInProgress = false
-			},
-			1000 - (timeEnd - timeStart)
-		)
+
+		// Validate encryption key
+		const validation = validateEncryptionKey(editedWorkspaceEncryptionKey!)
+		if (!validation.isValid) {
+			sendUserToast(`Invalid encryption key: ${validation.error}`, true)
+			return
+		}
+
+		try {
+			const timeStart = new Date().getTime()
+			workspaceReencryptionInProgress = true
+			await WorkspaceService.setWorkspaceEncryptionKey({
+				workspace: $workspaceStore!,
+				requestBody: {
+					new_key: editedWorkspaceEncryptionKey ?? '' // cannot be undefined at this point
+				}
+			})
+			await loadWorkspaceEncryptionKey()
+			const timeEnd = new Date().getTime()
+			sendUserToast('All workspace secrets have been re-encrypted with the new key')
+			setTimeout(
+				() => {
+					workspaceReencryptionInProgress = false
+				},
+				1000 - (timeEnd - timeStart)
+			)
+		} catch (error) {
+			workspaceReencryptionInProgress = false
+			sendUserToast(`Failed to set encryption key: ${error}`, true)
+		}
 	}
 
 	async function loadSettings(): Promise<void> {
@@ -388,6 +565,27 @@
 				}
 			}
 		}
+
+		// Store initial deploy settings state for unsaved changes detection
+		initialWorkspaceToDeployTo = workspaceToDeployTo
+		initialDeployUiSettings = clone(deployUiSettings)
+
+		// Store initial webhook state for unsaved changes detection
+		initialWebhook = webhook
+
+		// Store initial encryption key state for unsaved changes detection
+		initialEditedWorkspaceEncryptionKey = editedWorkspaceEncryptionKey
+
+		// Store initial error handler state for unsaved changes detection
+		initialErrorHandlerSelected = errorHandlerSelected
+		initialErrorHandlerScriptPath = errorHandlerScriptPath
+		initialErrorHandlerItemKind = errorHandlerItemKind
+		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
+		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
+
+		// Store initial success handler state for unsaved changes detection
+		initialSuccessHandlerScriptPath = successHandlerScriptPath
 
 		// check openai_client_credentials_oauth
 		usingOpenaiClientCredentialsOauth = await ResourceService.existsResourceType({
@@ -479,20 +677,29 @@
 		}
 	}
 
-	let deployUiSettings:
-		| {
-				include_path: string[]
-				include_type: {
-					scripts: boolean
-					flows: boolean
-					apps: boolean
-					resources: boolean
-					variables: boolean
-					secrets: boolean
-					triggers: boolean
-				}
-		  }
-		| undefined = $state()
+	let deployUiSettings: {
+		include_path: string[]
+		include_type: {
+			scripts: boolean
+			flows: boolean
+			apps: boolean
+			resources: boolean
+			variables: boolean
+			secrets: boolean
+			triggers: boolean
+		}
+	} = $state({
+		include_path: [],
+		include_type: {
+			scripts: true,
+			flows: true,
+			apps: true,
+			resources: true,
+			variables: true,
+			secrets: true,
+			triggers: true
+		}
+	})
 
 	$effect(() => {
 		if ($workspaceStore) {
@@ -528,6 +735,14 @@
 			})
 			sendUserToast(`workspace error handler removed`)
 		}
+
+		// Update initial values for dirty detection
+		initialErrorHandlerSelected = errorHandlerSelected
+		initialErrorHandlerScriptPath = errorHandlerScriptPath
+		initialErrorHandlerItemKind = errorHandlerItemKind
+		initialErrorHandlerExtraArgs = clone(errorHandlerExtraArgs)
+		initialErrorHandlerMutedOnCancel = errorHandlerMutedOnCancel
+		initialErrorHandlerMutedOnUserPath = errorHandlerMutedOnUserPath
 	}
 
 	async function editSuccessHandler() {
@@ -548,6 +763,9 @@
 			})
 			sendUserToast(`workspace success handler removed`)
 		}
+
+		// Update initial value for dirty detection
+		initialSuccessHandlerScriptPath = successHandlerScriptPath
 	}
 
 	async function editCriticalAlertMuteSetting() {
@@ -560,6 +778,10 @@
 		sendUserToast(
 			`Critical alert UI mute setting for workspace is set to ${criticalAlertUIMuted}\nreloading page...`
 		)
+
+		// Update initial value for dirty detection
+		initialCriticalAlertUIMuted = criticalAlertUIMuted
+
 		// reload page after change of setting
 		setTimeout(() => {
 			window.location.reload()
@@ -633,6 +855,135 @@
 		ducklakeSettings = clone(ducklakeSavedSettings)
 	}
 
+	// Function to check if there are unsaved changes in deploy settings
+	function getDeploySettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the deploy_to tab
+		if (tab !== 'deploy_to') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			workspaceToDeployTo: initialWorkspaceToDeployTo,
+			deployUiSettings: initialDeployUiSettings
+		}
+
+		const modifiedValue = {
+			workspaceToDeployTo: workspaceToDeployTo,
+			deployUiSettings: deployUiSettings
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved deploy settings changes
+	function discardDeploySettingsChanges() {
+		workspaceToDeployTo = initialWorkspaceToDeployTo
+		deployUiSettings = clone(initialDeployUiSettings)
+	}
+
+	// Function to check if there are unsaved changes in webhook settings
+	function getWebhookSettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the webhook tab
+		if (tab !== 'webhook') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		// Normalize empty strings to undefined for consistent comparison
+		const normalizeWebhookValue = (value: string | undefined) =>
+			value && value.trim() !== '' ? value : undefined
+
+		const savedValue = {
+			webhook: normalizeWebhookValue(initialWebhook)
+		}
+
+		const modifiedValue = {
+			webhook: normalizeWebhookValue(webhook)
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved webhook settings changes
+	function discardWebhookSettingsChanges() {
+		webhook = initialWebhook || ''
+	}
+
+	// Function to check if there are unsaved changes in encryption key settings
+	function getEncryptionKeySettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the encryption tab
+		if (tab !== 'encryption') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			editedWorkspaceEncryptionKey: initialEditedWorkspaceEncryptionKey
+		}
+
+		const modifiedValue = {
+			editedWorkspaceEncryptionKey: editedWorkspaceEncryptionKey
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved encryption key settings changes
+	function discardEncryptionKeySettingsChanges() {
+		editedWorkspaceEncryptionKey = initialEditedWorkspaceEncryptionKey
+	}
+
+	// Function to check if there are unsaved changes in error handler settings
+	function getErrorHandlerSettingsInitialAndModifiedValues() {
+		// Only check for unsaved changes when on the error_handler tab
+		if (tab !== 'error_handler') {
+			return {
+				savedValue: undefined,
+				modifiedValue: undefined
+			}
+		}
+
+		const savedValue = {
+			errorHandlerSelected: initialErrorHandlerSelected,
+			errorHandlerScriptPath: initialErrorHandlerScriptPath,
+			errorHandlerItemKind: initialErrorHandlerItemKind,
+			errorHandlerExtraArgs: initialErrorHandlerExtraArgs,
+			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
+			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath,
+			successHandlerScriptPath: initialSuccessHandlerScriptPath
+		}
+
+		const modifiedValue = {
+			errorHandlerSelected: errorHandlerSelected,
+			errorHandlerScriptPath: errorHandlerScriptPath,
+			errorHandlerItemKind: errorHandlerItemKind,
+			errorHandlerExtraArgs: errorHandlerExtraArgs,
+			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
+			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath,
+			successHandlerScriptPath: successHandlerScriptPath
+		}
+
+		return { savedValue, modifiedValue }
+	}
+
+	// Function to discard unsaved error handler settings changes
+	function discardErrorHandlerSettingsChanges() {
+		errorHandlerSelected = initialErrorHandlerSelected
+		errorHandlerScriptPath = initialErrorHandlerScriptPath
+		errorHandlerItemKind = initialErrorHandlerItemKind
+		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
+		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
+		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
+		successHandlerScriptPath = initialSuccessHandlerScriptPath
+	}
+
 	// Combined function to check for unsaved changes across all tabs
 	function getAllUnsavedChanges() {
 		if (dataTableSettingsComponent) {
@@ -651,6 +1002,30 @@
 			return storageChanges
 		}
 
+		// Check deploy settings
+		const deployChanges = getDeploySettingsInitialAndModifiedValues()
+		if (deployChanges.savedValue && deployChanges.modifiedValue) {
+			return deployChanges
+		}
+
+		// Check webhook settings
+		const webhookChanges = getWebhookSettingsInitialAndModifiedValues()
+		if (webhookChanges.savedValue && webhookChanges.modifiedValue) {
+			return webhookChanges
+		}
+
+		// Check encryption key settings
+		const encryptionKeyChanges = getEncryptionKeySettingsInitialAndModifiedValues()
+		if (encryptionKeyChanges.savedValue && encryptionKeyChanges.modifiedValue) {
+			return encryptionKeyChanges
+		}
+
+		// Check error handler settings
+		const errorHandlerChanges = getErrorHandlerSettingsInitialAndModifiedValues()
+		if (errorHandlerChanges.savedValue && errorHandlerChanges.modifiedValue) {
+			return errorHandlerChanges
+		}
+
 		return {
 			savedValue: {},
 			modifiedValue: {}
@@ -663,6 +1038,14 @@
 			discardAiSettingsChanges()
 		} else if (tab === 'windmill_lfs') {
 			discardStorageSettingsChanges()
+		} else if (tab === 'deploy_to') {
+			discardDeploySettingsChanges()
+		} else if (tab === 'webhook') {
+			discardWebhookSettingsChanges()
+		} else if (tab === 'encryption') {
+			discardEncryptionKeySettingsChanges()
+		} else if (tab === 'error_handler') {
+			discardErrorHandlerSettingsChanges()
 		}
 	}
 
@@ -1121,11 +1504,25 @@
 							is indicated by the type field. The other fields are dependent on the type.
 						</div>
 
-						<div class="flex gap-2">
-							<input class="justify-start" type="text" bind:value={webhook} />
-							<Button variant="accent" btnClasses="justify-end" on:click={editWebhook}
-								>Set webhook</Button
-							>
+						<div class="flex flex-col gap-2">
+							<div class="flex gap-2">
+								<TextInput
+									bind:value={webhook}
+									inputProps={{
+										placeholder: 'https://your-endpoint.com/webhook'
+									}}
+									error={webhookValidationError}
+								/>
+								<Button
+									variant="accent"
+									btnClasses="justify-end"
+									disabled={!!webhookValidationError}
+									on:click={editWebhook}>Set webhook</Button
+								>
+							</div>
+							{#if webhookValidationError}
+								<div class="text-xs text-red-600">{webhookValidationError}</div>
+							{/if}
 						</div>
 					</div>
 				{:else if tab == 'error_handler'}
@@ -1198,7 +1595,8 @@
 								disabled={!$enterpriseLicense ||
 									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
 										!emptyString(errorHandlerScriptPath) &&
-										emptyString(errorHandlerExtraArgs['channel']))}
+										emptyString(errorHandlerExtraArgs['channel'])) ||
+									!hasErrorHandlerChanges}
 								unifiedSize="md"
 								on:click={editErrorHandler}
 								startIcon={{ icon: Save }}
@@ -1278,7 +1676,7 @@ export async function main(
 
 							<div class="flex flex-row gap-2 items-center">
 								<Button
-									disabled={!$enterpriseLicense}
+									disabled={!$enterpriseLicense || !hasSuccessHandlerChanges}
 									on:click={editSuccessHandler}
 									startIcon={{ icon: Save }}
 									variant="accent"
@@ -1289,13 +1687,14 @@ export async function main(
 								{#if successHandlerScriptPath}
 									<Button
 										disabled={!$enterpriseLicense}
-										size="sm"
-										color="red"
-										variant="border"
+										variant="default"
+										destructive
+										unifiedSize="md"
 										on:click={() => {
 											successHandlerScriptPath = undefined
 											editSuccessHandler()
 										}}
+										startIcon={{ icon: X }}
 									>
 										Remove
 									</Button>
@@ -1330,8 +1729,7 @@ export async function main(
 							</Button>
 
 							<Button
-								disabled={!$enterpriseLicense ||
-									criticalAlertUIMuted == initialCriticalAlertUIMuted}
+								disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
 								on:click={editCriticalAlertMuteSetting}
 								variant="accent"
 								startIcon={{ icon: Save }}
@@ -1432,7 +1830,8 @@ export async function main(
 						<Button
 							color="blue"
 							disabled={editedWorkspaceEncryptionKey === workspaceEncryptionKey ||
-								!encryptionKeyRegex.test(editedWorkspaceEncryptionKey ?? '')}
+								!!encryptionKeyValidationError ||
+								workspaceReencryptionInProgress}
 							startIcon={{
 								icon: workspaceReencryptionInProgress ? RotateCw : Save,
 								classes: workspaceReencryptionInProgress ? 'animate-spin' : ''
@@ -1445,27 +1844,30 @@ export async function main(
 					<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
 						Workspace encryption key
 					</label>
-					<div class="flex gap-2 mt-1">
-						<TextInput
-							inputProps={{
-								id: 'workspace-encryption-key',
-								placeholder: '*'.repeat(64)
-							}}
-							bind:value={editedWorkspaceEncryptionKey}
-						/>
-						<Button
-							variant="default"
-							unifiedSize="md"
-							on:click={() => {
-								loadWorkspaceEncryptionKey()
-							}}>Load current key</Button
-						>
-					</div>
-					{#if !emptyString(editedWorkspaceEncryptionKey) && !encryptionKeyRegex.test(editedWorkspaceEncryptionKey ?? '')}
-						<div class="text-xs text-red-600">
-							Key invalid - it should be 64 characters long and only contain letters and numbers.
+					<div class="flex flex-col gap-1">
+						<div class="flex gap-2">
+							<TextInput
+								inputProps={{
+									id: 'workspace-encryption-key',
+									placeholder: '*'.repeat(64)
+								}}
+								bind:value={editedWorkspaceEncryptionKey}
+								error={encryptionKeyValidationError}
+							/>
+							<Button
+								variant="default"
+								unifiedSize="md"
+								on:click={() => {
+									loadWorkspaceEncryptionKey()
+								}}>Load current key</Button
+							>
 						</div>
-					{/if}
+						{#if encryptionKeyValidationError}
+							<div class="text-xs text-red-600">
+								{encryptionKeyValidationError}
+							</div>
+						{/if}
+					</div>
 				{/if}
 			</div>
 		</div>

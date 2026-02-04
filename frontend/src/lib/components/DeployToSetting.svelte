@@ -8,10 +8,12 @@
 	import { Button } from './common'
 	import Toggle from './Toggle.svelte'
 	import { emptyString } from '$lib/utils'
+	import { validateDeployPathFilters } from '$lib/validators/workspaceSettings'
+	import Alert from './common/alert/Alert.svelte'
 
-	$: deployableWorkspaces = $usersWorkspaceStore?.workspaces
-		.map((w) => w.id)
-		.filter((w) => w != $workspaceStore)
+	let deployableWorkspaces = $derived(
+		$usersWorkspaceStore?.workspaces.map((w) => w.id).filter((w) => w != $workspaceStore)
+	)
 
 	type DeployUITypeMap = {
 		scripts: boolean
@@ -34,14 +36,31 @@
 		triggers: true
 	}
 
-	export let workspaceToDeployTo: string | undefined
-	export let deployUiSettings: {
-		include_path: string[]
-		include_type: DeployUITypeMap
-	} = {
-		include_path: [],
-		include_type: all_ok
-	}
+	let {
+		workspaceToDeployTo = $bindable(),
+		deployUiSettings = $bindable({
+			include_path: [],
+			include_type: all_ok
+		})
+	}: {
+		workspaceToDeployTo: string | undefined
+		deployUiSettings: {
+			include_path: string[]
+			include_type: DeployUITypeMap
+		}
+	} = $props()
+
+	// Validation state
+	let pathValidationErrors: Record<number, string> = $state({})
+	let hasValidationErrors = $derived(Object.keys(pathValidationErrors).length > 0)
+
+	// Validate path filters whenever they change
+	$effect(() => {
+		if (deployUiSettings?.include_path) {
+			const validationResult = validateDeployPathFilters(deployUiSettings.include_path)
+			pathValidationErrors = validationResult.errors
+		}
+	})
 	function deployUITypeMapToArray(
 		typesMap: DeployUITypeMap,
 		expectedValue: boolean
@@ -72,18 +91,30 @@
 	}
 
 	async function editWindmillDeploymentUISettings() {
+		// Validate before saving
+		const validationResult = validateDeployPathFilters(deployUiSettings.include_path)
+		if (!validationResult.isValid) {
+			sendUserToast('Please fix validation errors before saving', true)
+			return
+		}
+
 		let include_path = deployUiSettings.include_path.filter((elmt) => !emptyString(elmt))
 		let include_type = deployUITypeMapToArray(deployUiSettings.include_type, true)
-		await WorkspaceService.editWorkspaceDeployUiSettings({
-			workspace: $workspaceStore!,
-			requestBody: {
-				deploy_ui_settings: {
-					include_path: include_path,
-					include_type: include_type
+
+		try {
+			await WorkspaceService.editWorkspaceDeployUiSettings({
+				workspace: $workspaceStore!,
+				requestBody: {
+					deploy_ui_settings: {
+						include_path: include_path,
+						include_type: include_type
+					}
 				}
-			}
-		})
-		sendUserToast('Workspace Deployment UI settings updated')
+			})
+			sendUserToast('Workspace Deployment UI settings updated')
+		} catch (error) {
+			sendUserToast(`Failed to save deployment settings: ${error}`, true)
+		}
 	}
 </script>
 
@@ -91,7 +122,7 @@
 <div class="flex min-w-0 mt-1">
 	<select
 		bind:value={workspaceToDeployTo}
-		on:change={async (e) => {
+		onchange={async () => {
 			await WorkspaceService.editDeployTo({
 				workspace: $workspaceStore ?? '',
 				requestBody: { deploy_to: workspaceToDeployTo == '' ? undefined : workspaceToDeployTo }
@@ -129,20 +160,34 @@
 					anything including slashes.
 				</Tooltip></h4
 			>
-			{#each deployUiSettings.include_path ?? [] as regexpPath, idx}
-				<div class="flex mt-1 items-center">
-					<input type="text" bind:value={regexpPath} id="arg-input-array" />
-					<button
-						transition:fade|local={{ duration: 100 }}
-						class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
-						aria-label="Clear"
-						on:click={() => {
-							deployUiSettings.include_path.splice(idx, 1)
-							deployUiSettings.include_path = [...deployUiSettings.include_path]
-						}}
-					>
-						<X size={14} />
-					</button>
+			{#each deployUiSettings.include_path ?? [] as _, idx}
+				<div class="flex flex-col mt-1">
+					<div class="flex items-center">
+						<input
+							type="text"
+							bind:value={deployUiSettings.include_path[idx]}
+							id="arg-input-array-{idx}"
+							class="flex-1 {pathValidationErrors[idx] ? 'border-red-500' : ''}"
+							placeholder="e.g., f/*, u/admin/**"
+						/>
+						<button
+							transition:fade|local={{ duration: 100 }}
+							class="rounded-full p-1 bg-surface-secondary duration-200 hover:bg-surface-hover ml-2"
+							aria-label="Clear"
+							onclick={() => {
+								deployUiSettings.include_path.splice(idx, 1)
+								deployUiSettings.include_path = [...deployUiSettings.include_path]
+								// Clear validation error for this index
+								delete pathValidationErrors[idx]
+								pathValidationErrors = { ...pathValidationErrors }
+							}}
+						>
+							<X size={14} />
+						</button>
+					</div>
+					{#if pathValidationErrors[idx]}
+						<div class="text-xs text-red-600 mt-1">{pathValidationErrors[idx]}</div>
+					{/if}
 				</div>
 			{/each}
 		{/if}
@@ -201,11 +246,16 @@
 		</div>
 	</div>
 </div>
+{#if hasValidationErrors}
+	<Alert type="error" title="Validation Errors" class="mt-4">
+		Please fix the validation errors in the path filters before saving.
+	</Alert>
+{/if}
 {#if $enterpriseLicense}
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
 			variant="accent"
-			disabled={workspaceToDeployTo == undefined}
+			disabled={workspaceToDeployTo == undefined || hasValidationErrors}
 			on:click={() => {
 				editWindmillDeploymentUISettings()
 			}}>Save Deployment UI settings</Button
