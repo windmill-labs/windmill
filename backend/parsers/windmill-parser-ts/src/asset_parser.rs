@@ -402,7 +402,7 @@ mod tests {
                     kind: AssetKind::DataTable,
                     path: "dt/friends".to_string(),
                     access_type: Some(RW),
-                    columns: None,
+                    columns: Some(BTreeMap::from([("x".to_string(), AssetUsageAccessType::W)])),
                 },
             ])
         );
