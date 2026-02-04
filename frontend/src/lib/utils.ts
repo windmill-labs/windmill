@@ -1783,6 +1783,7 @@ import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
 import { Bot, Code, Package } from 'lucide-svelte'
+import type { DbInput, DbType } from './components/dbTypes'
 export function getCssColor(
 	color: CssColor,
 	{
@@ -1984,4 +1985,55 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 		}
 	}
 	return result
+}
+
+export function serializeDbInput(input: DbInput): string {
+	if (input.type === 'database') {
+		const params = new URLSearchParams()
+		if (input.specificSchema) {
+			params.set('schema', input.specificSchema)
+		}
+		if (input.specificTable) {
+			params.set('table', input.specificTable)
+		}
+
+		const queryString = params.toString()
+		let uri = `database://${input.resourcePath}${queryString ? '?' + queryString : ''}`
+		if (input.resourcePath.startsWith('datatable://')) uri = uri.substring('database://'.length)
+		else params.set('resourceType', input.resourceType)
+		return uri
+	} else {
+		const params = new URLSearchParams()
+		if (input.specificTable) {
+			params.set('table', input.specificTable)
+		}
+		const queryString = params.toString()
+		return `ducklake://${input.ducklake}${queryString ? '?' + queryString : ''}`
+	}
+}
+
+export function deserializeDbInput(serialized: string): DbInput | undefined {
+	if (serialized.startsWith('datatable://')) serialized = `database://${serialized}`
+
+	const url = new URL(serialized)
+	const params = url.searchParams
+	const path = url.hostname + url.pathname.replace(/\/$/, '')
+
+	if (url.protocol === 'database:') {
+		return {
+			type: 'database',
+			resourceType: (params.get('resourceType') as DbType) || 'postgresql',
+			resourcePath: path,
+			specificSchema: params.get('schema') ?? undefined,
+			specificTable: params.get('table') ?? undefined
+		}
+	} else if (url.protocol === 'ducklake:') {
+		return {
+			type: 'ducklake',
+			ducklake: path,
+			specificTable: params.get('table') ?? undefined
+		}
+	}
+
+	throw new Error(`Unknown protocol: ${url.protocol}`)
 }

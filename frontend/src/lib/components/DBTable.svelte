@@ -153,7 +153,7 @@
 		{/if}
 	</div>
 	<div
-		class={'flex flex-col flex-1 component-wrapper divide-y wm-aggrid-container'}
+		class={'flex flex-col flex-1 component-wrapper !rounded- divide-y wm-aggrid-container'}
 		bind:clientHeight
 		bind:clientWidth
 	>

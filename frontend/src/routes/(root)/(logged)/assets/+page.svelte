@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { formatAsset, formatAssetKind } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
@@ -13,7 +12,7 @@
 		type AssetKind,
 		type ListAssetsResponse
 	} from '$lib/gen'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import { userStore, workspaceStore, userWorkspaces, globalDbManagerDrawer } from '$lib/stores'
 	import { pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
@@ -82,7 +81,7 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(
@@ -134,6 +133,7 @@
 					data: ResourceReturn<{ label: string; value: string }[]>
 					settingsHref: string
 					docsHref: string
+					// favorites:
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
 						<div class="flex justify-between border-b">
@@ -250,7 +250,6 @@
 
 <AssetsUsageDrawer bind:this={assetsUsageDropdown} />
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 {#snippet table()}
 	<DataTable>

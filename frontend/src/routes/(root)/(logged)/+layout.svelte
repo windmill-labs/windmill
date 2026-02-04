@@ -2,7 +2,13 @@
 	import { BROWSER } from 'esm-env'
 
 	import { FavoriteService, OpenAPI, SettingService, UserService, WorkspaceService } from '$lib/gen'
-	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		capitalize,
+		classNames,
+		deserializeDbInput,
+		getModifierKey,
+		sendUserToast
+	} from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
@@ -19,7 +25,8 @@
 		hubBaseUrlStore,
 		usedTriggerKinds,
 		devopsRole,
-		whitelabelNameStore
+		whitelabelNameStore,
+		globalDbManagerDrawer
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -48,6 +55,7 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
+	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -366,6 +374,21 @@
 				checkTeamPlanStatus(workspace)
 			}
 		}
+	})
+
+	$effect(() => {
+		if (!globalDbManagerDrawer.val) return
+		const onHashChange = () => {
+			const hash = window.location.hash
+			if (hash.startsWith('#dbmanager:')) {
+				const [_, dbManagerPath] = hash.split('#dbmanager:')
+				const dbInput = dbManagerPath && deserializeDbInput(dbManagerPath)
+				if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+			}
+		}
+		untrack(() => onHashChange())
+		window.addEventListener('hashchange', onHashChange)
+		return () => window.removeEventListener('hashchange', onHashChange)
 	})
 </script>
 
@@ -696,4 +719,8 @@
 	</div>
 {:else}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
+{/if}
+
+{#if $workspaceStore}
+	<DBManagerDrawer bind:this={globalDbManagerDrawer.val} />
 {/if}
