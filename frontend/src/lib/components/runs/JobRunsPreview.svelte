@@ -110,7 +110,7 @@
 />
 
 <div class="h-full overflow-y-auto">
-	<div class="flex flex-col gap-2 items-start p-4 pb-8 min-h-full">
+	<div class="flex flex-col items-start p-4 pb-8 min-h-full">
 		{#if job}
 			{@const isFlow = job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 			<JobDetailHeader
@@ -123,13 +123,15 @@
 
 			<!-- Workflow timeline -->
 			{#if job?.workflow_as_code_status}
-				<WorkflowTimeline
-					flow_status={asWorkflowStatus(job.workflow_as_code_status)}
-					flowDone={job.type == 'CompletedJob'}
-				/>
+				<div class="py-2">
+					<WorkflowTimeline
+						flow_status={asWorkflowStatus(job.workflow_as_code_status)}
+						flowDone={job.type == 'CompletedJob'}
+					/>
+				</div>
 			{/if}
-			{#if isFlow}
-				<div class="w-full">
+			<div class="w-full mt-2">
+				{#if isFlow}
 					<FlowExecutionStatus
 						{job}
 						workspaceId={job?.workspace_id}
@@ -137,11 +139,11 @@
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
 					/>
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			<!-- Job inputs -->
-			<div class="w-full mt-6">
+			<div class="w-full mt-4">
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
@@ -162,7 +164,7 @@
 					/>
 				{:else if job?.type === 'CompletedJob'}
 					<!-- Result Section (moved outside tabs) -->
-					<div class="w-full mt-6 mb-6">
+					<div class="w-full mb-6">
 						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
 						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[400px]">
 							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}

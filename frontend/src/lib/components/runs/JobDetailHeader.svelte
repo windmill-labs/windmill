@@ -91,12 +91,13 @@
 				return truncateRev(fullValue, 8)
 			case 'script_hash':
 				return truncateHash(fullValue.toString())
-			case 'worker':
-				return truncateRev(fullValue, compact ? 8 : 12)
 			case 'parent_job':
 				return truncateRev(fullValue, 6)
 			case 'schedule_path':
 				return truncateRev(fullValue, 20)
+			case 'memory_peak':
+				// For memory, only show the display part (before the |)
+				return fullValue.split('|')[0] || fullValue
 			default:
 				return fullValue
 		}
@@ -156,31 +157,6 @@
 				<TimeAgo agoOnlyIfRecent date={job.started_at ?? ''} />
 			</span>
 		</Tooltip>
-	{:else if config.field === 'created_by'}
-		<div class="flex items-center gap-1 min-w-0">
-			{#if job.permissioned_as !== `u/${job.created_by}` && job.permissioned_as != job.created_by}
-				<Tooltip small class="truncate" style="direction: rtl;">
-					{#snippet text()}
-						{#if (job?.created_by?.length ?? 0) > 30}
-							Created by: {job.created_by}<br />
-						{/if}
-						But permissioned as {job.permissioned_as}
-					{/snippet}
-
-					<span
-						class="text-secondary flex-shrink whitespace-nowrap overflow-hidden"
-						style="direction: rtl;"
-					>
-						<span class="text-primary">{displayValue}</span> ({job.permissioned_as})
-					</span>
-				</Tooltip>
-			{:else}
-				<Tooltip small>
-					{#snippet text()}{job.created_by}{/snippet}
-					<span>{displayValue}</span>
-				</Tooltip>
-			{/if}
-		</div>
 	{:else if config.field === 'worker'}
 		<span>
 			{#if displayValue === 'no value'}
@@ -223,12 +199,20 @@
 						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
 						class="flex items-center gap-1 text-primary"
 					>
-						{displayValue}
+						<span class="truncate flex-shrink min-w-0">{displayValue}</span>
 						<ExternalLink size={12} class="flex-shrink-0" />
 					</a>
 				</Tooltip>
 			{/if}
 		</span>
+	{:else if config.field === 'memory_peak'}
+		{@const memoryParts = fullValue.split('|')}
+		{@const displayMem = memoryParts[0] || fullValue}
+		{@const tooltipMem = memoryParts[1] || fullValue}
+		<Tooltip small>
+			{#snippet text()}{tooltipMem}{/snippet}
+			<span>{displayMem}</span>
+		</Tooltip>
 	{:else if config.field === 'schedule_path' && job.schedule_path}
 		<span class="whitespace-nowrap" title={fullValue}>
 			<button
@@ -301,7 +285,7 @@
 			<ExternalLink size={12} class="flex-shrink-0" />
 		</a>
 	{:else}
-		<span title={fullValue} class="truncate">{displayValue}</span>
+		<div title={fullValue} class="truncate">{displayValue}</div>
 	{/if}
 {/snippet}
 
@@ -449,7 +433,7 @@
 			{@const fields = relevantFields()}
 			<div class="bg-surface flex items-center" style="flex: 2 1 100px; min-width: 350px;">
 				<div
-					class="grid gap-x-6 gap-y-1.5 w-full h-full px-8 py-4 bg-surface-secondary/30"
+					class="grid gap-x-12 gap-y-1.5 w-full h-full px-8 py-4 bg-surface-secondary/30"
 					style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));"
 				>
 					{#if job}
@@ -459,7 +443,7 @@
 							{@const href = config.getHref?.(job, $workspaceStore || '')}
 
 							<div class="flex items-baseline gap-3 text-xs">
-								<span class="text-secondary min-w-[70px] flex-shrink-0">
+								<span class="text-secondary min-w-[110px] flex-shrink-0">
 									{config.label}
 								</span>
 								<span
@@ -558,7 +542,7 @@
 								{@const href = config.getHref?.(job, $workspaceStore || '')}
 
 								<div class="flex items-baseline gap-3 text-xs">
-									<span class="text-secondary min-w-[70px] flex-shrink-0">
+									<span class="text-secondary min-w-[110px] flex-shrink-0">
 										{#if config.field === 'created_at'}
 											{renderFieldValue(config, job)}
 										{:else}

@@ -1985,3 +1985,36 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 	}
 	return result
 }
+
+/**
+ * Formats memory size in KB to human-readable format with appropriate units
+ * @param sizeInKb - Memory size in kilobytes
+ * @param includeTooltip - Whether to return tooltip data with precise values
+ * @returns Formatted string with appropriate unit (KB, MB, GB) or object with display and tooltip
+ */
+export function formatMemory(sizeInKb: number): string
+export function formatMemory(sizeInKb: number, includeTooltip: true): { display: string; tooltip: string }
+export function formatMemory(sizeInKb: number, includeTooltip = false): string | { display: string; tooltip: string } {
+	const precise = `${sizeInKb.toLocaleString()}KB`;
+
+	let display: string;
+	if (sizeInKb >= 1024 * 1024) {
+		// Convert to GB for values >= 1GB
+		display = `${(sizeInKb / (1024 * 1024)).toFixed(0)}GB`
+	} else if (sizeInKb >= 1024) {
+		// Convert to MB for values >= 1MB
+		display = `${(sizeInKb / 1024).toFixed(0)}MB`
+	} else {
+		// Keep as KB for smaller values
+		display = `${sizeInKb.toFixed(0)}KB`
+	}
+
+	if (includeTooltip) {
+		return {
+			display,
+			tooltip: `${precise} (${(sizeInKb / 1024).toFixed(2)}MB)`
+		}
+	}
+
+	return display
+}
