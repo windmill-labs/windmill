@@ -353,7 +353,7 @@ class EphemeralBackendManager {
                               ?.createdAt.getTime() ?? 0) + BACKEND_TIMEOUT_MS,
                           commitHash,
                           adminPassword: adminRandomPwd,
-                          tunnelUrl: `https://${tunnelUrl}`,
+                          tunnelUrl,
                         }),
                       }).catch((e) => {
                         onError(e);
