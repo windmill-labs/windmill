@@ -298,6 +298,40 @@
 		)
 	})
 
+	// Derived state for checking unsaved changes in deployment settings
+	let hasDeploySettingsChanges = $derived.by(() => {
+		if (tab !== 'deploy_to') return false
+
+		const changes = getDeploySettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...changes.savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...changes.modifiedValue,
+			path: undefined
+		})
+
+		const savedString = orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed))
+		const currentString = orderedJsonStringify(replaceFalseWithUndefined(current))
+
+		console.log('Deploy Settings Dirty Detection:', {
+			tab,
+			savedValue: changes.savedValue,
+			modifiedValue: changes.modifiedValue,
+			draftOrDeployed,
+			current,
+			savedString,
+			currentString,
+			hasChanges: savedString !== currentString
+		})
+
+		return savedString !== currentString
+	})
+
 	// Validation effects
 	$effect(() => {
 		if (webhook !== undefined) {
@@ -890,15 +924,31 @@
 			}
 		}
 
+		// Normalize empty strings to undefined for consistent comparison
+		const normalizeWorkspaceValue = (value: string | undefined) =>
+			value === '' ? undefined : value
+
 		const savedValue = {
-			workspaceToDeployTo: initialWorkspaceToDeployTo,
+			workspaceToDeployTo: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
 			deployUiSettings: initialDeployUiSettings
 		}
 
 		const modifiedValue = {
-			workspaceToDeployTo: workspaceToDeployTo,
+			workspaceToDeployTo: normalizeWorkspaceValue(workspaceToDeployTo),
 			deployUiSettings: deployUiSettings
 		}
+
+		console.log('getDeploySettingsInitialAndModifiedValues:', {
+			tab,
+			initialWorkspaceToDeployTo,
+			workspaceToDeployTo,
+			normalizedInitial: normalizeWorkspaceValue(initialWorkspaceToDeployTo),
+			normalizedCurrent: normalizeWorkspaceValue(workspaceToDeployTo),
+			initialDeployUiSettings,
+			deployUiSettings,
+			savedValue,
+			modifiedValue
+		})
 
 		return { savedValue, modifiedValue }
 	}
@@ -1268,7 +1318,20 @@
 						link="https://www.windmill.dev/docs/core_concepts/staging_prod"
 					/>
 					{#if $enterpriseLicense}
-						<DeployToSetting bind:workspaceToDeployTo bind:deployUiSettings />
+						<DeployToSetting
+							bind:workspaceToDeployTo
+							bind:deployUiSettings
+							hasUnsavedChanges={hasDeploySettingsChanges}
+							onSave={() => {
+								// Update initial state after successful save
+								initialWorkspaceToDeployTo = workspaceToDeployTo
+								initialDeployUiSettings = clone(deployUiSettings)
+							}}
+							onWorkspaceToDeployToSave={(newWorkspaceToDeployTo) => {
+								// Update initial state after workspace to deploy to is saved
+								initialWorkspaceToDeployTo = newWorkspaceToDeployTo
+							}}
+						/>
 					{:else}
 						<div class="my-2"
 							><Alert type="warning" title="Enterprise license required"

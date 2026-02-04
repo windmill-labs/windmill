@@ -41,13 +41,19 @@
 		deployUiSettings = $bindable({
 			include_path: [],
 			include_type: all_ok
-		})
+		}),
+		hasUnsavedChanges = false,
+		onSave,
+		onWorkspaceToDeployToSave
 	}: {
 		workspaceToDeployTo: string | undefined
 		deployUiSettings: {
 			include_path: string[]
 			include_type: DeployUITypeMap
 		}
+		hasUnsavedChanges?: boolean
+		onSave?: () => void
+		onWorkspaceToDeployToSave?: (workspaceToDeployTo: string | undefined) => void
 	} = $props()
 
 	// Validation state
@@ -90,6 +96,25 @@
 		return result
 	}
 
+	async function editWorkspaceToDeployTo() {
+		try {
+			await WorkspaceService.editDeployTo({
+				workspace: $workspaceStore ?? '',
+				requestBody: { deploy_to: workspaceToDeployTo === '' ? undefined : workspaceToDeployTo }
+			})
+
+			if (workspaceToDeployTo === '' || workspaceToDeployTo === undefined) {
+				sendUserToast('Disabled setting deployable workspace')
+				onWorkspaceToDeployToSave?.(undefined)
+			} else {
+				sendUserToast('Set deployable workspace to ' + workspaceToDeployTo)
+				onWorkspaceToDeployToSave?.(workspaceToDeployTo)
+			}
+		} catch (error) {
+			sendUserToast(`Failed to save workspace deployment setting: ${error}`, true)
+		}
+	}
+
 	async function editWindmillDeploymentUISettings() {
 		// Validate before saving
 		const validationResult = validateDeployPathFilters(deployUiSettings.include_path)
@@ -102,6 +127,10 @@
 		let include_type = deployUITypeMapToArray(deployUiSettings.include_type, true)
 
 		try {
+			// Save workspace to deploy to first
+			await editWorkspaceToDeployTo()
+
+			// Then save deployment UI settings
 			await WorkspaceService.editWorkspaceDeployUiSettings({
 				workspace: $workspaceStore!,
 				requestBody: {
@@ -112,6 +141,7 @@
 				}
 			})
 			sendUserToast('Workspace Deployment UI settings updated')
+			onSave?.()
 		} catch (error) {
 			sendUserToast(`Failed to save deployment settings: ${error}`, true)
 		}
@@ -120,20 +150,7 @@
 
 <h3 class="mt-6 text-xs font-semibold text-emphasis">Workspace to link to</h3>
 <div class="flex min-w-0 mt-1">
-	<select
-		bind:value={workspaceToDeployTo}
-		onchange={async () => {
-			await WorkspaceService.editDeployTo({
-				workspace: $workspaceStore ?? '',
-				requestBody: { deploy_to: workspaceToDeployTo == '' ? undefined : workspaceToDeployTo }
-			})
-			if (workspaceToDeployTo == '') {
-				workspaceToDeployTo = undefined
-				sendUserToast('Disabled setting deployable workspace')
-			} else {
-				sendUserToast('Set deployable workspace to ' + workspaceToDeployTo)
-			}
-		}}
+	<select bind:value={workspaceToDeployTo}
 	>
 		{#if deployableWorkspaces?.length == 0}
 			<option disabled>No workspace deployable to</option>
@@ -255,7 +272,7 @@
 	<div class="flex mt-5 mb-5 gap-1">
 		<Button
 			variant="accent"
-			disabled={workspaceToDeployTo == undefined || hasValidationErrors}
+			disabled={workspaceToDeployTo == undefined || hasValidationErrors || !hasUnsavedChanges}
 			on:click={() => {
 				editWindmillDeploymentUISettings()
 			}}>Save Deployment UI settings</Button
