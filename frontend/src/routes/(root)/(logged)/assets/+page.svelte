@@ -91,20 +91,24 @@
 			SettingService.getSecondaryStorageNames({
 				workspace: $workspaceStore!,
 				includeDefault: true
-			}).then((s) => s.map((s) => (s == '_default_' ? 'Primary storage' : s)))
+			}).then((s) =>
+				s.map((s) =>
+					s == '_default_' ? { label: 'Primary storage', value: '/' } : { label: s, value: `${s}/` }
+				)
+			)
 	)
 	let allDucklakes = resource(
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDucklakes({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => (d == 'main' ? 'Primary ducklake' : d))
+				d.map((d) => ({ label: d == 'main' ? 'Primary ducklake' : d, value: d }))
 			)
 	)
 	let allDataTables = resource(
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => (d == 'main' ? 'Primary data table' : d))
+				d.map((d) => ({ label: d == 'main' ? 'Primary data table' : d, value: d }))
 			)
 	)
 </script>
@@ -127,7 +131,7 @@
 				{#snippet card(props: {
 					title: string
 					assetKind: AssetKind
-					data: ResourceReturn<string[]>
+					data: ResourceReturn<{ label: string; value: string }[]>
 					settingsHref: string
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
@@ -139,11 +143,12 @@
 							<div class="max-h-96 overflow-y-auto pb-3">
 								{#each props.data.current ?? [] as item}
 									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
-										{item}
+										{item.label}
 										<ExploreAssetButton
-											asset={{ kind: props.assetKind, path: item }}
+											asset={{ kind: props.assetKind, path: item.value }}
 											{s3FilePicker}
 											{dbManagerDrawer}
+											btnClasses="dark:bg-surface"
 										/>
 									</div>
 								{/each}
