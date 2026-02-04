@@ -4018,6 +4018,13 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: include_default
+          in: query
+          description: If true, include "_default_" in the list if primary workspace storage is set
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: status
@@ -20708,6 +20715,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         server_id:
           type: string
         last_server_ping:
@@ -20726,6 +20744,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
 
     NewKafkaTrigger:
       type: object
@@ -20744,6 +20763,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -20760,6 +20790,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
 
     EditKafkaTrigger:
       type: object
@@ -20772,6 +20803,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         path:
           type: string
         script_path:
@@ -20791,6 +20833,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
         - is_flow
 
     NatsTrigger:
