@@ -65,7 +65,7 @@
 	})
 </script>
 
-<div class={twMerge('sticky bottom-0 z-10 w-full border-t bg-surface')}>
+<div class={twMerge('sticky bottom-0 z-10 w-full border-t bg-surface-tertiary')}>
 	<div class="flex items-center justify-end pt-4 pb-8">
 		<div class="flex items-center gap-2">
 			{#if hasUnsavedChanges}

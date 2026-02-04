@@ -52,10 +52,7 @@
 							aiId={item.aiId}
 							aiDescription={item.aiDescription}
 							startIcon={item.icon ? { icon: item.icon } : undefined}
-							btnClasses={twMerge(
-								'!justify-start text-left !w-full',
-								isSelected ? '!bg-surface-tertiary ' : ''
-							)}
+							btnClasses={'!justify-start text-left !w-full'}
 							onClick={() => onNavigate(item.id)}
 						>
 							<span class="truncate">{item.label}</span>

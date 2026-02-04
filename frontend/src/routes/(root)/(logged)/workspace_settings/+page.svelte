@@ -1340,7 +1340,7 @@
 
 		<div class="flex gap-6 pb-10">
 			<!-- Sidebar Navigation -->
-			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-secondary/50 h-fit">
+			<div class="w-64 shrink-0 p-4 rounded-md h-fit">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}
@@ -1353,7 +1353,7 @@
 			</div>
 
 			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-fit">
+			<div class="flex-1 min-w-0 min-h-screen h-fit bg-surface-tertiary px-8 py-4 rounded-md">
 				{#if !loadedSettings}
 					<Skeleton layout={[1, [40]]} />
 				{:else if tab == 'users'}
