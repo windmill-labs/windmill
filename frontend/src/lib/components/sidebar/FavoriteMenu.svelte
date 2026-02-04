@@ -1,9 +1,65 @@
+<script module lang="ts">
+	export function getFavoriteHref(path: string, kind: 'app' | 'script' | 'flow' | 'raw_app') {
+		return {
+			script: `/scripts/get/${path}`,
+			flow: `/flows/get/${path}`,
+			app: `/apps/get/${path}`,
+			raw_app: `/apps_raw/get/${path}`
+		}[kind]
+	}
+
+	class FavoriteManager {
+		current: {
+			label: string
+			href: string
+			kind: 'app' | 'script' | 'flow' | 'raw_app'
+		}[] = $state([])
+
+		async unstar(
+			path: string,
+			favorite_kind: Exclude<NonNullable<UnstarData['requestBody']>['favorite_kind'], undefined>,
+			workspaceId?: string
+		) {
+			this.current = this.current.filter(
+				(fav) => !(fav.label === path && fav.kind === favorite_kind)
+			)
+
+			await FavoriteService.unstar({
+				workspace: workspaceId ?? get(workspaceStore)!,
+				requestBody: { path, favorite_kind }
+			})
+		}
+
+		async star(
+			path: string,
+			favorite_kind: Exclude<NonNullable<StarData['requestBody']>['favorite_kind'], undefined>,
+			workspaceId?: string
+		) {
+			const href = getFavoriteHref(path, favorite_kind)
+			this.current = [...this.current, { href, kind: favorite_kind, label: path }]
+			await FavoriteService.star({
+				workspace: workspaceId ?? get(workspaceStore)!,
+				requestBody: { path, favorite_kind }
+			})
+		}
+
+		isStarred(path: string, favorite_kind: string) {
+			return this.current.some((fav) => fav.label === path && fav.kind === favorite_kind)
+		}
+	}
+
+	export const favoriteManager = new FavoriteManager()
+</script>
+
 <script lang="ts">
 	import { CodeXml, LayoutDashboard, Star } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
+	import { FavoriteService, type StarData, type UnstarData } from '$lib/gen'
+	import { get } from 'svelte/store'
+	import { workspaceStore } from '$lib/stores'
 
 	interface Props {
 		lightMode?: boolean

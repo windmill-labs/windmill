@@ -18,7 +18,6 @@
 	import {
 		enterpriseLicense,
 		isPremiumStore,
-		starStore,
 		superadmin,
 		usageStore,
 		workspaceUsageStore,
@@ -38,7 +37,10 @@
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/stores'
-	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import FavoriteMenu, {
+		favoriteManager,
+		getFavoriteHref
+	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
@@ -139,14 +141,6 @@
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
 
-	let favoriteLinks = $state(
-		[] as {
-			label: string
-			href: string
-			kind: 'app' | 'script' | 'flow' | 'raw_app'
-		}[]
-	)
-
 	function onLoad() {
 		loadFavorites()
 		loadUsage()
@@ -191,25 +185,25 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
-		favoriteLinks = [
+		favoriteManager.current = [
 			...scripts.map((s) => ({
 				label: s.summary || s.path,
-				href: `${base}/scripts/get/${s.hash}`,
+				href: getFavoriteHref(s.path, 'script'),
 				kind: 'script' as 'script'
 			})),
 			...flows.map((f) => ({
 				label: f.summary || f.path,
-				href: `${base}/flows/get/${f.path}`,
+				href: getFavoriteHref(f.path, 'flow'),
 				kind: 'flow' as 'flow'
 			})),
-			...apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get/${f.path}`,
+			...apps.map((a) => ({
+				label: a.summary || a.path,
+				href: getFavoriteHref(a.path, 'app'),
 				kind: 'app' as 'app'
 			})),
-			...raw_apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
+			...raw_apps.map((a) => ({
+				label: a.summary || a.path,
+				href: getFavoriteHref(a.path, 'raw_app'),
 				kind: 'raw_app' as 'raw_app'
 			}))
 		]
@@ -375,7 +369,7 @@
 		untrack(() => updateUserStore($workspaceStore))
 	})
 	$effect(() => {
-		$workspaceStore && $starStore && untrack(() => onLoad())
+		$workspaceStore && untrack(() => onLoad())
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
@@ -502,7 +496,7 @@
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
-												<FavoriteMenu {createMenu} {favoriteLinks} />
+												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
 											{/snippet}
 										</Menubar>
 										<MenuButton
@@ -576,7 +570,11 @@
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
-										<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+										<FavoriteMenu
+											{createMenu}
+											favoriteLinks={favoriteManager.current}
+											{isCollapsed}
+										/>
 									{/snippet}
 								</Menubar>
 								<MenuButton
@@ -630,7 +628,7 @@
 				{/if}
 			{:else}
 				<div class="absolute top-2 left-2 z5000">
-					<OperatorMenu {favoriteLinks} />
+					<OperatorMenu favoriteLinks={favoriteManager.current} />
 				</div>
 			{/if}
 			<!-- Legacy menu -->
@@ -689,7 +687,7 @@
 								<Menubar>
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} />
-										<FavoriteMenu {createMenu} {favoriteLinks} />
+										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
 									{/snippet}
 								</Menubar>
 								<MenuButton

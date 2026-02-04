@@ -8,7 +8,6 @@
 
 	interface Props {
 		marked: string | undefined
-		starred: boolean
 		selected?: boolean
 		disabled?: boolean
 		canFavorite?: boolean
@@ -31,12 +30,10 @@
 				currentTarget: EventTarget & HTMLInputElement
 			}
 		) => void
-		onStarred?: (starred: boolean) => void
 	}
 
 	let {
 		marked,
-		starred,
 		selected = false,
 		disabled = false,
 		canFavorite = true,
@@ -54,8 +51,7 @@
 		badges,
 		actions,
 		customSummary,
-		onSelect = () => {},
-		onStarred = (newStarred: boolean) => {}
+		onSelect = () => {}
 	}: Props = $props()
 
 	let displayPath: string = (depth === 0 ? path : path?.split('/')?.slice(-1)?.[0]) ?? ''
@@ -111,7 +107,7 @@
 
 	{#if canFavorite && kind !== 'resource' && kind !== 'variable' && kind !== 'resource_type'}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
-			<Star {kind} {path} {starred} workspace_id={workspaceId} {onStarred} />
+			<Star {kind} {path} {workspaceId} />
 		</div>
 	{:else}
 		<div class="w-9"></div>
