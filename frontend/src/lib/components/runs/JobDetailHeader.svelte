@@ -91,8 +91,6 @@
 				return truncateRev(fullValue, 8)
 			case 'script_hash':
 				return truncateHash(fullValue.toString())
-			case 'worker':
-				return truncateRev(fullValue, compact ? 8 : 12)
 			case 'parent_job':
 				return truncateRev(fullValue, 6)
 			case 'schedule_path':
@@ -223,7 +221,7 @@
 						href={`${base}/runs/?job_kinds=all&worker=${job?.worker}`}
 						class="flex items-center gap-1 text-primary"
 					>
-						{displayValue}
+						<span class="truncate flex-shrink min-w-0">{displayValue}</span>
 						<ExternalLink size={12} class="flex-shrink-0" />
 					</a>
 				</Tooltip>
