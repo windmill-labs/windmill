@@ -509,7 +509,7 @@
 				/>
 			{/snippet}
 			{#if $workspaceStore && flow}
-				<Star kind="flow" path={flow.path} />
+				<Star kind="flow" path={flow.path} summary={flow.summary} />
 			{/if}
 			{#if flow?.value?.priority != undefined}
 				<div class="hidden md:block">

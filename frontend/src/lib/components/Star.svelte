@@ -7,10 +7,11 @@
 	interface Props {
 		path: string
 		kind: FavoriteKind
+		summary?: string
 		workspaceId?: string
 	}
 
-	let { path, kind, workspaceId }: Props = $props()
+	let { path, kind, workspaceId, summary }: Props = $props()
 
 	let buttonHover = $state(false)
 	let starred = $derived(favoriteManager.isStarred(path, kind))
@@ -18,7 +19,7 @@
 	async function onClick() {
 		buttonHover = false
 		if (starred) favoriteManager.unstar(path, kind, workspaceId)
-		else favoriteManager.star(path, kind, workspaceId)
+		else favoriteManager.star(path, kind, workspaceId, summary)
 	}
 </script>
 

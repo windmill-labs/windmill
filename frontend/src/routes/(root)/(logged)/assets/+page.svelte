@@ -13,14 +13,14 @@
 		type ListAssetsResponse
 	} from '$lib/gen'
 	import { userStore, workspaceStore, userWorkspaces, globalDbManagerDrawer } from '$lib/stores'
-	import { pluralize, truncate } from '$lib/utils'
+	import { parseDbInputFromAssetSyntax, pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { AlertTriangle, Loader2, SettingsIcon } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { Debounced, resource, watch, type ResourceReturn } from 'runed'
 	import Label from '$lib/components/Label.svelte'
@@ -29,6 +29,7 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { favoriteManager } from '$lib/components/sidebar/FavoriteMenu.svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -110,6 +111,17 @@
 				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
+
+	function extractFavorites(kind: AssetKind) {
+		return favoriteManager.current
+			.filter((f) => f.kind === 'asset' && f.path.startsWith(kind))
+			.map((f) => {
+				const [assetName, tableKey] = f.path.substring(kind.length + '://'.length).split('/')
+				const [t1, t2] = tableKey.split('.')
+				const [table, schema] = [t2 ?? t1, t1 === 'main' || t1 === 'public' ? undefined : t1]
+				return { table, schema, assetName: assetName || 'main', path: f.path }
+			})
+	}
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.assets}
@@ -133,7 +145,7 @@
 					data: ResourceReturn<{ label: string; value: string }[]>
 					settingsHref: string
 					docsHref: string
-					// favorites:
+					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
 						<div class="flex justify-between border-b">
@@ -174,6 +186,34 @@
 									</div>
 								{/each}
 							</div>
+
+							{#if !props.data.loading && !props.data.error && props.favorites != undefined}
+								<div class="mb-4 pt-2 px-6">
+									<h3 class="text-xs font-bold mb-1"> Favorite tables</h3>
+									<div class="flex gap-1 flex-wrap">
+										{#each props.favorites as fav}
+											<button
+												class="text-xs font-normal bg-surface-sunken rounded-md px-2 py-1 cursor-pointer hover:opacity-80"
+												onclick={() => {
+													const dbInput = parseDbInputFromAssetSyntax(fav.path)
+													if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+												}}
+											>
+												<span>
+													<StarIcon size="12" class="inline mr-1" />
+													{fav.schema ? `${fav.schema}.` : ''}{fav.table}
+												</span>
+												<span class="text-2xs">
+													{fav.assetName === 'main' ? `` : `(${fav.assetName})`}
+												</span>
+											</button>
+										{/each}
+									</div>
+									{#if props.favorites.length === 0}
+										<div class="text-xs text-secondary"> No favorite table yet</div>
+									{/if}
+								</div>
+							{/if}
 						{/if}
 						{#if props.data.loading}
 							<div class="flex items-center gap-2 mt-2 mb-5 px-6 text-sm text-secondary">
@@ -195,14 +235,16 @@
 					data: allDataTables,
 					assetKind: 'datatable',
 					settingsHref: '/workspace_settings?tab=windmill_data_tables',
-					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables'
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables',
+					favorites: extractFavorites('datatable')
 				})}
 				{@render card({
 					title: 'Ducklake',
 					data: allDucklakes,
 					assetKind: 'ducklake',
 					settingsHref: '/workspace_settings?tab=windmill_lfs',
-					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake'
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake',
+					favorites: extractFavorites('ducklake')
 				})}
 				{@render card({
 					title: 'Object storage',

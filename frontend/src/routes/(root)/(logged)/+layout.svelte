@@ -1,7 +1,17 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import { FavoriteService, OpenAPI, SettingService, UserService, WorkspaceService } from '$lib/gen'
+	import {
+		AppService,
+		AssetService,
+		FlowService,
+		OpenAPI,
+		RawAppService,
+		ScriptService,
+		SettingService,
+		UserService,
+		WorkspaceService
+	} from '$lib/gen'
 	import {
 		capitalize,
 		classNames,
@@ -167,13 +177,58 @@
 	}
 
 	async function loadFavorites() {
-		const favorites = await FavoriteService.listFavorites({ workspace: $workspaceStore ?? '' })
-		favoriteManager.current = favorites.map((f) => ({
-			label: getFavoriteLabel(f.path ?? 'Unknown', f.favorite_kind ?? 'script'),
-			href: getFavoriteHref(f.path ?? '', f.favorite_kind ?? 'script'),
-			kind: f.favorite_kind ?? 'script',
-			path: f.path ?? ''
-		}))
+		const scripts = await ScriptService.listScripts({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true,
+			includeWithoutMain: true,
+			withoutDescription: true
+		})
+		const flows = await FlowService.listFlows({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true,
+			withoutDescription: true
+		})
+		const apps = await AppService.listApps({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
+		const raw_apps = await RawAppService.listRawApps({
+			workspace: $workspaceStore ?? '',
+			starredOnly: true
+		})
+		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
+		favoriteManager.current = [
+			...scripts.map((s) => ({
+				label: s.summary || getFavoriteLabel(s.path, 'script'),
+				path: s.path,
+				href: getFavoriteHref(s.path, 'script'),
+				kind: 'script' as const
+			})),
+			...flows.map((f) => ({
+				label: f.summary || getFavoriteLabel(f.path, 'flow'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'flow'),
+				kind: 'flow' as const
+			})),
+			...apps.map((f) => ({
+				label: f.summary || getFavoriteLabel(f.path, 'app'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'app'),
+				kind: 'app' as const
+			})),
+			...raw_apps.map((f) => ({
+				label: f.summary || getFavoriteLabel(f.path, 'raw_app'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'raw_app'),
+				kind: 'raw_app' as const
+			})),
+			...assets.map((a) => ({
+				label: getFavoriteLabel(a.path, 'asset'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'asset'),
+				kind: 'asset' as const
+			}))
+		]
 	}
 
 	async function loadUsedTriggerKinds() {

@@ -647,7 +647,7 @@
 					/>
 				{/snippet}
 				{#if $workspaceStore && script}
-					<Star kind="script" path={script.path} />
+					<Star kind="script" path={script.path} summary={script.summary} />
 				{/if}
 				{#if script?.codebase}
 					<Badge

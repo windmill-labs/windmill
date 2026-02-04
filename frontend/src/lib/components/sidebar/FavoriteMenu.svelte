@@ -41,9 +41,9 @@
 			})
 		}
 
-		async star(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
+		async star(path: string, favorite_kind: FavoriteKind, workspaceId?: string, summary?: string) {
 			const href = getFavoriteHref(path, favorite_kind)
-			const label = getFavoriteLabel(path, favorite_kind)
+			const label = summary || getFavoriteLabel(path, favorite_kind)
 			this.current = [...this.current, { href, kind: favorite_kind, label, path }]
 			await FavoriteService.star({
 				workspace: workspaceId ?? get(workspaceStore)!,
@@ -68,7 +68,6 @@
 	import { FavoriteService, type StarData } from '$lib/gen'
 	import { get } from 'svelte/store'
 	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
-	import { type DbInput } from '../dbTypes'
 	import { parseDbInputFromAssetSyntax } from '$lib/utils'
 
 	interface Props {

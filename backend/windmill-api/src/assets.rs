@@ -18,6 +18,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/list", get(list_assets))
         .route("/list_by_usages", post(list_assets_by_usages))
+        .route("/list_favorites", get(list_favorites))
 }
 
 #[derive(Deserialize)]
@@ -283,4 +284,30 @@ async fn list_assets_by_usages(
         assets_vec.push(assets);
     }
     Ok(Json(assets_vec))
+}
+
+async fn list_favorites(
+    authed: ApiAuthed,
+    Path(w_id): Path<String>,
+    Extension(user_db): Extension<UserDB>,
+) -> JsonResult<Vec<Value>> {
+    let mut tx = user_db.begin(&authed).await?;
+
+    let favorites = sqlx::query_scalar!(
+        r#"SELECT
+            jsonb_strip_nulls(jsonb_build_object(
+                'path', favorite.path
+            )) as "favorite_asset!: _"
+        FROM favorite
+        WHERE favorite.workspace_id = $1
+          AND favorite.usr = $2
+          AND favorite_kind = 'asset'
+        "#,
+        &w_id,
+        &authed.username
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
+    Ok(Json(favorites))
 }

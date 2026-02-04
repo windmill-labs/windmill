@@ -107,7 +107,7 @@
 
 	{#if canFavorite && kind !== 'resource' && kind !== 'variable' && kind !== 'resource_type'}
 		<div class="center-center h-full text-xs font-semibold text-secondary w-9">
-			<Star {kind} {path} {workspaceId} />
+			<Star {kind} {path} {workspaceId} {summary} />
 		</div>
 	{:else}
 		<div class="w-9"></div>
