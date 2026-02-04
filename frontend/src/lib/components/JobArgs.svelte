@@ -66,47 +66,46 @@ ${Object.entries(args)
 	>.
 {:else}
 	<div class="relative">
-		<div class="absolute -top-7 right-1 z-10">
-			<Button
-				unifiedSize="sm"
-				variant="subtle"
-				onClick={() => {
-					jsonStr = JSON.stringify(args, null, 4)
-					jsonViewer?.openDrawer()
-				}}
-				iconOnly
-				startIcon={{ icon: Expand }}
-			></Button>
-		</div>
 		<DataTable size="sm" containerClass="bg-surface-tertiary">
-			{#if argLabel}
-				<Head>
-					<tr class="w-full">
-						<Cell head first class="whitespace-nowrap">{argLabel ?? 'Input'}</Cell>
-						<Cell head last>Value</Cell>
-					</tr>
-				</Head>
-			{/if}
+			<Head>
+				<tr class="w-full">
+					<Cell head first>{argLabel ?? 'Input'}</Cell>
+					<Cell head last>Value</Cell>
+				</tr>
+				{#snippet headerAction()}
+					<div class="center-center -m-1">
+						<Button
+							unifiedSize="md"
+							variant="subtle"
+							onClick={() => {
+								jsonStr = JSON.stringify(args, null, 4)
+								jsonViewer?.openDrawer()
+							}}
+							iconOnly
+							startIcon={{ icon: Expand }}
+						></Button>
+					</div>
+				{/snippet}
+			</Head>
+
 			<tbody class="divide-y w-full">
 				{#if args && typeof args === 'object' && Object.keys(args ?? {}).length > 0}
 					{#each Object.entries(args ?? {}).sort( (a, b) => a?.[0]?.localeCompare(b?.[0]) ) as [arg, value]}
 						<Row>
-							<Cell first class="w-auto max-w-[50%] min-w-[20%] whitespace-nowrap text-emphasis"
-								>{arg}</Cell
-							>
-							<Cell class="w-full text-secondary"><ArgInfo {value} /></Cell>
+							<Cell first>{arg}</Cell>
+							<Cell><ArgInfo {value} /></Cell>
 						</Row>
 					{/each}
 				{:else if args && typeof args !== 'object'}
-					<Row><Cell class="px-6">Argument is not an object (type: {typeof args})</Cell></Row>
+					<Row><Cell>Argument is not an object (type: {typeof args})</Cell></Row>
 				{:else if args}
-					<Row><Cell class="px-6">No arguments</Cell></Row>
+					<Row><Cell>No arguments</Cell></Row>
 				{:else}
 					<Row>
-						<Cell first class="w-auto max-w-[50%] min-w-[20px] whitespace-nowrap text-emphasis">
+						<Cell first>
 							<Skeleton layout={[[1], 0.5, [1]]} />
 						</Cell>
-						<Cell last class="w-full">
+						<Cell last>
 							<Skeleton layout={[[1], 0.5, [1]]} />
 						</Cell>
 					</Row>
