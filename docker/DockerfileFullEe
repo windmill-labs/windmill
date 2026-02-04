@@ -51,6 +51,9 @@ RUN /usr/bin/java -jar /usr/bin/coursier about
 # Ruby
 RUN apt-get install -y ruby ruby-bundler
 
+# iptables
+RUN apt-get install -y iptables
+
 # Fix UV cache permissions for non-root user support (uid 1000, etc.)
 # The uv tool install ansible command populates the UV cache with root-owned files
 RUN chmod -R a+rw /tmp/windmill/cache/uv && \

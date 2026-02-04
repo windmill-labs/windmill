@@ -1,6 +1,26 @@
 ARG DEBIAN_IMAGE=debian:bookworm-slim
 ARG RUST_IMAGE=rust:1.90-slim-bookworm
 
+FROM debian:bookworm-slim AS nsjail
+
+WORKDIR /nsjail
+
+RUN apt-get -y update \
+    && apt-get install -y \
+    bison=2:3.8.* \
+    flex=2.6.* \
+    g++=4:12.2.* \
+    gcc=4:12.2.* \
+    git=1:2.39.* \
+    libprotobuf-dev=3.21.* \
+    libnl-route-3-dev=3.7.* \
+    make=4.3-4.1 \
+    pkg-config=1.8.* \
+    protobuf-compiler=3.21.*
+
+RUN git clone -b master --single-branch https://github.com/google/nsjail.git . && git checkout dccf911fd2659e7b08ce9507c25b2b38ec2c5800
+RUN make
+
 FROM ${RUST_IMAGE} AS rust_base
 
 RUN apt-get update && apt-get install -y git libssl-dev pkg-config npm
@@ -245,6 +265,11 @@ COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
 ENV RUSTUP_HOME="/usr/local/rustup"
 ENV CARGO_HOME="/usr/local/cargo"
 ENV LD_LIBRARY_PATH="."
+
+# nsjail runtime deps and binary
+RUN apt-get update && apt-get install -y libprotobuf-dev libnl-route-3-dev \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY --from=nsjail /nsjail/nsjail /bin/nsjail
 
 WORKDIR ${APP}
 

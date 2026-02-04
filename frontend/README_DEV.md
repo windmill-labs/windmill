@@ -113,8 +113,8 @@ it can build the image and run on local repository.
 
 ```bash
 # Issue the build
-docker/dev.nu up --features "python,static_frontend" docker/DockerfileNsjail --rebuild
-# Will create and run `main__nsjail__python-static_frontend`
+docker/dev.nu up --features "python,static_frontend" --rebuild
+# Will create and run `main-python-static_frontend`
 ```
 
 If you develop wasm parser for new language you can also pass `--wasm-pkg <language>` and it will include local parser to the image. For more information please see the script directly or run it with `--help` flag.

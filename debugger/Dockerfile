@@ -15,8 +15,8 @@
 # With nsjail enabled:
 #   docker run -p 5679:5679 --privileged windmill-debugger --nsjail
 
-# Stage 1: Get nsjail and windmill from the official windmill image
-FROM ghcr.io/windmill-labs/windmill-ee-nsjail:main AS windmill-source
+# Stage 1: Get nsjail and windmill from the official windmill EE image
+FROM ghcr.io/windmill-labs/windmill-ee:main AS windmill-source
 
 # Stage 2: Build the debug service
 FROM oven/bun:1 AS runtime

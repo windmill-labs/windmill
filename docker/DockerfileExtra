@@ -17,12 +17,7 @@
 #   docker run -p 3001:3001 -p 3002:3002 -p 3003:3003 windmill-extra
 
 # ============================================================================
-# Stage 1: Get nsjail from the nsjail image
-# ============================================================================
-FROM ghcr.io/windmill-labs/windmill-ee-nsjail:main AS nsjail-source
-
-# ============================================================================
-# Stage 2: Build final extra services image from windmill-slim
+# Build final extra services image from windmill-ee-slim (includes nsjail)
 # ============================================================================
 FROM ghcr.io/windmill-labs/windmill-ee-slim:latest AS final
 
@@ -40,11 +35,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Install additional system dependencies
 # - shellcheck: for bash LSP
-# - libprotobuf-dev, libnl-route-3-dev: for nsjail runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     shellcheck \
-    libprotobuf-dev \
-    libnl-route-3-dev \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -67,9 +59,6 @@ RUN /usr/local/go/bin/go install -v golang.org/x/tools/gopls@latest
 
 # Copy Deno for Deno LSP
 COPY --from=denoland/deno:2.2.1 --chmod=755 /usr/bin/deno /usr/bin/deno
-
-# Copy nsjail from nsjail image (for sandboxed debugging)
-COPY --from=nsjail-source /bin/nsjail /bin/nsjail
 
 # ============================================================================
 # LSP Setup
