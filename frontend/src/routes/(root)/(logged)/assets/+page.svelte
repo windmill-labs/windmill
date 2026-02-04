@@ -29,7 +29,7 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
-	import { favoriteManager } from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import { favoriteManager, parseFavoriteAsset } from '$lib/components/sidebar/FavoriteMenu.svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -115,12 +115,7 @@
 	function extractFavorites(kind: AssetKind) {
 		return favoriteManager.current
 			.filter((f) => f.kind === 'asset' && f.path.startsWith(kind))
-			.map((f) => {
-				const [assetName, tableKey] = f.path.substring(kind.length + '://'.length).split('/')
-				const [t1, t2] = tableKey.split('.')
-				const [table, schema] = [t2 ?? t1, t1 === 'main' || t1 === 'public' ? undefined : t1]
-				return { table, schema, assetName: assetName || 'main', path: f.path }
-			})
+			.map((f) => parseFavoriteAsset(f.path))
 	}
 </script>
 

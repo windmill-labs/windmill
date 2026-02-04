@@ -14,10 +14,10 @@
 		}[kind]
 	}
 	export function getFavoriteLabel(path: string, kind: FavoriteKind): string {
-		const publicDatatableRegex = /datatable:\/\/.*\/public\.[^/.]+/
-		const publicDucklakeRegex = /ducklake:\/\/.*\/main\.[^/.]+/
-		if (kind === 'asset' && path.match(publicDatatableRegex)) return path.replace('/public.', '/')
-		if (kind === 'asset' && path.match(publicDucklakeRegex)) return path.replace('/main.', '/')
+		if (kind === 'asset') {
+			const asset = parseFavoriteAsset(path)
+			return `${asset.schema ? `${asset.schema}.` : ''}${asset.table} (${asset.assetName} ${asset.scheme})`
+		}
 
 		return path
 	}
@@ -57,10 +57,18 @@
 	}
 
 	export const favoriteManager = new FavoriteManager()
+
+	export function parseFavoriteAsset(path: string) {
+		const [scheme, t0] = path.split('://')
+		const [assetName, tableKey] = t0.split('/')
+		const [t1, t2] = tableKey.split('.')
+		const [table, schema] = [t2 ?? t1, t1 === 'main' || t1 === 'public' ? undefined : t1]
+		return { table, schema, assetName: assetName || 'main', path, scheme }
+	}
 </script>
 
 <script lang="ts">
-	import { CodeXml, LayoutDashboard, Pyramid, Star, Trash2 } from 'lucide-svelte'
+	import { CodeXml, LayoutDashboard, Table2, Star, Trash2 } from 'lucide-svelte'
 	import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
@@ -129,7 +137,7 @@
 									{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 										<LayoutDashboard size={16} />
 									{:else if favorite.kind == 'asset'}
-										<Pyramid size={16} />
+										<Table2 size={16} />
 									{/if}
 								</span>
 								<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
