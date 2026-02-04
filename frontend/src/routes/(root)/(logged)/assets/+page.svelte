@@ -135,9 +135,15 @@
 					settingsHref: string
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
-						<div class="flex justify-between px-6 pt-5 border-b">
-							<h3 class="text-sm font-bold mb-4">{props.title}</h3>
-							<a class="text-xs" href={props.settingsHref}>Settings </a>
+						<div class="flex justify-between border-b">
+							<h3 class="text-sm font-bold mb-4 pt-5 pl-6">{props.title}</h3>
+							<Button
+								wrapperClasses="mt-4 mr-4 h-fit"
+								variant="subtle"
+								iconOnly
+								endIcon={{ icon: SettingsIcon }}
+								href={props.settingsHref}
+							/>
 						</div>
 						{#if props.data.current?.length}
 							<div class="max-h-96 overflow-y-auto pb-3">
