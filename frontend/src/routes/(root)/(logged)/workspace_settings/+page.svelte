@@ -1292,9 +1292,9 @@
 			{/if}</PageHeader
 		>
 
-		<div class="flex gap-6">
+		<div class="flex gap-6 pb-10">
 			<!-- Sidebar Navigation -->
-			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-secondary/50 h-fit">
+			<div class="w-64 shrink-0 p-4 rounded-md bg-surface-tertiary h-fit">
 				<SidebarNavigation
 					groups={navigationGroups}
 					selectedId={tab}

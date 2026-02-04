@@ -43,15 +43,16 @@
 			<nav class="flex flex-col gap-0.5">
 				{#each group.items as item}
 					{#if item.showIf !== false}
+						{@const isSelected = selectedId === item.id}
 						<Button
 							variant="subtle"
 							unifiedSize="sm"
-							selected={selectedId === item.id}
+							selected={isSelected}
 							disabled={item.disabled}
 							aiId={item.aiId}
 							aiDescription={item.aiDescription}
 							startIcon={item.icon ? { icon: item.icon } : undefined}
-							btnClasses="!justify-start text-left !w-full"
+							btnClasses={twMerge('!justify-start text-left !w-full')}
 							onClick={() => onNavigate(item.id)}
 						>
 							<span class="truncate">{item.label}</span>
