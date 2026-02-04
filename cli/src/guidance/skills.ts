@@ -5460,6 +5460,9 @@ properties:
   timezone:
     type: string
     description: IANA timezone for the schedule (e.g., 'UTC', 'Europe/Paris', 'America/New_York')
+  enabled:
+    type: boolean
+    description: Whether the schedule is currently active and will trigger jobs
   script_path:
     type: string
     description: Path to the script or flow to execute when triggered
@@ -5569,6 +5572,7 @@ required:
 - script_path
 - timezone
 - is_flow
+- enabled
 `,
   "sqs_trigger": `type: object
 properties:

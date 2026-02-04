@@ -73,7 +73,7 @@ CLI_EXCLUDED_FIELDS = [
     'created_at', 'updated_at', 'created_by', 'updated_by',
     'edited_at', 'edited_by', 'archived', 'has_draft',
     'error', 'last_server_ping', 'server_id',
-    'extra_perms', 'email', 'enabled', 'mode'
+    'extra_perms', 'email', 'mode'
 ]
 
 # =============================================================================

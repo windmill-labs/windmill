@@ -281,34 +281,36 @@ async function initAction(opts: InitOptions) {
     try {
       await Deno.mkdir(".claude/skills", { recursive: true });
 
-      for (const skill of SKILLS) {
-        const skillDir = `.claude/skills/${skill.name}`;
-        await Deno.mkdir(skillDir, { recursive: true });
+      await Promise.all(
+        SKILLS.map(async (skill) => {
+          const skillDir = `.claude/skills/${skill.name}`;
+          await Deno.mkdir(skillDir, { recursive: true });
 
-        let skillContent = SKILL_CONTENT[skill.name];
-        if (skillContent) {
-          // Check if this skill has schemas that need to be appended
-          const schemaMappings = SCHEMA_MAPPINGS[skill.name];
-          if (schemaMappings && schemaMappings.length > 0) {
-            // Combine base content with schemas
-            const schemaDocs = schemaMappings
-              .map((mapping) => {
-                const schemaYaml = SCHEMAS[mapping.schemaKey];
-                if (schemaYaml) {
-                  return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
-                }
-                return null;
-              })
-              .filter((doc): doc is string => doc !== null);
+          let skillContent = SKILL_CONTENT[skill.name];
+          if (skillContent) {
+            // Check if this skill has schemas that need to be appended
+            const schemaMappings = SCHEMA_MAPPINGS[skill.name];
+            if (schemaMappings && schemaMappings.length > 0) {
+              // Combine base content with schemas
+              const schemaDocs = schemaMappings
+                .map((mapping) => {
+                  const schemaYaml = SCHEMAS[mapping.schemaKey];
+                  if (schemaYaml) {
+                    return formatSchemaForMarkdown(schemaYaml, mapping.name, mapping.filePattern);
+                  }
+                  return null;
+                })
+                .filter((doc): doc is string => doc !== null);
 
-            if (schemaDocs.length > 0) {
-              skillContent = skillContent + "\n\n" + schemaDocs.join("\n\n");
+              if (schemaDocs.length > 0) {
+                skillContent = skillContent + "\n\n" + schemaDocs.join("\n\n");
+              }
             }
-          }
 
-          await Deno.writeTextFile(`${skillDir}/SKILL.md`, skillContent);
-        }
-      }
+            await Deno.writeTextFile(`${skillDir}/SKILL.md`, skillContent);
+          }
+        })
+      );
 
       log.info(colors.green(`Created .claude/skills/ with ${SKILLS.length} skills`));
     } catch (skillError) {
