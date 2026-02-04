@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Serialize, PartialEq, Clone, Copy, Debug)]
 #[serde(rename_all(serialize = "lowercase"))]
@@ -19,12 +20,14 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize, Debug, PartialEq)]
+#[derive(Serialize, Debug, PartialEq, Clone)]
 pub struct ParseAssetsResult {
     pub kind: AssetKind,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_type: Option<AssetUsageAccessType>, // None in case of ambiguity
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub columns: Option<BTreeMap<String, AssetUsageAccessType>>, // Map column name to access type, "*" represents wildcard
 }
 
 #[derive(Serialize, Debug, PartialEq)]
@@ -66,12 +69,44 @@ pub fn merge_assets(assets: Vec<ParseAssetsResult>) -> Vec<ParseAssetsResult> {
                 (Some(R), Some(R)) => Some(R),
                 (Some(W), Some(W)) => Some(W),
             };
+            // merge columns: union the column sets and merge access types per column
+            existing.columns = merge_column_maps(existing.columns.take(), asset.columns);
         } else {
             arr.push(asset);
         }
     }
     arr.sort_by(|a, b| a.path.cmp(&b.path));
     arr
+}
+
+fn merge_column_maps(
+    existing: Option<BTreeMap<String, AssetUsageAccessType>>,
+    new: Option<BTreeMap<String, AssetUsageAccessType>>,
+) -> Option<BTreeMap<String, AssetUsageAccessType>> {
+    match (existing, new) {
+        (None, None) => None,
+        (Some(map), None) | (None, Some(map)) => Some(map),
+        (Some(mut existing_map), Some(new_map)) => {
+            for (col_name, new_access) in new_map {
+                existing_map
+                    .entry(col_name)
+                    .and_modify(|existing_access| {
+                        *existing_access = merge_access_types(*existing_access, new_access);
+                    })
+                    .or_insert(new_access);
+            }
+            Some(existing_map)
+        }
+    }
+}
+
+fn merge_access_types(a: AssetUsageAccessType, b: AssetUsageAccessType) -> AssetUsageAccessType {
+    match (a, b) {
+        (R, W) | (W, R) => RW,
+        (RW, _) | (_, RW) => RW,
+        (R, R) => R,
+        (W, W) => W,
+    }
 }
 
 // Will return false if the user assigned an asset to a variable like:
