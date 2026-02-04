@@ -176,10 +176,7 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
-        .route(
-            "/public_app_rate_limit",
-            post(edit_public_app_rate_limit),
-        )
+        .route("/public_app_rate_limit", post(edit_public_app_rate_limit))
         .route("/operator_settings", post(update_operator_settings))
         .route(
             "/create_workspace_fork_branch",
@@ -4429,6 +4426,8 @@ async fn edit_public_app_rate_limit(
     .execute(&db)
     .await?;
 
+    // Cache is invalidated via DB trigger -> notify_event -> polling in main.rs
+
     handle_deployment_metadata(
         &authed.email,
         &authed.username,
@@ -4447,14 +4446,29 @@ async fn edit_public_app_rate_limit(
     ))
 }
 
+// 5 minutes fallback TTL (in addition to event-based invalidation)
+const PUBLIC_APP_RATE_LIMIT_CACHE_TTL_SECS: i64 = 300;
+
 pub async fn get_public_app_rate_limit(db: &DB, w_id: &str) -> Result<Option<i32>> {
+    use windmill_common::workspaces::PUBLIC_APP_RATE_LIMIT_CACHE;
+
+    let now = Utc::now().timestamp();
+
+    if let Some((rate_limit, cached_at)) = PUBLIC_APP_RATE_LIMIT_CACHE.get(w_id) {
+        if now - cached_at < PUBLIC_APP_RATE_LIMIT_CACHE_TTL_SECS {
+            return Ok(rate_limit);
+        }
+    }
+
     let result: Option<Option<i32>> = sqlx::query_scalar(
         "SELECT public_app_execution_limit_per_minute FROM workspace_settings WHERE workspace_id = $1",
     )
     .bind(w_id)
     .fetch_optional(db)
     .await?;
-    Ok(result.flatten())
+    let rate_limit = result.flatten();
+    PUBLIC_APP_RATE_LIMIT_CACHE.insert(w_id.to_string(), (rate_limit, now));
+    Ok(rate_limit)
 }
 
 #[derive(Deserialize, Serialize)]
