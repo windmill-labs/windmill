@@ -1,7 +1,7 @@
 openapi: '3.0.3'
 
 info:
-  version: 1.623.1
+  version: 1.624.0
   title: OpenFlow Spec
   contact:
     name: Ruben Fiszel
@@ -333,11 +333,13 @@ components:
       oneOf:
         - $ref: '#/components/schemas/StaticTransform'
         - $ref: '#/components/schemas/JavascriptTransform'
+        - $ref: '#/components/schemas/AiTransform'
       discriminator:
         propertyName: type
         mapping:
           static: '#/components/schemas/StaticTransform'
           javascript: '#/components/schemas/JavascriptTransform'
+          ai: '#/components/schemas/AiTransform'
 
     StaticTransform:
       type: object
@@ -365,6 +367,17 @@ components:
             - javascript
       required:
         - expr
+        - type
+
+    AiTransform:
+      type: object
+      description: Value resolved by the AI runtime for this input. The AI engine decides how to satisfy the parameter.
+      properties:
+        type:
+          type: string
+          enum:
+            - ai
+      required:
         - type
 
     FlowModuleValue:

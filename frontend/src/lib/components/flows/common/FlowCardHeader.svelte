@@ -151,12 +151,11 @@
 							}}><Unlock size={12} />hash</Button
 						>
 					{:else if latestHash}
-						<div class="flex">
+						<div class="flex gap-2">
 							<Button
 								title="Lock hash to always use this specific version"
-								color="light"
-								size="xs"
-								btnClasses="text-primary inline-flex gap-1 items-center"
+								unifiedSize="sm"
+								variant="default"
 								on:click={() => {
 									if (flowModuleValue.type == 'script') {
 										dispatch('setHash', latestHash)
@@ -165,12 +164,12 @@
 							>
 							<Button
 								title="Reload latest hash"
-								size="xs"
-								color="light"
+								unifiedSize="sm"
+								variant="default"
 								on:click={() => dispatch('reload')}
-							>
-								<RefreshCw size={12} /></Button
-							>
+								startIcon={{ icon: RefreshCw }}
+								iconOnly
+							/>
 						</div>
 					{/if}
 					<input
