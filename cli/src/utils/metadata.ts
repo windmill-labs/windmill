@@ -234,8 +234,11 @@ async function fetchScriptLock(
   remotePath: string,
   rawWorkspaceDependencies: Record<string, string>,
 ): Promise<string> {
-  const cacheKey = await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies);
-  if (lockCache.has(cacheKey)) {
+  const hasRawDeps = Object.keys(rawWorkspaceDependencies).length > 0;
+  const cacheKey = hasRawDeps
+    ? await computeLockCacheKey(scriptContent, language, rawWorkspaceDependencies)
+    : undefined;
+  if (cacheKey && lockCache.has(cacheKey)) {
     log.info(`Using cached lockfile for ${remotePath}`);
     return lockCache.get(cacheKey)!;
   }
@@ -280,7 +283,9 @@ async function fetchScriptLock(
         `Failed to generate lockfile: ${JSON.stringify(response, null, 2)}`
       );
     }
-    lockCache.set(cacheKey, lock);
+    if (cacheKey) {
+      lockCache.set(cacheKey, lock);
+    }
     return lock;
   } catch (e) {
     if (e instanceof LockfileGenerationError) {

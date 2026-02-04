@@ -53,22 +53,27 @@ async function fetchScriptLockOld(
   return await remoteFn(input);
 }
 
-/** New logic: checks a cache keyed by (content, language, deps) first. */
+/** New logic: only caches when raw_workspace_dependencies are non-empty. */
 async function fetchScriptLockNew(
   input: ScriptInput,
   remoteFn: (input: ScriptInput) => Promise<string>,
   cache: Map<string, string>,
 ): Promise<string> {
-  const cacheKey = await computeLockCacheKey(
-    input.scriptContent,
-    input.language,
-    input.rawWorkspaceDependencies,
-  );
-  if (cache.has(cacheKey)) {
+  const hasRawDeps = Object.keys(input.rawWorkspaceDependencies).length > 0;
+  const cacheKey = hasRawDeps
+    ? await computeLockCacheKey(
+        input.scriptContent,
+        input.language,
+        input.rawWorkspaceDependencies,
+      )
+    : undefined;
+  if (cacheKey && cache.has(cacheKey)) {
     return cache.get(cacheKey)!;
   }
   const lock = await remoteFn(input);
-  cache.set(cacheKey, lock);
+  if (cacheKey) {
+    cache.set(cacheKey, lock);
+  }
   return lock;
 }
 
@@ -297,7 +302,7 @@ Deno.test("new logic: 5 scripts (3 unique) → 3 remote calls", async () => {
 
 // -- Scripts with no workspace deps (empty) ---------------------------------
 
-Deno.test("new logic: identical scripts with empty deps → 1 remote call", async () => {
+Deno.test("new logic: identical scripts with empty deps → 2 remote calls (no caching without raw deps)", async () => {
   const { remoteFn, callCount } = makeRemoteFn();
   const cache = new Map<string, string>();
 
@@ -307,7 +312,8 @@ Deno.test("new logic: identical scripts with empty deps → 1 remote call", asyn
   ];
 
   for (const s of scripts) await fetchScriptLockNew(s, remoteFn, cache);
-  assertEquals(callCount(), 1);
+  assertEquals(callCount(), 2);
+  assertEquals(cache.size, 0);
 });
 
 // -- Cache returns correct lock value, not stale data -----------------------
