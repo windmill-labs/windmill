@@ -30,6 +30,7 @@ pub mod sqs;
 #[cfg(feature = "websocket")]
 pub mod websocket;
 
+pub mod filter;
 pub mod global_handler;
 mod handler;
 mod listener;

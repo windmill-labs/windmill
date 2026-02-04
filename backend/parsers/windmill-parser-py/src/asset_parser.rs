@@ -19,9 +19,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
         // if a db = wmill.datatable() was never used (e.g db.query(...)),
         // we still want to register the asset as unknown access type
         if asset_was_used(&assets_finder.assets, (kind, &path)) == false {
-            assets_finder
-                .assets
-                .push(ParseAssetsResult { kind, access_type: None, path });
+            assets_finder.assets.push(ParseAssetsResult {
+                kind,
+                path,
+                access_type: None,
+                columns: None,
+            });
         }
     }
 
@@ -48,8 +51,12 @@ impl Visitor for AssetsFinder {
             match removed {
                 Some((kind, path, _)) => {
                     if !asset_was_used(&self.assets, (kind, &path)) {
-                        self.assets
-                            .push(ParseAssetsResult { kind, access_type: None, path });
+                        self.assets.push(ParseAssetsResult {
+                            kind,
+                            path,
+                            access_type: None,
+                            columns: None,
+                        });
                     }
                 }
                 None => {}
@@ -76,6 +83,7 @@ impl Visitor for AssetsFinder {
                         kind,
                         path: path.to_string(),
                         access_type: None,
+                        columns: None,
                     });
                 }
             }
@@ -97,6 +105,7 @@ impl Visitor for AssetsFinder {
                                 kind,
                                 path: path.to_string(),
                                 access_type: None,
+                                columns: None,
                             });
                         }
                     }
@@ -252,8 +261,12 @@ impl AssetsFinder {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
                     .unwrap_or(&value);
-                self.assets
-                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: path.to_string(),
+                    access_type,
+                    columns: None,
+                });
             }
             _ => return Err(()),
         };
@@ -281,7 +294,8 @@ def main():
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
                 path: "/test.csv".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -299,7 +313,8 @@ def main():
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None,
             },])
         );
     }
@@ -318,7 +333,8 @@ def main(x: int):
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/friends".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -340,12 +356,14 @@ def main(x: int):
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/analytics".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/friends".to_string(),
-                    access_type: Some(RW)
+                    access_type: Some(RW),
+                    columns: None,
                 },
             ])
         );
@@ -372,17 +390,20 @@ def g():
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "another1/customers".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::Ducklake,
                     path: "another2".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "main/friends".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None,
                 },
             ])
         );
@@ -404,12 +425,14 @@ def g():
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "another1".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::Ducklake,
                     path: "main".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
             ])
         );
@@ -429,7 +452,8 @@ def main(x: int):
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/public.friends".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -448,7 +472,8 @@ def main():
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "lake1/analytics.metrics".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -468,7 +493,8 @@ def main(x: int):
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/public.users".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None,
             },])
         );
     }
@@ -486,7 +512,8 @@ def main():
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None,
             },])
         );
     }
