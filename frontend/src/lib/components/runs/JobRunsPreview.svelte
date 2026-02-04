@@ -130,8 +130,8 @@
 					/>
 				</div>
 			{/if}
-			{#if isFlow}
-				<div class="w-full">
+			<div class="w-full mt-2">
+				{#if isFlow}
 					<FlowExecutionStatus
 						{job}
 						workspaceId={job?.workspace_id}
@@ -139,11 +139,11 @@
 						innerModules={job?.flow_status?.modules}
 						{suspendStatus}
 					/>
-				</div>
-			{/if}
+				{/if}
+			</div>
 
 			<!-- Job inputs -->
-			<div class="w-full mt-6">
+			<div class="w-full mt-4">
 				<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
 				<JobArgs
 					id={job?.id}
