@@ -4,13 +4,17 @@
 	import UndoRedo from '$lib/components/common/button/UndoRedo.svelte'
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
+	import { rawAppToHubUrl } from '$lib/hub'
+	import { enterpriseLicense, hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
+	import JSZip from 'jszip'
+	import YAML from 'yaml'
 	import {
 		Bug,
 		DiffIcon,
+		Download,
 		EllipsisVertical,
 		FileJson,
-		FileUp,
+		Globe,
 		History,
 		Pen,
 		Save,
@@ -143,7 +147,39 @@
 	let draftDrawerOpen = $state(false)
 	let saveDrawerOpen = $state(false)
 	let historyBrowserDrawerOpen = $state(false)
+	let publishToHubDrawerOpen = $state(false)
+	let publishingToHub = $state(false)
 	let deploymentMsg: string | undefined = $state(undefined)
+
+	async function publishToHub() {
+		if (!app) return
+		publishingToHub = true
+		try {
+			const { js, css } = await getBundle()
+			const zip = new JSZip()
+			zip.file('app.yaml', YAML.stringify(app))
+			zip.file('bundle.js', js)
+			zip.file('bundle.css', css)
+			const blob = await zip.generateAsync({ type: 'blob' })
+
+			// Download the zip
+			const url = window.URL.createObjectURL(blob)
+			const a = document.createElement('a')
+			a.href = url
+			a.download = `${(appPath || 'raw-app').replaceAll('/', '__')}.zip`
+			a.click()
+			setTimeout(() => URL.revokeObjectURL(url), 100)
+
+			// Open hub page
+			const hubUrl = rawAppToHubUrl(
+				$hubBaseUrlStore,
+				summary || appPath.split('/').pop()?.replace('_', ' ') || 'my raw app'
+			)
+			window.open(hubUrl.toString(), '_blank')
+		} finally {
+			publishingToHub = false
+		}
+	}
 
 	function closeSaveDrawer() {
 		saveDrawerOpen = false
@@ -538,11 +574,10 @@
 			}
 		},
 		{
-			displayName: 'Hub compatible JSON',
-			icon: FileUp,
+			displayName: 'Publish to Hub',
+			icon: Globe,
 			action: () => {
-				sendUserToast('todo')
-				// appExport.open(toStatic(app, $staticExporter, summary).app)
+				publishToHubDrawerOpen = true
 			}
 		},
 		{
@@ -725,6 +760,42 @@
 <Drawer bind:open={historyBrowserDrawerOpen} size="1200px">
 	<DrawerContent title="Deployment History" on:close={() => (historyBrowserDrawerOpen = false)}>
 		<DeploymentHistory on:restore {appPath} />
+	</DrawerContent>
+</Drawer>
+
+<Drawer bind:open={publishToHubDrawerOpen} size="600px">
+	<DrawerContent title="Publish to Hub" on:close={() => (publishToHubDrawerOpen = false)}>
+		{#snippet actions()}
+			<Button
+				loading={publishingToHub}
+				disabled={!app}
+				on:click={publishToHub}
+				variant="accent"
+				startIcon={{ icon: Download }}
+			>
+				Download & open hub
+			</Button>
+		{/snippet}
+		<div class="flex flex-col gap-4">
+			<p class="text-secondary text-sm">
+				This will download a zip file containing your raw app bundle and open the Windmill Hub
+				submission page.
+			</p>
+			<div class="text-sm">
+				<p class="font-semibold mb-2">The zip file will contain:</p>
+				<ul class="list-disc list-inside text-secondary space-y-1">
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">app.yaml</code> - App configuration</li
+					>
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.js</code> - JavaScript bundle</li
+					>
+					<li
+						><code class="text-xs bg-surface-secondary px-1 rounded">bundle.css</code> - CSS styles</li
+					>
+				</ul>
+			</div>
+		</div>
 	</DrawerContent>
 </Drawer>
 

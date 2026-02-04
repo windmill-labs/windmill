@@ -117,6 +117,7 @@
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
 		"idb": "^8.0.2",
+		"jszip": "^3.10.1",
 		"lru-cache": "^11.1.0",
 		"lucide-svelte": "^0.540.0",
 		"minimatch": "^10.0.1",
