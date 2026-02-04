@@ -66,7 +66,6 @@
 		type DataTableSettingsType
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
-	import WorkspaceProtectionRules from '$lib/components/workspaceSettings/WorkspaceProtectionRules.svelte'
 	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 
 	let slackInitialPath: string = $state('')
@@ -161,8 +160,7 @@
 			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
-			| 'protection_rules'
-			| 'rulesets'
+			| 'deployment'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -697,20 +695,6 @@
 				/>
 				<Tab
 					small
-					value="protection_rules"
-					aiId="workspace-settings-protection-rules"
-					aiDescription="Protection rules workspace settings"
-					label="Protection Rules"
-				/>
-				<Tab
-					small
-					value="rulesets"
-					aiId="workspace-settings-rulesets"
-					aiDescription="Workspace rulesets settings"
-					label="Rulesets"
-				/>
-				<Tab
-					small
 					value="git_sync"
 					aiId="workspace-settings-git-sync"
 					aiDescription="Git sync workspace settings"
@@ -718,10 +702,10 @@
 				/>
 				<Tab
 					small
-					value="deploy_to"
-					aiId="workspace-settings-deploy-to"
-					aiDescription="Deployment UI workspace settings"
-					label="Deployment UI"
+					value="deployment"
+					aiId="workspace-settings-deployment"
+					aiDescription="Deployment and rulesets"
+					label="Deployment"
 				/>
 
 				{#if WORKSPACE_SHOW_SLACK_CMD}
@@ -822,11 +806,8 @@
 			<Skeleton layout={[1, [40]]} />
 		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
-		{:else if tab == 'protection_rules'}
-			<WorkspaceProtectionRules />
-		{:else if tab == 'rulesets'}
+		{:else if tab == 'deployment'}
 			<WorkspaceRulesets />
-		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">

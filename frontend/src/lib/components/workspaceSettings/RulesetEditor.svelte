@@ -125,11 +125,6 @@
 
 	const canSave = $derived(!nameError && hasUnsavedChanges)
 
-	// Logical warnings (non-blocking)
-	const hasLogicalWarnings = $derived(
-		(disableFork && requireForkOrBranch) || (disableMergeUI && !disableFork)
-	)
-
 	function removeGroup(group: string) {
 		selectedGroups = selectedGroups.filter((g) => g !== group)
 	}
@@ -202,6 +197,9 @@
 
 <div class="flex flex-col gap-6 p-4">
 	<!-- Name Section -->
+	<span class="text-secondary text-sm">
+		Keep in mind that rulesets can take up to one minute to take effect
+	</span>
 	<Section label="Rule Name" class="space-y-2">
 		<TextInput
 			size="md"
@@ -224,7 +222,7 @@
 	>
 		<!-- Groups -->
 		<div class="flex flex-col gap-2">
-			<Label>Groups</Label>
+			<Label class="text-xs">Groups</Label>
 			<Select
 				bind:value={selectedGroupToAdd}
 				items={safeSelectItems(availableGroups.filter((g) => !selectedGroups.includes(g)))}
@@ -246,7 +244,7 @@
 
 		<!-- Users -->
 		<div class="flex flex-col gap-2">
-			<Label>Users</Label>
+			<Label class="text-xs">Users</Label>
 			<Select
 				bind:value={selectedUserToAdd}
 				items={safeSelectItems(availableUsers.filter((u) => !selectedUsers.includes(u)))}
@@ -312,20 +310,6 @@
 				</div>
 			</div>
 		</div>
-
-		{#if hasLogicalWarnings}
-			<Alert type="info" title="Configuration notice">
-				{#if disableFork && requireForkOrBranch}
-					Both "Disable workspace forking" and "Require fork or git branch" are enabled. Users will
-					not be able to make changes since they cannot fork and changes must be made through a
-					fork.
-				{/if}
-				{#if disableMergeUI && !disableFork}
-					"Disable merge UI" is enabled but "Disable workspace forking" is not. Users can still
-					create forks but cannot merge them through the UI.
-				{/if}
-			</Alert>
-		{/if}
 	</Section>
 
 	<!-- Actions -->
