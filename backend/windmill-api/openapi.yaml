@@ -2383,6 +2383,9 @@ paths:
                     type: string
                   operator_settings:
                     $ref: "#/components/schemas/OperatorSettings"
+                  public_app_execution_limit_per_minute:
+                    type: integer
+                    description: Rate limit for public app executions per minute per server. NULL or 0 means disabled.
 
   /w/{workspace}/workspaces/get_deploy_to:
     get:
@@ -4152,6 +4155,35 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
+  /w/{workspace}/workspaces/public_app_rate_limit:
+    post:
+      summary: Set public app rate limit for this workspace
+      operationId: setPublicAppRateLimit
+      tags:
+        - setting
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      requestBody:
+        description: Public app rate limit configuration
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                public_app_execution_limit_per_minute:
+                  type: integer
+                  description: Rate limit for public app executions per minute per server. NULL or 0 to disable.
+                  example: 100
+      responses:
+        "200":
+          description: Successfully updated public app rate limit settings.
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "Updated public app rate limit for workspace: workspace_id"
+
   /oauth/login_callback/{client_name}:
     post:
       security: []
@@ -5386,6 +5418,34 @@ paths:
       responses:
         "200":
           description: app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: object
+                    properties:
+                      summary:
+                        type: string
+                      value: {}
+                    required:
+                      - summary
+                      - value
+                required:
+                  - app
+
+  /apps/hub/get_raw/{id}:
+    get:
+      summary: get hub raw app by id
+      operationId: getHubRawAppById
+      tags:
+        - app
+      parameters:
+        - $ref: "#/components/parameters/PathId"
+      responses:
+        "200":
+          description: raw app
           content:
             application/json:
               schema:
@@ -16526,6 +16586,11 @@ paths:
                                 $ref: "#/components/schemas/AssetUsageKind"
                               access_type:
                                 $ref: "#/components/schemas/AssetUsageAccessType"
+                              columns:
+                                type: object
+                                description: The columns used (for tables)
+                                additionalProperties:
+                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
                               created_at:
                                 type: string
                                 format: date-time
@@ -20734,6 +20799,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         server_id:
           type: string
         last_server_ping:
@@ -20752,6 +20828,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
 
     NewKafkaTrigger:
       type: object
@@ -20770,6 +20847,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         mode:
           $ref: "#/components/schemas/TriggerMode"
         error_handler_path:
@@ -20786,6 +20874,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
 
     EditKafkaTrigger:
       type: object
@@ -20798,6 +20887,17 @@ components:
           type: array
           items:
             type: string
+        filters:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              value: {}
+            required:
+              - key
+              - value
         path:
           type: string
         script_path:
@@ -20817,6 +20917,7 @@ components:
         - kafka_resource_path
         - group_id
         - topics
+        - filters
         - is_flow
 
     NatsTrigger:

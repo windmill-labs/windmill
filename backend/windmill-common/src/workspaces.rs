@@ -119,6 +119,8 @@ pub struct TeamPlanStatus {
 
 lazy_static::lazy_static! {
     pub static ref TEAM_PLAN_CACHE: Cache<String, TeamPlanStatus> = Cache::new(5000);
+    // Value: (rate_limit, cached_at_timestamp)
+    pub static ref PUBLIC_APP_RATE_LIMIT_CACHE: Cache<String, (Option<i32>, i64)> = Cache::new(1000);
 }
 
 #[cfg(feature = "cloud")]

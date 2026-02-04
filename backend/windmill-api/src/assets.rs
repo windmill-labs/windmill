@@ -159,6 +159,7 @@ async fn list_assets(
                         'path', asset.usage_path,
                         'kind', asset.usage_kind,
                         'access_type', asset.usage_access_type,
+                        'columns', asset.columns,
                         'created_at', asset.created_at,
                         'metadata', (CASE
                             WHEN asset.usage_kind = 'job' THEN
@@ -267,11 +268,12 @@ async fn list_assets_by_usages(
     for usage in body.usages {
         let assets = sqlx::query_scalar!(
             r#"SELECT
-                jsonb_build_object(
+                jsonb_strip_nulls(jsonb_build_object(
                     'path', path,
                     'kind', kind,
-                    'access_type', usage_access_type
-                ) as "list!: _"
+                    'access_type', usage_access_type,
+                    'columns', columns
+                )) as "list!: _"
             FROM asset
             WHERE workspace_id = $1 AND usage_path = $2 AND usage_kind = $3
             ORDER BY path, kind"#,
