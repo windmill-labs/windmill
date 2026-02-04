@@ -1280,6 +1280,7 @@ export async function elementsToMap(
   skips: Skips,
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
+  isRemote?: boolean,
 ): Promise<{ [key: string]: string }> {
   const map: { [key: string]: string } = {};
   const processedBasePaths = new Set<string>();
@@ -1446,7 +1447,8 @@ export async function elementsToMap(
         continue;
       }
       // Skip base file if it's configured as branch-specific (expect branch version)
-      if (isSpecificItem(path, specificItems)) {
+      // Only for LOCAL files - remote workspace only has base paths
+      if (!isRemote && isSpecificItem(path, specificItems)) {
         continue;
       }
       map[path] = content;
@@ -1486,13 +1488,14 @@ async function compareDynFSElement(
   ignoreCodebaseChanges: boolean,
   specificItems?: SpecificItemsConfig,
   branchOverride?: string,
+  isEls1Remote?: boolean,
 ): Promise<Change[]> {
   const [m1, m2] = els2
     ? await Promise.all([
-        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride),
-        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride),
+        elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote),
+        elementsToMap(els2, ignore, json, skips, specificItems, branchOverride, !isEls1Remote),
       ])
-    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride), {}];
+    : [await elementsToMap(els1, ignore, json, skips, specificItems, branchOverride, isEls1Remote), {}];
 
   const changes: Change[] = [];
 
@@ -1995,6 +1998,7 @@ export async function pull(
     true,
     specificItems,
     opts.branch,
+    true, // els1 (remote) is the remote source
   );
 
   log.info(
@@ -2486,6 +2490,7 @@ export async function push(
     false,
     specificItems,
     opts.branch,
+    false, // els1 (local) is not the remote source
   );
 
   const rawWorkspaceDependencies = await getRawWorkspaceDependencies();

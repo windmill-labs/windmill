@@ -5,6 +5,7 @@
 	import HistoricInputs from './HistoricInputs.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import { JobService } from '$lib/gen'
+	import { Button } from './common'
 
 	interface Props {
 		path: string
@@ -46,7 +47,7 @@
 
 <PopoverV2 closeButton={false}>
 	{#snippet trigger()}
-		<HistoryIcon size={14} />
+		<Button variant="default" startIcon={{ icon: HistoryIcon }}>History</Button>
 	{/snippet}
 	{#snippet content()}
 		<div class="p-2 h-[400px] overflow-hidden w-80 border shadow-sm">

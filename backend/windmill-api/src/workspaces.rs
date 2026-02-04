@@ -896,18 +896,43 @@ async fn delete_slack_oauth_config(
     ))
 }
 
+#[derive(Deserialize)]
+struct GetSecondaryStorageNamesQuery {
+    #[serde(default)]
+    include_default: bool,
+}
+
 async fn get_secondary_storage_names(
     _authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(query): Query<GetSecondaryStorageNamesQuery>,
 ) -> JsonResult<Vec<String>> {
-    let result: Vec<String> = sqlx::query_scalar!(
+    let mut result: Vec<String> = sqlx::query_scalar!(
         "SELECT jsonb_object_keys(large_file_storage->'secondary_storage') AS \"secondary_storage_name!: _\"
         FROM workspace_settings WHERE workspace_id = $1",
         &w_id
     )
     .fetch_all(&db)
     .await?;
+
+    // If include_default is true, check if primary storage is set and add "_default_"
+    if query.include_default {
+        let has_primary_storage: Option<bool> = sqlx::query_scalar!(
+            "SELECT (large_file_storage IS NOT NULL
+                     AND large_file_storage != 'null'::jsonb
+                     AND jsonb_typeof(large_file_storage) = 'object') AS \"has_primary!\"
+            FROM workspace_settings WHERE workspace_id = $1",
+            &w_id
+        )
+        .fetch_optional(&db)
+        .await?;
+
+        if has_primary_storage.unwrap_or(false) {
+            result.insert(0, "_default_".to_string());
+        }
+    }
+
     Ok(Json(result))
 }
 
