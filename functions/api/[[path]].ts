@@ -13,15 +13,7 @@ export async function onRequest(context) {
 
   try {
     const url = new URL(request.url);
-
-    // Check for remote_url cookie
-    const cookies = request.headers.get("cookie") || "";
-    const remoteUrlMatch = cookies.match(/remote_url=([^;]+)/);
-    const targetHostname = remoteUrlMatch
-      ? decodeURIComponent(remoteUrlMatch[1])
-      : "app.windmill.dev";
-
-    url.hostname = targetHostname;
+    url.hostname = "app.windmill.dev";
     const res = await fetch(url.toString(), {
       method: request.method,
       body: request.body,
@@ -29,18 +21,14 @@ export async function onRequest(context) {
       redirect: "manual",
     });
     const newResponse = new Response(res.body, res);
-
-    // Extract domain from target hostname for cookie domain replacement
-    const targetDomain = targetHostname.split(".").slice(-2).join(".");
-
     newResponse.headers.set(
       "set-cookie",
       "token" +
-        (newResponse.headers
+        newResponse.headers
           .get("set-cookie")
-          ?.replace(`Domain=${targetDomain};`, "")
+          ?.replace("Domain=windmill.dev;", "")
           ?.split("token")
-          ?.pop() ?? "")
+          .pop() ?? ""
     );
 
     newResponse.headers.set("Cross-Origin-Resource-Policy", "cross-origin");
