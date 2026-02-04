@@ -712,7 +712,7 @@
 			{appPath}
 			{onLatest}
 			{savedApp}
-			{summary}
+			bind:summary
 			bind:customPath
 			bind:deploymentMsg
 			bind:customPathError
