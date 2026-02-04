@@ -1,14 +1,6 @@
 <script lang="ts">
 	import { type DBSchema } from '$lib/stores'
-	import {
-		ChevronDownIcon,
-		EditIcon,
-		Loader2,
-		Plus,
-		StarIcon,
-		Table2,
-		Trash2Icon
-	} from 'lucide-svelte'
+	import { ChevronDownIcon, EditIcon, Loader2, Plus, Table2, Trash2Icon } from 'lucide-svelte'
 	import { Pane, Splitpanes } from 'svelte-splitpanes'
 	import { ClearableInput, Drawer, DrawerContent } from './common'
 	import { sendUserToast } from '$lib/toast'
@@ -31,6 +23,8 @@
 	import { resource } from 'runed'
 	import { capitalize, onlyAlphaNumAndUnderscore, pluralize } from '$lib/utils'
 	import type { DbFeatures } from './apps/components/display/dbtable/dbFeatures'
+	import Star from './Star.svelte'
+	import type { Asset } from '$lib/gen'
 
 	/** Represents a selected table with its schema */
 	export interface SelectedTable {
@@ -58,6 +52,7 @@
 		/** Tables that are already added and should show as disabled */
 		disabledTables?: SelectedTable[]
 		features?: DbFeatures
+		asset?: Asset
 	}
 	let {
 		dbType,
@@ -75,7 +70,8 @@
 		multiSelectMode = false,
 		selectedTables = $bindable([]),
 		disabledTables = [],
-		features
+		features,
+		asset
 	}: Props = $props()
 
 	// Helper to check if a table is selected in multi-select mode
@@ -451,23 +447,23 @@
 				<!-- Normal mode: show tables for selected schema -->
 				{#each filteredTableKeys as tableKey}
 					<!-- PLACEHOLDER -->
-					{@const isFavorite = false}
 					<button
 						class={'w-full text-sm font-normal flex gap-2 items-center h-10 cursor-pointer pl-3 pr-1 ' +
 							(selected.tableKey === tableKey ? 'bg-surface-secondary' : 'hover:bg-surface-hover')}
 						onclick={() => (selected.tableKey = tableKey)}
 					>
-						<StarIcon
-							size="16"
-							class="{isFavorite ? 'fill-yellow-500 text-yellow-500' : 'text-hint'} shrink-0"
-							onclick={(e) => {
-								// TODO
-							}}
-						/>
+						{#if asset}
+							<Star
+								kind="asset"
+								path={`${asset.kind}://${asset.path == 'main' ? '' : asset.path}/${selected.schemaKey}.${tableKey}`}
+							/>
+						{/if}
+
 						<p
 							class="db-manager-table-key truncate text-ellipsis grow text-left text-emphasis text-xs"
-							>{tableKey}</p
 						>
+							{tableKey}
+						</p>
 						<DropdownV2
 							items={() => [
 								{

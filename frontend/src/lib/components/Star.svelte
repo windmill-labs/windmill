@@ -2,11 +2,11 @@
 	import { preventDefault } from 'svelte/legacy'
 
 	import { Star, StarOff } from 'lucide-svelte'
-	import { favoriteManager } from './sidebar/FavoriteMenu.svelte'
+	import { favoriteManager, type FavoriteKind } from './sidebar/FavoriteMenu.svelte'
 
 	interface Props {
 		path: string
-		kind: 'flow' | 'app' | 'script' | 'raw_app'
+		kind: FavoriteKind
 		workspaceId?: string
 	}
 
@@ -26,7 +26,7 @@
 	onclick={preventDefault(onClick)}
 	onmouseenter={() => (buttonHover = true)}
 	onmouseleave={() => (buttonHover = false)}
-	class="p-2"
+	class="p-1"
 >
 	{#if starred}
 		{#if buttonHover}

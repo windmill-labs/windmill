@@ -1,5 +1,10 @@
 <script module lang="ts">
-	export function getFavoriteHref(path: string, kind: 'app' | 'script' | 'flow' | 'raw_app') {
+	export type FavoriteKind = Exclude<
+		NonNullable<StarData['requestBody']>['favorite_kind'],
+		undefined
+	>
+
+	export function getFavoriteHref(path: string, kind: FavoriteKind) {
 		return {
 			script: `/scripts/get/${path}`,
 			flow: `/flows/get/${path}`,
@@ -12,14 +17,10 @@
 		current: {
 			label: string
 			href: string
-			kind: 'app' | 'script' | 'flow' | 'raw_app'
+			kind: FavoriteKind
 		}[] = $state([])
 
-		async unstar(
-			path: string,
-			favorite_kind: Exclude<NonNullable<UnstarData['requestBody']>['favorite_kind'], undefined>,
-			workspaceId?: string
-		) {
+		async unstar(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			this.current = this.current.filter(
 				(fav) => !(fav.label === path && fav.kind === favorite_kind)
 			)
@@ -30,11 +31,7 @@
 			})
 		}
 
-		async star(
-			path: string,
-			favorite_kind: Exclude<NonNullable<StarData['requestBody']>['favorite_kind'], undefined>,
-			workspaceId?: string
-		) {
+		async star(path: string, favorite_kind: FavoriteKind, workspaceId?: string) {
 			const href = getFavoriteHref(path, favorite_kind)
 			this.current = [...this.current, { href, kind: favorite_kind, label: path }]
 			await FavoriteService.star({
@@ -57,7 +54,7 @@
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import type { MenubarBuilders } from '@melt-ui/svelte'
-	import { FavoriteService, type StarData, type UnstarData } from '$lib/gen'
+	import { FavoriteService, type StarData } from '$lib/gen'
 	import { get } from 'svelte/store'
 	import { workspaceStore } from '$lib/stores'
 

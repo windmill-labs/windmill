@@ -1,16 +1,7 @@
 <script lang="ts">
 	import { BROWSER } from 'esm-env'
 
-	import {
-		AppService,
-		FlowService,
-		OpenAPI,
-		RawAppService,
-		ScriptService,
-		SettingService,
-		UserService,
-		WorkspaceService
-	} from '$lib/gen'
+	import { FavoriteService, OpenAPI, SettingService, UserService, WorkspaceService } from '$lib/gen'
 	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
@@ -166,47 +157,12 @@
 	}
 
 	async function loadFavorites() {
-		const scripts = await ScriptService.listScripts({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			includeWithoutMain: true,
-			withoutDescription: true
-		})
-		const flows = await FlowService.listFlows({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true,
-			withoutDescription: true
-		})
-		const apps = await AppService.listApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
-		const raw_apps = await RawAppService.listRawApps({
-			workspace: $workspaceStore ?? '',
-			starredOnly: true
-		})
-		favoriteManager.current = [
-			...scripts.map((s) => ({
-				label: s.summary || s.path,
-				href: getFavoriteHref(s.path, 'script'),
-				kind: 'script' as 'script'
-			})),
-			...flows.map((f) => ({
-				label: f.summary || f.path,
-				href: getFavoriteHref(f.path, 'flow'),
-				kind: 'flow' as 'flow'
-			})),
-			...apps.map((a) => ({
-				label: a.summary || a.path,
-				href: getFavoriteHref(a.path, 'app'),
-				kind: 'app' as 'app'
-			})),
-			...raw_apps.map((a) => ({
-				label: a.summary || a.path,
-				href: getFavoriteHref(a.path, 'raw_app'),
-				kind: 'raw_app' as 'raw_app'
-			}))
-		]
+		const favorites = await FavoriteService.listFavorites({ workspace: $workspaceStore ?? '' })
+		favoriteManager.current = favorites.map((f) => ({
+			label: f.path ?? '',
+			href: getFavoriteHref(f.path ?? '', f.favorite_kind ?? 'script'),
+			kind: f.favorite_kind ?? 'script'
+		}))
 	}
 
 	async function loadUsedTriggerKinds() {

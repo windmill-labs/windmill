@@ -101,14 +101,14 @@
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDucklakes({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Primary ducklake' : d, value: d }))
+				d.map((d) => ({ label: d == 'main' ? 'Main ducklake' : d, value: d }))
 			)
 	)
 	let allDataTables = resource(
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Primary data table' : d, value: d }))
+				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
 </script>
@@ -184,7 +184,7 @@
 								Error loading {props.title.toLowerCase()}
 							</div>
 						{:else if props.data.current?.length === 0}
-							<div class="text-sm text-secondary mt-2 px-6 mb-3">
+							<div class="text-xs text-secondary mt-2 px-6 mb-3">
 								No {props.title.toLowerCase()} yet
 							</div>
 						{/if}

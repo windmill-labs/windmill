@@ -14958,7 +14958,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app]
+                  enum: [flow, app, script, raw_app, asset]
       responses:
         "200":
           description: star item
@@ -14981,10 +14981,34 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app]
+                  enum: [flow, app, script, raw_app, asset]
       responses:
         "200":
           description: unstar item
+
+  /w/{workspace}/favorites/list:
+    get:
+      summary: list favorites
+      operationId: listFavorites
+      tags:
+        - favorite
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of favorites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    favorite_kind:
+                      type: string
+                      enum: [flow, app, script, raw_app, asset]
 
   /w/{workspace}/inputs/history:
     get:

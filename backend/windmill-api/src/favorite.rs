@@ -9,7 +9,7 @@
 use crate::db::{ApiAuthed, DB};
 use axum::{
     extract::{Extension, Path},
-    routing::post,
+    routing::{get, post},
     Json, Router,
 };
 use windmill_common::error::Result;
@@ -20,6 +20,7 @@ pub fn workspaced_service() -> Router {
     Router::new()
         .route("/star", post(star))
         .route("/unstar", post(unstar))
+        .route("/list", get(list_favorites))
 }
 
 #[derive(sqlx::Type, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -31,6 +32,7 @@ pub enum FavoriteKind {
     App,
     #[allow(non_camel_case_types)]
     Raw_App,
+    Asset,
 }
 #[derive(Deserialize)]
 pub struct Favorite {
@@ -74,4 +76,27 @@ async fn unstar(
     .await?;
 
     Ok(format!("Unstarred {}", path))
+}
+
+#[derive(Serialize)]
+pub struct FavoriteItem {
+    pub path: String,
+    pub favorite_kind: FavoriteKind,
+}
+
+async fn list_favorites(
+    authed: ApiAuthed,
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+) -> Result<Json<Vec<FavoriteItem>>> {
+    let favorites = sqlx::query_as!(
+        FavoriteItem,
+        "SELECT path, favorite_kind as \"favorite_kind: FavoriteKind\" FROM favorite WHERE workspace_id = $1 AND usr = $2 ORDER BY path",
+        &w_id,
+        authed.username,
+    )
+    .fetch_all(&db)
+    .await?;
+
+    Ok(Json(favorites))
 }
