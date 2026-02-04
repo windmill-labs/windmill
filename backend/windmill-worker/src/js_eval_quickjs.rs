@@ -31,6 +31,7 @@ use std::sync::Arc;
 
 use rquickjs::{
     async_with,
+    function::This,
     prelude::{Async, Func, MutFn},
     AsyncContext, AsyncRuntime, CatchResultExt, FromJs, IntoJs, Object, Value,
 };
@@ -557,6 +558,11 @@ fn json_to_js<'js>(
 }
 
 /// Convert a QuickJS Value to a serde_json::Value
+///
+/// This mimics JavaScript's JSON.stringify behavior:
+/// - For objects with a `toJSON` method (like Date), call it and use the result
+/// - Arrays are recursively serialized
+/// - Plain objects enumerate their own properties
 fn js_to_json<'js>(
     ctx: &rquickjs::Ctx<'js>,
     val: &Value<'js>,
@@ -605,6 +611,15 @@ fn js_to_json<'js>(
     }
 
     if let Ok(obj) = Object::from_js(ctx, val.clone()) {
+        // Check if the object has a toJSON method (like Date, or custom objects)
+        // This mimics JSON.stringify behavior which calls toJSON if present
+        if let Ok(to_json_fn) = obj.get::<_, rquickjs::Function>("toJSON") {
+            // Call toJSON with the object as 'this' context using This wrapper
+            if let Ok(json_val) = to_json_fn.call::<(This<Object>, ), Value>((This(obj.clone()),)) {
+                return js_to_json(ctx, &json_val);
+            }
+        }
+
         let mut json_obj = serde_json::Map::new();
         for res in obj.props::<String, Value>() {
             if let Ok((k, v)) = res {
@@ -793,5 +808,186 @@ mod tests {
         assert!(!should_add_return_quickjs("if (x > 5) { return x; }"));
 
         assert!(!should_add_return_quickjs("let x = 5; x + 1"));
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_serialization() -> anyhow::Result<()> {
+        // Test that Date objects serialize to ISO strings, matching JSON.stringify behavior
+        let result = eval_timeout_quickjs(
+            "new Date('2024-01-15T12:30:00.000Z')".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Should be an ISO string, not an empty object
+        assert_eq!(result.get(), "\"2024-01-15T12:30:00.000Z\"");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_in_object() -> anyhow::Result<()> {
+        // Test that Date objects within other objects serialize correctly
+        let result = eval_timeout_quickjs(
+            "({ date: new Date('2024-01-15T12:30:00.000Z'), name: 'test' })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value["date"], "2024-01-15T12:30:00.000Z");
+        assert_eq!(value["name"], "test");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_date_in_array() -> anyhow::Result<()> {
+        // Test that Date objects in arrays serialize correctly
+        let result = eval_timeout_quickjs(
+            "[new Date('2024-01-15T00:00:00.000Z'), new Date('2024-01-16T00:00:00.000Z')]"
+                .to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value[0], "2024-01-15T00:00:00.000Z");
+        assert_eq!(value[1], "2024-01-16T00:00:00.000Z");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_custom_tojson() -> anyhow::Result<()> {
+        // Test that our js_to_json handles custom toJSON when returning objects directly
+        // (not through JSON.stringify which already works natively)
+        let result = eval_timeout_quickjs(
+            r#"({ a: 1, toJSON: () => ({ converted: true }) })"#.to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Our js_to_json should call toJSON and use that result
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(value["converted"], true);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_deeply_nested_date() -> anyhow::Result<()> {
+        // Test that Date objects deep in nested structures are handled
+        let result = eval_timeout_quickjs(
+            "({ level1: { level2: { date: new Date('2024-01-15T00:00:00.000Z') } } })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        let value: serde_json::Value = serde_json::from_str(result.get())?;
+        assert_eq!(
+            value["level1"]["level2"]["date"],
+            "2024-01-15T00:00:00.000Z"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_regexp_serialization() -> anyhow::Result<()> {
+        // RegExp objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "/test/gi".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // RegExp doesn't have toJSON, so it serializes to an empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_map_serialization() -> anyhow::Result<()> {
+        // Map objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "new Map([['key', 'value']])".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Map doesn't have toJSON, serializes to empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_set_serialization() -> anyhow::Result<()> {
+        // Set objects serialize to empty objects in JSON (same as JSON.stringify behavior)
+        let result = eval_timeout_quickjs(
+            "new Set([1, 2, 3])".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // Set doesn't have toJSON, serializes to empty object (same as Deno)
+        assert_eq!(result.get(), "{}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_eval_quickjs_tojson_returning_date() -> anyhow::Result<()> {
+        // Test that if toJSON returns a Date, it gets further serialized
+        // Note: We use arrow function because function() {} has issues with multi-statement
+        // expression evaluation context
+        let result = eval_timeout_quickjs(
+            "({ toJSON: () => new Date('2024-01-15T00:00:00.000Z') })".to_string(),
+            HashMap::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await?;
+
+        // The toJSON returns a Date, which should then be serialized to ISO string
+        assert_eq!(result.get(), "\"2024-01-15T00:00:00.000Z\"");
+        Ok(())
     }
 }

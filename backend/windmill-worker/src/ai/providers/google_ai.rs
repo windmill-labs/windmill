@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::value::RawValue;
 use windmill_common::{client::AuthedClient, error::Error};
 
 use crate::ai::{
@@ -105,7 +104,7 @@ pub struct GeminiFunctionDeclaration {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub parameters: Box<RawValue>,
+    pub parameters: OpenAPISchema,
 }
 
 /// Tool configuration for controlling function calling behavior
@@ -479,11 +478,17 @@ impl GoogleAIQueryBuilder {
         if let Some(tool_defs) = tools {
             let declarations: Vec<GeminiFunctionDeclaration> = tool_defs
                 .iter()
-                .map(|t| GeminiFunctionDeclaration {
-                    name: t.function.name.clone(),
-                    description: t.function.description.clone(),
-                    // Use parameters directly to avoid round-trip serialization
-                    parameters: t.function.parameters.clone(),
+                .filter_map(|t| {
+                    // Deserialize RawValue into OpenAPISchema, sanitize, then use
+                    let mut schema: OpenAPISchema =
+                        serde_json::from_str(t.function.parameters.get()).ok()?;
+                    schema.sanitize_for_google();
+
+                    Some(GeminiFunctionDeclaration {
+                        name: t.function.name.clone(),
+                        description: t.function.description.clone(),
+                        parameters: schema,
+                    })
                 })
                 .collect();
 
@@ -522,10 +527,11 @@ impl GoogleAIQueryBuilder {
             .unwrap_or(false);
 
         let (response_mime_type, response_schema) = if has_output_schema {
-            let schema = args.output_schema.unwrap();
+            let mut schema = args.output_schema.unwrap().clone();
+            schema.sanitize_for_google();
             (
                 Some("application/json".to_string()),
-                serde_json::to_value(schema).ok(),
+                serde_json::to_value(&schema).ok(),
             )
         } else {
             (None, None)
@@ -632,8 +638,13 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         }
 
         // Convert Gemini usage metadata to TokenUsage
-        let usage = gemini_usage
-            .map(|u| TokenUsage::new(u.prompt_token_count, u.candidates_token_count, u.total_token_count));
+        let usage = gemini_usage.map(|u| {
+            TokenUsage::new(
+                u.prompt_token_count,
+                u.candidates_token_count,
+                u.total_token_count,
+            )
+        });
 
         Ok(ParsedResponse::Text {
             content: if accumulated_content.is_empty() {
@@ -649,12 +660,7 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         })
     }
 
-    fn get_endpoint(
-        &self,
-        base_url: &str,
-        model: &str,
-        output_type: &OutputType,
-    ) -> String {
+    fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
         match output_type {
             OutputType::Text => {
                 format!(
