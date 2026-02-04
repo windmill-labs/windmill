@@ -324,7 +324,7 @@ lazy_static::lazy_static! {
     pub static ref DISABLE_NSJAIL: bool = std::env::var("DISABLE_NSJAIL")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
-        .unwrap_or(false);
+        .unwrap_or(true);
 
     pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
         .ok()
