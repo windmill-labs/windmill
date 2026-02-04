@@ -906,7 +906,9 @@ Deno.test("readDirRecursive reads all files correctly", async () => {
 // Integration Tests (use withTestBackend for automated backend setup)
 // =============================================================================
 
+import { yamlParseFile } from "../deps.ts";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 
 Deno.test({
   name: "Integration: Pull creates correct local structure",
@@ -1947,6 +1949,215 @@ excludes: []
         output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
         `Should have no changes after push-pull cycle for mixed content. Output: ${output}`,
       );
+    });
+  },
+});
+
+// =============================================================================
+// ws_error_handler_muted Persistence Tests
+// =============================================================================
+
+Deno.test({
+  name: "Integration: Script ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withTestBackend(async (backend, tempDir) => {
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      const uniqueId = Date.now();
+      await ensureDir(`${tempDir}/f/test`);
+
+      // Create a script with ws_error_handler_muted: true
+      const scriptName = `f/test/muted_script_${uniqueId}`;
+      const script = createScriptFixture(scriptName, "deno");
+      await Deno.writeTextFile(`${tempDir}/${script.contentFile.path}`, script.contentFile.content);
+      // Add ws_error_handler_muted to the metadata
+      const metadataWithMuted = script.metadataFile.content + `ws_error_handler_muted: true\n`;
+      await Deno.writeTextFile(`${tempDir}/${script.metadataFile.path}`, metadataWithMuted);
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/muted_script_${uniqueId}**`],
+        tempDir,
+      );
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Verify via API that ws_error_handler_muted was persisted
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/scripts/get/p/${scriptName}`,
+      );
+      assertEquals(apiResp.status, 200, "API should return the script");
+      const scriptData = await apiResp.json();
+      assertEquals(
+        scriptData.ws_error_handler_muted,
+        true,
+        "API should return ws_error_handler_muted: true for the pushed script",
+      );
+
+      // Pull into a fresh directory and verify the field round-trips
+      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_script_pull_" });
+      try {
+        await Deno.writeTextFile(
+          `${pullDir}/wmill.yaml`,
+          `defaultTs: bun
+includes:
+  - "f/test/muted_script_${uniqueId}**"
+excludes: []
+`,
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
+        assertEquals(
+          pullResult.code,
+          0,
+          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+        );
+
+        // Verify ws_error_handler_muted is in the pulled metadata
+        const pulledMetadata = await Deno.readTextFile(`${pullDir}/${script.metadataFile.path}`);
+        assertStringIncludes(
+          pulledMetadata,
+          "ws_error_handler_muted: true",
+          "Pulled script metadata should contain ws_error_handler_muted: true",
+        );
+
+        // Verify push from pulled dir is idempotent (no changes)
+        const push2 = await backend.runCLICommand(
+          ["sync", "push", "--dry-run", "--includes", `f/test/muted_script_${uniqueId}**`],
+          pullDir,
+        );
+        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        const output = (push2.stdout + push2.stderr).toLowerCase();
+        assert(
+          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+          `Should have no changes after push-pull cycle for script with ws_error_handler_muted. Output: ${output}`,
+        );
+      } finally {
+        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+      }
+    });
+  },
+});
+
+Deno.test({
+  name: "Integration: Flow ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
+  sanitizeResources: false,
+  sanitizeOps: false,
+  async fn() {
+    await withTestBackend(async (backend, tempDir) => {
+      await Deno.writeTextFile(
+        `${tempDir}/wmill.yaml`,
+        `defaultTs: bun
+includes:
+  - "**"
+excludes: []
+`,
+      );
+
+      const uniqueId = Date.now();
+      const flowName = `f/test/muted_flow_${uniqueId}`;
+      const flowFixture = createFlowFixture(flowName);
+
+      // Create flow directory and files
+      await ensureDir(`${tempDir}/f/test/muted_flow_${uniqueId}${getFolderSuffix("flow")}`);
+      for (const [key, file] of Object.entries(flowFixture)) {
+        if (key === "metadata") {
+          // Add ws_error_handler_muted to flow metadata
+          const contentWithMuted = file.content + `ws_error_handler_muted: true\n`;
+          await Deno.writeTextFile(`${tempDir}/${file.path}`, contentWithMuted);
+        } else {
+          await Deno.writeTextFile(`${tempDir}/${file.path}`, file.content);
+        }
+      }
+
+      // Push
+      const pushResult = await backend.runCLICommand(
+        ["sync", "push", "--yes", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
+        tempDir,
+      );
+      assertEquals(
+        pushResult.code,
+        0,
+        `Push should succeed.\nstdout: ${pushResult.stdout}\nstderr: ${pushResult.stderr}`,
+      );
+
+      // Verify via API that ws_error_handler_muted was persisted
+      const apiResp = await backend.apiRequest!(
+        `/api/w/${backend.workspace}/flows/get/${flowName}`,
+      );
+      assertEquals(apiResp.status, 200, "API should return the flow");
+      const flowData = await apiResp.json();
+      assertEquals(
+        flowData.ws_error_handler_muted,
+        true,
+        "API should return ws_error_handler_muted: true for the pushed flow",
+      );
+
+      // Pull into a fresh directory and verify the field round-trips
+      const pullDir = await Deno.makeTempDir({ prefix: "wmill_muted_flow_pull_" });
+      try {
+        await Deno.writeTextFile(
+          `${pullDir}/wmill.yaml`,
+          `defaultTs: bun
+includes:
+  - "f/test/muted_flow_${uniqueId}*/**"
+excludes: []
+`,
+        );
+
+        const pullResult = await backend.runCLICommand(["sync", "pull", "--yes"], pullDir);
+        assertEquals(
+          pullResult.code,
+          0,
+          `Pull should succeed.\nstdout: ${pullResult.stdout}\nstderr: ${pullResult.stderr}`,
+        );
+
+        // Verify ws_error_handler_muted is in the pulled flow.yaml
+        const flowYamlPath = `${pullDir}/${flowFixture.metadata.path}`;
+        const pulledFlowYaml = await Deno.readTextFile(flowYamlPath);
+        assertStringIncludes(
+          pulledFlowYaml,
+          "ws_error_handler_muted: true",
+          "Pulled flow.yaml should contain ws_error_handler_muted: true",
+        );
+
+        // Parse the YAML to confirm it's a proper boolean value
+        // deno-lint-ignore no-explicit-any
+        const parsed = await yamlParseFile(flowYamlPath) as any;
+        assertEquals(
+          parsed.ws_error_handler_muted,
+          true,
+          "ws_error_handler_muted should be boolean true in parsed flow YAML",
+        );
+
+        // Verify push from pulled dir is idempotent (no changes)
+        const push2 = await backend.runCLICommand(
+          ["sync", "push", "--dry-run", "--includes", `f/test/muted_flow_${uniqueId}*/**`],
+          pullDir,
+        );
+        assertEquals(push2.code, 0, `Second push dry-run should succeed: ${push2.stderr}`);
+        const output = (push2.stdout + push2.stderr).toLowerCase();
+        assert(
+          output.includes("0 change") || output.includes("no change") || output.includes("nothing"),
+          `Should have no changes after push-pull cycle for flow with ws_error_handler_muted. Output: ${output}`,
+        );
+      } finally {
+        await Deno.remove(pullDir, { recursive: true }).catch(() => {});
+      }
     });
   },
 });
