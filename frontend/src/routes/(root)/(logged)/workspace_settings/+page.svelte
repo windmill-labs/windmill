@@ -266,7 +266,7 @@
 
 	// Derived state for checking unsaved changes in critical alert mute setting
 	let hasCriticalAlertMuteChanges = $derived.by(() => {
-		if (tab !== 'error_handler') return false
+		if (tab !== 'critical_alerts') return false
 
 		// Normalize undefined to false for comparison
 		const currentValue = criticalAlertUIMuted ?? false
@@ -300,6 +300,7 @@
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler'
+			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
 			| 'windmill_lfs'
@@ -1026,6 +1027,14 @@
 			return errorHandlerChanges
 		}
 
+		// Check critical alerts settings
+		if (tab === 'critical_alerts' && hasCriticalAlertMuteChanges) {
+			return {
+				savedValue: { criticalAlertUIMuted: initialCriticalAlertUIMuted },
+				modifiedValue: { criticalAlertUIMuted: criticalAlertUIMuted }
+			}
+		}
+
 		return {
 			savedValue: {},
 			modifiedValue: {}
@@ -1046,6 +1055,8 @@
 			discardEncryptionKeySettingsChanges()
 		} else if (tab === 'error_handler') {
 			discardErrorHandlerSettingsChanges()
+		} else if (tab === 'critical_alerts') {
+			criticalAlertUIMuted = initialCriticalAlertUIMuted
 		}
 	}
 
@@ -1115,6 +1126,13 @@
 					label: 'Error Handler',
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error handler workspace settings',
+					isEE: true
+				},
+				{
+					id: 'critical_alerts',
+					label: 'Critical Alerts',
+					aiId: 'workspace-settings-critical-alerts',
+					aiDescription: 'Critical alerts workspace settings',
 					isEE: true
 				},
 				{
@@ -1702,10 +1720,17 @@ export async function main(
 							</div>
 						</Section>
 
-						<hr class="border-t" />
+					</div>
+				{:else if tab == 'critical_alerts'}
+					<SettingsPageHeader
+						title="Workspace Critical Alerts"
+						description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification."
+						link="https://www.windmill.dev/docs/core_concepts/critical_alerts"
+					/>
+					<div class="flex flex-col gap-6 py-4">
 						<Section
-							label="Workspace Critical Alerts"
-							description="Critical alerts within the scope of a workspace are sent to the workspace admins through a UI notification. <a href='https://www.windmill.dev/docs/core_concepts/critical_alerts'>Learn more</a>"
+							label="Critical Alerts Settings"
+							description="Configure how critical alerts are handled in this workspace."
 							class="flex flex-col gap-6"
 						>
 							{#if !$enterpriseLicense}
@@ -1720,23 +1745,25 @@ export async function main(
 								options={{ right: 'Mute critical alerts UI for this workspace' }}
 							/>
 
-							<Button
-								disabled={!$enterpriseLicense}
-								on:click={() => isCriticalAlertsUIOpen.set(true)}
-								btnClasses="w-fit"
-							>
-								Show critical alerts
-							</Button>
+							<div class="flex gap-2">
+								<Button
+									disabled={!$enterpriseLicense}
+									on:click={() => isCriticalAlertsUIOpen.set(true)}
+									btnClasses="w-fit"
+								>
+									Show critical alerts
+								</Button>
 
-							<Button
-								disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
-								on:click={editCriticalAlertMuteSetting}
-								variant="accent"
-								startIcon={{ icon: Save }}
-								btnClasses="w-fit"
-							>
-								Save mute setting
-							</Button>
+								<Button
+									disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
+									on:click={editCriticalAlertMuteSetting}
+									variant="accent"
+									startIcon={{ icon: Save }}
+									btnClasses="w-fit"
+								>
+									Save mute setting
+								</Button>
+							</div>
 						</Section>
 					</div>
 				{:else if tab == 'ai'}
