@@ -133,20 +133,35 @@
 					assetKind: AssetKind
 					data: ResourceReturn<{ label: string; value: string }[]>
 					settingsHref: string
+					docsHref: string
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
 						<div class="flex justify-between border-b">
 							<h3 class="text-sm font-bold mb-4 pt-5 pl-6">{props.title}</h3>
-							<Button
-								wrapperClasses="mt-4 mr-4 h-fit"
-								variant="subtle"
-								iconOnly
-								endIcon={{ icon: SettingsIcon }}
-								href={props.settingsHref}
-							/>
+							<div class="flex items-center h-fit gap-2 mt-4 mr-4">
+								<Button
+									wrapperClasses="h-fit"
+									btnClasses="text-accent"
+									variant="subtle"
+									unifiedSize="sm"
+									href={props.docsHref}
+									target="_blank"
+								>
+									See documentation
+								</Button>
+								<Button
+									wrapperClasses="h-fit"
+									variant={props.data.current?.length === 0 && !props.data.loading
+										? 'accent'
+										: 'subtle'}
+									iconOnly
+									endIcon={{ icon: SettingsIcon }}
+									href={props.settingsHref}
+								/>
+							</div>
 						</div>
 						{#if props.data.current?.length}
-							<div class="max-h-96 overflow-y-auto pb-3">
+							<div class="max-h-96 overflow-y-auto pb-1">
 								{#each props.data.current ?? [] as item}
 									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
 										{item.label}
@@ -172,34 +187,30 @@
 							<div class="text-sm text-secondary mt-2 px-6 mb-3">
 								No {props.title.toLowerCase()} yet
 							</div>
-							<Button
-								endIcon={{ icon: SettingsIcon }}
-								href={props.settingsHref}
-								variant="accent"
-								wrapperClasses="w-fit px-6"
-							>
-								{props.title} settings
-							</Button>
 						{/if}
 					</div>
 				{/snippet}
 				{@render card({
-					title: 'Data tables',
+					title: 'Data table',
 					data: allDataTables,
 					assetKind: 'datatable',
-					settingsHref: '/workspace_settings?tab=windmill_data_tables'
+					settingsHref: '/workspace_settings?tab=windmill_data_tables',
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables'
 				})}
 				{@render card({
-					title: 'Ducklakes',
+					title: 'Ducklake',
 					data: allDucklakes,
 					assetKind: 'ducklake',
-					settingsHref: '/workspace_settings?tab=windmill_lfs'
+					settingsHref: '/workspace_settings?tab=windmill_lfs',
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake'
 				})}
 				{@render card({
-					title: 'Workspace object storages',
+					title: 'Object storage',
 					data: allS3Storages,
 					assetKind: 's3object',
-					settingsHref: '/workspace_settings?tab=windmill_lfs'
+					settingsHref: '/workspace_settings?tab=windmill_lfs',
+					docsHref:
+						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files'
 				})}
 			</div>
 		</Section>
