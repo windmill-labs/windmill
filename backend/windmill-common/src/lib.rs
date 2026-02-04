@@ -60,6 +60,7 @@ pub mod job_metrics;
 #[cfg(all(feature = "parquet", feature = "private"))]
 pub mod job_s3_helpers_ee;
 pub mod min_version;
+pub mod notify_events;
 #[cfg(feature = "parquet")]
 pub mod job_s3_helpers_oss;
 pub mod workspace_dependencies;
