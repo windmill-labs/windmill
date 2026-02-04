@@ -71,12 +71,6 @@
 		children?: import('svelte').Snippet
 	}
 
-	const remoteUrlParam = $page.url.searchParams.get('remote_url')
-	if (remoteUrlParam) {
-		document.cookie = `remote_url=${remoteUrlParam}; path=/; secure; samesite=strict`
-		$page.url.searchParams.delete('remote_url')
-	}
-
 	let { children }: Props = $props()
 	OpenAPI.WITH_CREDENTIALS = true
 	let menuOpen = $state(false)
