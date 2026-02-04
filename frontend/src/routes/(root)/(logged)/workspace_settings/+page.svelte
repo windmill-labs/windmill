@@ -75,6 +75,7 @@
 		type DataTableSettingsType
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
+	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -1710,21 +1711,19 @@
 								bind:checked={errorHandlerMutedOnUserPath}
 								options={{ right: 'Do not run error handler for u/ scripts and flows' }}
 							/>
-							<Button
-								disabled={!$enterpriseLicense ||
-									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-										!emptyString(errorHandlerScriptPath) &&
-										emptyString(errorHandlerExtraArgs['channel'])) ||
-									!hasErrorHandlerChanges}
-								unifiedSize="md"
-								on:click={editErrorHandler}
-								startIcon={{ icon: Save }}
-								variant="accent"
-							>
-								Save error handler
-							</Button>
 						</div>
 					</div>
+
+					<SettingsFooter
+						hasUnsavedChanges={hasErrorHandlerChanges}
+						onSave={editErrorHandler}
+						onDiscard={discardErrorHandlerSettingsChanges}
+						saveLabel="Save error handler"
+						disabled={!$enterpriseLicense ||
+							((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+								!emptyString(errorHandlerScriptPath) &&
+								emptyString(errorHandlerExtraArgs['channel']))}
+					/>
 				{:else if tab == 'success_handler'}
 					<SettingsPageHeader
 						title="Workspace Success Handler"

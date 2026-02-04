@@ -19,11 +19,11 @@
 </script>
 
 <div class="sticky bottom-0 z-10 w-full border-t bg-surface">
-	<div class="flex items-center justify-between px-6 pt-4 pb-8">
+	<div class="flex items-center justify-between pt-4 pb-8">
 		<div class="flex items-center gap-3">
 			{#if hasUnsavedChanges}
 				<div transition:fade={{ duration: 150 }}>
-					<Badge color="yellow" large>Unsaved changes</Badge>
+					<Badge color="yellow">Unsaved changes</Badge>
 				</div>
 			{/if}
 		</div>
