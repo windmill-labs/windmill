@@ -30,7 +30,7 @@ pub async fn poll_notify_events(
     last_event_id: i64,
 ) -> Result<Vec<NotifyEvent>, Error> {
     let events = sqlx::query_as::<_, NotifyEvent>(
-        "SELECT id, channel, payload FROM notify_event WHERE id > $1 ORDER BY id",
+        "SELECT id, channel, payload FROM notify_event WHERE id > $1 ORDER BY id LIMIT 1000",
     )
     .bind(last_event_id)
     .fetch_all(db)

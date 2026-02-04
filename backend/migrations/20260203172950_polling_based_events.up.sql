@@ -8,8 +8,10 @@ CREATE TABLE IF NOT EXISTS notify_event (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS notify_event_id_idx ON notify_event (id);
 CREATE INDEX IF NOT EXISTS notify_event_created_at_idx ON notify_event (created_at);
+
+-- Drop redundant index if it exists (id is already the PRIMARY KEY)
+DROP INDEX IF EXISTS notify_event_id_idx;
 
 -- Update notify_config_change function
 CREATE OR REPLACE FUNCTION notify_config_change()
@@ -128,38 +130,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Update notify_var_resource_cache_change function
-CREATE OR REPLACE FUNCTION notify_var_resource_cache_change()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF TG_TABLE_NAME = 'variable' THEN
-        INSERT INTO notify_event (channel, payload) VALUES ('var_cache_invalidation',
-            json_build_object(
-                'workspace_id', COALESCE(NEW.workspace_id, OLD.workspace_id),
-                'path', COALESCE(NEW.path, OLD.path),
-                'operation', TG_OP
-            )::text
-        );
-    ELSIF TG_TABLE_NAME = 'resource' THEN
-        INSERT INTO notify_event (channel, payload) VALUES ('resource_cache_invalidation',
-            json_build_object(
-                'workspace_id', COALESCE(NEW.workspace_id, OLD.workspace_id),
-                'path', COALESCE(NEW.path, OLD.path),
-                'operation', TG_OP
-            )::text
-        );
-    END IF;
-    RETURN COALESCE(NEW, OLD);
-END;
-$$ LANGUAGE plpgsql;
-
--- Create triggers for variable and resource tables if they don't exist
-DROP TRIGGER IF EXISTS variable_cache_invalidate_trigger ON variable;
-CREATE TRIGGER variable_cache_invalidate_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON variable
-    FOR EACH ROW EXECUTE FUNCTION notify_var_resource_cache_change();
-
-DROP TRIGGER IF EXISTS resource_cache_invalidate_trigger ON resource;
-CREATE TRIGGER resource_cache_invalidate_trigger
-    AFTER INSERT OR UPDATE OR DELETE ON resource
-    FOR EACH ROW EXECUTE FUNCTION notify_var_resource_cache_change();
+-- NOTE: var_cache_invalidation / resource_cache_invalidation triggers were
+-- intentionally dropped in migration 20250902085504. We do NOT re-create them
+-- here to keep this migration scoped to the LISTEN/NOTIFY → polling swap only.

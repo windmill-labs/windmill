@@ -1476,28 +1476,8 @@ async fn process_notify_event(
             };
         },
         "notify_token_invalidation" => {
-            tracing::info!("Token invalidation detected for token: {}...", &payload[..payload.len().min(8)]);
+            tracing::info!("Token invalidation detected for token: {}...", payload.get(..8).unwrap_or(payload));
             windmill_api::auth::invalidate_token_from_cache(payload);
-        },
-        "var_cache_invalidation" => {
-            if let Ok(json_payload) = serde_json::from_str::<serde_json::Value>(payload) {
-                if let (Some(workspace_id), Some(path)) =
-                    (json_payload.get("workspace_id").and_then(|v| v.as_str()),
-                     json_payload.get("path").and_then(|v| v.as_str())) {
-                    tracing::info!("Variable cache invalidation detected: {}:{}", workspace_id, path);
-                    windmill_api::var_resource_cache::invalidate_variable_cache(workspace_id, path);
-                }
-            }
-        },
-        "resource_cache_invalidation" => {
-            if let Ok(json_payload) = serde_json::from_str::<serde_json::Value>(payload) {
-                if let (Some(workspace_id), Some(path)) =
-                    (json_payload.get("workspace_id").and_then(|v| v.as_str()),
-                     json_payload.get("path").and_then(|v| v.as_str())) {
-                    tracing::info!("Resource cache invalidation detected: {}:{}", workspace_id, path);
-                    windmill_api::var_resource_cache::invalidate_resource_cache(workspace_id, path);
-                }
-            }
         },
         "notify_global_setting_change" => {
             tracing::info!("Global setting change detected: {}", payload);
