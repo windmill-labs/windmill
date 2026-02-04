@@ -1,0 +1,2 @@
+ALTER TABLE workspace_settings
+DROP COLUMN IF EXISTS public_app_execution_limit_per_minute;

@@ -176,6 +176,10 @@ pub fn workspaced_service() -> Router {
             post(acknowledge_all_critical_alerts),
         )
         .route("/critical_alerts/mute", post(mute_critical_alerts))
+        .route(
+            "/public_app_rate_limit",
+            post(edit_public_app_rate_limit),
+        )
         .route("/operator_settings", post(update_operator_settings))
         .route(
             "/create_workspace_fork_branch",
@@ -287,6 +291,8 @@ pub struct WorkspaceSettings {
     pub error_handler: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success_handler: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_app_execution_limit_per_minute: Option<i32>,
 }
 
 /// #[derive(sqlx::Type, Serialize, Deserialize, Debug)]
@@ -625,7 +631,8 @@ async fn get_settings(
             git_app_installations,
             auto_invite,
             error_handler,
-            success_handler
+            success_handler,
+            public_app_execution_limit_per_minute
         FROM
             workspace_settings
         WHERE
@@ -4374,6 +4381,55 @@ async fn mute_critical_alerts(
 #[cfg(not(feature = "enterprise"))]
 pub async fn mute_critical_alerts() -> Error {
     Error::NotFound("Critical Alerts require EE".to_string())
+}
+
+#[derive(Deserialize)]
+pub struct EditPublicAppRateLimitRequest {
+    pub public_app_execution_limit_per_minute: Option<i32>,
+}
+
+async fn edit_public_app_rate_limit(
+    Extension(db): Extension<DB>,
+    Path(w_id): Path<String>,
+    authed: ApiAuthed,
+    Json(req): Json<EditPublicAppRateLimitRequest>,
+) -> Result<String> {
+    require_admin(authed.is_admin, &authed.username)?;
+
+    sqlx::query!(
+        "UPDATE workspace_settings SET public_app_execution_limit_per_minute = $1 WHERE workspace_id = $2",
+        req.public_app_execution_limit_per_minute,
+        &w_id
+    )
+    .execute(&db)
+    .await?;
+
+    handle_deployment_metadata(
+        &authed.email,
+        &authed.username,
+        &db,
+        &w_id,
+        DeployedObject::Settings { setting_type: "public_app_rate_limit".to_string() },
+        None,
+        false,
+        None,
+    )
+    .await?;
+
+    Ok(format!(
+        "Updated public app rate limit for workspace: {}",
+        &w_id
+    ))
+}
+
+pub async fn get_public_app_rate_limit(db: &DB, w_id: &str) -> Result<Option<i32>> {
+    let result: Option<Option<i32>> = sqlx::query_scalar(
+        "SELECT public_app_execution_limit_per_minute FROM workspace_settings WHERE workspace_id = $1",
+    )
+    .bind(w_id)
+    .fetch_optional(db)
+    .await?;
+    Ok(result.flatten())
 }
 
 #[derive(Deserialize, Serialize)]
