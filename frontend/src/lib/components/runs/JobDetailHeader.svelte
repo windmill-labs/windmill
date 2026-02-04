@@ -95,6 +95,9 @@
 				return truncateRev(fullValue, 6)
 			case 'schedule_path':
 				return truncateRev(fullValue, 20)
+			case 'memory_peak':
+				// For memory, only show the display part (before the |)
+				return fullValue.split('|')[0] || fullValue
 			default:
 				return fullValue
 		}
@@ -227,6 +230,14 @@
 				</Tooltip>
 			{/if}
 		</span>
+	{:else if config.field === 'memory_peak'}
+		{@const memoryParts = fullValue.split('|')}
+		{@const displayMem = memoryParts[0] || fullValue}
+		{@const tooltipMem = memoryParts[1] || fullValue}
+		<Tooltip small>
+			{#snippet text()}{tooltipMem}{/snippet}
+			<span>{displayMem}</span>
+		</Tooltip>
 	{:else if config.field === 'schedule_path' && job.schedule_path}
 		<span class="whitespace-nowrap" title={fullValue}>
 			<button

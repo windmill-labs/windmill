@@ -1,5 +1,6 @@
 import type { Job } from '$lib/gen'
 import { triggerIconMap } from '$lib/components/triggers/utils'
+import { formatMemory } from '$lib/utils'
 import { Calendar, Bot } from 'lucide-svelte'
 import BarsStaggered from '$lib/components/icons/BarsStaggered.svelte'
 
@@ -182,7 +183,11 @@ export const fieldConfigs: Record<JobField, FieldConfig> = {
 	memory_peak: {
 		field: 'memory_peak',
 		label: 'Mem peak',
-		getValue: (job) => (job.mem_peak ? `${(job.mem_peak / 1024).toPrecision(5)}MB` : null)
+		getValue: (job) => {
+			if (!job.mem_peak) return null;
+			const formatted = formatMemory(job.mem_peak, true);
+			return `${formatted.display}|${formatted.tooltip}`;
+		}
 	},
 
 	run_id: {
