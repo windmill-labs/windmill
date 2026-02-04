@@ -117,6 +117,7 @@ impl Visit for AssetsFinder {
                         kind,
                         path: path.to_string(),
                         access_type: None,
+                        columns: None,
                     });
                 }
             }
@@ -177,8 +178,12 @@ impl Visit for AssetsFinder {
             if asset_was_used(&self.assets, (kind, path)) {
                 continue;
             }
-            self.assets
-                .push(ParseAssetsResult { kind, access_type: None, path: path.clone() });
+            self.assets.push(ParseAssetsResult {
+                kind,
+                access_type: None,
+                path: path.clone(),
+                columns: None,
+            });
         }
 
         // Restore state - identifiers declared in this block go out of scope
@@ -294,8 +299,12 @@ impl AssetsFinder {
                 let path = parse_asset_syntax(&value, false)
                     .map(|(_, p)| p)
                     .unwrap_or(&value);
-                self.assets
-                    .push(ParseAssetsResult { kind, path: path.to_string(), access_type });
+                self.assets.push(ParseAssetsResult {
+                    kind,
+                    path: path.to_string(),
+                    access_type,
+                    columns: None,
+                });
             }
             _ => return Err(()),
         }
@@ -321,7 +330,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::S3Object,
                 path: "/test.csv".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -340,7 +350,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None,
             },])
         );
     }
@@ -360,7 +371,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/friends".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -383,12 +395,14 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/analytics".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/friends".to_string(),
-                    access_type: Some(RW)
+                    access_type: Some(RW),
+                    columns: None,
                 },
             ])
         );
@@ -418,17 +432,20 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "another1/customers".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::Ducklake,
                     path: "another2".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "main/friends".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None,
                 },
             ])
         );
@@ -452,12 +469,14 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "another1".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::Ducklake,
                     path: "main".to_string(),
-                    access_type: None
+                    access_type: None,
+                    columns: None,
                 },
             ])
         );
@@ -478,7 +497,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main/myschema.friends".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -499,7 +519,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/public.users".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None,
             },])
         );
     }
@@ -518,7 +539,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None,
             },])
         );
     }
@@ -539,7 +561,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "dt/users".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None,
             },])
         );
     }
@@ -562,12 +585,14 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/private.users".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None,
                 },
                 ParseAssetsResult {
                     kind: AssetKind::DataTable,
                     path: "dt/test".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    columns: None,
                 },
             ])
         );

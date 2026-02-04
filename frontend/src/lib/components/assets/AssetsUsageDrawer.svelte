@@ -6,8 +6,9 @@
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import { displayDate } from '$lib/utils'
+	import { capitalize, displayDate } from '$lib/utils'
 	import Alert from '../common/alert/Alert.svelte'
+	import AssetColumnBadges from './AssetColumnBadges.svelte'
 
 	let usagesDrawerData:
 		| {
@@ -64,14 +65,10 @@
 	</DrawerContent>
 </Drawer>
 
-{#snippet badge(text: string | undefined, tooltip?: string)}
+{#snippet rightBadge(text: string | undefined, tooltip?: string)}
 	{#if text}
 		<Tooltip disablePopup={!tooltip}>
-			<div
-				class={twMerge(
-					'text-xs bg-surface font-normal border text-primary min-w-12 p-1 text-center rounded-md'
-				)}
-			>
+			<div class={twMerge('text-xs 	font-normal text-primary min-w-12 p-1 text-center rounded-md')}>
 				{text}
 			</div>
 			<svelte:fragment slot="text">
@@ -92,7 +89,7 @@
 				<a
 					href={getAssetUsagePageUri(u)}
 					aria-label={`${u.kind}/${u.path}`}
-					class="text-xs text-primary font-normal flex items-center py-3 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
+					class="text-xs min-h-14 text-primary font-normal flex items-center py-2 px-4 gap-2 hover:bg-surface-hover cursor-pointer"
 				>
 					<RowIcon
 						kind={!u.metadata?.job_kind
@@ -110,14 +107,19 @@
 									} as const
 								)[u.metadata.job_kind] ?? 'script')}
 					/>
-					<div class="flex flex-col justify-center flex-1">
-						<span class="font-semibold text-emphasis">
-							{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
+					<div class="flex flex-col justify-center flex-1 ml-2">
+						<span>
+							<span class="font-semibold text-emphasis">
+								{u.kind == 'job' ? (u.metadata?.runnable_path ?? 'Unknown job') : u.path}
+							</span>
 						</span>
-						<span class="text-2xs text-secondary">{u.kind == 'job' ? u.path : u.kind}</span>
+						<span class="text-2xs text-secondary">
+							{u.kind == 'job' ? u.path : capitalize(u.kind)}
+						</span>
+						<AssetColumnBadges columns={u.columns} badgeClasses="mt-0.5" />
 					</div>
-					{@render badge(displayDate(u.created_at), 'Asset detection time')}
-					{@render badge(accessType)}
+					{@render rightBadge(displayDate(u.created_at), 'Asset detection time')}
+					{@render rightBadge(accessType)}
 				</a>
 			</li>
 		{/each}

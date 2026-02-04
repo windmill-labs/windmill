@@ -6378,10 +6378,18 @@ fn register_potential_assets_on_inline_execution(
     match assets {
         Some(Ok(assets)) => {
             for asset in assets {
+                let columns = asset.columns.as_ref().map(|cols| {
+                    cols.iter()
+                        .map(|(col_name, col_access_type)| {
+                            (col_name.clone(), (*col_access_type).into())
+                        })
+                        .collect()
+                });
                 register_runtime_asset(InsertRuntimeAssetParams {
                     access_type: asset.access_type.map(|a| a.into()),
                     asset_kind: asset.kind.into(),
                     asset_path: asset.path,
+                    columns,
                     job_id,
                     workspace_id: w_id.to_string(),
                     created_at: None,

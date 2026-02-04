@@ -12,6 +12,7 @@ export type AssetKind = _AssetKind
 export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
 export type AssetWithAltAccessType = AssetWithAccessType & {
 	alt_access_type?: AssetUsageAccessType
+	columns?: Record<string, AssetUsageAccessType>
 }
 export type AssetUsage = ListAssetsResponse['assets'][number]['usages'][number]
 

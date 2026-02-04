@@ -16526,6 +16526,11 @@ paths:
                                 $ref: "#/components/schemas/AssetUsageKind"
                               access_type:
                                 $ref: "#/components/schemas/AssetUsageAccessType"
+                              columns:
+                                type: object
+                                description: The columns used (for tables)
+                                additionalProperties:
+                                  $ref: "#/components/schemas/AssetUsageAccessType"                 
                               created_at:
                                 type: string
                                 format: date-time

@@ -60,7 +60,7 @@
 				<ul>
 					{#each data.overflowedAssets as asset}
 						<li class="w-48">
-							<AssetNode data={{ asset }} />
+							<AssetNode data={{ asset, displayedAccessType: data.displayedAccessType }} />
 						</li>
 					{/each}
 				</ul>

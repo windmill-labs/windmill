@@ -948,7 +948,7 @@
 				{height}
 				{width}
 				minZoom={0.2}
-				maxZoom={1.2}
+				maxZoom={1.6}
 				connectionLineType={ConnectionLineType.SmoothStep}
 				defaultEdgeOptions={{ type: 'smoothstep' }}
 				preventScrolling={scroll}

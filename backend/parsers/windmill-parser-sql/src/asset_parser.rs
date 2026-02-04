@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use sqlparser::{
     ast::{
-        CopyTarget, Expr, ObjectName, TableFactor, TableObject, Value, ValueWithSpan, Visit,
-        Visitor,
+        CopyTarget, Expr, ObjectName, ObjectNamePart, SelectItem, TableFactor, TableObject, Value,
+        ValueWithSpan, Visit, Visitor,
     },
     dialect::DuckDbDialect,
     parser::Parser,
@@ -24,9 +24,12 @@ pub fn parse_assets(input: &str) -> anyhow::Result<ParseAssetsOutput> {
 
     for (_, (kind, path)) in collector.var_identifiers {
         if !asset_was_used(&collector.assets, (kind, &path)) {
-            collector
-                .assets
-                .push(ParseAssetsResult { kind, access_type: None, path: path });
+            collector.assets.push(ParseAssetsResult {
+                kind,
+                access_type: None,
+                path: path,
+                columns: None,
+            });
         }
     }
 
@@ -39,7 +42,7 @@ struct AssetCollector {
     // e.g set to Read when we are inside a SELECT ... FROM ... statement
     current_access_type_stack: Vec<AssetUsageAccessType>,
     // e.g ATTACH 'ducklake://a' AS dl; => { "dl": (Ducklake, "a") }
-    var_identifiers: HashMap<String, (AssetKind, String)>,
+    var_identifiers: BTreeMap<String, (AssetKind, String)>,
     // e.g USE dl;
     currently_used_asset: Option<(AssetKind, String)>,
 }
@@ -49,15 +52,19 @@ impl AssetCollector {
         Self {
             assets: Vec::new(),
             current_access_type_stack: Vec::with_capacity(8),
-            var_identifiers: HashMap::new(),
+            var_identifiers: BTreeMap::new(),
             currently_used_asset: None,
         }
     }
 
     // Detect when we do 'a.b' and 'a' is associated with an asset in var_identifiers
     // Or when we access 'b' and we did USE a;
-    fn get_associated_asset_from_obj_name(&self, name: &ObjectName) -> Option<ParseAssetsResult> {
-        let access_type = self.current_access_type_stack.last().copied();
+    fn get_associated_asset_from_obj_name(
+        &self,
+        name: &ObjectName,
+        access_type: Option<AssetUsageAccessType>,
+    ) -> Option<ParseAssetsResult> {
+        let access_type = access_type.or_else(|| self.current_access_type_stack.last().copied());
         if let Some((kind, path)) = &self.currently_used_asset {
             // We don't want to infer that any simple identifier refers to an asset if
             // we are not in a known R/W context
@@ -81,7 +88,7 @@ impl AssetCollector {
                     .collect::<Option<Vec<String>>>()?
                     .join(".");
                 let path = format!("{}/{}", path, specific_table);
-                return Some(ParseAssetsResult { kind: *kind, access_type, path });
+                return Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None });
             }
         }
 
@@ -101,7 +108,7 @@ impl AssetCollector {
         } else {
             path.clone()
         };
-        Some(ParseAssetsResult { kind: *kind, access_type, path })
+        Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None })
     }
 
     fn handle_string_literal(&mut self, s: &str) {
@@ -112,6 +119,7 @@ impl AssetCollector {
                     kind,
                     path: path.to_string(),
                     access_type: self.current_access_type_stack.last().copied(),
+                    columns: None,
                 });
             }
         }
@@ -126,13 +134,6 @@ impl AssetCollector {
         if let Some(str_lit) = get_str_lit_from_obj_name(name) {
             self.handle_string_literal(str_lit);
         }
-
-        // Writes to tables should be handled directly when visiting the statement
-        if self.current_access_type_stack.last() == Some(&R) {
-            if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
-                self.assets.push(asset);
-            }
-        }
     }
 
     fn handle_obj_name_post(&mut self, name: &ObjectName) {
@@ -146,16 +147,140 @@ impl AssetCollector {
         }
     }
 
-    fn handle_table_with_joins(&mut self, table_with_joins: &sqlparser::ast::TableWithJoins) {
-        if let TableFactor::Table { name, .. } = &table_with_joins.relation {
-            if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+    fn handle_table_with_joins(
+        &mut self,
+        table_with_joins: &sqlparser::ast::TableWithJoins,
+        access_type: Option<AssetUsageAccessType>,
+    ) {
+        if let TableFactor::Table { name, args, .. } = &table_with_joins.relation {
+            if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
+                return;
+            }
+            if let Some(asset) = self.get_associated_asset_from_obj_name(name, access_type) {
                 self.assets.push(asset);
             }
         }
         for join in &table_with_joins.joins {
             if let TableFactor::Table { name, .. } = &join.relation {
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, access_type) {
                     self.assets.push(asset);
+                }
+            }
+        }
+    }
+
+    // Extract columns from SELECT items and create individual asset results for each column
+    // Only processes columns that reference known assets to avoid false positives
+    fn extract_column_assets(
+        &mut self,
+        projection: &[SelectItem],
+        from_tables: &[sqlparser::ast::TableWithJoins],
+    ) {
+        // Check if this is a single-table SELECT (to avoid ambiguity)
+        let single_table = if from_tables.len() == 1 {
+            if let TableFactor::Table { name, args, .. } = &from_tables[0].relation {
+                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
+                    return; // Skip table functions
+                }
+                self.get_associated_asset_from_obj_name(name, Some(R))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Build a map of table aliases/names to assets for multi-table queries
+        let mut table_to_asset: BTreeMap<String, ParseAssetsResult> = BTreeMap::new();
+        for table_with_joins in from_tables {
+            if let TableFactor::Table { name, alias, args, .. } = &table_with_joins.relation {
+                if args.is_some() && args.as_ref().map_or(0, |a| a.args.len()) > 0 {
+                    continue; // Skip table functions
+                }
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(R)) {
+                    // Use alias if present, otherwise use the table name
+                    let table_key = if let Some(alias) = alias {
+                        alias.name.value.clone()
+                    } else {
+                        // For qualified names like "dl.table1", use just the last part
+                        name.0
+                            .last()
+                            .and_then(|id| id.as_ident())
+                            .map(|id| id.value.clone())
+                            .unwrap_or_default()
+                    };
+                    table_to_asset.insert(table_key, asset);
+                }
+            }
+        }
+
+        // Process each SELECT item
+        for item in projection {
+            match item {
+                SelectItem::UnnamedExpr(Expr::Identifier(ident))
+                | SelectItem::ExprWithAlias { expr: Expr::Identifier(ident), .. } => {
+                    // Simple column: SELECT a
+                    // Only add if we have a single table (unambiguous)
+                    if let Some(asset) = &single_table {
+                        let mut columns = BTreeMap::new();
+                        columns.insert(ident.value.clone(), R);
+                        self.assets.push(ParseAssetsResult {
+                            kind: asset.kind,
+                            path: asset.path.clone(),
+                            access_type: Some(R),
+                            columns: Some(columns),
+                        });
+                    }
+                }
+                SelectItem::UnnamedExpr(Expr::CompoundIdentifier(parts))
+                | SelectItem::ExprWithAlias { expr: Expr::CompoundIdentifier(parts), .. } => {
+                    // Qualified column: SELECT table1.a or SELECT x.table1.a
+                    if parts.len() >= 2 {
+                        let column_name = parts.last().map(|id| id.value.clone());
+
+                        if let Some(column_name) = column_name {
+                            // Check if the prefix matches a known table
+                            let table_prefix = parts.first().map(|id| id.value.clone());
+
+                            if let Some(table_prefix) = table_prefix {
+                                if let Some(asset) = table_to_asset.get(&table_prefix) {
+                                    // Found a matching table, add column asset
+                                    let mut columns = BTreeMap::new();
+                                    columns.insert(column_name.clone(), R);
+                                    self.assets.push(ParseAssetsResult {
+                                        kind: asset.kind,
+                                        path: asset.path.clone(),
+                                        access_type: Some(R),
+                                        columns: Some(columns),
+                                    });
+                                } else if parts.len() >= 3 {
+                                    // Could be x.table1.column format or db.schema.table.column
+                                    // Convert Idents to ObjectNameParts
+                                    let obj_parts: Vec<ObjectNamePart> = parts[..parts.len() - 1]
+                                        .iter()
+                                        .cloned()
+                                        .map(|ident| ObjectNamePart::Identifier(ident))
+                                        .collect();
+                                    let obj_name = ObjectName(obj_parts);
+                                    if let Some(asset) =
+                                        self.get_associated_asset_from_obj_name(&obj_name, Some(R))
+                                    {
+                                        let mut columns = BTreeMap::new();
+                                        columns.insert(column_name.clone(), R);
+                                        self.assets.push(ParseAssetsResult {
+                                            kind: asset.kind,
+                                            path: asset.path.clone(),
+                                            access_type: Some(R),
+                                            columns: Some(columns),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    // Ignore wildcards, expressions, etc.
                 }
             }
         }
@@ -218,51 +343,154 @@ impl Visitor for AssetCollector {
         statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
         match statement {
-            sqlparser::ast::Statement::Query(_) => {
-                // don't forget pop() in post_visit_statement
-                self.current_access_type_stack.push(R);
+            sqlparser::ast::Statement::Query(q) => {
+                if let Some(select) = q.body.as_select() {
+                    // First, handle table references (adds table-level assets)
+                    for t in &select.from {
+                        self.handle_table_with_joins(t, Some(R));
+                    }
+                    // Then, extract column-level assets
+                    self.extract_column_assets(&select.projection, &select.from);
+                }
             }
 
             sqlparser::ast::Statement::Insert(insert) => {
                 let access_type = if insert.returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
                 match insert.table {
                     TableObject::TableName(ref name) => {
-                        if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
-                            self.assets.push(asset);
+                        if let Some(asset) =
+                            self.get_associated_asset_from_obj_name(name, Some(access_type))
+                        {
+                            // Add table-level asset
+                            self.assets.push(ParseAssetsResult {
+                                kind: asset.kind,
+                                path: asset.path.clone(),
+                                access_type: asset.access_type,
+                                columns: None,
+                            });
+
+                            // Extract column information for INSERT with explicit columns (Write access)
+                            if !insert.columns.is_empty() {
+                                for col in &insert.columns {
+                                    let columns = BTreeMap::from([(col.value.clone(), W)]);
+                                    self.assets.push(ParseAssetsResult {
+                                        kind: asset.kind,
+                                        path: asset.path.clone(),
+                                        access_type: Some(W),
+                                        columns: Some(columns),
+                                    });
+                                }
+                            }
+
+                            // Extract column information from RETURNING clause (Read access)
+                            if let Some(returning) = &insert.returning {
+                                for item in returning {
+                                    match item {
+                                        SelectItem::UnnamedExpr(Expr::Identifier(ident))
+                                        | SelectItem::ExprWithAlias {
+                                            expr: Expr::Identifier(ident),
+                                            ..
+                                        } => {
+                                            let mut col_map = BTreeMap::new();
+                                            col_map.insert(ident.value.clone(), R);
+                                            self.assets.push(ParseAssetsResult {
+                                                kind: asset.kind,
+                                                path: asset.path.clone(),
+                                                access_type: Some(R),
+                                                columns: Some(col_map),
+                                            });
+                                        }
+                                        _ => {
+                                            // Ignore wildcards and complex expressions
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     _ => {}
                 }
-                self.current_access_type_stack.pop();
             }
 
-            sqlparser::ast::Statement::Update { returning, table, from, .. } => {
+            sqlparser::ast::Statement::Update { returning, table, from, assignments, .. } => {
                 if let Some(from_tables) = from {
                     let from_tables = match from_tables {
                         sqlparser::ast::UpdateTableFromKind::AfterSet(tables) => tables,
                         sqlparser::ast::UpdateTableFromKind::BeforeSet(tables) => tables,
                     };
-                    self.current_access_type_stack.push(R);
                     for table_with_joins in from_tables {
-                        self.handle_table_with_joins(table_with_joins);
+                        self.handle_table_with_joins(table_with_joins, Some(R));
                     }
-                    self.current_access_type_stack.pop();
                 }
 
                 let access_type = if returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
+                self.handle_table_with_joins(table, Some(access_type));
 
-                self.handle_table_with_joins(table);
+                // Extract column information from UPDATE SET clauses (Write access)
+                // Only process if it's a single table update
+                if let TableFactor::Table { name, .. } = &table.relation {
+                    if let Some(asset) =
+                        self.get_associated_asset_from_obj_name(name, Some(access_type))
+                    {
+                        // Process each assignment to extract column names
+                        for assignment in assignments {
+                            // assignment.target is an AssignmentTarget enum
+                            // We only handle simple column names (ColumnName variant)
+                            if let sqlparser::ast::AssignmentTarget::ColumnName(col_name) =
+                                &assignment.target
+                            {
+                                // For simple column updates, this is typically a single ident
+                                if col_name.0.len() == 1 {
+                                    if let Some(col_ident) =
+                                        col_name.0.first().and_then(|p| p.as_ident())
+                                    {
+                                        let mut col_map = BTreeMap::new();
+                                        col_map.insert(col_ident.value.clone(), W);
+                                        self.assets.push(ParseAssetsResult {
+                                            kind: asset.kind,
+                                            path: asset.path.clone(),
+                                            access_type: Some(W),
+                                            columns: Some(col_map),
+                                        });
+                                    }
+                                }
+                            }
+                        }
 
-                self.current_access_type_stack.pop();
+                        // Extract column information from RETURNING clause (Read access)
+                        if let Some(returning_items) = returning {
+                            for item in returning_items {
+                                match item {
+                                    SelectItem::UnnamedExpr(Expr::Identifier(ident))
+                                    | SelectItem::ExprWithAlias {
+                                        expr: Expr::Identifier(ident),
+                                        ..
+                                    } => {
+                                        let mut col_map = BTreeMap::new();
+                                        col_map.insert(ident.value.clone(), R);
+                                        self.assets.push(ParseAssetsResult {
+                                            kind: asset.kind,
+                                            path: asset.path.clone(),
+                                            access_type: Some(R),
+                                            columns: Some(col_map),
+                                        });
+                                    }
+                                    _ => {
+                                        // Ignore wildcards and complex expressions
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             sqlparser::ast::Statement::Delete(delete) => {
                 let access_type = if delete.returning.is_some() { RW } else { W };
-                self.current_access_type_stack.push(access_type);
                 for name in &delete.tables {
-                    if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                    if let Some(asset) =
+                        self.get_associated_asset_from_obj_name(name, Some(access_type))
+                    {
                         self.assets.push(asset);
                     }
                 }
@@ -271,25 +499,22 @@ impl Visitor for AssetCollector {
                     sqlparser::ast::FromTable::WithoutKeyword(tables) => tables,
                 };
                 for table_with_joins in tables {
-                    self.handle_table_with_joins(table_with_joins);
+                    self.handle_table_with_joins(table_with_joins, Some(access_type));
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::CreateTable(create_table) => {
-                self.current_access_type_stack.push(W);
-                if let Some(asset) = self.get_associated_asset_from_obj_name(&create_table.name) {
+                if let Some(asset) =
+                    self.get_associated_asset_from_obj_name(&create_table.name, Some(W))
+                {
                     self.assets.push(asset);
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::CreateView { name, .. } => {
-                self.current_access_type_stack.push(W);
-                if let Some(asset) = self.get_associated_asset_from_obj_name(name) {
+                if let Some(asset) = self.get_associated_asset_from_obj_name(name, Some(W)) {
                     self.assets.push(asset);
                 }
-                self.current_access_type_stack.pop();
             }
 
             sqlparser::ast::Statement::Copy { target: CopyTarget::File { filename }, .. } => {
@@ -339,14 +564,8 @@ impl Visitor for AssetCollector {
 
     fn post_visit_statement(
         &mut self,
-        statement: &sqlparser::ast::Statement,
+        _statement: &sqlparser::ast::Statement,
     ) -> std::ops::ControlFlow<Self::Break> {
-        match statement {
-            sqlparser::ast::Statement::Query(_) => {
-                self.current_access_type_stack.pop();
-            }
-            _ => {}
-        }
         std::ops::ControlFlow::Continue(())
     }
 
@@ -409,17 +628,20 @@ mod tests {
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/a.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "/c.parquet".to_string(),
-                    access_type: Some(W)
+                    access_type: Some(W),
+                    columns: None
                 },
                 ParseAssetsResult {
                     kind: AssetKind::S3Object,
                     path: "snd/b.parquet".to_string(),
-                    access_type: Some(R)
+                    access_type: Some(R),
+                    columns: None
                 },
             ])
         );
@@ -438,7 +660,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None
             },])
         );
     }
@@ -455,7 +678,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl/table1".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None
             },])
         );
     }
@@ -473,7 +697,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "my_dt/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -504,7 +729,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "my_dl/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -521,7 +747,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::DataTable,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -543,7 +770,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/friends".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: None
             },])
         );
     }
@@ -561,7 +789,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main".to_string(),
-                access_type: None
+                access_type: None,
+                columns: None
             },])
         );
     }
@@ -579,7 +808,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: None
             },])
         );
     }
@@ -597,7 +827,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -615,7 +846,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Resource,
                 path: "u/user/pg_resource/table1".to_string(),
-                access_type: Some(R)
+                access_type: Some(R),
+                columns: None
             },])
         );
     }
@@ -632,7 +864,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/table1".to_string(),
-                access_type: Some(W)
+                access_type: Some(W),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -650,7 +883,8 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
     }
@@ -669,8 +903,289 @@ mod tests {
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Ducklake,
                 path: "main/sch.table1".to_string(),
-                access_type: Some(RW)
+                access_type: Some(RW),
+                columns: Some(BTreeMap::from([("id".to_string(), W)])),
             },])
         );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_single_table_column_detection() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT a, b FROM dl.table1;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(R));
+
+        // Check that both columns are present in the merged asset
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 2);
+        assert_eq!(columns.get("a"), Some(&R));
+        assert_eq!(columns.get("b"), Some(&R));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_explicit_table_prefix_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT dl.table1.a, dl.table1.b FROM dl.table1;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        // Should detect columns with explicit table prefix
+        let result = s.unwrap();
+        // Check we have the table asset
+
+        // Check we have column assets
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("a"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("b"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_multi_table_no_simple_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT a, b FROM dl.table1, dl.table2;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        // Simple columns (a, b) should NOT be detected with multiple tables
+        // Only table-level assets should be present
+        let result = s.unwrap();
+
+        // Should have 2 table assets
+        assert_eq!(result.iter().filter(|a| a.columns.is_none()).count(), 2);
+
+        // Should have NO column assets (ambiguous which table they belong to)
+        assert_eq!(result.iter().filter(|a| a.columns.is_some()).count(), 0);
+    }
+
+    #[test]
+    fn test_sql_asset_parser_multi_table_with_qualified_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl1' AS dl1;
+            ATTACH 'ducklake://my_dl2' AS dl2;
+            SELECT table1.a, table2.b FROM dl1.table1, dl2.table2;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        // Qualified columns should be detected even with multiple tables
+        let result = s.unwrap();
+
+        // Check we have column assets for both tables
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl1/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("a"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl2/table2"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("b"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_use_with_simple_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            USE dl;
+            SELECT a, b, c FROM table1;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should detect columns since it's a single table
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("a"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("b"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("c"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_wildcard_no_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT * FROM dl.table1;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Wildcard should NOT create column assets, only table asset
+        assert_eq!(result.len(), 1);
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_columns_with_alias() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT a AS column_a, b AS column_b FROM dl.table1;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should detect columns even when aliased
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("a"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("b"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_columns_with_table_alias() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            SELECT t.a, t.b FROM dl.table1 AS t;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should detect columns using the table alias
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("a"))
+        }));
+        assert!(result.iter().any(|a| {
+            a.path == "my_dl/table1"
+                && a.columns
+                    .as_ref()
+                    .map_or(false, |cols| cols.contains_key("b"))
+        }));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_insert_with_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            INSERT INTO dl.table1 (name, age, email) VALUES ('John', 30, 'john@example.com');
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+
+        // Check that all columns are present in the merged asset
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&W));
+        assert_eq!(columns.get("age"), Some(&W));
+        assert_eq!(columns.get("email"), Some(&W));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_insert_without_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            INSERT INTO dl.table1 VALUES ('John', 30);
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset without column information
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+        assert!(result[0].columns.is_none());
+    }
+
+    #[test]
+    fn test_sql_asset_parser_update_multiple_columns() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            UPDATE dl.table1 SET name = 'Jane', age = 25, active = true;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have one asset with merged columns
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(W));
+
+        // Check that all columns are present
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&W));
+        assert_eq!(columns.get("age"), Some(&W));
+        assert_eq!(columns.get("active"), Some(&W));
+    }
+
+    #[test]
+    fn test_sql_asset_parser_update_returning() {
+        let input = r#"
+            ATTACH 'ducklake://my_dl' AS dl;
+            UPDATE dl.table1 SET name = 'Jane', age = 26 RETURNING id, name;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+
+        let result = s.unwrap();
+
+        // Should have RW access type when RETURNING is used
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "my_dl/table1");
+        assert_eq!(result[0].access_type, Some(RW));
+
+        // Check that columns are present with correct access types
+        // name and age are written (W), id and name are read (R)
+        // name should be RW (both written and read)
+        let columns = result[0].columns.as_ref().expect("Should have columns");
+        assert_eq!(columns.len(), 3);
+        assert_eq!(columns.get("name"), Some(&RW)); // Written in SET, read in RETURNING
+        assert_eq!(columns.get("age"), Some(&W)); // Only written
+        assert_eq!(columns.get("id"), Some(&R)); // Only read
     }
 }

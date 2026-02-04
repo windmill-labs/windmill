@@ -2,13 +2,19 @@
 	import Markdown from 'svelte-exmarkdown'
 	import { ExternalLink } from 'lucide-svelte'
 	import { gfmPlugin } from 'svelte-exmarkdown/gfm'
+	import { twMerge } from 'tailwind-merge'
+
 	export let documentationLink: string | undefined = undefined
 	export let markdownTooltip: string | undefined = undefined
+	export let customBgClass: string | undefined = undefined
 	const plugins = [gfmPlugin()]
 </script>
 
 <div
-	class="shadow-lg max-w-sm break-words py-2 px-3 rounded-md text-xs font-normal text-primary bg-surface-secondary whitespace-normal text-left dark:border max-h-64 overflow-y-auto"
+	class={twMerge(
+		'shadow-lg max-w-sm break-words py-2 px-3 rounded-md text-xs font-normal text-primary  whitespace-normal text-left dark:border max-h-64 overflow-y-auto',
+		customBgClass || 'bg-surface-secondary'
+	)}
 >
 	{#if markdownTooltip}
 		<div class="prose-sm">
