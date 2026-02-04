@@ -503,8 +503,8 @@
 
 {#if result_stream && result == undefined}
 	<div class="flex flex-col w-full gap-2">
-		<div class="flex items-center gap-2 text-primary">
-			<Loader2 class="animate-spin" size={16} /> Streaming result
+		<div class="flex items-center gap-2 text-secondary text-xs">
+			<Loader2 class="animate-spin" size={14} /> Streaming result
 		</div>
 		<ResultStreamDisplay {result_stream} />
 	</div>
