@@ -22,49 +22,6 @@ jobs:
       contents: read
 
     steps:
-      - name: Check organization membership
-        if: github.event_name == 'issue_comment'
-        id: check-org-member
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const commenter = context.payload.comment.user.login;
-
-            try {
-              const membership = await github.rest.orgs.checkMembershipForUser({
-                org: 'windmill-labs',
-                username: commenter
-              });
-
-              core.setOutput('is_member', 'true');
-              console.log(`✓ User ${commenter} is a member of windmill-labs`);
-            } catch (error) {
-              core.setOutput('is_member', 'false');
-              console.log(`✗ User ${commenter} is not a member of windmill-labs`);
-            }
-
-      - name: Post unauthorized comment
-        if: |
-          github.event_name == 'issue_comment' &&
-          steps.check-org-member.outputs.is_member == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `❌ Unauthorized: Only members of the windmill-labs organization can spawn ephemeral backends.`
-            });
-
-      - name: Fail if not org member
-        if: |
-          github.event_name == 'issue_comment' &&
-          steps.check-org-member.outputs.is_member == 'false'
-        run: |
-          echo "Error: User is not a member of windmill-labs organization"
-          exit 1
-
       - name: Get PR details
         id: pr-details
         uses: actions/github-script@v7
@@ -79,80 +36,40 @@ jobs:
               repo: context.repo.repo,
               pull_number: prNumber
             });
-
-            // Get branch name and format it for Cloudflare Pages
-            // Replace '/' with '-' for the URL
-            const branchName = pr.data.head.ref;
-            const formattedBranch = branchName.replace(/\//g, '-');
-            const cfFrontendUrl = `https://${formattedBranch}.windmill.pages.dev`;
-
             core.setOutput('commit_hash', pr.data.head.sha);
-            core.setOutput('pr_number', prNumber);
-            core.setOutput('branch_name', branchName);
-            core.setOutput('cf_frontend_url', cfFrontendUrl);
-
-      - name: Check manager URL
-        id: check-manager-url
-        run: |
-          if [ -z "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}" ]; then
-            echo "manager_url_set=false" >> $GITHUB_OUTPUT
-          else
-            echo "manager_url_set=true" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Post error comment if manager not running
-        if: steps.check-manager-url.outputs.manager_url_set == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const prNumber = context.eventName === 'workflow_dispatch'
-              ? Number(context.payload.inputs.pr_number)
-              : context.issue.number;
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `❌ Manager URL not set (did you start the ephemeral backend manager?)\n\nThe ephemeral backend manager needs to be running to spawn backends. Please start the manager first.`
-            });
-
-      - name: Fail if manager not running
-        if: steps.check-manager-url.outputs.manager_url_set == 'false'
-        run: |
-          echo "Error: EPHEMERAL_BACKEND_QUEUE_URL secret is not set"
-          exit 1
+            core.setOutput('pr_number', context.issue.number);
 
       - name: Trigger Windmill flow
-        if: steps.check-manager-url.outputs.manager_url_set == 'true'
         id: trigger-flow
         run: |
-          JOB_UUID=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
-            -H "Authorization: Bearer ${{ secrets.WINDMILL_RUN_FLOW_TOKEN }}" \
+          RESPONSE=$(curl -s -X POST "https://app.windmill.dev/api/w/windmill-labs/jobs/run/f/f/all/run_ephemeral_backend" \
+            -H "Authorization: Bearer ${{ secrets.WINDMILL_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
               "manager_url": "${{ secrets.EPHEMERAL_BACKEND_QUEUE_URL }}",
               "commit_hash": "${{ steps.pr-details.outputs.commit_hash }}",
-              "pr_number": ${{ steps.pr-details.outputs.pr_number }},
-              "cf_frontend_url": "${{ steps.pr-details.outputs.cf_frontend_url }}"
-            }' | tr -d '"')
+              "pr_number": ${{ steps.pr-details.outputs.pr_number }}
+            }')
 
-          echo "Job UUID: $JOB_UUID"
+          JOB_UUID=$(echo "$RESPONSE" | jq -r '.id // empty')
+
+          if [ -z "$JOB_UUID" ]; then
+            echo "Failed to get job UUID from response: $RESPONSE"
+            exit 1
+          fi
+
           echo "job_uuid=$JOB_UUID" >> $GITHUB_OUTPUT
 
       - name: Post comment with job link
-        if: steps.check-manager-url.outputs.manager_url_set == 'true'
         uses: actions/github-script@v7
         with:
           script: |
             const jobUuid = '${{ steps.trigger-flow.outputs.job_uuid }}';
-            const appUrl = `https://app.windmill.dev/public/windmill-labs/a106bad0256c1dfa7a4f9279c42b1a4b#${jobUuid}`;
-            const prNumber = context.eventName === 'workflow_dispatch'
-              ? Number(context.payload.inputs.pr_number)
-              : context.issue.number;
+            const jobUrl = `https://app.windmill.dev/run/${jobUuid}?workspace=windmill-labs`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: prNumber,
-              body: `🚀 Spawning new ephemeral backend!\n\n${appUrl}`
+              issue_number: context.issue.number,
+              body: `🚀 Ephemeral backend spawning started!\n\nView job progress: ${jobUrl}`
             });
