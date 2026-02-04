@@ -9,9 +9,6 @@
 	import { LayoutDashboard, Loader2, Plus, Code2, FlaskConical } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
-	import { userStore } from '$lib/stores'
-
 	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
@@ -22,9 +19,6 @@
 	// Modal states
 	let appTypeModalOpen = $state(false)
 	let featurePreviewModalOpen = $state(false)
-
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showCreateButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function importRaw() {
 		$importStore = importType === 'yaml' ? YAML.parse(pendingRaw) : JSON.parse(pendingRaw)
@@ -53,8 +47,7 @@
 </script>
 
 <!-- Buttons -->
-{#if showCreateButton}
-	<div class="flex flex-row gap-2">
+<div class="flex flex-row gap-2">
 		<Button
 			id="create-app-button"
 			aiId="apps-create-actions-app"
@@ -84,7 +77,6 @@
 			<div class="flex flex-row items-center"> App </div>
 		</Button>
 	</div>
-{/if}
 
 <!-- App Type Selection Modal -->
 <Modal bind:open={appTypeModalOpen} title="Choose your app builder">

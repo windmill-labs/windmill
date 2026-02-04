@@ -9,15 +9,9 @@
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
-	import { userStore } from '$lib/stores'
-
 	let drawer: Drawer | undefined = $state(undefined)
 	let pendingRaw: string | undefined = $state(undefined)
 	let importType: 'yaml' | 'json' = $state('yaml')
-
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showCreateButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function importRaw() {
 		$importFlowStore =
@@ -28,8 +22,7 @@
 </script>
 
 <!-- Buttons -->
-{#if showCreateButton}
-	<div class="flex flex-row gap-2">
+<div class="flex flex-row gap-2">
 		<Button
 			id="create-flow-button"
 			aiId="flows-create-actions-flow"
@@ -59,7 +52,6 @@
 			Flow
 		</Button>
 	</div>
-{/if}
 
 <!-- Raw JSON -->
 <Drawer bind:this={drawer} size="800px">

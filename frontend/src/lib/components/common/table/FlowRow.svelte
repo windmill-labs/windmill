@@ -8,7 +8,6 @@
 	import type ShareModal from '$lib/components/ShareModal.svelte'
 	import { FlowService, type Flow, DraftService } from '$lib/gen'
 	import { userStore, workspaceStore } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
 	import Button from '../button/Button.svelte'
@@ -47,6 +46,7 @@
 		errorHandlerMuted: boolean
 		depth?: number
 		menuOpen?: boolean
+		showEditButton?: boolean
 	}
 
 	let {
@@ -59,13 +59,11 @@
 		deploymentDrawer,
 		errorHandlerMuted,
 		depth = 0,
-		menuOpen = $bindable(false)
+		menuOpen = $bindable(false),
+		showEditButton = $bindable(true)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showEditButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function archiveFlow(path: string, archived: boolean): Promise<void> {
 		try {
@@ -129,8 +127,8 @@
 	{/snippet}
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
-				{#if flow.canWrite && !flow.archived && showEditButton}
+			{#if !$userStore?.operator && showEditButton}
+				{#if flow.canWrite && !flow.archived}
 					<div>
 						<Button
 							variant="subtle"
@@ -168,6 +166,7 @@
 			items={async () => {
 				let { draft_only, path, archived, has_draft } = flow
 				let owner = isOwner(path, $userStore, $workspaceStore)
+				const canEdit = flow.canWrite && showEditButton
 				if (draft_only) {
 					return [
 						{
@@ -191,15 +190,16 @@
 				}
 				return [
 					{
-						displayName: 'Duplicate/Fork',
-						icon: GitFork,
-						href: `${base}/flows/add?template=${path}`,
-						hide: $userStore?.operator
-					},
-					{
 						displayName: 'View runs',
 						icon: List,
 						href: `${base}/runs/${path}`
+					},
+					{
+						displayName: 'Duplicate/Fork',
+						icon: GitFork,
+						href: `${base}/flows/add?template=${path}`,
+						disabled: !showEditButton,
+						hide: $userStore?.operator
 					},
 					{
 						displayName: 'Audit logs',
@@ -213,7 +213,7 @@
 						action: () => {
 							moveDrawer.openDrawer(path, flow.summary, 'flow')
 						},
-						disabled: !owner || archived,
+						disabled: !owner || archived || !canEdit,
 						hide: $userStore?.operator
 					},
 					{
@@ -268,7 +268,7 @@
 							path && archiveFlow(path, !archived)
 						},
 						type: 'delete',
-						disabled: !owner,
+						disabled: !owner || !canEdit,
 						hide: $userStore?.operator
 					},
 					...(has_draft
@@ -304,7 +304,7 @@
 							}
 						},
 						type: 'delete',
-						disabled: !owner,
+						disabled: !owner || !canEdit,
 						hide: $userStore?.operator
 					}
 				]

@@ -9,7 +9,6 @@
 
 	import { ScriptService, type Script, DraftService } from '$lib/gen'
 	import { hubBaseUrlStore, userStore, workspaceStore } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
 
 	import { createEventDispatcher } from 'svelte'
 	import Badge from '../badge/Badge.svelte'
@@ -57,6 +56,7 @@
 		showCode: (path: string, summary: string) => void
 		depth?: number
 		menuOpen?: boolean
+		showEditButton?: boolean
 	}
 
 	let {
@@ -70,13 +70,11 @@
 		errorHandlerMuted,
 		showCode,
 		depth = 0,
-		menuOpen = $bindable(false)
+		menuOpen = $bindable(false),
+		showEditButton = $bindable(true)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
-
-	let rulesLoaded = $derived(protectionRulesState.rulesets !== undefined)
-	let showEditButton = $derived(rulesLoaded && (!isDirectDeployBlocked() || canBypassDirectDeployBlock($userStore)))
 
 	async function archiveScript(path: string): Promise<void> {
 		await ScriptService.archiveScriptByPath({ workspace: $workspaceStore!, path })
@@ -159,14 +157,14 @@
 
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator}
+			{#if !$userStore?.operator && showEditButton}
 				{#if script.use_codebase}
 					<Badge
 						>bundle<Tooltip
 							>This script is deployed as a bundle and can only be deployed from the CLI for now</Tooltip
 						></Badge
 					>
-				{:else if script.canWrite && !script.archived && showEditButton}
+				{:else if script.canWrite && !script.archived}
 					<div>
 						<Button
 							aiId={`edit-script-button-${script.summary?.length > 0 ? script.summary : script.path}`}
@@ -202,6 +200,7 @@
 			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
+				const canEdit = script.canWrite && showEditButton
 				if (script.draft_only) {
 					return [
 						{
@@ -226,7 +225,7 @@
 								}
 							},
 							type: dlt,
-							disabled: !script.canWrite
+							disabled: !canEdit
 						}
 					]
 				}
@@ -242,6 +241,7 @@
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
 						href: `${base}/scripts/add?template=${script.path}`,
+						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
 					{
@@ -250,7 +250,7 @@
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
-						disabled: !owner || script.archived,
+						disabled: !owner || script.archived || !canEdit,
 						hide: $userStore?.operator
 					},
 					...(isDeployable('script', script.path, await getDeployUiSettings())
@@ -341,7 +341,7 @@
 								: script.path && archiveScript(script.path)
 						},
 						type: 'delete',
-						disabled: !owner,
+						disabled: !owner || !canEdit,
 						hide: $userStore?.operator
 					},
 
@@ -379,7 +379,7 @@
 										}
 									},
 									type: dlt,
-									disabled: !script.canWrite,
+									disabled: !canEdit,
 									hide: $userStore?.operator
 								}
 							]

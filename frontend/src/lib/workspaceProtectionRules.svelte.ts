@@ -142,7 +142,7 @@ export function canUserBypassRuleKind(
 ): boolean {
 	// If no user info, default to permissive
 	if (!userInfo) {
-		return true
+		return false
 	}
 
 	if (!state.rulesets) {
@@ -161,21 +161,9 @@ export function canUserBypassRuleKind(
 }
 
 /**
- * Checks if direct web UI deployments are blocked
- * @returns true if RequireForkOrBranchToDeploy rule is active
+ * Returns all rulesets that contain a specific rule kind
  */
-export function isDirectDeployBlocked(): boolean {
-	return isRuleActive('RequireForkOrBranchToDeploy')
-}
-
-/**
- * Checks if user can bypass direct deploy block
- * @param user The user information
- * @returns true if user can bypass the RequireForkOrBranchToDeploy rule
- */
-export function canBypassDirectDeployBlock(user: UserExt | undefined): boolean {
-	if (!user) {
-		return true // Permissive default
-	}
-	return canUserBypassRuleKind('RequireForkOrBranchToDeploy', user)
+export function getActiveRulesetsForKind(ruleKind: ProtectionRuleKind): ProtectionRuleset[] {
+	if (!state.rulesets) return []
+	return state.rulesets.filter((rs) => rs.rules.includes(ruleKind))
 }

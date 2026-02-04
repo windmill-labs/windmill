@@ -5,7 +5,7 @@
 
 	import { AppService, DraftService, type Policy } from '$lib/gen'
 	import { enterpriseLicense, userStore, workspaceStore } from '$lib/stores'
-	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlock } from '$lib/workspaceProtectionRules.svelte'
+	import { protectionRulesState, isDirectDeployBlocked, canBypassDirectDeployBlocka } from '$lib/workspaceProtectionRules.svelte'
 	import {
 		Bug,
 		DiffIcon,
