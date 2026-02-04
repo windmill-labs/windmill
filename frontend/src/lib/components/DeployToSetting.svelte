@@ -113,8 +113,12 @@
 		{/each}
 	</select>
 </div>
-<h3 class="mt-6 mb-3 text-sm font-semibold text-emphasis">Deployable items</h3>
-<div class="flex flex-wrap gap-20">
+<h3 class="mt-6 mb-1 text-xs font-semibold text-emphasis">Deployable items</h3>
+<div class="text-xs text-secondary mb-1">
+	You can filter which items can be deployed to the production workspace. By default everything is
+	deployable.
+</div>
+<div class="flex flex-wrap gap-6 p-4 rounded-md border">
 	<div class="max-w-md w-full">
 		{#if Array.isArray(deployUiSettings?.include_path)}
 			<h4 class="flex gap-2 mb-2 text-xs font-semibold text-emphasis"

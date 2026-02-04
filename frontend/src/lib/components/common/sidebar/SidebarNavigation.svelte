@@ -2,6 +2,8 @@
 	import type { ComponentType } from 'svelte'
 	import { twMerge } from 'tailwind-merge'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import EEOnly from '$lib/components/EEOnly.svelte'
+	import { enterpriseLicense } from '$lib/stores'
 
 	interface NavigationItem {
 		id: string
@@ -12,6 +14,7 @@
 		aiId?: string
 		aiDescription?: string
 		showIf?: boolean
+		isEE?: boolean
 	}
 
 	interface NavigationGroup {
@@ -26,12 +29,7 @@
 		class?: string
 	}
 
-	let {
-		groups,
-		selectedId,
-		onNavigate,
-		class: className = ''
-	}: Props = $props()
+	let { groups, selectedId, onNavigate, class: className = '' }: Props = $props()
 </script>
 
 <div class={twMerge('flex flex-col gap-6', className)}>
@@ -57,11 +55,18 @@
 							onClick={() => onNavigate(item.id)}
 						>
 							<span class="truncate">{item.label}</span>
-							{#if item.count !== undefined}
-								<span class="ml-auto text-2xs text-secondary bg-surface-secondary px-1.5 py-0.5 rounded-full">
-									{item.count}
-								</span>
-							{/if}
+							<div class="ml-auto flex items-center gap-1">
+								{#if item.isEE && !$enterpriseLicense}
+									<EEOnly />
+								{/if}
+								{#if item.count !== undefined}
+									<span
+										class="text-2xs text-secondary bg-surface-secondary px-1.5 py-0.5 rounded-full"
+									>
+										{item.count}
+									</span>
+								{/if}
+							</div>
 						</Button>
 					{/if}
 				{/each}

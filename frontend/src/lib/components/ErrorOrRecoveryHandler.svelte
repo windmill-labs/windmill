@@ -361,56 +361,60 @@
 
 	<div class="flex flex-col gap-6 p-4 rounded-md border">
 		{#if handlerSelected === 'custom'}
-			<div class="flex flex-row mb-6">
-				<ScriptPicker
-					disabled={!isEditable || !$enterpriseLicense}
-					kinds={['script', 'failure']}
-					allowFlow={true}
-					bind:scriptPath={handlerPath}
-					bind:itemKind={customHandlerKind}
-					allowRefresh={isEditable}
-					clearable
-				/>
+			<div class="flex flex-col gap-1">
+				<div class="flex flex-row">
+					<ScriptPicker
+						disabled={!isEditable || !$enterpriseLicense}
+						kinds={['script', 'failure']}
+						allowFlow={true}
+						bind:scriptPath={handlerPath}
+						bind:itemKind={customHandlerKind}
+						allowRefresh={isEditable}
+						clearable
+					/>
 
-				{#if !handlerPath}
-					<Button
-						btnClasses="ml-4 whitespace-nowrap"
-						variant="default"
-						size="xs"
-						href={customScriptTemplate}
-						disabled={!isEditable}
-						target="_blank"
-					>
-						Create from template
-					</Button>
+					{#if !handlerPath}
+						<Button
+							btnClasses="ml-4 whitespace-nowrap"
+							variant="default"
+							size="xs"
+							href={customScriptTemplate}
+							disabled={!isEditable}
+							target="_blank"
+						>
+							Create from template
+						</Button>
+					{/if}
+				</div>
+				{#if showScriptHelpText}
+					<div class="text-2xs text-secondary">
+						Example of error handler scripts can be found on <a
+							target="_blank"
+							href="{$hubBaseUrlStore}/failures"
+						>
+							Windmill Hub</a
+						>
+					</div>
 				{/if}
 			</div>
-			{#if showScriptHelpText}
-				<div class="text-2xs text-secondary">
-					Example of error handler scripts can be found on <a
-						target="_blank"
-						href="{$hubBaseUrlStore}/failures"
-					>
-						Windmill Hub</a
-					>
-				</div>
-			{/if}
 			{#if handlerPath}
-				<p class="font-semibold text-xs mt-6 mb-1">Extra arguments</p>
-				{#await import('$lib/components/SchemaForm.svelte')}
-					<Loader2 class="animate-spin" />
-				{:then Module}
-					<Module.default
-						disabled={!isEditable}
-						schema={customHandlerSchema}
-						bind:args={handlerExtraArgs}
-						shouldHideNoInputs
-						className="text-xs"
-					/>
-				{/await}
-				{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
-					<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
-				{/if}
+				<div>
+					<p class="font-semibold text-xs mb-1">Extra arguments</p>
+					{#await import('$lib/components/SchemaForm.svelte')}
+						<Loader2 class="animate-spin" />
+					{:then Module}
+						<Module.default
+							disabled={!isEditable}
+							schema={customHandlerSchema}
+							bind:args={handlerExtraArgs}
+							shouldHideNoInputs
+							className="text-xs"
+						/>
+					{/await}
+					{#if customHandlerSchema && customHandlerSchema.properties && Object.keys(customHandlerSchema.properties).length === 0}
+						<div class="text-xs texg-gray-700">This error handler takes no extra arguments</div>
+					{/if}
+				</div>
 			{/if}
 		{:else if handlerSelected === 'slack'}
 			<!-- Slack Connection Status -->

@@ -43,7 +43,7 @@
 </script>
 
 <script lang="ts">
-	import { Plus } from 'lucide-svelte'
+	import { Plus, Save } from 'lucide-svelte'
 
 	import Button from '../common/button/Button.svelte'
 
@@ -283,7 +283,12 @@
 	</tbody>
 </DataTable>
 
-<Button wrapperClasses="mt-4 mb-16 max-w-fit" on:click={onSave} variant="accent">Save</Button>
+<Button
+	wrapperClasses="mt-4 mb-16 max-w-fit"
+	on:click={onSave}
+	variant="accent"
+	startIcon={{ icon: Save }}>Save data table settings</Button
+>
 
 <ConfirmationModal {...confirmationModal.props} />
 <DBManagerDrawer bind:this={dbManagerDrawer} />

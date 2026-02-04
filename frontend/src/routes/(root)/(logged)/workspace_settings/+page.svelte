@@ -692,7 +692,8 @@
 					id: 'deploy_to',
 					label: 'Deployment UI',
 					aiId: 'workspace-settings-deploy-to',
-					aiDescription: 'Deployment UI workspace settings'
+					aiDescription: 'Deployment UI workspace settings',
+					isEE: true
 				},
 				{
 					id: 'slack',
@@ -717,7 +718,8 @@
 					id: 'error_handler',
 					label: 'Error Handler',
 					aiId: 'workspace-settings-error-handler',
-					aiDescription: 'Error handler workspace settings'
+					aiDescription: 'Error handler workspace settings',
+					isEE: true
 				},
 				{
 					id: 'ai',
@@ -751,7 +753,8 @@
 					id: 'default_app',
 					label: 'Default App',
 					aiId: 'workspace-settings-default-app',
-					aiDescription: 'Default app workspace settings'
+					aiDescription: 'Default app workspace settings',
+					isEE: true
 				},
 				{
 					id: 'encryption',
@@ -814,7 +817,7 @@
 			</div>
 
 			<!-- Main Content -->
-			<div class="flex-1 min-w-0">
+			<div class="flex-1 min-w-0 h-fit pb-10">
 				{#if !loadedSettings}
 					<Skeleton layout={[1, [40]]} />
 				{:else if tab == 'users'}
@@ -1110,19 +1113,20 @@
 						description="Connect your Windmill workspace to an external service to sync or get notified about any change."
 						link="https://www.windmill.dev/docs/core_concepts/webhooks#workspace-webhook"
 					/>
-					<div class="flex flex-col gap-4">
-						<div class="flex flex-col gap-1">
-							<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
-							<div class="text-primary text-xs">
-								This URL will be POSTed to with a JSON body depending on the type of event. The type
-								is indicated by the type field. The other fields are dependent on the type.
-							</div>
+
+					<div class="flex flex-col gap-1">
+						<div class="text-xs font-semibold text-emphasis"> URL to send requests to</div>
+						<div class="text-secondary text-xs">
+							This URL will be POSTed to with a JSON body depending on the type of event. The type
+							is indicated by the type field. The other fields are dependent on the type.
 						</div>
-					</div>
-					<div class="flex gap-2">
-						<input class="justify-start" type="text" bind:value={webhook} />
-						<Button color="blue" btnClasses="justify-end" on:click={editWebhook}>Set webhook</Button
-						>
+
+						<div class="flex gap-2">
+							<input class="justify-start" type="text" bind:value={webhook} />
+							<Button variant="accent" btnClasses="justify-end" on:click={editWebhook}
+								>Set webhook</Button
+							>
+						</div>
 					</div>
 				{:else if tab == 'error_handler'}
 					<SettingsPageHeader
@@ -1228,8 +1232,7 @@
 										}}
 									/>
 									<Button
-										variant="border"
-										size="xs"
+										variant="default"
 										href={`${base}/scripts/add?lang=bun#` +
 											encodeState({
 												path: 'f/success_handler',
@@ -1276,11 +1279,12 @@ export async function main(
 							<div class="flex flex-row gap-2 items-center">
 								<Button
 									disabled={!$enterpriseLicense}
-									size="sm"
 									on:click={editSuccessHandler}
 									startIcon={{ icon: Save }}
+									variant="accent"
+									unifiedSize="md"
 								>
-									Save
+									Save success handler
 								</Button>
 								{#if successHandlerScriptPath}
 									<Button
@@ -1328,9 +1332,8 @@ export async function main(
 							<Button
 								disabled={!$enterpriseLicense ||
 									criticalAlertUIMuted == initialCriticalAlertUIMuted}
-								size="sm"
 								on:click={editCriticalAlertMuteSetting}
-								variant="default"
+								variant="accent"
 								startIcon={{ icon: Save }}
 								btnClasses="w-fit"
 							>
@@ -1392,11 +1395,12 @@ export async function main(
 						<Alert type="warning" title="Windmill EE only feature">
 							Default app can only be set on Windmill Enterprise Edition.
 						</Alert>
+					{:else}
+						<Alert type="info" title="Default app must be accessible to all operators">
+							Make sure the default app is shared with all the operators of this workspace before
+							turning this feature on.
+						</Alert>
 					{/if}
-					<Alert type="info" title="Default app must be accessible to all operators">
-						Make sure the default app is shared with all the operators of this workspace before
-						turning this feature on.
-					</Alert>
 					<div class="mt-5 flex gap-1">
 						{#key workspaceDefaultAppPath}
 							<ScriptPicker
