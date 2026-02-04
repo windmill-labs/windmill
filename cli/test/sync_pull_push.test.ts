@@ -908,6 +908,7 @@ Deno.test("readDirRecursive reads all files correctly", async () => {
 
 import { yamlParseFile } from "../deps.ts";
 import { withTestBackend } from "./test_backend.ts";
+import { shouldSkipOnCI } from "./cargo_backend.ts";
 
 Deno.test({
   name: "Integration: Pull creates correct local structure",
@@ -1958,6 +1959,7 @@ excludes: []
 
 Deno.test({
   name: "Integration: Script ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
@@ -2052,6 +2054,7 @@ excludes: []
 
 Deno.test({
   name: "Integration: Flow ws_error_handler_muted is persisted through push/pull",
+  ignore: shouldSkipOnCI(), // Requires EE features
   sanitizeResources: false,
   sanitizeOps: false,
   async fn() {
