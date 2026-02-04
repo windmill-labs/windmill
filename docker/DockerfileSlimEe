@@ -34,7 +34,7 @@ RUN mkdir -p /tmp/windmill/cache && \
     rm -rf /tmp/build_cache && \
     mkdir -p -m 777 /tmp/windmill/cache/uv
 
-COPY --from=oven/bun:1.2.23 /usr/local/bin/bun /usr/bin/bun
+COPY --from=oven/bun:1.3.8 /usr/local/bin/bun /usr/bin/bun
 
 # add the docker client to call docker from a worker if enabled
 COPY --from=docker:dind /usr/local/bin/docker /usr/local/bin/
