@@ -1921,6 +1921,24 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every 5 minutes (10 iterations * 30s = 5 minutes)
+    // Cleanup old notify events (older than 10 minutes)
+    let cleanup_notify_events_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                match windmill_common::notify_events::cleanup_old_events(db, 10).await {
+                    Ok(count) if count > 0 => {
+                        tracing::debug!("Cleaned up {} old notify events", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up notify events: {:?}", e);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1940,6 +1958,7 @@ pub async fn monitor_db(
         cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
         native_triggers_sync_f,
+        cleanup_notify_events_f,
     );
 }
 
