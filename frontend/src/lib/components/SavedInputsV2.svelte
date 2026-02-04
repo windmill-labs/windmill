@@ -156,9 +156,7 @@
 							{/snippet}
 						</Popover>
 						<Button
-							size="xs2"
-							color="light"
-							btnClasses="!text-primary"
+							unifiedSize="sm"
 							endIcon={{ icon: ExternalLink }}
 							on:click={() => {
 								window.open(`/runs/${runnableId}`, '_blank')

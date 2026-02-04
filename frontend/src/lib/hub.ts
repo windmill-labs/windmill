@@ -1,7 +1,7 @@
 import type { Schema } from './common'
 import { AppService, FlowService, type Flow, type Script } from './gen'
 import { encodeState } from './utils'
-import rawHubPaths from './hubPaths.json?raw'
+import hubPathsData from './hubPaths.json'
 import {
 	replacePlaceholderForSignatureScriptTemplate,
 	SIGNATURE_TEMPLATE_FLOW_HUB_ID,
@@ -101,4 +101,4 @@ type HubPaths = {
 	appReport: string
 }
 
-export const hubPaths = JSON.parse(rawHubPaths) as HubPaths
+export const hubPaths = hubPathsData as HubPaths
