@@ -13,7 +13,8 @@
             "kind": {
               "Enum": [
                 "script",
-                "flow"
+                "flow",
+                "job"
               ]
             }
           }
