@@ -57,6 +57,7 @@
 	)
 
 	export function openDrawer(nInput: DbInput) {
+		console.log('Opening DB Manager with input:', nInput)
 		input = nInput
 		if (isDatatableInput) {
 			datatables.refetch()
@@ -73,6 +74,8 @@
 		input = undefined
 		selectedDatatable = undefined
 		dbManagerContent?.clearReplResult()
+		if (window.location.hash.startsWith('#dbmanager:'))
+			history.replaceState('', document.title, window.location.href.replace(/#dbmanager:.*$/, ''))
 	}
 
 	let windowWidth = $state(window.innerWidth)
