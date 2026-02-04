@@ -487,6 +487,73 @@ mod parity_tests {
     }
 
     #[tokio::test]
+    async fn parity_date_serialization() -> anyhow::Result<()> {
+        let env = HashMap::new();
+
+        // Test direct Date object serialization (the key issue that was fixed)
+        // Both engines should serialize Date to ISO string via toJSON
+        test_parity("new Date('2024-01-15T12:30:00.000Z')", env.clone(), None).await?;
+
+        // Date within an object
+        test_parity(
+            "({ date: new Date('2024-01-15T00:00:00.000Z'), name: 'test' })",
+            env.clone(),
+            None,
+        )
+        .await?;
+
+        // Date within an array
+        test_parity(
+            "[new Date('2024-01-15T00:00:00.000Z'), new Date('2024-01-16T00:00:00.000Z')]",
+            env.clone(),
+            None,
+        )
+        .await?;
+
+        // Deeply nested Date
+        test_parity(
+            "({ level1: { level2: { date: new Date('2024-01-15T00:00:00.000Z') } } })",
+            env.clone(),
+            None,
+        )
+        .await?;
+
+        // Custom object with toJSON (arrow function style)
+        test_parity(
+            "({ value: 42, toJSON: () => ({ converted: 84 }) })",
+            env.clone(),
+            None,
+        )
+        .await?;
+
+        // toJSON that returns a Date (should be further serialized)
+        test_parity(
+            "({ toJSON: () => new Date('2024-01-15T00:00:00.000Z') })",
+            env.clone(),
+            None,
+        )
+        .await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn parity_special_object_serialization() -> anyhow::Result<()> {
+        let env = HashMap::new();
+
+        // RegExp serialization (both should return {})
+        test_parity("/test/gi", env.clone(), None).await?;
+
+        // Map serialization (both should return {})
+        test_parity("new Map([['key', 'value']])", env.clone(), None).await?;
+
+        // Set serialization (both should return {})
+        test_parity("new Set([1, 2, 3])", env.clone(), None).await?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn parity_array_advanced() -> anyhow::Result<()> {
         let mut env = HashMap::new();
         env.insert(
