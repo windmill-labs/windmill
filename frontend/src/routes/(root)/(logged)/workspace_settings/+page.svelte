@@ -34,26 +34,7 @@
 	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import { clone, emptyString, encodeState } from '$lib/utils'
-	import {
-		RotateCw,
-		Save,
-		Slack,
-		Users,
-		GitBranch,
-		Rocket,
-		MessageSquare,
-		Crown,
-		Webhook,
-		AlertTriangle,
-		Bot,
-		Database,
-		HardDrive,
-		Smartphone,
-		Key,
-		Settings,
-		Package,
-		Zap
-	} from 'lucide-svelte'
+	import { RotateCw, Save, Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -67,7 +48,6 @@
 		type S3ResourceSettings
 	} from '$lib/workspace_settings'
 	import { base } from '$lib/base'
-	import Description from '$lib/components/Description.svelte'
 	import ConnectionSection from '$lib/components/ConnectionSection.svelte'
 	import AISettings from '$lib/components/workspaceSettings/AISettings.svelte'
 	import StorageSettings from '$lib/components/workspaceSettings/StorageSettings.svelte'
@@ -694,7 +674,6 @@
 				{
 					id: 'users',
 					label: 'Users',
-					icon: Users,
 					aiId: 'workspace-settings-users',
 					aiDescription: 'Users workspace settings'
 				}
@@ -706,21 +685,18 @@
 				{
 					id: 'git_sync',
 					label: 'Git Sync',
-					icon: GitBranch,
 					aiId: 'workspace-settings-git-sync',
 					aiDescription: 'Git sync workspace settings'
 				},
 				{
 					id: 'deploy_to',
 					label: 'Deployment UI',
-					icon: Rocket,
 					aiId: 'workspace-settings-deploy-to',
 					aiDescription: 'Deployment UI workspace settings'
 				},
 				{
 					id: 'slack',
 					label: 'Slack / Teams',
-					icon: MessageSquare,
 					aiId: 'workspace-settings-slack',
 					aiDescription: 'Slack / Teams workspace settings',
 					showIf: WORKSPACE_SHOW_SLACK_CMD
@@ -728,7 +704,6 @@
 				{
 					id: 'webhook',
 					label: 'Webhook',
-					icon: Webhook,
 					aiId: 'workspace-settings-webhook',
 					aiDescription: 'Webhook workspace settings',
 					showIf: WORKSPACE_SHOW_WEBHOOK_CLI_SYNC
@@ -741,14 +716,12 @@
 				{
 					id: 'error_handler',
 					label: 'Error Handler',
-					icon: AlertTriangle,
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error handler workspace settings'
 				},
 				{
 					id: 'ai',
 					label: 'Windmill AI',
-					icon: Bot,
 					aiId: 'workspace-settings-ai',
 					aiDescription: 'Windmill AI workspace settings'
 				}
@@ -760,14 +733,12 @@
 				{
 					id: 'windmill_data_tables',
 					label: 'Data Tables',
-					icon: Database,
 					aiId: 'workspace-settings-windmill-data-tables',
 					aiDescription: 'Data tables workspace settings'
 				},
 				{
 					id: 'windmill_lfs',
 					label: 'Object Storage (S3)',
-					icon: HardDrive,
 					aiId: 'workspace-settings-windmill-lfs',
 					aiDescription: 'Object Storage (S3) workspace settings'
 				}
@@ -779,42 +750,36 @@
 				{
 					id: 'default_app',
 					label: 'Default App',
-					icon: Smartphone,
 					aiId: 'workspace-settings-default-app',
 					aiDescription: 'Default app workspace settings'
 				},
 				{
 					id: 'encryption',
 					label: 'Encryption',
-					icon: Key,
 					aiId: 'workspace-settings-encryption',
 					aiDescription: 'Encryption workspace settings'
 				},
 				{
 					id: 'general',
 					label: 'General',
-					icon: Settings,
 					aiId: 'workspace-settings-general',
 					aiDescription: 'General workspace settings'
 				},
 				{
 					id: 'dependencies',
 					label: 'Dependencies',
-					icon: Package,
 					aiId: 'workspace-settings-dependencies',
 					aiDescription: 'Workspace dependencies settings'
 				},
 				{
 					id: 'native_triggers',
 					label: 'Native Triggers (Beta)',
-					icon: Zap,
 					aiId: 'workspace-settings-integrations',
 					aiDescription: 'Workspace integrations for native triggers'
 				},
 				{
 					id: 'premium',
 					label: 'Premium Plans',
-					icon: Crown,
 					aiId: 'workspace-settings-premium',
 					aiDescription: 'Premium plans workspace settings',
 					showIf: isCloudHosted()
@@ -1172,74 +1137,72 @@
 						</Alert>
 					{/if}
 					<div class="flex flex-col gap-6 py-4">
-							<ErrorOrRecoveryHandler
-								isEditable={true}
-								errorOrRecovery="error"
-								showScriptHelpText={true}
-								bind:handlerSelected={errorHandlerSelected}
-								bind:handlerPath={errorHandlerScriptPath}
-								customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
-								bind:customHandlerKind={errorHandlerItemKind}
-								bind:handlerExtraArgs={errorHandlerExtraArgs}
-							>
-								{#snippet customTabTooltip()}
-									<Tooltip>
-										<div class="flex gap-20 items-start mt-3">
-											<div class="text-sm">
-												The following args will be passed to the error handler:
-												<ul class="mt-1 ml-2">
-													<li><b>path</b>: The path of the script or flow that errored.</li>
-													<li>
-														<b>email</b>: The email of the user who ran the script or flow that
-														errored.
-													</li>
-													<li><b>error</b>: The error details.</li>
-													<li><b>job_id</b>: The job id.</li>
-													<li><b>is_flow</b>: Whether the error comes from a flow.</li>
-													<li
-														><b>workspace_id</b>: The workspace id of the failed script or flow.</li
-													>
-												</ul>
-												<br />
-												The error handler will be executed by the automatically created group g/error_handler.
-												If your error handler requires variables or resources, you need to add them to
-												the group.
-											</div>
+						<ErrorOrRecoveryHandler
+							isEditable={true}
+							errorOrRecovery="error"
+							showScriptHelpText={true}
+							bind:handlerSelected={errorHandlerSelected}
+							bind:handlerPath={errorHandlerScriptPath}
+							customScriptTemplate="/scripts/add?hub=hub%2F9083%2Fwindmill%2Fworkspace_error_handler_template"
+							bind:customHandlerKind={errorHandlerItemKind}
+							bind:handlerExtraArgs={errorHandlerExtraArgs}
+						>
+							{#snippet customTabTooltip()}
+								<Tooltip>
+									<div class="flex gap-20 items-start mt-3">
+										<div class="text-sm">
+											The following args will be passed to the error handler:
+											<ul class="mt-1 ml-2">
+												<li><b>path</b>: The path of the script or flow that errored.</li>
+												<li>
+													<b>email</b>: The email of the user who ran the script or flow that
+													errored.
+												</li>
+												<li><b>error</b>: The error details.</li>
+												<li><b>job_id</b>: The job id.</li>
+												<li><b>is_flow</b>: Whether the error comes from a flow.</li>
+												<li><b>workspace_id</b>: The workspace id of the failed script or flow.</li>
+											</ul>
+											<br />
+											The error handler will be executed by the automatically created group g/error_handler.
+											If your error handler requires variables or resources, you need to add them to
+											the group.
 										</div>
-									</Tooltip>
-								{/snippet}
-							</ErrorOrRecoveryHandler>
+									</div>
+								</Tooltip>
+							{/snippet}
+						</ErrorOrRecoveryHandler>
 
-							<div class="flex flex-col gap-6 items-start">
-								<Toggle
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
-									bind:checked={errorHandlerMutedOnCancel}
-									options={{ right: 'Do not run error handler for canceled jobs' }}
-								/>
-								<Toggle
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
-									bind:checked={errorHandlerMutedOnUserPath}
-									options={{ right: 'Do not run error handler for u/ scripts and flows' }}
-								/>
-								<Button
-									disabled={!$enterpriseLicense ||
-										((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
-											!emptyString(errorHandlerScriptPath) &&
-											emptyString(errorHandlerExtraArgs['channel']))}
-									unifiedSize="md"
-									on:click={editErrorHandler}
-									startIcon={{ icon: Save }}
-									variant="accent"
-								>
-									Save error handler
-								</Button>
-							</div>
+						<div class="flex flex-col gap-6 items-start">
+							<Toggle
+								disabled={!$enterpriseLicense ||
+									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+										!emptyString(errorHandlerScriptPath) &&
+										emptyString(errorHandlerExtraArgs['channel']))}
+								bind:checked={errorHandlerMutedOnCancel}
+								options={{ right: 'Do not run error handler for canceled jobs' }}
+							/>
+							<Toggle
+								disabled={!$enterpriseLicense ||
+									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+										!emptyString(errorHandlerScriptPath) &&
+										emptyString(errorHandlerExtraArgs['channel']))}
+								bind:checked={errorHandlerMutedOnUserPath}
+								options={{ right: 'Do not run error handler for u/ scripts and flows' }}
+							/>
+							<Button
+								disabled={!$enterpriseLicense ||
+									((errorHandlerSelected === 'slack' || errorHandlerSelected === 'teams') &&
+										!emptyString(errorHandlerScriptPath) &&
+										emptyString(errorHandlerExtraArgs['channel']))}
+								unifiedSize="md"
+								on:click={editErrorHandler}
+								startIcon={{ icon: Save }}
+								variant="accent"
+							>
+								Save error handler
+							</Button>
+						</div>
 
 						<hr class="border-t" />
 						<Section
