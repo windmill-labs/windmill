@@ -25,7 +25,7 @@
 	</div>
 	{#if description}
 		<Description {link}>
-			{description}
+			{@html description}
 		</Description>
 	{/if}
 </div>

@@ -237,7 +237,7 @@
 
 	// Derived state for checking unsaved changes in success handler
 	let hasSuccessHandlerChanges = $derived.by(() => {
-		if (tab !== 'error_handler') return false
+		if (tab !== 'success_handler') return false
 
 		// Check only success handler related fields
 		const savedValue = {
@@ -300,6 +300,7 @@
 			| 'webhook'
 			| 'deploy_to'
 			| 'error_handler'
+			| 'success_handler'
 			| 'critical_alerts'
 			| 'ai'
 			| 'windmill_data_tables'
@@ -957,8 +958,7 @@
 			errorHandlerItemKind: initialErrorHandlerItemKind,
 			errorHandlerExtraArgs: initialErrorHandlerExtraArgs,
 			errorHandlerMutedOnCancel: initialErrorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath,
-			successHandlerScriptPath: initialSuccessHandlerScriptPath
+			errorHandlerMutedOnUserPath: initialErrorHandlerMutedOnUserPath
 		}
 
 		const modifiedValue = {
@@ -967,8 +967,7 @@
 			errorHandlerItemKind: errorHandlerItemKind,
 			errorHandlerExtraArgs: errorHandlerExtraArgs,
 			errorHandlerMutedOnCancel: errorHandlerMutedOnCancel,
-			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath,
-			successHandlerScriptPath: successHandlerScriptPath
+			errorHandlerMutedOnUserPath: errorHandlerMutedOnUserPath
 		}
 
 		return { savedValue, modifiedValue }
@@ -982,7 +981,6 @@
 		errorHandlerExtraArgs = clone(initialErrorHandlerExtraArgs)
 		errorHandlerMutedOnCancel = initialErrorHandlerMutedOnCancel
 		errorHandlerMutedOnUserPath = initialErrorHandlerMutedOnUserPath
-		successHandlerScriptPath = initialSuccessHandlerScriptPath
 	}
 
 	// Combined function to check for unsaved changes across all tabs
@@ -1035,6 +1033,14 @@
 			}
 		}
 
+		// Check success handler settings
+		if (tab === 'success_handler' && hasSuccessHandlerChanges) {
+			return {
+				savedValue: { successHandlerScriptPath: initialSuccessHandlerScriptPath },
+				modifiedValue: { successHandlerScriptPath: successHandlerScriptPath }
+			}
+		}
+
 		return {
 			savedValue: {},
 			modifiedValue: {}
@@ -1057,6 +1063,8 @@
 			discardErrorHandlerSettingsChanges()
 		} else if (tab === 'critical_alerts') {
 			criticalAlertUIMuted = initialCriticalAlertUIMuted
+		} else if (tab === 'success_handler') {
+			successHandlerScriptPath = initialSuccessHandlerScriptPath
 		}
 	}
 
@@ -1126,6 +1134,13 @@
 					label: 'Error Handler',
 					aiId: 'workspace-settings-error-handler',
 					aiDescription: 'Error handler workspace settings',
+					isEE: true
+				},
+				{
+					id: 'success_handler',
+					label: 'Success Handler',
+					aiId: 'workspace-settings-success-handler',
+					aiDescription: 'Success handler workspace settings',
 					isEE: true
 				},
 				{
@@ -1623,38 +1638,39 @@
 								Save error handler
 							</Button>
 						</div>
-
-						<hr class="border-t" />
-						<Section
-							label="Workspace Success Handler"
-							description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
-							class="space-y-6"
-						>
-							{#if !$enterpriseLicense}
-								<Alert type="warning" title="Workspace success handler is an EE feature">
-									Workspace success handler is a Windmill Enterprise Edition feature that allows you
-									to run a script whenever any job in the workspace completes successfully.
-								</Alert>
-							{/if}
-							<div class="flex flex-col gap-4">
-								<div class="flex flex-row gap-2 items-center">
-									<ScriptPicker
-										disabled={!$enterpriseLicense}
-										initialPath={successHandlerScriptPath}
-										allowRefresh
-										itemKind="script"
-										on:select={(ev) => {
-											successHandlerScriptPath = ev?.detail?.path
-										}}
-									/>
-									<Button
-										variant="default"
-										href={`${base}/scripts/add?lang=bun#` +
-											encodeState({
-												path: 'f/success_handler',
-												summary: 'Workspace Success Handler',
-												description: 'Called when any job in the workspace completes successfully',
-												content: `//native
+					</div>
+				{:else if tab == 'success_handler'}
+					<SettingsPageHeader
+						title="Workspace Success Handler"
+						description="Configure a script that automatically executes when any script or flow in the workspace completes successfully. The handler receives: <b>path</b>, <b>email</b>, <b>result</b>, <b>job_id</b>, <b>is_flow</b>, <b>workspace_id</b>, and <b>started_at</b>. The handler runs as the <b>g/success_handler</b> group. <i>Note: changes may take up to 60 seconds to propagate due to caching.</i>"
+						link="https://www.windmill.dev/docs/core_concepts/success_handling"
+					/>
+					<div class="flex flex-col gap-6 py-4">
+						{#if !$enterpriseLicense}
+							<Alert type="warning" title="Workspace success handler is an EE feature">
+								Workspace success handler is a Windmill Enterprise Edition feature that allows you
+								to run a script whenever any job in the workspace completes successfully.
+							</Alert>
+						{/if}
+						<div class="flex flex-col gap-4">
+							<div class="flex flex-row gap-2 items-center">
+								<ScriptPicker
+									disabled={!$enterpriseLicense}
+									initialPath={successHandlerScriptPath}
+									allowRefresh
+									itemKind="script"
+									on:select={(ev) => {
+										successHandlerScriptPath = ev?.detail?.path
+									}}
+								/>
+								<Button
+									variant="default"
+									href={`${base}/scripts/add?lang=bun#` +
+										encodeState({
+											path: 'f/success_handler',
+											summary: 'Workspace Success Handler',
+											description: 'Called when any job in the workspace completes successfully',
+											content: `//native
 
 // Workspace Success Handler
 // This script is called whenever a job completes successfully in this workspace.
@@ -1682,44 +1698,42 @@ export async function main(
   return { handled: true }
 }
 `,
-												language: 'bun',
-												kind: 'script'
-											})}
-										target="_blank"
-									>
-										Create from template
-									</Button>
-								</div>
-							</div>
-
-							<div class="flex flex-row gap-2 items-center">
-								<Button
-									disabled={!$enterpriseLicense || !hasSuccessHandlerChanges}
-									on:click={editSuccessHandler}
-									startIcon={{ icon: Save }}
-									variant="accent"
-									unifiedSize="md"
+											language: 'bun',
+											kind: 'script'
+										})}
+									target="_blank"
 								>
-									Save success handler
+									Create from template
 								</Button>
-								{#if successHandlerScriptPath}
-									<Button
-										disabled={!$enterpriseLicense}
-										variant="default"
-										destructive
-										unifiedSize="md"
-										on:click={() => {
-											successHandlerScriptPath = undefined
-											editSuccessHandler()
-										}}
-										startIcon={{ icon: X }}
-									>
-										Remove
-									</Button>
-								{/if}
 							</div>
-						</Section>
+						</div>
 
+						<div class="flex flex-row gap-2 items-center">
+							<Button
+								disabled={!$enterpriseLicense || !hasSuccessHandlerChanges}
+								on:click={editSuccessHandler}
+								startIcon={{ icon: Save }}
+								variant="accent"
+								unifiedSize="md"
+							>
+								Save success handler
+							</Button>
+							{#if successHandlerScriptPath}
+								<Button
+									disabled={!$enterpriseLicense}
+									variant="default"
+									destructive
+									unifiedSize="md"
+									on:click={() => {
+										successHandlerScriptPath = undefined
+										editSuccessHandler()
+									}}
+									startIcon={{ icon: X }}
+								>
+									Remove
+								</Button>
+							{/if}
+						</div>
 					</div>
 				{:else if tab == 'critical_alerts'}
 					<SettingsPageHeader
