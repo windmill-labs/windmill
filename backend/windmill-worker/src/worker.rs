@@ -486,7 +486,8 @@ lazy_static::lazy_static! {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!(
                         "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        nsjail should be included in all standard windmill images. \
+                        Check that the nsjail binary is installed and working correctly.",
                         stderr.trim()
                     );
                     None
@@ -495,7 +496,8 @@ lazy_static::lazy_static! {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         tracing::warn!(
                             "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail should be included in all standard windmill images. \
+                            Check that the nsjail binary is installed at the expected path.",
                             nsjail_path
                         );
                     } else {

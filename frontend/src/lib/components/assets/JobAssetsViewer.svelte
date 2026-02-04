@@ -1,10 +1,9 @@
 <script lang="ts">
 	import { ResourceService, type Job } from '$lib/gen'
 	import { inferAssets } from '$lib/infer'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 	import { pruneNullishArray, uniqueBy } from '$lib/utils'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import S3FilePicker from '../S3FilePicker.svelte'
 	import AssetButtons from './AssetButtons.svelte'
@@ -65,7 +64,7 @@
 	})
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 </script>
 
@@ -99,5 +98,4 @@
 {/if}
 
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />

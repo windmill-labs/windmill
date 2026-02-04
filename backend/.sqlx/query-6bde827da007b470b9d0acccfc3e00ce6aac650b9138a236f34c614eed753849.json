@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO flow (\n        workspace_id, path, summary, description,\n        dependency_job, lock_error_logs, draft_only, tag,\n        dedicated_worker, visible_to_runner_only, on_behalf_of_email,\n        ws_error_handler_muted,\n        value, schema, edited_by, edited_at\n    ) VALUES (\n        $1, $2, $3, $4,\n        NULL, '', $5, $6,\n        $7, $8, $9,\n        $10,\n        $11, $12::text::json, $13, now()\n    )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Varchar",
+        "Text",
+        "Text",
+        "Bool",
+        "Varchar",
+        "Bool",
+        "Bool",
+        "Text",
+        "Bool",
+        "Jsonb",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6bde827da007b470b9d0acccfc3e00ce6aac650b9138a236f34c614eed753849"
+}
