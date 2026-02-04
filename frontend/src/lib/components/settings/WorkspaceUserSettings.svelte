@@ -404,21 +404,17 @@
 />
 
 <SettingsPageHeader
-	title="Members"
+	title="Members {(filteredUsers?.length ?? users?.length) != undefined
+		? `(${filteredUsers?.length ?? users?.length})`
+		: ''}"
 	description="Add members to your workspace and manage their roles. You can also auto-add users to join your workspace."
 	link="https://www.windmill.dev/docs/core_concepts/roles_and_permissions"
 />
 
-<Section
-	label="Members {(filteredUsers?.length ?? users?.length) != undefined
-		? `(${filteredUsers?.length ?? users?.length})`
-		: ''}"
-	tooltip="Manage users manually or enable SSO authentication."
-	documentationLink="https://www.windmill.dev/docs/core_concepts/authentification"
->
+<Section>
 	{#snippet action()}
-		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap">
-			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8" />
+		<div class="flex flex-row items-center gap-2 relative whitespace-nowrap w-full">
+			<input placeholder="Filter members" bind:value={userFilter} class="input !pl-8 !w-56" />
 			<Search class="absolute left-2" size={14} />
 
 			<Popover
