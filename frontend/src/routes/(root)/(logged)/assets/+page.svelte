@@ -213,7 +213,8 @@
 							items={[
 								{ label: 'S3 Object', value: 's3object' },
 								{ label: 'Ducklake', value: 'ducklake' },
-								{ label: 'Data Table', value: 'datatable' }
+								{ label: 'Data Table', value: 'datatable' },
+								{ label: 'Resource', value: 'resource' }
 							]}
 						/>
 					</Label>
