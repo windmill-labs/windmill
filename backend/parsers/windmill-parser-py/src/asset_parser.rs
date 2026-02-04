@@ -279,6 +279,8 @@ struct Arg(usize, &'static str);
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
 
     #[test]
@@ -363,7 +365,7 @@ def main(x: int):
                     kind: AssetKind::DataTable,
                     path: "dt/friends".to_string(),
                     access_type: Some(RW),
-                    columns: None,
+                    columns: Some(BTreeMap::from([("x".to_string(), AssetUsageAccessType::W)])),
                 },
             ])
         );
