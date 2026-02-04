@@ -18,8 +18,9 @@
 	import ModelTokenLimits from './ModelTokenLimits.svelte'
 	import { setCopilotInfo } from '$lib/aiStore'
 	import AIPromptsModal from '../settings/AIPromptsModal.svelte'
-	import { Save, Settings } from 'lucide-svelte'
+	import { Settings } from 'lucide-svelte'
 	import { slide } from 'svelte/transition'
+	import SettingsFooter from './SettingsFooter.svelte'
 
 	let {
 		aiProviders = $bindable(),
@@ -29,6 +30,7 @@
 		maxTokensPerModel = $bindable(),
 		usingOpenaiClientCredentialsOauth = $bindable(),
 		onSave,
+		onDiscard,
 		hasUnsavedChanges = false
 	}: {
 		aiProviders: Exclude<AIConfig['providers'], undefined>
@@ -38,6 +40,7 @@
 		maxTokensPerModel: Record<string, number>
 		usingOpenaiClientCredentialsOauth: boolean
 		onSave?: () => void
+		onDiscard?: () => void
 		hasUnsavedChanges?: boolean
 	} = $props()
 
@@ -176,23 +179,7 @@
 	title="Windmill AI"
 	description="Windmill AI integrates with your favorite AI providers and models."
 	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
->
-	{#snippet actions()}
-		<Button
-			variant="accent"
-			unifiedSize="md"
-			wrapperClasses="self-start"
-			disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
-				(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
-				(Object.keys(aiProviders).length > 0 && !defaultModel) ||
-				!hasUnsavedChanges}
-			onClick={editCopilotConfig}
-			startIcon={{ icon: Save }}
-		>
-			Save AI settings
-		</Button>
-	{/snippet}
-</SettingsPageHeader>
+/>
 
 <div class="flex flex-col gap-6 mt-4">
 	<Label label="AI Providers">
@@ -380,7 +367,7 @@
 		</div>
 	</Label>
 
-	<div class="py-6"></div>
+	<div class="pb-20"></div>
 </div>
 
 <AIPromptsModal
@@ -389,4 +376,14 @@
 	onReset={resetPrompts}
 	hasChanges={hasPromptsChanges}
 	isWorkspaceSettings={true}
+/>
+
+<SettingsFooter
+	{hasUnsavedChanges}
+	onSave={editCopilotConfig}
+	onDiscard={() => onDiscard?.()}
+	saveLabel="Save AI settings"
+	disabled={!Object.values(aiProviders).every((p) => p.resource_path) ||
+		(codeCompletionModel != undefined && codeCompletionModel.length === 0) ||
+		(Object.keys(aiProviders).length > 0 && !defaultModel)}
 />

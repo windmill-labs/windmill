@@ -1281,7 +1281,7 @@
 	])
 </script>
 
-<CenteredPage>
+<CenteredPage wrapperClasses="pb-0">
 	{#if $userStore?.is_admin || $superadmin}
 		<PageHeader title="Workspace settings: {$workspaceStore}"
 			>{#if $superadmin}
@@ -1306,7 +1306,7 @@
 			</div>
 
 			<!-- Main Content -->
-			<div class="flex-1 min-w-0 h-fit pb-10">
+			<div class="flex-1 min-w-0 h-fit">
 				{#if !loadedSettings}
 					<Skeleton layout={[1, [40]]} />
 				{:else if tab == 'users'}
@@ -1869,6 +1869,7 @@ export async function main(
 						bind:maxTokensPerModel
 						bind:usingOpenaiClientCredentialsOauth
 						hasUnsavedChanges={hasAiSettingsChanges}
+						onDiscard={discardAiSettingsChanges}
 						onSave={() => {
 							// Update initial state after successful save
 							initialAiProviders = clone(aiProviders)
