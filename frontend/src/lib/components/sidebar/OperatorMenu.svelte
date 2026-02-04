@@ -13,7 +13,7 @@
 		Calendar,
 		ServerCog,
 		GraduationCap,
-		Pyramid
+		Table2
 	} from 'lucide-svelte'
 	import { base } from '$lib/base'
 
@@ -206,7 +206,7 @@
 								{:else if favorite.kind == 'app' || favorite.kind == 'raw_app'}
 									<LayoutDashboard size={16} />
 								{:else if favorite.kind == 'asset'}
-									<Pyramid size={16} />
+									<Table2 size={16} />
 								{/if}
 							</span>
 							<span class="text-primary ml-2 grow min-w-0 text-xs truncate">
