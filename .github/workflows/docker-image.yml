@@ -135,6 +135,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
+            type=sha,enable=true,priority=100,prefix=,suffix=,format=short
 
       - name: Login to registry
         uses: docker/login-action@v3
@@ -388,12 +389,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: get git hash
+        if: github.event_name != 'pull_request'
+        id: git_hash
+        run: |
+          git_hash=$(git rev-parse --short "$GITHUB_SHA")
+          echo "GIT_HASH=${git_hash:0:7}" >> "$GITHUB_OUTPUT"
+
       - uses: shrink/actions-docker-extract@v3
         if: github.event_name != 'pull_request'
         id: extract
         with:
           image: |-
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ env.DEV_SHA }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-ee:${{ steps.git_hash.outputs.GIT_HASH }}
           path: "/static_frontend/."
 
       - uses: reggionick/s3-deploy@v4
