@@ -67,10 +67,9 @@
 	import { SettingService, WorkspaceService } from '$lib/gen'
 	import type { GetSettingsResponse } from '$lib/gen'
 
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import ExploreAssetButton from '../ExploreAssetButton.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import ConfirmationModal from '../common/confirmationModal/ConfirmationModal.svelte'
 	import { createAsyncConfirmationModal } from '../common/confirmationModal/asyncConfirmationModal.svelte'
@@ -179,7 +178,7 @@
 			'Where the data is actually stored, in parquet format. You need to configure a workspace storage first'
 	}
 
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let confirmationModal = createAsyncConfirmationModal()
 </script>
 
@@ -394,6 +393,5 @@
 >
 	Save ducklake settings
 </Button>
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ConfirmationModal {...confirmationModal.props} />

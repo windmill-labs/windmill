@@ -15018,7 +15018,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app]
+                  enum: [flow, app, script, raw_app, asset]
       responses:
         "200":
           description: star item
@@ -15041,7 +15041,7 @@ paths:
                   type: string
                 favorite_kind:
                   type: string
-                  enum: [flow, app, script, raw_app]
+                  enum: [flow, app, script, raw_app, asset]
       responses:
         "200":
           description: unstar item
@@ -16670,6 +16670,30 @@ paths:
                         $ref: "#/components/schemas/AssetKind"
                       access_type:
                         $ref: "#/components/schemas/AssetUsageAccessType"
+
+  /w/{workspace}/assets/list_favorites:
+    get:
+      summary: List all favorite assets for the authenticated user
+      operationId: listFavoriteAssets
+      tags:
+        - asset
+      parameters:
+        - $ref: "#/components/parameters/WorkspaceId"
+      responses:
+        "200":
+          description: list of favorite assets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [path]
+                  properties:
+                    path:
+                      type: string
+                      description: The asset path
+                    
 
   /mcp/w/{workspace}/list_tools:
     get:

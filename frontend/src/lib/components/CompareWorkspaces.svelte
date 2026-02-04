@@ -112,7 +112,6 @@
 			} else if (kind === 'folder') {
 				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
 				return folder.summary
-
 			}
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
@@ -122,7 +121,9 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app', 'folder'].includes(diff.kind))
+		const itemsToFetch = diffs.filter((diff) =>
+			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+		)
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -915,7 +916,6 @@
 							kind={diff.kind}
 							canFavorite={false}
 							workspaceId=""
-							starred={false}
 						>
 							{#snippet customSummary()}
 								{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}

@@ -31,6 +31,7 @@ pub enum FavoriteKind {
     App,
     #[allow(non_camel_case_types)]
     Raw_App,
+    Asset,
 }
 #[derive(Deserialize)]
 pub struct Favorite {

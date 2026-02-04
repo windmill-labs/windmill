@@ -164,6 +164,11 @@
 				})}
 				initialTableKey={input.specificTable}
 				initialSchemaKey={input.type == 'database' ? input.specificSchema : undefined}
+				asset={_input.type == 'ducklake'
+					? { kind: 'ducklake', path: _input.ducklake }
+					: _input.resourcePath.startsWith('datatable://')
+						? { kind: 'datatable', path: _input.resourcePath.substring('datatable://'.length) }
+						: undefined}
 				{dbType}
 				refresh={() => refresh()}
 				{dbSelector}

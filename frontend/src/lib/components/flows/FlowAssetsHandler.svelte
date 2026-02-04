@@ -7,7 +7,6 @@
 		let s = $state({
 			val: {
 				selectedAsset: undefined,
-				dbManagerDrawer: undefined,
 				s3FilePicker: undefined,
 				resourceEditorDrawer: undefined,
 				resourceMetadataCache: {},
@@ -45,7 +44,6 @@
 	import { deepEqual } from 'fast-equals'
 	import { workspaceStore } from '$lib/stores'
 	import S3FilePicker from '../S3FilePicker.svelte'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
 	import { watch } from 'runed'
 
@@ -176,6 +174,5 @@
 
 {#if flowGraphAssetsCtx}
 	<S3FilePicker bind:this={flowGraphAssetsCtx.val.s3FilePicker} readOnlyMode />
-	<DbManagerDrawer bind:this={flowGraphAssetsCtx.val.dbManagerDrawer} />
 	<ResourceEditorDrawer bind:this={flowGraphAssetsCtx.val.resourceEditorDrawer} />
 {/if}

@@ -1783,6 +1783,7 @@ import { darkModeName, lightModeName } from './assets/tokens/colorTokensConfig'
 import BarsStaggered from './components/icons/BarsStaggered.svelte'
 import { GitIcon } from './components/icons'
 import { Bot, Code, Package } from 'lucide-svelte'
+import type { DbInput } from './components/dbTypes'
 export function getCssColor(
 	color: CssColor,
 	{
@@ -1986,6 +1987,23 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
 	return result
 }
 
+export function parseDbInputFromAssetSyntax(path: string): DbInput | null {
+	const [p1, _p2] = path.split('://')
+	const [p2, _p3] = _p2.split('/')
+	const [p3, p4] = _p3.split('.')
+	return p1 === 'ducklake'
+		? { type: 'ducklake', ducklake: p2 || 'main', specificTable: p4 ?? p3 }
+		: p1 === 'datatable'
+			? {
+					type: 'database',
+					resourcePath: `datatable://${p2 || 'main'}`,
+					resourceType: 'postgresql',
+					specificTable: p4 ?? p3,
+					specificSchema: p4 ? p3 : undefined
+				}
+			: null
+}
+
 /**
  * Formats memory size in KB to human-readable format with appropriate units
  * @param sizeInKb - Memory size in kilobytes
@@ -1993,11 +2011,17 @@ export function pick<T extends object, K extends keyof T>(obj: T, keys: readonly
  * @returns Formatted string with appropriate unit (KB, MB, GB) or object with display and tooltip
  */
 export function formatMemory(sizeInKb: number): string
-export function formatMemory(sizeInKb: number, includeTooltip: true): { display: string; tooltip: string }
-export function formatMemory(sizeInKb: number, includeTooltip = false): string | { display: string; tooltip: string } {
-	const precise = `${sizeInKb.toLocaleString()}KB`;
+export function formatMemory(
+	sizeInKb: number,
+	includeTooltip: true
+): { display: string; tooltip: string }
+export function formatMemory(
+	sizeInKb: number,
+	includeTooltip = false
+): string | { display: string; tooltip: string } {
+	const precise = `${sizeInKb.toLocaleString()}KB`
 
-	let display: string;
+	let display: string
 	if (sizeInKb >= 1024 * 1024) {
 		// Convert to GB for values >= 1GB
 		display = `${(sizeInKb / (1024 * 1024)).toFixed(0)}GB`

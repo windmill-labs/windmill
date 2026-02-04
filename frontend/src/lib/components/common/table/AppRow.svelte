@@ -36,7 +36,6 @@
 	interface Props {
 		app: ListableApp & { has_draft?: boolean; draft_only?: boolean; canWrite: boolean }
 		marked: string | undefined
-		starred: boolean
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
 		deploymentDrawer: DeployWorkspaceDrawer
@@ -48,7 +47,6 @@
 	let {
 		app,
 		marked,
-		starred,
 		shareModal,
 		moveDrawer,
 		deploymentDrawer,
@@ -81,11 +79,6 @@
 	path={app.path}
 	summary={app.summary}
 	workspaceId={app.workspace_id ?? $workspaceStore ?? ''}
-	{starred}
-	onStarred={(newStarred) => {
-		starred = newStarred
-		dispatch('change')
-	}}
 	canFavorite={!app.draft_only}
 	{depth}
 >

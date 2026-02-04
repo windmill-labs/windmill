@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ResourceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import { onMount, untrack } from 'svelte'
 	import AppConnect from './AppConnectDrawer.svelte'
 	import ResourceEditorDrawer from './ResourceEditorDrawer.svelte'
@@ -9,7 +9,6 @@
 	import { Loader2, Pen, Plus, RotateCw } from 'lucide-svelte'
 	import { sendUserToast } from '$lib/toast'
 	import Select from './select/Select.svelte'
-	import DbManagerDrawer from './DBManagerDrawer.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import DropdownV2 from './DropdownV2.svelte'
 
@@ -156,7 +155,7 @@
 
 	let appConnect: AppConnect | undefined = $state()
 	let resourceEditor: ResourceEditorDrawer | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let hovering = $state(false)
 </script>
 
@@ -300,5 +299,3 @@
 		/>
 	{/if}
 </div>
-
-<DbManagerDrawer bind:this={dbManagerDrawer} />

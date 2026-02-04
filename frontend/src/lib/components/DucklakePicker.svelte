@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 
 	import Select from './select/Select.svelte'
-	import DbManagerDrawer from './DBManagerDrawer.svelte'
 	import ExploreAssetButton, { assetCanBeExplored } from './ExploreAssetButton.svelte'
 	import { usePromise } from '$lib/svelte5Utils.svelte'
 
@@ -32,7 +31,7 @@
 	let ducklakes = usePromise(() =>
 		WorkspaceService.listDucklakes({ workspace: $workspaceStore ?? '' })
 	)
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 </script>
 
 <div class={className}>
@@ -53,6 +52,4 @@
 			{dbManagerDrawer}
 		/>
 	{/if}
-
-	<DbManagerDrawer bind:this={dbManagerDrawer} />
 </div>
