@@ -122,46 +122,50 @@
 			documentationLink="https://www.windmill.dev/docs/core_concepts/assets"
 		/>
 
-		<Section label="All workspace assets">
-			<div class="mb-2 pb-8 flex gap-4">
+		<Section label="All workspace assets" class="mb-20">
+			<div class="flex gap-4">
 				{#snippet card(props: {
 					title: string
 					assetKind: AssetKind
 					data: ResourceReturn<string[]>
 					settingsHref: string
 				})}
-					<div
-						class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md px-6 py-5 flex-1"
-					>
-						<div class="divide-y">
-							<div class="flex justify-between">
-								<h3 class="text-sm font-bold mb-4">{props.title}</h3>
-								<a class="text-xs" href={props.settingsHref}>Settings </a>
-							</div>
-							{#each props.data.current ?? [] as item}
-								<div class="text-xs py-2.5 text-primary flex justify-between items-center">
-									{item}
-									<ExploreAssetButton
-										asset={{ kind: props.assetKind, path: item }}
-										{s3FilePicker}
-										{dbManagerDrawer}
-									/>
-								</div>
-							{/each}
+					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
+						<div class="flex justify-between px-6 pt-5 border-b">
+							<h3 class="text-sm font-bold mb-4">{props.title}</h3>
+							<a class="text-xs" href={props.settingsHref}>Settings </a>
 						</div>
+						{#if props.data.current?.length}
+							<div class="max-h-96 overflow-y-auto pb-3">
+								{#each props.data.current ?? [] as item}
+									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
+										{item}
+										<ExploreAssetButton
+											asset={{ kind: props.assetKind, path: item }}
+											{s3FilePicker}
+											{dbManagerDrawer}
+										/>
+									</div>
+								{/each}
+							</div>
+						{/if}
 						{#if props.data.loading}
-							<div class="flex items-center gap-2 mt-2 text-sm text-secondary">
+							<div class="flex items-center gap-2 mt-2 mb-5 px-6 text-sm text-secondary">
 								<Loader2 size={16} class="animate-spin" />
 							</div>
 						{:else if props.data.error}
-							<div class="text-sm text-red-600 mt-2">Error loading {props.title.toLowerCase()}</div>
+							<div class="text-sm text-red-600 mt-2 mb-5 px-6">
+								Error loading {props.title.toLowerCase()}
+							</div>
 						{:else if props.data.current?.length === 0}
-							<div class="text-sm text-secondary mt-2 mb-3">No {props.title.toLowerCase()} yet</div>
+							<div class="text-sm text-secondary mt-2 px-6 mb-3">
+								No {props.title.toLowerCase()} yet
+							</div>
 							<Button
 								endIcon={{ icon: SettingsIcon }}
 								href={props.settingsHref}
 								variant="accent"
-								wrapperClasses="w-fit"
+								wrapperClasses="w-fit px-6"
 							>
 								{props.title} settings
 							</Button>
