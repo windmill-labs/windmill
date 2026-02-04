@@ -181,7 +181,7 @@
 	link="https://www.windmill.dev/docs/core_concepts/ai_generation"
 />
 
-<div class="flex flex-col gap-6 mt-4">
+<div class="flex flex-col gap-6 mt-4 pb-8">
 	<Label label="AI Providers">
 		<div class="flex flex-col gap-4 p-4 rounded-md border bg-surface-tertiary">
 			{#each Object.entries(AI_PROVIDERS) as [provider, details]}
@@ -366,8 +366,6 @@
 			{/if}
 		</div>
 	</Label>
-
-	<div class="pb-20"></div>
 </div>
 
 <AIPromptsModal

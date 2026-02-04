@@ -41,7 +41,7 @@
 		orderedJsonStringify,
 		replaceFalseWithUndefined
 	} from '$lib/utils'
-	import { RotateCw, Save, Slack, X } from 'lucide-svelte'
+	import { Slack } from 'lucide-svelte'
 	import SidebarNavigation from '$lib/components/common/sidebar/SidebarNavigation.svelte'
 
 	import PremiumInfo from '$lib/components/settings/PremiumInfo.svelte'
@@ -331,6 +331,52 @@
 		})
 
 		return savedString !== currentString
+	})
+
+	// Derived state for checking unsaved changes in webhook settings
+	let hasWebhookChanges = $derived.by(() => {
+		if (tab !== 'webhook') return false
+
+		const changes = getWebhookSettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...changes.savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...changes.modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
+	})
+
+	// Derived state for checking unsaved changes in encryption key settings
+	let hasEncryptionKeyChanges = $derived.by(() => {
+		if (tab !== 'encryption') return false
+
+		const changes = getEncryptionKeySettingsInitialAndModifiedValues()
+		if (!changes.savedValue || !changes.modifiedValue) return false
+
+		// Use the same comparison logic as UnsavedConfirmationModal
+		const draftOrDeployed = cleanValueProperties({
+			...changes.savedValue,
+			path: undefined
+		})
+		const current = cleanValueProperties({
+			...changes.modifiedValue,
+			path: undefined
+		})
+
+		return (
+			orderedJsonStringify(replaceFalseWithUndefined(draftOrDeployed)) !==
+			orderedJsonStringify(replaceFalseWithUndefined(current))
+		)
 	})
 
 	// Validation effects
@@ -1082,14 +1128,14 @@
 		}
 
 		// Check webhook settings
-		const webhookChanges = getWebhookSettingsInitialAndModifiedValues()
-		if (webhookChanges.savedValue && webhookChanges.modifiedValue) {
+		if (tab === 'webhook' && hasWebhookChanges) {
+			const webhookChanges = getWebhookSettingsInitialAndModifiedValues()
 			return webhookChanges
 		}
 
 		// Check encryption key settings
-		const encryptionKeyChanges = getEncryptionKeySettingsInitialAndModifiedValues()
-		if (encryptionKeyChanges.savedValue && encryptionKeyChanges.modifiedValue) {
+		if (tab === 'encryption' && hasEncryptionKeyChanges) {
+			const encryptionKeyChanges = getEncryptionKeySettingsInitialAndModifiedValues()
 			return encryptionKeyChanges
 		}
 
@@ -1625,26 +1671,26 @@
 						</div>
 
 						<div class="flex flex-col gap-2">
-							<div class="flex gap-2">
-								<TextInput
-									bind:value={webhook}
-									inputProps={{
-										placeholder: 'https://your-endpoint.com/webhook'
-									}}
-									error={webhookValidationError}
-								/>
-								<Button
-									variant="accent"
-									btnClasses="justify-end"
-									disabled={!!webhookValidationError}
-									on:click={editWebhook}>Set webhook</Button
-								>
-							</div>
+							<TextInput
+								bind:value={webhook}
+								inputProps={{
+									placeholder: 'https://your-endpoint.com/webhook'
+								}}
+								error={webhookValidationError}
+							/>
 							{#if webhookValidationError}
 								<div class="text-xs text-red-600">{webhookValidationError}</div>
 							{/if}
 						</div>
 					</div>
+
+					<SettingsFooter
+						hasUnsavedChanges={hasWebhookChanges}
+						onSave={editWebhook}
+						onDiscard={discardWebhookSettingsChanges}
+						saveLabel="Save webhook"
+						disabled={!!webhookValidationError}
+					/>
 				{:else if tab == 'error_handler'}
 					<SettingsPageHeader
 						title="Workspace Error Handler"
@@ -1747,6 +1793,7 @@
 									on:select={(ev) => {
 										successHandlerScriptPath = ev?.detail?.path
 									}}
+									clearable
 								/>
 								<Button
 									variant="default"
@@ -1792,34 +1839,17 @@ export async function main(
 								</Button>
 							</div>
 						</div>
-
-						<div class="flex flex-row gap-2 items-center">
-							<Button
-								disabled={!$enterpriseLicense || !hasSuccessHandlerChanges}
-								on:click={editSuccessHandler}
-								startIcon={{ icon: Save }}
-								variant="accent"
-								unifiedSize="md"
-							>
-								Save success handler
-							</Button>
-							{#if successHandlerScriptPath}
-								<Button
-									disabled={!$enterpriseLicense}
-									variant="default"
-									destructive
-									unifiedSize="md"
-									on:click={() => {
-										successHandlerScriptPath = undefined
-										editSuccessHandler()
-									}}
-									startIcon={{ icon: X }}
-								>
-									Remove
-								</Button>
-							{/if}
-						</div>
 					</div>
+
+					<SettingsFooter
+						hasUnsavedChanges={hasSuccessHandlerChanges}
+						onSave={editSuccessHandler}
+						onDiscard={() => {
+							successHandlerScriptPath = initialSuccessHandlerScriptPath
+						}}
+						saveLabel="Save success handler"
+						disabled={!$enterpriseLicense}
+					/>
 				{:else if tab == 'critical_alerts'}
 					<SettingsPageHeader
 						title="Workspace Critical Alerts"
@@ -1847,18 +1877,18 @@ export async function main(
 							>
 								Show critical alerts
 							</Button>
-
-							<Button
-								disabled={!$enterpriseLicense || !hasCriticalAlertMuteChanges}
-								on:click={editCriticalAlertMuteSetting}
-								variant="accent"
-								startIcon={{ icon: Save }}
-								btnClasses="w-fit"
-							>
-								Save mute setting
-							</Button>
 						</div>
 					</div>
+
+					<SettingsFooter
+						hasUnsavedChanges={hasCriticalAlertMuteChanges}
+						onSave={editCriticalAlertMuteSetting}
+						onDiscard={() => {
+							criticalAlertUIMuted = initialCriticalAlertUIMuted
+						}}
+						saveLabel="Save mute setting"
+						disabled={!$enterpriseLicense}
+					/>
 				{:else if tab == 'ai'}
 					<AISettings
 						bind:aiProviders
@@ -1948,21 +1978,7 @@ export async function main(
 						description="When updating the encryption key of a workspace, all secrets will be re-encrypted with the new key and the previous key will be replaced by the new one. If you're manually updating the key to match another workspace key from another Windmill instance, make sure not to use the 'SECRET_SALT' environment variable or, if you're using it, make sure it the salt matches across both instances."
 						link="https://www.windmill.dev/docs/core_concepts/workspace_secret_encryption"
 					/>
-					<div class="mt-5 flex gap-1 mb-10">
-						<Button
-							color="blue"
-							disabled={editedWorkspaceEncryptionKey === workspaceEncryptionKey ||
-								!!encryptionKeyValidationError ||
-								workspaceReencryptionInProgress}
-							startIcon={{
-								icon: workspaceReencryptionInProgress ? RotateCw : Save,
-								classes: workspaceReencryptionInProgress ? 'animate-spin' : ''
-							}}
-							on:click={() => {
-								setWorkspaceEncryptionKey()
-							}}>Save & Re-encrypt workspace</Button
-						>
-					</div>
+					<div class="mt-5 mb-6"></div>
 					<label for="workspace-encryption-key" class="text-xs font-semibold text-emphasis mt-1">
 						Workspace encryption key
 					</label>
@@ -1990,6 +2006,14 @@ export async function main(
 							</div>
 						{/if}
 					</div>
+
+					<SettingsFooter
+						hasUnsavedChanges={hasEncryptionKeyChanges}
+						onSave={setWorkspaceEncryptionKey}
+						onDiscard={discardEncryptionKeySettingsChanges}
+						saveLabel="Save & Re-encrypt workspace"
+						disabled={!!encryptionKeyValidationError || workspaceReencryptionInProgress}
+					/>
 				{/if}
 			</div>
 		</div>
