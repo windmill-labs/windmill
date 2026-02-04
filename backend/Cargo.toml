@@ -1,6 +1,6 @@
 [package]
 name = "windmill"
-version = "1.622.0"
+version = "1.624.0"
 authors.workspace = true
 edition.workspace = true
 
@@ -35,7 +35,7 @@ members = [
 exclude = ["./windmill-duckdb-ffi-internal"]
 
 [workspace.package]
-version = "1.622.0"
+version = "1.624.0"
 authors = ["Ruben Fiszel <ruben@windmill.dev>"]
 edition = "2021"
 
@@ -90,6 +90,7 @@ zip = ["windmill-api/zip"]
 static_frontend = ["windmill-api/static_frontend"]
 scoped_cache = ["windmill-common/scoped_cache"]
 test_job_debouncing = []
+private_registry_test = []
 # Languages
 python = ["windmill-worker/python", "windmill-api/python"]
 rust = ["windmill-worker/rust"]
@@ -182,6 +183,7 @@ axum.workspace = true
 serde.workspace = true
 windmill-api-client.workspace = true
 deno_core = { workspace = true, features = ["include_js_files_for_snapshotting", "unsafe_use_unprotected_platform"] }
+tempfile.workspace = true
 
 
 [workspace.dependencies]

@@ -845,6 +845,7 @@
 
 				<div class="flex justify-center pt-1 z-50 absolute -translate-x-[100%] right-2 top-2 gap-2">
 					<FlowPreviewButtons
+						{suspendStatus}
 						bind:this={flowPreviewButtons}
 						{onJobDone}
 						bind:localModuleStates

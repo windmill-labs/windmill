@@ -1059,20 +1059,36 @@ async fn delete_expired_jobs_batch(
 ) -> error::Result<usize> {
     let mut tx = db.begin().await?;
 
+    // Fetch active ROOT job IDs that started before the retention period. We only care about
+    // these because their child jobs could be old enough to be deletion candidates.
+    // Jobs started after the retention period can't have children old enough to delete.
+    let active_root_job_ids: Vec<Uuid> = sqlx::query_scalar!(
+        "SELECT q.id FROM v2_job_queue q
+         JOIN v2_job j ON j.id = q.id
+         WHERE j.parent_job IS NULL
+           AND j.created_at <= now() - ($1::bigint::text || ' s')::interval",
+        job_retention_secs
+    )
+    .fetch_all(&mut *tx)
+    .await?;
+
     // Use FOR UPDATE SKIP LOCKED to avoid contention between replicas
     // ORDER BY completed_at ensures we delete oldest jobs first
     let deleted_jobs: Vec<Uuid> = sqlx::query_scalar!(
         "DELETE FROM v2_job_completed
          WHERE id IN (
-             SELECT id FROM v2_job_completed
-             WHERE completed_at <= now() - ($1::bigint::text || ' s')::interval
-             ORDER BY completed_at ASC
+             SELECT jc.id FROM v2_job_completed jc
+             LEFT JOIN v2_job j ON j.id = jc.id
+             WHERE jc.completed_at <= now() - ($1::bigint::text || ' s')::interval
+               AND COALESCE(j.root_job, j.flow_innermost_root_job, jc.id) != ALL($3)
+             ORDER BY jc.completed_at ASC
              LIMIT $2
-             FOR UPDATE SKIP LOCKED
+             FOR UPDATE OF jc SKIP LOCKED
          )
          RETURNING id",
         job_retention_secs,
-        batch_size
+        batch_size,
+        &active_root_job_ids
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -1905,6 +1921,24 @@ pub async fn monitor_db(
         }
     };
 
+    // Run every 5 minutes (10 iterations * 30s = 5 minutes)
+    // Cleanup old notify events (older than 10 minutes)
+    let cleanup_notify_events_f = async {
+        if server_mode && iteration.is_some() && iteration.as_ref().unwrap().should_run(10) {
+            if let Some(db) = conn.as_sql() {
+                match windmill_common::notify_events::cleanup_old_events(db, 10).await {
+                    Ok(count) if count > 0 => {
+                        tracing::debug!("Cleaned up {} old notify events", count);
+                    }
+                    Err(e) => {
+                        tracing::error!("Error cleaning up notify events: {:?}", e);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    };
+
     join!(
         expired_items_f,
         zombie_jobs_f,
@@ -1924,6 +1958,7 @@ pub async fn monitor_db(
         cleanup_flow_iterator_data_f,
         cleanup_worker_group_stats_f,
         native_triggers_sync_f,
+        cleanup_notify_events_f,
     );
 }
 

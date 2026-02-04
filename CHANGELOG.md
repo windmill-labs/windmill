@@ -1,5 +1,44 @@
 # Changelog
 
+## [1.624.0](https://github.com/windmill-labs/windmill/compare/v1.623.1...v1.624.0) (2026-02-03)
+
+
+### Features
+
+* default to quickjs on ce for flow eval ([#7756](https://github.com/windmill-labs/windmill/issues/7756)) ([bdf9447](https://github.com/windmill-labs/windmill/commit/bdf9447e821c6d02198534198a5878849cac23e5))
+* runtime assets ([#7656](https://github.com/windmill-labs/windmill/issues/7656)) ([635a24f](https://github.com/windmill-labs/windmill/commit/635a24f82cae8e85b584efca115968872723889f))
+
+
+### Bug Fixes
+
+* **cli:** prevent branch-specific items from being marked for deletion on pull ([#7781](https://github.com/windmill-labs/windmill/issues/7781)) ([701eb4b](https://github.com/windmill-labs/windmill/commit/701eb4bae47a809e6da34c62b8e250ac6379db53))
+* Fix app multiselect not refreshing result when creating element ([#7766](https://github.com/windmill-labs/windmill/issues/7766)) ([3a719ce](https://github.com/windmill-labs/windmill/commit/3a719cea6b7b099f32054957eb04148c592786ad))
+* **frontend:** improve runs detail page ([#7694](https://github.com/windmill-labs/windmill/issues/7694)) ([3b5c165](https://github.com/windmill-labs/windmill/commit/3b5c1657c7d41178283d02017914543461565a3a))
+* Prettier and less invasive toasts ([#7758](https://github.com/windmill-labs/windmill/issues/7758)) ([df51f96](https://github.com/windmill-labs/windmill/commit/df51f9690520db80db2133e2e61002f399c0dfaf))
+* remove $schema field from Google AI output schema requests ([#7765](https://github.com/windmill-labs/windmill/issues/7765)) ([18d85f1](https://github.com/windmill-labs/windmill/commit/18d85f14127e50673ccb460bfa9ebe80730df68e))
+
+## [1.623.1](https://github.com/windmill-labs/windmill/compare/v1.623.0...v1.623.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* prevent retention cleanup from deleting jobs of active flows ([4226ec8](https://github.com/windmill-labs/windmill/commit/4226ec826084eabbb9fff418ea6e67eb73e27cf0))
+* prevent retention cleanup from deleting jobs of active flows ([#7755](https://github.com/windmill-labs/windmill/issues/7755)) ([799db94](https://github.com/windmill-labs/windmill/commit/799db9468395adafe43630d861dac367e5559791))
+* resolve infinite effect loop in PocketIdSetting component ([#7753](https://github.com/windmill-labs/windmill/issues/7753)) ([a8523f5](https://github.com/windmill-labs/windmill/commit/a8523f552c39c4bbe3c585f97df5223903013bb2))
+
+## [1.623.0](https://github.com/windmill-labs/windmill/compare/v1.622.0...v1.623.0) (2026-01-31)
+
+
+### Features
+
+* add PocketID OAuth provider support ([#7318](https://github.com/windmill-labs/windmill/issues/7318)) ([720e3c5](https://github.com/windmill-labs/windmill/commit/720e3c543623c2612b1af704c13d032c53368efb))
+
+
+### Bug Fixes
+
+* add schema compatibility layer for MCP clients like n8n ([#7747](https://github.com/windmill-labs/windmill/issues/7747)) ([297aa23](https://github.com/windmill-labs/windmill/commit/297aa23ed46315dfd4b034d44361a5bd8aaca884))
+* preserve script envs field during sync push ([f405dff](https://github.com/windmill-labs/windmill/commit/f405dff2e22681dc8d4f3a9b7427e278c6cfb0cc))
+
 ## [1.622.0](https://github.com/windmill-labs/windmill/compare/v1.621.2...v1.622.0) (2026-01-29)
 
 

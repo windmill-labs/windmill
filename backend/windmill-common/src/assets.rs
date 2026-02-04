@@ -1,9 +1,11 @@
 use serde::{Deserialize, Serialize};
 use sqlx::PgExecutor;
 
-use crate::error;
+use crate::{error, scripts::ScriptHash};
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
+)]
 #[sqlx(type_name = "ASSET_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum AssetKind {
@@ -15,12 +17,15 @@ pub enum AssetKind {
     DataTable,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
+#[derive(
+    Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type, PartialOrd, Ord,
+)]
 #[sqlx(type_name = "ASSET_USAGE_KIND", rename_all = "lowercase")]
 #[serde(rename_all(serialize = "lowercase", deserialize = "lowercase"))]
 pub enum AssetUsageKind {
     Script,
     Flow,
+    Job,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Copy, Clone, Hash, Eq, sqlx::Type)]
@@ -51,7 +56,7 @@ pub struct AssetWithAltAccessType {
     pub alt_access_type: Option<AssetUsageAccessType>,
 }
 
-pub async fn insert_asset_usage<'e>(
+pub async fn insert_static_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
     asset: &AssetWithAltAccessType,
@@ -74,7 +79,7 @@ pub async fn insert_asset_usage<'e>(
     Ok(())
 }
 
-pub async fn clear_asset_usage<'e>(
+pub async fn clear_static_asset_usage<'e>(
     executor: impl PgExecutor<'e>,
     workspace_id: &str,
     usage_path: &str,
@@ -88,6 +93,55 @@ pub async fn clear_asset_usage<'e>(
     )
     .execute(executor)
     .await?;
-
     Ok(())
+}
+
+pub async fn clear_static_asset_usage_by_script_hash<'e>(
+    executor: impl PgExecutor<'e>,
+    workspace_id: &str,
+    script_hash: ScriptHash,
+) -> error::Result<()> {
+    sqlx::query!(
+        "DELETE FROM asset WHERE workspace_id = $1 AND usage_kind = 'script' AND usage_path = (SELECT path FROM script WHERE hash = $2 AND workspace_id = $1)",
+        workspace_id,
+        script_hash.0
+    )
+    .execute(executor)
+    .await?;
+    Ok(())
+}
+
+pub fn merge_asset_usage_access_types(
+    a: Option<AssetUsageAccessType>,
+    b: Option<AssetUsageAccessType>,
+) -> Option<AssetUsageAccessType> {
+    use AssetUsageAccessType::*;
+    match (a, b) {
+        (None, _) | (_, None) => None,
+        (Some(R), Some(W)) | (Some(W), Some(R)) => Some(RW),
+        (Some(RW), _) | (_, Some(RW)) => Some(RW),
+        (Some(R), Some(R)) => Some(R),
+        (Some(W), Some(W)) => Some(W),
+    }
+}
+
+impl From<windmill_parser::asset_parser::AssetKind> for AssetKind {
+    fn from(parser_kind: windmill_parser::asset_parser::AssetKind) -> Self {
+        match parser_kind {
+            windmill_parser::asset_parser::AssetKind::S3Object => AssetKind::S3Object,
+            windmill_parser::asset_parser::AssetKind::Resource => AssetKind::Resource,
+            windmill_parser::asset_parser::AssetKind::Ducklake => AssetKind::Ducklake,
+            windmill_parser::asset_parser::AssetKind::DataTable => AssetKind::DataTable,
+        }
+    }
+}
+
+impl From<windmill_parser::asset_parser::AssetUsageAccessType> for AssetUsageAccessType {
+    fn from(parser_kind: windmill_parser::asset_parser::AssetUsageAccessType) -> Self {
+        match parser_kind {
+            windmill_parser::asset_parser::AssetUsageAccessType::R => AssetUsageAccessType::R,
+            windmill_parser::asset_parser::AssetUsageAccessType::W => AssetUsageAccessType::W,
+            windmill_parser::asset_parser::AssetUsageAccessType::RW => AssetUsageAccessType::RW,
+        }
+    }
 }

@@ -50,7 +50,7 @@
 	loading={savingInputs}
 	startIcon={{ icon: Save }}
 	variant={small ? 'subtle' : 'default'}
-	unifiedSize="md"
+	unifiedSize="sm"
 >
 	<span>{small ? 'Save inputs' : 'Save current input'}</span>
 	{#if showTooltip}
