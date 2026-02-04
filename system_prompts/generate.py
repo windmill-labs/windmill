@@ -847,24 +847,16 @@ def generate_skills_ts_export(skills: list[str], schema_yaml_content: dict[str, 
 
     ts += "export const SKILLS: SkillMetadata[] = [\n"
 
+    skill_desc_map = {s['name']: s['description'] for s in SKILL_DEFINITIONS}
+
     for skill in skills:
         if skill.startswith('write-script-'):
             lang_key = skill.replace('write-script-', '')
             if lang_key in LANGUAGE_METADATA:
                 metadata = LANGUAGE_METADATA[lang_key]
                 ts += f'  {{ name: "{skill}", description: "{metadata["description"]}", languageKey: "{lang_key}" }},\n'
-        elif skill == 'write-flow':
-            ts += f'  {{ name: "{skill}", description: "MUST use when creating flows." }},\n'
-        elif skill == 'cli-commands':
-            ts += f'  {{ name: "{skill}", description: "MUST use when using the CLI." }},\n'
-        elif skill == 'raw-app':
-            ts += f'  {{ name: "{skill}", description: "MUST use when creating raw apps." }},\n'
-        elif skill == 'triggers':
-            ts += f'  {{ name: "{skill}", description: "MUST use when configuring triggers." }},\n'
-        elif skill == 'schedules':
-            ts += f'  {{ name: "{skill}", description: "MUST use when configuring schedules." }},\n'
-        elif skill == 'resources':
-            ts += f'  {{ name: "{skill}", description: "MUST use when managing resources." }},\n'
+        elif skill in skill_desc_map:
+            ts += f'  {{ name: "{skill}", description: "{skill_desc_map[skill]}" }},\n'
 
     ts += "];\n\n"
 
