@@ -444,7 +444,7 @@
 					</div>
 				{/each}
 				<div>
-					<Button href="{base}/runs" unifiedSize="md" variant="default">Go to runs page</Button>
+					<Button href="{base}/runs" unifiedSize="md" variant="accent">Go to runs page</Button>
 				</div>
 			</div>
 		</div>
