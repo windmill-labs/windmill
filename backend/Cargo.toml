@@ -150,21 +150,13 @@ deno_core = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 constant_time_eq = { workspace = true, optional = true }
-quote.workspace = true
-memchr.workspace = true
+
+
 v8 = { workspace = true, optional = true }
 rustls.workspace = true
-pep440_rs.workspace = true
 strum.workspace = true
-aws-sigv4.workspace = true
-aws-sdk-config.workspace = true
-kube.workspace = true
-k8s-openapi.workspace = true
-libloading.workspace = true
-bitflags.workspace = true
-globset.workspace = true
-opentelemetry-proto.workspace = true
-systemstat.workspace = true
+
+
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.7"

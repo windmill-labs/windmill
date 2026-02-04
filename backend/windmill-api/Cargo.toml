@@ -11,13 +11,13 @@ path = "src/lib.rs"
 [features]
 default = []
 private = ["windmill-audit/private", "windmill-common/private"]
-enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise"]
+enterprise = ["windmill-queue/enterprise", "windmill-audit/enterprise", "windmill-git-sync/enterprise", "windmill-common/enterprise", "windmill-worker/enterprise", "dep:windmill-autoscaling"]
 stripe = []
-agent_worker_server = []
+agent_worker_server = ["dep:windmill-parser-py-imports"]
 enterprise_saml = ["dep:samael", "dep:libxml"]
 benchmark = []
 embedding = ["dep:tinyvector", "dep:hf-hub", "dep:tokenizers", "dep:candle-core", "dep:candle-transformers", "dep:candle-nn"]
-parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet"]
+parquet = ["dep:datafusion", "dep:object_store", "windmill-common/parquet", "windmill-worker/parquet", "dep:aws-sigv4", "dep:aws-sdk-config"]
 prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:prometheus", "windmill-worker/prometheus"]
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
@@ -38,8 +38,8 @@ deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
 cloud = ["windmill-common/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
-bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
-python = []
+bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config", "dep:aws-sdk-config", "dep:aws-credential-types", "dep:aws-smithy-types"]
+python = ["dep:windmill-parser-py-imports"]
 
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }
@@ -50,10 +50,10 @@ windmill-parser.workspace = true
 windmill-parser-sql.workspace = true
 windmill-parser-ts.workspace = true
 windmill-parser-py.workspace = true
-windmill-parser-py-imports.workspace = true
+windmill-parser-py-imports = { workspace = true, optional = true }
 windmill-git-sync.workspace = true
 windmill-indexer = { workspace = true, optional = true }
-windmill-autoscaling.workspace = true
+windmill-autoscaling = { workspace = true, optional = true }
 windmill-worker.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -152,13 +152,13 @@ aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 rustls = { workspace = true }
 
-aws-sigv4.workspace = true
-aws-sdk-config.workspace = true
+aws-sigv4 = { workspace = true, optional = true }
+aws-sdk-config = { workspace = true, optional = true }
 aws-config = { workspace = true, optional = true }
-aws-credential-types.workspace = true
+aws-credential-types = { workspace = true, optional = true }
 aws-sdk-bedrock = { workspace = true, optional = true }
 aws-sdk-bedrockruntime = { workspace = true, optional = true }
-aws-smithy-types.workspace = true
+aws-smithy-types = { workspace = true, optional = true }
 async-trait.workspace = true
 google-cloud-pubsub = { workspace = true, optional = true }
 google-cloud-googleapis = { workspace = true , optional = true }
