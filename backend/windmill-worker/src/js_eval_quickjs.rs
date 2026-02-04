@@ -31,7 +31,6 @@ use std::sync::Arc;
 
 use rquickjs::{
     async_with,
-    function::This,
     prelude::{Async, Func, MutFn},
     AsyncContext, AsyncRuntime, CatchResultExt, FromJs, IntoJs, Object, Value,
 };
@@ -267,24 +266,25 @@ async fn eval_quickjs_inner(
             setup_results_proxy(&ctx, &globals, by_id, op_state_clone.clone())?;
         }
 
-        // Determine if we need to add return statement
+        // Determine if we need to add return statement.
+        // Wrap with .then((x) => JSON.stringify(x ?? null)) to serialize the result
+        // using the standard JSON.stringify, matching deno_core's behavior exactly.
         let code = if should_add_return_quickjs(&transformed_expr) {
-            format!("(async function() {{ return {}; }})()", transformed_expr)
+            format!("(async function() {{ return {}; }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
         } else {
-            format!("(async function() {{ {} }})()", transformed_expr)
+            format!("(async function() {{ {} }})().then((x) => JSON.stringify(x ?? null))", transformed_expr)
         };
 
-        // Evaluate the expression (returns a Promise)
+        // Evaluate the expression (returns a Promise that resolves to a JSON string)
         let promise: rquickjs::Promise = ctx.eval(code).catch(&ctx).map_err(quickjs_error_to_anyhow)?;
 
-        // Await the promise
+        // Await the promise — result is already a JSON string from JSON.stringify
         let result: Value = promise.into_future().await.catch(&ctx).map_err(quickjs_error_to_anyhow)?;
 
-        // Convert result to JSON
-        let json_result = js_to_json(&ctx, &result)?;
-        let json_str = serde_json::to_string(&json_result)?;
+        let json_str = String::from_js(&ctx, result)
+            .unwrap_or_else(|_| "null".to_string());
 
-        Ok(windmill_common::worker::to_raw_value(&serde_json::from_str::<serde_json::Value>(&json_str)?))
+        Ok(crate::common::unsafe_raw(json_str))
     })
     .await
 }
@@ -563,75 +563,6 @@ fn json_to_js<'js>(
 /// - For objects with a `toJSON` method (like Date), call it and use the result
 /// - Arrays are recursively serialized
 /// - Plain objects enumerate their own properties
-fn js_to_json<'js>(
-    ctx: &rquickjs::Ctx<'js>,
-    val: &Value<'js>,
-) -> anyhow::Result<serde_json::Value> {
-    if val.is_null() || val.is_undefined() {
-        return Ok(serde_json::Value::Null);
-    }
-
-    if let Some(b) = val.as_bool() {
-        return Ok(serde_json::Value::Bool(b));
-    }
-
-    if let Some(i) = val.as_int() {
-        return Ok(serde_json::Value::Number(i.into()));
-    }
-
-    if let Some(f) = val.as_float() {
-        // Check if this float represents an exact integer
-        // This preserves integer formatting for values like timestamps
-        if f.fract() == 0.0 && f.abs() <= (i64::MAX as f64) {
-            let i = f as i64;
-            // Verify the conversion is exact (for very large numbers)
-            if (i as f64) == f {
-                return Ok(serde_json::Value::Number(i.into()));
-            }
-        }
-        if let Some(n) = serde_json::Number::from_f64(f) {
-            return Ok(serde_json::Value::Number(n));
-        } else {
-            return Ok(serde_json::Value::Null);
-        }
-    }
-
-    if let Ok(s) = String::from_js(ctx, val.clone()) {
-        return Ok(serde_json::Value::String(s));
-    }
-
-    if let Ok(arr) = rquickjs::Array::from_js(ctx, val.clone()) {
-        let mut json_arr = Vec::new();
-        for i in 0..arr.len() {
-            if let Ok(item) = arr.get::<Value>(i) {
-                json_arr.push(js_to_json(ctx, &item)?);
-            }
-        }
-        return Ok(serde_json::Value::Array(json_arr));
-    }
-
-    if let Ok(obj) = Object::from_js(ctx, val.clone()) {
-        // Check if the object has a toJSON method (like Date, or custom objects)
-        // This mimics JSON.stringify behavior which calls toJSON if present
-        if let Ok(to_json_fn) = obj.get::<_, rquickjs::Function>("toJSON") {
-            // Call toJSON with the object as 'this' context using This wrapper
-            if let Ok(json_val) = to_json_fn.call::<(This<Object>, ), Value>((This(obj.clone()),)) {
-                return js_to_json(ctx, &json_val);
-            }
-        }
-
-        let mut json_obj = serde_json::Map::new();
-        for res in obj.props::<String, Value>() {
-            if let Ok((k, v)) = res {
-                json_obj.insert(k, js_to_json(ctx, &v)?);
-            }
-        }
-        return Ok(serde_json::Value::Object(json_obj));
-    }
-
-    // Fallback
-    Ok(serde_json::Value::String("[object]".to_string()))
-}
 
 /// Determines if we should prepend "return" to the expression
 fn should_add_return_quickjs(expr: &str) -> bool {
@@ -872,8 +803,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_eval_quickjs_custom_tojson() -> anyhow::Result<()> {
-        // Test that our js_to_json handles custom toJSON when returning objects directly
-        // (not through JSON.stringify which already works natively)
+        // Test that JSON.stringify handles custom toJSON when returning objects
         let result = eval_timeout_quickjs(
             r#"({ a: 1, toJSON: () => ({ converted: true }) })"#.to_string(),
             HashMap::new(),
@@ -885,7 +815,7 @@ mod tests {
         )
         .await?;
 
-        // Our js_to_json should call toJSON and use that result
+        // JSON.stringify should call toJSON and use that result
         let value: serde_json::Value = serde_json::from_str(result.get())?;
         assert_eq!(value["converted"], true);
         Ok(())
@@ -972,9 +902,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_eval_quickjs_tojson_returning_date() -> anyhow::Result<()> {
-        // Test that if toJSON returns a Date, it gets further serialized
-        // Note: We use arrow function because function() {} has issues with multi-statement
-        // expression evaluation context
+        // When toJSON returns a Date object, JSON.stringify does NOT call toJSON again
+        // on the returned value (per spec). Date has no own enumerable properties,
+        // so it serializes to {}.
         let result = eval_timeout_quickjs(
             "({ toJSON: () => new Date('2024-01-15T00:00:00.000Z') })".to_string(),
             HashMap::new(),
@@ -986,8 +916,7 @@ mod tests {
         )
         .await?;
 
-        // The toJSON returns a Date, which should then be serialized to ISO string
-        assert_eq!(result.get(), "\"2024-01-15T00:00:00.000Z\"");
+        assert_eq!(result.get(), "{}");
         Ok(())
     }
 }
