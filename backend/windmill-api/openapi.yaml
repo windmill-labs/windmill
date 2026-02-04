@@ -4018,6 +4018,13 @@ paths:
         - setting
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: include_default
+          in: query
+          description: If true, include "_default_" in the list if primary workspace storage is set
+          required: false
+          schema:
+            type: boolean
+            default: false
       responses:
         "200":
           description: status

@@ -8,7 +8,7 @@
 	export let childrenWrapperDivClasses: string = ''
 </script>
 
-<div class="flex flex-row flex-wrap justify-between pb-2 my-4 mr-2">
+<div class="flex flex-row flex-wrap justify-between items-center pb-2 my-4 mr-2 min-h-16">
 	{#if primary}
 		<span class="flex items-center gap-2">
 			<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight"

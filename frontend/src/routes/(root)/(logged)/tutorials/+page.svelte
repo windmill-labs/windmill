@@ -1,7 +1,6 @@
 <script lang="ts">
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
 	import { Tab } from '$lib/components/common'
-	import Tooltip from '$lib/components/Tooltip.svelte'
 	import Tabs from '$lib/components/common/tabs/Tabs.svelte'
 	import TutorialButton from '$lib/components/home/TutorialButton.svelte'
 	import TutorialProgressBar from '$lib/components/tutorials/TutorialProgressBar.svelte'
@@ -25,17 +24,23 @@
 	import { userStore } from '$lib/stores'
 	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
 	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
-	import { hasRoleAccess, hasRoleAccessForPreview, getUserEffectiveRole, type Role } from '$lib/tutorials/roleUtils'
+	import {
+		hasRoleAccess,
+		hasRoleAccessForPreview,
+		getUserEffectiveRole,
+		type Role
+	} from '$lib/tutorials/roleUtils'
+	import PageHeader from '$lib/components/PageHeader.svelte'
 
 	// Get user's effective role (derived from userStore)
 	const userEffectiveRole = $derived.by(() => {
 		return getUserEffectiveRole($userStore) ?? 'admin'
 	})
-	
+
 	// State for the role selector (only used when user is admin)
 	// Defaults to user's actual role
 	let selectedPreviewRole: Role = $state('admin')
-	
+
 	// Initialize selectedPreviewRole to user's role when admin, reset when not admin
 	$effect(() => {
 		const user = $userStore
@@ -48,7 +53,6 @@
 			selectedPreviewRole = 'admin'
 		}
 	})
-
 
 	// Memoize access check dependencies to avoid unnecessary recalculations
 	// This derived value only recalculates when userStore or selectedPreviewRole changes
@@ -125,9 +129,7 @@
 	)
 
 	// Sort visible tutorials by order
-	const tutorials = $derived(
-		visibleTutorials.sort((a, b) => (a.order ?? 999) - (b.order ?? 999))
-	)
+	const tutorials = $derived(visibleTutorials.sort((a, b) => (a.order ?? 999) - (b.order ?? 999)))
 
 	// Sync tutorial progress on mount and when navigating to this page
 	onMount(() => {
@@ -167,9 +169,7 @@
 	}
 
 	// Get list of tutorial indexes for current tab
-	const currentTabIndexes = $derived(
-		Object.values(currentTabTutorialIndexes)
-	)
+	const currentTabIndexes = $derived(Object.values(currentTabTutorialIndexes))
 
 	// Skip all tutorials in current tab
 	async function skipCurrentTabTutorials() {
@@ -217,7 +217,7 @@
 	function getTabProgress(tabId: TabId) {
 		const tabConfig = TUTORIALS_CONFIG[tabId]
 		const context = accessCheckContext
-		
+
 		// Get all tutorial indexes for this tab (filtered by role)
 		const indexes: number[] = []
 		for (const tutorial of tabConfig.tutorials) {
@@ -230,17 +230,17 @@
 			}
 			indexes.push(tutorial.index)
 		}
-		
+
 		const total = indexes.length
 		const completed = indexes.filter((index) => !$tutorialsToDo.includes(index)).length
-		
+
 		return { total, completed }
 	}
 
 	// Get badge info for a tab
 	function getTabBadge(tabId: TabId) {
 		const { total, completed } = getTabProgress(tabId)
-		
+
 		if (total === 0) return { type: 'none' as const }
 		if (completed === 0) {
 			// Circle icon if not started
@@ -253,47 +253,42 @@
 		// (1/3) format if started
 		return { type: 'progress' as const, text: `(${completed}/${total})` }
 	}
-
 </script>
 
 <CenteredPage>
-	<div class="flex flex-col gap-4 pb-2 my-4 mr-2">
-		<div class="flex flex-row flex-wrap justify-between items-start">
-			<span class="flex items-center gap-2">
-				<h1 class="text-2xl font-semibold text-emphasis whitespace-nowrap leading-6 tracking-tight"
-					>Tutorials</h1
+	<PageHeader
+		title="Tutorials"
+		tooltip="Learn how to use Windmill with our interactive tutorials"
+		documentationLink="https://www.windmill.dev/docs/intro"
+	>
+		{#if activeTabs.length > 0}
+			<div class="flex gap-2">
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: CheckCheck }}
+					onclick={async () => {
+						await skipAllTodos()
+						await syncTutorialsTodos()
+					}}
 				>
-				<Tooltip documentationLink="https://www.windmill.dev/docs/intro">
-					Learn how to use Windmill with our interactive tutorials
-				</Tooltip>
-			</span>
-			{#if activeTabs.length > 0}
-				<div class="flex items-start gap-2 pt-1">
-					<Button
-						size="xs"
-						variant="default"
-						startIcon={{ icon: CheckCheck }}
-						onclick={async () => {
-							await skipAllTodos()
-							await syncTutorialsTodos()
-						}}
-					>
-						Mark all as completed
-					</Button>
-					<Button
-						size="xs"
-						variant="default"
-						startIcon={{ icon: RefreshCw }}
-						onclick={async () => {
-							await resetAllTodos()
-							await syncTutorialsTodos()
-						}}
-					>
-						Reset all
-					</Button>
-				</div>
-			{/if}
-		</div>
+					Mark all as completed
+				</Button>
+				<Button
+					size="xs"
+					variant="default"
+					startIcon={{ icon: RefreshCw }}
+					onclick={async () => {
+						await resetAllTodos()
+						await syncTutorialsTodos()
+					}}
+				>
+					Reset all
+				</Button>
+			</div>
+		{/if}
+	</PageHeader>
+	<div class="flex flex-col gap-4 pb-2 my-4 mr-2">
 		{#if $userStore?.is_admin}
 			<div class="flex flex-col gap-1">
 				<div class="flex items-center gap-2">
