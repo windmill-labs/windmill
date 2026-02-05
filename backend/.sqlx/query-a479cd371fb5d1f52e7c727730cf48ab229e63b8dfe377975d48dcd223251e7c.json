@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
+  "query": "\n        SELECT\n            workspace_id,\n            slack_team_id,\n            teams_team_id,\n            teams_team_name,\n            teams_team_guid,\n            slack_name,\n            slack_command_script,\n            teams_command_script,\n            slack_email,\n            slack_oauth_client_id,\n            slack_oauth_client_secret,\n            customer_id,\n            plan,\n            webhook,\n            deploy_to,\n            ai_config,\n            large_file_storage,\n            datatable,\n            ducklake,\n            git_sync,\n            deploy_ui,\n            default_app,\n            default_scripts,\n            mute_critical_alerts,\n            color,\n            operator_settings,\n            git_app_installations,\n            auto_invite,\n            error_handler,\n            success_handler,\n            public_app_execution_limit_per_minute\n        FROM\n            workspace_settings\n        WHERE\n            workspace_id = $1\n        ",
   "describe": {
     "columns": [
       {
@@ -152,6 +152,11 @@
         "ordinal": 29,
         "name": "success_handler",
         "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 30,
+        "name": "public_app_execution_limit_per_minute",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -189,8 +194,9 @@
       false,
       true,
       true,
+      true,
       true
     ]
   },
-  "hash": "289919809e16aee33c81951b05a4795de710421bcd3e4c06588e56092677bd05"
+  "hash": "a479cd371fb5d1f52e7c727730cf48ab229e63b8dfe377975d48dcd223251e7c"
 }

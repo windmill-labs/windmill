@@ -56,6 +56,9 @@ class TestWindmillSdk(unittest.TestCase):
         cls._client = WindmillClient()
         if cls._running_latest:
             cls._client.set_npm_config_registry("http://npm_registry:4873")
+            # Wait for the worker to pick up the new npm registry setting
+            # (propagated via pg NOTIFY, may take a few seconds)
+            time.sleep(5)
             cls._client.create_variable(
                 path=VARIABLE_PATH,
                 value=VARIABLE_VALUE,

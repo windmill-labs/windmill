@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, asset_detection_kind, job_id)\n                VALUES ($1, $2, $3, $4, $5, $6, 'static', NULL) ON CONFLICT DO NOTHING",
+  "query": "INSERT INTO asset (workspace_id, path, kind, usage_access_type, usage_path, usage_kind, columns)\n                VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING",
   "describe": {
     "columns": [],
     "parameters": {
@@ -40,14 +40,16 @@
             "kind": {
               "Enum": [
                 "script",
-                "flow"
+                "flow",
+                "job"
               ]
             }
           }
-        }
+        },
+        "Jsonb"
       ]
     },
     "nullable": []
   },
-  "hash": "31eada57708ac3347d1e0a4fb5fd412a4a0c6046dbe4cf91849def2eea2e4c62"
+  "hash": "a9e29764b5b9d94269e2b8aa755c71b61774c8ff8ae218d7a8d6ed0ac0169366"
 }

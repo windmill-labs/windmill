@@ -33,10 +33,10 @@
 	} from './dataTableRefUtils'
 
 	interface Props {
-		initFiles: Record<string, string>
-		initRunnables: Record<string, Runnable>
+		files?: Record<string, string>
+		runnables?: Record<string, Runnable>
 		/** Data configuration including tables and creation policy */
-		initData: RawAppData | undefined
+		data?: RawAppData
 		newApp: boolean
 		policy: Policy
 		summary?: string
@@ -57,9 +57,9 @@
 	}
 
 	let {
-		initFiles,
-		initRunnables,
-		initData,
+		files = $bindable({}),
+		runnables = $bindable({}),
+		data = $bindable(DEFAULT_DATA),
 		newApp,
 		policy,
 		summary = $bindable(''),
@@ -70,23 +70,8 @@
 	}: Props = $props()
 	export const version: number | undefined = undefined
 
-	let runnables = $state(initRunnables)
-
-	// Data configuration with tables and creation policy
-	let data: RawAppData = $state(initData ?? DEFAULT_DATA)
-
 	// Convert to object format for child components
 	let dataTableRefsObjects = $derived(data.tables.map(parseDataTableRef))
-	let initRunnablesContent = Object.fromEntries(
-		Object.entries(initRunnables).map(([key, runnable]) => {
-			if (isRunnableByName(runnable)) {
-				return [key, runnable?.inlineScript?.content ?? '']
-			}
-			return [key, '']
-		})
-	)
-
-	let files: Record<string, string> | undefined = $state(initFiles)
 
 	// Initialize history manager
 	const historyManager = new RawAppHistoryManager({
@@ -175,7 +160,9 @@
 	let iframeLoaded = $state(false) // @hmr:keep
 
 	function populateFiles() {
-		setFilesInIframe(initFiles)
+		if (files) {
+			setFilesInIframe(files)
+		}
 	}
 	function setFilesInIframe(newFiles: Record<string, string>) {
 		const files = Object.fromEntries(
@@ -604,8 +591,8 @@
 	// Normalize Windows-style path separators to Linux-style
 	function normalizeFilePaths(
 		filesObj: Record<string, string> | undefined
-	): Record<string, string> | undefined {
-		if (!filesObj) return filesObj
+	): Record<string, string> {
+		if (!filesObj) return {}
 		return Object.fromEntries(
 			Object.entries(filesObj).map(([path, content]) => [path.replace(/\\/g, '/'), content])
 		)
@@ -681,7 +668,7 @@
 		})
 	})
 	$effect(() => {
-		iframe && iframeLoaded && initFiles && populateFiles()
+		iframe && iframeLoaded && files && populateFiles()
 	})
 	$effect(() => {
 		iframe && iframeLoaded && runnables && populateRunnables()
@@ -895,7 +882,6 @@
 						<RawAppInlineScriptsPanel
 							appPath={path}
 							{selectedRunnable}
-							{initRunnablesContent}
 							bind:runnables
 							onSelectionChange={(selection) => {
 								console.log('handle selection', selection)

@@ -829,7 +829,7 @@ dependencies = [
  "aws-sdk-sts",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -882,23 +882,23 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.5.18"
+version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "959dab27ce613e6c9658eb3621064d0e2027e5f2acb65bc526a43577facea557"
+checksum = "c635c2dc792cb4a11ce1a4f392a925340d1bdf499289b5ec1ec6810954eb43f5"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
  "aws-smithy-async",
  "aws-smithy-eventstream",
- "aws-smithy-http 0.62.6",
+ "aws-smithy-http 0.63.3",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "aws-types",
  "bytes",
  "fastrand",
- "http 0.2.12",
- "http-body 0.4.6",
+ "http 1.4.0",
+ "http-body 1.0.1",
  "percent-encoding",
  "pin-project-lite",
  "tracing",
@@ -907,15 +907,15 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-bedrock"
-version = "1.129.0"
+version = "1.130.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2d009c7cbb8332c805be2be32c0def27cb7bd4804d9333f5cf204abfd96b6d25"
+checksum = "883f0f0b2014a0bb59b6bfce8265a6ca6dc7e849d09314124f94a347b9d9e9f5"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
- "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-http 0.63.3",
+ "aws-smithy-json 0.62.3",
  "aws-smithy-observability",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -924,6 +924,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
+ "http 1.4.0",
  "regex-lite",
  "tracing",
 ]
@@ -940,7 +941,7 @@ dependencies = [
  "aws-smithy-async",
  "aws-smithy-eventstream",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-observability",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -964,7 +965,7 @@ dependencies = [
  "aws-runtime",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -979,16 +980,16 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-rds"
-version = "1.123.0"
+version = "1.124.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43adf02ed73dcbaa18979ab849162331e4b772e276988e5750fd277687d92897"
+checksum = "24627b8374f8f242f351aa8a69adae8a416826a89819a7bfd010fc48b81f51e8"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
  "aws-sigv4",
  "aws-smithy-async",
- "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-http 0.63.3",
+ "aws-smithy-json 0.62.3",
  "aws-smithy-observability",
  "aws-smithy-query",
  "aws-smithy-runtime",
@@ -998,6 +999,7 @@ dependencies = [
  "aws-types",
  "fastrand",
  "http 0.2.12",
+ "http 1.4.0",
  "regex-lite",
  "tracing",
  "url",
@@ -1013,7 +1015,7 @@ dependencies = [
  "aws-runtime",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1035,7 +1037,7 @@ dependencies = [
  "aws-runtime",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1057,7 +1059,7 @@ dependencies = [
  "aws-runtime",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
@@ -1079,7 +1081,7 @@ dependencies = [
  "aws-runtime",
  "aws-smithy-async",
  "aws-smithy-http 0.62.6",
- "aws-smithy-json",
+ "aws-smithy-json 0.61.9",
  "aws-smithy-query",
  "aws-smithy-runtime",
  "aws-smithy-runtime-api",
@@ -1094,13 +1096,13 @@ dependencies = [
 
 [[package]]
 name = "aws-sigv4"
-version = "1.3.7"
+version = "1.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69e523e1c4e8e7e8ff219d732988e22bfeae8a1cafdbe6d9eca1546fa080be7c"
+checksum = "efa49f3c607b92daae0c078d48a4571f599f966dce3caee5f1ea55c4d9073f99"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-eventstream",
- "aws-smithy-http 0.62.6",
+ "aws-smithy-http 0.63.3",
  "aws-smithy-runtime-api",
  "aws-smithy-types",
  "bytes",
@@ -1215,6 +1217,15 @@ name = "aws-smithy-json"
 version = "0.61.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "49fa1213db31ac95288d981476f78d05d9cbb0353d22cdf3472cc05bb02f6551"
+dependencies = [
+ "aws-smithy-types",
+]
+
+[[package]]
+name = "aws-smithy-json"
+version = "0.62.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cb96aa208d62ee94104645f7b2ecaf77bf27edf161590b6224bfbac2832f979"
 dependencies = [
  "aws-smithy-types",
 ]
@@ -6959,7 +6970,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.4",
  "tower-service",
- "webpki-roots 1.0.5",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -10986,7 +10997,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.5",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
@@ -11580,7 +11591,7 @@ dependencies = [
  "rustls-webpki 0.103.9",
  "security-framework 3.5.1",
  "security-framework-sys",
- "webpki-root-certs 1.0.5",
+ "webpki-root-certs 1.0.6",
  "windows-sys 0.61.2",
 ]
 
@@ -15300,14 +15311,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75c7f0ef91146ebfb530314f5f1d24528d7f0767efbfd31dce919275413e393e"
 dependencies = [
- "webpki-root-certs 1.0.5",
+ "webpki-root-certs 1.0.6",
 ]
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36a29fc0408b113f68cf32637857ab740edfafdf460c326cd2afaa2d84cc05dc"
+checksum = "804f18a4ac2676ffb4e8b5b5fa9ae38af06df08162314f96a68d2a363e21a8ca"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -15318,14 +15329,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.5",
+ "webpki-roots 1.0.6",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.5"
+version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12bed680863276c63889429bfd6cab3b99943659923822de1c8a39c49e4d722c"
+checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -15487,7 +15498,7 @@ checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
 
 [[package]]
 name = "windmill"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "aws-sdk-config",
@@ -15527,6 +15538,7 @@ dependencies = [
  "sqlx",
  "strum 0.27.2",
  "systemstat",
+ "tempfile",
  "tikv-jemalloc-ctl",
  "tikv-jemalloc-sys",
  "tikv-jemallocator",
@@ -15550,7 +15562,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -15586,6 +15598,7 @@ dependencies = [
  "constant_time_eq 0.3.1",
  "cookie 0.17.0",
  "cron",
+ "dashmap 6.1.0",
  "datafusion",
  "deno_core",
  "deno_error",
@@ -15681,7 +15694,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-api-client"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -15691,7 +15704,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-audit"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "chrono",
  "lazy_static",
@@ -15705,7 +15718,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-autoscaling"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "axum 0.7.9",
@@ -15724,7 +15737,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-common"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -15820,7 +15833,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-git-sync"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "regex",
  "serde",
@@ -15835,7 +15848,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-indexer"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "astral-tokio-tar",
@@ -15859,7 +15872,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-macros"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "itertools 0.14.0",
  "lazy_static",
@@ -15875,7 +15888,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-mcp"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -15895,7 +15908,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-oauth"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-oauth2",
@@ -15919,7 +15932,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "convert_case 0.6.0",
  "serde",
@@ -15928,7 +15941,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-bash"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15940,7 +15953,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-csharp"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15952,7 +15965,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-go"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "gosyn",
@@ -15964,7 +15977,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-graphql"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -15976,7 +15989,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-java"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -15988,7 +16001,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-nu"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "nu-parser",
@@ -15999,7 +16012,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-php"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -16010,7 +16023,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "itertools 0.14.0",
@@ -16023,7 +16036,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-py-imports"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16047,7 +16060,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ruby"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16061,7 +16074,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-rust"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "convert_case 0.6.0",
@@ -16078,7 +16091,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-sql"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16092,7 +16105,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-ts"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "lazy_static",
@@ -16111,7 +16124,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-parser-yaml"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -16122,7 +16135,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-queue"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -16159,7 +16172,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-sql-datatype-parser-wasm"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-test",
@@ -16169,7 +16182,7 @@ dependencies = [
 
 [[package]]
 name = "windmill-worker"
-version = "1.624.0"
+version = "1.625.0"
 dependencies = [
  "anyhow",
  "async-once-cell",
@@ -17164,9 +17177,9 @@ dependencies = [
 
 [[package]]
 name = "zip"
-version = "7.2.0"
+version = "7.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c42e33efc22a0650c311c2ef19115ce232583abbe80850bc8b66509ebef02de0"
+checksum = "268bf6f9ceb991e07155234071501490bb41fd1e39c6a588106dad10ae2a5804"
 dependencies = [
  "crc32fast",
  "indexmap 2.11.1",

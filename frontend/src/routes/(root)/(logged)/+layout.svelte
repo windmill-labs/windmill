@@ -3,6 +3,7 @@
 
 	import {
 		AppService,
+		AssetService,
 		FlowService,
 		OpenAPI,
 		RawAppService,
@@ -11,14 +12,19 @@
 		UserService,
 		WorkspaceService
 	} from '$lib/gen'
-	import { capitalize, classNames, getModifierKey, sendUserToast } from '$lib/utils'
+	import {
+		capitalize,
+		classNames,
+		getModifierKey,
+		parseDbInputFromAssetSyntax,
+		sendUserToast
+	} from '$lib/utils'
 	import WorkspaceMenu from '$lib/components/sidebar/WorkspaceMenu.svelte'
 	import SidebarContent from '$lib/components/sidebar/SidebarContent.svelte'
 	import CriticalAlertModal from '$lib/components/sidebar/CriticalAlertModal.svelte'
 	import {
 		enterpriseLicense,
 		isPremiumStore,
-		starStore,
 		superadmin,
 		usageStore,
 		workspaceUsageStore,
@@ -29,7 +35,8 @@
 		hubBaseUrlStore,
 		usedTriggerKinds,
 		devopsRole,
-		whitelabelNameStore
+		whitelabelNameStore,
+		globalDbManagerDrawer
 	} from '$lib/stores'
 	import CenteredModal from '$lib/components/CenteredModal.svelte'
 	import { afterNavigate, beforeNavigate } from '$app/navigation'
@@ -38,7 +45,11 @@
 	import SuperadminSettings from '$lib/components/SuperadminSettings.svelte'
 	import WindmillIcon from '$lib/components/icons/WindmillIcon.svelte'
 	import { page } from '$app/stores'
-	import FavoriteMenu from '$lib/components/sidebar/FavoriteMenu.svelte'
+	import FavoriteMenu, {
+		favoriteManager,
+		getFavoriteHref,
+		getFavoriteLabel
+	} from '$lib/components/sidebar/FavoriteMenu.svelte'
 	import { SUPERADMIN_SETTINGS_HASH, USER_SETTINGS_HASH } from '$lib/components/sidebar/settings'
 	import { isCloudHosted } from '$lib/cloud'
 	import { syncTutorialsTodos } from '$lib/tutorialUtils'
@@ -54,6 +65,8 @@
 	import { aiChatManager } from '$lib/components/copilot/chat/AIChatManager.svelte'
 	import AiChatLayout from '$lib/components/copilot/chat/AiChatLayout.svelte'
 	import { DEFAULT_HUB_BASE_URL } from '$lib/hub'
+	import DBManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
+	import { watchOnce } from 'runed'
 	interface Props {
 		children?: import('svelte').Snippet
 	}
@@ -139,14 +152,6 @@
 
 	let innerWidth = $state(BROWSER ? window.innerWidth : 2000)
 
-	let favoriteLinks = $state(
-		[] as {
-			label: string
-			href: string
-			kind: 'app' | 'script' | 'flow' | 'raw_app'
-		}[]
-	)
-
 	function onLoad() {
 		loadFavorites()
 		loadUsage()
@@ -191,26 +196,37 @@
 			workspace: $workspaceStore ?? '',
 			starredOnly: true
 		})
-		favoriteLinks = [
+		const assets = await AssetService.listFavoriteAssets({ workspace: $workspaceStore ?? '' })
+		favoriteManager.current = [
 			...scripts.map((s) => ({
-				label: s.summary || s.path,
-				href: `${base}/scripts/get/${s.hash}`,
-				kind: 'script' as 'script'
+				label: s.summary || getFavoriteLabel(s.path, 'script'),
+				path: s.path,
+				href: getFavoriteHref(s.path, 'script'),
+				kind: 'script' as const
 			})),
 			...flows.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/flows/get/${f.path}`,
-				kind: 'flow' as 'flow'
+				label: f.summary || getFavoriteLabel(f.path, 'flow'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'flow'),
+				kind: 'flow' as const
 			})),
 			...apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get/${f.path}`,
-				kind: 'app' as 'app'
+				label: f.summary || getFavoriteLabel(f.path, 'app'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'app'),
+				kind: 'app' as const
 			})),
 			...raw_apps.map((f) => ({
-				label: f.summary || f.path,
-				href: `${base}/apps/get_raw/${f.version}/${f.path}`,
-				kind: 'raw_app' as 'raw_app'
+				label: f.summary || getFavoriteLabel(f.path, 'raw_app'),
+				path: f.path,
+				href: getFavoriteHref(f.path, 'raw_app'),
+				kind: 'raw_app' as const
+			})),
+			...assets.map((a) => ({
+				label: getFavoriteLabel(a.path, 'asset'),
+				path: a.path,
+				href: getFavoriteHref(a.path, 'asset'),
+				kind: 'asset' as const
 			}))
 		]
 	}
@@ -375,7 +391,7 @@
 		untrack(() => updateUserStore($workspaceStore))
 	})
 	$effect(() => {
-		$workspaceStore && $starStore && untrack(() => onLoad())
+		$workspaceStore && untrack(() => onLoad())
 	})
 	$effect(() => {
 		innerWidth && untrack(() => changeCollapsed())
@@ -415,6 +431,19 @@
 			}
 		}
 	})
+
+	watchOnce(
+		() => globalDbManagerDrawer.val,
+		() => {
+			if (!globalDbManagerDrawer.val) return
+			const hash = window.location.hash
+			if (hash.startsWith('#dbmanager:')) {
+				const [_, path] = hash.split('#dbmanager:')
+				const dbInput = parseDbInputFromAssetSyntax(path)
+				if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+			}
+		}
+	)
 </script>
 
 <svelte:window bind:innerWidth />
@@ -502,7 +531,7 @@
 										<Menubar>
 											{#snippet children({ createMenu })}
 												<WorkspaceMenu {createMenu} />
-												<FavoriteMenu {createMenu} {favoriteLinks} />
+												<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
 											{/snippet}
 										</Menubar>
 										<MenuButton
@@ -576,7 +605,11 @@
 								<Menubar class="flex flex-col gap-1">
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} {isCollapsed} />
-										<FavoriteMenu {createMenu} {favoriteLinks} {isCollapsed} />
+										<FavoriteMenu
+											{createMenu}
+											favoriteLinks={favoriteManager.current}
+											{isCollapsed}
+										/>
 									{/snippet}
 								</Menubar>
 								<MenuButton
@@ -630,7 +663,7 @@
 				{/if}
 			{:else}
 				<div class="absolute top-2 left-2 z5000">
-					<OperatorMenu {favoriteLinks} />
+					<OperatorMenu favoriteLinks={favoriteManager.current} />
 				</div>
 			{/if}
 			<!-- Legacy menu -->
@@ -689,7 +722,7 @@
 								<Menubar>
 									{#snippet children({ createMenu })}
 										<WorkspaceMenu {createMenu} />
-										<FavoriteMenu {createMenu} {favoriteLinks} />
+										<FavoriteMenu {createMenu} favoriteLinks={favoriteManager.current} />
 									{/snippet}
 								</Menubar>
 								<MenuButton
@@ -740,4 +773,8 @@
 	</div>
 {:else}
 	<CenteredModal title="Loading user..." loading={true}></CenteredModal>
+{/if}
+
+{#if $workspaceStore}
+	<DBManagerDrawer bind:this={globalDbManagerDrawer.val} />
 {/if}

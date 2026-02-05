@@ -75,13 +75,6 @@ def patch_docker_compose [
   $compose.services.windmill_server.pull_policy = "never"
   $compose.services.windmill_indexer.pull_policy = "never"
 
-  if ($custom_dockerfile | default 'none' | path basename) == "DockerfileNsjail" {
-    $compose.services.windmill_worker.privileged = true
-    $compose.services.windmill_worker_native.privileged = true
-
-    $compose.services.windmill_worker.environment ++= ["DISABLE_NSJAIL=false"]
-    $compose.services.windmill_worker_native.environment ++= ["DISABLE_NSJAIL=false"]
-  }
   return ($compose | to yaml)
 }
 
