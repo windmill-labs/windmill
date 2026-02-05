@@ -56,7 +56,7 @@ pub async fn get_user_usage<'c, E: sqlx::Executor<'c, Database = Postgres>>(
 pub struct Stats {}
 
 #[cfg(not(feature = "private"))]
-pub async fn get_stats_payload(_db: &DB, _include_job_usage: bool, _manual: bool) -> Result<Stats> {
+pub async fn get_stats_payload(_db: &DB, _reason: &SendStatsReason) -> Result<Stats> {
     // stats details are closed source
     Ok(Stats {})
 }
