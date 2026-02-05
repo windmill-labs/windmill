@@ -1088,10 +1088,14 @@ class Windmill:
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
+        endpoint = s3_resource["endPoint"]
+        port = s3_resource.get("port")
+        if port:
+            endpoint_url = "{}{}:{}".format(endpoint_url_prefix, endpoint, port)
+        else:
+            endpoint_url = "{}{}".format(endpoint_url_prefix, endpoint)
         settings = {
-            "endpoint_url": "{}{}".format(
-                endpoint_url_prefix, s3_resource["endPoint"]
-            ),
+            "endpoint_url": endpoint_url,
             "region_name": s3_resource["region"],
             "use_ssl": s3_resource["useSSL"],
             "aws_access_key_id": s3_resource["accessKey"],
