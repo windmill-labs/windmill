@@ -29,6 +29,7 @@ const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
 const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
+const KEEPALIVE_INTERVAL_SECS: u64 = 15;
 
 lazy_static::lazy_static! {
     /// AI request timeout in seconds.
@@ -671,7 +672,10 @@ async fn global_proxy(
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
     let body = if is_sse_response(&headers) {
-        axum::body::Body::from_stream(inject_keepalives(stream, Duration::from_secs(15)))
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
     } else {
         axum::body::Body::from_stream(stream)
     };
@@ -902,7 +906,10 @@ async fn proxy(
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
     let body = if is_sse_response(&headers) {
-        axum::body::Body::from_stream(inject_keepalives(stream, Duration::from_secs(15)))
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
     } else {
         axum::body::Body::from_stream(stream)
     };
