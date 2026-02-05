@@ -58,12 +58,6 @@
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
 
-	// Protection rules state
-	let mergeUIRestricted = $state(false)
-	let canBypassMergeUIRestriction = $state(false)
-	let bypassMergeUIRestriction = $state(false)
-	let parentWorkspaceRules = $state<ProtectionRuleset[]>([])
-
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
 			if (mergeIntoParent) {
@@ -96,42 +90,6 @@
 
 	let hasBehindChanges = $derived(mergeIntoParent && itemsWithBehindChanges.length > 0)
 	let hasAheadChanges = $derived(mergeIntoParent && itemsWithAheadChanges.length > 0)
-
-	// Load parent workspace rules on mount and when parent changes
-	$effect(() => {
-		if (parentWorkspaceId) {
-			fetchProtectionRulesForWorkspace(parentWorkspaceId).then((rules) => {
-				parentWorkspaceRules = rules
-			})
-		}
-	})
-
-	// Check parent workspace rules for DisableMergeUIInForks
-	$effect(() => {
-		const user = $userStore
-
-		if (parentWorkspaceRules.length > 0 && user) {
-			const isMergeUIDisabled = parentWorkspaceRules.some((rs) =>
-				rs.rules.includes('DisableMergeUIInForks')
-			)
-			mergeUIRestricted = isMergeUIDisabled
-			canBypassMergeUIRestriction = isMergeUIDisabled
-				? parentWorkspaceRules
-						.filter((rs) => rs.rules.includes('DisableMergeUIInForks'))
-						.every((rs) => canUserBypassRule(rs, user))
-				: false
-		} else {
-			mergeUIRestricted = false
-			canBypassMergeUIRestriction = false
-		}
-	})
-
-	// Reset bypass checkbox when selection or direction changes
-	$effect(() => {
-		selectedItems
-		mergeIntoParent
-		bypassMergeUIRestriction = false
-	})
 
 	// Summary cache: stores summaries from both workspaces
 	type SummaryCache = Record<string, { current?: string; parent?: string; loading?: boolean }>
@@ -1068,48 +1026,12 @@
 				</div>
 
 				<div class="flex flex-col items-end gap-2">
-					{#if mergeUIRestricted && canBypassMergeUIRestriction}
-						<Alert
-							title="Merge UI restricted by protection rules"
-							type="warning"
-							class="my-2 max-w-96"
-						>
-							<span>
-								Workspace protection rules restrict deploying from forked workspaces. You have
-								permissions to bypass this restriction.
-							</span>
-							<label
-								class="font-medium flex flex-row gap-2 items-center text-orange-600 mt-2 cursor-pointer"
-							>
-								<input
-									type="checkbox"
-									bind:checked={bypassMergeUIRestriction}
-									class="rounded max-w-4"
-								/>
-								<span>Bypass protection rule and deploy anyway</span>
-							</label>
-						</Alert>
-					{:else if mergeUIRestricted && !canBypassMergeUIRestriction}
-						<Alert
-							title="Merge UI restricted by protection rules"
-							type="error"
-							class="my-2 max-w-96"
-						>
-							<span>
-								Workspace protection rules restrict deploying from forked workspaces. Contact a
-								workspace administrator for permission to bypass this restriction.
-							</span>
-						</Alert>
-					{/if}
-
 					{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
 						<Button
 							color="blue"
 							disabled={selectedItems.length === 0 ||
 								deploying ||
-								(hasBehindChanges && !allowBehindChangesOverride) ||
-								(mergeUIRestricted && !canBypassMergeUIRestriction) ||
-								(mergeUIRestricted && canBypassMergeUIRestriction && !bypassMergeUIRestriction)}
+								(hasBehindChanges && !allowBehindChangesOverride)}
 							loading={deploying}
 							on:click={deployChanges}
 						>
