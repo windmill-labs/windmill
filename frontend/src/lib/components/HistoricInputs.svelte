@@ -111,7 +111,6 @@
 				jobKinds: getJobKinds(runnableType),
 				syncQueuedRunsCount: false,
 				refreshRate: 10000,
-				computeMinAndMax: undefined,
 				currentWorkspace: $workspaceStore ?? '',
 				skip: !runnableId
 			}) satisfies UseJobLoaderArgs

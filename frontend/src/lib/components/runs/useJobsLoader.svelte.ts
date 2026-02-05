@@ -54,9 +54,7 @@ export interface UseJobLoaderArgs {
 	refreshRate?: number
 	syncQueuedRunsCount?: boolean
 	skip?: boolean
-	computeMinAndMax?: (() => { minTs: string; maxTs: string | null } | undefined) | undefined
 	lookback?: number
-	onSetMinMaxTs?: (minTs: string | null, maxTs: string | null) => void
 	onSetPerPage?: (perPage: number) => void
 }
 
@@ -71,9 +69,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let resultError = $derived(_args.resultError ?? '')
 	let refreshRate = $derived(_args.refreshRate ?? 5000)
 	let syncQueuedRunsCount = $derived(_args.syncQueuedRunsCount ?? true)
-	let computeMinAndMax = $derived(_args.computeMinAndMax)
 	let lookback = $derived(_args.lookback ?? 0)
-	let onSetMinMaxTs = $derived(_args.onSetMinMaxTs)
 	let onSetPerPage = $derived(_args.onSetPerPage)
 
 	let label = $derived(filters?.label ?? null)
@@ -374,23 +370,12 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	let lastQueueTs: string | undefined = undefined
 
 	async function syncer() {
-		if (success == 'waiting') {
-			onSetMinMaxTs?.(null, null)
-		}
 		if (loadingFetch) {
 			return
 		}
 		if (sync) {
 			if (syncQueuedRunsCount) {
 				getCount()
-			}
-
-			const ts = computeMinAndMax?.()
-			if (ts) {
-				onSetMinMaxTs?.(ts.minTs, ts.maxTs)
-				if (maxTs != undefined) {
-					loadJobsIntern(false)
-				}
 			}
 
 			if (jobs && maxTs == undefined) {

@@ -25,7 +25,6 @@
 	import ConfirmationModal from '$lib/components/common/confirmationModal/ConfirmationModal.svelte'
 	import RunsQueue from '$lib/components/runs/RunsQueue.svelte'
 	import { twMerge } from 'tailwind-merge'
-	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
 	import { isJobSelectable, pluralize, type RunsSelectionMode } from '$lib/utils'
@@ -121,27 +120,23 @@
 		}
 	}
 
-	let manualDatePicker: ManuelDatePicker | undefined = $state(undefined)
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart(page.url.searchParams.get('graph'))
 	)
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
 		filters,
-		computeMinAndMax: manualDatePicker?.computeMinMax,
 		jobKinds,
 		autoRefresh,
 		argError,
 		resultError,
 		lookback: graph === 'RunChart' ? 0 : lookback,
 		onSetPerPage: (p) => (filters.per_page = p),
-		onSetMinMaxTs: (minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs)),
 		currentWorkspace: $workspaceStore ?? ''
 	}))
 	let lastFetchWentToEnd = $derived(jobsLoader.lastFetchWentToEnd)
 	let queue_count = $derived(jobsLoader.queue_count)
 	let suspended_count = $derived(jobsLoader.suspended_count)
-	let loading = $derived(jobsLoader.loading)
 	let externalJobs = $derived(jobsLoader.externalJobs)
 	let extendedJobs = $derived(jobsLoader.extendedJobs)
 	// Avoid flicker, but still show empty if loading takes too long
@@ -760,7 +755,6 @@
 					onZoom={async (zoom) => {
 						filters.min_ts = zoom.min.toISOString()
 						filters.max_ts = zoom.max.toISOString()
-						manualDatePicker?.resetChoice()
 						jobsLoader?.loadJobs(true)
 					}}
 					onPointClicked={(ids) => {
@@ -820,17 +814,7 @@
 							{/if}
 						</div>
 						<div class="bg-surface border-t flex text-xs px-2 py-1 items-center gap-4">
-							<ManuelDatePicker
-								on:loadJobs={() => {
-									jobsLoader?.loadJobs(true)
-								}}
-								bind:minTs={filters.min_ts}
-								bind:maxTs={filters.max_ts}
-								bind:selectedManualDate
-								{loading}
-								bind:this={manualDatePicker}
-								numberOfLastJobsToFetch={filters.per_page}
-							/>
+							<div class="flex-1"></div>
 							<Toggle
 								size="xs"
 								bind:checked={autoRefresh}
@@ -840,7 +824,6 @@
 								options={{ right: 'Auto-refresh' }}
 								textClass="whitespace-nowrap"
 							/>
-							<div class="flex-1"></div>
 							<Select
 								class="w-24"
 								bind:value={
