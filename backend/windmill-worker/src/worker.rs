@@ -486,7 +486,8 @@ lazy_static::lazy_static! {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     tracing::warn!(
                         "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                        nsjail should be included in all standard windmill images. \
+                        Check that the nsjail binary is installed and working correctly.",
                         stderr.trim()
                     );
                     None
@@ -495,7 +496,8 @@ lazy_static::lazy_static! {
                     if e.kind() == std::io::ErrorKind::NotFound {
                         tracing::warn!(
                             "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            To enable nsjail: install nsjail binary or use windmill image with -nsjail suffix",
+                            nsjail should be included in all standard windmill images. \
+                            Check that the nsjail binary is installed at the expected path.",
                             nsjail_path
                         );
                     } else {
@@ -1533,7 +1535,11 @@ pub async fn run_worker(
 
     let is_dedicated_worker: bool = {
         let config = WORKER_CONFIG.read().await;
-        config.dedicated_worker.is_some() || config.dedicated_workers.as_ref().is_some_and(|dws| !dws.is_empty())
+        config.dedicated_worker.is_some()
+            || config
+                .dedicated_workers
+                .as_ref()
+                .is_some_and(|dws| !dws.is_empty())
     };
 
     #[cfg(feature = "benchmark")]
@@ -2045,7 +2051,9 @@ pub async fn run_worker(
                                 dedicated_workers.get(&key)
                             })
                         } else {
-                            job.runnable_path.as_ref().and_then(|path| dedicated_workers.get(path))
+                            job.runnable_path
+                                .as_ref()
+                                .and_then(|path| dedicated_workers.get(path))
                         };
                         if let Some(dedicated_worker_tx) = dedicated_worker_tx {
                             let dedicated_job = DedicatedWorkerJob {
@@ -2773,6 +2781,7 @@ async fn detect_and_store_runtime_assets_from_job_args(
             asset_kind: asset.kind,
             access_type: None,
             created_at: None,
+            columns: None,
         };
         register_runtime_asset(asset);
     }

@@ -120,8 +120,6 @@
 		goto('/')
 	}
 
-	let starred: boolean | undefined = $state(undefined)
-
 	async function loadTriggersCount() {
 		$triggersCount = await FlowService.getTriggersCountOfFlow({
 			workspace: $workspaceStore!,
@@ -146,7 +144,6 @@
 			path,
 			withStarredInfo: true
 		})
-		starred = flow.starred
 		if (!flow.path.startsWith(`u/${$userStore?.username}`) && flow.path.split('/').length > 2) {
 			invisible_to_owner = flow.visible_to_runner_only
 		}
@@ -512,15 +509,7 @@
 				/>
 			{/snippet}
 			{#if $workspaceStore && flow}
-				<Star
-					kind="flow"
-					path={flow.path}
-					{starred}
-					workspace_id={$workspaceStore}
-					onStarred={(newStarred) => {
-						starred = newStarred
-					}}
-				/>
+				<Star kind="flow" path={flow.path} summary={flow.summary} />
 			{/if}
 			{#if flow?.value?.priority != undefined}
 				<div class="hidden md:block">

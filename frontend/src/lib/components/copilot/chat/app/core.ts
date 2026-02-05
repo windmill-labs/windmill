@@ -696,7 +696,7 @@ export const getAppTools = memo((): Tool<AppAIChatHelpers>[] => [
 			})
 			const lintResult = await helpers.setBackendRunnable(parsedArgs.key, runnable)
 			toolCallbacks.setToolStatus(toolId, {
-				content: `Backend runnable '${parsedArgs.key}' analyzed`,
+				content: `Backend runnable '${parsedArgs.key}' set successfully.`,
 				result: 'Success'
 			})
 			return formatLintResultResponse(

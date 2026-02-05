@@ -60,6 +60,7 @@ class Boto3ConnectionSettings(dict):
     use_ssl: bool
     aws_access_key_id: str
     aws_secret_access_key: str
+    aws_session_token: Optional[str]
 
     def __getattr__(self, attr):
         return self[attr]
