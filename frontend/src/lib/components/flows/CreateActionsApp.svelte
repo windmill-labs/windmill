@@ -9,6 +9,7 @@
 	import { LayoutDashboard, Loader2, Plus, Code2, FlaskConical } from 'lucide-svelte'
 	import { importStore } from '../apps/store'
 	import Badge from '$lib/components/common/badge/Badge.svelte'
+
 	import YAML from 'yaml'
 
 	let drawer: Drawer | undefined = undefined
@@ -48,35 +49,35 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-		<Button
-			id="create-app-button"
-			aiId="apps-create-actions-app"
-			aiDescription="Create a new app"
-			unifiedSize="lg"
-			startIcon={{ icon: Plus }}
-			endIcon={{ icon: LayoutDashboard }}
-			on:click={openAppTypeModal}
-			variant="accent"
-			dropdownItems={[
-				{
-					label: 'Import low-code app from YAML',
-					onClick: () => {
-						drawer?.toggleDrawer?.()
-						importType = 'yaml'
-					}
-				},
-				{
-					label: 'Import low-code app from JSON',
-					onClick: () => {
-						drawer?.toggleDrawer?.()
-						importType = 'json'
-					}
+	<Button
+		id="create-app-button"
+		aiId="apps-create-actions-app"
+		aiDescription="Create a new app"
+		unifiedSize="lg"
+		startIcon={{ icon: Plus }}
+		endIcon={{ icon: LayoutDashboard }}
+		on:click={openAppTypeModal}
+		variant="accent"
+		dropdownItems={[
+			{
+				label: 'Import low-code app from YAML',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'yaml'
 				}
-			]}
-		>
-			<div class="flex flex-row items-center"> App </div>
-		</Button>
-	</div>
+			},
+			{
+				label: 'Import low-code app from JSON',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'json'
+				}
+			}
+		]}
+	>
+		<div class="flex flex-row items-center"> App </div>
+	</Button>
+</div>
 
 <!-- App Type Selection Modal -->
 <Modal bind:open={appTypeModalOpen} title="Choose your app builder">

@@ -55,7 +55,6 @@
 		showCode: (path: string, summary: string) => void
 		depth?: number
 		menuOpen?: boolean
-		showEditButton?: boolean
 	}
 
 	let {
@@ -68,8 +67,7 @@
 		errorHandlerMuted,
 		showCode,
 		depth = 0,
-		menuOpen = $bindable(false),
-		showEditButton = $bindable(true)
+		menuOpen = $bindable(false)
 	}: Props = $props()
 
 	const dispatch = createEventDispatcher()
@@ -150,7 +148,7 @@
 
 	{#snippet actions()}
 		<span class="hidden md:inline-flex gap-x-1">
-			{#if !$userStore?.operator && showEditButton}
+			{#if !$userStore?.operator}
 				{#if script.use_codebase}
 					<Badge
 						>bundle<Tooltip
@@ -193,7 +191,6 @@
 			aiDescription={`Open dropdown for script ${script.summary?.length > 0 ? script.summary : script.path} options`}
 			items={async () => {
 				let owner = isOwner(script.path, $userStore, $workspaceStore)
-				const canEdit = script.canWrite && showEditButton
 				if (script.draft_only) {
 					return [
 						{
@@ -218,7 +215,7 @@
 								}
 							},
 							type: dlt,
-							disabled: !canEdit
+							disabled: !script.canWrite
 						}
 					]
 				}
@@ -234,7 +231,6 @@
 						displayName: 'Duplicate/Fork',
 						icon: GitFork,
 						href: `${base}/scripts/add?template=${script.path}`,
-						disabled: !showEditButton,
 						hide: $userStore?.operator
 					},
 					{
@@ -243,7 +239,7 @@
 						action: () => {
 							moveDrawer.openDrawer(script.path, script.summary, 'script')
 						},
-						disabled: !owner || script.archived || !canEdit,
+						disabled: !owner || script.archived,
 						hide: $userStore?.operator
 					},
 					...(isDeployable('script', script.path, await getDeployUiSettings())
@@ -334,7 +330,7 @@
 								: script.path && archiveScript(script.path)
 						},
 						type: 'delete',
-						disabled: !owner || !canEdit,
+						disabled: !owner,
 						hide: $userStore?.operator
 					},
 
@@ -372,7 +368,7 @@
 										}
 									},
 									type: dlt,
-									disabled: !canEdit,
+									disabled: !script.canWrite,
 									hide: $userStore?.operator
 								}
 							]

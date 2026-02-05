@@ -59,7 +59,6 @@
 	import OperatorMenu from '$lib/components/sidebar/OperatorMenu.svelte'
 	import GlobalSearchModal from '$lib/components/search/GlobalSearchModal.svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
-	import { loadProtectionRules } from '$lib/workspaceProtectionRules.svelte'
 	import { setContext, untrack } from 'svelte'
 	import { base } from '$app/paths'
 	import { Menubar } from '$lib/components/meltComponents'
@@ -433,13 +432,6 @@
 		}
 	})
 
-	// Load workspace protection rules on workspace change
-	$effect(() => {
-		const workspace = $workspaceStore
-		if (workspace) {
-			untrack(() => loadProtectionRules(workspace))
-		}
-	})
 	watchOnce(
 		() => globalDbManagerDrawer.val,
 		() => {
