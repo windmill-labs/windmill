@@ -1088,18 +1088,20 @@ class Windmill:
 
     def __boto3_connection_settings(self, s3_resource) -> Boto3ConnectionSettings:
         endpoint_url_prefix = "https://" if s3_resource["useSSL"] else "http://"
-        return Boto3ConnectionSettings(
-            {
-                "endpoint_url": "{}{}".format(
-                    endpoint_url_prefix, s3_resource["endPoint"]
-                ),
-                "region_name": s3_resource["region"],
-                "use_ssl": s3_resource["useSSL"],
-                "aws_access_key_id": s3_resource["accessKey"],
-                "aws_secret_access_key": s3_resource["secretKey"],
-                # no need for path_style here as boto3 is clever enough to determine which one to use
-            }
-        )
+        settings = {
+            "endpoint_url": "{}{}".format(
+                endpoint_url_prefix, s3_resource["endPoint"]
+            ),
+            "region_name": s3_resource["region"],
+            "use_ssl": s3_resource["useSSL"],
+            "aws_access_key_id": s3_resource["accessKey"],
+            "aws_secret_access_key": s3_resource["secretKey"],
+            # no need for path_style here as boto3 is clever enough to determine which one to use
+        }
+        # Include session token for OIDC/STS temporary credentials
+        if s3_resource.get("token"):
+            settings["aws_session_token"] = s3_resource["token"]
+        return Boto3ConnectionSettings(settings)
 
     def whoami(self) -> dict:
         """Get the current user information.
