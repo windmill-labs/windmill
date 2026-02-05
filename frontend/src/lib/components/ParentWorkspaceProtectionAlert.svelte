@@ -60,10 +60,9 @@
 	<Alert type="info" title="Parent workspace protection active" class="my-2">
 		<div class="flex flex-col gap-2">
 			<p>
-				The parent workspace has protection rule{activeDeployRulesets.length > 1 ? 's' : ''}
+				The workspace {parentWorkspaceId} has a protection rule{activeDeployRulesets.length > 1 ? 's' : ''}
 				<b>{activeDeployRulesets.map((r) => r.name).join(', ')}</b>
-				that restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct deployments. Use either
-				a fork and the deployment UI, or a git sync based workflow.
+				that restrict{activeDeployRulesets.length > 1 ? '' : 's'} direct deployments. You need to merge changes through the synced git repo with Git Sync, or by asking an user with the rights to bypass this rule.
 			</p>
 			{#if canBypass}
 				<label class="flex items-center gap-2 cursor-pointer">
