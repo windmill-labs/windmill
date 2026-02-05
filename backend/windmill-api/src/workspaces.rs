@@ -3533,8 +3533,8 @@ async fn create_workspace_fork_branch(
         &w_id,
         &ProtectionRuleKind::DisableWorkspaceForking,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -3567,8 +3567,8 @@ async fn create_workspace_fork(
         &parent_workspace_id,
         &ProtectionRuleKind::DisableWorkspaceForking,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?

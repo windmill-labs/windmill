@@ -5142,6 +5142,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
+        - name: deployed_from_workspace
+          in: query
+          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
+          required: false
+          schema:
+            type: string
       requestBody:
         description: updated resource_type
         required: true
@@ -8056,6 +8062,12 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: deployed_from_workspace
+          in: query
+          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
+          required: false
+          schema:
+            type: string
       requestBody:
         description: new app
         required: true
@@ -8486,6 +8498,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
+        - name: deployed_from_workspace
+          in: query
+          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
+          required: false
+          schema:
+            type: string
       requestBody:
         description: update app
         required: true
@@ -14150,6 +14168,12 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
+        - name: deployed_from_workspace
+          in: query
+          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
+          required: false
+          schema:
+            type: string
       requestBody:
         description: create folder
         required: true
@@ -14188,6 +14212,12 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Name"
+        - name: deployed_from_workspace
+          in: query
+          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
+          required: false
+          schema:
+            type: string
       requestBody:
         description: update folder
         required: true

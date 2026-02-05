@@ -1047,6 +1047,7 @@ async fn create_app_raw<'a>(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     multipart: Multipart,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1054,6 +1055,26 @@ async fn create_app_raw<'a>(
             "Operators cannot create apps for security reasons".to_string(),
         ));
     }
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let (path, _id) = process_app_multipart!(
         authed,
         user_db,
@@ -1125,8 +1146,8 @@ async fn create_app(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -1471,8 +1492,8 @@ async fn update_app(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -1502,6 +1523,7 @@ async fn update_app_raw<'a>(
     Extension(user_db): Extension<UserDB>,
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Path((w_id, path)): Path<(String, StripPath)>,
     multipart: Multipart,
 ) -> Result<String> {
@@ -1510,6 +1532,26 @@ async fn update_app_raw<'a>(
             "Operators cannot update apps for security reasons".to_string(),
         ));
     }
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
     let opath = path.to_string();

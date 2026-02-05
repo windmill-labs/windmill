@@ -714,8 +714,8 @@ async fn create_resource(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -968,8 +968,8 @@ async fn update_resource(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -1114,8 +1114,8 @@ async fn update_resource_value(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -1287,8 +1287,8 @@ async fn create_resource_type(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -1431,9 +1431,29 @@ async fn update_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("resource_type");
     sqlb.and_where_eq("name", "?".bind(&name));

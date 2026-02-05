@@ -354,8 +354,8 @@ async fn create_variable(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -651,8 +651,8 @@ async fn update_variable(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?

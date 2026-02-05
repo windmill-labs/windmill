@@ -450,8 +450,8 @@ async fn create_flow(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
@@ -903,8 +903,8 @@ async fn update_flow(
         &w_id,
         &rule_kind,
         AuditAuthorable::username(&authed),
-        authed.groups(),
-        authed.is_admin(),
+        &authed.groups,
+        authed.is_admin,
         &db,
     )
     .await?
