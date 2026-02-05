@@ -246,7 +246,7 @@ pub const DEFAULT_SLEEP_QUEUE: u64 = 50;
 // only 1 native job so that we don't have to worry about concurrency issues on non dedicated native jobs workers
 pub const DEFAULT_NATIVE_JOBS: usize = 1;
 
-const VACUUM_PERIOD: u32 = 50000;
+const VACUUM_PERIOD: u32 = 10000;
 
 // #[cfg(any(target_os = "linux"))]
 // const DROP_CACHE_PERIOD: u32 = 1000;
