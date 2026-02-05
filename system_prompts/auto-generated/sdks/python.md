@@ -168,10 +168,11 @@ def set_variable(path: str, value: str, is_secret: bool = False) -> None
 # Args:
 #     path: Resource path in Windmill
 #     none_if_undefined: Return None instead of raising if not found
+#     interpolated: if variables and resources are fully unrolled
 # 
 # Returns:
 #     Resource value dictionary or None
-def get_resource(path: str, none_if_undefined: bool = False) -> dict | None
+def get_resource(path: str, none_if_undefined: bool = False, interpolated: bool = True) -> dict | None
 
 # Set a resource value by path, creating it if it doesn't exist.
 # 
@@ -196,7 +197,17 @@ def list_resources(resource_type: str = None, page: int = None, per_page: int = 
 # 
 # Args:
 #     value: State value to set
-def set_state(value: Any)
+#     path: Optional state resource path override.
+def set_state(value: Any, path: str | None = None) -> None
+
+# Get the workflow state.
+# 
+# Args:
+#     path: Optional state resource path override.
+# 
+# Returns:
+#     State value or None if not set
+def get_state(path: str | None = None) -> Any
 
 # Set job progress percentage (0-99).
 # 
@@ -365,10 +376,13 @@ def get_shared_state(path: str = 'state.json') -> None
 # 
 # Args:
 #     approver: Optional approver name
+#     flow_level: If True, generate resume URLs for the parent flow instead of the
+#         specific step. This allows pre-approvals that can be consumed by any later
+#         suspend step in the same flow.
 # 
 # Returns:
 #     Dictionary with approvalPage, resume, and cancel URLs
-def get_resume_urls(approver: str = None) -> dict
+def get_resume_urls(approver: str = None, flow_level: bool = None) -> dict
 
 # Sends an interactive approval request via Slack, allowing optional customization of the message, approver, and form fields.
 # 
@@ -486,9 +500,6 @@ def polars_connection_settings(s3_resource_path: str = '') -> PolarsConnectionSe
 # initiate an S3 connection using boto3
 def boto3_connection_settings(s3_resource_path: str = '') -> Boto3ConnectionSettings
 
-# Get the state
-def get_state() -> Any
-
 # Get the state resource path from environment.
 # 
 # Returns:
@@ -536,7 +547,7 @@ def stream_result(stream) -> None
 # 
 # Returns:
 #     SqlQuery instance for fetching results
-def query(sql: str, *args)
+def query(sql: str, *args) -> SqlQuery
 
 # Execute query and fetch results.
 # 
@@ -553,8 +564,20 @@ def fetch(result_collection: str | None = None)
 #     First row of query results
 def fetch_one()
 
+# Execute query and fetch first row of results. Return result as a scalar value.
+# 
+# Returns:
+#     First row of query result as a scalar value
+def fetch_one_scalar()
+
+# Execute query and don't return any results.
+#         
+def execute()
+
 # DuckDB executor requires explicit argument types at declaration
 # These types exist in both DuckDB and Postgres
 # Check that the types exist if you plan to extend this function for other SQL engines.
 def infer_sql_type(value) -> str
+
+def parse_sql_client_name(name: str) -> tuple[str, Optional[str]]
 

@@ -94,7 +94,18 @@ zodCode = zodCode.replace(/z\\.literal\\(\"__CIRCULAR_REF_FLOWMODULE__\"\\)/g, '
 // FlowModuleValue is used for AI agent tool values
 zodCode = zodCode.replace(/z\\.literal\\(\"__CIRCULAR_REF_FLOWMODULEVALUE__\"\\)/g, 'z.lazy(() => flowModuleValueSchema)');
 
-zodCode = zodCode.replace('from \"zod\"', 'from \"zod/v3\"');
+// Fix z.record() calls for Zod 4 compatibility
+// In Zod 4, z.record(valueSchema) means keySchema, not valueSchema
+// We need z.record(z.string(), valueSchema) for string keys with typed values
+zodCode = zodCode.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
+valueSchemaExport = valueSchemaExport.replace(/z\\.record\\(z\\./g, 'z.record(z.string(), z.');
+
+// Fix refinement API for Zod 4 compatibility
+// Zod 4 uses 'errors' instead of 'unionErrors' and doesn't have ctx.path
+zodCode = zodCode.replace(/unionErrors: errors/g, 'errors: errors.map(e => e.issues)');
+zodCode = zodCode.replace(/path: ctx\\.path,\\n/g, '');
+valueSchemaExport = valueSchemaExport.replace(/unionErrors: errors/g, 'errors: errors.map(e => e.issues)');
+valueSchemaExport = valueSchemaExport.replace(/path: ctx\\.path,\\n/g, '');
 
 // Insert the valueSchemaExport before flowModuleSchema definition
 zodCode = zodCode.replace(

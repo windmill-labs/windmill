@@ -20,6 +20,7 @@ import { nextId } from './flowModuleNextId'
 import { findNextAvailablePath } from '$lib/path'
 import type { ExtendedOpenFlow } from './types'
 import { emptySchema, type StateStore } from '$lib/utils'
+import { loadStoredConfig } from '../aiProviderStorage'
 
 export async function loadFlowModuleState(flowModule: FlowModule): Promise<FlowModuleState> {
 	try {
@@ -163,13 +164,16 @@ export async function createBranchAll(id: string): Promise<[FlowModule, FlowModu
 }
 
 export async function createAiAgent(id: string): Promise<[FlowModule, FlowModuleState]> {
+	const storedConfig = loadStoredConfig()
+	const providerValue = storedConfig ?? { kind: 'openai', resource: '', model: '' }
+
 	const aiAgentFlowModules: FlowModule = {
 		id,
 		value: {
 			type: 'aiagent',
 			tools: [],
 			input_transforms: {
-				provider: { type: 'static', value: undefined },
+				provider: { type: 'static', value: providerValue },
 				output_type: { type: 'static', value: 'text' },
 				user_message: { type: 'static', value: undefined }
 			}

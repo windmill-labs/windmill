@@ -5,7 +5,8 @@ import {
 	type InputTransform,
 	type Job,
 	type RestartedFrom,
-	type OpenFlow
+	type OpenFlow,
+	type MemoryConfig
 } from '$lib/gen'
 import { workspaceStore } from '$lib/stores'
 import { cleanExpr, emptySchema } from '$lib/utils'
@@ -130,13 +131,10 @@ export function cleanFlow(flow: OpenFlow | any): OpenFlow & {
 		if (!newFlow.value.chat_input_enabled && mod.value.type === 'aiagent') {
 			const memoryTransform = mod.value.input_transforms?.memory
 			if (memoryTransform?.type === 'static' && memoryTransform.value) {
-				const memoryValue = memoryTransform.value as {
-					kind: string
-					context_length: number
-					memory_id: string
-				}
+				const memoryValue = memoryTransform.value as MemoryConfig
 				if (
 					memoryValue.kind === 'auto' &&
+					memoryValue.context_length &&
 					memoryValue.context_length > 0 &&
 					!memoryValue.memory_id
 				) {

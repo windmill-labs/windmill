@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { JobService } from '$lib/gen'
+	import { JobService, type FlowValue } from '$lib/gen'
 	import { workspaceStore } from '$lib/stores'
 	import { tryEvery } from '$lib/utils'
 	import { Check, LoaderCircle, Server, X, Cpu } from 'lucide-svelte'
@@ -80,7 +80,7 @@
 			const job = await JobService.runFlowPreview({
 				workspace: $workspaceStore!,
 				requestBody: {
-					value: flowValue,
+					value: flowValue as unknown as FlowValue,
 					args: {}
 				}
 			})

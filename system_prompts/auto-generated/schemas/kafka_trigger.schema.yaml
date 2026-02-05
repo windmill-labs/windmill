@@ -1,0 +1,66 @@
+type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  kafka_resource_path:
+    type: string
+    description: Path to the Kafka resource containing connection configuration
+  group_id:
+    type: string
+    description: Kafka consumer group ID for this trigger
+  topics:
+    type: array
+    items:
+      type: string
+    description: Array of Kafka topic names to subscribe to
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- kafka_resource_path
+- group_id
+- topics

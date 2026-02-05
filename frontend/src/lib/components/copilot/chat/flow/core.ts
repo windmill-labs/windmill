@@ -41,6 +41,207 @@ import { collectAllModuleIdsFromArray } from './utils'
 import { getFlowPrompt } from '$system_prompts'
 
 /**
+ * Navigate to a schema at a given path, handling arrays, objects, unions, and wrappers.
+ * Uses Zod 4 internal structure.
+ * @param schema The Zod schema to navigate
+ * @param path The path to navigate
+ * @param data Optional actual data to help resolve discriminated unions
+ */
+function getSchemaAtPath(
+	schema: z.ZodType,
+	path: (string | number)[],
+	data?: any
+): z.ZodType | null {
+	let current: z.ZodType = schema
+	let currentData = data
+
+	for (let i = 0; i < path.length; i++) {
+		const segment = path[i]
+
+		if (!current || !(current as any)._def) return null
+
+		let type = (current as any)._def.type
+
+		// Unwrap optional/nullable/default/catch
+		while (['optional', 'nullable', 'default', 'catch'].includes(type)) {
+			current = (current as any)._def.innerType
+			if (!current || !(current as any)._def) return null
+			type = (current as any)._def.type
+		}
+
+		// Handle arrays
+		if (type === 'array') {
+			if (typeof segment === 'number') {
+				current = (current as any)._def.element
+				if (currentData && Array.isArray(currentData)) {
+					currentData = currentData[segment]
+				}
+				continue
+			}
+			// If segment is not a number, continue into element type
+			current = (current as any)._def.element
+			i--
+			continue
+		}
+
+		// Handle objects
+		if (type === 'object') {
+			const shape = (current as any)._def.shape
+			const key = String(segment)
+			if (shape && key in shape) {
+				current = shape[key]
+				if (currentData && typeof currentData === 'object') {
+					currentData = currentData[key]
+				}
+				continue
+			}
+			return null
+		}
+
+		// Handle discriminated unions (shows as 'union' in Zod 4)
+		if (type === 'union') {
+			const options = (current as any)._def.options
+			if (options) {
+				// If we have data, try to find the correct union option based on discriminator
+				if (currentData && typeof currentData === 'object') {
+					// Check for common discriminator fields
+					const typeValue = currentData.type
+					if (typeValue) {
+						// Find option that matches this type
+						for (const option of options) {
+							const optionShape = (option as any)._def?.shape
+							const optionType = optionShape?.type?._def?.values?.[0]
+							if (optionType === typeValue) {
+								const remainingPath = path.slice(i)
+								const result = getSchemaAtPath(option, remainingPath, currentData)
+								if (result) return result
+							}
+						}
+					}
+				}
+
+				// Fallback: try to find a matching schema in any of the options
+				for (const option of options) {
+					const remainingPath = path.slice(i)
+					const result = getSchemaAtPath(option, remainingPath, currentData)
+					if (result) return result
+				}
+			}
+			return null
+		}
+
+		// Handle record - any string key accesses the value type
+		if (type === 'record') {
+			current = (current as any)._def.valueType
+			if (!current) return null
+			if (currentData && typeof currentData === 'object') {
+				currentData = currentData[segment]
+			}
+			continue
+		}
+
+		return null
+	}
+
+	return current
+}
+
+/**
+ * Format a JSON Schema object into a concise human-readable string for error messages.
+ * Prioritizes structural information (object shapes, enums) over descriptions.
+ */
+function formatJsonSchemaForError(jsonSchema: any): string {
+	// For objects, show structure (more actionable than description)
+	if (jsonSchema.type === 'object' && jsonSchema.properties) {
+		const props = Object.entries(jsonSchema.properties)
+			.slice(0, 5) // Limit to 5 properties
+			.map(([k, v]: [string, any]) => {
+				// Include enum values for string properties if available
+				if (v.enum) {
+					return `${k}: ${v.enum.map((e: any) => JSON.stringify(e)).join('|')}`
+				}
+				return `${k}: ${v.type || 'any'}`
+			})
+			.join(', ')
+		const moreProps =
+			Object.keys(jsonSchema.properties).length > 5
+				? `, ... (${Object.keys(jsonSchema.properties).length - 5} more)`
+				: ''
+		const required = jsonSchema.required?.length
+			? ` (required: ${jsonSchema.required.join(', ')})`
+			: ''
+		return `{ ${props}${moreProps} }${required}`
+	}
+
+	if (jsonSchema.const !== undefined) {
+		return JSON.stringify(jsonSchema.const)
+	}
+
+	if (jsonSchema.enum) {
+		return `one of: ${jsonSchema.enum.map((v: any) => JSON.stringify(v)).join(', ')}`
+	}
+
+	if (jsonSchema.oneOf) {
+		return jsonSchema.oneOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
+	}
+
+	if (jsonSchema.anyOf) {
+		return jsonSchema.anyOf.map((s: any) => formatJsonSchemaForError(s)).join(' | ')
+	}
+
+	// Fall back to description for non-structural types
+	if (jsonSchema.description) {
+		return jsonSchema.description
+	}
+
+	return jsonSchema.type || JSON.stringify(jsonSchema)
+}
+
+/**
+ * Extract a human-readable description of what a schema expects.
+ * For objects, prefers showing the actual structure over descriptions.
+ * For simpler types, uses description if available.
+ */
+function getExpectedFormat(schema: z.ZodType): string | null {
+	if (!schema || !(schema as any)._def) return null
+
+	let current = schema
+
+	// Unwrap optional/nullable to get inner type
+	while (
+		(current as any)._def.type === 'optional' ||
+		(current as any)._def.type === 'nullable'
+	) {
+		current = (current as any)._def.innerType
+		if (!current || !(current as any)._def) break
+	}
+
+	// Try JSON Schema representation first for objects (more actionable than descriptions)
+	try {
+		const jsonSchema = z.toJSONSchema(schema)
+		// Skip if it's just a schema with no useful info
+		if (
+			Object.keys(jsonSchema).length <= 1 ||
+			(Object.keys(jsonSchema).length === 1 && jsonSchema.$schema)
+		) {
+			return null
+		}
+		const formatted = formatJsonSchemaForError(jsonSchema)
+		if (formatted && formatted !== 'unknown' && !formatted.startsWith('{')) {
+			return formatted
+		}
+		// For objects, only return if it has meaningful properties
+		if (formatted && formatted.startsWith('{') && formatted !== '{ }') {
+			return formatted
+		}
+	} catch {
+		// Ignore errors from toJSONSchema
+	}
+
+	return null
+}
+
+/**
  * Helper interface for AI chat flow operations
  *
  * Note: AI chat is only responsible for setting the beforeFlow snapshot when making changes.
@@ -543,16 +744,30 @@ export const flowTools: Tool<FlowAIChatHelpers>[] = [
 			if (parsedModules) {
 				const result = flowModulesSchema.safeParse(parsedModules)
 				if (!result.success) {
-					const errors = result.error.errors.slice(0, 5).map((e) => {
+					const errors = result.error.issues.slice(0, 5).map((e) => {
 						const path = e.path
 						// Try to find module id for better context
 						const moduleIndex = typeof path[0] === 'number' ? path[0] : undefined
-						const moduleId = moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
+						const moduleId =
+							moduleIndex !== undefined ? parsedModules[moduleIndex]?.id : undefined
 						const fieldPath = path.slice(1).join('.')
 
 						let message = e.message
 						if (e.code === 'invalid_type') {
-							message = `expected ${(e as any).expected}, got ${(e as any).received}`
+							// Zod 4 message already contains "expected X, received Y"
+							// Try to extract expected format from schema, passing actual data
+							// to help resolve discriminated unions correctly
+							const targetSchema = getSchemaAtPath(
+								flowModulesSchema,
+								path as (string | number)[],
+								parsedModules
+							)
+							if (targetSchema) {
+								const expectedFormat = getExpectedFormat(targetSchema)
+								if (expectedFormat) {
+									message += `\n    Expected format: ${expectedFormat}`
+								}
+							}
 						}
 
 						if (moduleId) {

@@ -62,9 +62,7 @@ import { getLangContext } from "$system_prompts/languages";
 
 ### CLI
 
-Copies the relevant prompts in /cli/src/guidance/prompts.ts
-
-```
+Generates `/cli/src/guidance/skills.ts` with embedded skill content for `wmill init`.
 
 ## Editing Guidelines
 

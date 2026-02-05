@@ -194,12 +194,15 @@ export async function regenerateAgentDocs(
   const agentsContent = generateAgentsDocumentation(localData);
   await Deno.writeTextFile(path.join(targetDir, "AGENTS.md"), agentsContent);
 
+  // Generate and write CLAUDE.md referencing AGENTS.md
+  await Deno.writeTextFile(path.join(targetDir, "CLAUDE.md"), `Instructions are in @AGENTS.md\n`);
+
   // Generate and write DATATABLES.md
   const datatablesContent = generateDatatablesMarkdown(schemas, localData);
   await Deno.writeTextFile(path.join(targetDir, "DATATABLES.md"), datatablesContent);
 
   if (!silent) {
-    log.info(colors.green(`✓ Generated AGENTS.md and DATATABLES.md`));
+    log.info(colors.green(`✓ Generated AGENTS.md, CLAUDE.md, and DATATABLES.md`));
 
     // Summary
     const datatableCount = schemas.length;
