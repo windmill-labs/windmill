@@ -87,7 +87,14 @@ impl AssetCollector {
                     .map(|id| id.as_ident().map(|id| id.value.clone()))
                     .collect::<Option<Vec<String>>>()?
                     .join(".");
-                let path = format!("{}/{}", path, specific_table);
+
+                // For Resource assets, use ?table= query parameter syntax
+                // For Ducklake and DataTable, maintain /table syntax
+                let path = if *kind == AssetKind::Resource {
+                    format!("{}?table={}", path, specific_table)
+                } else {
+                    format!("{}/{}", path, specific_table)
+                };
                 return Some(ParseAssetsResult { kind: *kind, access_type, path, columns: None });
             }
         }
@@ -104,7 +111,14 @@ impl AssetCollector {
                 .map(|id| id.as_ident().map(|id| id.value.clone()))
                 .collect::<Option<Vec<String>>>()?
                 .join(".");
-            format!("{}/{}", path, specific_table)
+
+            // For Resource assets, use ?table= query parameter syntax
+            // For Ducklake and DataTable, maintain /table syntax
+            if *kind == AssetKind::Resource {
+                format!("{}?table={}", path, specific_table)
+            } else {
+                format!("{}/{}", path, specific_table)
+            }
         } else {
             path.clone()
         };
@@ -845,7 +859,7 @@ mod tests {
             s.map_err(|e| e.to_string()),
             Ok(vec![ParseAssetsResult {
                 kind: AssetKind::Resource,
-                path: "u/user/pg_resource/table1".to_string(),
+                path: "u/user/pg_resource?table=table1".to_string(),
                 access_type: Some(R),
                 columns: None
             },])
@@ -866,6 +880,75 @@ mod tests {
                 path: "main/table1".to_string(),
                 access_type: Some(W),
                 columns: Some(BTreeMap::from([("id".to_string(), W)])),
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_resource_vs_ducklake_syntax() {
+        // Test that Resource uses ?table= while Ducklake uses /table
+        let input_resource = r#"
+            ATTACH 'res://u/user/pg_resource' AS db (TYPE postgres);
+            SELECT * FROM db.users;
+        "#;
+        let s = parse_assets(input_resource).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Resource,
+                path: "u/user/pg_resource?table=users".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+
+        let input_ducklake = r#"
+            ATTACH 'ducklake://my_lake' AS dl;
+            SELECT * FROM dl.users;
+        "#;
+        let s = parse_assets(input_ducklake).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Ducklake,
+                path: "my_lake/users".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+
+        let input_datatable = r#"
+            ATTACH 'datatable://dt1' AS dt;
+            SELECT * FROM dt.users;
+        "#;
+        let s = parse_assets(input_datatable).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::DataTable,
+                path: "dt1/users".to_string(),
+                access_type: Some(R),
+                columns: None
+            },])
+        );
+    }
+
+    #[test]
+    fn test_sql_asset_parser_resource_with_long_path() {
+        // Test that Resource works with paths longer than 3 components
+        let input = r#"
+            ATTACH 'res://u/diego/a/b/c/my_postgres_resource' AS db (TYPE postgres);
+            USE db;
+            SELECT * FROM my_table;
+        "#;
+        let s = parse_assets(input).map(|s| s.assets);
+        assert_eq!(
+            s.map_err(|e| e.to_string()),
+            Ok(vec![ParseAssetsResult {
+                kind: AssetKind::Resource,
+                path: "u/diego/a/b/c/my_postgres_resource?table=my_table".to_string(),
+                access_type: Some(R),
+                columns: None
             },])
         );
     }

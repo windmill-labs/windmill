@@ -57,7 +57,6 @@
 	)
 
 	export function openDrawer(nInput: DbInput) {
-		console.log('Opening DB Manager with input:', nInput)
 		input = nInput
 		if (isDatatableInput) {
 			datatables.refetch()

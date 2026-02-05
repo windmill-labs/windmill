@@ -31,7 +31,11 @@ export function formatAsset(asset: Asset): string {
 }
 
 export function formatShortAssetPath(asset: Asset): string {
-	return asset.path.split('/').pop() || asset.path
+	if (asset.kind === 'datatable' && asset.path === 'main') return 'Main data table'
+	if (asset.kind === 'ducklake' && asset.path === 'main') return 'Main ducklake'
+	const s = asset.path.split('/').pop() || asset.path
+	if (s.includes('?table=')) return s.split('?table=')[1]
+	return s
 }
 
 export function getAssetUsagePageUri(usage: AssetUsage) {

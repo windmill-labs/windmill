@@ -58,8 +58,7 @@
 	{btnClasses}
 	on:click={async () => {
 		if (asset.kind === 'resource' && isDbType(_resourceMetadata?.resource_type)) {
-			let resourcePath = asset.path.split('/').slice(0, 3).join('/')
-			let specificTable = asset.path.split('/')[3] as string | undefined
+			let [resourcePath, specificTable] = asset.path.split('?table=')
 			dbManagerDrawer?.openDrawer({
 				type: 'database',
 				resourceType: _resourceMetadata.resource_type,
