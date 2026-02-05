@@ -10,6 +10,7 @@
 	import './runs-grid.css'
 	import { useKeyboardModifiers } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
+	import RightClickPopover from '../RightClickPopover.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -40,6 +41,7 @@
 	}: Props = $props()
 
 	const keyboardModifiers = useKeyboardModifiers()
+	let rightClickPopover: RightClickPopover | undefined = $state(undefined)
 
 	function getTime(job: Job): string | undefined {
 		return job['completed_at'] ?? job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
@@ -272,7 +274,15 @@
 										{jobOrDate.date}
 									</div>
 								{:else}
-									<div class="flex flex-row items-center h-full w-full select-none">
+									<!-- svelte-ignore a11y_click_events_have_key_events -->
+									<!-- svelte-ignore a11y_no_static_element_interactions -->
+									<div
+										class="flex flex-row items-center h-full w-full select-none"
+										oncontextmenu={(e) => {
+											e.preventDefault()
+											rightClickPopover?.open(e)
+										}}
+									>
 										<RunRow
 											{containsLabel}
 											{showTag}
@@ -362,6 +372,8 @@
 		{/if}
 	</div>
 </div>
+
+<RightClickPopover bind:this={rightClickPopover}></RightClickPopover>
 
 <style>
 	:global(.virtual-list-wrapper::-webkit-scrollbar) {
