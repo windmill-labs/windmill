@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.626.0](https://github.com/windmill-labs/windmill/compare/v1.625.0...v1.626.0) (2026-02-05)
+
+
+### Features
+
+* **local-dev:** create Claude skills when doing `wmill init` ([#7699](https://github.com/windmill-labs/windmill/issues/7699)) ([a7ce548](https://github.com/windmill-labs/windmill/commit/a7ce5484b8ec386af59f501c36e5ffc147e1d34a))
+
+
+### Bug Fixes
+
+* fix DB Manager not working with db resources with 4+ path segments ([#7809](https://github.com/windmill-labs/windmill/issues/7809)) ([3476ef4](https://github.com/windmill-labs/windmill/commit/3476ef4b9c795fb8511a83f2297154a4f55aa829))
+* fix indexer select performances busiying the db ([c3815c8](https://github.com/windmill-labs/windmill/commit/c3815c8c99d5b7d6b2dfc0e3b59d1ba51022ee39))
+* **frontend:** dedicated worker broken runnable select ([#7808](https://github.com/windmill-labs/windmill/issues/7808)) ([6f6ff9d](https://github.com/windmill-labs/windmill/commit/6f6ff9d4217e99901562b01eb258c7ccdcb0e3f4))
+* python client oidc pass session token ([#7799](https://github.com/windmill-labs/windmill/issues/7799)) ([b468603](https://github.com/windmill-labs/windmill/commit/b468603f6bc52961057fbd88539eb379a19efd9d))
+
 ## [1.625.0](https://github.com/windmill-labs/windmill/compare/v1.624.0...v1.625.0) (2026-02-04)
 
 

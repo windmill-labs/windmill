@@ -8,7 +8,7 @@
 	import { createToggleGroup, melt } from '@melt-ui/svelte'
 	interface Props {
 		id?: string | null | undefined
-		selected?: string | string[] | undefined
+		selected?: string | string[] | null | undefined
 		noWFull?: boolean
 		disabled?: boolean
 		tabListClass?: string
@@ -56,7 +56,7 @@
 
 	const sync = createSync(states)
 	$effect(() => {
-		sync.value(selected, (v) => (selected = v))
+		sync.value(selected ?? undefined, (v) => (selected = v))
 	})
 </script>
 

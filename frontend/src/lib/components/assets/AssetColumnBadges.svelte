@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { type AssetUsageAccessType } from 'windmill-utils-internal/dist/gen/types.gen'
+	import { type AssetUsageAccessType } from '$lib/gen'
 	import { formatAssetAccessType } from './lib'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import { twMerge } from 'tailwind-merge'

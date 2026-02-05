@@ -1,5 +1,4 @@
-//regex that match path starting with u/ or f/ and with at least 2 /
-const pathRegex = /\b(u|f)\/[^\/\s]+\/[^\/\s]+\b/g
+const pathRegex = /\b(u|f)(\/[^\/\s]+){2,}\b/g
 
 export function processMessage(message: string | undefined): string {
 	let msg = !message
