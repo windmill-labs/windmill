@@ -45,7 +45,7 @@
 	--ag-input-disabled-border-color: rgba(186, 191, 199, 0.3);
 	--ag-input-disabled-background-color: rgba(186, 191, 199, 0.15);
 	--ag-borders: solid 1px;
-	--ag-border-radius: 8px;
+	--ag-border-radius: 4px;
 	--ag-borders-side-button: none;
 	--ag-side-button-selected-background-color: transparent;
 	--ag-header-column-resize-handle-display: block;
@@ -66,8 +66,9 @@
 	--ag-widget-vertical-spacing: calc(var(--ag-grid-size) * 1.5);
 	--ag-toggle-button-height: 18px;
 	--ag-toggle-button-width: 28px;
-	--ag-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu,
-		Cantarell, 'Helvetica Neue', sans-serif;
+	--ag-font-family:
+		-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen-Sans, Ubuntu, Cantarell,
+		'Helvetica Neue', sans-serif;
 	--ag-font-size: 0.7rem;
 	--ag-icon-font-family: agGridalpine;
 	--ag-selected-tab-underline-color: var(--ag-alpine-active-color);
@@ -92,8 +93,8 @@
 	--ag-control-panel-background-color: #222628;
 	--ag-subheader-background-color: #000;
 	--ag-input-disabled-background-color: #282c2f;
-	--ag-input-focus-box-shadow: 0 0 2px 0.5px rgba(255, 255, 255, 0.5),
-		0 0 4px 3px var(--ag-input-focus-border-color);
+	--ag-input-focus-box-shadow:
+		0 0 2px 0.5px rgba(255, 255, 255, 0.5), 0 0 4px 3px var(--ag-input-focus-border-color);
 	--ag-card-shadow: 0 1px 20px 1px black;
 	--ag-disabled-foreground-color: rgba(255, 255, 255, 0.5);
 	--ag-chip-background-color: rgba(255, 255, 255, 0.07);
@@ -119,8 +120,8 @@
 		--ag-control-panel-background-color: #222628;
 		--ag-subheader-background-color: #000;
 		--ag-input-disabled-background-color: #282c2f;
-		--ag-input-focus-box-shadow: 0 0 2px 0.5px rgba(255, 255, 255, 0.5),
-			0 0 4px 3px var(--ag-input-focus-border-color);
+		--ag-input-focus-box-shadow:
+			0 0 2px 0.5px rgba(255, 255, 255, 0.5), 0 0 4px 3px var(--ag-input-focus-border-color);
 		--ag-card-shadow: 0 1px 20px 1px black;
 		--ag-disabled-foreground-color: rgba(255, 255, 255, 0.5);
 		--ag-chip-background-color: rgba(255, 255, 255, 0.07);

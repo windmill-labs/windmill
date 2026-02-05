@@ -169,7 +169,6 @@
 			}
 		}
 	}
-	let starred: boolean | undefined = $state(undefined)
 
 	async function loadTriggers(path: string): Promise<void> {
 		await triggersState.fetchTriggers(
@@ -209,7 +208,6 @@
 					no_main_func: false,
 					has_preprocessor: false
 				}
-				starred = false
 				can_write = false
 				return
 			} catch (e) {
@@ -226,7 +224,6 @@
 				withStarredInfo: true,
 				authed: true
 			})
-			starred = script.starred
 		} catch {
 			try {
 				script = await ScriptService.getScriptByPath({
@@ -234,7 +231,6 @@
 					path: hash,
 					withStarredInfo: true
 				})
-				starred = script.starred
 				hash = script.hash
 			} catch (e) {
 				sendUserToast('Could not load script: ' + e.body, true)
@@ -658,15 +654,7 @@
 					/>
 				{/snippet}
 				{#if $workspaceStore && script}
-					<Star
-						kind="script"
-						path={script.path}
-						{starred}
-						workspace_id={$workspaceStore}
-						onStarred={(newStarred) => {
-							starred = newStarred
-						}}
-					/>
+					<Star kind="script" path={script.path} summary={script.summary} />
 				{/if}
 				{#if script?.codebase}
 					<Badge

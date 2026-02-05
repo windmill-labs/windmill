@@ -940,7 +940,6 @@
 							kind={diff.kind}
 							canFavorite={false}
 							workspaceId=""
-							starred={false}
 						>
 							{#snippet customSummary()}
 								{#if oldSummary != newSummary && isSelectable && existsInBothWorkspaces}

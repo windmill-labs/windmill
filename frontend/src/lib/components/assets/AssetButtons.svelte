@@ -29,10 +29,8 @@
 		onClick
 	}: Props = $props()
 
-	let resourceDataCacheValue = $derived.by(() => {
-		let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
-		return resourceDataCache[truncatedPath]
-	})
+	let truncatedPath = asset.path.split('?table=')[0]
+	let resourceDataCacheValue = $derived(resourceDataCache[truncatedPath])
 </script>
 
 <div class="flex gap-2 items-center">
@@ -42,7 +40,7 @@
 			variant="default"
 			unifiedSize="md"
 			iconOnly
-			on:click={() => (resourceEditorDrawer?.initEdit(asset.path), onClick?.())}
+			on:click={() => (resourceEditorDrawer?.initEdit(truncatedPath), onClick?.())}
 		/>
 	{/if}
 	{#if (asset.kind === 'resource' && resourceDataCacheValue === undefined) || ducklakeNotFound || datatableNotFound}

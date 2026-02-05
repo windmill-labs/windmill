@@ -39,13 +39,14 @@
 	let nodraft = $page.url.searchParams.get('nodraft')
 	const templatePath = $page.url.searchParams.get('template')
 	const templateId = $page.url.searchParams.get('template_id')
+	const hubId = $page.url.searchParams.get('hub')
 
 	const importRaw = $importStore
 	if ($importStore) {
 		$importStore = undefined
 	}
 
-	const appState = nodraft ? undefined : localStorage.getItem('rawapp')
+	const appState = nodraft || hubId ? undefined : localStorage.getItem('rawapp')
 
 	let summary = $state('')
 	let files: Record<string, string> = $state(react19Template)
@@ -143,7 +144,18 @@
 			console.log('App loaded from template id')
 			sendUserToast('App loaded from template')
 			goto('?', { replaceState: true })
-		} else if (!templatePath && appState) {
+		} else if (hubId) {
+			const hub = await AppService.getHubRawAppById({ id: Number(hubId) })
+			if (hub.app?.value) {
+				extractValue(hub.app.value)
+			}
+			if (hub.app?.summary) {
+				summary = hub.app.summary
+			}
+			console.log('App loaded from Hub')
+			sendUserToast('App loaded from Hub')
+			goto('?', { replaceState: true })
+		} else if (!templatePath && !hubId && appState) {
 			console.log('App loaded from browser stored autosave')
 			sendUserToast('App restored from browser stored autosave', false, [
 				{
@@ -588,12 +600,12 @@
 		on:savedNewAppPath={(event) => {
 			goto(`/apps_raw/edit/${event.detail}`)
 		}}
-		initFiles={files}
-		initRunnables={runnables}
-		initData={data}
+		bind:files
+		bind:runnables
+		bind:data
 		{policy}
 		path={''}
-		{summary}
+		bind:summary
 		newApp
 	/>
 {/key}

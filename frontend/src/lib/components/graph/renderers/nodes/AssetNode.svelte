@@ -234,7 +234,7 @@
 	import type { Edge, Node } from '@xyflow/svelte'
 
 	import { getNodeColorClasses, NODE } from '../../util'
-	import { userStore } from '$lib/stores'
+	import { globalDbManagerDrawer, userStore } from '$lib/stores'
 	import { deepEqual } from 'fast-equals'
 	import { slide } from 'svelte/transition'
 	import AssetColumnBadges from '$lib/components/assets/AssetColumnBadges.svelte'
@@ -250,7 +250,7 @@
 	const isSelected = $derived(assetEq(flowGraphAssetsCtx?.val.selectedAsset, data.asset))
 	const cachedResourceMetadata = $derived.by(() => {
 		if (data.asset.kind !== 'resource') return undefined
-		let truncatedPath = data.asset.path.split('/').slice(0, 3).join('/')
+		let truncatedPath = data.asset.path.split('?table=')[0]
 		return flowGraphAssetsCtx?.val.resourceMetadataCache[truncatedPath]
 	})
 	const usageCount = $derived(flowGraphAssetsCtx?.val.computeAssetsCount?.(data.asset))
@@ -311,7 +311,7 @@
 							noText
 							buttonVariant="accent"
 							s3FilePicker={flowGraphAssetsCtx?.val.s3FilePicker}
-							dbManagerDrawer={flowGraphAssetsCtx?.val.dbManagerDrawer}
+							dbManagerDrawer={globalDbManagerDrawer.val}
 							_resourceMetadata={cachedResourceMetadata}
 						/>
 					</div>

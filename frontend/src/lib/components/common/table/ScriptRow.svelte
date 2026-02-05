@@ -47,7 +47,6 @@
 	interface Props {
 		script: Script & { canWrite: boolean; use_codebase: boolean }
 		marked: string | undefined
-		starred: boolean
 		shareModal: ShareModal
 		moveDrawer: MoveDrawer
 		deploymentDrawer: DeployWorkspaceDrawer
@@ -62,7 +61,6 @@
 	let {
 		script,
 		marked,
-		starred,
 		shareModal,
 		moveDrawer,
 		deploymentDrawer,
@@ -121,13 +119,8 @@
 	{marked}
 	path={script.path}
 	summary={script.summary}
-	{starred}
 	{errorHandlerMuted}
 	workspaceId={$workspaceStore ?? ''}
-	onStarred={(newStarred) => {
-		starred = newStarred
-		dispatch('change')
-	}}
 	canFavorite={!script.draft_only}
 	{depth}
 >

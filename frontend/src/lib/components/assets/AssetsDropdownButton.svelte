@@ -12,10 +12,9 @@
 		type Asset,
 		type AssetWithAltAccessType
 	} from './lib'
-	import DbManagerDrawer from '../DBManagerDrawer.svelte'
 	import { untrack } from 'svelte'
 	import { ResourceService, WorkspaceService } from '$lib/gen'
-	import { workspaceStore } from '$lib/stores'
+	import { globalDbManagerDrawer, workspaceStore } from '$lib/stores'
 	import Tooltip from '../meltComponents/Tooltip.svelte'
 	import Tooltip2 from '../Tooltip.svelte'
 	import ResourceEditorDrawer from '../ResourceEditorDrawer.svelte'
@@ -49,7 +48,7 @@
 	let blueBgDiv: HTMLDivElement | undefined = $state()
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let resourceEditorDrawer: ResourceEditorDrawer | undefined = $state()
 	let isOpen = $state(false)
 	let resourceDataCache: Record<string, string | undefined> = $state({})
@@ -85,7 +84,7 @@
 
 			for (const asset of assets) {
 				if (asset.kind == 'resource') {
-					let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+					let truncatedPath = asset.path.split('?table=')[0]
 					if (truncatedPath in resourceDataCache) continue
 					resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
 					ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })
@@ -196,7 +195,11 @@
 								formatAssetKind({
 									...asset,
 									...(asset.kind === 'resource'
-										? { metadata: { resource_type: resourceDataCache[asset.path] } }
+										? {
+												metadata: {
+													resource_type: resourceDataCache[asset.path.split('?table=')[0]]
+												}
+											}
 										: {})
 								})}
 						</span>
@@ -218,5 +221,4 @@
 	</svelte:fragment>
 </Popover>
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 <ResourceEditorDrawer bind:this={resourceEditorDrawer} />

@@ -29,7 +29,13 @@
 	import Tooltip from '$lib/components/Tooltip.svelte'
 	import type { ResourceType, WorkspaceDeployUISettings } from '$lib/gen'
 	import { OauthService, ResourceService, WorkspaceService, type ListableResource } from '$lib/gen'
-	import { enterpriseLicense, userStore, workspaceStore, userWorkspaces } from '$lib/stores'
+	import {
+		enterpriseLicense,
+		userStore,
+		workspaceStore,
+		userWorkspaces,
+		globalDbManagerDrawer
+	} from '$lib/stores'
 	import { sendUserToast } from '$lib/toast'
 	import {
 		canWrite,
@@ -65,7 +71,6 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
@@ -476,7 +481,7 @@
 		}
 	})
 
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 
 	let filterUserFolders = $state(false)
 	let filterUserFoldersType: 'only f/*' | 'u/username and f/*' | undefined = $derived(
@@ -1178,7 +1183,6 @@
 <SupabaseConnect bind:this={supabaseConnect} on:refresh={loadResources} />
 <AppConnect bind:this={appConnect} on:refresh={loadResources} />
 <ResourceEditorDrawer bind:this={resourceEditor} on:refresh={loadResources} />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 <ShareModal
 	bind:this={shareModal}

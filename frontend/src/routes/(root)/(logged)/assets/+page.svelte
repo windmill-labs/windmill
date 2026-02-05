@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { formatAsset, formatAssetKind } from '$lib/components/assets/lib'
 	import CenteredPage from '$lib/components/CenteredPage.svelte'
-	import DbManagerDrawer from '$lib/components/DBManagerDrawer.svelte'
 	import PageHeader from '$lib/components/PageHeader.svelte'
 	import S3FilePicker from '$lib/components/S3FilePicker.svelte'
 	import { Cell, DataTable } from '$lib/components/table'
@@ -13,15 +12,15 @@
 		type AssetKind,
 		type ListAssetsResponse
 	} from '$lib/gen'
-	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { pluralize, truncate } from '$lib/utils'
+	import { userStore, workspaceStore, userWorkspaces, globalDbManagerDrawer } from '$lib/stores'
+	import { parseDbInputFromAssetSyntax, pluralize, truncate } from '$lib/utils'
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
 	import AssetsUsageDrawer from '$lib/components/assets/AssetsUsageDrawer.svelte'
 	import AssetGenericIcon from '$lib/components/icons/AssetGenericIcon.svelte'
 	import { Tooltip } from '$lib/components/meltComponents'
-	import { AlertTriangle, Loader2, SettingsIcon } from 'lucide-svelte'
+	import { AlertTriangle, Loader2, SettingsIcon, StarIcon } from 'lucide-svelte'
 	import { StaleWhileLoading, useInfiniteQuery, useScrollToBottom } from '$lib/svelte5Utils.svelte'
 	import { Debounced, resource, watch, type ResourceReturn } from 'runed'
 	import Label from '$lib/components/Label.svelte'
@@ -30,6 +29,7 @@
 	import RefreshButton from '$lib/components/common/button/RefreshButton.svelte'
 	import Section from '$lib/components/Section.svelte'
 	import Button from '$lib/components/common/button/Button.svelte'
+	import { favoriteManager, parseFavoriteAsset } from '$lib/components/sidebar/FavoriteMenu.svelte'
 
 	interface AssetCursor {
 		created_at?: string
@@ -82,7 +82,7 @@
 	let assets = $derived(_assets.current?.flatMap((page) => page.assets))
 
 	let s3FilePicker: S3FilePicker | undefined = $state()
-	let dbManagerDrawer: DbManagerDrawer | undefined = $state()
+	let dbManagerDrawer = $derived(globalDbManagerDrawer.val)
 	let assetsUsageDropdown: AssetsUsageDrawer | undefined = $state()
 
 	let allS3Storages = resource(
@@ -101,16 +101,22 @@
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDucklakes({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Primary ducklake' : d, value: d }))
+				d.map((d) => ({ label: d == 'main' ? 'Main ducklake' : d, value: d }))
 			)
 	)
 	let allDataTables = resource(
 		() => $workspaceStore,
 		() =>
 			WorkspaceService.listDataTables({ workspace: $workspaceStore! }).then((d) =>
-				d.map((d) => ({ label: d == 'main' ? 'Primary data table' : d, value: d }))
+				d.map((d) => ({ label: d == 'main' ? 'Main data table' : d, value: d }))
 			)
 	)
+
+	function extractFavorites(kind: AssetKind) {
+		return favoriteManager.current
+			.filter((f) => f.kind === 'asset' && f.path.startsWith(kind))
+			.map((f) => parseFavoriteAsset(f.path))
+	}
 </script>
 
 {#if $userStore?.operator && $workspaceStore && !$userWorkspaces.find((_) => _.id === $workspaceStore)?.operator_settings?.assets}
@@ -133,14 +139,36 @@
 					assetKind: AssetKind
 					data: ResourceReturn<{ label: string; value: string }[]>
 					settingsHref: string
+					docsHref: string
+					favorites?: { table: string; schema?: string; assetName: string; path: string }[]
 				})}
 					<div class="flex flex-col bg-surface-tertiary drop-shadow-base rounded-md flex-1">
-						<div class="flex justify-between px-6 pt-5 border-b">
-							<h3 class="text-sm font-bold mb-4">{props.title}</h3>
-							<a class="text-xs" href={props.settingsHref}>Settings </a>
+						<div class="flex justify-between border-b">
+							<h3 class="text-sm font-bold mb-4 pt-5 pl-6">{props.title}</h3>
+							<div class="flex items-center h-fit gap-2 mt-4 mr-4">
+								<Button
+									wrapperClasses="h-fit"
+									btnClasses="text-accent"
+									variant="subtle"
+									unifiedSize="sm"
+									href={props.docsHref}
+									target="_blank"
+								>
+									See documentation
+								</Button>
+								<Button
+									wrapperClasses="h-fit"
+									variant={props.data.current?.length === 0 && !props.data.loading
+										? 'accent'
+										: 'subtle'}
+									iconOnly
+									endIcon={{ icon: SettingsIcon }}
+									href={props.settingsHref}
+								/>
+							</div>
 						</div>
 						{#if props.data.current?.length}
-							<div class="max-h-96 overflow-y-auto pb-3">
+							<div class="max-h-96 overflow-y-auto pb-1">
 								{#each props.data.current ?? [] as item}
 									<div class="text-xs py-2 text-primary flex justify-between items-center px-6">
 										{item.label}
@@ -153,6 +181,34 @@
 									</div>
 								{/each}
 							</div>
+
+							{#if !props.data.loading && !props.data.error && props.favorites != undefined}
+								<div class="mb-4 pt-2 px-6">
+									<h3 class="text-xs font-bold mb-1"> Favorite tables</h3>
+									<div class="flex gap-1 flex-wrap">
+										{#each props.favorites as fav}
+											<button
+												class="text-xs font-normal bg-surface-sunken rounded-md px-2 py-1 cursor-pointer hover:opacity-80"
+												onclick={() => {
+													const dbInput = parseDbInputFromAssetSyntax(fav.path)
+													if (dbInput) globalDbManagerDrawer.val?.openDrawer(dbInput)
+												}}
+											>
+												<span>
+													<StarIcon size="12" class="inline mr-1" />
+													{fav.schema ? `${fav.schema}.` : ''}{fav.table}
+												</span>
+												<span class="text-2xs">
+													{fav.assetName === 'main' ? `` : `(${fav.assetName})`}
+												</span>
+											</button>
+										{/each}
+									</div>
+									{#if props.favorites.length === 0}
+										<div class="text-xs text-secondary"> No favorite table yet</div>
+									{/if}
+								</div>
+							{/if}
 						{/if}
 						{#if props.data.loading}
 							<div class="flex items-center gap-2 mt-2 mb-5 px-6 text-sm text-secondary">
@@ -163,37 +219,35 @@
 								Error loading {props.title.toLowerCase()}
 							</div>
 						{:else if props.data.current?.length === 0}
-							<div class="text-sm text-secondary mt-2 px-6 mb-3">
+							<div class="text-xs text-secondary mt-2 px-6 mb-3">
 								No {props.title.toLowerCase()} yet
 							</div>
-							<Button
-								endIcon={{ icon: SettingsIcon }}
-								href={props.settingsHref}
-								variant="accent"
-								wrapperClasses="w-fit px-6"
-							>
-								{props.title} settings
-							</Button>
 						{/if}
 					</div>
 				{/snippet}
 				{@render card({
-					title: 'Data tables',
+					title: 'Data table',
 					data: allDataTables,
 					assetKind: 'datatable',
-					settingsHref: '/workspace_settings?tab=windmill_data_tables'
+					settingsHref: '/workspace_settings?tab=windmill_data_tables',
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/data_tables',
+					favorites: extractFavorites('datatable')
 				})}
 				{@render card({
-					title: 'Ducklakes',
+					title: 'Ducklake',
 					data: allDucklakes,
 					assetKind: 'ducklake',
-					settingsHref: '/workspace_settings?tab=windmill_lfs'
+					settingsHref: '/workspace_settings?tab=windmill_lfs',
+					docsHref: 'https://www.windmill.dev/docs/core_concepts/persistent_storage/ducklake',
+					favorites: extractFavorites('ducklake')
 				})}
 				{@render card({
-					title: 'Workspace object storages',
+					title: 'Object storage',
 					data: allS3Storages,
 					assetKind: 's3object',
-					settingsHref: '/workspace_settings?tab=windmill_lfs'
+					settingsHref: '/workspace_settings?tab=windmill_lfs',
+					docsHref:
+						'https://www.windmill.dev/docs/core_concepts/persistent_storage/large_data_files'
 				})}
 			</div>
 		</Section>
@@ -233,7 +287,6 @@
 
 <AssetsUsageDrawer bind:this={assetsUsageDropdown} />
 <S3FilePicker bind:this={s3FilePicker} readOnlyMode />
-<DbManagerDrawer bind:this={dbManagerDrawer} />
 
 {#snippet table()}
 	<DataTable>

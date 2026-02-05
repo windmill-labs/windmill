@@ -1,6 +1,6 @@
 {
 	"name": "windmill-components",
-	"version": "1.624.0",
+	"version": "1.626.0",
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
@@ -117,6 +117,7 @@
 		"hash-sum": "^2.0.0",
 		"highlight.js": "^11.8.0",
 		"idb": "^8.0.2",
+		"jszip": "^3.10.1",
 		"lru-cache": "^11.1.0",
 		"lucide-svelte": "^0.540.0",
 		"minimatch": "^10.0.1",
@@ -149,7 +150,7 @@
 		"windmill-parser-wasm-nu": "1.510.1",
 		"windmill-parser-wasm-php": "1.574.1",
 		"windmill-parser-wasm-py": "1.623.1",
-		"windmill-parser-wasm-regex": "1.623.1",
+		"windmill-parser-wasm-regex": "1.625.0",
 		"windmill-parser-wasm-ruby": "1.526.1",
 		"windmill-parser-wasm-rust": "1.558.1",
 		"windmill-parser-wasm-ts": "1.623.1",

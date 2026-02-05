@@ -14,6 +14,7 @@
 		newTokenWorkspace?: string | undefined
 		newToken?: string | undefined
 		showMcpMode?: boolean
+		disableChatOffset?: boolean
 	}
 
 	let {
@@ -21,7 +22,8 @@
 		newTokenLabel = undefined,
 		newTokenWorkspace = undefined,
 		newToken = $bindable(undefined),
-		showMcpMode = false
+		showMcpMode = false,
+		disableChatOffset = false
 	}: Props = $props()
 
 	let drawer: Drawer | undefined = $state()
@@ -49,7 +51,7 @@
 	}
 </script>
 
-<Drawer bind:this={drawer} size="900px" on:close={removeHash}>
+<Drawer bind:this={drawer} size="900px" on:close={removeHash} {disableChatOffset}>
 	<DrawerContent title="User settings" on:close={closeDrawer}>
 		<div class="flex flex-col gap-6 pb-8">
 			{#if scopes == undefined}

@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.626.0](https://github.com/windmill-labs/windmill/compare/v1.625.0...v1.626.0) (2026-02-05)
+
+
+### Features
+
+* **local-dev:** create Claude skills when doing `wmill init` ([#7699](https://github.com/windmill-labs/windmill/issues/7699)) ([a7ce548](https://github.com/windmill-labs/windmill/commit/a7ce5484b8ec386af59f501c36e5ffc147e1d34a))
+
+
+### Bug Fixes
+
+* fix DB Manager not working with db resources with 4+ path segments ([#7809](https://github.com/windmill-labs/windmill/issues/7809)) ([3476ef4](https://github.com/windmill-labs/windmill/commit/3476ef4b9c795fb8511a83f2297154a4f55aa829))
+* fix indexer select performances busiying the db ([c3815c8](https://github.com/windmill-labs/windmill/commit/c3815c8c99d5b7d6b2dfc0e3b59d1ba51022ee39))
+* **frontend:** dedicated worker broken runnable select ([#7808](https://github.com/windmill-labs/windmill/issues/7808)) ([6f6ff9d](https://github.com/windmill-labs/windmill/commit/6f6ff9d4217e99901562b01eb258c7ccdcb0e3f4))
+* python client oidc pass session token ([#7799](https://github.com/windmill-labs/windmill/issues/7799)) ([b468603](https://github.com/windmill-labs/windmill/commit/b468603f6bc52961057fbd88539eb379a19efd9d))
+
+## [1.625.0](https://github.com/windmill-labs/windmill/compare/v1.624.0...v1.625.0) (2026-02-04)
+
+
+### Features
+
+* add filters to Kafka triggers ([#7750](https://github.com/windmill-labs/windmill/issues/7750)) ([3c8daa9](https://github.com/windmill-labs/windmill/commit/3c8daa9a58b5e4a2e8c85a9805a5b194ed75d055))
+* Assets page exploration UI ([#7784](https://github.com/windmill-labs/windmill/issues/7784)) ([0508425](https://github.com/windmill-labs/windmill/commit/05084254a34da81d227813a5190e3ce3dc0f816e))
+* cache lockfile results for scripts with same raw_workspace_dependencies ([#7787](https://github.com/windmill-labs/windmill/issues/7787)) ([4098679](https://github.com/windmill-labs/windmill/commit/4098679fd7eca059dfa128a6f8b8e1698a65b632))
+* column-level asset tracking for ducklake and datatables ([#7774](https://github.com/windmill-labs/windmill/issues/7774)) ([0caa533](https://github.com/windmill-labs/windmill/commit/0caa533fbd70fffec27d86d62e16bb92cf7a612a))
+* favorite datatable and ducklake tables + asset page nits ([#7795](https://github.com/windmill-labs/windmill/issues/7795)) ([a3d75ba](https://github.com/windmill-labs/windmill/commit/a3d75ba10ae85e5ecb55351555879be7fe0bfcca))
+* make nsjail available in all standard images (CE) ([#7793](https://github.com/windmill-labs/windmill/issues/7793)) ([149da9b](https://github.com/windmill-labs/windmill/commit/149da9b763e4f5dd93d2905be89b5df81bb61934))
+* public app rate limiting + fork hub raw apps + raw apps publish to hub button ([#7789](https://github.com/windmill-labs/windmill/issues/7789)) ([63f9d85](https://github.com/windmill-labs/windmill/commit/63f9d85bf6a5dd25977995978a8b0a4d32fee995))
+* replace LISTEN/NOTIFY with polling-based event system ([#7778](https://github.com/windmill-labs/windmill/issues/7778)) ([e860847](https://github.com/windmill-labs/windmill/commit/e860847073b56be469ba37af5e3a8cb7d30ef7bc))
+* upgrade bun to v1.3.8 with regression tests ([#7761](https://github.com/windmill-labs/windmill/issues/7761)) ([ef89a51](https://github.com/windmill-labs/windmill/commit/ef89a51f3a1cc1ae562d97b413c78393c0ea92cf))
+
+
+### Bug Fixes
+
+* fix forking raw apps and summary setting in deploy drawer ([#7792](https://github.com/windmill-labs/windmill/issues/7792)) ([db56518](https://github.com/windmill-labs/windmill/commit/db56518e4fc53931e3498db06bbefd511c343d23))
+* handle Date serialization in quickjs flow eval via toJSON ([f151fdc](https://github.com/windmill-labs/windmill/commit/f151fdcf7f91a7b0ac75a133d5193538f4a9b4d8))
+* make private registries settings password in the instance settings ([727bd21](https://github.com/windmill-labs/windmill/commit/727bd2164059e4d44f2e2f6f70a567e7fac3a921))
+* persist ws_error_handler_muted for flows in create/update ([#7797](https://github.com/windmill-labs/windmill/issues/7797)) ([d113546](https://github.com/windmill-labs/windmill/commit/d113546169a790997d4842b7cfeb43ec2c90c6ea))
+
 ## [1.624.0](https://github.com/windmill-labs/windmill/compare/v1.623.1...v1.624.0) (2026-02-03)
 
 
