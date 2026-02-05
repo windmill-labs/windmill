@@ -199,7 +199,7 @@
 <svelte:window onresize={() => computeHeight()} />
 
 <div
-	class="divide-y h-full min-w-[650px]"
+	class="divide-y h-full min-w-[650px] [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
