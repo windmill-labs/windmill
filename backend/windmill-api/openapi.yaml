@@ -1,7 +1,7 @@
 openapi: "3.0.3"
 
 info:
-  version: 1.625.0
+  version: 1.626.0
   title: Windmill API
 
   contact:
@@ -22988,10 +22988,9 @@ components:
         - flow
         - job
     AssetUsageAccessType:
-      oneOf:
-        - type: string
-          enum: [r, w, rw]
-        - type: 'null'
+      type: string
+      enum: [r, w, rw]
+      nullable: true
     AssetKind:
       type: string
       enum:
