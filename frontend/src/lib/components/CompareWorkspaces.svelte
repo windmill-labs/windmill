@@ -22,7 +22,6 @@
 		ScriptService,
 		VariableService,
 		WorkspaceService,
-		type ProtectionRuleset,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
@@ -30,11 +29,7 @@
 	import DiffDrawer from './DiffDrawer.svelte'
 	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { getAllModules } from './flows/flowExplorer'
-	import { userWorkspaces, workspaceStore, userStore } from '$lib/stores'
-	import {
-		fetchProtectionRulesForWorkspace,
-		canUserBypassRule
-	} from '$lib/workspaceProtectionRules.svelte'
+	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'
@@ -400,6 +395,7 @@
 				if (alreadyExists) {
 					await FlowService.updateFlow({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							...flow
@@ -408,6 +404,7 @@
 				} else {
 					await FlowService.createFlow({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							...flow
 						}
@@ -420,6 +417,7 @@
 				})
 				await ScriptService.createScript({
 					workspace: workspaceToDeployTo,
+					deployedFromWorkspace: workspaceFrom,
 					requestBody: {
 						...script,
 						lock: script.lock,
@@ -454,6 +452,7 @@
 						})
 						await AppService.updateAppRaw({
 							workspace: workspaceToDeployTo,
+							deployedFromWorkspace: workspaceFrom,
 							path: path,
 							formData: {
 								app,
@@ -464,6 +463,7 @@
 					} else {
 						await AppService.updateApp({
 							workspace: workspaceToDeployTo,
+							deployedFromWorkspace: workspaceFrom,
 							path: path,
 							requestBody: {
 								...app
@@ -486,6 +486,7 @@
 						})
 						await AppService.createAppRaw({
 							workspace: workspaceToDeployTo,
+							deployedFromWorkspace: workspaceFrom,
 							formData: {
 								app,
 								css,
@@ -495,6 +496,7 @@
 					} else {
 						await AppService.createApp({
 							workspace: workspaceToDeployTo,
+							deployedFromWorkspace: workspaceFrom,
 							requestBody: {
 								...app
 							}
@@ -510,6 +512,7 @@
 				if (alreadyExists) {
 					await VariableService.updateVariable({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							path: path,
@@ -522,6 +525,7 @@
 				} else {
 					await VariableService.createVariable({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							path: path,
 							value: variable.value ?? '',
@@ -538,6 +542,7 @@
 				if (alreadyExists) {
 					await ResourceService.updateResource({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							path: path,
@@ -548,6 +553,7 @@
 				} else {
 					await ResourceService.createResource({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							path: path,
 							value: resource.value ?? '',
@@ -564,6 +570,7 @@
 				if (alreadyExists) {
 					await ResourceService.updateResourceType({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							schema: resource.schema,
@@ -573,6 +580,7 @@
 				} else {
 					await ResourceService.createResourceType({
 						workspace: workspaceToDeployTo,
+						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							description: resource.description ?? '',
 							schema: resource.schema,
@@ -598,6 +606,7 @@
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo,
+					deployedFromWorkspace: workspaceFrom,
 					requestBody: {
 						name: path
 					}
