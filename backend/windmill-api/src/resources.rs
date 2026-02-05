@@ -45,6 +45,7 @@ use windmill_common::{
     },
     variables,
     worker::{CLOUD_HOSTED, TMP_DIR},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     PgDatabase,
 };
 
@@ -111,6 +112,11 @@ pub struct CreateResourceType {
 pub struct EditResourceType {
     pub schema: Option<serde_json::Value>,
     pub description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeployedFromQuery {
+    deployed_from_workspace: Option<String>,
 }
 
 #[derive(FromRow, Serialize, Deserialize)]
@@ -693,9 +699,30 @@ async fn create_resource(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Query(q): Query<CreateResourceQuery>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(resource): Json<CreateResource>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("resources:write:{}", resource.path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     if *CLOUD_HOSTED {
         let nb_resources = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM resource WHERE workspace_id = $1",
@@ -923,12 +950,32 @@ async fn update_resource(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditResource>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("resource");
     sqlb.and_where_eq("path", "?".bind(&path));
@@ -1051,10 +1098,31 @@ async fn update_resource_value(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(nv): Json<UpdateResource>,
 ) -> Result<String> {
     let path = path.to_path();
     check_scopes(&authed, || format!("resources:write:{}", path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let mut tx = user_db.begin(&authed).await?;
 
     sqlx::query!(
@@ -1204,9 +1272,29 @@ async fn create_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(resource_type): Json<CreateResourceType>,
 ) -> Result<(StatusCode, String)> {
     let mut tx = user_db.begin(&authed).await?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     check_rt_path_conflict(&mut tx, &w_id, &resource_type.name).await?;
 
@@ -1343,9 +1431,29 @@ async fn update_resource_type(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditResourceType>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("resource_type");
     sqlb.and_where_eq("name", "?".bind(&name));
