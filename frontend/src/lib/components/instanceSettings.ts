@@ -146,6 +146,14 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
+			label: 'Force sandboxing (nsjail)',
+			key: 'force_sandboxing',
+			fieldType: 'boolean',
+			description:
+				'Force all jobs to run in nsjail sandboxed mode. Overrides the DISABLE_NSJAIL environment variable. Use #sandbox annotation in bash scripts to enable sandboxing per-script.',
+			storage: 'setting'
+		},
+		{
 			label: 'Max timeout for sync endpoints',
 			description:
 				'Maximum amount of time (measured in seconds) that a <a href="https://www.windmill.dev/docs/core_concepts/webhooks">sync endpoint</a> is allowed to run before it is forcibly stopped or timed out.',

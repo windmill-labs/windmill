@@ -326,6 +326,9 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
+    // Global setting to force sandboxing (overrides DISABLE_NSJAIL env var)
+    pub static ref FORCE_SANDBOXING: AtomicBool = AtomicBool::new(false);
+
     pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
         .ok()
         .and_then(|x| x.parse::<bool>().ok())
@@ -629,6 +632,13 @@ lazy_static::lazy_static! {
 }
 
 type Envs = Vec<(String, String)>;
+
+/// Check if sandboxing should be used for job execution.
+/// Returns true if force_sandboxing is enabled (via global setting) OR if DISABLE_NSJAIL env var is false.
+/// When force_sandboxing is true, it overrides the DISABLE_NSJAIL environment variable.
+pub fn is_sandboxing_enabled() -> bool {
+    FORCE_SANDBOXING.load(Ordering::Relaxed) || !*DISABLE_NSJAIL
+}
 
 /// Check if OTEL tracing proxy is enabled for a specific language (EE only)
 pub async fn is_otel_tracing_proxy_enabled_for_lang(lang: &ScriptLang) -> bool {

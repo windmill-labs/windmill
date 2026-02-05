@@ -53,13 +53,14 @@ use windmill_common::{
         CRITICAL_ALERT_MUTE_UI_SETTING, CRITICAL_ERROR_CHANNELS_SETTING,
         DEFAULT_TAGS_PER_WORKSPACE_SETTING, DEFAULT_TAGS_WORKSPACES_SETTING,
         EXPOSE_DEBUG_METRICS_SETTING, EXPOSE_METRICS_SETTING, EXTRA_PIP_INDEX_URL_SETTING,
-        HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING, INSTANCE_PYTHON_VERSION_SETTING,
-        JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING, KEEP_JOB_DIR_SETTING,
-        LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING, NPM_CONFIG_REGISTRY_SETTING,
-        NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING, PIP_INDEX_URL_SETTING,
-        POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING, REQUEST_SIZE_LIMIT_SETTING,
-        REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING, RETENTION_PERIOD_SECS_SETTING,
-        SAML_METADATA_SETTING, SCIM_TOKEN_SETTING, TIMEOUT_WAIT_RESULT_SETTING,
+        FORCE_SANDBOXING_SETTING, HUB_API_SECRET_SETTING, HUB_BASE_URL_SETTING,
+        INSTANCE_PYTHON_VERSION_SETTING, JOB_DEFAULT_TIMEOUT_SECS_SETTING, JWT_SECRET_SETTING,
+        KEEP_JOB_DIR_SETTING, LICENSE_KEY_SETTING, MONITOR_LOGS_ON_OBJECT_STORE_SETTING,
+        NPM_CONFIG_REGISTRY_SETTING, NUGET_CONFIG_SETTING, OTEL_SETTING, OTEL_TRACING_PROXY_SETTING,
+        PIP_INDEX_URL_SETTING, POWERSHELL_REPO_PAT_SETTING, POWERSHELL_REPO_URL_SETTING,
+        REQUEST_SIZE_LIMIT_SETTING, REQUIRE_PREEXISTING_USER_FOR_OAUTH_SETTING,
+        RETENTION_PERIOD_SECS_SETTING, SAML_METADATA_SETTING, SCIM_TOKEN_SETTING,
+        TIMEOUT_WAIT_RESULT_SETTING,
     },
     indexer::load_indexer_config,
     jwt::JWT_SECRET,
@@ -85,9 +86,10 @@ use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUT
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender,
-    BUNFIG_INSTALL_SCOPES, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, KEEP_JOB_DIR, MAVEN_REPOS,
-    NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG, OTEL_TRACING_PROXY_SETTINGS,
-    PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL,
+    BUNFIG_INSTALL_SCOPES, FORCE_SANDBOXING, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
+    KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
+    OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
+    POWERSHELL_REPO_URL,
 };
 
 #[cfg(feature = "parquet")]
@@ -314,6 +316,7 @@ pub async fn initial_load(
 
     if worker_mode {
         reload_job_default_timeout_setting(&conn).await;
+        reload_force_sandboxing_setting(&conn).await;
         reload_extra_pip_index_url_setting(&conn).await;
         reload_pip_index_url_setting(&conn).await;
         reload_npm_config_registry_setting(&conn).await;
@@ -1393,6 +1396,23 @@ pub async fn reload_job_default_timeout_setting(conn: &Connection) {
         JOB_DEFAULT_TIMEOUT.clone(),
     )
     .await;
+}
+
+pub async fn reload_force_sandboxing_setting(conn: &Connection) {
+    let value = match load_value_from_global_settings_with_conn(conn, FORCE_SANDBOXING_SETTING, true)
+        .await
+    {
+        Ok(Some(v)) => v.as_bool().unwrap_or(false),
+        Ok(None) => false,
+        Err(e) => {
+            tracing::error!("Error reloading force_sandboxing setting: {:?}", e);
+            return;
+        }
+    };
+    let old_value = FORCE_SANDBOXING.swap(value, Ordering::Relaxed);
+    if old_value != value {
+        tracing::info!("force_sandboxing setting changed from {} to {}", old_value, value);
+    }
 }
 
 pub async fn reload_request_size(conn: &Connection) {
