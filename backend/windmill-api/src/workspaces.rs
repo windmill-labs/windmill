@@ -34,7 +34,7 @@ use strum::IntoEnumIterator;
 use uuid::Uuid;
 use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_common::db::{Authable, UserDB};
+use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
 use windmill_common::users::username_to_permissioned_as;
 use windmill_common::variables::{build_crypt, decrypt, encrypt, WORKSPACE_CRYPT_CACHE};
@@ -5272,7 +5272,6 @@ impl From<ProtectionRuleset> for ProtectionRulesetResponse {
 
 /// List all protection rules for a workspace
 async fn list_protection_rules(
-    authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
 ) -> JsonResult<Vec<ProtectionRulesetResponse>> {
