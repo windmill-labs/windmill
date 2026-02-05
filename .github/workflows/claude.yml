@@ -75,10 +75,10 @@ jobs:
           npm install
           npm run generate-backend-client
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
-          sudo apt-get install -y libxml2-dev libxmlsec1-dev
+          sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
