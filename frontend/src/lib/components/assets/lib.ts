@@ -9,9 +9,9 @@ import type {
 import { capitalize } from '$lib/utils'
 export type Asset = _Asset
 export type AssetKind = _AssetKind
-export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType }
+export type AssetWithAccessType = Asset & { access_type?: AssetUsageAccessType | null }
 export type AssetWithAltAccessType = AssetWithAccessType & {
-	alt_access_type?: AssetUsageAccessType
+	alt_access_type?: AssetUsageAccessType | null
 	columns?: Record<string, AssetUsageAccessType>
 }
 export type AssetUsage = ListAssetsResponse['assets'][number]['usages'][number]
