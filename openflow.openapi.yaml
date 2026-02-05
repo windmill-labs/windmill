@@ -606,7 +606,6 @@ components:
             - java
             - ruby
             - duckdb
-            - bunnative
             # for related places search: ADD_NEW_LANG
         path:
           type: string
