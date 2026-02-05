@@ -22,6 +22,7 @@
 		ScriptService,
 		VariableService,
 		WorkspaceService,
+		type ProtectionRuleset,
 		type WorkspaceComparison,
 		type WorkspaceItemDiff
 	} from '$lib/gen'
@@ -32,8 +33,7 @@
 	import {
 		fetchProtectionRulesForWorkspace,
 		canUserBypassRule,
-		type ProtectionRuleset
-	} from '$lib/workspaceProtectionRulesStore'
+	} from '$lib/workspaceProtectionRules.svelte'
 
 	import type { Kind } from '$lib/utils_deployable'
 	import ToggleButtonGroup from './common/toggleButton-v2/ToggleButtonGroup.svelte'

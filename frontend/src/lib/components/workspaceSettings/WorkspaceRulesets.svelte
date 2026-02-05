@@ -77,7 +77,7 @@
 		<RulesetEditor
 			rule={selectedRule}
 			existingNames={existingRuleNames}
-			on:update={() => {
+			onUpdate={() => {
 				loadRules()
 				ruleDrawer?.closeDrawer()
 			}}
@@ -91,8 +91,7 @@
 		<Description>
 			Create and manage protection rules that define restrictions and specify which groups and
 			users can bypass those restrictions. Users not in any bypass list will be subject to the
-			configured rules. Protection rules provide fine-grained control compared to workspace-wide
-			protection rules.
+			configured rules.
 		</Description>
 	</div>
 </div>

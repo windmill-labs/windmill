@@ -8,18 +8,17 @@
 	import { GroupService, UserService, WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
-	import { untrack, createEventDispatcher } from 'svelte'
+	import { untrack } from 'svelte'
 	import { Save, X, Plus } from 'lucide-svelte'
 	import { safeSelectItems } from '$lib/components/select/utils.svelte'
 
 	interface Props {
 		rule?: ProtectionRuleset
 		existingNames?: string[]
+		onUpdate?: () => void
 	}
 
-	let { rule, existingNames = [] }: Props = $props()
-
-	const dispatch = createEventDispatcher()
+	let { rule, existingNames = [], onUpdate }: Props = $props()
 
 	// Create mode vs Edit mode
 	const isCreateMode = $derived(!rule)
@@ -152,7 +151,7 @@
 			})
 
 			sendUserToast('Protection rule created successfully')
-			dispatch('update')
+			onUpdate?.()
 		} catch (error) {
 			console.error('Failed to create protection rule:', error)
 			sendUserToast('Failed to create protection rule', true)
@@ -187,7 +186,7 @@
 			initialSelectedGroups = clone(selectedGroups)
 			initialSelectedUsers = clone(selectedUsers)
 
-			dispatch('update')
+			onUpdate?.()
 		} catch (error) {
 			console.error('Failed to save protection rule:', error)
 			sendUserToast('Failed to save protection rule', true)

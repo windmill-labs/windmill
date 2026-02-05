@@ -22764,7 +22764,7 @@ components:
       type: array
       description: Configuration of protection restrictions
       items:
-        $ref: "#components/schemas/ProtectionRuleKind"
+        $ref: "#/components/schemas/ProtectionRuleKind"
     ProtectionRuleKind:
       type: string
       enum:

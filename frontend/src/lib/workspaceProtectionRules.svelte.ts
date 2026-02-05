@@ -100,15 +100,11 @@ export function canUserBypassRule(ruleset: ProtectionRuleset, userInfo: UserExt)
 		return true
 	}
 
-	// Check if username in bypass_users (with 'u/' prefix)
-	const userWithPrefix = `u/${userInfo.username}`
-	if (ruleset.bypass_users.includes(userWithPrefix)) {
+	if (ruleset.bypass_users.includes(userInfo.username)) {
 		return true
 	}
 
-	// Check if any user group in bypass_groups (with 'g/' prefix)
-	const userGroupsWithPrefix = userInfo.groups.map((g) => `g/${g}`)
-	if (ruleset.bypass_groups.some((bg) => userGroupsWithPrefix.includes(bg))) {
+	if (ruleset.bypass_groups.some((bg) => userInfo.groups.includes(bg))) {
 		return true
 	}
 

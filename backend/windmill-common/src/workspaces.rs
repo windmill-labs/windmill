@@ -59,8 +59,6 @@ pub struct ProtectionRuleset {
     pub rules: ProtectionRules,
     pub bypass_groups: Vec<String>,
     pub bypass_users: Vec<String>,
-    // pub name: String,
-    // pub bypassers: RuleBypassers,
 }
 
 bitflags::bitflags! {
@@ -102,7 +100,7 @@ impl ProtectionRuleKind {
             }
             ProtectionRuleKind::DisableWorkspaceForking => "Forking this workspace is forbidden",
             ProtectionRuleKind::DisableMergeUIInForks => {
-                "UI deployement to parent is forbidden. Use a pull request instead"
+                "UI deployment to parent is forbidden. Use a pull request instead"
             }
         }
     }
@@ -373,9 +371,10 @@ pub async fn check_user_against_rule(
                 return Ok(RuleCheckResult::Allowed);
             }
             return Ok(RuleCheckResult::Blocked(format!(
-                "Ruleset {} of {workspace_id} blocked this action: {}",
+                "Ruleset {} of {} blocked this action: {}",
                 ruleset.name,
-                { rule.msg() }
+                workspace_id,
+                rule.msg()
             )));
         }
     }
