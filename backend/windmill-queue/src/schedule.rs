@@ -39,6 +39,7 @@ use windmill_common::{
     utils::{now_from_db, ScheduleType, StripPath},
 };
 
+
 /// Helper to fetch metadata for a schedule's script or flow
 async fn get_schedule_metadata<'c>(
     tx: &mut sqlx::Transaction<'c, sqlx::Postgres>,
@@ -466,6 +467,20 @@ pub async fn push_scheduled_job<'c>(
             false,
         )
     };
+
+    let obo_authed = if push_authed.is_none() {
+        windmill_common::auth::fetch_authed_from_permissioned_as_conn(
+            &permissioned_as,
+            email,
+            &schedule.workspace_id,
+            &mut *tx,
+        )
+        .await
+        .ok()
+    } else {
+        None
+    };
+    let push_authed = obo_authed.as_ref().or(push_authed);
 
     if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
         check_tag_available_for_workspace_internal(
