@@ -1782,10 +1782,19 @@ pub async fn handle_maybe_scheduled_job<'c>(
     );
 
     if schedule.enabled && script_path == schedule.script_path {
+        let schedule_authed = windmill_common::auth::fetch_authed_from_permissioned_as(
+            windmill_common::users::username_to_permissioned_as(&schedule.edited_by),
+            schedule.email.clone(),
+            w_id,
+            db,
+        )
+        .await
+        .ok();
+
         let push_next_job_future = (|| {
             tokio::time::timeout(std::time::Duration::from_secs(5), async {
                 let mut tx = db.begin().await?;
-                tx = push_scheduled_job(db, tx, &schedule, None, Some(job.scheduled_for)).await?;
+                tx = push_scheduled_job(db, tx, &schedule, schedule_authed.as_ref(), Some(job.scheduled_for)).await?;
                 tx.commit().await?;
                 Ok::<(), Error>(())
             })
