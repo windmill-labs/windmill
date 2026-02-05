@@ -6,7 +6,7 @@ edition.workspace = true
 
 [features]
 default = []
-enterprise = []
+enterprise = ["dep:rsa", "dep:aes-gcm"]
 private = ["dep:aws-sdk-rds"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
@@ -61,8 +61,8 @@ regex.workspace = true
 git-version.workspace = true
 cron.workspace = true
 magic-crypt.workspace = true
-rsa.workspace = true
-aes-gcm.workspace = true
+rsa = { workspace = true, optional = true }
+aes-gcm = { workspace = true, optional = true }
 object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config.workspace = true
