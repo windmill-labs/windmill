@@ -23,7 +23,6 @@
 
 	let menuOpen: boolean = false
 	export let showCode: (path: string, summary: string) => void
-	export let showEditButton: boolean = true
 </script>
 
 {#if item.type == 'script'}
@@ -42,7 +41,6 @@
 		{depth}
 		bind:menuOpen
 		{showCode}
-		{showEditButton}
 	/>
 {:else if item.type == 'flow'}
 	<FlowRow
@@ -59,7 +57,6 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
-		{showEditButton}
 	/>
 {:else if item.type == 'app'}
 	<AppRow
@@ -72,7 +69,6 @@
 		{deploymentDrawer}
 		{depth}
 		bind:menuOpen
-		{showEditButton}
 	/>
 {:else if item.type == 'raw_app'}
 	<RawAppRow

@@ -30,9 +30,8 @@ use regex::Regex;
 use hex;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use strum::IntoEnumIterator;
 use uuid::Uuid;
-use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
+use windmill_audit::audit_oss::audit_log;
 use windmill_audit::ActionKind;
 use windmill_common::db::UserDB;
 use windmill_common::s3_helpers::LargeFileStorage;
@@ -44,9 +43,8 @@ use windmill_common::workspaces::GitRepositorySettings;
 #[cfg(feature = "enterprise")]
 use windmill_common::workspaces::WorkspaceDeploymentUISettings;
 use windmill_common::workspaces::{
-    check_user_against_rule, get_datatable_resource_from_db_unchecked, DataTable,
-    DataTableCatalogResourceType, ProtectionRuleKind, ProtectionRules, ProtectionRuleset,
-    RuleCheckResult, WorkspaceGitSyncSettings,
+    get_datatable_resource_from_db_unchecked, DataTable, DataTableCatalogResourceType,
+    WorkspaceGitSyncSettings,
 };
 use windmill_common::workspaces::{Ducklake, DucklakeCatalogResourceType};
 use windmill_common::PgDatabase;
@@ -188,13 +186,7 @@ pub fn workspaced_service() -> Router {
             "/reset_diff_tally/:fork_workspace_id",
             post(reset_workspace_diffs),
         )
-        .route("/compare/:target_workspace_id", get(compare_workspaces))
-        .route("/protection_rules", get(list_protection_rules))
-        .route("/protection_rules", post(create_protection_rule))
-        .route(
-            "/protection_rules/:rule_name",
-            post(update_protection_rule).delete(delete_protection_rule),
-        );
+        .route("/compare/:target_workspace_id", get(compare_workspaces));
 
     #[cfg(all(feature = "stripe", feature = "enterprise"))]
     {
@@ -3533,19 +3525,6 @@ async fn create_workspace_fork_branch(
         )));
     }
 
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
-
     if *DISABLE_WORKSPACE_FORK {
         require_super_admin(&db, &authed.email).await?;
     }
@@ -3565,19 +3544,6 @@ async fn create_workspace_fork(
         return Err(Error::BadRequest(format!(
             "Forking workspaces is not available on app.windmill.dev"
         )));
-    }
-
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &parent_workspace_id,
-        &ProtectionRuleKind::DisableWorkspaceForking,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
     }
 
     if *DISABLE_WORKSPACE_FORK {
@@ -5222,270 +5188,6 @@ async fn compare_two_variables(
         exists_in_source: source_variable.is_some(),
         exists_in_fork: target_variable.is_some(),
     });
-}
-
-// Protection Rules API endpoints
-
-#[derive(Deserialize)]
-struct CreateProtectionRuleRequest {
-    name: String,
-    rules: Vec<ProtectionRuleKind>,
-    bypass_groups: Vec<String>,
-    bypass_users: Vec<String>,
-}
-
-#[derive(Deserialize)]
-struct UpdateProtectionRuleRequest {
-    rules: Vec<ProtectionRuleKind>,
-    bypass_groups: Vec<String>,
-    bypass_users: Vec<String>,
-}
-
-#[derive(Serialize)]
-struct ProtectionRulesetResponse {
-    pub workspace_id: String,
-    pub name: String,
-    pub rules: Vec<ProtectionRuleKind>,
-    pub bypass_groups: Vec<String>,
-    pub bypass_users: Vec<String>,
-}
-
-impl From<ProtectionRuleset> for ProtectionRulesetResponse {
-    fn from(value: ProtectionRuleset) -> Self {
-        let mut rules = vec![];
-
-        for rule in ProtectionRuleKind::iter() {
-            if value.rules.contains(rule.flag()) {
-                rules.push(rule)
-            }
-        }
-
-        ProtectionRulesetResponse {
-            rules,
-            workspace_id: value.workspace_id,
-            name: value.name,
-            bypass_groups: value.bypass_groups,
-            bypass_users: value.bypass_users,
-        }
-    }
-}
-
-/// List all protection rules for a workspace
-async fn list_protection_rules(
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-) -> JsonResult<Vec<ProtectionRulesetResponse>> {
-    let rules =
-        (*windmill_common::workspaces::get_protection_rules(&w_id, &db).await?).clone();
-    Ok(Json(rules.into_iter().map(ProtectionRulesetResponse::from).collect()))
-}
-
-/// Create a new protection rule
-async fn create_protection_rule(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path(w_id): Path<String>,
-    Json(req): Json<CreateProtectionRuleRequest>,
-) -> Result<String> {
-    require_admin(authed.is_admin, &authed.username)?;
-
-    let mut tx = db.begin().await?;
-
-    // Check if rule with this name already exists
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
-        &w_id,
-        &req.name
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if exists {
-        return Err(Error::BadRequest(format!(
-            "Protection rule with name '{}' already exists",
-            req.name
-        )));
-    }
-
-    // Insert the new rule
-    sqlx::query!(
-        r#"
-            INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)
-            VALUES ($1, $2, $3, $4, $5)
-        "#,
-        &w_id,
-        &req.name,
-        ProtectionRules::from(&req.rules).bits(),
-        &req.bypass_groups,
-        &req.bypass_users,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.create_protection_rule",
-        ActionKind::Create,
-        &w_id,
-        Some(&req.name),
-        Some([("name", &req.name[..])].into()),
-    )
-    .await?;
-
-    tx.commit().await?;
-
-    // Invalidate cache
-    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", req.name) },
-        None,
-        false,
-        None,
-    )
-    .await?;
-
-    Ok(format!("Created protection rule '{}'", req.name))
-}
-
-/// Update an existing protection rule
-async fn update_protection_rule(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, rule_name)): Path<(String, String)>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
-    Json(req): Json<UpdateProtectionRuleRequest>,
-) -> Result<String> {
-    require_admin(is_admin, &username)?;
-
-    let mut tx = db.begin().await?;
-
-    // Check if rule exists
-    let exists = sqlx::query_scalar!(
-        "SELECT EXISTS(SELECT 1 FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2)",
-        &w_id,
-        &rule_name
-    )
-    .fetch_one(&mut *tx)
-    .await?
-    .unwrap_or(false);
-
-    if !exists {
-        return Err(Error::NotFound(format!(
-            "Protection rule '{}' not found",
-            rule_name
-        )));
-    }
-
-    // Update the rule
-    sqlx::query!(
-        r#"
-            UPDATE workspace_protection_rule
-            SET rules = $1, bypass_groups = $2, bypass_users = $3
-            WHERE workspace_id = $4 AND name = $5
-        "#,
-        ProtectionRules::from(&req.rules).bits(),
-        &req.bypass_groups,
-        &req.bypass_users,
-        &w_id,
-        &rule_name
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.update_protection_rule",
-        ActionKind::Update,
-        &w_id,
-        Some(&rule_name),
-        Some([("name", &rule_name[..])].into()),
-    )
-    .await?;
-
-    tx.commit().await?;
-
-    // Invalidate cache
-    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
-        None,
-        false,
-        None,
-    )
-    .await?;
-
-    Ok(format!("Updated protection rule '{}'", rule_name))
-}
-
-/// Delete a protection rule
-async fn delete_protection_rule(
-    authed: ApiAuthed,
-    Extension(db): Extension<DB>,
-    Path((w_id, rule_name)): Path<(String, String)>,
-    ApiAuthed { is_admin, username, .. }: ApiAuthed,
-) -> Result<String> {
-    require_admin(is_admin, &username)?;
-
-    let mut tx = db.begin().await?;
-
-    // Delete the rule
-    let result = sqlx::query!(
-        "DELETE FROM workspace_protection_rule WHERE workspace_id = $1 AND name = $2",
-        &w_id,
-        &rule_name
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    if result.rows_affected() == 0 {
-        return Err(Error::NotFound(format!(
-            "Protection rule '{}' not found",
-            rule_name
-        )));
-    }
-
-    audit_log(
-        &mut *tx,
-        &authed,
-        "workspaces.delete_protection_rule",
-        ActionKind::Delete,
-        &w_id,
-        Some(&rule_name),
-        Some([("name", &rule_name[..])].into()),
-    )
-    .await?;
-
-    tx.commit().await?;
-
-    // Invalidate cache
-    windmill_common::workspaces::invalidate_protection_rules_cache(&w_id);
-
-    handle_deployment_metadata(
-        &authed.email,
-        &authed.username,
-        &db,
-        &w_id,
-        DeployedObject::Settings { setting_type: format!("protection_rule_{}", rule_name) },
-        None,
-        false,
-        None,
-    )
-    .await?;
-
-    Ok(format!("Deleted protection rule '{}'", rule_name))
 }
 
 async fn compare_two_resource_types(

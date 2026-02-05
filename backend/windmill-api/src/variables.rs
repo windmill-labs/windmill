@@ -37,7 +37,6 @@ use windmill_common::{
         build_crypt, get_reserved_variables, ContextualVariable, CreateVariable, ListableVariable,
     },
     worker::CLOUD_HOSTED,
-    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
 };
 
 use crate::var_resource_cache::{cache_variable, get_cached_variable};
@@ -98,11 +97,6 @@ async fn list_contextual_variables(
 #[derive(Deserialize)]
 struct ListVariableQuery {
     path_start: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct DeployedFromQuery {
-    deployed_from_workspace: Option<String>,
 }
 
 async fn list_variables(
@@ -339,30 +333,9 @@ async fn create_variable(
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     Json(variable): Json<CreateVariable>,
 ) -> Result<(StatusCode, String)> {
     check_scopes(&authed, || format!("variables:write:{}", variable.path))?;
-
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
-
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &rule_kind,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
-
     if *CLOUD_HOSTED {
         let nb_variables = sqlx::query_scalar!(
             "SELECT COUNT(*) FROM variable WHERE workspace_id = $1",
@@ -633,33 +606,12 @@ async fn update_variable(
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
     Query(AlreadyEncrypted { already_encrypted }): Query<AlreadyEncrypted>,
-    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditVariable>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
 
     let path = path.to_path();
     check_scopes(&authed, || format!("variables:write:{}", path))?;
-
-    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
-        ProtectionRuleKind::DisableMergeUIInForks
-    } else {
-        ProtectionRuleKind::RequireForkOrBranchToDeploy
-    };
-
-    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
-        &w_id,
-        &rule_kind,
-        AuditAuthorable::username(&authed),
-        &authed.groups,
-        authed.is_admin,
-        &db,
-    )
-    .await?
-    {
-        return Err(Error::PermissionDenied(msg));
-    }
-
     let authed = maybe_refresh_folders(&path, &w_id, authed, &db).await;
 
     let mut sqlb = SqlBuilder::update_table("variable");

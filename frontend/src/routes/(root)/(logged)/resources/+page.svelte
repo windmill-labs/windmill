@@ -71,7 +71,6 @@
 	import ExploreAssetButton, {
 		assetCanBeExplored
 	} from '../../../../lib/components/ExploreAssetButton.svelte'
-	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	type ResourceW = ListableResource & { canWrite: boolean; marked?: string }
 	type ResourceTypeW = ResourceType & { canWrite: boolean }
@@ -122,8 +121,6 @@
 
 	let filter = $state('')
 	let ownerFilter: string | undefined = $state(undefined)
-
-	let showCreateButtons = $state(false)
 
 	let typeFilter: string | undefined = $state(undefined)
 
@@ -730,32 +727,29 @@
 			tooltip="Save and permission rich objects (JSON) including credentials obtained through OAuth."
 			documentationLink="https://www.windmill.dev/docs/core_concepts/resources_and_types"
 		>
-			{#if showCreateButtons}
-				<div class="flex flex-row justify-end gap-4">
-					<Button
-						variant="default"
-						unifiedSize="md"
-						startIcon={{ icon: Plus }}
-						on:click={startNewType}
-						aiId="resources-add-resource-type"
-						aiDescription="Add resource type"
-					>
-						Add resource type
-					</Button>
-					<Button
-						unifiedSize="md"
-						variant="accent"
-						startIcon={{ icon: Boxes }}
-						on:click={() => appConnect?.open?.()}
-						aiId="resources-add-resource"
-						aiDescription="Add resource"
-					>
-						Add resource
-					</Button>
-				</div>
-			{/if}
+			<div class="flex flex-row justify-end gap-4">
+				<Button
+					variant="default"
+					unifiedSize="md"
+					startIcon={{ icon: Plus }}
+					on:click={startNewType}
+					aiId="resources-add-resource-type"
+					aiDescription="Add resource type"
+				>
+					Add resource type
+				</Button>
+				<Button
+					unifiedSize="md"
+					variant="accent"
+					startIcon={{ icon: Boxes }}
+					on:click={() => appConnect?.open?.()}
+					aiId="resources-add-resource"
+					aiDescription="Add resource"
+				>
+					Add resource
+				</Button>
+			</div>
 		</PageHeader>
-		<NoDirectDeployAlert onUpdateCanEditStatus={(v) => showCreateButtons = v} />
 		<div class="flex justify-between">
 			<Tabs
 				class="w-full"
@@ -1018,7 +1012,7 @@
 													{
 														displayName: 'Edit',
 														icon: Pen,
-														disabled: !canWrite || !showCreateButtons,
+														disabled: !canWrite,
 														action: () => {
 															resourceEditor?.initEdit?.(path)
 														}
@@ -1036,7 +1030,7 @@
 														: []),
 													{
 														displayName: 'Delete',
-														disabled: !canWrite || !showCreateButtons,
+														disabled: !canWrite,
 														icon: Trash,
 														type: 'delete',
 														action: (event) => {
@@ -1141,7 +1135,6 @@
 													<Button
 														size="xs"
 														variant="default"
-														disabled={!showCreateButtons}
 														btnClasses="border-0"
 														startIcon={{ icon: Trash }}
 														on:click={() => handleDeleteResourceType(name)}
@@ -1152,7 +1145,6 @@
 													<Button
 														size="xs"
 														color="light"
-														disabled={!showCreateButtons}
 														startIcon={{ icon: Pen }}
 														on:click={() => startEditResourceType(name)}
 													>

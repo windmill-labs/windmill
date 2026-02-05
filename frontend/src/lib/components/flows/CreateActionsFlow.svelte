@@ -9,6 +9,7 @@
 	import { importFlowStore } from '$lib/components/flows/flowStore.svelte'
 	import { Loader2, Plus } from 'lucide-svelte'
 	import YAML from 'yaml'
+
 	let drawer: Drawer | undefined = $state(undefined)
 	let pendingRaw: string | undefined = $state(undefined)
 	let importType: 'yaml' | 'json' = $state('yaml')
@@ -23,35 +24,35 @@
 
 <!-- Buttons -->
 <div class="flex flex-row gap-2">
-		<Button
-			id="create-flow-button"
-			aiId="flows-create-actions-flow"
-			aiDescription="Create a new flow"
-			unifiedSize="lg"
-			startIcon={{ icon: Plus }}
-			endIcon={{ icon: BarsStaggered }}
-			href="{base}/flows/add?nodraft=true"
-			variant="accent"
-			dropdownItems={[
-				{
-					label: 'Import from YAML',
-					onClick: () => {
-						drawer?.toggleDrawer?.()
-						importType = 'yaml'
-					}
-				},
-				{
-					label: 'Import from JSON',
-					onClick: () => {
-						drawer?.toggleDrawer?.()
-						importType = 'json'
-					}
+	<Button
+		id="create-flow-button"
+		aiId="flows-create-actions-flow"
+		aiDescription="Create a new flow"
+		unifiedSize="lg"
+		startIcon={{ icon: Plus }}
+		endIcon={{ icon: BarsStaggered }}
+		href="{base}/flows/add?nodraft=true"
+		variant="accent"
+		dropdownItems={[
+			{
+				label: 'Import from YAML',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'yaml'
 				}
-			]}
-		>
-			Flow
-		</Button>
-	</div>
+			},
+			{
+				label: 'Import from JSON',
+				onClick: () => {
+					drawer?.toggleDrawer?.()
+					importType = 'json'
+				}
+			}
+		]}
+	>
+		Flow
+	</Button>
+</div>
 
 <!-- Raw JSON -->
 <Drawer bind:this={drawer} size="800px">

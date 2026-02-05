@@ -8,7 +8,6 @@ import {
 	devopsRole,
 	clearWorkspaceFromStorage
 } from './stores'
-import { resetProtectionRules, loadProtectionRules } from './workspaceProtectionRules.svelte'
 
 export function switchWorkspace(workspace: string | undefined) {
 	try {
@@ -18,16 +17,7 @@ export function switchWorkspace(workspace: string | undefined) {
 		console.error('error interacting with local storage', e)
 	}
 	resourceTypesStore.set(undefined)
-
-	// Clear protection rules state
-	resetProtectionRules()
-
 	workspaceStore.set(workspace)
-
-	// Eagerly load protection rules for new workspace
-	if (workspace) {
-		loadProtectionRules(workspace)
-	}
 }
 
 export function clearStores(): void {
@@ -40,7 +30,6 @@ export function clearStores(): void {
 	}
 
 	resourceTypesStore.set(undefined)
-	resetProtectionRules()
 	userStore.set(undefined)
 	workspaceStore.set(undefined)
 	usersWorkspaceStore.set(undefined)

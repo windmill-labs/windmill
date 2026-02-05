@@ -66,7 +66,6 @@
 		type DataTableSettingsType
 	} from '$lib/components/workspaceSettings/DataTableSettings.svelte'
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
-	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -162,7 +161,6 @@
 			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
-			| 'deployment'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -721,10 +719,10 @@
 				/>
 				<Tab
 					small
-					value="deployment"
-					aiId="workspace-settings-deployment"
-					aiDescription="Deployment and rulesets"
-					label="Deployment"
+					value="deploy_to"
+					aiId="workspace-settings-deploy-to"
+					aiDescription="Deployment UI workspace settings"
+					label="Deployment UI"
 				/>
 
 				{#if WORKSPACE_SHOW_SLACK_CMD}
@@ -825,8 +823,7 @@
 			<Skeleton layout={[1, [40]]} />
 		{:else if tab == 'users'}
 			<WorkspaceUserSettings />
-		{:else if tab == 'deployment'}
-			<WorkspaceRulesets />
+		{:else if tab == 'deploy_to'}
 			<div class="flex flex-col gap-4 my-8">
 				<div class="flex flex-col gap-1">
 					<div class="text-sm font-semibold text-emphasis">
