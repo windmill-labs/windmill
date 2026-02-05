@@ -532,6 +532,7 @@ export function useJobsLoader(args: () => UseJobLoaderArgs) {
 	})
 	$effect(() => {
 		Object.keys(filters ?? {}).map((k) => filters?.[k as keyof RunsFilters])
+		currentWorkspace
 		let p = untrack(() => onParamChanges())
 		return () => p.cancel()
 	})
