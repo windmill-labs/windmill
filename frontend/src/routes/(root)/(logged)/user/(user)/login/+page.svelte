@@ -19,6 +19,7 @@
 	import { setLicense } from '$lib/enterpriseUtils'
 	import Login from '$lib/components/Login.svelte'
 	import { onMount } from 'svelte'
+	import { refreshSuperadmin } from '$lib/refreshUser'
 
 	const email = $page.url.searchParams.get('email') ?? ''
 	const password = $page.url.searchParams.get('password') ?? ''
@@ -53,6 +54,14 @@
 			window.location.href = rd
 			return
 		}
+
+		try {
+			if (!$usersWorkspaceStore) {
+				usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
+			}
+			await refreshSuperadmin()
+		} catch {}
+
 		if ($workspaceStore) {
 			goto(rd ?? '/')
 		} else {
@@ -61,12 +70,6 @@
 				$workspaceStore = workspaceTarget
 				goto(rd)
 				return
-			}
-
-			if (!$usersWorkspaceStore) {
-				try {
-					usersWorkspaceStore.set(await WorkspaceService.listUserWorkspaces())
-				} catch {}
 			}
 
 			const allWorkspaces = $usersWorkspaceStore?.workspaces.filter((x) => x.id != 'admins')

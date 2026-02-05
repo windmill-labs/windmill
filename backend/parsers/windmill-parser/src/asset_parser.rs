@@ -114,13 +114,14 @@ fn merge_access_types(a: AssetUsageAccessType, b: AssetUsageAccessType) -> Asset
 // But never used it. In that case we don't know which table is being used,
 // but we still want to add the main datatable as an asset with unknown access type.
 //
-// This function takes care of the fact that assets can be suffixed (e.g. "main/users")
+// This function takes care of the fact that assets can be suffixed (e.g. "main/users" or "u/user/resource?table=table1")
 pub fn asset_was_used(assets: &Vec<ParseAssetsResult>, (kind, path): (AssetKind, &String)) -> bool {
     assets.iter().any(|a| {
         let a_path = a.path.as_str();
+        // Check for /table suffix (Ducklake, DataTable) or ?table= suffix (Resource)
         let has_same_path_base = a_path
             .strip_prefix(path)
-            .map(|p| p.starts_with('/'))
+            .map(|p| p.starts_with('/') || p.starts_with('?'))
             .unwrap_or(false);
         (has_same_path_base || a_path == path) && a.kind == kind
     })
