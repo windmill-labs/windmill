@@ -8,7 +8,6 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
-	import type { RunsSelectionMode } from '$lib/utils'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -16,7 +15,7 @@
 		externalJobs?: Job[]
 		omittedObscuredJobs: boolean
 		showExternalJobs?: boolean
-		selectionMode?: RunsSelectionMode | false
+		selectionMode?: boolean
 		selectedIds?: string[]
 		selectedWorkspace?: string | undefined
 		activeLabel?: string | null

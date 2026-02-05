@@ -7,10 +7,8 @@
 		truncateHash,
 		truncateRev,
 		isScriptPreview,
-		isJobSelectable,
 		msToReadableTime,
 		isFlowPreview,
-		type RunsSelectionMode,
 		getJobKindIcon
 	} from '$lib/utils'
 	import { Button } from '../common'
@@ -39,7 +37,7 @@
 		containsLabel?: boolean
 		showTag?: boolean
 		activeLabel: string | null
-		selectionMode?: RunsSelectionMode | false
+		selectionMode?: boolean
 	}
 
 	let {
@@ -82,16 +80,14 @@
 	class:grid-runs-table-with-labels-selection-no-tag={containsLabel && selectionMode && !showTag}
 	style="width: {containerWidth}px"
 	onclick={() => {
-		if (!selectionMode || isJobSelectable(selectionMode)(job)) {
-			dispatch('select')
-		}
+		dispatch('select')
 	}}
 >
 	<!-- Selection column (only when in selection mode) -->
 	{#if selectionMode}
 		<div class="flex items-center justify-center">
 			<div class="w-4 h-4">
-				<input type="checkbox" checked={selected} disabled={!isJobSelectable(selectionMode)(job)} />
+				<input type="checkbox" checked={selected} />
 			</div>
 		</div>
 	{/if}

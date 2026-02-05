@@ -19,8 +19,6 @@ import type { TriggerKind } from './components/triggers'
 import { stateSnapshot } from './svelte5Utils.svelte'
 import { validate, dereference } from '@scalar/openapi-parser'
 
-export type RunsSelectionMode = 'cancel' | 're-run'
-
 export namespace OpenApi {
 	export enum OpenApiVersion {
 		V2,
@@ -87,14 +85,6 @@ export function isJobReRunnable(j: Job): boolean {
 }
 
 export const WORKER_NAME_PREFIX = 'wk'
-
-export function isJobSelectable(selectionType: RunsSelectionMode) {
-	const f: (j: Job) => boolean = {
-		cancel: isJobCancelable,
-		're-run': isJobReRunnable
-	}[selectionType]
-	return f
-}
 
 export function escapeHtml(unsafe: string) {
 	return unsafe

@@ -27,7 +27,7 @@
 	import { twMerge } from 'tailwind-merge'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { isJobSelectable, pluralize, type RunsSelectionMode } from '$lib/utils'
+	import { pluralize } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
@@ -163,7 +163,6 @@
 		selectedIds = []
 		filters.schedule_path = null
 		batchReRunOptions = { flow: {}, script: {} }
-		selectionMode = false
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -215,27 +214,6 @@
 				return 'ConcurrencyChart'
 			default:
 				return 'RunChart'
-		}
-	}
-
-	let selectionMode: RunsSelectionMode | false = $state(false)
-
-	async function onSetSelectionMode(mode: RunsSelectionMode | false) {
-		selectionMode = mode
-		if (!mode) {
-			selectedIds = []
-			batchReRunOptions = { flow: {}, script: {} }
-			return
-		}
-		const selectableIds = jobs?.filter(isJobSelectable(mode)).map((j) => j.id) ?? []
-		selectedIds = []
-
-		if (!selectableIds?.length) {
-			sendUserToast(
-				'There are no visible jobs that can be ' +
-					{ cancel: 'cancelled', 're-run': 're-ran' }[mode],
-				true
-			)
 		}
 	}
 
@@ -309,7 +287,6 @@
 		selectedIds = []
 		jobsLoader?.loadJobs(true, true)
 		sendUserToast(`Canceled ${uuids.length} jobs`)
-		selectionMode = false
 	}
 
 	async function onCancelFilteredJobs() {
@@ -333,6 +310,8 @@
 			}
 		}
 	}
+
+	let openBatchRerunOptions = $state(false)
 
 	async function onCancelSelectedJobs() {
 		forceCancelInPopup = true
@@ -415,7 +394,6 @@
 		selectedIds = []
 		batchReRunOptions = { flow: {}, script: {} }
 		jobsLoader?.loadJobs(true, true)
-		selectionMode = false
 	}
 
 	async function onReRunFilteredJobs() {
@@ -430,7 +408,6 @@
 			...selectedFilters,
 			jobKinds: 'script,flow'
 		})
-		selectionMode = 're-run'
 	}
 
 	async function onReRunSelectedJobs() {
@@ -485,28 +462,6 @@
 			extended !== undefined &&
 			extended.jobs.length + extended.obscured_jobs.length >= 1000
 		)
-	})
-
-	const bubble = createBubbler()
-
-	function selectAll() {
-		if (!selectionMode) return
-		if (allSelected) {
-			allSelected = false
-			selectedIds = []
-		} else {
-			allSelected = true
-			selectedIds = jobs?.filter(isJobSelectable(selectionMode)).map((j) => j.id) ?? []
-		}
-	}
-
-	let allSelected = $derived.by(() => {
-		return selectionMode && selectedIds.length === selectableJobCount
-	})
-
-	const selectableJobCount = $derived.by(() => {
-		if (!selectionMode) return 0
-		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
 	})
 
 	const smallScreenWidth = 1920
@@ -747,7 +702,7 @@
 			{#if graph === 'RunChart'}
 				<RunChart
 					bind:selectedIds
-					canSelect={!selectionMode}
+					canSelect
 					minTimeSet={filters.min_ts}
 					maxTimeSet={filters.max_ts}
 					maxIsNow={filters.max_ts == undefined}
@@ -790,7 +745,6 @@
 										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
 										showExternalJobs={graph !== 'RunChart'}
 										activeLabel={filters.label}
-										{selectionMode}
 										{lastFetchWentToEnd}
 										bind:selectedIds
 										bind:selectedWorkspace
@@ -851,7 +805,7 @@
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					<div class="mt-14 overflow-y-auto pr-4 ml-2">
-						{#if selectionMode === 're-run'}
+						{#if openBatchRerunOptions}
 							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 						{:else if selectedIds.length === 1}
 							{#if selectedIds[0] === '-'}
