@@ -97,7 +97,7 @@
 	{/if}
 
 	<!-- Status -->
-	<div class="flex items-center justify-start pl-2">
+	<div class="flex items-center justify-start pl-4">
 		<JobStatusIcon {job} {isExternal} />
 	</div>
 

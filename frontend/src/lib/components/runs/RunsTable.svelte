@@ -220,7 +220,7 @@
 			{#if selectionMode}
 				<div class="text-xs font-semibold pl-4"></div>
 			{/if}
-			<div class="text-2xs px-2 flex flex-row items-center gap-2 leading-3">
+			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
