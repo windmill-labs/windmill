@@ -37,7 +37,6 @@
 
 	async function deleteRule(name: string) {
 		if (!$workspaceStore) return
-
 		try {
 			await WorkspaceService.deleteProtectionRule({
 				workspace: $workspaceStore,
