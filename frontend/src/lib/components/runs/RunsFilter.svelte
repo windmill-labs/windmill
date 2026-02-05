@@ -48,7 +48,6 @@
 	import Select from '../select/Select.svelte'
 	import { safeSelectItems } from '../select/utils.svelte'
 	import RunOption from './RunOption.svelte'
-	import DropdownSelect from '../DropdownSelect.svelte'
 	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
 	import TextInput from '../text_input/TextInput.svelte'
 	import { jobTriggerKinds, triggerDisplayNamesMap } from '../triggers/utils'
@@ -528,50 +527,15 @@
 	<!-- Kind -->
 	<RunOption label="Kind" for="kind">
 		{#if small && !calendarSmall}
-			<DropdownSelect
-				btnClasses="min-w-24 h-9 bg-surface-secondary font-normal"
+			<Select
 				items={[
-					{
-						displayName: 'All',
-						action: () => {
-							jobKindsCat = 'all'
-						},
-						id: 'all'
-					},
-					{
-						displayName: 'Runs',
-						action: () => {
-							jobKindsCat = 'runs'
-						},
-						id: 'runs',
-						extra: runsTooltip
-					},
-					{
-						displayName: 'Previews',
-						action: () => {
-							jobKindsCat = 'previews'
-						},
-						id: 'previews',
-						extra: previewsTooltip
-					},
-					{
-						displayName: 'Deps',
-						action: () => {
-							jobKindsCat = 'dependencies'
-						},
-						id: 'dependencies',
-						extra: dependenciesTooltip
-					},
-					{
-						displayName: 'Sync',
-						action: () => {
-							jobKindsCat = 'deploymentcallbacks'
-						},
-						id: 'deploymentcallbacks',
-						extra: syncTooltip
-					}
+					{ label: 'All', value: 'all' },
+					{ label: 'Runs', value: 'runs', extra: runsTooltip }, // TODO fix tooltip
+					{ label: 'Previews', value: 'previews', extra: previewsTooltip }, // TODO fix tooltip
+					{ label: 'Deps', value: 'dependencies', extra: dependenciesTooltip }, // TODO fix tooltip
+					{ label: 'Sync', value: 'deploymentcallbacks', extra: syncTooltip } // TODO fix tooltip
 				]}
-				selected={jobKindsCat}
+				bind:value={jobKindsCat}
 			/>
 		{:else}
 			<ToggleButtonGroup bind:selected={jobKindsCat}>

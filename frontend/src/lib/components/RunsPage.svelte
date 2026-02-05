@@ -11,7 +11,7 @@
 
 	import { sendUserToast } from '$lib/toast'
 	import { userStore, workspaceStore, userWorkspaces } from '$lib/stores'
-	import { Button, Drawer, DrawerContent, Skeleton } from '$lib/components/common'
+	import { Button, Drawer, DrawerContent, Skeleton, Tab, Tabs } from '$lib/components/common'
 	import RunChart from '$lib/components/RunChart.svelte'
 
 	import JobRunsPreview from '$lib/components/runs/JobRunsPreview.svelte'
@@ -27,25 +27,20 @@
 	import { twMerge } from 'tailwind-merge'
 	import ManuelDatePicker from '$lib/components/runs/ManuelDatePicker.svelte'
 	import { computeJobKinds, useJobsLoader } from '$lib/components/runs/useJobsLoader.svelte'
-	import { Calendar, Clock, TriangleAlert } from 'lucide-svelte'
 	import ConcurrentJobsChart from '$lib/components/ConcurrentJobsChart.svelte'
-	import { isJobSelectable, type RunsSelectionMode } from '$lib/utils'
+	import { isJobSelectable, pluralize, type RunsSelectionMode } from '$lib/utils'
 	import BatchReRunOptionsPane, {
 		type BatchReRunOptions
 	} from '$lib/components/runs/BatchReRunOptionsPane.svelte'
 	import { untrack } from 'svelte'
 	import { page } from '$app/state'
 	import RunOption from '$lib/components/runs/RunOption.svelte'
-	import TooltipV2 from '$lib/components/meltComponents/Tooltip.svelte'
-	import DropdownSelect from '$lib/components/DropdownSelect.svelte'
-	import RunsBatchActionsDropdown from '$lib/components/runs/RunsBatchActionsDropdown.svelte'
 	import { createBubbler } from 'svelte/legacy'
-	import ToggleButtonGroup from '$lib/components/common/toggleButton-v2/ToggleButtonGroup.svelte'
-	import ToggleButton from '$lib/components/common/toggleButton-v2/ToggleButton.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import AnimatedPane from '$lib/components/splitPanes/AnimatedPane.svelte'
 	import { useSearchParams } from '$lib/svelte5UtilsKit.svelte'
 	import { StaleWhileLoading } from '$lib/svelte5Utils.svelte'
+	import { TriangleAlertIcon } from 'lucide-svelte'
 
 	interface Props {
 		/** Initial path from route params (e.g., /runs/u/user/script) */
@@ -130,7 +125,6 @@
 	let graph: 'RunChart' | 'ConcurrencyChart' = $state(
 		typeOfChart(page.url.searchParams.get('graph'))
 	)
-	let graphIsRunsChart: boolean = $state(untrack(() => graph) === 'RunChart')
 	let innerWidth = $state(window.innerWidth)
 	let jobsLoader = useJobsLoader(() => ({
 		filters,
@@ -139,7 +133,7 @@
 		autoRefresh,
 		argError,
 		resultError,
-		lookback: graphIsRunsChart ? 0 : lookback,
+		lookback: graph === 'RunChart' ? 0 : lookback,
 		onSetPerPage: (p) => (filters.per_page = p),
 		onSetMinMaxTs: (minTs, maxTs) => ((filters.min_ts = minTs), (filters.max_ts = maxTs)),
 		currentWorkspace: $workspaceStore ?? ''
@@ -456,10 +450,6 @@
 		}
 	}
 
-	function setLookback(lookbackInDays: number) {
-		lookback = lookbackInDays
-	}
-
 	async function loadExtra() {
 		await jobsLoader?.loadExtraJobs()
 	}
@@ -523,8 +513,6 @@
 		if (!selectionMode) return 0
 		return jobs?.filter(isJobSelectable(selectionMode)).length ?? 0
 	})
-
-	let tableTopBarWidth = $state(0)
 
 	const smallScreenWidth = 1920
 	const verySmallScreenWidth = 1300
@@ -603,7 +591,7 @@
 {:else}
 	<div class="w-full h-screen flex flex-col" bind:clientWidth={innerWidth}>
 		<!-- Header and filters -->
-		<div class="flex flex-row items-start w-full border-b px-4 gap-8">
+		<div class="flex flex-row items-start w-full px-4 gap-8">
 			<div class="flex flex-row items-center h-full gap-6">
 				<div class="flex flex-row items-center gap-1">
 					<h1
@@ -645,7 +633,7 @@
 						{#if filters.min_ts || filters.max_ts}
 							<input
 								type="text"
-								class="!text-sm text-primary !bg-surface-secondary h-9 !border-none"
+								class="!text-sm text-primary !bg-surface-sunken h-9 !border-none"
 								value={filters.min_ts
 									? new Date(filters.min_ts).toLocaleString()
 									: 'zoom x axis to set min'}
@@ -733,78 +721,41 @@
 		</div>
 
 		<!-- Graph -->
-		<div class="p-2 px-4 pt-8 w-full border-b">
-			<div class="relative z-10">
-				<div class="absolute left-0 -top-7 flex flex-row gap-2 items-center min-w-24">
-					<ToggleButtonGroup
-						selected={graph}
-						on:selected={({ detail }) => {
-							graph = detail
-							graphIsRunsChart = graph === 'RunChart'
-						}}
-					>
-						{#snippet children({ item })}
-							<ToggleButton value="RunChart" label="Duration" {item} />
-							<ToggleButton
-								{item}
-								value="ConcurrencyChart"
-								label="Concurrency"
-								icon={warnJobLimit ? TriangleAlert : undefined}
-								tooltip={warnJobLimit ? warnJobLimitMsg : undefined}
-							/>
+		<div class="p-2 px-4 bg-surface-tertiary mx-4 mt-2 drop-shadow-base rounded-md">
+			<div class="relative z-10 mb-2 flex gap-2">
+				<Tabs bind:selected={graph}>
+					<Tab value="RunChart" label="Duration" />
+					<Tab value="ConcurrencyChart" label="Concurrency">
+						{#snippet extra()}
+							{#if warnJobLimit}
+								<Tooltip Icon={TriangleAlertIcon}>{warnJobLimitMsg}</Tooltip>
+							{/if}
 						{/snippet}
-					</ToggleButtonGroup>
+					</Tab>
+				</Tabs>
 
-					{#if !graphIsRunsChart}
-						<DropdownSelect
-							items={[
-								{
-									displayName: 'None',
-									action: () => setLookback(0),
-									id: '0'
-								},
-								{
-									displayName: '1 day',
-									action: () => setLookback(1),
-									id: '1'
-								},
-								{
-									displayName: '3 days',
-									action: () => setLookback(3),
-									id: '3'
-								},
-								{
-									displayName: '7 days',
-									action: () => setLookback(7),
-									id: '7'
-								}
-							]}
-							selected={lookback.toString()}
-							selectedDisplayName={`${lookback} days lookback`}
-						>
-							{#snippet extraLabel()}
-								<TooltipV2>
-									{#snippet text()}
-										How far behind the min datetime to start considering jobs for the concurrency
-										graph. Change this value to include jobs started before the set time window for
-										the computation of the graph
-									{/snippet}
-								</TooltipV2>
-							{/snippet}
-						</DropdownSelect>
-					{/if}
-				</div>
+				{#if graph !== 'RunChart'}
+					<Select
+						class="ml-auto"
+						bind:value={lookback}
+						items={[
+							{ label: 'None', value: 0 },
+							{ label: '1 day', value: 1 },
+							{ label: '3 days', value: 3 },
+							{ label: '7 days', value: 7 }
+						]}
+						transformInputSelectedText={(_, v) => `${pluralize(v, 'day')} lookback`}
+						tooltip={'How far behind the min datetime to start considering jobs for the concurrency graph. Change this value to include jobs started before the set time window for the computation of the graph'}
+					/>
+				{/if}
 			</div>
 			{#if graph === 'RunChart'}
 				<RunChart
-					{lastFetchWentToEnd}
 					bind:selectedIds
 					canSelect={!selectionMode}
 					minTimeSet={filters.min_ts}
 					maxTimeSet={filters.max_ts}
-					totalRowsFetched={jobs?.length ?? 0}
 					maxIsNow={filters.max_ts == undefined}
-					onLoadExtra={loadExtra}
 					jobs={completedJobs}
 					onZoom={async (zoom) => {
 						filters.min_ts = zoom.min.toISOString()
@@ -831,106 +782,10 @@
 			{/if}
 		</div>
 
-		<div class="grow min-h-0">
+		<div class="grow min-h-0 mt-4">
 			<Splitpanes>
 				<Pane minSize={40}>
 					<div class="flex flex-col h-full">
-						<!-- Runs table top bar -->
-						<div
-							class="flex flex-row gap-4 items-center px-2 py-1 grow-0 justify-between"
-							bind:clientWidth={tableTopBarWidth}
-						>
-							<div class="flex flex-row gap-4 items-center">
-								{#if selectionMode && selectableJobCount}
-									<div class="flex flex-row items-center font-semibold text-sm">
-										<div class="px-2">
-											<input
-												onfocus={bubble('focus')}
-												type="checkbox"
-												checked={allSelected}
-												id="select-all"
-												class={twMerge(
-													'cursor-pointer',
-													allSelected ? 'bg-blue-50 dark:bg-blue-900/50' : '',
-													'flex flex-row items-center p-2 pr-4 top-0 font-semibold text-sm'
-												)}
-												onclick={selectAll}
-											/>
-										</div>
-										<label
-											class="cursor-pointer whitespace-nowrap text-xs text-emphasis font-semibold"
-											for="select-all">Select all</label
-										>
-									</div>
-								{/if}
-
-								<RunsBatchActionsDropdown
-									isLoading={loadingSelectedIds}
-									{selectionMode}
-									selectionCount={selectedIds.length}
-									{onSetSelectionMode}
-									{onCancelFilteredJobs}
-									{onCancelSelectedJobs}
-									{onReRunFilteredJobs}
-									{onReRunSelectedJobs}
-									small={tableTopBarWidth < 800}
-								/>
-							</div>
-
-							<div class="flex flex-row gap-4 items-center">
-								{#if !filters.job_trigger_kind}
-									<div class="flex flex-row gap-1 items-center">
-										<Toggle
-											id="cron-schedules"
-											bind:checked={filters.show_schedules}
-											options={tableTopBarWidth < 800 || selectionMode
-												? {}
-												: { right: 'Schedules' }}
-										/>
-										<span title="Schedules">
-											<Calendar size="14" />
-										</span>
-									</div>
-								{/if}
-
-								<div class="flex flex-row gap-1 items-center">
-									<Toggle
-										size="sm"
-										bind:checked={filters.show_future_jobs}
-										id="planned-later"
-										options={tableTopBarWidth < 800 || selectionMode
-											? {}
-											: { right: 'Planned later' }}
-									/>
-									<span title="Planned later">
-										<Clock size={14} />
-									</span>
-								</div>
-								<div class="flex flex-row gap-2 items-center">
-									<ManuelDatePicker
-										on:loadJobs={() => {
-											jobsLoader?.loadJobs(true)
-										}}
-										bind:minTs={filters.min_ts}
-										bind:maxTs={filters.max_ts}
-										bind:selectedManualDate
-										{loading}
-										bind:this={manualDatePicker}
-										numberOfLastJobsToFetch={filters.per_page}
-									/>
-									<Toggle
-										size="sm"
-										bind:checked={autoRefresh}
-										on:change={() => {
-											localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-										}}
-										options={{ right: 'Auto-refresh' }}
-										textClass="whitespace-nowrap"
-									/>
-								</div>
-							</div>
-						</div>
-
 						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
 						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 							{#if jobs}
@@ -938,7 +793,7 @@
 									{jobs}
 									externalJobs={externalJobs ?? []}
 									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-									showExternalJobs={!graphIsRunsChart}
+									showExternalJobs={graph !== 'RunChart'}
 									activeLabel={filters.label}
 									{selectionMode}
 									{lastFetchWentToEnd}
@@ -964,12 +819,30 @@
 								</div>
 							{/if}
 						</div>
-						<div
-							class="bg-surface-secondary border-t flex text-xs px-2 py-1 items-center justify-end gap-2"
-						>
-							Per page:
+						<div class="bg-surface border-t flex text-xs px-2 py-1 items-center gap-4">
+							<ManuelDatePicker
+								on:loadJobs={() => {
+									jobsLoader?.loadJobs(true)
+								}}
+								bind:minTs={filters.min_ts}
+								bind:maxTs={filters.max_ts}
+								bind:selectedManualDate
+								{loading}
+								bind:this={manualDatePicker}
+								numberOfLastJobsToFetch={filters.per_page}
+							/>
+							<Toggle
+								size="xs"
+								bind:checked={autoRefresh}
+								on:change={() => {
+									localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+								}}
+								options={{ right: 'Auto-refresh' }}
+								textClass="whitespace-nowrap"
+							/>
+							<div class="flex-1"></div>
 							<Select
-								class="w-20"
+								class="w-24"
 								bind:value={
 									() => filters.per_page,
 									(newPerPage) => {
@@ -984,6 +857,7 @@
 									{ value: 1000, label: '1000' },
 									{ value: 10000, label: '10000' }
 								]}
+								transformInputSelectedText={(_, v) => `${v} / page`}
 							/>
 						</div>
 					</div>

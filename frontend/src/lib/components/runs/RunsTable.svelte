@@ -199,13 +199,13 @@
 <svelte:window onresize={() => computeHeight()} />
 
 <div
-	class="divide-y h-full border min-w-[650px]"
+	class="divide-y h-full min-w-[650px]"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
 	<div bind:clientHeight={headerHeight}>
 		<div
-			class="grid bg-surface-secondary sticky top-0 w-full py-2 pr-4"
+			class="grid sticky top-0 w-full min-h-6 mb-2 pr-4 items-end"
 			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
@@ -220,7 +220,7 @@
 			{#if selectionMode}
 				<div class="text-xs font-semibold pl-4"></div>
 			{/if}
-			<div class="text-2xs px-2 flex flex-row items-center gap-2">
+			<div class="text-2xs px-2 flex flex-row items-center gap-2 leading-3">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
 						{jobs
@@ -242,15 +242,15 @@
 					{jobs ? jobCountString(jobs.length, lastFetchWentToEnd) : ''}
 				{/if}
 			</div>
-			<div class="text-xs font-semibold">Started</div>
-			<div class="text-xs font-semibold">Duration</div>
-			<div class="text-xs font-semibold">Path</div>
+			<div class="text-xs font-semibold leading-3">Started</div>
+			<div class="text-xs font-semibold leading-3">Duration</div>
+			<div class="text-xs font-semibold leading-3">Path</div>
 			{#if containsLabel}
-				<div class="text-xs font-semibold">Label</div>
+				<div class="text-xs font-semibold leading-3">Label</div>
 			{/if}
-			<div class="text-xs font-semibold">Triggered by</div>
+			<div class="text-xs font-semibold leading-3">Triggered by</div>
 			{#if showTag}
-				<div class="text-xs font-semibold">Tag</div>
+				<div class="text-xs font-semibold leading-3">Tag</div>
 			{/if}
 			<div class=""></div>
 		</div>
