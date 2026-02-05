@@ -184,7 +184,14 @@ async fn list_assets(
         FROM asset
         INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
         LEFT JOIN resource ON asset.kind = 'resource'
-          AND array_to_string((string_to_array(asset.path, '/'))[1:3], '/') = resource.path
+          AND (
+            -- New ?table= syntax: extract base path before '?'
+            CASE
+              WHEN asset.path LIKE '%?%' THEN split_part(asset.path, '?', 1)
+              -- Legacy /table syntax: extract first 3 path components (for backward compatibility)
+              ELSE array_to_string((string_to_array(asset.path, '/'))[1:3], '/')
+            END
+          ) = resource.path
           AND resource.workspace_id = $1
         LEFT JOIN v2_job job ON asset.usage_kind = 'job'
           AND asset.usage_path = job.id::text
