@@ -132,10 +132,11 @@ struct AIOAuthResource {
     user: Option<String>,
 }
 
-/// Platform for Anthropic API
+/// Platform for AI providers (Anthropic, Google AI)
+/// Both Anthropic and Google AI can run on standard endpoints or Google Vertex AI
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
-enum AnthropicPlatform {
+enum AIPlatform {
     #[default]
     Standard,
     GoogleVertexAi,
@@ -155,9 +156,10 @@ struct AIStandardResource {
     aws_access_key_id: Option<String>,
     #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
     aws_secret_access_key: Option<String>,
-    /// Platform for Anthropic API (standard or google_vertex_ai)
+    /// Platform for AI providers (standard or google_vertex_ai)
+    /// Used by both Anthropic and Google AI providers to indicate Vertex AI usage
     #[serde(default)]
-    platform: AnthropicPlatform,
+    platform: AIPlatform,
 }
 
 #[derive(Deserialize, Debug)]
@@ -185,7 +187,8 @@ struct AIRequestConfig {
     pub aws_access_key_id: Option<String>,
     #[allow(dead_code)]
     pub aws_secret_access_key: Option<String>,
-    pub platform: AnthropicPlatform,
+    /// Platform for AI providers (standard or google_vertex_ai)
+    pub platform: AIPlatform,
 }
 
 impl AIRequestConfig {
@@ -213,9 +216,7 @@ impl AIRequestConfig {
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
                 } else {
-                    provider
-                        .get_base_url(resource.base_url, db)
-                        .await?
+                    provider.get_base_url(resource.base_url, db).await?
                 };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
@@ -269,7 +270,7 @@ impl AIRequestConfig {
                     None,
                     None,
                     None,
-                    AnthropicPlatform::Standard,
+                    AIPlatform::Standard,
                 )
             }
         };
@@ -338,12 +339,14 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+        let is_anthropic_vertex = is_anthropic && self.platform == AIPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
+        let is_google_ai_vertex = is_google_ai && self.platform == AIPlatform::GoogleVertexAi;
 
         // GoogleAI uses OpenAI-compatible endpoint in the proxy (for the chat), but not for the ai agent
-        let base_url = if is_google_ai {
+        // For Vertex AI, the base_url is already properly configured, no need to add /openai
+        let base_url = if is_google_ai && !is_google_ai_vertex {
             format!("{}/openai", base_url)
         } else {
             base_url.to_string()
@@ -388,7 +391,11 @@ impl AIRequestConfig {
         if let Some(api_key) = self.api_key {
             if is_azure {
                 request = request.header("api-key", api_key.clone())
+            } else if is_google_ai && !is_google_ai_vertex {
+                // Standard Google AI uses x-goog-api-key header
+                request = request.header("x-goog-api-key", api_key.clone())
             } else {
+                // Vertex AI (both Google and Anthropic) and most other providers use Bearer token
                 request = request.header("authorization", format!("Bearer {}", api_key.clone()))
             }
             // For standard Anthropic API, also add X-API-Key header (but not for Vertex AI)

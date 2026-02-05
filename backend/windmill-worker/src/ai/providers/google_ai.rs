@@ -6,7 +6,7 @@ use crate::ai::{
     image_handler::download_and_encode_s3_image,
     query_builder::{BuildRequestArgs, ParsedResponse, QueryBuilder, StreamEventProcessor},
     sse::{GeminiSSEParser, SSEParser},
-    types::*,
+    types::{AIPlatform, *},
     utils::parse_data_url,
 };
 
@@ -214,11 +214,17 @@ pub struct GeminiPredictCandidate {
 // Query Builder Implementation
 // ============================================================================
 
-pub struct GoogleAIQueryBuilder;
+pub struct GoogleAIQueryBuilder {
+    platform: AIPlatform,
+}
 
 impl GoogleAIQueryBuilder {
-    pub fn new() -> Self {
-        Self
+    pub fn new(platform: AIPlatform) -> Self {
+        Self { platform }
+    }
+
+    fn is_vertex(&self) -> bool {
+        self.platform == AIPlatform::GoogleVertexAi
     }
 
     /// Build a text request using the native Gemini API format
@@ -661,20 +667,41 @@ impl QueryBuilder for GoogleAIQueryBuilder {
     }
 
     fn get_endpoint(&self, base_url: &str, model: &str, output_type: &OutputType) -> String {
-        match output_type {
-            OutputType::Text => {
-                format!(
-                    "{}/models/{}:streamGenerateContent?alt=sse",
-                    base_url, model
-                )
+        if self.is_vertex() {
+            // For Vertex AI, the base_url should be in format:
+            // https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/publishers/google/models
+            // We append the model and the appropriate action
+            let base_url = base_url.trim_end_matches('/');
+            match output_type {
+                OutputType::Text => {
+                    format!("{}/{}:streamGenerateContent?alt=sse", base_url, model)
+                }
+                OutputType::Image => {
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
+                    format!("{}/{}:{}", base_url, model, url_suffix)
+                }
             }
-            OutputType::Image => {
-                let url_suffix = if model.contains("imagen") {
-                    "predict"
-                } else {
-                    "generateContent"
-                };
-                format!("{}/models/{}:{}", base_url, model, url_suffix)
+        } else {
+            // Standard Google AI endpoint
+            match output_type {
+                OutputType::Text => {
+                    format!(
+                        "{}/models/{}:streamGenerateContent?alt=sse",
+                        base_url, model
+                    )
+                }
+                OutputType::Image => {
+                    let url_suffix = if model.contains("imagen") {
+                        "predict"
+                    } else {
+                        "generateContent"
+                    };
+                    format!("{}/models/{}:{}", base_url, model, url_suffix)
+                }
             }
         }
     }
@@ -685,7 +712,13 @@ impl QueryBuilder for GoogleAIQueryBuilder {
         _base_url: &str,
         _output_type: &OutputType,
     ) -> Vec<(&'static str, String)> {
-        // Native Gemini API always uses x-goog-api-key
-        vec![("x-goog-api-key", api_key.to_string())]
+        if self.is_vertex() {
+            // For Vertex AI, use Bearer token authentication
+            // The api_key should be an OAuth2 access token (from gcloud auth print-access-token)
+            vec![("Authorization", format!("Bearer {}", api_key))]
+        } else {
+            // Native Gemini API uses x-goog-api-key
+            vec![("x-goog-api-key", api_key.to_string())]
+        }
     }
 }
