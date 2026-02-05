@@ -9,6 +9,7 @@
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyboardModifiers } from '$lib/svelte5Utils.svelte'
+	import { twMerge } from 'tailwind-merge'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -261,11 +262,12 @@
 					<div {style} class="w-full bg-surface-tertiary">
 						{#if flatJobs}
 							{@const jobOrDate = flatJobs[index]}
-
 							{#if jobOrDate}
 								{#if jobOrDate?.type === 'date'}
 									<div
-										class="border-b bg-surface-tertiary py-2 font-semibold text-xs pl-4 h-[42px] flex items-end"
+										class={twMerge(
+											'border-b py-2 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
+										)}
 									>
 										{jobOrDate.date}
 									</div>
@@ -276,7 +278,7 @@
 											{showTag}
 											job={jobOrDate.job}
 											selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-											on:select={(e) => {
+											on:select={() => {
 												const jobId = jobOrDate.job.id
 												if (keyboardModifiers.control || keyboardModifiers.meta) {
 													if (selectedIds.includes(jobOrDate.job.id)) {
@@ -284,6 +286,23 @@
 													} else {
 														selectedIds.push(jobId)
 														selectedIds = selectedIds
+													}
+												} else if (keyboardModifiers.shift && selectedIds.length > 0) {
+													const lastSelectedId = selectedIds[selectedIds.length - 1]
+													const lastSelectedIndex = flatJobs?.findIndex(
+														(jobOrDate) =>
+															jobOrDate.type === 'job' && jobOrDate.job.id === lastSelectedId
+													)
+													if (lastSelectedIndex != undefined && flatJobs) {
+														const [start, end] =
+															index < lastSelectedIndex
+																? [index, lastSelectedIndex]
+																: [lastSelectedIndex, index]
+														const newSelectedIds = flatJobs
+															.slice(start, end + 1)
+															.filter((jobOrDate) => jobOrDate.type === 'job')
+															.map((jobOrDate) => jobOrDate.job.id)
+														selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
 													}
 												} else {
 													if (
