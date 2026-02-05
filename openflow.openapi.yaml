@@ -437,6 +437,7 @@ components:
             - graphql
             - nativets
             - php
+            - duckdb
             # TODO: Add missing languages
         path:
           type: string
