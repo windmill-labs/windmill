@@ -15739,6 +15739,7 @@ dependencies = [
 name = "windmill-common"
 version = "1.625.0"
 dependencies = [
+ "aes-gcm",
  "anyhow",
  "async-recursion",
  "async-stream",
@@ -15797,6 +15798,7 @@ dependencies = [
  "reqwest 0.13.1",
  "reqwest-middleware",
  "reqwest-retry",
+ "rsa",
  "semver 1.0.27",
  "serde",
  "serde_json",

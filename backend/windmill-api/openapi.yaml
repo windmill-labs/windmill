@@ -1310,6 +1310,20 @@ paths:
               schema:
                 type: string
 
+  /settings/get_stats:
+    get:
+      summary: get encrypted telemetry stats (EE only)
+      operationId: getStats
+      tags:
+        - setting
+      responses:
+        "200":
+          description: base64-encoded encrypted telemetry blob
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /settings/latest_key_renewal_attempt:
     get:
       summary: get latest key renewal attempt
