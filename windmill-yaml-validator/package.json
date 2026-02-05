@@ -1,6 +1,6 @@
 {
   "name": "windmill-yaml-validator",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "YAML validator for Windmill",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
