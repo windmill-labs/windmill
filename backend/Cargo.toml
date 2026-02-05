@@ -71,6 +71,7 @@ deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_co
 quickjs = ["windmill-worker/quickjs"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
+kafka-gssapi = ["windmill-api/kafka-gssapi"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
