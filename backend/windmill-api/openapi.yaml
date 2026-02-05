@@ -22988,10 +22988,9 @@ components:
         - flow
         - job
     AssetUsageAccessType:
-      oneOf:
-        - type: string
-          enum: [r, w, rw]
-        - type: 'null'
+      type: string
+      enum: [r, w, rw]
+      nullable: true
     AssetKind:
       type: string
       enum:
