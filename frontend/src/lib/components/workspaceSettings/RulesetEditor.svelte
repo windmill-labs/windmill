@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { Section, Alert, Button, Badge } from '$lib/components/common'
+	import { Section, Button, Badge } from '$lib/components/common'
 	import Toggle from '$lib/components/Toggle.svelte'
 	import Label from '$lib/components/Label.svelte'
 	import Select from '$lib/components/select/Select.svelte'
 	import TextInput from '$lib/components/text_input/TextInput.svelte'
-	import { enterpriseLicense, workspaceStore, userStore } from '$lib/stores'
-	import { GroupService, UserService, WorkspaceService, type ProtectionRuleset } from '$lib/gen'
+	import { workspaceStore } from '$lib/stores'
+	import { GroupService, UserService, WorkspaceService, type ProtectionRuleKind, type ProtectionRuleset } from '$lib/gen'
 	import { sendUserToast } from '$lib/toast'
 	import { clone } from '$lib/utils'
 	import { untrack } from 'svelte'
@@ -141,9 +141,9 @@
 				requestBody: {
 					name,
 					rules: [
-						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy'] : []),
-						...(disableFork ? ['DisableWorkspaceForking'] : []),
-						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
+						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(disableMergeUI ? ['DisableMergeUIInForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers
@@ -167,9 +167,9 @@
 				ruleName: initialName,
 				requestBody: {
 					rules: [
-						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy'] : []),
-						...(disableFork ? ['DisableWorkspaceForking'] : []),
-						...(disableMergeUI ? ['DisableMergeUIInForks'] : [])
+						...(requireForkOrBranch ? ['RequireForkOrBranchToDeploy' as ProtectionRuleKind] : []),
+						...(disableFork ? ['DisableWorkspaceForking' as ProtectionRuleKind] : []),
+						...(disableMergeUI ? ['DisableMergeUIInForks' as ProtectionRuleKind] : [])
 					],
 					bypass_groups: selectedGroups,
 					bypass_users: selectedUsers

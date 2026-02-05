@@ -13,7 +13,7 @@
 	import { untrack } from 'svelte'
 	import { WorkspaceService, type ProtectionRuleset } from '$lib/gen'
 
-	let rules: ProtectionRuleset[] | undefined = $state(undefined)
+	let rules: ProtectionRuleset[] | undefined = $state<ProtectionRuleset[] | undefined>(undefined)
 	let selectedRule: ProtectionRuleset | undefined = $state(undefined)
 	let ruleDrawer: Drawer | undefined = $state(undefined)
 
@@ -54,7 +54,7 @@
 	function getScopeSummary(bypassGroups: string[], bypassUsers: string[]): string {
 		const groupCount = bypassGroups.length
 		const userCount = bypassUsers.length
-		const parts = []
+		const parts: string[] = []
 		if (groupCount > 0) parts.push(`${groupCount} group${groupCount !== 1 ? 's' : ''}`)
 		if (userCount > 0) parts.push(`${userCount} user${userCount !== 1 ? 's' : ''}`)
 		return parts.length > 0 ? `${parts.join(', ')} can bypass` : 'No bypassers'
