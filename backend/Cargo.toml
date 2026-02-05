@@ -98,15 +98,17 @@ mysql = ["windmill-worker/mysql"]
 oracledb = ["windmill-worker/oracledb"]
 duckdb = ["windmill-worker/duckdb"]
 mssql = ["windmill-worker/mssql"]
+mssql-kerberos = ["windmill-worker/mssql-kerberos"]  # Linux/Unix integrated auth
+mssql-winauth = ["windmill-worker/mssql-winauth"]  # Windows integrated auth
 bigquery = ["windmill-worker/bigquery"]
 php = ["windmill-worker/php"]
 csharp = ["windmill-worker/csharp"]
 nu = ["windmill-worker/nu"]
 java = ["windmill-worker/java"]
 ruby = ["windmill-worker/ruby"]
-all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java", "ruby"]
+all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-kerberos", "bigquery", "csharp", "nu", "php", "java", "ruby"]
 # For windows we have another set of languages enabled
-all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql", "bigquery", "csharp", "nu", "php", "java"]
+all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
  "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
@@ -114,6 +116,8 @@ all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embeddin
 
 [patch.crates-io]
 object_store = { git = "https://github.com/apache/arrow-rs-object-store", rev = "36752c975d4f29e20b57c91f81a10872dcd48ae7" }
+# Use tiberius main branch for libgssapi 0.8.1 fix (https://github.com/prisma/tiberius/issues/343)
+tiberius = { git = "https://github.com/prisma/tiberius", rev = "59db57960a14b422fb3a1309aa4aa47880896ff8" }
 
 [dependencies]
 anyhow.workspace = true

@@ -68,11 +68,11 @@ jobs:
         with:
           workspaces: "./backend -> target"
 
-      - name: Install xmlsec build-time deps
+      - name: Install xmlsec and gssapi build-time deps
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            pkg-config libxml2-dev libssl-dev \
+            pkg-config libxml2-dev libssl-dev libkrb5-dev \
             xmlsec1 libxmlsec1-dev libxmlsec1-openssl
 
       - name: Run update-sqlx script
