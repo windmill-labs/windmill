@@ -1018,6 +1018,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     // tracing::error!("Added completed job {:#?}", queued_job);
 
     let mut _skip_downstream_error_handlers = false;
+    let mut post_commit_schedule: Option<(Schedule, bool)> = None;
     tx = delete_job(tx, &job_id).warn_after_seconds(10).await?;
     // tracing::error!("3 {:?}", start.elapsed());
 
@@ -1058,7 +1059,6 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     } else {
         if completed_job.schedule_path().is_some() && completed_job.runnable_path.is_some() {
             let schedule_path = completed_job.schedule_path().unwrap();
-            let script_path = completed_job.runnable_path.as_ref().unwrap();
 
             let schedule = get_schedule_opt(&mut *tx, &completed_job.workspace_id, &schedule_path)
                 .warn_after_seconds(10)
@@ -1078,13 +1078,13 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                     || from_cache
                     || !success
                         && sqlx::query_scalar!(
-                            "SELECT 
-                                flow_status->>'step' = '0' 
+                            "SELECT
+                                flow_status->>'step' = '0'
                                 AND (
-                                    jsonb_array_length(flow_status->'modules') = 0 
-                                    OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps' 
+                                    jsonb_array_length(flow_status->'modules') = 0
+                                    OR flow_status->'modules'->0->>'type' = 'WaitingForPriorSteps'
                                     OR (
-                                        flow_status->'modules'->0->>'type' = 'Failure' 
+                                        flow_status->'modules'->0->>'type' = 'Failure'
                                         AND flow_status->'modules'->0->>'job' = $1
                                     )
                                 )
@@ -1099,61 +1099,7 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
                         .flatten()
                         .unwrap_or(false);
 
-                if schedule_next_tick {
-                    if let Err(err) = Box::pin(handle_maybe_scheduled_job(
-                        db,
-                        completed_job,
-                        &schedule,
-                        &script_path,
-                        &completed_job.workspace_id,
-                    ))
-                    .warn_after_seconds(10)
-                    .await
-                    {
-                        match err {
-                            Error::QuotaExceeded(_) => (),
-                            // scheduling next job failed and could not disable schedule => make zombie job to retry
-                            _ => return Ok((Some(job_id), 0, true)),
-                        }
-                    };
-                }
-
-                #[cfg(all(feature = "enterprise", feature = "private"))]
-                if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
-                    db,
-                    &schedule,
-                    &script_path,
-                    &completed_job.workspace_id,
-                    success,
-                    result,
-                    job_id,
-                    completed_job.started_at.unwrap_or(chrono::Utc::now()),
-                    completed_job.priority,
-                )
-                .warn_after_seconds(10)
-                .await
-                {
-                    if !success {
-                        tracing::error!("Could not apply schedule error handler: {}", err);
-                        let base_url = windmill_common::BASE_URL.read().await;
-                        let w_id: &String = &completed_job.workspace_id;
-                        if !matches!(err, Error::QuotaExceeded(_)) {
-                            report_error_to_workspace_handler_or_critical_side_channel(
-                                    &completed_job,
-                                    db,
-                                    format!(
-                                        "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
-                                        completed_job.id,
-                                        err
-                                    ),
-                                )
-                                .warn_after_seconds(10)
-                                .await;
-                        }
-                    } else {
-                        tracing::error!("Could not apply schedule recovery handler: {}", err);
-                    }
-                };
+                post_commit_schedule = Some((schedule, schedule_next_tick));
             } else {
                 tracing::error!(
                         "Schedule {schedule_path} in {} not found. Impossible to schedule again and apply schedule handlers",
@@ -1220,6 +1166,67 @@ async fn commit_completed_job<T: Serialize + Send + Sync + ValidableJson>(
     }
 
     tx.commit().warn_after_seconds(10).await?;
+
+    if let Some((schedule, schedule_next_tick)) = post_commit_schedule {
+        let script_path = completed_job.runnable_path.as_ref().unwrap();
+
+        if schedule_next_tick {
+            if let Err(err) = Box::pin(handle_maybe_scheduled_job(
+                db,
+                completed_job,
+                &schedule,
+                script_path,
+                &completed_job.workspace_id,
+            ))
+            .warn_after_seconds(10)
+            .await
+            {
+                if !matches!(err, Error::QuotaExceeded(_)) {
+                    tracing::error!(
+                        "Failed to push next scheduled job for {} after commit: {err}",
+                        schedule.path
+                    );
+                }
+            }
+        }
+
+        #[cfg(all(feature = "enterprise", feature = "private"))]
+        if let Err(err) = crate::jobs_ee::apply_schedule_handlers(
+            db,
+            &schedule,
+            script_path,
+            &completed_job.workspace_id,
+            success,
+            result,
+            job_id,
+            completed_job.started_at.unwrap_or(chrono::Utc::now()),
+            completed_job.priority,
+        )
+        .warn_after_seconds(10)
+        .await
+        {
+            if !success {
+                tracing::error!("Could not apply schedule error handler: {}", err);
+                let base_url = windmill_common::BASE_URL.read().await;
+                let w_id: &String = &completed_job.workspace_id;
+                if !matches!(err, Error::QuotaExceeded(_)) {
+                    report_error_to_workspace_handler_or_critical_side_channel(
+                        &completed_job,
+                        db,
+                        format!(
+                            "Failed to push schedule error handler job to handle failed job ({base_url}/run/{}?workspace={w_id}): {}",
+                            completed_job.id,
+                            err
+                        ),
+                    )
+                    .warn_after_seconds(10)
+                    .await;
+                }
+            } else {
+                tracing::error!("Could not apply schedule recovery handler: {}", err);
+            }
+        };
+    }
 
     tracing::info!(
         %job_id,
