@@ -255,7 +255,7 @@
 	let drawer: Drawer | undefined = $state()
 	let vcpus_memory = $derived(computeVCpuAndMemory(workers))
 	let selected = $derived(
-		nconfig?.dedicated_worker != undefined || (nconfig?.dedicated_workers?.length ?? 0) > 0
+		nconfig?.dedicated_worker != undefined || nconfig?.dedicated_workers != undefined
 			? 'dedicated'
 			: 'normal'
 	)
@@ -1164,6 +1164,17 @@
 		<div class="flex flex-row items-start gap-2 w-full">
 			<div class="text-secondary text-xs mt-1">Tags:</div>
 			<TagList tags={config.worker_tags} maxVisible={25} class="flex-wrap" />
+		</div>
+	{:else if config?.dedicated_workers && config.dedicated_workers.length > 0}
+		<div class="flex flex-row items-start gap-2 w-full">
+			<div class="text-secondary text-xs mt-1">Dedicated to:</div>
+			<div class="flex flex-wrap gap-1">
+				{#each config.dedicated_workers as dw}
+					<div class="text-xs bg-surface-secondary px-2 py-1 rounded text-primary font-mono">
+						{dw}
+					</div>
+				{/each}
+			</div>
 		</div>
 	{:else if config?.dedicated_worker}
 		<div class="flex flex-row items-start gap-2 w-full">
