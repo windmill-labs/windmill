@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO workspace_protection_rule (workspace_id, name, rules, bypass_groups, bypass_users)\n        VALUES ('test-workspace', 'strict_no_bypass', 1, ARRAY[]::text[], ARRAY[]::text[])\n        ON CONFLICT (workspace_id, name) DO UPDATE\n        SET rules = 1, bypass_groups = ARRAY[]::text[], bypass_users = ARRAY[]::text[]\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f5950d88c3d5535f3b2f4d574918fdf636e5b4fecaec5cb7915f4df1240e5a2b"
+}
