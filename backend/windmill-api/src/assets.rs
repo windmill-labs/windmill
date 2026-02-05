@@ -185,9 +185,9 @@ async fn list_assets(
         INNER JOIN asset_summary ON asset.path = asset_summary.path AND asset.kind = asset_summary.kind
         LEFT JOIN resource ON asset.kind = 'resource'
           AND (
-            -- New ?table= syntax: extract base path before '?'
+            -- Extract base path before '?' for ?table= syntax
             CASE
-              WHEN asset.path LIKE '%?table=%' THEN split_part(asset.path, '?table=', 1)
+              WHEN asset.path LIKE '%?%' THEN split_part(asset.path, '?', 1)
               ELSE asset.path
             END
           ) = resource.path
