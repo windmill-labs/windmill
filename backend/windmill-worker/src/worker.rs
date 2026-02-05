@@ -60,7 +60,7 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
     sync::{
-        atomic::{AtomicBool, AtomicU16, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering},
         Arc,
     },
     time::Duration,
@@ -326,8 +326,8 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
-    // Global setting to force sandboxing (OR'd with DISABLE_NSJAIL=false)
-    pub static ref FORCE_SANDBOXING: AtomicBool = AtomicBool::new(false);
+    /// Global setting for job isolation mode. 0=undefined (use env vars), 1=none, 2=unshare, 3=nsjail
+    pub static ref JOB_ISOLATION: AtomicU8 = AtomicU8::new(JobIsolationLevel::Undefined as u8);
 
     pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
         .ok()
@@ -627,11 +627,59 @@ lazy_static::lazy_static! {
 
 type Envs = Vec<(String, String)>;
 
-/// Check if sandboxing should be used for job execution.
-/// Returns true if force_sandboxing is enabled (via global setting) OR if DISABLE_NSJAIL env var is false.
-/// Either condition independently enables sandboxing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum JobIsolationLevel {
+    /// Not set via global setting; fall back to env vars (DISABLE_NSJAIL, ENABLE_UNSHARE_PID)
+    Undefined = 0,
+    /// No isolation
+    None = 1,
+    /// PID namespace isolation via unshare
+    Unshare = 2,
+    /// Full nsjail sandboxing
+    NsjailSandboxing = 3,
+}
+
+impl JobIsolationLevel {
+    pub fn from_u8(v: u8) -> Self {
+        match v {
+            1 => Self::None,
+            2 => Self::Unshare,
+            3 => Self::NsjailSandboxing,
+            _ => Self::Undefined,
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "none" => Self::None,
+            "unshare" => Self::Unshare,
+            "nsjail_sandboxing" => Self::NsjailSandboxing,
+            _ => Self::Undefined,
+        }
+    }
+}
+
+pub fn get_job_isolation() -> JobIsolationLevel {
+    JobIsolationLevel::from_u8(JOB_ISOLATION.load(Ordering::Relaxed))
+}
+
+/// Returns true if nsjail sandboxing should be used for job execution.
 pub fn is_sandboxing_enabled() -> bool {
-    FORCE_SANDBOXING.load(Ordering::Relaxed) || !*DISABLE_NSJAIL
+    match get_job_isolation() {
+        JobIsolationLevel::NsjailSandboxing => true,
+        JobIsolationLevel::Undefined => !*DISABLE_NSJAIL,
+        _ => false,
+    }
+}
+
+/// Returns true if unshare PID isolation should be used (when not using nsjail).
+pub fn is_unshare_enabled() -> bool {
+    match get_job_isolation() {
+        JobIsolationLevel::Unshare => true,
+        JobIsolationLevel::Undefined => *ENABLE_UNSHARE_PID,
+        _ => false,
+    }
 }
 
 /// Check if OTEL tracing proxy is enabled for a specific language (EE only)
@@ -1273,8 +1321,7 @@ pub async fn run_worker(
 
     // Force UNSHARE_PATH initialization now to fail-fast if unshare doesn't work
     // This ensures we panic at startup rather than lazily when first accessed during job execution
-    if *ENABLE_UNSHARE_PID {
-        // Access UNSHARE_PATH to trigger lazy_static initialization and test
+    if is_unshare_enabled() || *ENABLE_UNSHARE_PID {
         let _ = &*UNSHARE_PATH;
     }
 

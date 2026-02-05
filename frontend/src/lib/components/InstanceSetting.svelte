@@ -50,7 +50,10 @@
 		(setting.fieldType == 'select' || setting.fieldType == 'select_python') &&
 		$values[setting.key] == undefined
 	) {
-		$values[setting.key] = 'default'
+		$values[setting.key] =
+			setting.fieldType == 'select'
+				? setting.select_items?.[0]?.value ?? setting.select_items?.[0]?.label ?? 'default'
+				: 'default'
 	}
 
 	let latestKeyRenewalAttempt: {

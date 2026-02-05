@@ -146,12 +146,26 @@ export const settings: Record<string, Setting[]> = {
 			storage: 'setting'
 		},
 		{
-			label: 'Force sandboxing (nsjail)',
-			key: 'force_sandboxing',
-			fieldType: 'boolean',
+			label: 'Job Isolation',
+			key: 'job_isolation',
+			fieldType: 'select',
 			description:
-				'Force all jobs to run in nsjail sandboxed mode. Workers with DISABLE_NSJAIL=false also enable sandboxing independently of this setting.',
-			storage: 'setting'
+				'Isolation mode for job execution. None: no isolation. Unshare: PID namespace isolation via unshare. Nsjail: full nsjail sandboxing.',
+			storage: 'setting',
+			select_items: [
+				{
+					label: 'None',
+					value: 'none'
+				},
+				{
+					label: 'Unshare',
+					value: 'unshare'
+				},
+				{
+					label: 'Nsjail',
+					value: 'nsjail_sandboxing'
+				}
+			]
 		},
 		{
 			label: 'Max timeout for sync endpoints',
