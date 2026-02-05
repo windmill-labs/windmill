@@ -780,7 +780,7 @@
 			<Splitpanes>
 				<Pane minSize={40}>
 					<div class="h-full flex">
-						<div class="flex flex-col flex-1 m-4">
+						<div class="flex flex-col flex-1 m-4 mr-2">
 							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
 							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
 								{#if jobs}
@@ -850,7 +850,7 @@
 					</div>
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
-					<div class="mt-14 overflow-y-auto pr-4">
+					<div class="mt-14 overflow-y-auto pr-4 ml-2">
 						{#if selectionMode === 're-run'}
 							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 						{:else if selectedIds.length === 1}

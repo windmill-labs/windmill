@@ -196,7 +196,7 @@
 >
 	<div>
 		<div
-			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-center"
+			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
 			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
