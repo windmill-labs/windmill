@@ -502,6 +502,10 @@ export function getRelevantFields(job: Job): FieldConfig[] {
 			if (fieldName === 'permissioned_as') {
 				return shouldShowPermissionedAs
 			}
+			if (fieldName === 'parent_job') {
+				// Always show parent_job when it exists, regardless of category configuration
+				return job.parent_job !== null && job.parent_job !== undefined
+			}
 			return fieldsPresence[fieldName]
 		})
 		.map((fieldName) => fieldConfigs[fieldName])
