@@ -36,7 +36,7 @@ use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_worker::{process_relative_imports, scoped_dependency_map::ScopedDependencyMap};
 
@@ -53,7 +53,7 @@ use windmill_common::{
     s3_helpers::upload_artifact_to_store,
     scripts::{hash_script, ScriptRunnableSettingsHandle, ScriptRunnableSettingsInline},
     utils::{paginate_without_limits, WarnAfterExt},
-    worker::CLOUD_HOSTED,
+    worker::CLOUD_HOSTED, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
 };
 
 use windmill_common::{
@@ -543,14 +543,39 @@ async fn list_paths_from_workspace_runnable(
     Ok(Json(runnables))
 }
 
+#[derive(Deserialize)]
+struct DeployedFromQuery {
+    deployed_from_workspace: Option<String>,
+}
+
 async fn create_script(
     authed: ApiAuthed,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Extension(db): Extension<DB>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let (hash, tx, hdm) =
         create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
     tx.commit().await?;

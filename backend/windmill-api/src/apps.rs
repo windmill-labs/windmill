@@ -49,7 +49,7 @@ use sha2::{Digest, Sha256};
 use sql_builder::{bind::Bind, SqlBuilder};
 use sqlx::{types::Uuid, FromRow};
 use std::str;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     apps::{AppScriptId, ListAppQuery, APP_WORKSPACED_ROUTE},
@@ -65,6 +65,7 @@ use windmill_common::{
     },
     variables::{build_crypt, build_crypt_with_key_suffix, encrypt},
     worker::{to_raw_value, CLOUD_HOSTED},
+    workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
     HUB_BASE_URL,
 };
 
@@ -212,6 +213,11 @@ pub struct AppHistory {
 #[derive(Deserialize)]
 pub struct AppHistoryUpdate {
     pub deployment_msg: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DeployedFromQuery {
+    deployed_from_workspace: Option<String>,
 }
 
 pub type StaticFields = HashMap<String, Box<RawValue>>;
@@ -1098,6 +1104,7 @@ async fn create_app(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(app): Json<CreateApp>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -1107,6 +1114,25 @@ async fn create_app(
     }
     let path = app.path.clone();
     check_scopes(&authed, || format!("apps:write:{}", &path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let (new_tx, _path, _id) = create_app_internal(authed, db, user_db, &w_id, false, app).await?;
 
@@ -1392,7 +1418,7 @@ async fn delete_app(
         deployed_object,
         Some(format!("App '{}' deleted", path)),
         true,
-    None,
+        None,
     )
     .await?;
 
@@ -1423,6 +1449,7 @@ async fn update_app(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, path)): Path<(String, StripPath)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ns): Json<EditApp>,
 ) -> Result<String> {
     if authed.is_operator {
@@ -1433,6 +1460,26 @@ async fn update_app(
     // create_app_internal(authed, user_db, db, &w_id, &mut app).await?;
     let path = path.to_path();
     check_scopes(&authed, || format!("apps:write:{}", path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let opath = path.to_string();
     let (new_tx, npath, _v_id) =
         update_app_internal(authed, db, user_db, &w_id, path, false, ns).await?;

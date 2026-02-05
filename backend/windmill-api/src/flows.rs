@@ -30,7 +30,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
 use windmill_common::min_version::{
@@ -39,6 +39,7 @@ use windmill_common::min_version::{
 use windmill_common::runnable_settings::RunnableSettingsTrait;
 use windmill_common::utils::query_elems_from_hub;
 use windmill_common::worker::{to_raw_value, CLOUD_HOSTED};
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 use windmill_common::HUB_BASE_URL;
 use windmill_common::{
     db::UserDB,
@@ -417,12 +418,18 @@ async fn validate_flow(new_flow: &NewFlow) -> error::Result<()> {
     return Ok(());
 }
 
+#[derive(Deserialize)]
+struct DeployedFromQuery {
+    deployed_from_workspace: Option<String>,
+}
+
 async fn create_flow(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(nf): Json<NewFlow>,
 ) -> Result<(StatusCode, String)> {
     if authed.is_operator {
@@ -430,7 +437,28 @@ async fn create_flow(
             "Operators cannot create flows for security reasons".to_string(),
         ));
     }
+
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
@@ -853,6 +881,7 @@ async fn update_flow(
     Extension(db): Extension<DB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, flow_path)): Path<(String, StripPath)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(nf): Json<NewFlow>,
 ) -> Result<String> {
     if authed.is_operator {
@@ -860,8 +889,29 @@ async fn update_flow(
             "Operators cannot update flows for security reasons".to_string(),
         ));
     }
+
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        authed.groups(),
+        authed.is_admin(),
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     validate_flow(&nf).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;
