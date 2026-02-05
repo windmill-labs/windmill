@@ -78,7 +78,7 @@
 						{formatAssetKind({
 							...asset,
 							...(asset.kind === 'resource'
-								? { metadata: { resource_type: resourceDataCache[asset.path] } }
+								? { metadata: { resource_type: resourceDataCache[asset.path.split('?table=')[0]] } }
 								: {})
 						})}
 					</span>
