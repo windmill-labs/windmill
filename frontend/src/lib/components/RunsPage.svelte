@@ -776,96 +776,110 @@
 			{/if}
 		</div>
 
-		<div class="grow min-h-0 mt-4">
+		<div class="grow min-h-0 bottom-splitpane-wrapper">
 			<Splitpanes>
 				<Pane minSize={40}>
-					<div class="flex flex-col h-full">
-						<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
-						<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
-							{#if jobs}
-								<RunsTable
-									{jobs}
-									externalJobs={externalJobs ?? []}
-									omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
-									showExternalJobs={graph !== 'RunChart'}
-									activeLabel={filters.label}
-									{selectionMode}
-									{lastFetchWentToEnd}
-									bind:selectedIds
-									bind:selectedWorkspace
-									on:loadExtra={loadExtra}
-									on:filterByPath={filterByPath}
-									on:filterByUser={filterByUser}
-									on:filterByFolder={filterByFolder}
-									on:filterByLabel={filterByLabel}
-									on:filterByConcurrencyKey={filterByConcurrencyKey}
-									on:filterByTag={filterByTag}
-									on:filterBySchedule={filterBySchedule}
-									on:filterByWorker={filterByWorker}
-									bind:this={runsTable}
-									perPage={filters.per_page}
-								></RunsTable>
-							{:else}
-								<div class="gap-1 flex flex-col">
-									{#each new Array(8) as _}
-										<Skeleton layout={[[3]]} />
-									{/each}
-								</div>
-							{/if}
-						</div>
-						<div class="bg-surface border-t flex text-xs px-2 py-1 items-center gap-4">
-							<div class="flex-1"></div>
-							<Toggle
-								size="xs"
-								bind:checked={autoRefresh}
-								on:change={() => {
-									localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
-								}}
-								options={{ right: 'Auto-refresh' }}
-								textClass="whitespace-nowrap"
-							/>
-							<Select
-								class="w-24"
-								bind:value={
-									() => filters.per_page,
-									(newPerPage) => {
-										filters.per_page = newPerPage
-										if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+					<div class="h-full flex">
+						<div class="flex flex-col flex-1 m-4">
+							<!-- Runs table. Add overflow-hidden because scroll is handled inside the runs table based on this wrapper height -->
+							<div class="grow min-h-0 overflow-y-hidden overflow-x-auto">
+								{#if jobs}
+									<RunsTable
+										{jobs}
+										externalJobs={externalJobs ?? []}
+										omittedObscuredJobs={extendedJobs?.omitted_obscured_jobs ?? false}
+										showExternalJobs={graph !== 'RunChart'}
+										activeLabel={filters.label}
+										{selectionMode}
+										{lastFetchWentToEnd}
+										bind:selectedIds
+										bind:selectedWorkspace
+										on:loadExtra={loadExtra}
+										on:filterByPath={filterByPath}
+										on:filterByUser={filterByUser}
+										on:filterByFolder={filterByFolder}
+										on:filterByLabel={filterByLabel}
+										on:filterByConcurrencyKey={filterByConcurrencyKey}
+										on:filterByTag={filterByTag}
+										on:filterBySchedule={filterBySchedule}
+										on:filterByWorker={filterByWorker}
+										bind:this={runsTable}
+										perPage={filters.per_page}
+									></RunsTable>
+								{:else}
+									<div class="gap-1 flex flex-col">
+										{#each new Array(8) as _}
+											<Skeleton layout={[[3]]} />
+										{/each}
+									</div>
+								{/if}
+							</div>
+							<div
+								class="bg-surface-tertiary border rounded-b-md flex text-xs px-2 py-1 items-center gap-4"
+							>
+								<div class="flex-1"></div>
+								<Toggle
+									size="xs"
+									bind:checked={autoRefresh}
+									on:change={() => {
+										localStorage.setItem('auto_refresh_in_runs', autoRefresh ? 'true' : 'false')
+									}}
+									options={{ right: 'Auto-refresh' }}
+									textClass="whitespace-nowrap"
+								/>
+								<Select
+									class="w-24"
+									bind:value={
+										() => filters.per_page,
+										(newPerPage) => {
+											filters.per_page = newPerPage
+											if (newPerPage > (jobs?.length ?? 1000)) loadExtra()
+										}
 									}
-								}
-								onCreateItem={(v) => (filters.per_page = parseInt(v))}
-								items={[
-									{ value: 25, label: '25' },
-									{ value: 100, label: '100' },
-									{ value: 1000, label: '1000' },
-									{ value: 10000, label: '10000' }
-								]}
-								transformInputSelectedText={(_, v) => `${v} / page`}
-							/>
+									onCreateItem={(v) => (filters.per_page = parseInt(v))}
+									items={[
+										{ value: 25, label: '25' },
+										{ value: 100, label: '100' },
+										{ value: 1000, label: '1000' },
+										{ value: 10000, label: '10000' }
+									]}
+									transformInputSelectedText={(_, v) => `${v} / page`}
+								/>
+							</div>
 						</div>
 					</div>
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
-					{#if selectionMode === 're-run'}
-						<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
-					{:else if selectedIds.length === 1}
-						{#if selectedIds[0] === '-'}
-							<div class="p-4">There is no information available for this job</div>
-						{:else}
-							<JobRunsPreview
-								id={selectedIds[0]}
-								workspace={selectedWorkspace}
-								on:filterByConcurrencyKey={filterByConcurrencyKey}
-								on:filterByWorker={filterByWorker}
-							/>
+					<div class="mt-14 overflow-y-auto pr-4">
+						{#if selectionMode === 're-run'}
+							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+						{:else if selectedIds.length === 1}
+							{#if selectedIds[0] === '-'}
+								<div class="p-4">There is no information available for this job</div>
+							{:else}
+								<JobRunsPreview
+									id={selectedIds[0]}
+									workspace={selectedWorkspace}
+									on:filterByConcurrencyKey={filterByConcurrencyKey}
+									on:filterByWorker={filterByWorker}
+								/>
+							{/if}
+						{:else if selectedIds.length > 1}
+							<div class="text-xs m-4"
+								>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
+							>
 						{/if}
-					{:else if selectedIds.length > 1}
-						<div class="text-xs m-4"
-							>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
-						>
-					{/if}
+					</div>
 				</AnimatedPane>
 			</Splitpanes>
 		</div>
 	</div>
 {/if}
+
+<style>
+	:global(.bottom-splitpane-wrapper .splitpanes__splitter) {
+		background-color: transparent !important;
+		border: none !important;
+		opacity: 0 !important;
+	}
+</style>

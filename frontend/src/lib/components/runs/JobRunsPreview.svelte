@@ -109,8 +109,8 @@
 	bind:this={jobLoader}
 />
 
-<div class="h-full overflow-y-auto">
-	<div class="flex flex-col items-start p-4 pb-8 min-h-full">
+<div class="h-full">
+	<div class="flex flex-col items-start pb-4 min-h-full">
 		{#if job}
 			{@const isFlow = job?.job_kind == 'flow' || isFlowPreview(job?.job_kind)}
 			<JobDetailHeader

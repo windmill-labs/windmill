@@ -2,7 +2,7 @@
 	import type { Job } from '$lib/gen'
 	import RunRow from './RunRow.svelte'
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
-	import { createEventDispatcher, onMount } from 'svelte'
+	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
 	import { AlertTriangle } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
@@ -116,7 +116,6 @@
 	}
 
 	let tableHeight: number = $state(0)
-	let headerHeight: number = $state(0)
 	let containerWidth: number = $state(0)
 	// const MAX_ITEMS = perPage
 
@@ -146,12 +145,6 @@
 		return `${jc}${isTruncated ? '+' : ''} job${jc != 1 ? 's' : ''}`
 	}
 
-	function computeHeight() {
-		tableHeight = document.querySelector('#runs-table-wrapper')!.parentElement?.clientHeight ?? 0
-	}
-	onMount(() => {
-		computeHeight()
-	})
 	const dispatch = createEventDispatcher()
 
 	let scrollToIndex = $state(0)
@@ -196,14 +189,12 @@
 	const showTag = $derived(containerWidth > 700)
 </script>
 
-<svelte:window onresize={() => computeHeight()} />
-
 <div
-	class="divide-y h-full min-w-[650px] [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
+	class="divide-y h-full flex flex-col min-w-[650px]"
 	id="runs-table-wrapper"
 	bind:clientWidth={containerWidth}
 >
-	<div bind:clientHeight={headerHeight}>
+	<div>
 		<div
 			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-center"
 			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
@@ -255,105 +246,110 @@
 			<div class=""></div>
 		</div>
 	</div>
-	{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
-		<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
-	{:else}
-		<VirtualList
-			width="100%"
-			height={tableHeight - headerHeight}
-			itemCount={flatJobs?.length ?? 3}
-			itemSize={42}
-			overscanCount={20}
-			{stickyIndices}
-			{scrollToIndex}
-			scrollToAlignment="center"
-		>
-			{#snippet header()}{/snippet}
-			{#snippet item({ index, style })}
-				<div {style} class="w-full bg-surface-tertiary">
-					{#if flatJobs}
-						{@const jobOrDate = flatJobs[index]}
+	<div
+		bind:clientHeight={tableHeight}
+		class="relative flex-1 border rounded-t-md overflow-clip [&>.virtual-list-wrapper::-webkit-scrollbar-track]:bg-surface-tertiary"
+	>
+		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
+			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
+		{:else}
+			<VirtualList
+				width="100%"
+				height={tableHeight}
+				itemCount={flatJobs?.length ?? 3}
+				itemSize={42}
+				overscanCount={20}
+				{stickyIndices}
+				{scrollToIndex}
+				scrollToAlignment="center"
+			>
+				{#snippet header()}{/snippet}
+				{#snippet item({ index, style })}
+					<div {style} class="w-full bg-surface-tertiary">
+						{#if flatJobs}
+							{@const jobOrDate = flatJobs[index]}
 
-						{#if jobOrDate}
-							{#if jobOrDate?.type === 'date'}
-								<div
-									class="border-b bg-surface-tertiary py-2 font-semibold text-xs pl-4 h-[42px] flex items-end"
-								>
-									{jobOrDate.date}
-								</div>
+							{#if jobOrDate}
+								{#if jobOrDate?.type === 'date'}
+									<div
+										class="border-b bg-surface-tertiary py-2 font-semibold text-xs pl-4 h-[42px] flex items-end"
+									>
+										{jobOrDate.date}
+									</div>
+								{:else}
+									<div class="flex flex-row items-center h-full w-full">
+										<RunRow
+											{containsLabel}
+											{showTag}
+											job={jobOrDate.job}
+											selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+											{selectionMode}
+											on:select={() => {
+												const jobId = jobOrDate.job.id
+												if (selectionMode) {
+													if (selectedIds.includes(jobOrDate.job.id)) {
+														selectedIds = selectedIds.filter((id) => id != jobId)
+													} else {
+														selectedIds.push(jobId)
+														selectedIds = selectedIds
+													}
+												} else {
+													if (
+														JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
+														selectedWorkspace !== jobOrDate.job.workspace_id
+													) {
+														selectedWorkspace = jobOrDate.job.workspace_id
+														selectedIds = [jobOrDate.job.id]
+														dispatch('select')
+													} else {
+														selectedIds = []
+														selectedWorkspace = undefined
+														dispatch('select')
+													}
+												}
+											}}
+											{activeLabel}
+											on:filterByLabel
+											on:filterByPath
+											on:filterByUser
+											on:filterByFolder
+											on:filterByConcurrencyKey
+											on:filterBySchedule
+											on:filterByWorker
+											{containerWidth}
+										/>
+									</div>
+								{/if}
 							{:else}
-								<div class="flex flex-row items-center h-full w-full">
-									<RunRow
-										{containsLabel}
-										{showTag}
-										job={jobOrDate.job}
-										selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-										{selectionMode}
-										on:select={() => {
-											const jobId = jobOrDate.job.id
-											if (selectionMode) {
-												if (selectedIds.includes(jobOrDate.job.id)) {
-													selectedIds = selectedIds.filter((id) => id != jobId)
-												} else {
-													selectedIds.push(jobId)
-													selectedIds = selectedIds
-												}
-											} else {
-												if (
-													JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
-													selectedWorkspace !== jobOrDate.job.workspace_id
-												) {
-													selectedWorkspace = jobOrDate.job.workspace_id
-													selectedIds = [jobOrDate.job.id]
-													dispatch('select')
-												} else {
-													selectedIds = []
-													selectedWorkspace = undefined
-													dispatch('select')
-												}
-											}
-										}}
-										{activeLabel}
-										on:filterByLabel
-										on:filterByPath
-										on:filterByUser
-										on:filterByFolder
-										on:filterByConcurrencyKey
-										on:filterBySchedule
-										on:filterByWorker
-										{containerWidth}
-									/>
-								</div>
+								{JSON.stringify(jobOrDate)}
 							{/if}
 						{:else}
-							{JSON.stringify(jobOrDate)}
+							<div class="flex flex-row items-center h-full w-full">
+								<div class="w-1/12 text-2xs">...</div>
+								<div class="w-4/12 text-xs">...</div>
+								<div class="w-4/12 text-xs">...</div>
+								<div class="w-3/12 text-xs">...</div>
+							</div>
 						{/if}
-					{:else}
-						<div class="flex flex-row items-center h-full w-full">
-							<div class="w-1/12 text-2xs">...</div>
-							<div class="w-4/12 text-xs">...</div>
-							<div class="w-4/12 text-xs">...</div>
-							<div class="w-3/12 text-xs">...</div>
-						</div>
-					{/if}
-				</div>
-			{/snippet}
-			{#snippet footer()}
-				<div
-					>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
-						<button
-							class="text-xs text-accent text-center w-full pb-2"
-							onclick={() => {
-								dispatch('loadExtra')
-							}}
-						>
-							Load next {perPage} jobs
-						</button>
-					{/if}</div
-				>
-			{/snippet}
-		</VirtualList>
-	{/if}
+					</div>
+				{/snippet}
+				{#snippet footer()}
+					<div
+						>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
+							<button
+								class="text-xs text-accent text-center w-full pb-2"
+								onclick={() => {
+									dispatch('loadExtra')
+								}}
+							>
+								Load next {perPage} jobs
+							</button>
+						{/if}</div
+					>
+				{/snippet}
+			</VirtualList>
+		{/if}
+	</div>
 </div>
 
 <style>
