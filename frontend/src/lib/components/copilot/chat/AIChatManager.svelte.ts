@@ -538,7 +538,7 @@ class AIChatManager {
 			console.log('chatRequest error', err)
 			console.error('chatRequest error', err)
 			callbacks.onMessageEnd()
-			this.cancelLoadingTools()
+			this.cancelLoadingTools('Error')
 			if (!abortController.signal.aborted) {
 				throw err
 			}
@@ -1193,14 +1193,14 @@ class AIChatManager {
 		}
 	}
 
-	cancelLoadingTools = () => {
+	cancelLoadingTools = (messageText: 'Canceled' | 'Error' = 'Canceled') => {
 		this.displayMessages = this.displayMessages.map((message) => {
 			if (message.role === 'tool' && message.isLoading) {
 				return {
 					...message,
 					isLoading: false,
-					content: 'Canceled',
-					error: 'Canceled'
+					content: messageText,
+					error: messageText
 				}
 			}
 			return message
