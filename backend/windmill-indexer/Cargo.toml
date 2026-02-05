@@ -10,9 +10,9 @@ path = "src/lib.rs"
 
 [features]
 default = []
-parquet = ["dep:object_store"]
-private = []
-enterprise = []
+parquet = ["dep:object_store", "windmill-common/parquet"]
+private = ["windmill-common/private"]
+enterprise = ["windmill-common/enterprise"]
 
 [dependencies]
 windmill-common.workspace = true
