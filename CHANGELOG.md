@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.627.0](https://github.com/windmill-labs/windmill/compare/v1.626.0...v1.627.0) (2026-02-05)
+
+
+### Features
+
+* mssql integrated auth (gssapi) ([#7760](https://github.com/windmill-labs/windmill/issues/7760)) ([afa6e7a](https://github.com/windmill-labs/windmill/commit/afa6e7ab5bb26972acbfe19af41dd3e6ac5df363))
+* restriction rulesets for workspaces ([#7791](https://github.com/windmill-labs/windmill/issues/7791)) ([a1cd02d](https://github.com/windmill-labs/windmill/commit/a1cd02d7f80c97eb07eda04113f3aae815fada69))
+
+
+### Bug Fixes
+
+* allow unauthed private pwsh repo ([#7817](https://github.com/windmill-labs/windmill/issues/7817)) ([476e6fd](https://github.com/windmill-labs/windmill/commit/476e6fd4bd2cdb062fa15a8c4048371ef4b31845))
+* fix asset grant ([e28c5b1](https://github.com/windmill-labs/windmill/commit/e28c5b18af25710b0ed3a3ffbceb18f3da76cd75))
+
 ## [1.626.0](https://github.com/windmill-labs/windmill/compare/v1.625.0...v1.626.0) (2026-02-05)
 
 
