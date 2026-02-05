@@ -27,9 +27,8 @@ use crate::{
         read_file_content, start_child_process, OccupancyMetrics,
     },
     handle_child::handle_child,
-    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
-    POWERSHELL_CACHE_DIR, POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS,
-    TZ_ENV,
+    DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV, POWERSHELL_CACHE_DIR,
+    POWERSHELL_PATH, POWERSHELL_REPO_PAT, POWERSHELL_REPO_URL, PROXY_ENVS, TZ_ENV,
 };
 
 fn val_to_pwsh_param(v: serde_json::Value) -> String {
@@ -72,6 +71,7 @@ $ErrorActionPreference = 'Stop'
 $availableModules = Get-Module -ListAvailable
 $path = '{path}'
 $hasPrivateRepo = {has_private_repo}
+$hasCredentials = {has_credentials}
 $jobId = '{job_id}'
 $privateRepoUrl = '{private_repo_url}'
 $privateRepoPat = '{private_repo_pat}'
@@ -83,10 +83,12 @@ if ($hasPrivateRepo) {
     $repoName = "windmill-private-$jobId"
     $repoUri = "$privateRepoUrl"
 
-    # Create PSCredential for authentication
-    $username = "token"
-    $patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
-    $credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
+    # Create PSCredential for authentication only if PAT is provided
+    if ($hasCredentials) {
+        $username = "token"
+        $patToken = ConvertTo-SecureString $privateRepoPat -AsPlainText -Force
+        $credentials = New-Object System.Management.Automation.PSCredential($username, $patToken)
+    }
 
     Write-Host "Registering temporary repository: $repoName"
 
@@ -114,7 +116,8 @@ try {
 
             # First try private repository if configured
             if ($hasPrivateRepo) {
-                $findParams = @{ Name = $moduleName; Repository = $repoName; ErrorAction = 'SilentlyContinue'; Credential = $credentials }
+                $findParams = @{ Name = $moduleName; Repository = $repoName; ErrorAction = 'SilentlyContinue' }
+                if ($credentials) { $findParams.Credential = $credentials }
                 if ($requiredVersion) { $findParams.Version = $requiredVersion }
 
                 $privateModule = Find-PSResource @findParams
@@ -123,7 +126,8 @@ try {
                     $versionInfo = if ($requiredVersion) { " version $requiredVersion" } else { "" }
                     Write-Host "Found module $moduleName$versionInfo in private repository, installing from there..."
 
-                    $saveParams = @{ Name = $moduleName; Path = $path; Repository = $repoName; Credential = $credentials }
+                    $saveParams = @{ Name = $moduleName; Path = $path; Repository = $repoName }
+                    if ($credentials) { $saveParams.Credential = $credentials }
                     if ($requiredVersion) { $saveParams.Version = $requiredVersion }
                     Save-PSResource @saveParams
                 }
@@ -265,9 +269,11 @@ pub async fn handle_powershell_job(
                 let value_opt = job_args.and_then(|x| x.get(&arg.name));
 
                 // Check if this is a switch parameter (only [switch], not [bool])
-                let is_switch = arg.otyp.as_ref().map(|t| {
-                    t.to_lowercase() == "switch"
-                }).unwrap_or(false);
+                let is_switch = arg
+                    .otyp
+                    .as_ref()
+                    .map(|t| t.to_lowercase() == "switch")
+                    .unwrap_or(false);
 
                 if is_switch {
                     // Handle switch parameters: -SwitchName or omit
@@ -351,7 +357,8 @@ pub async fn handle_powershell_job(
     if !modules_to_install.is_empty() {
         let powershell_repo_url = POWERSHELL_REPO_URL.read().await.clone();
         let powershell_repo_pat = POWERSHELL_REPO_PAT.read().await.clone();
-        let has_private_repo = powershell_repo_url.is_some() && powershell_repo_pat.is_some();
+        let has_private_repo = powershell_repo_url.is_some();
+        let has_credentials = powershell_repo_pat.is_some();
 
         let modules_list = modules_to_install
             .iter()
@@ -372,6 +379,7 @@ pub async fn handle_powershell_job(
             .replace("{path}", POWERSHELL_CACHE_DIR)
             .replace("{job_id}", &job.id.to_string())
             .replace("{has_private_repo}", &format!("${has_private_repo}"))
+            .replace("{has_credentials}", &format!("${has_credentials}"))
             .replace(
                 "{private_repo_url}",
                 &powershell_repo_url.unwrap_or_default(),
@@ -454,11 +462,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
     {
         format!(
             "{}\n{}\n{}\n{}\n{}",
-            param_block,
-            profile,
-            strict_termination_start,
-            remaining_code,
-            strict_termination_end
+            param_block, profile, strict_termination_start, remaining_code, strict_termination_end
         )
     } else {
         format!("{}\n{}", profile, content)
@@ -493,8 +497,7 @@ $env:PSModulePath = \"{};$PSModulePathBackup\"",
         .runnable_path
         .as_ref()
         .map(|x| {
-            !x.starts_with(INIT_SCRIPT_PATH_PREFIX)
-                && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
+            !x.starts_with(INIT_SCRIPT_PATH_PREFIX) && !x.starts_with(PERIODIC_SCRIPT_PATH_PREFIX)
         })
         .unwrap_or(true);
 
