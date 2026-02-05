@@ -3780,12 +3780,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new variable
         required: true
@@ -3889,12 +3883,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated variable
         required: true
@@ -4167,126 +4155,6 @@ paths:
                 type: string
                 example: "Updated mute critical alert UI settings for workspace: workspace_id"
 
-  /w/{workspace}/workspaces/protection_rules:
-    get:
-      summary: list all protection rules for a workspace
-      operationId: listProtectionRules
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      responses:
-        "200":
-          description: list of protection rules
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/ProtectionRuleset"
-    post:
-      summary: create a new protection rule
-      operationId: createProtectionRule
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-      requestBody:
-        description: New protection rule configuration
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - name
-                - rules
-                - bypass_groups
-                - bypass_users
-              properties:
-                name:
-                  type: string
-                  description: Unique name for the protection rule
-                  example: "Production Protection"
-                rules:
-                  $ref: "#/components/schemas/ProtectionRules"
-                bypass_groups:
-                  $ref: "#/components/schemas/RuleBypasserGroups"
-                bypass_users:
-                  $ref: "#/components/schemas/RuleBypasserUsers"
-      responses:
-        "200":
-          description: protection rule created successfully
-          content:
-            text/plain:
-              schema:
-                type: string
-        "400":
-          description: rule with this name already exists
-
-  /w/{workspace}/workspaces/protection_rules/{rule_name}:
-    post:
-      summary: update an existing protection rule
-      operationId: updateProtectionRule
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: rule_name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Name of the protection rule to update
-      requestBody:
-        description: Updated protection rule configuration
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required:
-                - rules
-                - bypass_groups
-                - bypass_users
-              properties:
-                rules:
-                  $ref: "#/components/schemas/ProtectionRules"
-                bypass_groups:
-                  $ref: "#/components/schemas/RuleBypasserGroups"
-                bypass_users:
-                  $ref: "#/components/schemas/RuleBypasserUsers"
-      responses:
-        "200":
-          description: protection rule updated successfully
-          content:
-            text/plain:
-              schema:
-                type: string
-        "404":
-          description: protection rule not found
-    delete:
-      summary: delete a protection rule
-      operationId: deleteProtectionRule
-      tags:
-        - workspace
-      parameters:
-        - $ref: "#/components/parameters/WorkspaceId"
-        - name: rule_name
-          in: path
-          required: true
-          schema:
-            type: string
-          description: Name of the protection rule to delete
-      responses:
-        "200":
-          description: protection rule deleted successfully
-          content:
-            text/plain:
-              schema:
-                type: string
-        "404":
-          description: protection rule not found
   /w/{workspace}/workspaces/public_app_rate_limit:
     post:
       summary: Set public app rate limit for this workspace
@@ -4747,12 +4615,6 @@ paths:
           in: query
           schema:
             type: boolean
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new resource
         required: true
@@ -4828,12 +4690,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource
         required: true
@@ -4858,12 +4714,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource
         required: true
@@ -5111,12 +4961,6 @@ paths:
         - resource
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new resource_type
         required: true
@@ -5173,12 +5017,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Path"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: updated resource_type
         required: true
@@ -6084,12 +5922,6 @@ paths:
         - script
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled script
         required: true
@@ -7715,12 +7547,6 @@ paths:
         - flow
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled flow
         required: true
@@ -7752,12 +7578,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: Partially filled flow
         required: true
@@ -8073,12 +7893,6 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new app
         required: true
@@ -8121,12 +7935,6 @@ paths:
         - app
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: new app
         required: true
@@ -8515,12 +8323,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update app
         required: true
@@ -8557,12 +8359,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/ScriptPath"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update app
         required: true
@@ -14227,12 +14023,6 @@ paths:
         - folder
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: create folder
         required: true
@@ -14271,12 +14061,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/WorkspaceId"
         - $ref: "#/components/parameters/Name"
-        - name: deployed_from_workspace
-          in: query
-          description: "Optional. The workspace ID from which this deployment originates (when deploying from a fork)"
-          required: false
-          schema:
-            type: string
       requestBody:
         description: update folder
         required: true
@@ -23222,46 +23006,7 @@ components:
         kind:
           $ref: "#/components/schemas/AssetKind"
       required: [path, kind]
-    ProtectionRuleset:
-      type: object
-      description: A workspace protection rule defining restrictions and bypass permissions
-      required:
-        - name
-        - rules
-        - bypass_groups
-        - bypass_users
-      properties:
-        name:
-          type: string
-          description: Unique name for the protection rule
-          example: "Production Protection"
-        rules:
-          $ref: "#/components/schemas/ProtectionRules"
-        bypass_groups:
-          $ref: "#/components/schemas/RuleBypasserGroups"
-        bypass_users:
-          $ref: "#/components/schemas/RuleBypasserUsers"
-    ProtectionRules:
-      type: array
-      description: Configuration of protection restrictions
-      items:
-        $ref: "#/components/schemas/ProtectionRuleKind"
-    ProtectionRuleKind:
-      type: string
-      enum:
-        - RequireForkOrBranchToDeploy
-        - DisableWorkspaceForking
-        - DisableMergeUIInForks
-    RuleBypasserGroups:
-      type: array
-      description: Groups that can bypass this ruleset
-      items:
-        type: string
-    RuleBypasserUsers:
-      type: array
-      description: Users that can bypass this ruleset
-      items:
-        type: string
+
     NativeServiceName:
       type: string
       enum:

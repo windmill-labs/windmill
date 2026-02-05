@@ -32,7 +32,7 @@ http_trigger = ["dep:matchit", "dep:thiserror", "dep:sha1", "dep:constant_time_e
 static_frontend = ["dep:rust-embed"]
 postgres_trigger = ["dep:rust-postgres", "dep:pg_escape", "dep:byteorder", "dep:thiserror", "dep:rust_decimal", "dep:rust-postgres-native-tls"]
 mqtt_trigger = ["dep:thiserror", "dep:rumqttc"]
-native_trigger = ["dep:backon", "oauth2"]
+native_trigger = ["dep:strum", "dep:backon", "oauth2"]
 sqs_trigger = ["dep:aws-sdk-sqs", "dep:aws-sdk-sts", "dep:aws-sdk-sso", "dep:aws-sdk-ssooidc", "dep:thiserror", "dep:backon", "dep:aws-config"]
 deno_core = ["dep:deno_core", "dep:deno_error"]
 gcp_trigger = ["dep:thiserror", "dep:google-cloud-pubsub", "dep:google-cloud-googleapis", "dep:tonic"]
@@ -151,7 +151,6 @@ aws-sdk-sso = { workspace = true, optional = true }
 aws-sdk-ssooidc = { workspace = true, optional = true }
 aws-sdk-sts = { workspace = true, optional = true }
 rustls = { workspace = true }
-strum.workspace = true
 
 aws-sigv4.workspace = true
 aws-sdk-config.workspace = true
@@ -169,6 +168,7 @@ deno_core = { workspace = true, optional = true }
 tar.workspace = true
 flate2.workspace = true
 backon = {workspace = true, optional = true}
+strum = { workspace = true, optional = true }
 dashmap.workspace = true
 
 [build-dependencies]

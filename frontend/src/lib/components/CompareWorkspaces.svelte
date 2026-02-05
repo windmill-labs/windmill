@@ -27,7 +27,6 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
-	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { userWorkspaces, workspaceStore } from '$lib/stores'
 
@@ -53,7 +52,6 @@
 	let mergeIntoParent = $state(true)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
-	let canDeployToParent = $state(true)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -395,7 +393,6 @@
 				if (alreadyExists) {
 					await FlowService.updateFlow({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							...flow
@@ -404,7 +401,6 @@
 				} else {
 					await FlowService.createFlow({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							...flow
 						}
@@ -417,7 +413,6 @@
 				})
 				await ScriptService.createScript({
 					workspace: workspaceToDeployTo,
-					deployedFromWorkspace: workspaceFrom,
 					requestBody: {
 						...script,
 						lock: script.lock,
@@ -452,7 +447,6 @@
 						})
 						await AppService.updateAppRaw({
 							workspace: workspaceToDeployTo,
-							deployedFromWorkspace: workspaceFrom,
 							path: path,
 							formData: {
 								app,
@@ -463,7 +457,6 @@
 					} else {
 						await AppService.updateApp({
 							workspace: workspaceToDeployTo,
-							deployedFromWorkspace: workspaceFrom,
 							path: path,
 							requestBody: {
 								...app
@@ -486,7 +479,6 @@
 						})
 						await AppService.createAppRaw({
 							workspace: workspaceToDeployTo,
-							deployedFromWorkspace: workspaceFrom,
 							formData: {
 								app,
 								css,
@@ -496,7 +488,6 @@
 					} else {
 						await AppService.createApp({
 							workspace: workspaceToDeployTo,
-							deployedFromWorkspace: workspaceFrom,
 							requestBody: {
 								...app
 							}
@@ -512,7 +503,6 @@
 				if (alreadyExists) {
 					await VariableService.updateVariable({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							path: path,
@@ -525,7 +515,6 @@
 				} else {
 					await VariableService.createVariable({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							path: path,
 							value: variable.value ?? '',
@@ -542,7 +531,6 @@
 				if (alreadyExists) {
 					await ResourceService.updateResource({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							path: path,
@@ -553,7 +541,6 @@
 				} else {
 					await ResourceService.createResource({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							path: path,
 							value: resource.value ?? '',
@@ -570,7 +557,6 @@
 				if (alreadyExists) {
 					await ResourceService.updateResourceType({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						path: path,
 						requestBody: {
 							schema: resource.schema,
@@ -580,7 +566,6 @@
 				} else {
 					await ResourceService.createResourceType({
 						workspace: workspaceToDeployTo,
-						deployedFromWorkspace: workspaceFrom,
 						requestBody: {
 							description: resource.description ?? '',
 							schema: resource.schema,
@@ -606,7 +591,6 @@
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo,
-					deployedFromWorkspace: workspaceFrom,
 					requestBody: {
 						name: path
 					}
@@ -835,14 +819,6 @@
 			</div>
 		</div>
 
-		{#if mergeIntoParent}
-			<ParentWorkspaceProtectionAlert
-				{parentWorkspaceId}
-				onUpdateCanDeploy={(canDeploy) => {
-					canDeployToParent = canDeploy
-				}}
-			/>
-		{/if}
 		{#if conflictingDiffs.length > 0}
 			<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 				<!-- <AlertTriangle class="w-4 h-4" /> -->
@@ -853,7 +829,7 @@
 				</span>
 			</Alert>
 		{/if}
-		{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
+		{#if hasBehindChanges && hasAheadChanges}
 			<Alert
 				title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
 				type="warning"
@@ -1046,23 +1022,20 @@
 
 				<div class="flex flex-col items-end gap-2">
 					{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-						{#if !(mergeIntoParent && !canDeployToParent)}
-							<Button
-								color="blue"
-								disabled={selectedItems.length === 0 ||
-									deploying ||
-									(hasBehindChanges && !allowBehindChangesOverride) ||
-									(mergeIntoParent && !canDeployToParent)}
-								loading={deploying}
-								on:click={deployChanges}
-							>
-								{mergeIntoParent ? 'Deploy' : 'Update'}
-								{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-								{#if selectedConflicts != 0}
-									({selectedConflicts} conflicts)
-								{/if}
-							</Button>
-						{/if}
+						<Button
+							color="blue"
+							disabled={selectedItems.length === 0 ||
+								deploying ||
+								(hasBehindChanges && !allowBehindChangesOverride)}
+							loading={deploying}
+							on:click={deployChanges}
+						>
+							{mergeIntoParent ? 'Deploy' : 'Update'}
+							{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+							{#if selectedConflicts != 0}
+								({selectedConflicts} conflicts)
+							{/if}
+						</Button>
 					{/if}
 
 					{#if deploymentErrorMessage != ''}
@@ -1085,4 +1058,6 @@
 			<div class="text-gray-500">No comparison data available</div>
 		</div>
 	{/if}
+
+	<!-- <DeployWorkspaceItems kind="script" initialPath="u/admin/economical_script" workspaceToDeployTo={parentWorkspaceId} /> -->
 </div>

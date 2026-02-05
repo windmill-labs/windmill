@@ -46,10 +46,9 @@
 	interface Props {
 		filter?: string
 		subtab?: 'flow' | 'script' | 'app'
-		showEditButtons?: boolean
 	}
 
-	let { filter = $bindable(''), subtab = $bindable('script'), showEditButtons = true }: Props = $props()
+	let { filter = $bindable(''), subtab = $bindable('script') }: Props = $props()
 
 	type TableItem<T, U extends 'script' | 'flow' | 'app' | 'raw_app'> = T & {
 		canWrite: boolean
@@ -564,7 +563,6 @@
 							loadRawApps()
 						}}
 						{showCode}
-						showEditButton={showEditButtons}
 					/>
 				{/each}
 			</div>

@@ -66,7 +66,6 @@
 	import FlowChat from '$lib/components/flows/conversations/FlowChat.svelte'
 	import { slide } from 'svelte/transition'
 	import { twMerge } from 'tailwind-merge'
-	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 
 	let flow: Flow | undefined = $state()
 	let can_write = false
@@ -247,7 +246,6 @@
 					href: `${base}/flows/add?template=${flow.path}`,
 					variant: 'subtle',
 					unifiedSize: 'md',
-					disabled: !showEditButtons,
 					startIcon: GitFork
 				}
 			})
@@ -292,7 +290,6 @@
 					},
 					unifiedSize: 'md',
 					variant: 'subtle',
-					disabled: !showEditButtons,
 					startIcon: LayoutDashboard
 				}
 			})
@@ -303,7 +300,7 @@
 					href: `${base}/flows/edit/${path}?nodraft=true`,
 					variant: 'accent',
 					unifiedSize: 'md',
-					disabled: !can_write || !showEditButtons,
+					disabled: !can_write,
 					startIcon: Pen
 				}
 			})
@@ -338,14 +335,11 @@
 			disabled: !can_write
 		})
 
-
-		if (showEditButtons) {
 		menuItems.push({
 			label: 'Move/Rename',
 			onclick: () => moveDrawer?.openDrawer(flow?.path ?? '', flow?.summary, 'flow'),
 			Icon: FolderOpen
 		})
-		}
 
 		menuItems.push({
 			label: 'Audit logs',
@@ -363,7 +357,7 @@
 			})
 		}
 
-		if (can_write && showEditButtons) {
+		if (can_write) {
 			menuItems.push({
 				label: 'Deployments',
 				onclick: () => flowHistory?.open(),
@@ -439,7 +433,6 @@
 			}
 		}
 	})
-	let showEditButtons = $state(false)
 	let mainButtons = $derived(getMainButtons(flow, args))
 	let chatInputEnabled = $derived(flow?.value?.chat_input_enabled ?? false)
 	let shouldUseStreaming = $derived.by(() => {
@@ -535,9 +528,6 @@
 		</DetailPageHeader>
 	{/snippet}
 	{#snippet form()}
-		<div class="px-3">
-			<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
-		</div>
 		{#if flow}
 			<div class="flex flex-col h-full bg-surface divide-y" bind:clientHeight={paneHeight}>
 				<div bind:clientHeight={topSectionHeight} class={twMerge(chatInputEnabled ? 'h-full' : '')}>

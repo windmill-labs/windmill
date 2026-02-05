@@ -40,7 +40,6 @@
 	import MoveDrawer from '$lib/components/MoveDrawer.svelte'
 
 	import { sendUserToast } from '$lib/toast'
-	import NoDirectDeployAlert from '$lib/components/NoDirectDeployAlert.svelte'
 	import DeployWorkspaceDrawer from '$lib/components/DeployWorkspaceDrawer.svelte'
 
 	import SavedInputsV2 from '$lib/components/SavedInputsV2.svelte'
@@ -326,7 +325,6 @@
 	let moveDrawer: MoveDrawer | undefined = $state()
 	let deploymentDrawer: DeployWorkspaceDrawer | undefined = $state()
 	let persistentScriptDrawer: PersistentScriptDrawer | undefined = $state()
-	let showEditButtons = $state(false)
 
 	function getMainButtons(
 		script: Script | undefined,
@@ -343,7 +341,6 @@
 					href: `${base}/scripts/add?template=${script.path}`,
 					unifiedSize: 'md',
 					variant: 'subtle',
-					disabled: !showEditButtons,
 					startIcon: GitFork
 				}
 			})
@@ -391,7 +388,7 @@
 						$importStore = JSON.parse(JSON.stringify(app))
 						await goto('/apps/add?nodraft=true')
 					},
-					disabled: !showEditButtons,
+
 					unifiedSize: 'md',
 					variant: 'subtle',
 					startIcon: LayoutDashboard
@@ -422,7 +419,7 @@
 						unifiedSize: 'md',
 						startIcon: Pen,
 						variant: 'accent',
-						disabled: !can_write || !showEditButtons
+						disabled: !can_write
 					}
 				})
 			}
@@ -451,15 +448,13 @@
 
 		const menuItems: any = []
 
-		if (showEditButtons) {
-			menuItems.push({
-				label: 'Move/Rename',
-				Icon: FolderOpen,
-				onclick: () => {
-					moveDrawer?.openDrawer(script?.path ?? '', script?.summary, 'script')
-				}
-			})
-		}
+		menuItems.push({
+			label: 'Move/Rename',
+			Icon: FolderOpen,
+			onclick: () => {
+				moveDrawer?.openDrawer(script?.path ?? '', script?.summary, 'script')
+			}
+		})
 
 		menuItems.push({
 			label: 'Audit logs',
@@ -511,36 +506,34 @@
 			})
 		}
 
-		if (showEditButtons) {
-			if (script.archived) {
-				menuItems.push({
-					label: 'Unarchive',
-					Icon: ArchiveRestore,
-					onclick: async () => {
-						unarchiveScript(script.hash)
-					},
-					color: 'red'
-				})
-			} else {
-				menuItems.push({
-					label: 'Archive',
-					Icon: Archive,
-					onclick: async () => {
-						archiveScript(script.hash)
-					},
-					color: 'red'
-				})
-			}
-
+		if (script.archived) {
 			menuItems.push({
-				label: 'Delete',
-				Icon: Trash,
+				label: 'Unarchive',
+				Icon: ArchiveRestore,
 				onclick: async () => {
-					deleteScript(script.hash)
+					unarchiveScript(script.hash)
+				},
+				color: 'red'
+			})
+		} else {
+			menuItems.push({
+				label: 'Archive',
+				Icon: Archive,
+				onclick: async () => {
+					archiveScript(script.hash)
 				},
 				color: 'red'
 			})
 		}
+
+		menuItems.push({
+			label: 'Delete',
+			Icon: Trash,
+			onclick: async () => {
+				deleteScript(script.hash)
+			},
+			color: 'red'
+		})
 
 		return menuItems
 	}
@@ -687,9 +680,6 @@
 			</DetailPageHeader>
 		{/snippet}
 		{#snippet form()}
-			<div class="px-3">
-				<NoDirectDeployAlert onUpdateCanEditStatus={(v) => (showEditButtons = v)} />
-			</div>
 			{#if script}
 				<div class="p-8 w-full max-w-3xl mx-auto min-h-[300px] flex flex-col justify-center">
 					<div class="flex flex-col gap-0.5 mb-1">

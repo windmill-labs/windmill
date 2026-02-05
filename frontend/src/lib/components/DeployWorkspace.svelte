@@ -44,7 +44,6 @@
 		additionalInformation?: AdditionalInformation | undefined
 		workspaceToDeployTo?: string | undefined
 		hideButton?: boolean
-		canDeployToWorkspace?: boolean
 	}
 
 	let {
@@ -52,8 +51,7 @@
 		initialPath = '',
 		additionalInformation = undefined,
 		workspaceToDeployTo = $bindable(undefined),
-		hideButton = false,
-		canDeployToWorkspace = $bindable(false)
+		hideButton = false
 	}: Props = $props()
 
 	let canSeeTarget: 'yes' | 'cant-deploy-to-workspace' | 'cant-see-all-deps' | undefined =
@@ -320,7 +318,6 @@
 				if (alreadyExists) {
 					await FlowService.updateFlow({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						path: path,
 						requestBody: {
 							...flow
@@ -329,7 +326,6 @@
 				} else {
 					await FlowService.createFlow({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						requestBody: {
 							...flow
 						}
@@ -342,7 +338,6 @@
 				})
 				await ScriptService.createScript({
 					workspace: workspaceToDeployTo!,
-					deployedFromWorkspace: $workspaceStore!,
 					requestBody: {
 						...script,
 						lock: script.lock,
@@ -377,7 +372,6 @@
 						})
 						await AppService.updateAppRaw({
 							workspace: workspaceToDeployTo!,
-							deployedFromWorkspace: $workspaceStore!,
 							path: path,
 							formData: {
 								app,
@@ -388,7 +382,6 @@
 					} else {
 						await AppService.updateApp({
 							workspace: workspaceToDeployTo!,
-							deployedFromWorkspace: $workspaceStore!,
 							path: path,
 							requestBody: {
 								...app
@@ -411,7 +404,6 @@
 						})
 						await AppService.createAppRaw({
 							workspace: workspaceToDeployTo!,
-							deployedFromWorkspace: $workspaceStore!,
 							formData: {
 								app,
 								css,
@@ -421,7 +413,6 @@
 					} else {
 						await AppService.createApp({
 							workspace: workspaceToDeployTo!,
-							deployedFromWorkspace: $workspaceStore!,
 							requestBody: {
 								...app
 							}
@@ -437,7 +428,6 @@
 				if (alreadyExists) {
 					await VariableService.updateVariable({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						path: path,
 						requestBody: {
 							path: path,
@@ -450,7 +440,6 @@
 				} else {
 					await VariableService.createVariable({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						requestBody: {
 							path: path,
 							value: variable.value ?? '',
@@ -467,7 +456,6 @@
 				if (alreadyExists) {
 					await ResourceService.updateResource({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						path: path,
 						requestBody: {
 							path: path,
@@ -478,7 +466,6 @@
 				} else {
 					await ResourceService.createResource({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						requestBody: {
 							path: path,
 							value: resource.value ?? '',
@@ -495,7 +482,6 @@
 				if (alreadyExists) {
 					await ResourceService.updateResourceType({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						path: path,
 						requestBody: {
 							schema: resource.schema,
@@ -505,7 +491,6 @@
 				} else {
 					await ResourceService.createResourceType({
 						workspace: workspaceToDeployTo!,
-						deployedFromWorkspace: $workspaceStore!,
 						requestBody: {
 							description: resource.description ?? '',
 							schema: resource.schema,
@@ -531,7 +516,6 @@
 			} else if (kind == 'folder') {
 				await FolderService.createFolder({
 					workspace: workspaceToDeployTo!,
-					deployedFromWorkspace: $workspaceStore!,
 					requestBody: {
 						name: path
 					}
@@ -787,7 +771,7 @@
 							>
 						{/if}
 					{:else}
-						<Button color="light" size="xs" disabled={!canDeployToWorkspace} on:click={() => deploy(kind, path)}>Deploy</Button>
+						<Button color="light" size="xs" on:click={() => deploy(kind, path)}>Deploy</Button>
 					{/if}
 				</div>
 			{/each}
@@ -795,7 +779,7 @@
 
 		{#if !hideButton}
 			<div class="mt-16 flex flex-row-reverse max-w-3xl"
-				><Button on:click={deployAll} disabled={!canDeployToWorkspace}>Deploy all toggled</Button></div
+				><Button on:click={deployAll}>Deploy all toggled</Button></div
 			>
 		{/if}
 	{:else if canSeeTarget == 'cant-see-all-deps'}
