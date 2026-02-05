@@ -538,6 +538,7 @@ class AIChatManager {
 			console.log('chatRequest error', err)
 			console.error('chatRequest error', err)
 			callbacks.onMessageEnd()
+			this.cancelLoadingTools()
 			if (!abortController.signal.aborted) {
 				throw err
 			}
@@ -835,18 +836,7 @@ class AIChatManager {
 			abortController: this.abortController
 		})
 		this.abortController?.abort(cancelReason)
-		// Mark all tool messages in loading state as canceled
-		this.displayMessages = this.displayMessages.map((message) => {
-			if (message.role === 'tool' && message.isLoading) {
-				return {
-					...message,
-					isLoading: false,
-					content: 'Canceled',
-					error: 'Canceled'
-				}
-			}
-			return message
-		})
+		this.cancelLoadingTools()
 	}
 
 	cancelInlineRequest = (reason?: string) => {
@@ -1201,6 +1191,20 @@ class AIChatManager {
 			this.appAiChatHelpers = undefined
 			this.cachedDatatables = []
 		}
+	}
+
+	cancelLoadingTools = () => {
+		this.displayMessages = this.displayMessages.map((message) => {
+			if (message.role === 'tool' && message.isLoading) {
+				return {
+					...message,
+					isLoading: false,
+					content: 'Canceled',
+					error: 'Canceled'
+				}
+			}
+			return message
+		})
 	}
 }
 
