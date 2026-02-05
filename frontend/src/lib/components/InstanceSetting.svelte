@@ -177,7 +177,7 @@
 {/snippet}
 
 <!-- {JSON.stringify($values, null, 2)} -->
-{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hidden_in_ee && $enterpriseLicense)}
+{#if (!setting.cloudonly || isCloudHosted()) && showSetting(setting.key, $values) && !(setting.hiddenIfNull && $values[setting.key] == null) && !(setting.hiddenIfEmpty && !$values[setting.key]) && !(setting.hiddenInEe && $enterpriseLicense)}
 	{#if setting.fieldType == 'select'}
 		<div>
 			{@render LabelSnippet()}

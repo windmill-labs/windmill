@@ -58,7 +58,7 @@ export interface Setting {
 	}
 	hiddenIfNull?: boolean
 	hiddenIfEmpty?: boolean
-	hidden_in_ee?: boolean
+	hiddenInEe?: boolean
 	requiresReloadOnChange?: boolean
 	isValid?: (value: any) => boolean
 	error?: string
@@ -498,7 +498,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'disable_stats',
 			fieldType: 'boolean',
 			storage: 'setting',
-			hidden_in_ee: true
+			hiddenInEe: true
 		}
 	],
 	'Secret Storage': [
