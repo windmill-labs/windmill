@@ -217,7 +217,7 @@
 		<span class="whitespace-nowrap" title={fullValue}>
 			<button
 				onclick={() => scheduleEditor?.openEdit?.(job.schedule_path ?? '', job.job_kind == 'flow')}
-				class="flex items-center gap-1"
+				class="flex items-center gap-1 font-normal"
 			>
 				{displayValue}
 				<ExternalLink size={12} class="flex-shrink-0" />
