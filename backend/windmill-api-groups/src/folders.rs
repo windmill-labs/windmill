@@ -16,9 +16,9 @@ use axum::{
 use lazy_static::lazy_static;
 use regex::Regex;
 use windmill_api_auth::{check_scopes, ApiAuthed, AuthCache, Tokened};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
-use windmill_common::webhook::{WebhookMessage, WebhookShared};
+use windmill_common::{error::Error, webhook::{WebhookMessage, WebhookShared}, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult}};
 use windmill_common::DB;
 use windmill_common::{
     db::UserDB,
@@ -174,6 +174,19 @@ async fn create_folder(
     Path(w_id): Path<String>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
@@ -314,6 +327,19 @@ async fn update_folder(
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("folder");
     sqlb.and_where_eq("name", "?".bind(&name));

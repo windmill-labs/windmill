@@ -18,6 +18,7 @@ use windmill_api_auth::{
     auth::{list_tokens_internal, TruncatedTokenWithEmail},
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
+use windmill_common::workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult};
 use windmill_common::{
     utils::{WithStarredInfoQuery, HTTP_CLIENT},
     webhook::{WebhookMessage, WebhookShared},
@@ -29,7 +30,7 @@ use hyper::StatusCode;
 use serde::{Deserialize, Serialize};
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::assets::{clear_static_asset_usage, AssetUsageKind};
 use windmill_common::min_version::{
@@ -429,6 +430,20 @@ async fn create_flow(
         ));
     }
     check_scopes(&authed, || format!("flows:write:{}", nf.path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     validate_flow(&nf).await?;
     if *CLOUD_HOSTED {
         let nb_flows =
@@ -863,6 +878,20 @@ async fn update_flow(
     }
     let flow_path = flow_path.to_path();
     check_scopes(&authed, || format!("flows:write:{}", flow_path))?;
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     validate_flow(&nf).await?;
 
     let authed = maybe_refresh_folders(&flow_path, &w_id, authed, &db).await;

@@ -70,6 +70,7 @@
 	import WorkspaceDependenciesSettings from '$lib/components/workspaceSettings/WorkspaceDependenciesSettings.svelte'
 	import SettingsFooter from '$lib/components/workspaceSettings/SettingsFooter.svelte'
 	import Label from '$lib/components/Label.svelte'
+	import WorkspaceRulesets from '$lib/components/workspaceSettings/WorkspaceRulesets.svelte'
 
 	let slackInitialPath: string = $state('')
 	let slackScriptPath: string = $state('')
@@ -297,6 +298,7 @@
 			| 'native_triggers'
 			| 'encryption'
 			| 'dependencies'
+			| 'rulesets'
 		// Both 'slack' and 'teams' URLs map to 'slack' tab
 		if (selectedTab === 'teams') {
 			return 'slack'
@@ -1106,6 +1108,13 @@
 					aiId: 'workspace-settings-deploy-to',
 					aiDescription: 'Deployment UI workspace settings',
 					isEE: true
+				},
+				{
+					id: 'rulesets',
+					label: 'Rulesets',
+					aiId: 'workspace-settings-rulesets',
+					aiDescription: 'Protection Rulesets workspace settings',
+					isEE: true
 				}
 			]
 		},
@@ -1259,6 +1268,12 @@
 									></div
 								>
 							{/if}
+						{:else if tab == 'rulesets'}
+							<SettingsPageHeader
+								title="Workspace Protection Rulsets"
+								description="Create and manage protection rules that define restrictions and specify which groups and users can bypass those restrictions. Users not in any bypass list will be subject to the configured rules."
+							/>
+							<WorkspaceRulesets />
 						{:else if tab == 'premium'}
 							<PremiumInfo {customer_id} {plan} />
 						{:else if tab == 'slack'}

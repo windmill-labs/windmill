@@ -2,9 +2,7 @@
 pub use windmill_store::resources::*;
 
 #[cfg(feature = "mcp")]
-use axum::{
-    extract::{Extension, Path},
-    routing::get,
+use axum::{ extract::{Extension, Path}, routing::get,
     Json, Router,
 };
 #[cfg(feature = "mcp")]

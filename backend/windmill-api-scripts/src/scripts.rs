@@ -12,9 +12,7 @@ use windmill_api_auth::{
     check_scopes, maybe_refresh_folders, require_owner_of_path, ApiAuthed,
 };
 use windmill_common::{
-    utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT},
-    webhook::{WebhookMessage, WebhookShared},
-    DB,
+    utils::{BulkDeleteRequest, WithStarredInfoQuery, HTTP_CLIENT}, webhook::{WebhookMessage, WebhookShared}, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult}, DB
 };
 use windmill_queue::schedule::clear_schedule;
 
@@ -35,7 +33,7 @@ use serde_json::value::RawValue;
 use sql_builder::prelude::*;
 use sqlx::{FromRow, Postgres, Transaction};
 use std::{collections::HashMap, sync::Arc};
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_dep_map::process_relative_imports;
 use windmill_dep_map::scoped_dependency_map::ScopedDependencyMap;
@@ -548,6 +546,18 @@ async fn create_script(
     Path(w_id): Path<String>,
     Json(ns): Json<NewScript>,
 ) -> Result<(StatusCode, String)> {
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &ProtectionRuleKind::RequireForkOrBranchToDeploy,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
     let (hash, tx, hdm) =
         create_script_internal(ns, w_id, authed, db.clone(), user_db, webhook).await?;
     tx.commit().await?;
