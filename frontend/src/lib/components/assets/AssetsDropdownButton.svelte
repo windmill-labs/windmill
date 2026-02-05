@@ -84,7 +84,7 @@
 
 			for (const asset of assets) {
 				if (asset.kind == 'resource') {
-					let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
+					let truncatedPath = asset.path.split('?table=')[0]
 					if (truncatedPath in resourceDataCache) continue
 					resourceDataCache[truncatedPath] = undefined // avoid fetching multiple times because of async
 					ResourceService.getResource({ path: truncatedPath, workspace: $workspaceStore! })

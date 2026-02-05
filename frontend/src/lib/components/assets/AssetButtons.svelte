@@ -29,10 +29,7 @@
 		onClick
 	}: Props = $props()
 
-	let resourceDataCacheValue = $derived.by(() => {
-		let truncatedPath = asset.path.split('/').slice(0, 3).join('/')
-		return resourceDataCache[truncatedPath]
-	})
+	let resourceDataCacheValue = $derived(resourceDataCache[asset.path.split('?table=')[0]])
 </script>
 
 <div class="flex gap-2 items-center">
