@@ -163,3 +163,57 @@ export function getActiveRulesetsForKind(ruleKind: ProtectionRuleKind): Protecti
 	if (!state.rulesets) return []
 	return state.rulesets.filter((rs) => rs.rules.includes(ruleKind))
 }
+
+/**
+ * Checks if a specific rule kind is active in given rulesets (workspace-agnostic version)
+ * @param rulesets Array of protection rulesets to check
+ * @param ruleKind The rule type to check
+ * @returns true if the rule is active in at least one ruleset
+ */
+export function isRuleActiveInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind
+): boolean {
+	return rulesets.some((ruleset) => ruleset.rules.includes(ruleKind))
+}
+
+/**
+ * Checks if user can bypass a rule kind in given rulesets (workspace-agnostic version)
+ * @param rulesets Array of protection rulesets to check
+ * @param ruleKind The rule type to check
+ * @param userInfo The user information
+ * @returns true if the rule is not active OR user can bypass ALL rulesets containing it
+ */
+export function canUserBypassRuleKindInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind,
+	userInfo: UserExt | undefined
+): boolean {
+	// If no user info, default to not allowing bypass
+	if (!userInfo) {
+		return false
+	}
+
+	// Find all rulesets containing this rule
+	const rulesetsWithThisRule = rulesets.filter((rs) => rs.rules.includes(ruleKind))
+
+	if (rulesetsWithThisRule.length === 0) {
+		return true // Rule not active
+	}
+
+	// User must be able to bypass ALL rulesets containing this rule
+	return rulesetsWithThisRule.every((rs) => canUserBypassRule(rs, userInfo))
+}
+
+/**
+ * Returns rulesets that contain a specific rule kind from given rulesets (workspace-agnostic version)
+ * @param rulesets Array of protection rulesets to filter
+ * @param ruleKind The rule type to filter by
+ * @returns Array of rulesets containing the specified rule
+ */
+export function getActiveRulesetsForKindInRulesets(
+	rulesets: ProtectionRuleset[],
+	ruleKind: ProtectionRuleKind
+): ProtectionRuleset[] {
+	return rulesets.filter((rs) => rs.rules.includes(ruleKind))
+}

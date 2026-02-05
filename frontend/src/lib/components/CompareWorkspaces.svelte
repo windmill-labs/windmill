@@ -28,11 +28,12 @@
 	} from '$lib/gen'
 	import Button from './common/button/Button.svelte'
 	import DiffDrawer from './DiffDrawer.svelte'
+	import ParentWorkspaceProtectionAlert from './ParentWorkspaceProtectionAlert.svelte'
 	import { getAllModules } from './flows/flowExplorer'
 	import { userWorkspaces, workspaceStore, userStore } from '$lib/stores'
 	import {
 		fetchProtectionRulesForWorkspace,
-		canUserBypassRule,
+		canUserBypassRule
 	} from '$lib/workspaceProtectionRules.svelte'
 
 	import type { Kind } from '$lib/utils_deployable'
@@ -57,6 +58,7 @@
 	let mergeIntoParent = $state(true)
 	let deploying = $state(false)
 	let hasAutoSelected = $state(false)
+	let canDeployToParent = $state(true)
 
 	let selectableDiffs = $derived(
 		comparison?.diffs.filter((diff) => {
@@ -117,7 +119,6 @@
 			} else if (kind === 'folder') {
 				const folder = await FolderService.getFolder({ workspace, name: path.slice(2) })
 				return folder.summary
-
 			}
 		} catch (error) {
 			console.error(`Failed to fetch summary for ${kind}:${path}`, error)
@@ -127,7 +128,9 @@
 
 	async function fetchSummaries(diffs: WorkspaceItemDiff[]) {
 		// Only fetch summaries for scripts, flows, and apps
-		const itemsToFetch = diffs.filter((diff) => ['script', 'flow', 'app', 'folder'].includes(diff.kind))
+		const itemsToFetch = diffs.filter((diff) =>
+			['script', 'flow', 'app', 'folder'].includes(diff.kind)
+		)
 
 		for (const diff of itemsToFetch) {
 			const key = getItemKey(diff)
@@ -823,6 +826,14 @@
 			</div>
 		</div>
 
+		{#if mergeIntoParent}
+			<ParentWorkspaceProtectionAlert
+				{parentWorkspaceId}
+				onUpdateCanDeploy={(canDeploy) => {
+					canDeployToParent = canDeploy
+				}}
+			/>
+		{/if}
 		{#if conflictingDiffs.length > 0}
 			<Alert title="Conflicting changes detected" type="warning" class="mt-2">
 				<!-- <AlertTriangle class="w-4 h-4" /> -->
@@ -833,7 +844,7 @@
 				</span>
 			</Alert>
 		{/if}
-		{#if hasBehindChanges && hasAheadChanges}
+		{#if hasBehindChanges && hasAheadChanges && !(mergeIntoParent && !canDeployToParent)}
 			<Alert
 				title="This fork is behind {parentWorkspaceId} and needs to be up to date before deploying"
 				type="warning"
@@ -1027,20 +1038,23 @@
 
 				<div class="flex flex-col items-end gap-2">
 					{#if comparison.all_behind_items_visible && comparison.all_ahead_items_visible}
-						<Button
-							color="blue"
-							disabled={selectedItems.length === 0 ||
-								deploying ||
-								(hasBehindChanges && !allowBehindChangesOverride)}
-							loading={deploying}
-							on:click={deployChanges}
-						>
-							{mergeIntoParent ? 'Deploy' : 'Update'}
-							{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
-							{#if selectedConflicts != 0}
-								({selectedConflicts} conflicts)
-							{/if}
-						</Button>
+						{#if !(mergeIntoParent && !canDeployToParent)}
+							<Button
+								color="blue"
+								disabled={selectedItems.length === 0 ||
+									deploying ||
+									(hasBehindChanges && !allowBehindChangesOverride) ||
+									(mergeIntoParent && !canDeployToParent)}
+								loading={deploying}
+								on:click={deployChanges}
+							>
+								{mergeIntoParent ? 'Deploy' : 'Update'}
+								{selectedItems.length} Item{selectedItems.length !== 1 ? 's' : ''}
+								{#if selectedConflicts != 0}
+									({selectedConflicts} conflicts)
+								{/if}
+							</Button>
+						{/if}
 					{/if}
 
 					{#if deploymentErrorMessage != ''}
@@ -1063,6 +1077,4 @@
 			<div class="text-gray-500">No comparison data available</div>
 		</div>
 	{/if}
-
-	<!-- <DeployWorkspaceItems kind="script" initialPath="u/admin/economical_script" workspaceToDeployTo={parentWorkspaceId} /> -->
 </div>
