@@ -61,6 +61,8 @@ regex.workspace = true
 git-version.workspace = true
 cron.workspace = true
 magic-crypt.workspace = true
+rsa.workspace = true
+aes-gcm.workspace = true
 object_store = { workspace = true, optional = true }
 prometheus = { workspace = true, optional = true }
 aws-config.workspace = true
