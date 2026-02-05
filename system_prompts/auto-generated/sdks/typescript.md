@@ -167,8 +167,9 @@ async setInternalState(state: any): Promise<void>
 /**
  * Set the state
  * @param state state to set
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-async setState(state: any): Promise<void>
+async setState(state: any, path?: string): Promise<void>
 
 /**
  * Set the progress
@@ -206,8 +207,9 @@ async getInternalState(): Promise<any>
 
 /**
  * Get the state shared across executions
+ * @param path Optional state resource path override. Defaults to `getStatePath()`.
  */
-async getState(): Promise<any>
+async getState(path?: string): Promise<any>
 
 /**
  * Get a variable by path
@@ -231,6 +233,10 @@ async setVariable(path: string, value: string, isSecretIfNotExist?: boolean, des
  * @returns PostgreSQL connection URL string
  */
 async databaseUrlFromResource(path: string): Promise<string>
+
+async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
+
+async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>
 
 /**
  * Get S3 client settings from a resource or workspace default
@@ -305,9 +311,11 @@ async getPresignedS3PublicUrl(s3Objects: S3Object, { baseUrl }: { baseUrl?: stri
 /**
  * Get URLs needed for resuming a flow after this step
  * @param approver approver name
+ * @param flowLevel if true, generate resume URLs for the parent flow instead of the specific step.
+ *                  This allows pre-approvals that can be consumed by any later suspend step in the same flow.
  * @returns approval page UI URL, resume and cancel API URLs for resuming the flow
  */
-async getResumeUrls(approver?: string): Promise<{
+async getResumeUrls(approver?: string, flowLevel?: boolean): Promise<{
   approvalPage: string;
   resume: string;
   cancel: string;
@@ -443,7 +451,7 @@ parseS3Object(s3Object: S3Object): S3ObjectRecord
  *     WHERE name = ${name} AND age = ${age}::int
  * `.fetch()
  */
-datatable(name: string = "main"): SqlTemplateFunction
+datatable(name: string = "main"): DatatableSqlTemplateFunction
 
 /**
  * Create a SQL template function for DuckDB/ducklake queries
@@ -459,7 +467,3 @@ datatable(name: string = "main"): SqlTemplateFunction
  * `.fetch()
  */
 ducklake(name: string = "main"): SqlTemplateFunction
-
-async polarsConnectionSettings(s3_resource_path: string | undefined): Promise<any>
-
-async duckdbConnectionSettings(s3_resource_path: string | undefined): Promise<any>

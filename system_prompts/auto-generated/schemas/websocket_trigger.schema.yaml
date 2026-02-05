@@ -1,0 +1,86 @@
+type: object
+properties:
+  script_path:
+    type: string
+    description: Path to the script or flow to execute when triggered
+  is_flow:
+    type: boolean
+    description: True if script_path points to a flow, false if it points to a script
+  url:
+    type: string
+    description: The WebSocket URL to connect to (can be a static URL or computed
+      by a runnable)
+  filters:
+    type: array
+    items:
+      type: object
+      properties:
+        key:
+          type: string
+        value: {}
+    description: Array of key-value filters to match incoming messages (only matching
+      messages trigger the script)
+  initial_messages:
+    type: array
+    items:
+      type: object
+    description: Messages to send immediately after connecting (can be raw strings
+      or computed by runnables)
+  url_runnable_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  can_return_message:
+    type: boolean
+    description: If true, the script can return a message to send back through the
+      WebSocket
+  can_return_error_result:
+    type: boolean
+    description: If true, error results are sent back through the WebSocket
+  error_handler_path:
+    type: string
+    description: Path to a script or flow to run when the triggered job fails
+  error_handler_args:
+    type: object
+    description: The arguments to pass to the script or flow
+  retry:
+    type: object
+    properties:
+      constant:
+        type: object
+        description: Retry with constant delay between attempts
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          seconds:
+            type: integer
+            description: Seconds to wait between retries
+      exponential:
+        type: object
+        description: Retry with exponential backoff (delay doubles each time)
+        properties:
+          attempts:
+            type: integer
+            description: Number of retry attempts
+          multiplier:
+            type: integer
+            description: Multiplier for exponential backoff
+          seconds:
+            type: integer
+            minimum: 1
+            description: Initial delay in seconds
+          random_factor:
+            type: integer
+            minimum: 0
+            maximum: 100
+            description: Random jitter percentage (0-100) to avoid thundering herd
+      retry_if:
+        $ref: '#/components/schemas/RetryIf'
+    description: Retry configuration for failed module executions
+required:
+- script_path
+- is_flow
+- url
+- filters
+- can_return_message
+- can_return_error_result
