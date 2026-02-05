@@ -23,7 +23,7 @@ use crate::{
         read_result, start_child_process, OccupancyMetrics, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child,
-    get_proxy_envs_for_lang, DISABLE_NSJAIL, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
+    get_proxy_envs_for_lang, is_sandboxing_enabled, DISABLE_NUSER, HOME_ENV, NSJAIL_PATH, PATH_ENV,
     PROXY_ENVS, RUST_CACHE_DIR, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 use windmill_common::scripts::ScriptLang;
@@ -204,7 +204,7 @@ async fn get_build_dir(
             if !is_preview || *NO_SHARED_BUILD_DIR {
                 None
             } else {
-                if *DISABLE_NSJAIL {
+                if !is_sandboxing_enabled() {
                     // If nsjail is disabled then entire worker has shared build directory
                     // It drastically improves cache hit-rate.
                     Some((format!("{RUST_CACHE_DIR}/build/{worker_name}"), true))
@@ -321,7 +321,7 @@ pub async fn build_rust_crate(
 
     let build_dir = get_build_dir(job, job_dir, conn, worker_name, is_preview).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "download.config.proto",
@@ -529,7 +529,7 @@ pub async fn handle_rust_job(
     let logs2 = format!("{cache_logs}\n\n--- RUST CODE EXECUTION ---\n");
     append_logs(&job.id, &job.workspace_id, logs2, conn).await;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         let _ = write_file(
             job_dir,
             "run.config.proto",
@@ -587,7 +587,7 @@ pub async fn handle_rust_job(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "rust run",

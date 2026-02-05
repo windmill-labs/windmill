@@ -26,7 +26,7 @@ use crate::{
     },
     handle_child,
     universal_pkg_installer::{par_install_language_dependencies_all_at_once, RequiredDependency},
-    COURSIER_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, JAVA_CACHE_DIR,
+    COURSIER_CACHE_DIR, is_sandboxing_enabled, DISABLE_NUSER, JAVA_CACHE_DIR,
     JAVA_REPOSITORY_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NSJAIL_PATH, PATH_ENV, PROXY_ENVS,
 };
 use windmill_common::client::AuthedClient;
@@ -418,7 +418,7 @@ async fn install<'a>(
         &job.id,
         &job.workspace_id,
         worker_name,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         conn,
     )
     .await?;
@@ -526,7 +526,7 @@ async fn compile<'a>(
             mem_peak,
             canceled_by,
             child,
-            !*DISABLE_NSJAIL,
+            is_sandboxing_enabled(),
             worker_name,
             &job.workspace_id,
             "javac",
@@ -582,7 +582,7 @@ async fn run<'a>(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path.clone()).await?;
 
-    let child = if !cfg!(windows) && !*DISABLE_NSJAIL {
+    let child = if !cfg!(windows) && is_sandboxing_enabled() {
         append_logs(
             &job.id,
             &job.workspace_id,
@@ -712,7 +712,7 @@ async fn run<'a>(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "java",

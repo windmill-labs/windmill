@@ -471,47 +471,41 @@ lazy_static::lazy_static! {
     };
 
     pub static ref NSJAIL_AVAILABLE: Option<String> = {
-        if *DISABLE_NSJAIL {
-            None
-        } else {
-            let nsjail_path = NSJAIL_PATH.as_str();
+        let nsjail_path = NSJAIL_PATH.as_str();
 
-            let test_result = std::process::Command::new(nsjail_path)
-                .arg("--help")
-                .output();
+        let test_result = std::process::Command::new(nsjail_path)
+            .arg("--help")
+            .output();
 
-            match test_result {
-                Ok(output) if output.status.success() => {
-                    tracing::info!("NSJAIL sandboxing available at: {}", nsjail_path);
-                    Some(nsjail_path.to_string())
-                },
-                Ok(output) => {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    tracing::warn!(
-                        "nsjail test failed: {}. Jobs will run without nsjail sandboxing. \
-                        nsjail should be included in all standard windmill images. \
-                        Check that the nsjail binary is installed and working correctly.",
-                        stderr.trim()
+        match test_result {
+            Ok(output) if output.status.success() => {
+                tracing::info!("nsjail available at: {}", nsjail_path);
+                Some(nsjail_path.to_string())
+            },
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                tracing::warn!(
+                    "nsjail test failed: {}. \
+                    nsjail should be included in all standard windmill images. \
+                    Check that the nsjail binary is installed and working correctly.",
+                    stderr.trim()
+                );
+                None
+            },
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    tracing::info!(
+                        "nsjail not found at '{}'. Sandboxing will not be available.",
+                        nsjail_path
                     );
-                    None
-                },
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        tracing::warn!(
-                            "nsjail not found at '{}'. Jobs will run without nsjail sandboxing. \
-                            nsjail should be included in all standard windmill images. \
-                            Check that the nsjail binary is installed at the expected path.",
-                            nsjail_path
-                        );
-                    } else {
-                        tracing::warn!(
-                            "Failed to test nsjail at '{}': {}. Jobs will run without nsjail sandboxing.",
-                            nsjail_path,
-                            e
-                        );
-                    }
-                    None
+                } else {
+                    tracing::warn!(
+                        "Failed to test nsjail at '{}': {}.",
+                        nsjail_path,
+                        e
+                    );
                 }
+                None
             }
         }
     };
@@ -1270,7 +1264,7 @@ pub async fn run_worker(
     base_internal_url: &str,
 ) {
     #[cfg(not(feature = "enterprise"))]
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         tracing::warn!(
             worker = %worker_name, hostname = %hostname,
             "NSJAIL to sandbox process in untrusted environments is an enterprise feature but allowed to be used for testing purposes"
@@ -1331,7 +1325,7 @@ pub async fn run_worker(
 
     create_directory_async(&worker_dir).await;
 
-    if !*DISABLE_NSJAIL {
+    if is_sandboxing_enabled() {
         let _ = write_file(
             &worker_dir,
             "download_deps.py.sh",

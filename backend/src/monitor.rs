@@ -86,7 +86,7 @@ use windmill_common::{client::AuthedClient, global_settings::APP_WORKSPACED_ROUT
 use windmill_queue::{cancel_job, get_queued_job_v2, SameWorkerPayload};
 use windmill_worker::{
     handle_job_error, JobCompletedSender, OtelTracingProxySettings, SameWorkerSender,
-    BUNFIG_INSTALL_SCOPES, FORCE_SANDBOXING, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT,
+    BUNFIG_INSTALL_SCOPES, FORCE_SANDBOXING, INSTANCE_PYTHON_VERSION, JOB_DEFAULT_TIMEOUT, NSJAIL_AVAILABLE,
     KEEP_JOB_DIR, MAVEN_REPOS, NO_DEFAULT_MAVEN, NPM_CONFIG_REGISTRY, NUGET_CONFIG,
     OTEL_TRACING_PROXY_SETTINGS, PIP_EXTRA_INDEX_URL, PIP_INDEX_URL, POWERSHELL_REPO_PAT,
     POWERSHELL_REPO_URL,
@@ -1412,6 +1412,12 @@ pub async fn reload_force_sandboxing_setting(conn: &Connection) {
     let old_value = FORCE_SANDBOXING.swap(value, Ordering::Relaxed);
     if old_value != value {
         tracing::info!("force_sandboxing setting changed from {} to {}", old_value, value);
+    }
+    if value && NSJAIL_AVAILABLE.is_none() {
+        tracing::error!(
+            "force_sandboxing is enabled but nsjail is not available on this worker. \
+            All jobs will fail until nsjail is installed or force_sandboxing is disabled."
+        );
     }
 }
 

@@ -31,7 +31,7 @@ use crate::{
         get_reserved_variables, read_result, start_child_process, DEV_CONF_NSJAIL,
     },
     handle_child::handle_child, get_proxy_envs_for_lang,
-    CSHARP_CACHE_DIR, DISABLE_NSJAIL, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
+    CSHARP_CACHE_DIR, is_sandboxing_enabled, DISABLE_NUSER, DOTNET_PATH, HOME_ENV, NSJAIL_PATH,
     NUGET_CONFIG, PATH_ENV, TRACING_PROXY_CA_CERT_PATH, TZ_ENV,
 };
 #[cfg(feature = "csharp")]
@@ -555,7 +555,7 @@ pub async fn handle_csharp_job(
     let reserved_variables =
         get_reserved_variables(job, &client.token, conn, parent_runnable_path).await?;
 
-    let child = if !*DISABLE_NSJAIL {
+    let child = if is_sandboxing_enabled() {
         write_file(
             job_dir,
             "run.config.proto",
@@ -649,7 +649,7 @@ pub async fn handle_csharp_job(
         mem_peak,
         canceled_by,
         child,
-        !*DISABLE_NSJAIL,
+        is_sandboxing_enabled(),
         worker_name,
         &job.workspace_id,
         "csharp run",
