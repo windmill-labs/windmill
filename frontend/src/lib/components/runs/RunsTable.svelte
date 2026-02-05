@@ -205,7 +205,7 @@
 >
 	<div bind:clientHeight={headerHeight}>
 		<div
-			class="grid sticky top-0 w-full min-h-6 mb-2 pr-4 items-end"
+			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-center"
 			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
 			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
@@ -270,14 +270,14 @@
 		>
 			{#snippet header()}{/snippet}
 			{#snippet item({ index, style })}
-				<div {style} class="w-full">
+				<div {style} class="w-full bg-surface-tertiary">
 					{#if flatJobs}
 						{@const jobOrDate = flatJobs[index]}
 
 						{#if jobOrDate}
 							{#if jobOrDate?.type === 'date'}
 								<div
-									class="bg-surface-secondary py-2 font-semibold text-xs pl-2 h-[42px] flex items-center"
+									class="border-b bg-surface-tertiary py-2 font-semibold text-xs pl-4 h-[42px] flex items-end"
 								>
 									{jobOrDate.date}
 								</div>
@@ -357,7 +357,7 @@
 </div>
 
 <style>
-	:global(.virtual-list-wrapper:hover::-webkit-scrollbar) {
+	:global(.virtual-list-wrapper::-webkit-scrollbar) {
 		width: 8px !important;
 		height: 8px !important;
 	}
