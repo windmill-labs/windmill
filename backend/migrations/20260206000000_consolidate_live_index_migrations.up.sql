@@ -124,24 +124,4 @@ BEGIN
     CREATE INDEX IF NOT EXISTS ix_job_root_job_index_by_path_2
         ON v2_job (workspace_id, runnable_path, created_at DESC)
         WHERE parent_job IS NULL;
-
-    -- === Mark all live migrations as done ===
-    INSERT INTO windmill_migrations (name) VALUES
-        ('fix_job_completed_index_2'),
-        ('fix_job_completed_index_3'),
-        ('fix_job_index_1_II'),
-        ('fix_labeled_jobs_index'),
-        ('v2_labeled_jobs_index'),
-        ('v2_jobs_rls'),
-        ('v2_improve_v2_job_indices_ii'),
-        ('v2_improve_v2_queued_jobs_indices'),
-        ('audit_timestamps'),
-        ('job_completed_completed_at'),
-        ('alerts_by_workspace'),
-        ('remove_redundant_log_file_index'),
-        ('v2_job_queue_suspend'),
-        ('audit_recent_login_activities'),
-        ('v2_script_lock_index'),
-        ('v2_job_completed_completed_at_9')
-    ON CONFLICT DO NOTHING;
 END $$;
