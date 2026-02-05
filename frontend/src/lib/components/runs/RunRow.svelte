@@ -37,7 +37,6 @@
 		containsLabel?: boolean
 		showTag?: boolean
 		activeLabel: string | null
-		selectionMode?: boolean
 	}
 
 	let {
@@ -46,8 +45,7 @@
 		containerWidth = 0,
 		containsLabel = false,
 		showTag = true,
-		activeLabel,
-		selectionMode = false
+		activeLabel
 	}: Props = $props()
 
 	let scheduleEditor: ScheduleEditor | undefined = $state(undefined)
@@ -66,32 +64,19 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class={twMerge(
-		'hover:bg-surface-hover cursor-pointer',
-		selected ? 'bg-surface-accent-selected' : '',
+		'cursor-pointer',
+		selected ? 'bg-surface-accent-selected' : 'hover:bg-surface-hover',
 		'grid items-center h-full'
 	)}
-	class:grid-runs-table={!containsLabel && !selectionMode && showTag}
-	class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
-	class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
-	class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
-	class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
-	class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
-	class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
-	class:grid-runs-table-with-labels-selection-no-tag={containsLabel && selectionMode && !showTag}
+	class:grid-runs-table={!containsLabel && showTag}
+	class:grid-runs-table-with-labels={containsLabel && showTag}
+	class:grid-runs-table-no-tag={!containsLabel && !showTag}
+	class:grid-runs-table-with-labels-no-tag={containsLabel && !showTag}
 	style="width: {containerWidth}px"
 	onclick={() => {
 		dispatch('select')
 	}}
 >
-	<!-- Selection column (only when in selection mode) -->
-	{#if selectionMode}
-		<div class="flex items-center justify-center">
-			<div class="w-4 h-4">
-				<input type="checkbox" checked={selected} />
-			</div>
-		</div>
-	{/if}
-
 	<!-- Status -->
 	<div class="flex items-center justify-start pl-4">
 		<JobStatusIcon {job} {isExternal} />

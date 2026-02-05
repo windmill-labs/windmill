@@ -415,3 +415,52 @@ export function useInfiniteQuery<TData, TPageParam = number>(
 		reset
 	}
 }
+
+export function useKeyboardModifiers(): {
+	shift: boolean
+	control: boolean
+	meta: boolean
+	command: boolean
+} {
+	if (typeof window === 'undefined')
+		return { shift: false, control: false, meta: false, command: false }
+	let _shift = $state(false)
+	let control = $state(false)
+	let meta = $state(false)
+	let command = $state(false)
+	$effect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key === 'Shift') _shift = true
+			else if (event.key === 'Control') control = true
+			else if (event.key === 'Meta') meta = true
+			else if (event.key === 'Command') command = true
+		}
+
+		const handleKeyUp = (event: KeyboardEvent) => {
+			if (event.key === 'Shift') _shift = false
+			else if (event.key === 'Control') control = false
+			else if (event.key === 'Meta') meta = false
+			else if (event.key === 'Command') command = false
+		}
+		window.addEventListener('keydown', handleKeyDown)
+		window.addEventListener('keyup', handleKeyUp)
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown)
+			window.removeEventListener('keyup', handleKeyUp)
+		}
+	})
+	return {
+		get shift() {
+			return _shift
+		},
+		get control() {
+			return control
+		},
+		get meta() {
+			return meta
+		},
+		get command() {
+			return command
+		}
+	}
+}

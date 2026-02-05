@@ -8,6 +8,7 @@
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
+	import { useKeyboardModifiers } from '$lib/svelte5Utils.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -15,13 +16,13 @@
 		externalJobs?: Job[]
 		omittedObscuredJobs: boolean
 		showExternalJobs?: boolean
-		selectionMode?: boolean
 		selectedIds?: string[]
 		selectedWorkspace?: string | undefined
 		activeLabel?: string | null
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
 		perPage?: number
+		allSelected?: boolean
 	}
 
 	let {
@@ -29,13 +30,15 @@
 		externalJobs = [],
 		omittedObscuredJobs,
 		showExternalJobs = false,
-		selectionMode = false,
 		selectedIds = $bindable([]),
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
 		lastFetchWentToEnd = false,
-		perPage = 1000
+		perPage = 1000,
+		allSelected = $bindable()
 	}: Props = $props()
+
+	const keyboardModifiers = useKeyboardModifiers()
 
 	function getTime(job: Job): string | undefined {
 		return job['completed_at'] ?? job['started_at'] ?? job['scheduled_for'] ?? job['created_at']
@@ -196,20 +199,11 @@
 	<div>
 		<div
 			class="grid sticky top-0 w-full min-h-6 my-2 pr-4 items-end"
-			class:grid-runs-table={!containsLabel && !selectionMode && showTag}
-			class:grid-runs-table-with-labels={containsLabel && !selectionMode && showTag}
-			class:grid-runs-table-selection={!containsLabel && selectionMode && showTag}
-			class:grid-runs-table-with-labels-selection={containsLabel && selectionMode && showTag}
-			class:grid-runs-table-no-tag={!containsLabel && !selectionMode && !showTag}
-			class:grid-runs-table-with-labels-no-tag={containsLabel && !selectionMode && !showTag}
-			class:grid-runs-table-selection-no-tag={!containsLabel && selectionMode && !showTag}
-			class:grid-runs-table-with-labels-selection-no-tag={containsLabel &&
-				selectionMode &&
-				!showTag}
+			class:grid-runs-table={!containsLabel && showTag}
+			class:grid-runs-table-with-labels={containsLabel && showTag}
+			class:grid-runs-table-no-tag={!containsLabel && !showTag}
+			class:grid-runs-table-with-labels-no-tag={containsLabel && !showTag}
 		>
-			{#if selectionMode}
-				<div class="text-xs font-semibold pl-4"></div>
-			{/if}
 			<div class="text-2xs px-4 flex flex-row items-center gap-2 leading-3">
 				{#if showExternalJobs && externalJobs.length > 0}
 					<div class="flex flex-row">
@@ -276,16 +270,15 @@
 										{jobOrDate.date}
 									</div>
 								{:else}
-									<div class="flex flex-row items-center h-full w-full">
+									<div class="flex flex-row items-center h-full w-full select-none">
 										<RunRow
 											{containsLabel}
 											{showTag}
 											job={jobOrDate.job}
 											selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-											{selectionMode}
-											on:select={() => {
+											on:select={(e) => {
 												const jobId = jobOrDate.job.id
-												if (selectionMode) {
+												if (keyboardModifiers.control || keyboardModifiers.meta) {
 													if (selectedIds.includes(jobOrDate.job.id)) {
 														selectedIds = selectedIds.filter((id) => id != jobId)
 													} else {
