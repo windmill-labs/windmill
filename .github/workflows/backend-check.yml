@@ -33,7 +33,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev
@@ -100,7 +100,7 @@ jobs:
           token: ${{ secrets.WINDMILL_EE_PRIVATE_ACCESS }}
           fetch-depth: 0
 
-      - name: install xmlsec1
+      - name: install xmlsec1 and gssapi
         run: |
           sudo apt-get update
           sudo apt-get install -y libxml2-dev libxmlsec1-dev libkrb5-dev libsasl2-dev
