@@ -492,13 +492,13 @@ components:
                   - ducklake
                   - datatable
               access_type:
-                type: string
+                type: [string, "null"]
                 description: Access level for this asset
-                enum: [r, w, rw]
+                enum: [r, w, rw, null]
               alt_access_type:
-                type: string
+                type: [string, "null"]
                 description: Alternative access level
-                enum: [r, w, rw]
+                enum: [r, w, rw, null]
       required:
         - type
         - content
