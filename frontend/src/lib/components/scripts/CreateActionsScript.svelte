@@ -6,7 +6,6 @@
 	let { aiId, aiDescription }: { aiId: string; aiDescription: string } = $props()
 </script>
 
-<!-- Buttons -->
 <div class="flex flex-row gap-2">
 	<Button
 		id="create-script-button"

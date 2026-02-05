@@ -22,13 +22,13 @@ use axum::{
 };
 use lazy_static::lazy_static;
 use regex::Regex;
-use windmill_audit::audit_oss::audit_log;
+use windmill_audit::audit_oss::{audit_log, AuditAuthorable};
 use windmill_audit::ActionKind;
 use windmill_common::{
     db::UserDB,
-    error::{self, to_anyhow, JsonResult, Result},
+    error::{self, to_anyhow, Error, JsonResult, Result},
     users::username_to_permissioned_as,
-    utils::{not_found_if_none, paginate, Pagination},
+    utils::{not_found_if_none, paginate, Pagination}, workspaces::{check_user_against_rule, ProtectionRuleKind, RuleCheckResult},
 };
 
 use serde::{Deserialize, Serialize};
@@ -168,6 +168,11 @@ lazy_static! {
     static ref VALID_FOLDER_NAME: Regex = Regex::new(r#"^[a-zA-Z_0-9]+$"#).unwrap();
 }
 
+#[derive(Deserialize)]
+struct DeployedFromQuery {
+    deployed_from_workspace: Option<String>,
+}
+
 async fn create_folder(
     authed: ApiAuthed,
     Tokened { token }: Tokened,
@@ -176,8 +181,28 @@ async fn create_folder(
     Extension(webhook): Extension<WebhookShared>,
     Extension(cache): Extension<Arc<AuthCache>>,
     Path(w_id): Path<String>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(ng): Json<NewFolder>,
 ) -> Result<String> {
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
+
     let mut tx = user_db.clone().begin(&authed).await?;
 
     if !VALID_FOLDER_NAME.is_match(&ng.name) {
@@ -331,9 +356,29 @@ async fn update_folder(
     Extension(user_db): Extension<UserDB>,
     Extension(webhook): Extension<WebhookShared>,
     Path((w_id, name)): Path<(String, String)>,
+    Query(deployed_from): Query<DeployedFromQuery>,
     Json(mut ng): Json<UpdateFolder>,
 ) -> Result<String> {
     use sql_builder::prelude::*;
+
+    let rule_kind = if deployed_from.deployed_from_workspace.is_some() {
+        ProtectionRuleKind::DisableMergeUIInForks
+    } else {
+        ProtectionRuleKind::RequireForkOrBranchToDeploy
+    };
+
+    if let RuleCheckResult::Blocked(msg) = check_user_against_rule(
+        &w_id,
+        &rule_kind,
+        AuditAuthorable::username(&authed),
+        &authed.groups,
+        authed.is_admin,
+        &db,
+    )
+    .await?
+    {
+        return Err(Error::PermissionDenied(msg));
+    }
 
     let mut sqlb = SqlBuilder::update_table("folder");
     sqlb.and_where_eq("name", "?".bind(&name));

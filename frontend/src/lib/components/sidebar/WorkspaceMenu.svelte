@@ -9,6 +9,7 @@
 		workspaceColor,
 		clearWorkspaceFromStorage
 	} from '$lib/stores'
+	import { isRuleActive } from '$lib/workspaceProtectionRules.svelte'
 	import { Building, Plus, Settings, GitFork } from 'lucide-svelte'
 	import MenuButton from '$lib/components/sidebar/MenuButton.svelte'
 	import { Menu, MenuItem } from '$lib/components/meltComponents'
@@ -177,7 +178,7 @@
 					</MenuItem>
 				</div>
 			{/if}
-			{#if !strictWorkspaceSelect && !isCloudHosted()}
+			{#if !strictWorkspaceSelect && !isCloudHosted() && !isRuleActive('DisableWorkspaceForking')}
 				<div class="py-1" role="none">
 					<MenuItem href="{base}/user/fork_workspace" class={itemClass} {item}>
 						<GitFork size={16} />
