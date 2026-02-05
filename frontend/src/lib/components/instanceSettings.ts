@@ -150,7 +150,7 @@ export const settings: Record<string, Setting[]> = {
 			key: 'force_sandboxing',
 			fieldType: 'boolean',
 			description:
-				'Force all jobs to run in nsjail sandboxed mode. Overrides the DISABLE_NSJAIL environment variable. Use #sandbox annotation in bash scripts to enable sandboxing per-script.',
+				'Force all jobs to run in nsjail sandboxed mode. Workers with DISABLE_NSJAIL=false also enable sandboxing independently of this setting.',
 			storage: 'setting'
 		},
 		{

@@ -326,7 +326,7 @@ lazy_static::lazy_static! {
         .and_then(|x| x.parse::<bool>().ok())
         .unwrap_or(true);
 
-    // Global setting to force sandboxing (overrides DISABLE_NSJAIL env var)
+    // Global setting to force sandboxing (OR'd with DISABLE_NSJAIL=false)
     pub static ref FORCE_SANDBOXING: AtomicBool = AtomicBool::new(false);
 
     pub static ref ENABLE_UNSHARE_PID: bool = std::env::var("ENABLE_UNSHARE_PID")
@@ -629,7 +629,7 @@ type Envs = Vec<(String, String)>;
 
 /// Check if sandboxing should be used for job execution.
 /// Returns true if force_sandboxing is enabled (via global setting) OR if DISABLE_NSJAIL env var is false.
-/// When force_sandboxing is true, it overrides the DISABLE_NSJAIL environment variable.
+/// Either condition independently enables sandboxing.
 pub fn is_sandboxing_enabled() -> bool {
     FORCE_SANDBOXING.load(Ordering::Relaxed) || !*DISABLE_NSJAIL
 }
