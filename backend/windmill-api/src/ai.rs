@@ -4,19 +4,21 @@ use crate::db::{ApiAuthed, DB};
 
 #[cfg(feature = "bedrock")]
 use axum::routing::get;
-use axum::{
-    body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router,
-};
 #[cfg(feature = "bedrock")]
 use axum::Json;
+use axum::{body::Bytes, extract::Path, response::IntoResponse, routing::post, Extension, Router};
+use futures::StreamExt;
 use http::{HeaderMap, Method};
 use quick_cache::sync::Cache;
 use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, value::RawValue};
 use std::collections::HashMap;
+use std::time::Duration;
 use windmill_audit::{audit_oss::audit_log, ActionKind};
-use windmill_common::ai_providers::{empty_string_as_none, AIProvider, ProviderConfig, ProviderModel};
+use windmill_common::ai_providers::{
+    empty_string_as_none, AIProvider, ProviderConfig, ProviderModel,
+};
 use windmill_common::error::{to_anyhow, Error, Result};
 use windmill_common::utils::configure_client;
 use windmill_common::variables::get_variable_or_self;
@@ -27,6 +29,7 @@ const AI_TIMEOUT_MAX_SECS: u64 = 86400; // 24 hours
 const AI_TIMEOUT_DEFAULT_SECS: u64 = 3600; // 1 hour
 const HTTP_POOL_MAX_IDLE_PER_HOST: usize = 10;
 const HTTP_POOL_IDLE_TIMEOUT_SECS: u64 = 90;
+const KEEPALIVE_INTERVAL_SECS: u64 = 15;
 
 lazy_static::lazy_static! {
     /// AI request timeout in seconds.
@@ -151,9 +154,17 @@ struct AIStandardResource {
     organization_id: Option<String>,
     #[serde(default, deserialize_with = "empty_string_as_none")]
     region: Option<String>,
-    #[serde(alias = "awsAccessKeyId", default, deserialize_with = "empty_string_as_none")]
+    #[serde(
+        alias = "awsAccessKeyId",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     aws_access_key_id: Option<String>,
-    #[serde(alias = "awsSecretAccessKey", default, deserialize_with = "empty_string_as_none")]
+    #[serde(
+        alias = "awsSecretAccessKey",
+        default,
+        deserialize_with = "empty_string_as_none"
+    )]
     aws_secret_access_key: Option<String>,
     /// Platform for Anthropic API (standard or google_vertex_ai)
     #[serde(default)]
@@ -213,9 +224,7 @@ impl AIRequestConfig {
                 let base_url = if matches!(provider, AIProvider::AWSBedrock) {
                     String::new()
                 } else {
-                    provider
-                        .get_base_url(resource.base_url, db)
-                        .await?
+                    provider.get_base_url(resource.base_url, db).await?
                 };
                 let api_key = if let Some(api_key) = resource.api_key {
                     Some(get_variable_or_self(api_key, db, w_id).await?)
@@ -338,7 +347,8 @@ impl AIRequestConfig {
 
         let is_azure = provider.is_azure_openai(base_url);
         let is_anthropic = matches!(provider, AIProvider::Anthropic);
-        let is_anthropic_vertex = is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
+        let is_anthropic_vertex =
+            is_anthropic && self.platform == AnthropicPlatform::GoogleVertexAi;
         let is_anthropic_sdk = headers.get("X-Anthropic-SDK").is_some();
         let is_google_ai = matches!(provider, AIProvider::GoogleAI);
 
@@ -477,7 +487,9 @@ fn transform_anthropic_for_vertex(body: &Bytes) -> Result<(String, Bytes)> {
     let model = json_body
         .remove("model")
         .and_then(|v| v.as_str().map(|s| s.to_string()))
-        .ok_or_else(|| Error::BadRequest("Missing 'model' field in Anthropic request".to_string()))?;
+        .ok_or_else(|| {
+            Error::BadRequest("Missing 'model' field in Anthropic request".to_string())
+        })?;
 
     // Add anthropic_version to body (required for Vertex AI)
     json_body.insert(
@@ -561,6 +573,40 @@ async fn check_bedrock_credentials(
     Ok(Json(response))
 }
 
+fn is_sse_response(headers: &HeaderMap) -> bool {
+    headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|ct| ct.contains("text/event-stream"))
+        .unwrap_or(false)
+}
+
+fn inject_keepalives<S>(
+    upstream: S,
+    interval: Duration,
+) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>>
+where
+    S: futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Unpin,
+{
+    async_stream::stream! {
+        tokio::pin!(upstream);
+        loop {
+            tokio::select! {
+                biased;
+                chunk = upstream.next() => {
+                    match chunk {
+                        Some(item) => yield item,
+                        None => break,
+                    }
+                }
+                _ = tokio::time::sleep(interval) => {
+                    yield Ok(Bytes::from(": keepalive\n\n"));
+                }
+            }
+        }
+    }
+}
+
 async fn global_proxy(
     authed: ApiAuthed,
     Extension(db): Extension<DB>,
@@ -625,7 +671,15 @@ async fn global_proxy(
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
-    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    let body = if is_sse_response(&headers) {
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
+    } else {
+        axum::body::Body::from_stream(stream)
+    };
+    Ok((status_code, headers, body))
 }
 
 async fn proxy(
@@ -732,20 +786,21 @@ async fn proxy(
     #[cfg(feature = "bedrock")]
     {
         // Extract model and streaming flag for Bedrock transformation (only for POST requests)
-        let (model, is_streaming) =
-            if matches!(provider, AIProvider::AWSBedrock) && method == Method::POST {
-                #[derive(Deserialize, Debug)]
-                struct BedrockRequest {
-                    model: String,
-                    #[serde(default)]
-                    stream: bool,
-                }
-                let parsed: BedrockRequest = serde_json::from_slice(&body)
-                    .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
-                (Some(parsed.model), parsed.stream)
-            } else {
-                (None, false)
-            };
+        let (model, is_streaming) = if matches!(provider, AIProvider::AWSBedrock)
+            && method == Method::POST
+        {
+            #[derive(Deserialize, Debug)]
+            struct BedrockRequest {
+                model: String,
+                #[serde(default)]
+                stream: bool,
+            }
+            let parsed: BedrockRequest = serde_json::from_slice(&body)
+                .map_err(|e| Error::internal_err(format!("Failed to parse request body: {}", e)))?;
+            (Some(parsed.model), parsed.stream)
+        } else {
+            (None, false)
+        };
 
         // For Bedrock requests, use the SDK-based approach
         if matches!(provider, AIProvider::AWSBedrock) {
@@ -850,5 +905,13 @@ async fn proxy(
     let status_code = response.status();
     let headers = response.headers().clone();
     let stream = response.bytes_stream();
-    Ok((status_code, headers, axum::body::Body::from_stream(stream)))
+    let body = if is_sse_response(&headers) {
+        axum::body::Body::from_stream(inject_keepalives(
+            stream,
+            Duration::from_secs(KEEPALIVE_INTERVAL_SECS),
+        ))
+    } else {
+        axum::body::Body::from_stream(stream)
+    };
+    Ok((status_code, headers, body))
 }
