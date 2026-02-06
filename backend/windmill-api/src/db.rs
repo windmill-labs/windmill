@@ -64,6 +64,9 @@ lazy_static::lazy_static! {
                     (20260126235947, include_str!(
                         "../../custom_migrations/lowercase_emails_safe.sql"
                     ).to_string()),
+                    (20260206000000, include_str!(
+                        "../../migrations/20260206000000_consolidate_live_index_migrations.up.sql"
+                    ).to_string()),
                     ].into_iter().collect();
 }
 
