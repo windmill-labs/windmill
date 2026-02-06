@@ -1661,6 +1661,19 @@ async fn process_notify_event(
                         tracing::error!(error = %e, "Could not reload critical alert UI setting");
                     }
                 }
+                "workspace_telemetry_enabled" => {
+                    // Read the new value from the database and log it
+                    let enabled = sqlx::query_scalar!(
+                        "SELECT value FROM global_settings WHERE name = 'workspace_telemetry_enabled'"
+                    )
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                    tracing::info!("Workspace telemetry setting changed: enabled={}", enabled);
+                }
                 _ => {
                     tracing::info!("Unrecognized Global Setting Change Payload: {:?}", payload);
                 }
