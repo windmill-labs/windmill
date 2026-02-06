@@ -307,140 +307,143 @@
 		{#if jobs?.length == 0 && (!showExternalJobs || externalJobs?.length == 0)}
 			<div class="text-xs text-secondary p-8"> No jobs found for the selected filters. </div>
 		{:else}
-			<VirtualList
-				width="100%"
-				height={tableHeight}
-				itemCount={flatJobs?.length ?? 3}
-				itemSize={42}
-				overscanCount={20}
-				{stickyIndices}
-				{scrollToIndex}
-				scrollToAlignment="center"
-			>
-				{#snippet header()}{/snippet}
-				{#snippet item({ index, style })}
-					<div {style} class="w-full bg-surface-tertiary">
-						{#if flatJobs}
-							{@const jobOrDate = flatJobs[index]}
-							{#if jobOrDate}
-								{#if jobOrDate?.type === 'date'}
-									<div
-										class={twMerge(
-											'border-b py-2 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
-										)}
-									>
-										{jobOrDate.date}
-									</div>
-								{:else}
-									{@const selected =
-										jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
-									<!-- svelte-ignore a11y_click_events_have_key_events -->
-									<!-- svelte-ignore a11y_no_static_element_interactions -->
-									<div
-										class={twMerge(
-											'flex flex-row items-center h-full w-full select-none transition-opacity',
-											rightClickPopover?.isOpen() &&
-												(!selected ||
-													(hoveredDropdownAction === 'cancel' &&
-														!isJobCancelable(jobOrDate.job))) &&
-												'opacity-20',
-											(rightClickPopover?.isOpen() || batchRerunOptionsIsOpen) &&
-												(!selected ||
-													(hoveredDropdownAction === 'rerun' && !isJobReRunnable(jobOrDate.job))) &&
-												'opacity-20'
-										)}
-										oncontextmenu={(e) => {
-											e.preventDefault()
-											rightClickPopover?.open(e)
-										}}
-									>
-										<RunRow
-											{containsLabel}
-											{showTag}
-											job={jobOrDate.job}
-											{selected}
-											on:select={() => {
-												const jobId = jobOrDate.job.id
-												if (keysPressed.Control || keysPressed.Meta) {
-													if (selectedIds.includes(jobOrDate.job.id)) {
-														selectedIds = selectedIds.filter((id) => id != jobId)
-													} else {
-														selectedIds.push(jobId)
-														selectedIds = selectedIds
-													}
-												} else if (keysPressed.Shift && selectedIds.length > 0) {
-													const lastSelectedId = selectedIds[selectedIds.length - 1]
-													const lastSelectedIndex = flatJobs?.findIndex(
-														(jobOrDate) =>
-															jobOrDate.type === 'job' && jobOrDate.job.id === lastSelectedId
-													)
-													if (lastSelectedIndex != undefined && flatJobs) {
-														const [start, end] =
-															index < lastSelectedIndex
-																? [index, lastSelectedIndex]
-																: [lastSelectedIndex, index]
-														const newSelectedIds = flatJobs
-															.slice(start, end + 1)
-															.filter((jobOrDate) => jobOrDate.type === 'job')
-															.map((jobOrDate) => jobOrDate.job.id)
-														selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
-													}
-												} else {
-													if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
-													if (
-														JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
-														selectedWorkspace !== jobOrDate.job.workspace_id
-													) {
-														selectedWorkspace = jobOrDate.job.workspace_id
-														selectedIds = [jobOrDate.job.id]
-														dispatch('select')
-													} else {
-														selectedIds = []
-														selectedWorkspace = undefined
-														dispatch('select')
-													}
-												}
+			<div class="absolute inset-0">
+				<VirtualList
+					width="100%"
+					height={tableHeight}
+					itemCount={flatJobs?.length ?? 3}
+					itemSize={42}
+					overscanCount={20}
+					{stickyIndices}
+					{scrollToIndex}
+					scrollToAlignment="center"
+				>
+					{#snippet header()}{/snippet}
+					{#snippet item({ index, style })}
+						<div {style} class="w-full bg-surface-tertiary">
+							{#if flatJobs}
+								{@const jobOrDate = flatJobs[index]}
+								{#if jobOrDate}
+									{#if jobOrDate?.type === 'date'}
+										<div
+											class={twMerge(
+												'border-b py-2 font-semibold text-xs pl-4 h-[42px] flex items-end bg-surface-tertiary'
+											)}
+										>
+											{jobOrDate.date}
+										</div>
+									{:else}
+										{@const selected =
+											jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+										<!-- svelte-ignore a11y_click_events_have_key_events -->
+										<!-- svelte-ignore a11y_no_static_element_interactions -->
+										<div
+											class={twMerge(
+												'flex flex-row items-center h-full w-full select-none transition-opacity',
+												rightClickPopover?.isOpen() &&
+													(!selected ||
+														(hoveredDropdownAction === 'cancel' &&
+															!isJobCancelable(jobOrDate.job))) &&
+													'opacity-20',
+												(rightClickPopover?.isOpen() || batchRerunOptionsIsOpen) &&
+													(!selected ||
+														(hoveredDropdownAction === 'rerun' &&
+															!isJobReRunnable(jobOrDate.job))) &&
+													'opacity-20'
+											)}
+											oncontextmenu={(e) => {
+												e.preventDefault()
+												rightClickPopover?.open(e)
 											}}
-											{activeLabel}
-											on:filterByLabel
-											on:filterByPath
-											on:filterByUser
-											on:filterByFolder
-											on:filterByConcurrencyKey
-											on:filterBySchedule
-											on:filterByWorker
-											{containerWidth}
-										/>
-									</div>
+										>
+											<RunRow
+												{containsLabel}
+												{showTag}
+												job={jobOrDate.job}
+												{selected}
+												on:select={() => {
+													const jobId = jobOrDate.job.id
+													if (keysPressed.Control || keysPressed.Meta) {
+														if (selectedIds.includes(jobOrDate.job.id)) {
+															selectedIds = selectedIds.filter((id) => id != jobId)
+														} else {
+															selectedIds.push(jobId)
+															selectedIds = selectedIds
+														}
+													} else if (keysPressed.Shift && selectedIds.length > 0) {
+														const lastSelectedId = selectedIds[selectedIds.length - 1]
+														const lastSelectedIndex = flatJobs?.findIndex(
+															(jobOrDate) =>
+																jobOrDate.type === 'job' && jobOrDate.job.id === lastSelectedId
+														)
+														if (lastSelectedIndex != undefined && flatJobs) {
+															const [start, end] =
+																index < lastSelectedIndex
+																	? [index, lastSelectedIndex]
+																	: [lastSelectedIndex, index]
+															const newSelectedIds = flatJobs
+																.slice(start, end + 1)
+																.filter((jobOrDate) => jobOrDate.type === 'job')
+																.map((jobOrDate) => jobOrDate.job.id)
+															selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
+														}
+													} else {
+														if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
+														if (
+															JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
+															selectedWorkspace !== jobOrDate.job.workspace_id
+														) {
+															selectedWorkspace = jobOrDate.job.workspace_id
+															selectedIds = [jobOrDate.job.id]
+															dispatch('select')
+														} else {
+															selectedIds = []
+															selectedWorkspace = undefined
+															dispatch('select')
+														}
+													}
+												}}
+												{activeLabel}
+												on:filterByLabel
+												on:filterByPath
+												on:filterByUser
+												on:filterByFolder
+												on:filterByConcurrencyKey
+												on:filterBySchedule
+												on:filterByWorker
+												{containerWidth}
+											/>
+										</div>
+									{/if}
+								{:else}
+									{JSON.stringify(jobOrDate)}
 								{/if}
 							{:else}
-								{JSON.stringify(jobOrDate)}
+								<div class="flex flex-row items-center h-full w-full">
+									<div class="w-1/12 text-2xs">...</div>
+									<div class="w-4/12 text-xs">...</div>
+									<div class="w-4/12 text-xs">...</div>
+									<div class="w-3/12 text-xs">...</div>
+								</div>
 							{/if}
-						{:else}
-							<div class="flex flex-row items-center h-full w-full">
-								<div class="w-1/12 text-2xs">...</div>
-								<div class="w-4/12 text-xs">...</div>
-								<div class="w-4/12 text-xs">...</div>
-								<div class="w-3/12 text-xs">...</div>
-							</div>
-						{/if}
-					</div>
-				{/snippet}
-				{#snippet footer()}
-					<div
-						>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
-							<button
-								class="text-xs text-accent text-center w-full pb-2"
-								onclick={() => {
-									dispatch('loadExtra')
-								}}
-							>
-								Load next {perPage} jobs
-							</button>
-						{/if}</div
-					>
-				{/snippet}
-			</VirtualList>
+						</div>
+					{/snippet}
+					{#snippet footer()}
+						<div
+							>{#if !lastFetchWentToEnd && jobs && jobs.length >= perPage}
+								<button
+									class="text-xs text-accent text-center w-full pb-2"
+									onclick={() => {
+										dispatch('loadExtra')
+									}}
+								>
+									Load next {perPage} jobs
+								</button>
+							{/if}</div
+						>
+					{/snippet}
+				</VirtualList>
+			</div>
 		{/if}
 	</div>
 </div>
