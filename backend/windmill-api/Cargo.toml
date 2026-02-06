@@ -41,6 +41,7 @@ cloud = ["windmill-common/cloud"]
 mcp = ["dep:windmill-mcp", "windmill-mcp/server", "windmill-mcp/auth"]
 bedrock = ["dep:aws-sdk-bedrock", "dep:aws-sdk-bedrockruntime", "windmill-common/bedrock", "dep:aws-config"]
 python = []
+no_auth = []
 
 [dependencies]
 windmill-mcp = { workspace = true, optional = true }

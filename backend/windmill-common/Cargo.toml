@@ -7,6 +7,7 @@ edition.workspace = true
 [features]
 default = []
 enterprise = []
+local_reports = ["dep:rsa", "dep:aes-gcm"]
 private = ["dep:aws-sdk-rds"]
 jemalloc = ["dep:tikv-jemalloc-ctl"]
 tantivy = []
@@ -102,6 +103,8 @@ async-recursion.workspace = true
 pep440_rs.workspace = true
 systemstat.workspace = true
 size.workspace = true
+rsa = { workspace = true, optional = true }
+aes-gcm = { workspace = true, optional = true }
 
 semver.workspace = true
 croner.workspace = true
