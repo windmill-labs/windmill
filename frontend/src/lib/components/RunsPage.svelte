@@ -801,9 +801,11 @@
 					</div>
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
-					<div class="mt-14 overflow-y-auto pr-4 ml-2">
+					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
 						{#if openBatchRerunOptions}
-							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+							<div class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4">
+								<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
+							</div>
 						{:else if selectedIds.length === 1}
 							{#if selectedIds[0] === '-'}
 								<div class="p-4">There is no information available for this job</div>
@@ -816,9 +818,11 @@
 								/>
 							{/if}
 						{:else if selectedIds.length > 1}
-							<div class="text-xs m-4"
-								>There are {selectedIds.length} jobs selected. Choose 1 to see detailed information</div
+							<div
+								class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4 flex items-center justify-center"
 							>
+								<div class="text-xs m-4"> {selectedIds.length} jobs selected</div>
+							</div>
 						{/if}
 					</div>
 				</AnimatedPane>
