@@ -22,6 +22,7 @@ prometheus = ["windmill-common/prometheus", "windmill-queue/prometheus", "dep:pr
 openidconnect = ["dep:openidconnect", "windmill-common/openidconnect"]
 tantivy = ["dep:windmill-indexer"]
 kafka = ["dep:rdkafka", "dep:rdkafka-sys"]
+kafka-gssapi = ["kafka", "rdkafka/gssapi"]
 nats = ["dep:async-nats", "dep:nkeys"]
 websocket = ["dep:tokio-tungstenite"]
 smtp = ["dep:mail-parser", "dep:openssl", "windmill-common/smtp"]

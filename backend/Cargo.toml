@@ -71,6 +71,7 @@ deno_core = ["windmill-worker/deno_core", "windmill-api/deno_core", "dep:deno_co
 quickjs = ["windmill-worker/quickjs"]
 deno_core_mac = ["deno_core", "windmill-worker/libffi_mac"]
 kafka = ["windmill-api/kafka"]
+kafka-gssapi = ["windmill-api/kafka-gssapi"]
 nats = ["windmill-api/nats"]
 otel = ["windmill-common/otel", "windmill-worker/otel"]
 dind = ["windmill-worker/dind"]
@@ -110,7 +111,7 @@ all_languages = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "
 # For windows we have another set of languages enabled
 all_languages_windows = ["python", "deno_core", "rust", "mysql", "oracledb", "duckdb", "mssql-winauth", "bigquery", "csharp", "nu", "php", "java"]
 all_sqlx_features = ["all_languages", "enterprise", "enterprise_saml", "embedding", "parquet", "prometheus", "flow_testing",
- "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "nats", "otel", "dind", "websocket", "http_trigger",
+ "openidconnect", "cloud", "jemalloc", "tantivy", "sqlx", "kafka", "kafka-gssapi", "nats", "otel", "dind", "websocket", "http_trigger",
   "postgres_trigger", "mcp", "mqtt_trigger", "sqs_trigger", "gcp_trigger", "smtp", "stripe",
    "license", "oauth2", "zip", "static_frontend", "scoped_cache", "agent_worker_server", "bedrock", "native_trigger"]
 
