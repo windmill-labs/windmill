@@ -159,7 +159,7 @@
 		filters.max_ts = null
 		selectedIds = []
 		filters.schedule_path = null
-		batchReRunOptions = { flow: {}, script: {} }
+		batchReRunOptions = undefined
 		selectedWorkspace = undefined
 		jobsLoader?.loadJobs(true)
 	}
@@ -387,7 +387,7 @@
 		})
 
 		selectedIds = []
-		batchReRunOptions = { flow: {}, script: {} }
+		batchReRunOptions = undefined
 		jobsLoader?.loadJobs(true, true)
 	}
 

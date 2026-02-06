@@ -232,6 +232,22 @@
 	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
 </script>
 
+<svelte:window
+	onkeydown={(e) => {
+		if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && selectedIds.length === 1) {
+			const idx = flatJobs?.findIndex(
+				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === selectedIds[0]
+			)
+			if (idx == undefined) return
+			let nextJob = flatJobs?.[idx + (e.key === 'ArrowDown' ? 1 : -1)]
+			if (nextJob?.type === 'date') nextJob = flatJobs?.[idx + (e.key === 'ArrowDown' ? 2 : -2)]
+			if (nextJob?.type !== 'job') return
+			selectedIds = [nextJob.job.id]
+			e.preventDefault()
+		}
+	}}
+/>
+
 <div
 	class="divide-y h-full flex flex-col min-w-[650px]"
 	id="runs-table-wrapper"
