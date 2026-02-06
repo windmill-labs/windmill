@@ -2,6 +2,13 @@
 	import { clickOutside } from '$lib/utils'
 	import { fly } from 'svelte/transition'
 	import Portal from './Portal.svelte'
+	import type { Snippet } from 'svelte'
+
+	type Props = {
+		children: Snippet
+	}
+
+	const { children }: Props = $props()
 
 	let isOpen = $state(false)
 	let mousePos = $state({ x: 0, y: 0 })
@@ -19,7 +26,7 @@
 <Portal>
 	{#if isOpen}
 		<div
-			transition:fly={{ x: 0, y: -10, duration: 200 }}
+			in:fly={{ x: 0, y: -10, duration: 120 }}
 			use:clickOutside={{
 				onClickOutside: (e) => {
 					isOpen = false
@@ -30,6 +37,7 @@
 			class="absolute left-0 top-0 z-[9999] w-fit"
 			style="transform: translate({mousePos.x}px, {mousePos.y}px)"
 		>
+			{@render children()}
 		</div>
 	{/if}
 </Portal>

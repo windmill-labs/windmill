@@ -73,9 +73,8 @@
 	class:grid-runs-table-no-tag={!containsLabel && !showTag}
 	class:grid-runs-table-with-labels-no-tag={containsLabel && !showTag}
 	style="width: {containerWidth}px"
-	onclick={() => {
-		dispatch('select')
-	}}
+	onclick={() => dispatch('select')}
+	oncontextmenu={(e) => !selected && dispatch('select')}
 >
 	<!-- Status -->
 	<div class="flex items-center justify-start pl-4">

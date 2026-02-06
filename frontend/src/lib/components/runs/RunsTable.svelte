@@ -4,13 +4,14 @@
 	import VirtualList from '@tutorlatin/svelte-tiny-virtual-list'
 	import { createEventDispatcher } from 'svelte'
 	import Tooltip from '../Tooltip.svelte'
-	import { AlertTriangle } from 'lucide-svelte'
+	import { AlertTriangle, CircleXIcon, RefreshCwIcon } from 'lucide-svelte'
 	import Popover from '../Popover.svelte'
 	import { workspaceStore } from '$lib/stores'
 	import './runs-grid.css'
 	import { useKeyPressed } from '$lib/svelte5Utils.svelte'
 	import { twMerge } from 'tailwind-merge'
 	import RightClickPopover from '../RightClickPopover.svelte'
+	import DropdownMenu from '../DropdownMenu.svelte'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -383,7 +384,23 @@
 	</div>
 </div>
 
-<RightClickPopover bind:this={rightClickPopover}></RightClickPopover>
+<RightClickPopover bind:this={rightClickPopover}>
+	<DropdownMenu
+		closeCallback={() => rightClickPopover?.close()}
+		items={[
+			{
+				label: 'Cancel',
+				icon: CircleXIcon,
+				onClick: () => {}
+			},
+			{
+				label: 'Run again',
+				icon: RefreshCwIcon,
+				onClick: () => {}
+			}
+		]}
+	/>
+</RightClickPopover>
 
 <style>
 	:global(.virtual-list-wrapper::-webkit-scrollbar) {
