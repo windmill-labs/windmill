@@ -306,24 +306,8 @@ pub async fn is_owner_api(
     Ok(Json(is_owner(&authed, &name)))
 }
 
-pub fn is_owner(ApiAuthed { is_admin, folders, .. }: &ApiAuthed, name: &str) -> bool {
-    if *is_admin {
-        true
-    } else {
-        folders.into_iter().any(|x| x.0 == name && x.2)
-    }
-}
-
-pub fn require_is_owner(authed: &ApiAuthed, name: &str) -> Result<()> {
-    if is_owner(authed, name) {
-        Ok(())
-    } else {
-        Err(windmill_common::error::Error::NotAuthorized(format!(
-            "You are not owner of the folder {}",
-            name
-        )))
-    }
-}
+pub use windmill_api_auth::permissions::is_folder_owner as is_owner;
+pub use windmill_api_auth::permissions::require_is_folder_owner as require_is_owner;
 
 async fn update_folder(
     authed: ApiAuthed,

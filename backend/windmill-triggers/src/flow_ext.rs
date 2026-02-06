@@ -9,10 +9,8 @@
 use windmill_api_auth::ApiAuthed;
 use windmill_common::{error::Result, DB};
 
-use crate::require_is_writer_internal;
-
 pub async fn require_is_writer(authed: &ApiAuthed, path: &str, w_id: &str, db: DB) -> Result<()> {
-    require_is_writer_internal(
+    windmill_api_auth::permissions::require_is_writer(
         authed,
         path,
         w_id,

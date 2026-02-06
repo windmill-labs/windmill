@@ -35,8 +35,8 @@ use windmill_common::error::JsonResult;
 use windmill_common::flow_conversations::add_message_to_conversation_tx;
 use windmill_common::flow_status::{JobResult, RestartedFrom};
 use windmill_common::jobs::{
-    check_tag_available_for_workspace_internal, format_completed_job_result, format_result,
-    DynamicInput, JobTriggerKind, RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
+    format_completed_job_result, format_result, DynamicInput, JobTriggerKind,
+    RunInlinePreviewScriptFnParams, ENTRYPOINT_OVERRIDE,
 };
 use windmill_common::runnable_settings::{
     ConcurrencySettings, ConcurrencySettingsWithCustom, DebouncingSettings, RunnableSettings,
@@ -1775,60 +1775,38 @@ pub struct ListableCompletedJob {
     pub args: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct RunJobQuery {
-    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_in_secs: Option<i64>,
-    pub parent_job: Option<Uuid>,
-    pub root_job: Option<Uuid>,
-    pub invisible_to_owner: Option<bool>,
-    pub queue_limit: Option<i64>,
-    pub payload: Option<String>,
-    pub job_id: Option<Uuid>,
-    pub tag: Option<String>,
-    pub timeout: Option<i32>,
-    pub cache_ttl: Option<i32>,
-    pub cache_ignore_s3_path: Option<bool>,
-    pub skip_preprocessor: Option<bool>,
-    pub poll_delay_ms: Option<u64>,
-    pub memory_id: Option<Uuid>,
-    pub trigger_external_id: Option<String>,
-    pub service_name: Option<String>,
-    pub suspended_mode: Option<bool>,
+pub use windmill_common::jobs::RunJobQuery;
+
+async fn run_query_get_scheduled_for(
+    run_query: &RunJobQuery,
+    db: &DB,
+) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
+    if let Some(scheduled_for) = run_query.scheduled_for {
+        Ok(Some(scheduled_for))
+    } else if let Some(scheduled_in_secs) = run_query.scheduled_in_secs {
+        let now = now_from_db(db).await?;
+        Ok(Some(
+            now + chrono::Duration::try_seconds(scheduled_in_secs).unwrap_or_default(),
+        ))
+    } else {
+        Ok(None)
+    }
 }
 
-impl RunJobQuery {
-    async fn get_scheduled_for<'c>(
-        &self,
-        db: &DB,
-    ) -> error::Result<Option<chrono::DateTime<chrono::Utc>>> {
-        if let Some(scheduled_for) = self.scheduled_for {
-            Ok(Some(scheduled_for))
-        } else if let Some(scheduled_in_secs) = self.scheduled_in_secs {
-            let now = now_from_db(db).await?;
-            Ok(Some(
-                now + chrono::Duration::try_seconds(scheduled_in_secs).unwrap_or_default(),
-            ))
-        } else {
-            Ok(None)
-        }
-    }
+fn run_query_payload_as_args(run_query: &RunJobQuery) -> error::Result<HashMap<String, Box<RawValue>>> {
+    let payload_r = run_query.payload.clone().map(decode_payload).map(|x| {
+        x.map_err(|e| {
+            error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
+        })
+    });
 
-    fn payload_as_args(&self) -> error::Result<HashMap<String, Box<RawValue>>> {
-        let payload_r = self.payload.clone().map(decode_payload).map(|x| {
-            x.map_err(|e| {
-                error::Error::internal_err(format!("Impossible to decode query payload: {e:#?}"))
-            })
-        });
+    let payload_as_args = if let Some(payload) = payload_r {
+        payload?
+    } else {
+        HashMap::new()
+    };
 
-        let payload_as_args = if let Some(payload) = payload_r {
-            payload?
-        } else {
-            HashMap::new()
-        };
-
-        Ok(payload_as_args)
-    }
+    Ok(payload_as_args)
 }
 
 #[derive(Deserialize, Clone)]
@@ -3869,33 +3847,10 @@ pub fn add_raw_string(
     return args;
 }
 
-pub async fn check_tag_available_for_workspace(
-    db: &DB,
-    w_id: &str,
-    tag: &Option<String>,
-    authed: &ApiAuthed,
-) -> error::Result<()> {
-    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
-        let tags = get_scope_tags(authed);
-        check_tag_available_for_workspace_internal(&db, w_id, tag, &authed.email, tags).await
-    } else {
-        Ok(())
-    }
-}
+pub use windmill_triggers::jobs_ext::check_tag_available_for_workspace;
 
 #[cfg(feature = "enterprise")]
-pub async fn check_license_key_valid() -> error::Result<()> {
-    use windmill_common::ee_oss::LICENSE_KEY_VALID;
-
-    let valid = *LICENSE_KEY_VALID.read().await;
-    if !valid {
-        return Err(Error::BadRequest(
-            "License key is not valid. Go to your superadmin settings to update your license key."
-                .to_string(),
-        ));
-    }
-    Ok(())
-}
+pub use windmill_common::ee_oss::check_license_key_valid;
 
 use windmill_common::flows::InputTransform;
 
@@ -4323,7 +4278,7 @@ pub async fn run_flow<'c>(
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
 
     let return_tx = tx_o.is_some();
 
@@ -4627,7 +4582,7 @@ pub async fn restart_flow(
         .map(|json| PushArgs { args: &json.0, extra: None })
         .unwrap_or_else(|| PushArgs::from(&ehm));
 
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
 
     let tx = PushIsolationLevel::Isolated(user_db, authed.clone().into());
 
@@ -4775,7 +4730,7 @@ pub async fn push_script_job_by_path_into_queue<'c>(
         run_query.skip_preprocessor,
     )
     .await?;
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
 
     let tag = run_query.tag.clone().or(tag);
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
@@ -4953,7 +4908,7 @@ pub async fn run_workflow_as_code(
     extra.insert(ENTRYPOINT_OVERRIDE.to_string(), to_raw_value(&entrypoint));
 
     let args = PushArgs { args: &task.args.unwrap_or_else(HashMap::new), extra: Some(extra) };
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
 
     let tag = run_query.tag.clone().or(tag).or(Some(job.tag));
 
@@ -5324,27 +5279,7 @@ pub async fn run_wait_result(
     result_to_response(result, success)
 }
 
-pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
-    sqlx::query!(
-        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
+pub use windmill_common::jobs::delete_job_metadata_after_use;
 
 pub async fn check_queue_too_long(db: &DB, queue_limit: Option<i64>) -> error::Result<()> {
     if let Some(limit) = queue_limit {
@@ -5475,7 +5410,7 @@ pub async fn run_wait_result_job_by_path_get(
         return Ok(Json(serde_json::json!("")).into_response());
     }
 
-    let payload_as_args = run_query.payload_as_args()?;
+    let payload_as_args = run_query_payload_as_args(&run_query)?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_as_args);
@@ -5580,7 +5515,7 @@ pub async fn run_wait_result_flow_by_path_get(
     if method == http::Method::HEAD {
         return Ok(Json(serde_json::json!("")).into_response());
     }
-    let payload_as_args = run_query.payload_as_args()?;
+    let payload_as_args = run_query_payload_as_args(&run_query)?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_as_args);
@@ -5958,7 +5893,7 @@ pub async fn stream_job(
     is_get: bool,
 ) -> error::Result<Response> {
     let args = if is_get {
-        let payload_as_args = run_query.payload_as_args()?;
+        let payload_as_args = run_query_payload_as_args(&run_query)?;
 
         let mut args = args.process_args(&authed, &db, &w_id, None).await?;
         args.body = args::Body::HashMap(payload_as_args);
@@ -6140,7 +6075,7 @@ pub async fn run_wait_result_flow_by_version_get(
         return Ok(Json(serde_json::json!("")).into_response());
     }
 
-    let payload_as_args = run_query.payload_as_args()?;
+    let payload_as_args = run_query_payload_as_args(&run_query)?;
 
     let mut args = args.process_args(&authed, &db, &w_id, None).await?;
     args.body = args::Body::HashMap(payload_as_args);
@@ -6243,7 +6178,7 @@ async fn run_preview_script(
         ));
     }
     require_path_read_access_for_preview(&authed, &preview.path)?;
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
     let tag = run_query.tag.clone().or(preview.tag.clone());
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -6456,7 +6391,7 @@ async fn run_bundle_preview_script(
                 .and_then(|s| BundleFormat::from_string(&s))
                 .unwrap_or(BundleFormat::Cjs);
 
-            let scheduled_for = run_query.get_scheduled_for(&db).await?;
+            let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
             let tag = run_query.tag.clone().or(preview.tag.clone());
             check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
             let ltx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -7063,7 +6998,7 @@ async fn run_preview_flow_job(
         ));
     }
     require_path_read_access_for_preview(&authed, &raw_flow.path)?;
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
     let tag = run_query.tag.clone().or(raw_flow.tag.clone());
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
@@ -7263,7 +7198,7 @@ async fn run_dynamic_select(
         }
     }
 
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
     let tx = PushIsolationLevel::Isolated(user_db.clone(), authed.clone().into());
 
     let (uuid, tx) = push(
@@ -7387,7 +7322,7 @@ pub async fn run_job_by_hash_inner(
         cache_ttl = Some(run_query_cache_ttl);
         cache_ignore_s3_path = run_query.cache_ignore_s3_path;
     }
-    let scheduled_for = run_query.get_scheduled_for(&db).await?;
+    let scheduled_for = run_query_get_scheduled_for(&run_query, &db).await?;
     let tag = run_query.tag.clone().or(tag);
 
     check_tag_available_for_workspace(&db, &w_id, &tag, &authed).await?;

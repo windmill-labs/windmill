@@ -917,3 +917,47 @@ pub struct WorkerInternalServerInlineUtils {
 // The server cannot call the worker functions directly because they are independent crates
 pub static WORKER_INTERNAL_SERVER_INLINE_UTILS: OnceCell<WorkerInternalServerInlineUtils> =
     OnceCell::new();
+
+#[derive(Debug, Deserialize, Clone, Default)]
+pub struct RunJobQuery {
+    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
+    pub scheduled_in_secs: Option<i64>,
+    pub parent_job: Option<Uuid>,
+    pub root_job: Option<Uuid>,
+    pub invisible_to_owner: Option<bool>,
+    pub queue_limit: Option<i64>,
+    pub payload: Option<String>,
+    pub job_id: Option<Uuid>,
+    pub tag: Option<String>,
+    pub timeout: Option<i32>,
+    pub cache_ttl: Option<i32>,
+    pub cache_ignore_s3_path: Option<bool>,
+    pub skip_preprocessor: Option<bool>,
+    pub poll_delay_ms: Option<u64>,
+    pub memory_id: Option<Uuid>,
+    pub trigger_external_id: Option<String>,
+    pub service_name: Option<String>,
+    pub suspended_mode: Option<bool>,
+}
+
+pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
+    sqlx::query!(
+        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+    sqlx::query!(
+        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = $1",
+        job_uuid,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}

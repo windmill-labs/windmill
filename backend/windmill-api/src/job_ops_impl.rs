@@ -23,8 +23,9 @@ use windmill_common::{
     utils::StripPath,
     DB,
 };
+use windmill_common::jobs::RunJobQuery;
 use windmill_queue::PushArgsOwned;
-use windmill_triggers::jobs_ext::{JobOps, JobUpdateSSEStream, RunJobQuery};
+use windmill_triggers::jobs_ext::{JobOps, JobUpdateSSEStream};
 
 pub struct JobOpsImpl;
 
@@ -46,29 +47,8 @@ impl JobOps for JobOpsImpl {
         Option<bool>,
         Option<sqlx::Transaction<'static, Postgres>>,
     )> {
-        // Convert RunJobQuery from windmill-triggers to the windmill-api version
-        let api_run_query = crate::jobs::RunJobQuery {
-            scheduled_for: run_query.scheduled_for,
-            scheduled_in_secs: run_query.scheduled_in_secs,
-            parent_job: run_query.parent_job,
-            root_job: run_query.root_job,
-            invisible_to_owner: run_query.invisible_to_owner,
-            queue_limit: run_query.queue_limit,
-            payload: run_query.payload,
-            job_id: run_query.job_id,
-            tag: run_query.tag,
-            timeout: run_query.timeout,
-            cache_ttl: run_query.cache_ttl,
-            cache_ignore_s3_path: run_query.cache_ignore_s3_path,
-            skip_preprocessor: run_query.skip_preprocessor,
-            poll_delay_ms: run_query.poll_delay_ms,
-            memory_id: run_query.memory_id,
-            trigger_external_id: run_query.trigger_external_id,
-            service_name: run_query.service_name,
-            suspended_mode: run_query.suspended_mode,
-        };
         crate::jobs::push_script_job_by_path_into_queue(
-            authed, db, tx_o, user_db, w_id, script_path, api_run_query, args, trigger,
+            authed, db, tx_o, user_db, w_id, script_path, run_query, args, trigger,
         )
         .await
     }
@@ -89,28 +69,8 @@ impl JobOps for JobOpsImpl {
         Option<String>,
         Option<sqlx::Transaction<'static, Postgres>>,
     )> {
-        let api_run_query = crate::jobs::RunJobQuery {
-            scheduled_for: run_query.scheduled_for,
-            scheduled_in_secs: run_query.scheduled_in_secs,
-            parent_job: run_query.parent_job,
-            root_job: run_query.root_job,
-            invisible_to_owner: run_query.invisible_to_owner,
-            queue_limit: run_query.queue_limit,
-            payload: run_query.payload,
-            job_id: run_query.job_id,
-            tag: run_query.tag,
-            timeout: run_query.timeout,
-            cache_ttl: run_query.cache_ttl,
-            cache_ignore_s3_path: run_query.cache_ignore_s3_path,
-            skip_preprocessor: run_query.skip_preprocessor,
-            poll_delay_ms: run_query.poll_delay_ms,
-            memory_id: run_query.memory_id,
-            trigger_external_id: run_query.trigger_external_id,
-            service_name: run_query.service_name,
-            suspended_mode: run_query.suspended_mode,
-        };
         crate::jobs::push_flow_job_by_path_into_queue(
-            authed, db, tx_o, user_db, w_id, flow_path, api_run_query, args, trigger,
+            authed, db, tx_o, user_db, w_id, flow_path, run_query, args, trigger,
         )
         .await
     }

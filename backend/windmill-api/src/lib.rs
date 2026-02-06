@@ -74,7 +74,7 @@ pub mod agent_workers_ee;
 mod agent_workers_oss;
 mod ai;
 mod apps;
-pub mod args;
+pub use windmill_triggers::args_ext as args;
 mod assets;
 mod audit;
 pub mod auth;

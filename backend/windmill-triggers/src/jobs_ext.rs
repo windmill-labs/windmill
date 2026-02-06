@@ -13,7 +13,6 @@
 //! implementation at startup via `set_ops()`.
 
 use axum::response::Response;
-use serde::Deserialize;
 use serde_json::value::RawValue;
 use sqlx::Postgres;
 use std::sync::Arc;
@@ -21,99 +20,21 @@ use uuid::Uuid;
 use windmill_api_auth::{ApiAuthed, OptTokened};
 use windmill_common::{
     db::UserDB,
-    error::{self, Error},
-    jobs::check_tag_available_for_workspace_internal,
+    error,
     triggers::TriggerMetadata,
     utils::StripPath,
     DB,
 };
 use windmill_queue::PushArgsOwned;
 
-#[derive(Debug, Deserialize, Clone, Default)]
-pub struct RunJobQuery {
-    pub scheduled_for: Option<chrono::DateTime<chrono::Utc>>,
-    pub scheduled_in_secs: Option<i64>,
-    pub parent_job: Option<Uuid>,
-    pub root_job: Option<Uuid>,
-    pub invisible_to_owner: Option<bool>,
-    pub queue_limit: Option<i64>,
-    pub payload: Option<String>,
-    pub job_id: Option<Uuid>,
-    pub tag: Option<String>,
-    pub timeout: Option<i32>,
-    pub cache_ttl: Option<i32>,
-    pub cache_ignore_s3_path: Option<bool>,
-    pub skip_preprocessor: Option<bool>,
-    pub poll_delay_ms: Option<u64>,
-    pub memory_id: Option<Uuid>,
-    pub trigger_external_id: Option<String>,
-    pub service_name: Option<String>,
-    pub suspended_mode: Option<bool>,
-}
-
-pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
-    authed.scopes.as_ref()?.iter().find_map(|s| {
-        if s.starts_with("if_jobs:filter_tags:") {
-            Some(
-                s.trim_start_matches("if_jobs:filter_tags:")
-                    .split(",")
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        }
-    })
-}
-
-pub async fn check_tag_available_for_workspace(
-    db: &DB,
-    w_id: &str,
-    tag: &Option<String>,
-    authed: &ApiAuthed,
-) -> error::Result<()> {
-    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
-        let tags = get_scope_tags(authed);
-        check_tag_available_for_workspace_internal(db, w_id, tag, &authed.email, tags).await
-    } else {
-        Ok(())
-    }
-}
-
-pub async fn delete_job_metadata_after_use(db: &DB, job_uuid: Uuid) -> Result<(), Error> {
-    sqlx::query!(
-        "UPDATE v2_job SET args = '{}'::jsonb WHERE id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "UPDATE v2_job_completed SET result = '{}'::jsonb WHERE id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    sqlx::query!(
-        "UPDATE job_logs SET logs = '##DELETED##' WHERE job_id = $1",
-        job_uuid,
-    )
-    .execute(db)
-    .await?;
-    Ok(())
-}
+// Re-export shared types/functions from windmill-common
+pub use windmill_common::jobs::{delete_job_metadata_after_use, RunJobQuery};
 
 #[cfg(feature = "enterprise")]
-pub async fn check_license_key_valid() -> error::Result<()> {
-    use windmill_common::ee_oss::LICENSE_KEY_VALID;
+pub use windmill_common::ee_oss::check_license_key_valid;
 
-    let valid = *LICENSE_KEY_VALID.read().await;
-    if !valid {
-        return Err(Error::BadRequest(
-            "License key is not valid. Go to your superadmin settings to update your license key."
-                .to_string(),
-        ));
-    }
-    Ok(())
-}
+// Re-export scope helpers from windmill-api-auth
+pub use windmill_api_auth::scopes::{check_tag_available_for_workspace, get_scope_tags};
 
 /// Trait for complex job operations that stay in windmill-api.
 /// windmill-api provides the implementation at startup via `set_ops()`.
@@ -234,21 +155,6 @@ pub trait JobOps: Send + Sync + 'static {
         w_id: &str,
         storage: Option<String>,
     ) -> error::Result<(Option<bool>, Option<windmill_common::s3_helpers::ObjectStoreResource>)>;
-}
-
-// Re-export types used by SSE streaming
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct JobUpdate {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub running: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_logs: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_offset: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mem_peak: Option<i32>,
 }
 
 #[derive(Debug, serde::Serialize)]

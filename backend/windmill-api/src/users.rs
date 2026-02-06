@@ -8,7 +8,7 @@
 
 #![allow(non_snake_case)]
 
-use sqlx::{PgConnection, Postgres, Transaction};
+use sqlx::{Postgres, Transaction};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -161,19 +161,7 @@ pub async fn maybe_refresh_folders(
     }
 }
 
-pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
-    authed.scopes.as_ref()?.iter().find_map(|s| {
-        if s.starts_with("if_jobs:filter_tags:") {
-            Some(
-                s.trim_start_matches("if_jobs:filter_tags:")
-                    .split(",")
-                    .collect::<Vec<_>>(),
-            )
-        } else {
-            None
-        }
-    })
-}
+pub use windmill_api_auth::scopes::get_scope_tags;
 
 #[derive(Clone, Debug)]
 pub struct OptAuthed(pub Option<ApiAuthed>);
@@ -319,27 +307,7 @@ pub struct TruncatedToken {
     pub scopes: Option<Vec<String>>,
 }
 
-#[derive(Deserialize)]
-pub struct NewToken {
-    pub label: Option<String>,
-    pub expiration: Option<chrono::DateTime<chrono::Utc>>,
-    pub impersonate_email: Option<String>,
-    pub scopes: Option<Vec<String>>,
-    pub workspace_id: Option<String>,
-}
-
-#[cfg(feature = "native_trigger")]
-impl NewToken {
-    pub fn new(
-        label: Option<String>,
-        expiration: Option<chrono::DateTime<chrono::Utc>>,
-        impersonate_email: Option<String>,
-        scopes: Option<Vec<String>>,
-        workspace_id: Option<String>,
-    ) -> NewToken {
-        NewToken { label, expiration, impersonate_email, scopes, workspace_id }
-    }
-}
+pub use windmill_api_auth::tokens::NewToken;
 
 #[derive(Deserialize)]
 pub struct Login {
@@ -852,35 +820,7 @@ pub async fn is_owner_of_path(
     }
 }
 
-pub fn require_owner_of_path(authed: &ApiAuthed, path: &str) -> Result<()> {
-    if authed.is_admin {
-        return Ok(());
-    }
-    if !path.is_empty() {
-        let splitted = path.split("/").collect::<Vec<&str>>();
-        if splitted[0] == "u" {
-            if splitted[1] == authed.username {
-                Ok(())
-            } else {
-                Err(Error::BadRequest(format!(
-                    "only the owner {} is authorized to perform this operation",
-                    splitted[1]
-                )))
-            }
-        } else if splitted[0] == "f" {
-            crate::folders::require_is_owner(authed, splitted[1])
-        } else {
-            Err(Error::BadRequest(format!(
-                "Not recognized path kind: {}",
-                path
-            )))
-        }
-    } else {
-        Err(Error::BadRequest(format!(
-            "Cannot be owner of an empty path"
-        )))
-    }
-}
+pub use windmill_api_auth::permissions::require_owner_of_path;
 
 /// Checks that a user has at least read access to the path for preview jobs.
 /// This prevents privilege escalation where a user could run preview code
@@ -939,95 +879,7 @@ pub fn require_path_read_access_for_preview(
     }
 }
 
-pub fn get_perm_in_extra_perms_for_authed(
-    v: serde_json::Value,
-    authed: &ApiAuthed,
-) -> Option<bool> {
-    match v {
-        serde_json::Value::Object(obj) => {
-            let mut keys = vec![format!("u/{}", authed.username)];
-            for g in authed.groups.iter() {
-                keys.push(format!("g/{}", g));
-            }
-            let mut res = None;
-            for k in keys {
-                if let Some(v) = obj.get(&k) {
-                    if let Some(v) = v.as_bool() {
-                        if v {
-                            return Some(true);
-                        }
-                        res = Some(v);
-                    }
-                }
-            }
-            res
-        }
-        _ => None,
-    }
-}
-
-pub async fn require_is_writer(
-    authed: &ApiAuthed,
-    path: &str,
-    w_id: &str,
-    db: DB,
-    query: &str,
-    kind: &str,
-) -> Result<()> {
-    if authed.is_admin {
-        return Ok(());
-    }
-    if !path.is_empty() {
-        if require_owner_of_path(authed, path).is_ok() {
-            return Ok(());
-        }
-        if path.starts_with("f/") && path.split('/').count() >= 2 {
-            let folder = path.split('/').nth(1).unwrap();
-            let extra_perms = sqlx::query_scalar!(
-                "SELECT extra_perms FROM folder WHERE name = $1 AND workspace_id = $2",
-                folder,
-                w_id
-            )
-            .fetch_optional(&db)
-            .await?;
-            if let Some(perms) = extra_perms {
-                let is_folder_writer =
-                    get_perm_in_extra_perms_for_authed(perms, authed).unwrap_or(false);
-                if is_folder_writer {
-                    return Ok(());
-                }
-            }
-        }
-        let extra_perms = sqlx::query_scalar(query)
-            .bind(path)
-            .bind(w_id)
-            .fetch_optional(&db)
-            .await?;
-        if let Some(perms) = extra_perms {
-            let perm = get_perm_in_extra_perms_for_authed(perms, authed);
-            match perm {
-                Some(true) => Ok(()),
-                Some(false) => Err(Error::BadRequest(format!(
-                    "User {} is not a writer of {kind} path {path}",
-                    authed.username
-                ))),
-                None => Err(Error::BadRequest(format!(
-                    "User {} has neither read or write permission on {kind} {path}",
-                    authed.username
-                ))),
-            }
-        } else {
-            Err(Error::BadRequest(format!(
-                "{path} does not exist yet and user {} is not an owner of the parent folder",
-                authed.username
-            )))
-        }
-    } else {
-        Err(Error::BadRequest(format!(
-            "Cannot be writer of an empty path"
-        )))
-    }
-}
+pub use windmill_api_auth::permissions::require_is_writer;
 async fn whois(
     Extension(db): Extension<DB>,
     Path((w_id, username)): Path<(String, String)>,
@@ -2107,62 +1959,7 @@ pub async fn create_session_token<'c>(
     Ok(token)
 }
 
-pub async fn create_token_internal(
-    tx: &mut PgConnection,
-    db: &DB,
-    authed: &ApiAuthed,
-    token_config: NewToken,
-) -> Result<String> {
-    let token = rd_string(32);
-
-    let is_super_admin = sqlx::query_scalar!(
-        "SELECT super_admin FROM password WHERE email = $1",
-        authed.email
-    )
-    .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(false);
-    if *CLOUD_HOSTED {
-        let nb_tokens =
-            sqlx::query_scalar!("SELECT COUNT(*) FROM token WHERE email = $1", &authed.email)
-                .fetch_one(db)
-                .await?;
-        if nb_tokens.unwrap_or(0) >= 10000 {
-            return Err(Error::BadRequest(
-                "You have reached the maximum number of tokens (10000) on cloud. Contact support@windmill.dev to increase the limit"
-                    .to_string(),
-            ));
-        }
-    }
-    sqlx::query!(
-        "INSERT INTO token
-            (token, email, label, expiration, super_admin, scopes, workspace_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)",
-        token,
-        authed.email,
-        token_config.label,
-        token_config.expiration,
-        is_super_admin,
-        token_config.scopes.as_ref().map(|x| x.as_slice()),
-        token_config.workspace_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-
-    audit_log(
-        &mut *tx,
-        authed,
-        "users.token.create",
-        ActionKind::Create,
-        &"global",
-        Some(&token[0..10]),
-        None,
-    )
-    .instrument(tracing::info_span!("token", email = &authed.email))
-    .await?;
-
-    Ok(token)
-}
+pub use windmill_api_auth::tokens::create_token_internal;
 
 async fn create_token(
     Extension(db): Extension<DB>,

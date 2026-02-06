@@ -7,7 +7,9 @@
  */
 
 mod auth;
+pub mod permissions;
 pub mod scopes;
+pub mod tokens;
 mod types;
 
 pub use auth::*;

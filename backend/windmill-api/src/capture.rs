@@ -82,12 +82,11 @@ use windmill_common::{
     error::{JsonResult, Result},
     triggers::{RunnableFormat, RunnableFormatVersion, TriggerKind},
     utils::{not_found_if_none, paginate, Pagination, RunnableKind, StripPath},
-    worker::{to_raw_value, CLOUD_HOSTED},
+    worker::to_raw_value,
 };
 
-use windmill_queue::{PushArgs, PushArgsOwned};
 
-const KEEP_LAST: i64 = 20;
+
 
 pub fn workspaced_service() -> Router {
     Router::new()
@@ -802,73 +801,7 @@ async fn get_capture_trigger_config_and_owner<T: DeserializeOwned>(
     ))
 }
 
-async fn clear_captures_history(db: &DB, w_id: &str) -> Result<()> {
-    if *CLOUD_HOSTED {
-        /* Retain only KEEP_LAST most recent captures in this workspace. */
-        sqlx::query!(
-            r#"
-        DELETE FROM 
-            capture
-        WHERE 
-            workspace_id = $1
-            AND created_at <= (
-                SELECT 
-                    created_at
-                FROM 
-                    capture
-                WHERE 
-                    workspace_id = $1
-                ORDER BY 
-                    created_at DESC
-                OFFSET $2
-                LIMIT 1
-            )
-        "#,
-            &w_id,
-            KEEP_LAST,
-        )
-        .execute(db)
-        .await?;
-    }
-    Ok(())
-}
-
-pub async fn insert_capture_payload(
-    db: &DB,
-    w_id: &str,
-    path: &str,
-    is_flow: bool,
-    trigger_kind: &TriggerKind,
-    main_args: PushArgsOwned,
-    preprocessor_args: PushArgsOwned,
-    owner: &str,
-) -> Result<()> {
-    sqlx::query!(
-        r#"
-    INSERT INTO 
-        capture (
-            workspace_id, path, is_flow, trigger_kind, main_args, preprocessor_args, created_by
-        )
-    VALUES (
-        $1, $2, $3, $4, $5, $6, $7
-    )
-    "#,
-        &w_id,
-        path,
-        is_flow,
-        trigger_kind as &TriggerKind,
-        SqlxJson(PushArgs { args: &main_args.args, extra: main_args.extra }) as SqlxJson<PushArgs>,
-        SqlxJson(PushArgs { args: &preprocessor_args.args, extra: preprocessor_args.extra })
-            as SqlxJson<PushArgs>,
-        owner,
-    )
-    .execute(db)
-    .await?;
-
-    clear_captures_history(db, &w_id).await?;
-
-    Ok(())
-}
+pub use windmill_triggers::capture_ext::insert_capture_payload;
 
 async fn webhook_payload(
     Extension(db): Extension<DB>,

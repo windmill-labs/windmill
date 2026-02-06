@@ -9,7 +9,9 @@
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use windmill_common::error::{Error, Result};
+use windmill_common::error::{self, Error, Result};
+use windmill_common::jobs::check_tag_available_for_workspace_internal;
+use windmill_common::DB;
 
 use crate::ApiAuthed;
 
@@ -700,6 +702,34 @@ where
         }
     }
     Ok(())
+}
+
+pub fn get_scope_tags(authed: &ApiAuthed) -> Option<Vec<&str>> {
+    authed.scopes.as_ref()?.iter().find_map(|s| {
+        if s.starts_with("if_jobs:filter_tags:") {
+            Some(
+                s.trim_start_matches("if_jobs:filter_tags:")
+                    .split(",")
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        }
+    })
+}
+
+pub async fn check_tag_available_for_workspace(
+    db: &DB,
+    w_id: &str,
+    tag: &Option<String>,
+    authed: &ApiAuthed,
+) -> error::Result<()> {
+    if let Some(tag) = tag.as_deref().filter(|t| !t.is_empty()) {
+        let tags = get_scope_tags(authed);
+        check_tag_available_for_workspace_internal(db, w_id, tag, &authed.email, tags).await
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]

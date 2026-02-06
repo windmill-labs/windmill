@@ -122,3 +122,15 @@ pub async fn low_disk_alerts(
 ) {
     // Implementation is not open source
 }
+
+#[cfg(all(feature = "enterprise", not(feature = "private")))]
+pub async fn check_license_key_valid() -> error::Result<()> {
+    let valid = *LICENSE_KEY_VALID.read().await;
+    if !valid {
+        return Err(error::Error::BadRequest(
+            "License key is not valid. Go to your superadmin settings to update your license key."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
