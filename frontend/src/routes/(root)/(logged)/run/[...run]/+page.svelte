@@ -607,6 +607,7 @@
 						goto('/run/' + newJobId + '?workspace=' + $workspaceStore)
 					}}
 					flowPath={job.script_path}
+					flowVersionId={job.script_hash ? Number(job.script_hash) : undefined}
 					disabled={!$enterpriseLicense}
 					enterpriseOnly={!$enterpriseLicense}
 				/>

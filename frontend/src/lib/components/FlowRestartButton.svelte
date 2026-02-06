@@ -12,6 +12,8 @@
 		selectedJobStepType: 'single' | 'forloop' | 'branchall'
 		restartBranchNames?: [number, string][]
 		flowPath?: string
+		/** The flow version ID used in this run (from job.script_hash) */
+		flowVersionId?: number
 		disabled?: boolean
 		enterpriseOnly?: boolean
 		variant?: 'default' | 'accent'
@@ -28,6 +30,7 @@
 		selectedJobStepType,
 		restartBranchNames = [],
 		flowPath = undefined,
+		flowVersionId = undefined,
 		disabled = false,
 		enterpriseOnly = false,
 		variant = 'default',
@@ -36,11 +39,15 @@
 		onRestartComplete
 	}: Props = $props()
 
+	// Sentinel value meaning "use the same version as the original run" (backend receives undefined)
+	const RUN_VERSION_SENTINEL = -1
+
 	let branchOrIterationN = $state(0)
-	let selectedVersionMode: 'run' | 'custom' = $state('run')
-	let customFlowVersion: number | undefined = $state(undefined)
+	let selectedFlowVersion: number = $state(RUN_VERSION_SENTINEL)
 	let flowVersions: Array<FlowVersion> = $state([])
 	let loadingVersions: boolean = $state(false)
+	let versionsLoaded: boolean = $state(false)
+	let runVersionInList: boolean = $state(false)
 
 	async function restartFlow(stepId: string, branchOrIterationN: number, flowVersion?: number) {
 		let run = await JobService.restartFlowAtStep({
@@ -56,16 +63,21 @@
 	}
 
 	async function loadFlowVersions() {
-		if (!flowPath || loadingVersions) return
+		if (!flowPath || loadingVersions || versionsLoaded) return
 		loadingVersions = true
 		try {
 			flowVersions = await FlowService.getFlowHistory({
 				workspace: $workspaceStore!,
 				path: flowPath
 			})
-			if (flowVersions.length > 0 && customFlowVersion === undefined) {
-				customFlowVersion = flowVersions[0].id
+			if (flowVersions.length > 0) {
+				const match = flowVersionId
+					? flowVersions.find((v) => v.id === flowVersionId)
+					: undefined
+				runVersionInList = match !== undefined
+				selectedFlowVersion = match?.id ?? (flowVersionId ? RUN_VERSION_SENTINEL : flowVersions[0].id)
 			}
+			versionsLoaded = true
 		} catch (e) {
 			sendUserToast('Failed to load flow versions', true)
 		} finally {
@@ -74,13 +86,20 @@
 	}
 
 	function getFlowVersionForRestart(): number | undefined {
-		if (selectedVersionMode === 'run') {
-			return undefined // use run version
-		} else if (selectedVersionMode === 'custom') {
-			return customFlowVersion
-		}
-		return undefined
+		return selectedFlowVersion === RUN_VERSION_SENTINEL ? undefined : selectedFlowVersion
 	}
+
+	function formatVersionLabel(version: FlowVersion): string {
+		const name = emptyString(version.deployment_msg) ? `v${version.id}` : version.deployment_msg!
+		const date = new Date(version.created_at).toLocaleDateString()
+		return `${name} - ${date}`
+	}
+
+	$effect(() => {
+		if (flowPath) {
+			loadFlowVersions()
+		}
+	})
 
 	function handleRestart() {
 		if (onRestart) {
@@ -95,37 +114,24 @@
 {#snippet flowVersionSelector()}
 	<label>
 		<div class="pb-1 text-xs font-semibold text-emphasis">Flow version</div>
-		<div class="flex flex-col gap-2">
-			<select
-				bind:value={selectedVersionMode}
-				class="grow"
-				onchange={() => {
-					if (selectedVersionMode === 'custom' && flowVersions.length === 0) {
-						loadFlowVersions()
-					}
-				}}
-			>
-				<option value="run">Run version</option>
-				<option value="custom">Specific version</option>
-			</select>
-
-			{#if selectedVersionMode === 'custom'}
-				{#if loadingVersions}
-					<div class="text-xs text-secondary">Loading versions...</div>
-				{:else if flowVersions.length > 0}
-					<select bind:value={customFlowVersion} class="grow text-xs">
-						{#each flowVersions as version}
-							<option value={version.id}>
-								{#if emptyString(version.deployment_msg)}Version {version.id}{:else}{version.deployment_msg}{/if}
-								- {new Date(version.created_at).toLocaleString()}
-							</option>
-						{/each}
-					</select>
-				{:else}
-					<div class="text-xs text-tertiary">No versions available</div>
+		{#if loadingVersions}
+			<div class="text-xs text-secondary">Loading versions...</div>
+		{:else if flowVersions.length > 0}
+			<select bind:value={selectedFlowVersion} class="w-full text-xs">
+				{#if flowVersionId && !runVersionInList}
+					<option value={RUN_VERSION_SENTINEL}>Same as run (v{flowVersionId})</option>
 				{/if}
-			{/if}
-		</div>
+				{#each flowVersions as version, i (version.id)}
+					{@const isLatest = i === 0}
+					{@const isSameAsRun = flowVersionId !== undefined && version.id === flowVersionId}
+					<option value={version.id}>
+						{formatVersionLabel(version)}{isSameAsRun ? ' (Same as run)' : isLatest ? ' (Latest)' : ''}
+					</option>
+				{/each}
+			</select>
+		{:else}
+			<div class="text-xs text-tertiary">No versions available</div>
+		{/if}
 	</label>
 {/snippet}
 {#snippet singleRestartButton()}
@@ -164,7 +170,7 @@
 				{@render singleRestartButton()}
 			{/snippet}
 			{#snippet content()}
-				<div class="flex flex-col gap-4 text-primary p-4 min-w-64">
+				<div class="flex flex-col gap-4 text-primary p-4 min-w-80">
 					{@render flowVersionSelector()}
 
 					<Button variant="accent" onClick={handleRestart}>Restart</Button>
@@ -193,7 +199,7 @@
 			</Button>
 		{/snippet}
 		{#snippet content()}
-			<div class="flex flex-col gap-4 text-primary p-4 min-w-64">
+			<div class="flex flex-col gap-4 text-primary p-4 min-w-80">
 				<label>
 					<div class="pb-1 text-xs font-semibold text-emphasis"
 						>{selectedJobStepType == 'forloop' ? 'From iteration #' : 'From branch'}</div
@@ -203,7 +209,7 @@
 							<input type="number" min="0" bind:value={branchOrIterationN} class="!w-32 grow" />
 						{:else}
 							<select bind:value={branchOrIterationN} class="!w-32 grow">
-								{#each restartBranchNames as [branchIdx, branchName]}
+								{#each restartBranchNames as [branchIdx, branchName] (branchIdx)}
 									<option value={branchIdx}>{branchName}</option>
 								{/each}
 							</select>
