@@ -501,6 +501,8 @@ fn print_help() {
     println!("  version              Show Windmill version and exit");
     println!("  cache [hubPaths.json]  Pre-cache hub scripts (default: ./hubPaths.json)");
     println!("  cache-rt             Pre-cache hub resource types");
+    println!("  operator             Run the Kubernetes operator (watches WindmillInstance CRDs)");
+    println!("  operator crd         Print the WindmillInstance CRD YAML to stdout");
     println!();
     println!("Environment variables (name = default):");
     println!("  DATABASE_URL = <required>              The Postgres database url.");
@@ -622,6 +624,23 @@ async fn windmill_main() -> anyhow::Result<()> {
         }
         "cache-rt" => {
             cache_hub_resource_types().await?;
+            return Ok(());
+        }
+        #[cfg(feature = "operator")]
+        "operator" => {
+            let sub_arg = std::env::args().nth(2).unwrap_or_default();
+            if sub_arg == "crd" {
+                use kube::CustomResourceExt;
+                let crd = windmill_operator::crd::WindmillInstance::crd();
+                println!("{}", serde_yml::to_string(&crd).unwrap());
+                return Ok(());
+            }
+
+            println!("Starting Windmill Kubernetes operator...");
+            println!("Connecting to database...");
+            let db = windmill_common::initial_connection().await?;
+            println!("Database connected. Starting controller...");
+            windmill_operator::run(db).await?;
             return Ok(());
         }
         _ => {}

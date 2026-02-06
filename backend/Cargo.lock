@@ -15709,6 +15709,7 @@ dependencies = [
  "windmill-common",
  "windmill-git-sync",
  "windmill-indexer",
+ "windmill-operator",
  "windmill-queue",
  "windmill-worker",
  "windows-service",
@@ -16083,6 +16084,24 @@ dependencies = [
  "sqlx",
  "tokio",
  "tower-cookies",
+ "tracing",
+ "windmill-common",
+]
+
+[[package]]
+name = "windmill-operator"
+version = "1.628.2"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "futures",
+ "k8s-openapi",
+ "kube",
+ "schemars 0.8.22",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
  "tracing",
  "windmill-common",
 ]
