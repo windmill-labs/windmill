@@ -13,7 +13,6 @@
 	import RightClickPopover from '../RightClickPopover.svelte'
 	import DropdownMenu from '../DropdownMenu.svelte'
 	import { isJobCancelable, isJobReRunnable } from '$lib/utils'
-	import is from 'date-fns/locale/is'
 
 	interface Props {
 		//import InfiniteLoading from 'svelte-infinite-loading'
@@ -27,6 +26,8 @@
 		// const loadMoreQuantity: number = 100
 		lastFetchWentToEnd?: boolean
 		perPage?: number
+		batchRerunOptionsIsOpen?: boolean
+		onCancel?: (jobIds: string[]) => void
 	}
 
 	let {
@@ -38,7 +39,9 @@
 		selectedWorkspace = $bindable(undefined),
 		activeLabel = null,
 		lastFetchWentToEnd = false,
-		perPage = 1000
+		perPage = 1000,
+		onCancel,
+		batchRerunOptionsIsOpen = $bindable()
 	}: Props = $props()
 
 	const keysPressed = useKeyPressed(['Shift', 'Control', 'Meta', 'A'], {
@@ -211,25 +214,21 @@
 
 	let showTag = $derived(containerWidth > 700)
 	let selectedIdsPossibleActions = $derived.by(() => {
-		const cancellableJobs: Job[] = []
-		const uncancelableJobs: Job[] = []
-		const rerunnableJobs: Job[] = []
-		const unrerunnableJobs: Job[] = []
+		const cancellableJobIds: string[] = []
+		const rerunnableJobIds: string[] = []
 		for (const jobId of selectedIds) {
 			const job = flatJobs?.find(
 				(jobOrDate) => jobOrDate.type === 'job' && jobOrDate.job.id === jobId
 			)
 			if (job?.type === 'job') {
-				if (isJobCancelable(job.job)) cancellableJobs.push(job.job)
-				else uncancelableJobs.push(job.job)
-				if (isJobReRunnable(job.job)) rerunnableJobs.push(job.job)
-				else unrerunnableJobs.push(job.job)
+				if (isJobCancelable(job.job)) cancellableJobIds.push(job.job.id)
+				if (isJobReRunnable(job.job)) rerunnableJobIds.push(job.job.id)
 			}
 		}
-		return { cancellableJobs, uncancelableJobs, rerunnableJobs, unrerunnableJobs }
+		return { cancellableJobIds, rerunnableJobIds }
 	})
-	let rerunnable = $derived(selectedIdsPossibleActions.rerunnableJobs.length)
-	let cancellable = $derived(selectedIdsPossibleActions.cancellableJobs.length)
+	let rerunnable = $derived(selectedIdsPossibleActions.rerunnableJobIds.length)
+	let cancellable = $derived(selectedIdsPossibleActions.cancellableJobIds.length)
 	let hoveredDropdownAction: 'cancel' | 'rerun' | null = $state(null)
 </script>
 
@@ -317,18 +316,21 @@
 										{jobOrDate.date}
 									</div>
 								{:else}
+									{@const selected =
+										jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
 									<!-- svelte-ignore a11y_click_events_have_key_events -->
 									<!-- svelte-ignore a11y_no_static_element_interactions -->
 									<div
 										class={twMerge(
 											'flex flex-row items-center h-full w-full select-none transition-opacity',
 											rightClickPopover?.isOpen() &&
-												hoveredDropdownAction === 'cancel' &&
-												!isJobCancelable(jobOrDate.job) &&
+												(!selected ||
+													(hoveredDropdownAction === 'cancel' &&
+														!isJobCancelable(jobOrDate.job))) &&
 												'opacity-20',
-											rightClickPopover?.isOpen() &&
-												hoveredDropdownAction === 'rerun' &&
-												!isJobReRunnable(jobOrDate.job) &&
+											(rightClickPopover?.isOpen() || batchRerunOptionsIsOpen) &&
+												(!selected ||
+													(hoveredDropdownAction === 'rerun' && !isJobReRunnable(jobOrDate.job))) &&
 												'opacity-20'
 										)}
 										oncontextmenu={(e) => {
@@ -340,7 +342,7 @@
 											{containsLabel}
 											{showTag}
 											job={jobOrDate.job}
-											selected={jobOrDate.job.id !== '-' && selectedIds.includes(jobOrDate.job.id)}
+											{selected}
 											on:select={() => {
 												const jobId = jobOrDate.job.id
 												if (keysPressed.Control || keysPressed.Meta) {
@@ -368,6 +370,7 @@
 														selectedIds = Array.from(new Set([...selectedIds, ...newSelectedIds]))
 													}
 												} else {
+													if (batchRerunOptionsIsOpen) batchRerunOptionsIsOpen = false
 													if (
 														JSON.stringify(selectedIds) !== JSON.stringify([jobOrDate.job.id]) ||
 														selectedWorkspace !== jobOrDate.job.workspace_id
@@ -436,7 +439,7 @@
 							label: 'Cancel',
 							icon: CircleXIcon,
 							right: selectedIds.length >= 2 ? `${cancellable}` : undefined,
-							onClick: () => {},
+							onClick: () => onCancel?.(selectedIdsPossibleActions.cancellableJobIds),
 							onHover: (hover) => (hoveredDropdownAction = hover ? 'cancel' : null)
 						}
 					]
@@ -447,7 +450,10 @@
 							label: 'Run again',
 							icon: RefreshCwIcon,
 							right: selectedIds.length >= 2 ? `${rerunnable}` : undefined,
-							onClick: () => {},
+							onClick: () => {
+								selectedIds = selectedIdsPossibleActions.rerunnableJobIds
+								batchRerunOptionsIsOpen = true
+							},
 							onHover: (hover) => (hoveredDropdownAction = hover ? 'rerun' : null)
 						}
 					]

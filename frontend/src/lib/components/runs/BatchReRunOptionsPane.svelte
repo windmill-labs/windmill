@@ -158,8 +158,7 @@
 	})
 </script>
 
-<div class="flex-1 flex flex-col">
-	<p class="ml-4 mt-4 text-xs font-semibold truncate">Batch re-run options</p>
+<div class="flex-1 flex flex-col h-full">
 	<div class="border overflow-auto rounded-md m-4 flex-1">
 		<Splitpanes>
 			<Pane size={32} class="bg-surface-secondary relative">

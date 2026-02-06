@@ -38,7 +38,7 @@
 				}
 			}}
 			class="absolute left-0 top-0 z-[9999] w-fit"
-			style="transform: translate({mousePos.x}px, {mousePos.y}px)"
+			style="transform: translate({mousePos.x + 2}px, {mousePos.y + 2}px)"
 		>
 			{@render children()}
 		</div>

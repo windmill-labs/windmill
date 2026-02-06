@@ -68,7 +68,7 @@
 	let loadingSelectedIds = $state(false)
 	let selectedWorkspace: string | undefined = $state(undefined)
 
-	let batchReRunOptions: BatchReRunOptions = $state({ flow: {}, script: {} })
+	let batchReRunOptions: BatchReRunOptions | undefined = $state(undefined)
 
 	let jobKinds: string | undefined = $derived(computeJobKinds(filters.job_kinds))
 	let paths: string[] = $state([])
@@ -308,8 +308,6 @@
 		}
 	}
 
-	let openBatchRerunOptions = $state(false)
-
 	async function onCancelSelectedJobs() {
 		forceCancelInPopup = true
 		askingForConfirmation = {
@@ -330,8 +328,8 @@
 
 		const body: Parameters<typeof JobService.batchReRunJobs>[0]['requestBody'] = {
 			job_ids: jobIdsToReRun,
-			script_options_by_path: batchReRunOptions.script,
-			flow_options_by_path: batchReRunOptions.flow
+			script_options_by_path: batchReRunOptions?.script ?? {},
+			flow_options_by_path: batchReRunOptions?.flow ?? {}
 		}
 
 		// workaround because EventSource does not support POST requests
@@ -756,6 +754,13 @@
 										on:filterByWorker={filterByWorker}
 										bind:this={runsTable}
 										perPage={filters.per_page}
+										bind:batchRerunOptionsIsOpen={
+											() => !!batchReRunOptions,
+											(opened) => {
+												if (!opened) batchReRunOptions = undefined
+												else batchReRunOptions = { flow: {}, script: {} }
+											}
+										}
 									></RunsTable>
 								{:else}
 									<div class="gap-1 flex flex-col">
@@ -802,10 +807,8 @@
 				</Pane>
 				<AnimatedPane size={40} minSize={15} class="flex flex-col" opened={selectedIds.length > 0}>
 					<div class="mt-14 overflow-y-auto pr-4 ml-2 relative flex-1">
-						{#if openBatchRerunOptions}
-							<div class="rounded-md bg-surface-tertiary border absolute inset-0 mb-4">
-								<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
-							</div>
+						{#if !!batchReRunOptions}
+							<BatchReRunOptionsPane {selectedIds} bind:options={batchReRunOptions} />
 						{:else if selectedIds.length === 1}
 							{#if selectedIds[0] === '-'}
 								<div class="p-4">There is no information available for this job</div>
