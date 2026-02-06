@@ -444,11 +444,21 @@ export function useKeyPressed<Key extends string>(
 				}
 			}
 		}
+
+		// Reset all keys when window loses focus or visibility changes to prevent stuck keys
+		const resetAllKeys = () => {
+			for (const key of keys) obj[key] = false
+		}
+
 		window.addEventListener('keydown', handleKeyDown)
 		window.addEventListener('keyup', handleKeyUp)
+		window.addEventListener('blur', resetAllKeys)
+		document.addEventListener('visibilitychange', resetAllKeys)
 		return () => {
 			window.removeEventListener('keydown', handleKeyDown)
 			window.removeEventListener('keyup', handleKeyUp)
+			window.removeEventListener('blur', resetAllKeys)
+			document.removeEventListener('visibilitychange', resetAllKeys)
 		}
 	})
 	return obj
