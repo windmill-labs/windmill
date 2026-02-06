@@ -6,7 +6,7 @@ pub use crate::ee::*;
 use crate::db::DB;
 #[cfg(not(feature = "private"))]
 use crate::ee_oss::LicensePlan::Community;
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 use crate::error;
 #[cfg(not(feature = "private"))]
 use serde::Deserialize;
@@ -123,7 +123,7 @@ pub async fn low_disk_alerts(
     // Implementation is not open source
 }
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 pub async fn check_license_key_valid() -> error::Result<()> {
     let valid = *LICENSE_KEY_VALID.read().await;
     if !valid {

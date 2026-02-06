@@ -24,7 +24,7 @@ use windmill_common::{
 };
 use windmill_queue::{push, PushArgs, PushArgsOwned, PushIsolationLevel};
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 use crate::jobs_ext::check_license_key_valid;
 use crate::jobs_ext::{
     check_tag_available_for_workspace, delete_job_metadata_after_use,
@@ -829,7 +829,7 @@ async fn trigger_script_with_retry_and_error_handler(
     Option<bool>,
     Option<sqlx::Transaction<'static, sqlx::Postgres>>,
 )> {
-    #[cfg(all(feature = "enterprise", not(feature = "private")))]
+    #[cfg(feature = "enterprise")]
     check_license_key_valid().await?;
 
     check_scopes(&authed, || format!("jobs:run:scripts:{script_path}"))?;

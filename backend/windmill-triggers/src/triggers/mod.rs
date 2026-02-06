@@ -36,8 +36,7 @@ mod handler;
 mod listener;
 pub mod trigger_helpers;
 
-#[allow(unused)]
-pub(crate) use handler::TriggerCrud;
+pub use handler::TriggerCrud;
 pub use handler::{generate_trigger_routers, get_triggers_count_internal, TriggersCount};
 pub use listener::start_all_listeners;
 #[allow(unused)]

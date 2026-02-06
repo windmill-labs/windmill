@@ -41,6 +41,37 @@ pub trait McpAuth: Send + Sync + Clone + 'static {
     }
 }
 
+#[cfg(feature = "windmill-auth")]
+impl McpAuth for windmill_api_auth::ApiAuthed {
+    fn username(&self) -> &str {
+        &self.username
+    }
+
+    fn email(&self) -> &str {
+        &self.email
+    }
+
+    fn is_admin(&self) -> bool {
+        self.is_admin
+    }
+
+    fn is_operator(&self) -> bool {
+        self.is_operator
+    }
+
+    fn groups(&self) -> &[String] {
+        &self.groups
+    }
+
+    fn folders(&self) -> &[(String, bool, bool)] {
+        &self.folders
+    }
+
+    fn scopes(&self) -> Option<&[String]> {
+        self.scopes.as_deref()
+    }
+}
+
 /// The core backend trait that windmill-api implements
 ///
 /// This trait abstracts the windmill-api specific operations needed by the MCP server.

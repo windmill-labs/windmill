@@ -16084,6 +16084,7 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "windmill-api-auth",
  "windmill-common",
 ]
 

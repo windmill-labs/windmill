@@ -30,7 +30,7 @@ use windmill_queue::PushArgsOwned;
 // Re-export shared types/functions from windmill-common
 pub use windmill_common::jobs::{delete_job_metadata_after_use, RunJobQuery};
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 pub use windmill_common::ee_oss::check_license_key_valid;
 
 // Re-export scope helpers from windmill-api-auth

@@ -10,7 +10,7 @@ use {crate::db::ApiAuthed, windmill_common::DB};
 
 #[cfg(not(feature = "private"))]
 use anyhow::anyhow;
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 use {std::sync::Arc, tokio::sync::RwLock};
 #[cfg(not(feature = "private"))]
 pub async fn validate_license_key(
@@ -44,12 +44,12 @@ impl ExternalJwks {
     }
 }
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 pub struct ExternalJwksAuthBackend {
     pub ext_jwks: Option<Arc<RwLock<ExternalJwks>>>,
 }
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 #[axum::async_trait]
 impl windmill_api_auth::JwtExtAuthBackend for ExternalJwksAuthBackend {
     async fn jwt_ext_auth(

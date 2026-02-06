@@ -3849,7 +3849,7 @@ pub fn add_raw_string(
 
 pub use windmill_triggers::jobs_ext::check_tag_available_for_workspace;
 
-#[cfg(all(feature = "enterprise", not(feature = "private")))]
+#[cfg(feature = "enterprise")]
 pub use windmill_common::ee_oss::check_license_key_valid;
 
 use windmill_common::flows::InputTransform;
