@@ -34,7 +34,8 @@
 		Code2,
 		ClipboardCopy,
 		GitBranch,
-		EllipsisVertical
+		EllipsisVertical,
+		Hash
 	} from 'lucide-svelte'
 
 	import DisplayResult from '$lib/components/DisplayResult.svelte'
@@ -114,6 +115,9 @@
 
 	let lastJobId: string | undefined = $state(undefined)
 	let concurrencyKey: string | undefined = $state(undefined)
+
+	// Hash navigation state
+	let currentHash: string = $state('')
 
 	setContext(
 		'FlowGraphAssetContext',
@@ -354,6 +358,29 @@
 		}
 	}
 
+	// Hash navigation functions
+	function scrollToSection(sectionId: string) {
+		const element = document.getElementById(sectionId)
+		if (element) {
+			element.scrollIntoView({ behavior: 'smooth' })
+		}
+	}
+
+	function handleSectionHashClick(sectionId: string) {
+		const url = new URL(window.location.href)
+		url.hash = sectionId
+		window.history.pushState({}, '', url.toString())
+		currentHash = sectionId
+		scrollToSection(sectionId)
+	}
+
+	function handleHashChange() {
+		currentHash = window.location.hash.slice(1) // Remove the # symbol
+		if (currentHash) {
+			scrollToSection(currentHash)
+		}
+	}
+
 	$effect(() => {
 		job?.id && lastJobId !== job.id && untrack(() => getConcurrencyKey(job))
 	})
@@ -368,6 +395,19 @@
 	})
 	$effect(() => {
 		job && untrack(() => onJobLoaded())
+	})
+	$effect(() => {
+		// Initialize hash on mount and listen for hash changes
+		currentHash = window.location.hash.slice(1)
+		if (currentHash) {
+			// Small delay to ensure DOM is rendered
+			setTimeout(() => scrollToSection(currentHash), 100)
+		}
+
+		window.addEventListener('hashchange', handleHashChange)
+		return () => {
+			window.removeEventListener('hashchange', handleHashChange)
+		}
 	})
 </script>
 
@@ -714,8 +754,18 @@
 		{/if}
 
 		<!-- Arguments and actions -->
-		<div class="max-w-7xl mx-auto w-full px-4 mt-12">
-			<div class="text-xs text-emphasis font-semibold mb-1">Inputs</div>
+		<div class="max-w-7xl mx-auto w-full px-4 mt-12" id="inputs">
+			<div class="text-xs text-emphasis font-semibold mb-1 flex items-center gap-2 group">
+				Inputs
+				<button
+					type="button"
+					onclick={() => handleSectionHashClick('inputs')}
+					class="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+					title="Link to this section"
+				>
+					<Hash size={14} />
+				</button>
+			</div>
 			<div class="flex flex-col gap-y-6">
 				<JobArgs
 					workspace={job?.workspace_id ?? $workspaceStore ?? 'no_w'}
@@ -769,9 +819,19 @@
 
 				<!-- Result Section (moved outside tabs) -->
 				{#if job}
-					<div class="mr-2 sm:mr-0 mt-12 mb-6">
-						<h3 class="text-xs font-semibold text-emphasis mb-1">Result</h3>
-						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-screen">
+					<div class="mr-2 sm:mr-0 mt-12 mb-6" id="result">
+						<h3 class="text-xs font-semibold text-emphasis mb-1 flex items-center gap-2 group">
+							Result
+							<button
+								type="button"
+								onclick={() => handleSectionHashClick('result')}
+								class="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+								title="Link to this section"
+							>
+								<Hash size={14} />
+							</button>
+						</h3>
+						<div class="border rounded-md bg-surface-tertiary p-4 overflow-auto max-h-[95vh]">
 							{#if job.result_stream || (job.type == 'CompletedJob' && job.result !== undefined)}
 								<DisplayResult
 									workspaceId={job?.workspace_id}
@@ -789,7 +849,18 @@
 				{/if}
 
 				<!-- Logs and outputs-->
-				<div class="mr-2 sm:mr-0 mt-6">
+				<div class="mr-2 sm:mr-0 mt-6" id="metrics">
+					<div class="text-xs text-emphasis font-semibold mb-1 flex items-center gap-2 group">
+						Logs & Metrics
+						<button
+							type="button"
+							onclick={() => handleSectionHashClick('metrics')}
+							class="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100"
+							title="Link to this section"
+						>
+							<Hash size={14} />
+						</button>
+					</div>
 					<Tabs bind:selected={viewTab}>
 						<Tab value="logs" label="Logs" />
 						<Tab value="stats" label="Metrics" />
